@@ -146,6 +146,7 @@ dependencies = [
  "objc2-foundation 0.2.2",
  "png 0.17.16",
  "serde",
+ "serde_json",
  "sha2 0.11.0",
  "softbuffer",
  "tokio",

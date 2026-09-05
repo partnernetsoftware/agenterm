@@ -720,6 +720,23 @@
         "task.cu-resource-status-smoke"
       ]
     },
+    "cu-storage-devices-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-storage-devices-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-storage-devices-smoke"
+      ]
+    },
     "cu-privilege-plan-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2565,6 +2582,27 @@
       "id": "cu-resource-status-smoke",
       "description": "Prove the public current-host resource snapshot is complete, bounded and read-only; strict free and reclaimable available memory remain distinct, and Windows load unavailability is explicit.",
       "entry": "scripts/qjs/cu-resource-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-storage-devices-smoke",
+      "description": "Prove the public current-host block-device inventory is bounded, read-only, capacity-exact and excludes stable hardware identifiers on each native platform.",
+      "entry": "scripts/qjs/cu-storage-devices-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

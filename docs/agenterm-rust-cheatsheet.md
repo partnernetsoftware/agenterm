@@ -4243,3 +4243,23 @@ Host resource snapshots usually combine several native queries plus a process
 inventory, so state that the result is sequential and non-atomic. If any
 required query fails, fail the complete snapshot typed rather than substituting
 an empty hostname, zero process count or other plausible-looking default.
+
+## Bound fixed system-provider inventories on both sides of the process
+
+A native inventory may legitimately need an OS-owned executable when no stable
+library API spans all supported hosts. Resolve a fixed absolute system path,
+reject symlinks and non-files, pass only closed static arguments, contain the
+whole child process tree, drain stdout and stderr concurrently, and share one
+deadline across every provider call. Bound native rows, field sizes and the
+aggregate provider output independently from the final public response. A
+timeout or output overflow must kill and reap the provider or return a typed
+cleanup failure; never leave an unowned helper behind.
+
+Provider-local disk ids are not durable hardware identities. Request only the
+fields the public contract needs: do not collect serial numbers, WWNs or
+Windows UniqueId and then try to redact them later. Carry `u64` capacities
+internally and encode them as decimal strings at JSON boundaries so JavaScript
+does not round values above 2^53. Legitimate provider states such as macOS
+`VirtualOrPhysical=Unknown` mean an unavailable optional field, not a malformed
+snapshot; reserve malformed failures for values outside the provider's real
+vocabulary or structural contract.

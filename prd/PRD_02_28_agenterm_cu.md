@@ -1042,7 +1042,17 @@ flowchart LR
   object; unknown or changed objects are preserved with a typed refusal. The
   public `cu.file-move-transaction` qjswasm journey is green on macOS and the
   MCU adapter routes the lossless move shapes; Linux and Windows native courts
-  remain open. Physical-device inventory remains open.
+  remain open. `storage-devices [--max N]` / `storage devices [--max N]` now
+  provides the separate physical/block inventory. The platform facade invokes
+  only fixed native system providers under one shared deadline and contained
+  process-tree cleanup, with a 10,000-row scan ceiling and a 2 MiB aggregate
+  provider-output ceiling; ACU adds a 1 MiB response ceiling. Capacities remain
+  exact decimal strings across JSON, unavailable host fields stay explicit,
+  and serial/WWN/Windows UniqueId are never requested or emitted. The public
+  `cu.storage-devices` qjswasm journey is green on macOS; Linux and Windows
+  x86_64 compile, while their native runtime courts remain open. Therefore the
+  ledger is `platform-limited`, not yet promoted to native or removed from the
+  MCU fallback.
   Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
   contracts rather than a false cross-platform spelling match.
   The MCU-shaped compatibility entry routes `acu file inspect PATH`, file copy,

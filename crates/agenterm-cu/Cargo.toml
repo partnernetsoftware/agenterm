@@ -26,7 +26,7 @@ miniz_oxide = "0.8"
 # actuation continues to load libagenterm dynamically.
 libloading = "0.8"
 sha2 = { version = "0.11", default-features = false }
-agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "ipc", "locking", "process", "process-spawn", "contained-process-spawn", "filesystem", "filesystem-entry", "filesystem-open", "filesystem-publish", "file-identity", "network-interfaces", "network-routes", "device-capture", "host-open", "host-notification", "permission-settings", "serde", "simulator", "host-resource-snapshot"] }
+agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "ipc", "locking", "process", "process-spawn", "contained-process-spawn", "filesystem", "filesystem-entry", "filesystem-open", "filesystem-publish", "file-identity", "network-interfaces", "network-routes", "device-capture", "host-open", "host-notification", "permission-settings", "serde", "simulator", "host-resource-snapshot", "storage-device-inventory"] }
 
 [target.'cfg(windows)'.dependencies]
 agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["native-messaging-registry"] }

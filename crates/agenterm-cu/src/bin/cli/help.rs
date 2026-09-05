@@ -87,6 +87,17 @@ pub fn top_level_text() -> String {
         "  clipboard-write-file             actuate  put a file reference on clipboard",
     );
     append_missing_top_level_rows(&mut text);
+    if let Some(row) = text
+        .lines()
+        .find(|line| line.trim_start().starts_with("resource-status "))
+        .map(str::to_owned)
+    {
+        text = text.replacen(
+            &row,
+            "  resource-status  observe  host snapshot;  storage-devices  observe  block inventory",
+            1,
+        );
+    }
     text
 }
 
@@ -201,7 +212,7 @@ pub fn verbs_text() -> String {
 /// readable, but default toward truthful discovery when a newly registered
 /// verb has not yet been manually placed into those prose blocks.
 fn append_missing_top_level_rows(text: &mut String) {
-    let compact_inline = ["network-routes"];
+    let compact_inline = ["network-routes", "storage-devices"];
     let compact_process = [
         "process-argv",
         "process-cwd",

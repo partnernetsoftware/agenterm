@@ -21,9 +21,9 @@ use crate::{
 mod contract;
 
 pub use contract::{
-    STORAGE_DEVICE_FIELD_CEILING, STORAGE_DEVICE_MAX_ROWS,
-    STORAGE_DEVICE_PROVIDER_OUTPUT_CEILING, STORAGE_DEVICE_SCAN_CEILING, StorageDevice,
-    StorageDeviceError, StorageDeviceErrorKind, StorageDeviceInventory,
+    STORAGE_DEVICE_FIELD_CEILING, STORAGE_DEVICE_MAX_ROWS, STORAGE_DEVICE_PROVIDER_OUTPUT_CEILING,
+    STORAGE_DEVICE_SCAN_CEILING, StorageDevice, StorageDeviceError, StorageDeviceErrorKind,
+    StorageDeviceInventory,
 };
 
 #[cfg(target_os = "linux")]
@@ -44,14 +44,17 @@ pub fn enumerate(max_rows: usize) -> Result<StorageDeviceInventory, StorageDevic
     if !(1..=STORAGE_DEVICE_MAX_ROWS).contains(&max_rows) {
         return Err(StorageDeviceError::new(
             StorageDeviceErrorKind::InvalidLimit,
-            format!(
-                "max_rows must be between 1 and {STORAGE_DEVICE_MAX_ROWS}, got {max_rows}"
-            ),
+            format!("max_rows must be between 1 and {STORAGE_DEVICE_MAX_ROWS}, got {max_rows}"),
         ));
     }
-    let deadline = Instant::now().checked_add(INVENTORY_TIMEOUT).ok_or_else(|| {
-        StorageDeviceError::new(StorageDeviceErrorKind::Timeout, "inventory deadline overflow")
-    })?;
+    let deadline = Instant::now()
+        .checked_add(INVENTORY_TIMEOUT)
+        .ok_or_else(|| {
+            StorageDeviceError::new(
+                StorageDeviceErrorKind::Timeout,
+                "inventory deadline overflow",
+            )
+        })?;
     finish_inventory(adapter::enumerate_native(deadline)?, max_rows)
 }
 
@@ -371,6 +374,7 @@ pub(crate) fn bounded_text(
     Ok(Some(text.to_owned()))
 }
 
+#[cfg(windows)]
 pub(crate) fn bounded_string_list(
     value: Option<&serde_json::Value>,
     field: &'static str,
@@ -381,7 +385,7 @@ pub(crate) fn bounded_string_list(
     if value.is_null() {
         return Ok(Vec::new());
     }
-    if let Some(text) = value.as_str() {
+    if value.is_string() {
         return bounded_text(Some(value), field).map(|value| value.into_iter().collect());
     }
     let rows = value.as_array().ok_or_else(|| malformed(field))?;
@@ -416,6 +420,7 @@ pub(crate) fn optional_u64(
     text.parse::<u64>().map(Some).map_err(|_| malformed(field))
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) fn optional_bool(
     value: Option<&serde_json::Value>,
     field: &'static str,
@@ -470,7 +475,10 @@ mod tests {
 
     #[test]
     fn rejects_limits_before_native_enumeration() {
-        assert_eq!(enumerate(0).unwrap_err().kind(), StorageDeviceErrorKind::InvalidLimit);
+        assert_eq!(
+            enumerate(0).unwrap_err().kind(),
+            StorageDeviceErrorKind::InvalidLimit
+        );
         assert_eq!(
             enumerate(STORAGE_DEVICE_MAX_ROWS + 1).unwrap_err().kind(),
             StorageDeviceErrorKind::InvalidLimit
@@ -497,7 +505,11 @@ mod tests {
 
     #[test]
     fn malformed_numeric_values_do_not_become_zero() {
-        for value in [serde_json::json!(-1), serde_json::json!(1.5), serde_json::json!("12x")] {
+        for value in [
+            serde_json::json!(-1),
+            serde_json::json!(1.5),
+            serde_json::json!("12x"),
+        ] {
             assert_eq!(
                 optional_u64(Some(&value), "size").unwrap_err().kind(),
                 StorageDeviceErrorKind::MalformedSnapshot

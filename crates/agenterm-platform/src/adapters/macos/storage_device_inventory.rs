@@ -79,7 +79,10 @@ fn plist_json(bytes: &[u8], deadline: Instant) -> Result<Value, StorageDeviceErr
     parse_json(&converted.stdout)
 }
 
-fn parse_disk(record: &Map<String, Value>, expected_id: &str) -> Result<StorageDevice, StorageDeviceError> {
+fn parse_disk(
+    record: &Map<String, Value>,
+    expected_id: &str,
+) -> Result<StorageDevice, StorageDeviceError> {
     let id = bounded_text(record.get("DeviceIdentifier"), "device identifier")?
         .ok_or_else(|| malformed("device identifier"))?;
     if id != expected_id || !valid_disk_id(&id) {
@@ -97,14 +100,14 @@ fn parse_disk(record: &Map<String, Value>, expected_id: &str) -> Result<StorageD
     let bus = bounded_text(record.get("BusProtocol"), "bus protocol")?;
     let health = bounded_text(record.get("SMARTStatus"), "SMART status")?;
     let writable = optional_bool(record.get("Writable"), "writable flag")?;
-    let virtual_device = match bounded_text(record.get("VirtualOrPhysical"), "virtual kind")?
-        .as_deref()
-    {
-        None => None,
-        Some(value) if value.eq_ignore_ascii_case("virtual") => Some(true),
-        Some(value) if value.eq_ignore_ascii_case("physical") => Some(false),
-        Some(_) => return Err(malformed("virtual kind")),
-    };
+    let virtual_device =
+        match bounded_text(record.get("VirtualOrPhysical"), "virtual kind")?.as_deref() {
+            None => None,
+            Some(value) if value.eq_ignore_ascii_case("unknown") => None,
+            Some(value) if value.eq_ignore_ascii_case("virtual") => Some(true),
+            Some(value) if value.eq_ignore_ascii_case("physical") => Some(false),
+            Some(_) => return Err(malformed("virtual kind")),
+        };
     Ok(StorageDevice {
         id,
         node,
@@ -126,9 +129,9 @@ fn parse_disk(record: &Map<String, Value>, expected_id: &str) -> Result<StorageD
 }
 
 fn valid_disk_id(value: &str) -> bool {
-    value
-        .strip_prefix("disk")
-        .is_some_and(|suffix| !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit()))
+    value.strip_prefix("disk").is_some_and(|suffix| {
+        !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+    })
 }
 
 #[cfg(test)]
@@ -162,6 +165,20 @@ mod tests {
             assert!(!valid_disk_id(invalid), "{invalid:?}");
         }
         assert!(valid_disk_id("disk0"));
+    }
+
+    #[test]
+    fn legitimate_unknown_virtual_kind_stays_unavailable() {
+        let record = serde_json::json!({
+            "DeviceIdentifier": "disk0",
+            "VirtualOrPhysical": "Unknown"
+        });
+        assert_eq!(
+            parse_disk(record.as_object().unwrap(), "disk0")
+                .unwrap()
+                .virtual_device,
+            None
+        );
     }
 
     #[test]

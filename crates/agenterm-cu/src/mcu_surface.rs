@@ -407,8 +407,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "ACU migration gap: session-global login actions need an explicit typed facade",
         ),
         "storage" => (
-            "unsupported",
-            "ACU migration gap: typed volume inventory facade pending",
+            "available",
+            "storage-devices is a bounded privacy-minimized native block-device inventory; mount, eject, format and metadata mutation remain typed gaps",
         ),
         "file" => (
             "available",

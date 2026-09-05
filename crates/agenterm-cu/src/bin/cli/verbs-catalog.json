@@ -2348,6 +2348,24 @@
       "args": []
     },
     {
+      "name": "storage-devices",
+      "command": "storage-devices",
+      "aliases": [
+        "storage devices"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "list a bounded privacy-minimized native block-device inventory",
+      "usage": "storage devices [--max N]\nstorage-devices [--max N]",
+      "args": [
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "device result bound, 1..5000 (default 500)"
+        }
+      ]
+    },
+    {
       "name": "simulator-boot",
       "command": "simulator-boot",
       "aliases": [
@@ -4960,6 +4978,10 @@
     {
       "name": "resource-status",
       "text": "agenterm-cu resource-status    (also: resource status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  resource status\n  resource-status\n\nReturns one bounded current-host snapshot with platform, architecture, host\nidentity, uptime, native load semantics, CPU identity, strict free memory,\nreclaimable available memory and the complete native process count. The\nqueries are sequential and atomicSnapshot is always false. Windows explicitly\nreports loadAverageSemantics=windows-not-available instead of fabricating a\nnative load measurement.\n"
+    },
+    {
+      "name": "storage-devices",
+      "text": "agenterm-cu storage-devices    (also: storage devices)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  storage devices [--max N]\n  storage-devices [--max N]\n\narguments:\n  --max N                       result bound, 1..5000 (default 500)\n\nReturns a bounded native block-device inventory with exact capacities encoded\nas decimal strings. Missing host fields are explicit in unavailable_fields.\nSerial numbers, WWNs and Windows UniqueId are never queried or returned. The\ncommand is read-only: it does not mount, eject, format or mutate metadata.\n"
     },
     {
       "name": "simulator-boot",

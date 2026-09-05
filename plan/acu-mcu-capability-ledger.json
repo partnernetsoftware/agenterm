@@ -690,10 +690,11 @@
         {
           "id": "storage.device-inventory",
           "mcu_shape": "storage devices --max N with physical/block id, media, bus, size and health",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "add a bounded typed physical-device inventory to agenterm-platform and expose it through ACU",
-          "note": "The existing platform volume_space query reports capacity for one mounted path; it is not physical-device inventory."
+          "acu_shape": "storage-devices --max N (alias: storage devices --max N) through a bounded privacy-minimized native provider",
+          "state": "platform-limited",
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "x86_64-compile-only", "windows": "x86_64-compile-only"},
+          "next": "run the same cu.storage-devices qjswasm journey on native Linux and Windows courts, then remove the exact storage devices compatibility fallback",
+          "note": "The platform facade uses fixed system providers, one shared deadline, contained process-tree cleanup, a 10000-row scan ceiling and a 2 MiB provider-output ceiling. ACU adds a 1 MiB response ceiling, exact decimal capacity strings and explicit unavailable fields. It never requests or emits serial, WWN or Windows UniqueId. macOS native qjswasm evidence is green; Linux and Windows runtime evidence is not yet claimed. The separate volume_space query remains mounted-path capacity, not this inventory."
         },
         {
           "id": "file.metadata.inspect",
@@ -1088,7 +1089,7 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "inventory-gap", "linux": "inventory-gap", "windows": "inventory-gap"},
-          "next": "share the future storage-device inventory while keeping filesystem capacity and physical-device identity distinct"
+          "next": "compose the shipped storage-devices inventory with a separate bounded filesystem-volume inventory; keep mounted capacity and physical-device identity distinct"
         },
         {
           "id": "resource.process-policy",

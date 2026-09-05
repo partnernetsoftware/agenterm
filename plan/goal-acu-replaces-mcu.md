@@ -434,10 +434,14 @@ shapes fail typed instead of being ignored.
   the compatibility router propagates that code. Audit rows retain only counts,
   timing and exit facts, never command output. macOS and Windows arm64 public
   runs are green; Linux and Windows x86_64 promotion evidence remains open.
-- File/storage accounting is complete. Existing platform primitives for stable
-  entry identity, no-overwrite publication and per-volume capacity are useful
-  building blocks, but they do not yet constitute MCU's recoverable copy/move
-  transaction or physical-device inventory. Unix modes/xattrs and Windows
+- File/storage accounting is complete. `storage-devices` now exposes a bounded,
+  privacy-minimized physical/block inventory through fixed system providers,
+  one shared deadline and contained cleanup. Exact capacities cross JSON as
+  decimal strings; serial/WWN/Windows UniqueId are never queried. Its macOS
+  qjswasm court is green and Linux/Windows x86_64 compile, but those two native
+  runtime courts remain before the MCU compatibility fallback can leave STAY.
+  Existing stable-entry, no-overwrite and per-volume primitives stay separate
+  from physical devices. Unix modes/xattrs and Windows
   ACLs/attributes remain distinct platform vocabularies; parity must not be
   manufactured by renaming one as the other.
 - Network accounting is complete across interfaces, routes, DNS, sockets and
@@ -571,6 +575,11 @@ Q3 owned runtime facades
    │  ├─ [x] Windows load is explicitly unavailable, never a fabricated measurement
    │  ├─ [x] macOS public qjswasm journey `cu.resource-status`
    │  └─ [ ] Linux + Windows native public journeys; pressure/top/disk/volumes/policy remain separate gaps
+   ├─ [~] storage-devices: fixed native provider + bounded privacy-minimized inventory
+   │  ├─ [x] exact decimal capacities; no serial/WWN/Windows UniqueId
+   │  ├─ [x] 10,000-row scan + 2 MiB provider + 1 MiB response ceilings
+   │  ├─ [x] macOS public qjswasm journey `cu.storage-devices`
+   │  └─ [ ] Linux + Windows native qjswasm journeys, then remove storage STAY
    ├─ [x] bounded identity-aware network-probe
    ├─ [~] network-interfaces: native ifindex/LUID + bounded stable snapshot
    │  ├─ [x] macOS public CLI schema/count/prefix court

@@ -580,6 +580,20 @@ mod tests {
     }
 
     #[test]
+    fn storage_devices_flat_and_grouped_shapes_are_closed() {
+        assert!(matches!(
+            parse("storage-devices", &["--max", "7"]).unwrap(),
+            Command::StorageDevices { max: 7, .. }
+        ));
+        assert!(matches!(
+            parse("storage", &["devices"]).unwrap(),
+            Command::StorageDevices { max: 500, .. }
+        ));
+        assert!(parse("storage-devices", &["--max", "0"]).is_err());
+        assert!(parse("storage", &["devices", "extra"]).is_err());
+    }
+
+    #[test]
     fn managed_job_spawn_preserves_child_arguments_after_separator() {
         let Command::JobSpawn {
             command,
