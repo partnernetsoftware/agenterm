@@ -674,6 +674,12 @@ flowchart LR
   Authorization Services, polkit or UAC must authenticate the peer and consent
   out of band; the privileged provider must then revalidate, reserve before the
   effect, own postcondition read-back, and return completed or outcome-unknown.
+  The provider-side replay ledger is now implemented as a path-injected store
+  for the eventual protected helper: its opaque key binds fixed provider
+  namespace, OS-principal digest and request id; it retains only canonical
+  request/receipt digests and bounded outcome tokens. Exact completion replays
+  without mutation, a changed request conflicts, and either a live reservation
+  or a recorded uncertain outcome can never become fresh again.
   Provider installation, native consent and real apply remain explicit gaps;
   no shell, password capture or hidden elevation substitutes for them.
 

@@ -161,7 +161,8 @@ MCU retirement blockers
 │  │  ├─ [x] read-only `process.set-priority` plan on macOS/Linux: exact start identity + before/after + expiry + dual digest
 │  │  ├─ [x] public qjswasm `cu.privilege-plan`; Windows names the semantic gap instead of fabricating Unix nice
 │  │  ├─ [x] closed protocol-v1 provider wire: deny unknown/tampered/expired/non-current requests; digest means intent, never consent
-│  │  └─ [ ] native consented provider, provider-owned reserve, one-shot postcondition, TTL broker and Windows priority-class contract
+│  │  ├─ [x] provider-owned replay ledger: namespace + OS-principal digest + request id; reserved crash never reopens effect
+│  │  └─ [ ] native consented provider, one-shot postcondition, TTL broker and Windows priority-class contract
 │  └─ CoreSimulator plus required device/service operations
 ├─ [ ] classify and remove every remaining argument-shape fallback
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
@@ -513,7 +514,8 @@ Q3 owned runtime facades
    │  ├─ [x] contract digest excludes time; approval digest binds issue/expiry; mutation is always false
    │  ├─ [x] macOS public qjswasm journey `cu.privilege-plan`
    │  ├─ [x] provider wire rejects unknown fields, digest tamper, expiry and non-current scope before consent
-   │  └─ [ ] native consent/apply provider + provider-owned replay court + Linux/Windows public courts; Windows nice mapping remains typed unavailable
+   │  ├─ [x] provider-owned replay court: exact completion replays; reserved/unknown never dispatches twice; changed fingerprint conflicts
+   │  └─ [ ] native consent/apply provider + Linux/Windows public courts; Windows nice mapping remains typed unavailable
    ├─ [~] process scheduler state mutation
    │  ├─ [x] macOS/Linux exact retained-object stop/resume + native state read-back
    │  ├─ [x] qjswasm public journey `cu.process-set-state`; stale identity cannot mutate
