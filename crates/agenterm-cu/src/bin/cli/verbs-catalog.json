@@ -2336,6 +2336,18 @@
       ]
     },
     {
+      "name": "resource-status",
+      "command": "resource-status",
+      "aliases": [
+        "resource status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read a bounded current-host CPU, memory, load, uptime and process snapshot",
+      "usage": "resource status\nresource-status",
+      "args": []
+    },
+    {
       "name": "simulator-boot",
       "command": "simulator-boot",
       "aliases": [
@@ -4944,6 +4956,10 @@
     {
       "name": "simulator-devices",
       "text": "agenterm-cu simulator-devices    (also: simulator devices)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  simulator devices [--max N]\n  simulator-devices [--max N]\n\narguments:\n  --max N                       device result bound, 1..200 (default 200)\n\nLists exact CoreSimulator UDIDs and their reported states. The bound is\nvalidated before platform dispatch. On non-macOS hosts this typed-fails as\nsimulator_unsupported.\n"
+    },
+    {
+      "name": "resource-status",
+      "text": "agenterm-cu resource-status    (also: resource status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  resource status\n  resource-status\n\nReturns one bounded current-host snapshot with platform, architecture, host\nidentity, uptime, native load semantics, CPU identity, strict free memory,\nreclaimable available memory and the complete native process count. The\nqueries are sequential and atomicSnapshot is always false. Windows explicitly\nreports loadAverageSemantics=windows-not-available instead of fabricating a\nnative load measurement.\n"
     },
     {
       "name": "simulator-boot",

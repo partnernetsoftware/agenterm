@@ -1,0 +1,118 @@
+// Platform-neutral public black-box court for the current-host resource snapshot.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.resource-status"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function nonnegative_number(value) {
+  return typeof value === "number" && value === value && value >= 0;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const receipt_path = rh.join(run_directory, "cu-receipts.jsonl");
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: receipt_path
+    },
+    timeout_ms: 30000
+  });
+  ensure(output.success === expect_success, "cu_resource_status_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_resource_status_reply_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "", "cu_resource_status_effect_receipt_created");
+  return reply;
+}
+
+function assert_status(reply) {
+  ensure(reply.command === "resource-status" && reply.target === "current", "cu_resource_status_identity");
+  const data = reply.data;
+  ensure(data.platform === "darwin" || data.platform === "linux" || data.platform === "win32", "cu_resource_status_platform");
+  ensure(typeof data.arch === "string" && data.arch.length > 0, "cu_resource_status_arch");
+  ensure(typeof data.hostname === "string" && data.hostname.length > 0, "cu_resource_status_hostname");
+  ensure(nonnegative_number(data.uptimeSeconds), "cu_resource_status_uptime");
+  ensure(Array.isArray(data.loadAverage) && data.loadAverage.length === 3, "cu_resource_status_load_shape");
+  for (const load of data.loadAverage) {
+    ensure(nonnegative_number(load), "cu_resource_status_load_value");
+  }
+  ensure(nonnegative_number(data.cpu.logical) && data.cpu.logical >= 1, "cu_resource_status_cpu_count");
+  ensure(typeof data.cpu.model === "string" && data.cpu.model.length > 0, "cu_resource_status_cpu_model");
+  ensure(nonnegative_number(data.memory.totalBytes) && data.memory.totalBytes > 0, "cu_resource_status_memory_total");
+  ensure(nonnegative_number(data.memory.freeBytes) && data.memory.freeBytes <= data.memory.totalBytes, "cu_resource_status_memory_free");
+  ensure(nonnegative_number(data.memory.availableBytes) && data.memory.availableBytes <= data.memory.totalBytes, "cu_resource_status_memory_available");
+  ensure(typeof data.memory.freeSemantics === "string" && data.memory.freeSemantics.length > 0, "cu_resource_status_free_semantics");
+  ensure(typeof data.memory.availabilitySemantics === "string" && data.memory.availabilitySemantics.length > 0, "cu_resource_status_available_semantics");
+  ensure(nonnegative_number(data.processCount) && data.processCount >= 1, "cu_resource_status_process_count");
+  ensure(data.atomicSnapshot === false, "cu_resource_status_atomic_claim");
+  if (data.platform === "win32") {
+    ensure(data.loadAverageSemantics === "windows-not-available", "cu_resource_status_windows_load_semantics");
+    ensure(data.loadAverage[0] === 0 && data.loadAverage[1] === 0 && data.loadAverage[2] === 0, "cu_resource_status_windows_load_values");
+  } else {
+    ensure(data.loadAverageSemantics === "unix-getloadavg", "cu_resource_status_unix_load_semantics");
+  }
+  return data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_resource_status_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-resource-status");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP flat resource snapshot is complete, bounded and read-only");
+  const flat = assert_status(invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "resource-status"
+  ], true));
+
+  print("STEP grouped alias preserves stable host identity and capacity");
+  const grouped = assert_status(invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "resource", "status"
+  ], true));
+  ensure(flat.platform === grouped.platform && flat.arch === grouped.arch, "cu_resource_status_alias_platform");
+  ensure(flat.hostname === grouped.hostname, "cu_resource_status_alias_hostname");
+  ensure(flat.cpu.logical === grouped.cpu.logical && flat.cpu.model === grouped.cpu.model, "cu_resource_status_alias_cpu");
+  ensure(flat.memory.totalBytes === grouped.memory.totalBytes, "cu_resource_status_alias_memory_capacity");
+
+  print("STEP extra arguments fail before native observation");
+  const invalid = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "resource-status", "extra"
+  ], false);
+  ensure(invalid.error.code === "usage", "cu_resource_status_invalid_code");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.resource-status");
+  harness.remove_run(context);
+  print("PASS: current-host resource snapshot is native, bounded and explicit about semantics");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

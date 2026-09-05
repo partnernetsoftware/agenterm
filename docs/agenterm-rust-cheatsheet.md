@@ -4226,3 +4226,20 @@ never flattened into one guessed next hop. On macOS, do not relabel route
 metrics such as hop count as a portable administrative metric. Across hosts,
 keep on-link `gateway = null` distinct from unavailable data and make every
 emitted field part of the deterministic tie-break order.
+
+## Keep host resource facts semantically distinct
+
+`free` memory and `available` memory are different native observations. Linux
+`MemFree`, macOS Mach free pages and Windows available physical bytes are not
+interchangeable with Linux `MemAvailable` or macOS free-plus-inactive. Preserve
+both values with named semantics, independently bound each by installed
+physical memory, and do not infer host pressure or an allocation budget from
+either one.
+
+Unix `getloadavg` has no native Windows equivalent. A compatibility projection
+may retain a three-zero array only when it also publishes an explicit
+`windows-not-available` semantic; zeros alone look like a measured idle host.
+Host resource snapshots usually combine several native queries plus a process
+inventory, so state that the result is sequential and non-atomic. If any
+required query fails, fail the complete snapshot typed rather than substituting
+an empty hostname, zero process count or other plausible-looking default.

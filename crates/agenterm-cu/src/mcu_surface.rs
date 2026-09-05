@@ -393,8 +393,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "ps/process state/argv/cwd/environment/usage/watch/wait, one-shot fds/maps/threads/sockets on macos/linux, and exact-object single-process/tree signal are live where the OS has a stable provider; inspection watch/diff, policy/cgroup and privileged mutation remain typed gaps",
         ),
         "resource" => (
-            "unsupported",
-            "ACU migration gap: typed resource facade pending",
+            "available",
+            "resource-status is a native bounded host snapshot with explicit free/available and load semantics; pressure/top/disk/volumes/priority/affinity/limits/scope remain typed gaps",
         ),
         "power" => (
             "unsupported",

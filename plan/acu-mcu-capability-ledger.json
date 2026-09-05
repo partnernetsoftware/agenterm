@@ -1053,6 +1053,46 @@
         }
       ]
     },
+    "host-resource": {
+      "accounting": "complete",
+      "owner": "agenterm-platform host resource contracts exposed by agenterm-cu",
+      "capabilities": [
+        {
+          "id": "resource.status",
+          "mcu_shape": "resource status returns platform, arch, hostname, uptime, load, CPU, memory and complete process count",
+          "acu_shape": "resource status (also resource-status) with explicit memory/load semantics and atomicSnapshot=false",
+          "state": "delegated",
+          "platforms": {"macos": "native-black-box", "linux": "native-court-pending", "windows": "native-court-pending"},
+          "evidence": ["cu.resource-status", "agenterm-platform host-resource-snapshot tests"],
+          "note": "Strict free memory is not collapsed into reclaimable available memory. Windows compatibility zeros for load are explicitly marked unavailable. A failed native process inventory fails the whole reply instead of becoming processCount=0.",
+          "next": "run Linux and Windows public qjswasm courts"
+        },
+        {
+          "id": "resource.pressure-top",
+          "mcu_shape": "resource pressure|top with native pressure and bounded ranked process samples",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
+          "next": "separate native pressure facts from bounded multi-process usage sampling; do not infer pressure from free bytes"
+        },
+        {
+          "id": "resource.disk-volumes",
+          "mcu_shape": "resource disk|volumes with filesystem and device-backed capacity facts",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "inventory-gap", "linux": "inventory-gap", "windows": "inventory-gap"},
+          "next": "share the future storage-device inventory while keeping filesystem capacity and physical-device identity distinct"
+        },
+        {
+          "id": "resource.process-policy",
+          "mcu_shape": "resource priority|affinity|limits|scope with exact process identity, plans and read-back",
+          "acu_shape": "read-only process.set-priority privilege plan plus separate process/job observations; mutation shapes incomplete",
+          "state": "platform-limited",
+          "platforms": {"macos": "partial", "linux": "partial", "windows": "contract-pending"},
+          "next": "route mutations only through exact identity, native consent where required, postcondition read-back and rollback/uncertain receipts"
+        }
+      ]
+    },
     "privilege": {
       "accounting": "complete",
       "owner": "a separate native least-authority broker consumed by ACU typed operations",

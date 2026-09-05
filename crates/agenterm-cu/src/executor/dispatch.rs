@@ -1211,6 +1211,7 @@ impl Executor {
                 list,
                 ..
             } => device_screenshot_payload(path.as_deref(), device.as_deref(), *timeout_ms, *list),
+            Command::ResourceStatus { .. } => resource_status_payload(),
             Command::SimulatorDevices { max, .. } => simulator_devices_payload(*max),
             Command::SimulatorBoot {
                 udid,

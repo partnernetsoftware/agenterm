@@ -1677,6 +1677,9 @@ pub enum Command {
         #[serde(default)]
         list: bool,
     },
+    ResourceStatus {
+        target: TargetRef,
+    },
     SimulatorDevices {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_simulator_max")]
@@ -2930,6 +2933,7 @@ impl Command {
             Self::Verify { .. } => "verify".into(),
             Self::Screenshot { .. } => "screenshot".into(),
             Self::DeviceScreenshot { .. } => "device-screenshot".into(),
+            Self::ResourceStatus { .. } => "resource-status".into(),
             Self::SimulatorDevices { .. } => "simulator-devices".into(),
             Self::SimulatorBoot { .. } => "simulator-boot".into(),
             Self::SimulatorApps { .. } => "simulator-apps".into(),
@@ -3093,6 +3097,7 @@ impl Command {
             | Self::Verify { target, .. }
             | Self::Screenshot { target, .. }
             | Self::DeviceScreenshot { target, .. }
+            | Self::ResourceStatus { target }
             | Self::SimulatorDevices { target, .. }
             | Self::SimulatorBoot { target, .. }
             | Self::SimulatorApps { target, .. }

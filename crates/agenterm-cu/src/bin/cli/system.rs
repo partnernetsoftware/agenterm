@@ -17,6 +17,18 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name == "resource-status" {
+        if args.first().is_some_and(|arg| arg == "status") {
+            args.remove(0);
+        }
+        if !args.is_empty() {
+            return Err(format!(
+                "resource-status accepts no arguments; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::ResourceStatus { target });
+    }
     if spec.name == "audit-compact" && args.first().is_some_and(|arg| arg == "compact") {
         args.remove(0);
     }
@@ -533,6 +545,20 @@ mod tests {
         ));
         assert!(parse("permissions", &["open", "camera"]).is_err());
         assert!(parse("permissions", &["status", "accessibility"]).is_err());
+    }
+
+    #[test]
+    fn resource_status_flat_and_grouped_shapes_are_closed() {
+        assert!(matches!(
+            parse("resource-status", &[]).unwrap(),
+            Command::ResourceStatus { .. }
+        ));
+        assert!(matches!(
+            parse("resource", &["status"]).unwrap(),
+            Command::ResourceStatus { .. }
+        ));
+        assert!(parse("resource-status", &["extra"]).is_err());
+        assert!(parse("resource", &["status", "extra"]).is_err());
     }
 
     #[test]

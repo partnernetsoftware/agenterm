@@ -78,6 +78,7 @@ pub enum Capability {
     ProcessorTopology,
     ProcessorAffinity,
     HostMemory,
+    HostResourceSnapshot,
     Storage,
     Entropy,
     ConsoleInterrupt,
@@ -148,6 +149,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         Capability::ProcessorTopology => (cfg!(feature = "processor-topology"), true),
         Capability::ProcessorAffinity => (cfg!(feature = "processor-affinity"), true),
         Capability::HostMemory => (cfg!(feature = "host-memory"), true),
+        Capability::HostResourceSnapshot => (cfg!(feature = "host-resource-snapshot"), true),
         Capability::Storage => (cfg!(feature = "storage"), true),
         Capability::Entropy => (cfg!(feature = "entropy"), true),
         Capability::ConsoleInterrupt => (cfg!(feature = "console-interrupt"), true),
@@ -267,6 +269,9 @@ pub mod processor_affinity;
 
 #[cfg(feature = "host-memory")]
 pub mod host_memory;
+
+#[cfg(feature = "host-resource-snapshot")]
+pub mod host_resource_snapshot;
 
 #[cfg(feature = "storage")]
 pub mod storage;

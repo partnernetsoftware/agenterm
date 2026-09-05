@@ -9,7 +9,7 @@ Capability ledger: [`plan/capability-mcu-cu.md`](capability-mcu-cu.md)
 
 Machine-readable state ledger:
 [`plan/acu-mcu-capability-ledger.json`](acu-mcu-capability-ledger.json). It is
-now exhaustive across 11 public capability families and R0 has zero
+now exhaustive across 12 public capability families and R0 has zero
 unclassified public shapes. This closes accounting, not implementation: every
 `gap` and `platform-limited` row still needs its owning slice and court.
 
@@ -45,6 +45,10 @@ ACU replaces MCU
 │  └─ current/ssh/vnc/VM targets preserve one command and result schema
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
+│  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
+│  ├─ phase 2: `acu.qjs` removes Bun while retaining only compatibility mapping
+│  ├─ phase 3: embedder-provided `acu` object shares schema/Executor/errors with CLI and MCP
+│  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency
 │  ├─ synchronous child calls default to a 60-second wall deadline
@@ -67,9 +71,9 @@ ACU replaces MCU
 ```mermaid
 flowchart LR
   M["MCU capability inventory"]
-  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & FILE["file/storage ✓"] & NET["network ✓"] & DEV["device/audio ✓"]
+  M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & FILE["file/storage ✓"] & NET["network ✓"] & RES["host resource ✓"] & DEV["device/audio ✓"]
   M --> RUN["service/runtime/session/audit ✓"] & SET["setup/doctor/permissions ✓"] & PRIV["privilege ✓"] & SIM["Simulator ✓"]
-  DESK & PROC & BROW & PTY & FILE & NET & DEV & RUN & SET & PRIV & SIM --> L["11-family machine-readable ledger<br/>R0 accounting complete"]
+  DESK & PROC & BROW & PTY & FILE & NET & RES & DEV & RUN & SET & PRIV & SIM --> L["12-family machine-readable ledger<br/>R0 accounting complete"]
   L --> C{"capability state"}
   C -->|native| CU["agenterm-cu mechanism"]
   C -->|delegated| F["typed owning facade"]
@@ -79,6 +83,8 @@ flowchart LR
   F --> Q
   I --> Q
   P --> Q
+  Q --> AQ["temporary acu.qjs compatibility shell<br/>no Bun · no duplicated mechanism"]
+  AQ --> AO["embedder acu object library<br/>one schema + Executor + failures"]
   SET --> PS["permissions status + open-next live<br/>real status · exact pane · never consent"]
   PS --> Q
   SET --> HO["host open + notification live<br/>shell-free · acceptance ≠ verification"]
@@ -128,6 +134,15 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
 The active cut is deliberately narrow: clear every unexplained compatibility
 `STAY`, then pass the MCU-absence court. General qjswasm optimization and new
 product branches do not pre-empt these blockers.
+
+The compatibility migration has three explicit phases. Today `acu.ts` may
+only perform lossless legacy argv projection and binary discovery; it cannot
+own a second implementation. After the STAY ledger and MCU-absent courts are
+green, `acu.qjs` replaces that Bun shell while keeping only compatibility
+mapping. The converged surface is an embedder-provided qjswasm `acu` object:
+CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical
+deadlines, cleanup, errors and receipts. Moving TypeScript logic line-for-line
+into qjswasm would preserve the duplication and is explicitly rejected.
 
 ```text
 MCU retirement blockers
@@ -547,6 +562,11 @@ Q3 owned runtime facades
 │  ├─ [x] lease-owned registry, streams and explicit session-end cleanup
 │  └─ [ ] adopt/prune, aggregate resources, policy/priority/state/signal and expiry-detach shape
 └─ [~] file/network/storage/device/audio/resource/power/privilege
+   ├─ [~] host resource status: bounded CPU/memory/load/uptime/process snapshot
+   │  ├─ [x] strict free memory stays distinct from reclaimable available memory
+   │  ├─ [x] Windows load is explicitly unavailable, never a fabricated measurement
+   │  ├─ [x] macOS public qjswasm journey `cu.resource-status`
+   │  └─ [ ] Linux + Windows native public journeys; pressure/top/disk/volumes/policy remain separate gaps
    ├─ [x] bounded identity-aware network-probe
    ├─ [~] network-interfaces: native ifindex/LUID + bounded stable snapshot
    │  ├─ [x] macOS public CLI schema/count/prefix court

@@ -59,6 +59,16 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
 - [x] `agenterm-cu` is the only product executable. CLI and desktop-host modes
   share that binary; an executable named `cu` is not a compatibility surface.
+- [~] The temporary `skills/mcu/acu.ts` adapter owns only lossless legacy argv
+  projection and ACU binary discovery. It must first shrink every useful MCU
+  shape out of `STAY`, then be rewritten as `acu.qjs` so daily compatibility
+  no longer requires Bun. That is an intermediate shell, not a second product
+  implementation: no native mechanism, authority policy or postcondition may
+  be copied from the Rust owner into qjswasm. The converged API is an
+  embedder-provided `acu` object whose qjs calls, CLI and MCP share one typed
+  schema, `Executor`, deadline/cleanup behavior, failure vocabulary and receipt
+  contract. Once callers no longer require legacy MCU syntax, `acu.qjs` itself
+  may retire.
 - [x] CU is the first runtime consumer of the `libagenterm` dynamic library.
   Product code owns command and action meaning while ABI/platform layers own
   native mechanisms.
@@ -795,6 +805,17 @@ flowchart LR
   mutation. No test booted a device or launched/terminated an app. Controlled
   mutation courts, shutdown, app deployment, guest foreground and guest
   screenshot remain open.
+
+- [~] `resource status` now has a native platform-neutral ACU owner. Its closed
+  snapshot includes host identity, uptime, CPU count/model, all three load
+  averages, installed physical memory, strict native free memory, reclaimable
+  available memory and the complete native process count. The reply explicitly
+  says `atomicSnapshot=false`: these are bounded sequential observations, not a
+  fabricated atomic system instant. Windows keeps its three compatibility zero
+  values but marks `loadAverageSemantics=windows-not-available`; macOS/Linux
+  mark native `getloadavg`. The registered `cu.resource-status` qjswasm court is
+  green on macOS. Linux and Windows runtime courts remain before promotion;
+  pressure/top/disk/volumes/priority/affinity/limits/scope are separate gaps.
 
 - [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU
   compatibility frontier; ACU's transport worker `exec --json` keeps its old
