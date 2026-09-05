@@ -382,6 +382,16 @@ impl ResidentJobOwner {
         self.finish_after_exit(exit)
     }
 
+    /// Terminal cleanup for the owning runtime session. Ordinary `stop`
+    /// retains the resident owner until its output lease expires so callers
+    /// can still drain output. Session teardown instead revokes that lease and
+    /// requires the native IPC owner itself to disappear after replying.
+    pub(crate) fn stop_and_release(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+        let report = self.stop()?;
+        self.lease_deadline = Instant::now();
+        Ok(report)
+    }
+
     #[allow(dead_code, reason = "used by the next resident IPC slice")]
     pub(crate) fn output_page(
         &self,

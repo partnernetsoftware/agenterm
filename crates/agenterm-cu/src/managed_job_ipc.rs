@@ -125,6 +125,7 @@ pub(crate) enum ManagedJobOperation {
         timeout_ms: u64,
     },
     Stop,
+    StopAndRelease,
     Renew {
         ttl_ms: u64,
     },
@@ -409,6 +410,11 @@ fn dispatch(owner: &mut ResidentJobOwner, request: ManagedJobRequest) -> Managed
                 })
             }),
         ManagedJobOperation::Stop => owner.stop().and_then(|_| {
+            owner.status().map(|status| ManagedJobResult::Stop {
+                status: status.into(),
+            })
+        }),
+        ManagedJobOperation::StopAndRelease => owner.stop_and_release().and_then(|_| {
             owner.status().map(|status| ManagedJobResult::Stop {
                 status: status.into(),
             })

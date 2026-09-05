@@ -60,7 +60,12 @@ impl Executor {
                 lease,
                 confirm,
                 ..
-            } => session_end_payload(session_id, lease, *confirm),
+            } => session_end_payload(
+                &self.open_runtime_coordinator()?,
+                session_id,
+                lease,
+                *confirm,
+            ),
             Command::LockAcquire {
                 session_id,
                 lease,
@@ -89,6 +94,8 @@ impl Executor {
                     cwd.as_deref(),
                     *ttl_seconds,
                     request.session_id,
+                    request.session_lease,
+                    request.runtime,
                 )
             }
             Command::JobList {

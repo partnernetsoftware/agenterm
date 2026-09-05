@@ -138,6 +138,7 @@ MCU retirement blockers
 │  ├─ [x] closed current-user native IPC + opaque bounded endpoint + resident expiry loop
 │  ├─ [x] detached launcher + public spawn/list/status/events/write/wait/renew/stop
 │  ├─ [x] exact request replay returns the same public job identity without a second spawn
+│  ├─ [x] session-end closes admission, stops every bound job, releases locks and retries idempotently
 │  ├─ [x] macOS public-process lifecycle: dual output, write/EOF, wait, renew and stop
 │  ├─ [x] registered qjswasm journey green on macOS
 │  ├─ [x] same journey green on Linux x86_64 execute-only court
@@ -437,7 +438,8 @@ Q3 owned runtime facades
 │  │  ├─ [x] pty-resize: temporary lease + exact grid/epoch/tab read-back + detach proof
 │  │  ├─ [x] local macOS public qjswasm snapshot → resize/diff → output/diff → event continuation → restart refusal
 │  │  └─ [ ] enlarged journey six-cell rerun
-│  └─ [ ] lease-owned job registry, streams, resource policy and cleanup
+│  ├─ [x] lease-owned registry, streams and explicit session-end cleanup
+│  └─ [ ] adopt/prune, aggregate resources, policy/priority/state/signal and expiry-detach shape
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [x] bounded identity-aware network-probe
    ├─ [~] network-interfaces: native ifindex/LUID + bounded stable snapshot

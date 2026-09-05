@@ -119,8 +119,10 @@ let session_id = "";
 let session_lease = "";
 let first_job = null;
 let second_job = null;
+let session_bound_job = null;
 let first_owner_absent = false;
 let second_owner_absent = false;
+let session_bound_owner_absent = false;
 let session_ended = false;
 let succeeded = 0;
 let failure = "";
@@ -129,7 +131,7 @@ try {
   print("STEP create one bounded runtime session without retaining its private lease in evidence or command logs");
   const session = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "actuate",
-    "session-start", "--label", "managed-job-smoke", "--ttl-seconds", "30"
+    "session-start", "--label", "managed-job-smoke", "--ttl-seconds", "120"
   ], "session-start");
   session_id = text_of(session.session_id);
   session_lease = text_of(session.lease);
@@ -283,7 +285,26 @@ try {
   second_owner_absent = wait_owner_absent(run_directory, executable, second_job);
   ensure(second_owner_absent, "cu_managed_job_second_owner_cleanup");
 
-  print("STEP end the owning runtime session and verify its durable terminal state");
+  print("STEP bind one running job and target lock to the session before terminal cleanup");
+  const bound_spawn_args = mutation_prefix(request_root + "-spawn-session-bound", session_id, session_lease);
+  append_all(bound_spawn_args, ["job-spawn", "--ttl-seconds", "30", "--"]);
+  append_all(bound_spawn_args, long_command);
+  const bound_spawned = invoke_cu(run_directory, executable, bound_spawn_args, "job-spawn");
+  session_bound_job = {
+    job_id: text_of(bound_spawned.job_id),
+    generation: bound_spawned.generation
+  };
+  const bound_lock = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "lock-acquire", session_id, session_lease, "court:session-end", "--ttl-seconds", "30"
+  ], "lock-acquire");
+  ensure(
+    session_bound_job.job_id !== "" && session_bound_job.generation > 0
+      && bound_lock.lock.session_id === session_id,
+    "cu_managed_job_session_bound_fixture"
+  );
+
+  print("STEP end the owning runtime session, stop its running job, and release its target lock");
   const ended = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "actuate",
     "session-end", session_id, "--lease", session_lease, "--confirm"
@@ -291,8 +312,33 @@ try {
   session_ended = true;
   ensure(
     ended.session.session_id === session_id && ended.session.state === "ended"
-      && ended.released_locks === 0,
+      && ended.released_locks === 1 && ended.jobs.complete === true
+      && ended.jobs.stopped >= 1 && ended.jobs.failed.length === 0,
     "cu_managed_job_session_end_contract"
+  );
+  session_bound_owner_absent = wait_owner_absent(run_directory, executable, session_bound_job);
+  ensure(session_bound_owner_absent, "cu_managed_job_session_end_owner_cleanup");
+  const bound_status = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-status", session_bound_job.job_id
+  ], "job-status");
+  ensure(
+    bound_status.terminal !== null && bound_status.state !== "running",
+    "cu_managed_job_session_end_terminal_readback"
+  );
+
+  print("STEP repeat session-end with the same lease without repeating any cleanup effect");
+  const repeated_end = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-end", session_id, "--lease", session_lease, "--confirm"
+  ], "session-end");
+  ensure(
+    repeated_end.session.session_id === session_id
+      && repeated_end.session.state === "ended"
+      && repeated_end.released_locks === 0
+      && repeated_end.jobs.complete === true
+      && repeated_end.jobs.stopped === 0,
+    "cu_managed_job_session_end_idempotent"
   );
 
   print("STEP expire a short session and prove its owned target lock is swept from public state");
@@ -385,6 +431,17 @@ if (session_id !== "" && session_lease !== "") {
     try { second_owner_absent = wait_owner_absent(run_directory, executable, second_job); }
     catch (error) {}
   }
+  if (session_bound_job !== null && !session_bound_owner_absent) {
+    try {
+      invoke_cu(run_directory, executable, [
+        "--target", "current", "--grant", "actuate",
+        "session-end", session_id, "--lease", session_lease, "--confirm"
+      ], "session-end");
+    } catch (error) {}
+    try {
+      session_bound_owner_absent = wait_owner_absent(run_directory, executable, session_bound_job);
+    } catch (error) {}
+  }
   if (!session_ended) {
     try {
       invoke_cu(run_directory, executable, [
@@ -400,6 +457,9 @@ if (first_job !== null && !first_owner_absent) {
 }
 if (second_job !== null && !second_owner_absent) {
   failure = failure === "" ? "cu_managed_job_second_owner_cleanup" : failure;
+}
+if (session_bound_job !== null && !session_bound_owner_absent) {
+  failure = failure === "" ? "cu_managed_job_session_bound_owner_cleanup" : failure;
 }
 if (session_id !== "" && !session_ended) {
   failure = failure === "" ? "cu_managed_job_session_cleanup" : failure;

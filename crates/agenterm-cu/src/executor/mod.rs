@@ -356,9 +356,13 @@ impl Executor {
             }
         };
         let now_s = now_ms / 1_000;
-        if let Err(error) = self.open_runtime_coordinator().and_then(|coordinator| {
-            coordinator.session_verify(&identity.session_id, &identity.session_lease, now_s)
-        }) {
+        let runtime = match self.open_runtime_coordinator() {
+            Ok(runtime) => runtime,
+            Err(error) => return CuReply::err(command, error),
+        };
+        if let Err(error) =
+            runtime.session_verify(&identity.session_id, &identity.session_lease, now_s)
+        {
             return CuReply::err(command, error);
         }
 
@@ -493,6 +497,8 @@ impl Executor {
             command,
             Some(&JobRequestContext {
                 session_id: &identity.session_id,
+                session_lease: &identity.session_lease,
+                runtime: &runtime,
             }),
         ) {
             Ok(data) => CuReply::ok(command, data),

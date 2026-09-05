@@ -22,6 +22,7 @@ use crate::{
     managed_job_store::{
         ManagedJobRecord, ManagedJobState, ManagedJobStore, OwnerLiveness, ResidentOwnerIdentity,
     },
+    runtime_coordinator::RuntimeCoordinator,
 };
 
 use super::{CuError, now_utc_ms};
@@ -33,6 +34,8 @@ const IPC_PAGE_BYTES: usize = 64 * 1024;
 
 pub(super) struct JobRequestContext<'a> {
     pub session_id: &'a str,
+    pub session_lease: &'a str,
+    pub runtime: &'a RuntimeCoordinator,
 }
 
 pub(super) fn replay_payload(replay: &FinalReplay) -> Value {
@@ -69,9 +72,14 @@ pub(super) fn job_spawn_payload(
     cwd: Option<&str>,
     ttl_seconds: u64,
     session_id: &str,
+    session_lease: &str,
+    runtime: &RuntimeCoordinator,
 ) -> Result<Value, CuError> {
+    let _session_gate = runtime.acquire_session_gate(session_id)?;
+    let admission_now = now_utc_ms().ok_or_else(clock_error)?;
+    runtime.session_verify(session_id, session_lease, admission_now / 1_000)?;
     let store = ManagedJobStore::open()?;
-    let now = now_utc_ms().ok_or_else(clock_error)?;
+    let now = admission_now;
     let record = store.reserve_start(Some(session_id), now)?;
     let launch = match build_launch(&store, &record, command, environment, cwd, ttl_seconds) {
         Ok(launch) => launch,
@@ -203,6 +211,94 @@ pub(super) fn job_spawn_payload(
             return classify_post_spawn_failure(&store, &record, "owner_ready_timeout", now);
         }
         thread::sleep(START_POLL);
+    }
+}
+
+/// Stop every nonterminal managed job bound to an already-terminal session.
+/// The caller must retain that session's admission gate for the entire call.
+pub(super) fn stop_session_jobs(session_id: &str) -> Result<Value, CuError> {
+    let store = ManagedJobStore::open()?;
+    let records = store
+        .list()?
+        .into_iter()
+        .filter(|record| record.session_id.as_deref() == Some(session_id))
+        .collect::<Vec<_>>();
+    let matched = records.len();
+    let mut already_terminal = 0usize;
+    let mut stopped = 0usize;
+    let mut failed = Vec::new();
+
+    for record in records {
+        match record.state {
+            ManagedJobState::StartFailed { .. }
+            | ManagedJobState::Exited { .. }
+            | ManagedJobState::Signaled { .. }
+            | ManagedJobState::Detached => already_terminal += 1,
+            ManagedJobState::StartIntent => {
+                let now = now_utc_ms().ok_or_else(clock_error)?;
+                match store.mark_unclaimed_start_failed(
+                    &record.handle(),
+                    "runtime_session_ended",
+                    now,
+                ) {
+                    Ok(_) => stopped += 1,
+                    Err(error) => failed.push(json!({
+                        "job_id": record.job_id,
+                        "generation": record.generation,
+                        "code": error.code,
+                    })),
+                }
+            }
+            ManagedJobState::Starting | ManagedJobState::Running => {
+                match client_request(&record.handle(), ManagedJobOperation::StopAndRelease) {
+                    Ok(ManagedJobResult::Stop { status })
+                        if !matches!(status.state, JobState::Running) =>
+                    {
+                        stopped += 1;
+                    }
+                    Ok(ManagedJobResult::Stop { .. }) => failed.push(json!({
+                        "job_id": record.job_id,
+                        "generation": record.generation,
+                        "code": "managed_job_stop_unverified",
+                    })),
+                    Ok(_) => failed.push(json!({
+                        "job_id": record.job_id,
+                        "generation": record.generation,
+                        "code": "managed_job_response_invalid",
+                    })),
+                    Err(error) => failed.push(json!({
+                        "job_id": record.job_id,
+                        "generation": record.generation,
+                        "code": error.code,
+                    })),
+                }
+            }
+            ManagedJobState::OrphanedUncertain => failed.push(json!({
+                "job_id": record.job_id,
+                "generation": record.generation,
+                "code": "managed_job_orphaned_uncertain",
+            })),
+        }
+    }
+
+    let cleanup = json!({
+        "matched": matched,
+        "stopped": stopped,
+        "already_terminal": already_terminal,
+        "failed": failed,
+        "complete": failed.is_empty(),
+    });
+    if failed.is_empty() {
+        Ok(cleanup)
+    } else {
+        Err(CuError::new(
+            "runtime_session_cleanup_incomplete",
+            "runtime session ended but one or more managed jobs were not verified terminal",
+        )
+        .with_detail(json!({
+            "effect": "session_ended",
+            "jobs": cleanup,
+        })))
     }
 }
 

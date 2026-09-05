@@ -187,7 +187,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   commands, removing the top-level `audit` fallback. The platform-neutral
   public qjswasm journey covers the full create/status/acquire/reacquire/
   release/end/query/retention loop on macOS, including expiry sweeping the
-  session's target lock from public state. Current-target
+  session's target lock from public state. Job admission and session
+  termination now share one stable per-session cross-process sidecar gate. A
+  job rechecks the live lease inside that gate before reserving or spawning;
+  `session-end` first makes the session terminal, then stops every nonterminal
+  bound job and releases its locks. The same lease may retry an interrupted
+  cleanup idempotently, while incomplete cleanup is a typed failure whose
+  effect explicitly remains `session_ended`. The public qjswasm journey proves
+  the running child and resident owner disappear, the lock is released, and a
+  retry repeats no effect. Current-target
   mutations can now carry the all-or-none `--request-id`, `--session` and
   `--session-lease` envelope: admission verifies the active lease without
   renewing it, reserves a private crash-persistent request record before the

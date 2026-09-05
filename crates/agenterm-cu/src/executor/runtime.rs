@@ -1,6 +1,7 @@
 //! Durable runtime session and target-lock command adapters.
 
 use super::*;
+use crate::executor::managed_jobs::stop_session_jobs;
 use crate::runtime_coordinator::RuntimeCoordinator;
 
 fn runtime_now_utc_s() -> Result<i64, CuError> {
@@ -59,6 +60,7 @@ pub(super) fn session_renew_payload(
 }
 
 pub(super) fn session_end_payload(
+    coordinator: &RuntimeCoordinator,
     session_id: &str,
     lease: &str,
     confirm: bool,
@@ -69,11 +71,31 @@ pub(super) fn session_end_payload(
             "session-end requires --confirm",
         ));
     }
-    runtime_json(RuntimeCoordinator::open()?.session_end(
-        session_id,
-        lease,
-        runtime_now_utc_s()?,
-    )?)
+    let _session_gate = coordinator.acquire_session_gate(session_id)?;
+    let ended = coordinator.session_end(session_id, lease, runtime_now_utc_s()?)?;
+    let mut payload = runtime_json(&ended)?;
+    match stop_session_jobs(session_id) {
+        Ok(cleanup) => {
+            payload
+                .as_object_mut()
+                .expect("session end serializes as an object")
+                .insert("jobs".to_owned(), cleanup);
+            Ok(payload)
+        }
+        Err(mut error) => {
+            let jobs = error
+                .detail
+                .take()
+                .and_then(|detail| detail.get("jobs").cloned());
+            error.detail = Some(serde_json::json!({
+                "effect": "session_ended",
+                "session": ended.session,
+                "released_locks": ended.released_locks,
+                "jobs": jobs,
+            }));
+            Err(error)
+        }
+    }
 }
 
 pub(super) fn lock_acquire_payload(

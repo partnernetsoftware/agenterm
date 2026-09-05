@@ -853,10 +853,10 @@
         {
           "id": "runtime.session-lease",
           "mcu_shape": "session start|status|renew|end with TTL and bound-resource cleanup",
-          "acu_shape": "session start|list|status|renew|end with bounded TTL, retained terminal status and automatic owned-lock release",
+          "acu_shape": "session start|list|status|renew|end with bounded TTL, retained terminal status, closed job admission, bound-job termination and automatic owned-lock release",
           "state": "native",
-          "evidence": ["agenterm-cu macos isolated public runtime loop", "agenterm-cu runtime coordinator unit suite"],
-          "note": "The opaque lease is returned once; durable state and audit contain only its SHA-256 digest. Expiry and explicit end retain bounded terminal evidence and release every owned lock."
+          "evidence": ["cu.managed-job-lifecycle", "agenterm-cu runtime coordinator unit suite"],
+          "note": "The opaque lease is returned once; durable state and audit contain only its SHA-256 digest. Job admission rechecks the lease while holding one stable per-session cross-process gate. Explicit end commits terminal state first, stops bound jobs and releases locks; the same lease can retry incomplete cleanup without repeating completed effects."
         },
         {
           "id": "runtime.target-lock",

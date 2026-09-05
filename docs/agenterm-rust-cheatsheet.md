@@ -4013,3 +4013,24 @@ an exact retry. The digest is not a target lock: migrated mutation cohorts still
 derive and hold their exact target lock separately. Prove the wire through a
 real worker process: first delivery audits once, exact replay does not dispatch
 again, a changed effect scope conflicts, and no durable file contains the lease.
+
+## Serialize resource admission with owner teardown
+
+A lease check performed before an effect reservation is not enough: session
+termination can race between that check and native resource creation. Give each
+durable owner a stable cross-process sidecar gate. A fixed shard set selected
+by the owner digest bounds the sidecar count; shard collisions may refuse an
+unrelated admission as busy but never weaken exclusion. Resource admission acquires
+the gate, rechecks the lease while holding it, and retains it through the point
+where ownership is durably established. Teardown acquires the same gate, marks
+the owner terminal first, then reaps every bound resource. Never delete the
+sidecar pathname; another process may still hold its opened lock object, and
+recreation would split one lock domain into two.
+
+Teardown must be retryable with the same lease after the owner is terminal.
+Report partial cleanup as a typed failure with the committed owner effect and
+the exact remaining resource identities, rather than rolling the owner back or
+claiming success. A normal job stop may retain its resident output owner until
+the output lease expires; owner teardown needs a distinct internal stop-and-
+release operation so both the child tree and its IPC owner disappear before the
+cleanup receipt becomes green.

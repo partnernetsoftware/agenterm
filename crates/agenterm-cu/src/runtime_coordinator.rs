@@ -166,6 +166,36 @@ impl RuntimeCoordinator {
         &self.path
     }
 
+    /// Serialize session-bound effect admission against terminal cleanup.
+    ///
+    /// The session digest selects one of 256 stable sidecar shards. This keeps
+    /// the filesystem bounded while preserving mutual exclusion (a collision
+    /// can only cause a typed busy result). The files are deliberately not
+    /// removed: deleting a lock pathname while another process retains the
+    /// opened lock object would create a second lock domain.
+    pub(crate) fn acquire_session_gate(&self, session_id: &str) -> Result<PathLock, CuError> {
+        if session_id.is_empty()
+            || session_id.len() > 128
+            || session_id.contains(['\0', '\n', '\r'])
+        {
+            return Err(CuError::new(
+                "runtime_session_id_invalid",
+                "runtime session id is invalid",
+            ));
+        }
+        let digest = sha256_hex(session_id);
+        let path =
+            parent(&self.path)?.join(format!(".agenterm-session-gate-{}.lock", &digest[..2]));
+        PathLock::try_acquire(&path).map_err(|error| {
+            let code = if error.kind() == LockErrorKind::Contended {
+                "runtime_session_busy"
+            } else {
+                "runtime_session_gate_unavailable"
+            };
+            CuError::new(code, "runtime session admission gate is unavailable")
+        })
+    }
+
     pub fn session_start(
         &self,
         label: Option<&str>,
@@ -269,9 +299,31 @@ impl RuntimeCoordinator {
         now_utc_s: i64,
     ) -> Result<SessionEnd, CuError> {
         self.mutate(now_utc_s, |document, now| {
-            let record = checked_session_mut(document, session_id, lease)?;
-            record.state = SessionState::Ended;
-            record.terminal_at_utc_s = Some(now);
+            let record = document.sessions.get_mut(session_id).ok_or_else(|| {
+                CuError::new(
+                    "runtime_session_not_found",
+                    "runtime session does not exist or has expired",
+                )
+            })?;
+            if !constant_time_equal(record.lease_sha256.as_bytes(), sha256_hex(lease).as_bytes()) {
+                return Err(CuError::new(
+                    "runtime_session_lease_invalid",
+                    "runtime session lease is invalid",
+                ));
+            }
+            match record.state {
+                SessionState::Active => {
+                    record.state = SessionState::Ended;
+                    record.terminal_at_utc_s = Some(now);
+                }
+                SessionState::Ended => {}
+                SessionState::Expired => {
+                    return Err(CuError::new(
+                        "runtime_session_expired",
+                        "runtime session has expired",
+                    ));
+                }
+            }
             let session = session_status(record);
             let before = document.locks.len();
             document
@@ -959,6 +1011,18 @@ mod tests {
         assert_eq!(ended.session.state, SessionState::Ended);
         assert_eq!(ended.released_locks, 2);
         assert!(coordinator.lock_list(3).unwrap().is_empty());
+        let repeated = coordinator
+            .session_end(&session.session_id, &session.lease, 3)
+            .unwrap();
+        assert_eq!(repeated.session, ended.session);
+        assert_eq!(repeated.released_locks, 0);
+        assert_eq!(
+            coordinator
+                .session_end(&session.session_id, "wrong-lease", 3)
+                .unwrap_err()
+                .code,
+            "runtime_session_lease_invalid"
+        );
         assert_eq!(
             coordinator
                 .session_renew(&session.session_id, &session.lease, 1, 3)
@@ -966,6 +1030,32 @@ mod tests {
                 .code,
             "runtime_session_ended"
         );
+    }
+
+    #[test]
+    fn session_gate_is_stable_contended_and_released_without_deletion() {
+        let (_path, coordinator) = open("session-gate");
+        let session = coordinator.session_start(None, 30, 1).unwrap();
+        let first = coordinator
+            .acquire_session_gate(&session.session_id)
+            .unwrap();
+        let error = match coordinator.acquire_session_gate(&session.session_id) {
+            Ok(_) => panic!("second session gate unexpectedly acquired"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "runtime_session_busy");
+        drop(first);
+        let second = coordinator
+            .acquire_session_gate(&session.session_id)
+            .unwrap();
+        drop(second);
+        let parent = coordinator.path().parent().unwrap();
+        assert!(parent.read_dir().unwrap().flatten().any(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".agenterm-session-gate-")
+        }));
     }
 
     #[test]
