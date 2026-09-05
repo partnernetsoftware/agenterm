@@ -3693,6 +3693,18 @@ absent. Fail if the postcondition is still false at the deadline. This avoids
 both false negatives after a real effect and false positives from an
 unverified input injection.
 
+## Normalize a terminal's right-margin wrap-pending cursor at the wire boundary
+
+Some native console streams represent the legal right-margin wrap-pending state
+as `cursor.column == columns`. The terminal still points at the final visible
+cell; rejecting that transient as an out-of-bounds screen can take down the
+entire bootstrap contract and block unrelated control or cleanup operations.
+When exporting a visible-grid snapshot, clamp that single column state to
+`columns - 1`. Keep zero-dimension, row, cell-run, byte and serialization limits
+strict: this is a terminal-coordinate normalization, not permission to accept a
+generally malformed screen. Cover the exact one-past-right case independently
+from an ordinary in-grid cursor.
+
 When a service promises an empty start, bypass restoration and the default
 state constructor at creation time. Clearing state afterward is too late if
 the default constructor itself allocates a tab, process, handle, or other

@@ -224,6 +224,10 @@ fn ui_cell_style(cell: &vt100::Cell) -> UiCellStyle {
     }
 }
 
+fn visible_cursor_column(column: u16, columns: u32) -> u32 {
+    u32::from(column).min(columns.saturating_sub(1))
+}
+
 fn ui_screen_snapshot(tab: &mut TerminalTab, generation: u64) -> Result<UiScreenSnapshot, String> {
     let (_, max_scrollback) = tab.scrollback_bounds();
     let screen = tab.parser.screen();
@@ -279,6 +283,12 @@ fn ui_screen_snapshot(tab: &mut TerminalTab, generation: u64) -> Result<UiScreen
         }
     }
     let (cursor_row, cursor_column) = screen.cursor_position();
+    // A Windows console can expose the right-margin wrap-pending state as
+    // `column == columns`.  It still denotes the final visible cell; exporting
+    // it verbatim would invalidate the whole bootstrap snapshot and make
+    // unrelated control operations unavailable.  Keep the wire cursor inside
+    // the visible grid while preserving the parser's stricter row invariant.
+    let cursor_column = visible_cursor_column(cursor_column, columns);
     let snapshot = UiScreenSnapshot {
         schema_version: UI_SCREEN_SCHEMA_VERSION,
         tab_id: format!("@{}", tab.id),
@@ -309,7 +319,7 @@ fn ui_screen_snapshot(tab: &mut TerminalTab, generation: u64) -> Result<UiScreen
         max_scrollback,
         cursor: UiCursorSnapshot {
             row: u32::from(cursor_row),
-            column: u32::from(cursor_column),
+            column: cursor_column,
             visible: !screen.hide_cursor(),
         },
         runs,
@@ -2752,6 +2762,13 @@ mod tests {
             .chain(rest.iter().copied())
             .map(str::to_owned)
             .collect()
+    }
+
+    #[test]
+    fn right_margin_wrap_pending_cursor_stays_in_visible_grid() {
+        assert_eq!(visible_cursor_column(4, 10), 4);
+        assert_eq!(visible_cursor_column(9, 10), 9);
+        assert_eq!(visible_cursor_column(10, 10), 9);
     }
 
     #[test]
