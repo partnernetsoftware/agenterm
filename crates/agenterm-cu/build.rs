@@ -85,6 +85,7 @@ fn build_verb_catalog() {
             "system"
                 | "windows"
                 | "process"
+                | "privilege"
                 | "network"
                 | "file"
                 | "terminal"
@@ -174,6 +175,7 @@ fn family_variant(family: &str) -> &'static str {
         "system" => "System",
         "windows" => "Windows",
         "process" => "Process",
+        "privilege" => "Privilege",
         "network" => "Network",
         "file" => "File",
         "terminal" => "Terminal",

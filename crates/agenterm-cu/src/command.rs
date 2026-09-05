@@ -872,6 +872,15 @@ pub enum Command {
         timeout_ms: u64,
         expect_exited: bool,
     },
+    /// Prepare a canonical, expiring, identity-bound process-priority plan.
+    /// This command is observation-only: applying it belongs to a later
+    /// consented privilege-provider contract.
+    PrivilegePlanProcessPriority {
+        target: TargetRef,
+        pid: u32,
+        nice: i32,
+        ttl_seconds: u64,
+    },
     /// Observe a bounded process-set lifecycle. Every row is keyed by pid and
     /// start identity so pid reuse becomes one exit plus one start instead of
     /// silently changing the watched object.
@@ -2426,6 +2435,7 @@ impl Command {
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
+            Self::PrivilegePlanProcessPriority { .. } => "privilege-plan".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::ShellExec { .. } => "shell-exec".into(),
             Self::NetworkInterfaces { .. } => "network-interfaces".into(),
@@ -2567,6 +2577,7 @@ impl Command {
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
+            | Self::PrivilegePlanProcessPriority { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::ShellExec { target, .. }
             | Self::NetworkInterfaces { target, .. }
@@ -3358,6 +3369,29 @@ mod tests {
                 "mode": "forceful",
                 "timeout_ms": 250,
                 "expect_exited": true,
+            })
+        );
+    }
+
+    #[test]
+    fn privilege_plan_is_observe_only_and_keeps_the_expiring_contract_on_the_wire() {
+        let command = Command::PrivilegePlanProcessPriority {
+            target: TargetRef::Ssh,
+            pid: 42,
+            nice: 10,
+            ttl_seconds: 120,
+        };
+        assert_eq!(command.verb(), "privilege-plan");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "privilege-plan-process-priority",
+                "target": "ssh",
+                "pid": 42,
+                "nice": 10,
+                "ttl_seconds": 120,
             })
         );
     }

@@ -968,9 +968,11 @@
         {
           "id": "privilege.plan",
           "mcu_shape": "privilege plan creates a versioned typed request bound to operation, target identity, before state, expiry and source digest",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "closed request schema per privileged operation; raw shell text and arbitrary executable elevation are excluded"
+          "acu_shape": "privilege plan process.set-priority PID|self NICE [--ttl-seconds N]",
+          "state": "platform-limited",
+          "platforms": {"macos": "native", "linux": "native", "windows": "semantic-contract-pending"},
+          "evidence": ["cu.privilege-plan", "agenterm-cu privilege_plan unit tests"],
+          "next": "extend the same closed-plan schema operation by operation; add a separate consented provider for apply; raw shell text and arbitrary executable elevation stay excluded"
         },
         {
           "id": "privilege.one-shot",

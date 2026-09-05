@@ -38,6 +38,39 @@ pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
     })
 }
 
+pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
+    if pid == 0 {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidId,
+            "process ID zero does not identify one process",
+        ));
+    }
+    let pid = libc::pid_t::try_from(pid).map_err(|source| {
+        ProcessMetricsError::new(ProcessMetricsErrorKind::InvalidId, source.to_string())
+    })?;
+    let mut info = unsafe { std::mem::zeroed::<libc::proc_bsdinfo>() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let read =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
+    if read != size {
+        let source = std::io::Error::last_os_error();
+        let kind = if source.raw_os_error() == Some(libc::ESRCH) {
+            ProcessMetricsErrorKind::NotFound
+        } else {
+            ProcessMetricsErrorKind::Read
+        };
+        return Err(ProcessMetricsError::new(kind, source.to_string()));
+    }
+    let nice = info.pbi_nice;
+    if !(-20..=20).contains(&nice) {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidValue,
+            format!("host reported invalid nice value: {nice}"),
+        ));
+    }
+    Ok(nice)
+}
+
 fn nonnegative_counter(value: i32, name: &str) -> Result<u64, ProcessMetricsError> {
     u64::try_from(value).map_err(|_| {
         ProcessMetricsError::new(

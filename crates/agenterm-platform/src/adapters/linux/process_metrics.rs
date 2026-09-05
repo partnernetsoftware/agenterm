@@ -73,6 +73,44 @@ pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
     })
 }
 
+pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
+    if pid == 0 {
+        return Err(error(
+            ProcessMetricsErrorKind::InvalidId,
+            "process ID zero does not identify one process",
+        ));
+    }
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|source| {
+        error(
+            if source.kind() == std::io::ErrorKind::NotFound {
+                ProcessMetricsErrorKind::NotFound
+            } else {
+                ProcessMetricsErrorKind::Open
+            },
+            source.to_string(),
+        )
+    })?;
+    let close = stat.rfind(')').ok_or_else(|| {
+        error(
+            ProcessMetricsErrorKind::Parse,
+            "process stat has no closing command delimiter",
+        )
+    })?;
+    let fields = stat[close + 1..].split_whitespace().collect::<Vec<_>>();
+    let nice = fields
+        .get(16)
+        .ok_or_else(|| error(ProcessMetricsErrorKind::Parse, "missing nice value"))?
+        .parse::<i32>()
+        .map_err(|source| error(ProcessMetricsErrorKind::Parse, source.to_string()))?;
+    if !(-20..=20).contains(&nice) {
+        return Err(error(
+            ProcessMetricsErrorKind::InvalidValue,
+            format!("host reported invalid nice value: {nice}"),
+        ));
+    }
+    Ok(nice)
+}
+
 fn parse_field(fields: &[&str], index: usize, name: &str) -> Result<u64, ProcessMetricsError> {
     fields
         .get(index)

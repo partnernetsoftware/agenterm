@@ -147,7 +147,10 @@ MCU retirement blockers
 │  ├─ [x] recoverable file copy: marker-owned no-replace publication + crash recovery
 │  ├─ [~] recoverable file move: macOS qjswasm green; Linux/Windows courts pending
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
-│  ├─ privilege plan/broker/OS consent
+│  ├─ [~] privilege plan/broker/OS consent
+│  │  ├─ [x] read-only `process.set-priority` plan on macOS/Linux: exact start identity + before/after + expiry + dual digest
+│  │  ├─ [x] public qjswasm `cu.privilege-plan`; Windows names the semantic gap instead of fabricating Unix nice
+│  │  └─ [ ] consented apply provider, one-shot postcondition, TTL broker and Windows priority-class contract
 │  └─ CoreSimulator plus required device/service operations
 ├─ [ ] classify and remove every remaining argument-shape fallback
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
@@ -463,6 +466,11 @@ Q3 owned runtime facades
    │  ├─ [x] rollback/finalize + installed/retirement crash recovery
    │  ├─ [x] qjswasm public macOS journey `cu.file-move-transaction`
    │  └─ [ ] Linux + Windows native public journeys through independent `utm-court`
+   ├─ [~] privilege plan: read-only closed operation before any administrator boundary
+   │  ├─ [x] `process.set-priority` binds exact process start identity and two stable priority reads
+   │  ├─ [x] contract digest excludes time; approval digest binds issue/expiry; mutation is always false
+   │  ├─ [x] macOS public qjswasm journey `cu.privilege-plan`
+   │  └─ [ ] native consent/apply provider + Linux/Windows public courts; Windows nice mapping remains typed unavailable
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live

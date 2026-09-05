@@ -11,6 +11,13 @@ pub fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
     crate::selected::process_metrics::metrics(pid)
 }
 
+/// Read the host's Unix nice value for one process when that scheduling model
+/// exists. Windows reports [`ProcessMetricsErrorKind::Unsupported`] rather
+/// than inventing a lossy mapping from priority classes.
+pub fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
+    crate::selected::process_metrics::nice(pid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,6 +62,18 @@ mod tests {
     fn zero_is_not_a_single_process() {
         let error = metrics(0).expect_err("reject PID zero");
         assert_eq!(error.kind(), ProcessMetricsErrorKind::InvalidId);
+    }
+
+    #[test]
+    fn observes_current_process_priority_or_types_the_host_model() {
+        let observed = nice(std::process::id());
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        assert!((-20..=20).contains(&observed.expect("observe current nice value")));
+        #[cfg(windows)]
+        assert_eq!(
+            observed.expect_err("Windows has no Unix nice model").kind(),
+            ProcessMetricsErrorKind::Unsupported
+        );
     }
 
     #[test]

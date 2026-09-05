@@ -669,6 +669,23 @@
         "task.cu-file-move-transaction-smoke"
       ]
     },
+    "cu-privilege-plan-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-privilege-plan-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-privilege-plan-smoke"
+      ]
+    },
     "cu-network-probe-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2293,6 +2310,27 @@
       "id": "cu-file-move-transaction-smoke",
       "description": "Prove plan-only default, exact move apply (source absent, destination digest preserved), durable status, exact rollback, replace-backup finalize, installed-before-retire crash recovery, and changed-destination refusal through the public agenterm-cu CLI.",
       "entry": "scripts/qjs/cu-file-move-transaction-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-privilege-plan-smoke",
+      "description": "Prove the public read-only process.set-priority plan is identity-bound, expiring, digest-sealed and mutation-free; Windows must fail with its typed semantic gap.",
+      "entry": "scripts/qjs/cu-privilege-plan-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

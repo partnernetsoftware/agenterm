@@ -15,6 +15,7 @@ pub mod help;
 pub mod menu;
 pub mod network;
 pub mod placement;
+pub mod privilege;
 pub mod process;
 pub mod system;
 pub mod terminal;
@@ -39,6 +40,7 @@ pub fn parse_command(
         Family::System => system::parse(spec, target, args),
         Family::Windows => windows::parse(spec, spelled, target, args),
         Family::Process => process::parse(spec, spelled, target, args),
+        Family::Privilege => privilege::parse(spec, spelled, target, args),
         Family::Network => network::parse(spec, spelled, target, args),
         Family::File => file::parse(spec, spelled, target, args),
         Family::Terminal => terminal::parse(spec, spelled, target, args),

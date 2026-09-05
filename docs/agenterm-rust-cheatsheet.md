@@ -1017,6 +1017,16 @@ privilege and native/WOW64 width. Return typed unsupported until a separately
 bounded experiment proves that matrix. As with argv, bracket the point read
 with equal process-start identities so PID reuse cannot change the target.
 
+Privilege planning is observation, not a diluted mutation path. Freeze one
+closed operation, an exact process-start identity, independently repeated
+before-state reads, requested after state and a bounded expiry before any
+provider or consent surface exists. Keep a stable contract digest separate
+from the approval digest that binds issue/expiry timestamps. Platform concepts
+must remain semantic: Unix nice and Windows priority classes are not the same
+wire value, so a missing translation returns typed unsupported rather than a
+plausible integer. Planning must never invoke a broker, shell, consent UI or
+mutation; the later provider revalidates the complete plan and postcondition.
+
 For a caller-visible wait on an existing process, a PID is lookup input, not
 stable identity. First retain the native process object (`pidfd`, kqueue-backed
 reference, or Windows HANDLE), then compare the caller's prior start identity

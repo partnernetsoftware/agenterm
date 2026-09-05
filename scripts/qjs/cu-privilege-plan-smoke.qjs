@@ -1,0 +1,82 @@
+// Public black-box contract for a read-only, expiring privilege plan.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.privilege-plan"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) {
+  executable = executable + ".exe";
+}
+ensure(direct_file(executable), "cu_privilege_plan_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-privilege-plan");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP public privilege plan observes one exact process and never mutates it");
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+    "privilege", "plan", "process.set-priority", "self", "0",
+    "--ttl-seconds", "60"
+  ], {
+    cwd: context.run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "audit.jsonl") },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_privilege_plan_empty:" + output.stderr);
+  const reply = JSON.parse(stdout);
+  if (harness.host_is_windows()) {
+    ensure(output.success !== true, "cu_privilege_plan_windows_false_success");
+    ensure(reply.ok === false, "cu_privilege_plan_windows_reply_ok");
+    ensure(
+      reply.error.code === "privilege_operation_unsupported",
+      "cu_privilege_plan_windows_error:" + stdout
+    );
+  } else {
+    ensure(output.success === true && reply.ok === true, "cu_privilege_plan_reply:" + stdout);
+    ensure(reply.command === "privilege-plan", "cu_privilege_plan_command");
+    ensure(reply.data.operation === "process.set-priority", "cu_privilege_plan_operation");
+    ensure(reply.data.schema_version === 1, "cu_privilege_plan_schema");
+    ensure(reply.data.target.pid > 0, "cu_privilege_plan_pid");
+    ensure(reply.data.target.start_identity.length > 0, "cu_privilege_plan_identity");
+    ensure(reply.data.before.nice >= -20 && reply.data.before.nice <= 20, "cu_privilege_plan_before");
+    ensure(reply.data.after.nice === 0, "cu_privilege_plan_after");
+    ensure(reply.data.mutation_performed === false, "cu_privilege_plan_mutated");
+    ensure(reply.data.contract_digest.length === 64, "cu_privilege_plan_contract_digest");
+    ensure(reply.data.approval_digest.length === 64, "cu_privilege_plan_approval_digest");
+    ensure(
+      reply.data.expires_at_utc_ms - reply.data.issued_at_utc_ms === 60000,
+      "cu_privilege_plan_expiry"
+    );
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.privilege-plan");
+  harness.remove_run(context);
+  print("PASS: read-only privilege plan is identity-bound, expiring, and platform-honest");
+}
+if (failure !== "") { throw failure; }
+return;

@@ -620,6 +620,17 @@ flowchart LR
   nonce recovery; that lifecycle mechanism belongs to the independent
   `utm-court` repository and must not be copied into AgenTerm.
 
+- [~] Privilege is now split at the real authority boundary. The public
+  `privilege plan process.set-priority` command is read-only on macOS/Linux:
+  it brackets the target with matching process-start identity and nice reads,
+  freezes exact before/requested-after state, bounds expiry to 1..=600 seconds,
+  and returns separate stable-contract and expiring-approval SHA-256 digests.
+  `cu.privilege-plan` proves the public qjswasm path and `mutation_performed`
+  remains false. Windows returns `privilege_operation_unsupported` because a
+  priority-class contract is not Unix nice. Consent, broker installation and
+  apply/postcondition remain explicit gaps; no shell, password capture or
+  hidden elevation substitutes for them.
+
 - [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU
   compatibility frontier; ACU's transport worker `exec --json` keeps its old
   meaning. Commands are UTF-8/no-NUL and bounded before spawn. The shell is

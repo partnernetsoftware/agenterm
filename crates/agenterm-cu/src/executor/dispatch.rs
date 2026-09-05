@@ -337,6 +337,12 @@ impl Executor {
                 *expect_exited,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::PrivilegePlanProcessPriority {
+                pid,
+                nice,
+                ttl_seconds,
+                ..
+            } => crate::privilege_plan::process_priority_plan_now(*pid, *nice, *ttl_seconds),
             Command::ProcessWatch {
                 pid,
                 parent,

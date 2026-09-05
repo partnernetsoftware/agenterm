@@ -735,6 +735,39 @@
       ]
     },
     {
+      "name": "privilege-plan",
+      "command": "privilege-plan",
+      "aliases": [
+        "privilege plan"
+      ],
+      "grant": "observe",
+      "family": "privilege",
+      "summary": "prepare an expiring identity-bound privileged-operation plan",
+      "usage": "privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\nprivilege plan process.set-priority PID|self NICE [--ttl-seconds N]",
+      "args": [
+        {
+          "flag": "process.set-priority",
+          "value": "",
+          "help": "closed operation whose exact before and requested after state are bound"
+        },
+        {
+          "flag": "PID|self",
+          "value": "",
+          "help": "positive process id, or this short-lived planner process"
+        },
+        {
+          "flag": "NICE",
+          "value": "",
+          "help": "requested Unix nice value in -20..=20"
+        },
+        {
+          "flag": "--ttl-seconds",
+          "value": "N",
+          "help": "approval lifetime in 1..=600 seconds (default 120)"
+        }
+      ]
+    },
+    {
       "name": "process-watch",
       "command": "process-watch",
       "aliases": [
@@ -4631,6 +4664,10 @@
     {
       "name": "process-cwd",
       "text": "agenterm-cu process-cwd    (also: process cwd)\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  process-cwd --pid N\n  process cwd PID\n\narguments:\n  --pid N                       positive process id (or positional PID)\n\nReads the native working directory between two matching process-start\nidentity observations. This explicit command returns the path; persistent\nevidence retains only its UTF-8 byte length and SHA-256. Linux uses procfs and\nmacOS uses libproc vnode data. Windows returns process_cwd_unsupported because\nthere is no stable public API; ACU does not read undocumented remote PEB layouts.\nExit, PID reuse, permission denial, unavailable cwd and invalid native data are\ndistinct typed failures.\n"
+    },
+    {
+      "name": "privilege-plan",
+      "text": "agenterm-cu privilege-plan    (also: privilege plan)\n  scope: observe    family: Privilege\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\n  privilege plan process.set-priority PID|self NICE [--ttl-seconds N]\n\narguments:\n  process.set-priority           the closed operation in this first slice\n  PID|self                       positive process id, or the planner process\n  NICE                           requested Unix nice value in -20..=20\n  --ttl-seconds N                approval lifetime, 1..=600 (default 120)\n\nObserves the exact process start identity and current nice value twice, then\nreturns a canonical expiring plan with contract_digest and approval_digest.\nIt never changes priority, starts a broker, invokes a shell, or opens consent.\nWindows returns privilege_operation_unsupported until a semantically equivalent\npriority-class contract exists; it never pretends Unix nice is portable there.\n"
     },
     {
       "name": "process-environment",

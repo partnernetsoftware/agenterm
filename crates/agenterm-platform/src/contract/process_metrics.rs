@@ -40,6 +40,7 @@ pub enum ProcessMetricsErrorKind {
     Clock,
     InvalidValue,
     Overflow,
+    Unsupported,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
