@@ -31,19 +31,27 @@ const context = harness.new_context(repo, "cu-privilege-plan");
 let succeeded = 0;
 let failure = "";
 try {
+  const audit_path = rh.join(context.run_directory, "audit.jsonl");
+  function plan(nice) {
+    const output = rh.command(executable, [
+      "--target", "current", "--grant", "observe",
+      "privilege", "plan", "process.set-priority", "" + rh.pid(), "" + nice,
+      "--ttl-seconds", "60"
+    ], {
+      cwd: context.run_directory,
+      env: { AGENTERM_CU_AUDIT_PATH: audit_path },
+      timeout_ms: 30000
+    });
+    const stdout = output.stdout.trim();
+    ensure(stdout !== "", "cu_privilege_plan_empty:" + output.stderr);
+    return { output: output, stdout: stdout, reply: JSON.parse(stdout) };
+  }
+
   print("STEP public privilege plan observes one exact process and never mutates it");
-  const output = rh.command(executable, [
-    "--target", "current", "--grant", "observe",
-    "privilege", "plan", "process.set-priority", "self", "0",
-    "--ttl-seconds", "60"
-  ], {
-    cwd: context.run_directory,
-    env: { AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "audit.jsonl") },
-    timeout_ms: 30000
-  });
-  const stdout = output.stdout.trim();
-  ensure(stdout !== "", "cu_privilege_plan_empty:" + output.stderr);
-  const reply = JSON.parse(stdout);
+  const first = plan(0);
+  const output = first.output;
+  const stdout = first.stdout;
+  const reply = first.reply;
   if (harness.host_is_windows()) {
     ensure(output.success !== true, "cu_privilege_plan_windows_false_success");
     ensure(reply.ok === false, "cu_privilege_plan_windows_reply_ok");
@@ -67,6 +75,30 @@ try {
       reply.data.expires_at_utc_ms - reply.data.issued_at_utc_ms === 60000,
       "cu_privilege_plan_expiry"
     );
+
+    print("STEP stable inputs preserve the contract digest while changed intent changes it");
+    const repeated = plan(0);
+    const changed = plan(5);
+    ensure(repeated.output.success === true && repeated.reply.ok === true, "cu_privilege_plan_repeat");
+    ensure(changed.output.success === true && changed.reply.ok === true, "cu_privilege_plan_changed");
+    ensure(
+      repeated.reply.data.target.start_identity === reply.data.target.start_identity,
+      "cu_privilege_plan_repeat_identity"
+    );
+    ensure(
+      repeated.reply.data.before.nice === reply.data.before.nice,
+      "cu_privilege_plan_repeat_before"
+    );
+    ensure(
+      repeated.reply.data.contract_digest === reply.data.contract_digest,
+      "cu_privilege_plan_repeat_contract"
+    );
+    ensure(
+      changed.reply.data.contract_digest !== reply.data.contract_digest,
+      "cu_privilege_plan_changed_contract"
+    );
+    ensure(changed.reply.data.after.nice === 5, "cu_privilege_plan_changed_after");
+    ensure(changed.reply.data.mutation_performed === false, "cu_privilege_plan_changed_mutated");
   }
   succeeded = 1;
 } catch (error) {
