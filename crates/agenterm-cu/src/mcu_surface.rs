@@ -421,8 +421,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "ACU migration gap: typed device/audio lease facade pending",
         ),
         "privilege" => (
-            "unsupported",
-            "ACU migration gap: typed privilege-broker facade pending; no root shell",
+            "available",
+            "identity-bound process priority plans and the closed provider protocol are live; native consent and one-shot apply remain typed gaps, and no root shell is exposed",
         ),
         "runtime" => (
             "available",
