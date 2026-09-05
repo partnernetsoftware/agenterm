@@ -141,6 +141,8 @@ AgenTerm — local agent & process fleet work OS
 │     ├─ Bun-free bridge         零 `STAY` + MCU-absent 门绿后，才用 `acu.qjs` 接替过渡薄壳
 │     │                       `acu.qjs` 仅保留旧语法兼容，不复制机制、权威或验证
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
+│     ├─ active frontier        先补齐 MCU 必需能力与原生证据；当前推进 device watch/claim/I/O
+│     │                       不完整 provider snapshot 不得伪造设备增删事件
 │     ├─ 29 Command surface       抽象命令集、洋葱分层、结构化控件树、确定性等待
 │     ├─ 30 Targets & transports  current/ssh/rdp/vnc 目标族、transport、平台后端
 │     │  ├─ target family        current（首发）/ ssh / rdp / vnc

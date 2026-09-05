@@ -1317,6 +1317,16 @@ flowchart LR
   single-provider bound, private-field absence and invalid-selector refusal.
   Linux and Windows adapters compile and have fixture coverage, but their
   native public courts remain open, so the ledger row is `platform-limited`.
+- [~] `device-watch` is the next device-retirement slice. It is a bounded
+  poll/diff observer over the same private inventory owner, not a second
+  provider stack and not a TypeScript effect. A change is provable only across
+  two consecutive complete, non-truncated snapshots for that device kind.
+  Partial or unavailable provider samples suppress events and publish explicit
+  incomplete coverage instead of inventing `added` or `removed` rows. The
+  public result remains pseudonymous, bounded by duration, interval, row and
+  event ceilings, and preserves an overall monotonic deadline. This leaf stays
+  `[~]` until its qjswasm black-box and native host courts are green; device
+  claim/lease and byte I/O remain separate retirement blockers.
 
 ```text
 device.inventory
@@ -1326,6 +1336,14 @@ device.inventory
 ├─ [x] macOS arm64 public qjswasm court
 ├─ [ ] Linux native public qjswasm courts
 └─ [ ] Windows native public qjswasm courts
+
+device.watch
+├─ [~] same platform inventory + installation pseudonym owner
+├─ [~] complete→complete snapshots may emit added/removed/changed
+├─ [~] partial/unavailable samples suppress inferred events
+├─ [~] bounded duration/interval/rows/events + monotonic deadline
+├─ [ ] public qjswasm black-box
+└─ [ ] macOS/Linux/Windows native courts
 ```
 
 ```mermaid
@@ -1334,6 +1352,11 @@ flowchart LR
   N["native provider rows<br/>serial/address/path remain private"] --> H["platform HMAC boundary"]
   K --> H --> P["opaque device id<br/>continuity class"]
   P --> Q["device-list typed reply"] --> C["qjswasm public court"]
+  P --> W["device-watch bounded diff<br/>complete snapshots only"]
+  W --> WC{"coverage complete?"}
+  WC -->|no| WS["suppress inferred events<br/>typed incomplete coverage"]
+  WC -->|yes| WE["added · removed · changed"]
+  WS & WE --> C
   C -->|macOS green| M["platform-limited"]
   C -->|Linux + Windows green| V["native inventory leaf"]
 ```

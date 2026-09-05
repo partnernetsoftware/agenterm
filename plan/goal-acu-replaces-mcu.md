@@ -499,6 +499,12 @@ shapes fail typed instead of being ignored.
   macOS arm64 qjswasm court is green. Linux and Windows runtime courts still
   keep the row platform-limited, while device watch/claim/byte I/O remain
   separate blockers rather than being implied by inventory.
+- `device.watch` is now the active device slice. Its proof boundary is stricter
+  than a naive poller: only two consecutive complete provider snapshots may
+  yield `added`, `removed` or `changed`; partial/unavailable samples publish
+  incomplete coverage and suppress inferred events. It must reuse the same
+  platform inventory and private pseudonym owner, remain bounded by one
+  monotonic deadline, and pass a public qjswasm court before leaving `[~]`.
 - R0 accounting is complete across all 13 families. Runtime/service/session/
   audit contains user/system services, native coordinator, login service,
   leases, target locks, request idempotency, desktop delivery, audit
