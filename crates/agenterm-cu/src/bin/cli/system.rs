@@ -1,7 +1,7 @@
 //! Host-level discovery that is independent of the desktop/window family.
 
 use agenterm_cu::{
-    Command, TargetRef,
+    Command, PermissionAction, PermissionKind, TargetRef,
     command::{JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter},
 };
 
@@ -131,6 +131,49 @@ pub fn parse(
             sound,
         });
     }
+    if spec.name == "permissions" {
+        let action = match args.first().map(String::as_str) {
+            None | Some("status") => {
+                if !args.is_empty() {
+                    args.remove(0);
+                }
+                PermissionAction::Status
+            }
+            Some("open") => {
+                args.remove(0);
+                PermissionAction::Open
+            }
+            Some(other) => {
+                return Err(format!(
+                    "permissions expects status or open [accessibility|screen-capture]; unexpected {other:?}"
+                ));
+            }
+        };
+        let permission = if action == PermissionAction::Open && !args.is_empty() {
+            Some(match args.remove(0).as_str() {
+                "accessibility" => PermissionKind::Accessibility,
+                "screen-capture" | "screen-recording" => PermissionKind::ScreenCapture,
+                other => {
+                    return Err(format!(
+                        "permission must be accessibility or screen-capture; got {other:?}"
+                    ));
+                }
+            })
+        } else {
+            None
+        };
+        if !args.is_empty() {
+            return Err(format!(
+                "permissions accepts status or open [accessibility|screen-capture]; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::Permissions {
+            target,
+            action,
+            permission,
+        });
+    }
     if !args.is_empty() {
         return Err(format!(
             "{} accepts no arguments; unexpected {:?}",
@@ -139,7 +182,6 @@ pub fn parse(
     }
     match spec.name {
         "capabilities" => Ok(Command::Capabilities { target }),
-        "permissions" => Ok(Command::Permissions { target }),
         "doctor" => Ok(Command::Doctor { target }),
         other => Err(format!("unknown command '{other}'")),
     }
@@ -453,6 +495,44 @@ mod tests {
         assert!(parse("session-start", &["--ttl", "1", "extra"]).is_err());
         assert!(parse("session-renew", &["s1", "--lease"]).is_err());
         assert!(parse("lock-acquire", &["s1", "lease"]).is_err());
+    }
+
+    #[test]
+    fn permissions_status_and_open_shapes_are_closed() {
+        assert!(matches!(
+            parse("permissions", &[]).unwrap(),
+            Command::Permissions {
+                action: PermissionAction::Status,
+                permission: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("permissions", &["status"]).unwrap(),
+            Command::Permissions {
+                action: PermissionAction::Status,
+                permission: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("permissions", &["open", "screen-capture"]).unwrap(),
+            Command::Permissions {
+                action: PermissionAction::Open,
+                permission: Some(PermissionKind::ScreenCapture),
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("permissions", &["open"]).unwrap(),
+            Command::Permissions {
+                action: PermissionAction::Open,
+                permission: None,
+                ..
+            }
+        ));
+        assert!(parse("permissions", &["open", "camera"]).is_err());
+        assert!(parse("permissions", &["status", "accessibility"]).is_err());
     }
 
     #[test]

@@ -732,26 +732,14 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
 /// that to find it.
 pub(super) fn permissions_declaration() -> serde_json::Value {
     if cfg!(target_os = "macos") {
-        let accessibility =
-            match mechanism::capability_status(mechanism::Capability::AccessibilityTree) {
-                mechanism::CapabilityStatus::Available => serde_json::json!({
-                    "status": "granted",
-                }),
-                mechanism::CapabilityStatus::Failed { code, message }
-                    if code == "a11y_permission_denied" =>
-                {
-                    serde_json::json!({
-                        "status": "denied",
-                        "reason": code,
-                        "message": message,
-                        "repair": ACCESSIBILITY_REPAIR_PATH,
-                    })
-                }
-                other => serde_json::json!({
-                    "status": "unknown",
-                    "detail": format!("{other:?}"),
-                }),
-            };
+        let accessibility = permission_declaration(
+            agenterm_platform::permission_settings::PermissionKind::Accessibility,
+            ACCESSIBILITY_REPAIR_PATH,
+        );
+        let screen_recording = permission_declaration(
+            agenterm_platform::permission_settings::PermissionKind::ScreenCapture,
+            SCREEN_RECORDING_REPAIR_PATH,
+        );
         serde_json::json!({
             "accessibility": {
                 "grant": accessibility,
@@ -766,18 +754,8 @@ pub(super) fn permissions_declaration() -> serde_json::Value {
                     "close", "unlock", "pointer-move", "pointer-position",
                 ],
             },
-            // Screen Recording really is required now that window capture
-            // works, and this does not claim to know whether it is held:
-            // the capture API reports "no permission" and "the window is
-            // gone" the same way, so the honest report is that the grant
-            // gates the verb, with where to fix it -- not a guess at its
-            // state dressed as a reading.
             "screen_recording": {
-                "grant": {
-                    "status": "required",
-                    "reason": "window capture reads the window's pixels; macOS gates that on Screen Recording",
-                    "repair": SCREEN_RECORDING_REPAIR_PATH,
-                },
+                "grant": screen_recording,
                 "gates": ["screenshot"],
             },
         })
@@ -787,6 +765,209 @@ pub(super) fn permissions_declaration() -> serde_json::Value {
             "reason": "this host has no per-application permission gate; a mechanism is available or it is not",
         })
     }
+}
+
+fn permission_declaration(
+    permission: agenterm_platform::permission_settings::PermissionKind,
+    repair: &str,
+) -> serde_json::Value {
+    match agenterm_platform::permission_settings::status(permission) {
+        Ok(status) => {
+            let mut value = serde_json::json!({
+                "status": status.state.as_str(),
+                "provider": status.provider,
+            });
+            if status.state != agenterm_platform::permission_settings::PermissionState::Granted {
+                value["repair"] = serde_json::json!(repair);
+            }
+            value
+        }
+        Err(error) => serde_json::json!({
+            "status": "unknown",
+            "detail": error.to_string(),
+            "repair": repair,
+        }),
+    }
+}
+
+fn platform_permission(
+    permission: PermissionKind,
+) -> agenterm_platform::permission_settings::PermissionKind {
+    match permission {
+        PermissionKind::Accessibility => {
+            agenterm_platform::permission_settings::PermissionKind::Accessibility
+        }
+        PermissionKind::ScreenCapture => {
+            agenterm_platform::permission_settings::PermissionKind::ScreenCapture
+        }
+    }
+}
+
+fn permission_error(
+    error: agenterm_platform::permission_settings::PermissionSettingsError,
+) -> CuError {
+    use agenterm_platform::permission_settings::PermissionSettingsErrorKind;
+    let code = match error.kind() {
+        PermissionSettingsErrorKind::NotApplicable => "permission_open_not_applicable",
+        PermissionSettingsErrorKind::Unsupported => "permission_open_provider_specific",
+        PermissionSettingsErrorKind::LauncherUnavailable => {
+            "permission_settings_launcher_unavailable"
+        }
+        PermissionSettingsErrorKind::Rejected => "permission_settings_rejected",
+        PermissionSettingsErrorKind::TimedOut => "permission_settings_outcome_unknown",
+        PermissionSettingsErrorKind::Native => "permission_settings_failed",
+        _ => "permission_settings_failed",
+    };
+    CuError::new(code, error.to_string())
+}
+
+fn select_next_permission(
+    accessibility: agenterm_platform::permission_settings::PermissionState,
+    screen_capture: agenterm_platform::permission_settings::PermissionState,
+) -> Result<Option<PermissionKind>, CuError> {
+    use agenterm_platform::permission_settings::PermissionState;
+    match accessibility {
+        PermissionState::Denied => return Ok(Some(PermissionKind::Accessibility)),
+        PermissionState::Granted => {}
+        PermissionState::NotApplicable => {
+            return Err(CuError::new(
+                "permission_open_not_applicable",
+                "this host has no equivalent per-application consent pane",
+            ));
+        }
+        PermissionState::ProviderSpecific => {
+            return Err(CuError::new(
+                "permission_open_provider_specific",
+                "this host's permission repair is provider-specific",
+            ));
+        }
+        PermissionState::Unknown => {
+            return Err(CuError::new(
+                "permission_status_unknown",
+                "Accessibility status is unknown; default-next refuses to guess",
+            ));
+        }
+        _ => {
+            return Err(CuError::new(
+                "permission_status_unknown",
+                "Accessibility status is unknown; default-next refuses to guess",
+            ));
+        }
+    }
+    match screen_capture {
+        PermissionState::Denied => Ok(Some(PermissionKind::ScreenCapture)),
+        PermissionState::Granted => Ok(None),
+        PermissionState::NotApplicable => Err(CuError::new(
+            "permission_open_not_applicable",
+            "this host has no equivalent per-application consent pane",
+        )),
+        PermissionState::ProviderSpecific => Err(CuError::new(
+            "permission_open_provider_specific",
+            "this host's permission repair is provider-specific",
+        )),
+        PermissionState::Unknown => Err(CuError::new(
+            "permission_status_unknown",
+            "Screen Capture status is unknown; default-next refuses to guess",
+        )),
+        _ => Err(CuError::new(
+            "permission_status_unknown",
+            "Screen Capture status is unknown; default-next refuses to guess",
+        )),
+    }
+}
+
+pub(super) fn permissions_open_payload(
+    requested: Option<PermissionKind>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    use agenterm_platform::permission_settings::{self, PermissionState};
+
+    let permission = if let Some(permission) = requested {
+        permission
+    } else {
+        let accessibility =
+            permission_settings::status(permission_settings::PermissionKind::Accessibility)
+                .map_err(permission_error)?;
+        let screen_capture =
+            permission_settings::status(permission_settings::PermissionKind::ScreenCapture)
+                .map_err(permission_error)?;
+        let Some(permission) = select_next_permission(accessibility.state, screen_capture.state)?
+        else {
+            return Ok(serde_json::json!({
+                "performed": false,
+                "opened": false,
+                "accepted": false,
+                "verified": true,
+                "already_granted": true,
+                "permission": null,
+                "reason": "all inspectable permissions are already granted",
+            }));
+        };
+        permission
+    };
+    let ticket = receipts.reserve(
+        "permissions-open",
+        0,
+        serde_json::json!({ "permission": permission.as_str() }),
+    )?;
+    let native = match permission_settings::open(platform_permission(permission)) {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            let typed = permission_error(error);
+            let effect = if typed.code == "permission_settings_outcome_unknown" {
+                "unknown"
+            } else {
+                "not_performed"
+            };
+            receipts.complete(
+                &ticket,
+                "permissions-open",
+                0,
+                false,
+                serde_json::json!({
+                    "performed": effect,
+                    "accepted": false,
+                    "verified": false,
+                    "error": error_payload(&typed),
+                }),
+            )?;
+            return Err(typed.with_detail(serde_json::json!({
+                "effect": effect,
+                "permission": permission.as_str(),
+                "receipt": ticket.json(),
+            })));
+        }
+    };
+    let performed = native.accepted && !native.already_granted;
+    let verified = native.already_granted && native.before == PermissionState::Granted;
+    receipts.complete(
+        &ticket,
+        "permissions-open",
+        0,
+        true,
+        serde_json::json!({
+            "performed": performed,
+            "accepted": native.accepted,
+            "verified": verified,
+            "already_granted": native.already_granted,
+            "permission": permission.as_str(),
+            "provider": native.provider,
+            "before": native.before.as_str(),
+        }),
+    )?;
+    Ok(serde_json::json!({
+        "performed": performed,
+        "opened": native.accepted,
+        "accepted": native.accepted,
+        "verified": verified,
+        "already_granted": native.already_granted,
+        "permission": permission.as_str(),
+        "provider": native.provider,
+        "before": native.before.as_str(),
+        "consent_changed": false,
+        "verification": if verified { "status-preflight" } else { "settings-dispatcher-accepted-only" },
+        "receipt": ticket.json(),
+    }))
 }
 
 pub(super) fn permissions_payload() -> serde_json::Value {
@@ -1078,6 +1259,8 @@ mod tests {
     fn permissions_is_a_live_read_only_facade_over_the_same_declaration() {
         let reply = observe_executor().execute(&Command::Permissions {
             target: TargetRef::Current,
+            action: PermissionAction::Status,
+            permission: None,
         });
         assert!(reply.ok, "{reply:?}");
         assert_eq!(reply.command, "permissions");
@@ -1085,6 +1268,48 @@ mod tests {
         assert_eq!(data["platform"], crate::mcu_surface::host_os());
         assert_eq!(data["action"]["performed"], false);
         assert_eq!(data["permissions"], permissions_declaration());
+    }
+
+    #[test]
+    fn default_next_permission_is_ordered_and_refuses_unknown_state() {
+        use agenterm_platform::permission_settings::PermissionState;
+
+        assert_eq!(
+            select_next_permission(PermissionState::Denied, PermissionState::Denied).unwrap(),
+            Some(PermissionKind::Accessibility)
+        );
+        assert_eq!(
+            select_next_permission(PermissionState::Granted, PermissionState::Denied).unwrap(),
+            Some(PermissionKind::ScreenCapture)
+        );
+        assert_eq!(
+            select_next_permission(PermissionState::Granted, PermissionState::Granted).unwrap(),
+            None
+        );
+        assert_eq!(
+            select_next_permission(PermissionState::Unknown, PermissionState::Denied)
+                .unwrap_err()
+                .code,
+            "permission_status_unknown"
+        );
+        assert_eq!(
+            select_next_permission(
+                PermissionState::NotApplicable,
+                PermissionState::NotApplicable
+            )
+            .unwrap_err()
+            .code,
+            "permission_open_not_applicable"
+        );
+        assert_eq!(
+            select_next_permission(
+                PermissionState::ProviderSpecific,
+                PermissionState::ProviderSpecific,
+            )
+            .unwrap_err()
+            .code,
+            "permission_open_provider_specific"
+        );
     }
 
     #[test]

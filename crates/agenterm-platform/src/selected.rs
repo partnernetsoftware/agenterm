@@ -55,6 +55,18 @@ pub(crate) mod host_open;
 #[path = "adapters/linux/host_open.rs"]
 pub(crate) mod host_open;
 
+#[cfg(all(feature = "permission-settings", target_os = "macos"))]
+#[path = "adapters/macos/permission_settings.rs"]
+pub(crate) mod permission_settings;
+
+#[cfg(all(feature = "permission-settings", target_os = "linux"))]
+#[path = "adapters/linux/permission_settings.rs"]
+pub(crate) mod permission_settings;
+
+#[cfg(all(feature = "permission-settings", windows))]
+#[path = "adapters/windows/permission_settings.rs"]
+pub(crate) mod permission_settings;
+
 #[cfg(all(feature = "device-capture", target_os = "macos"))]
 #[path = "adapters/macos/device_capture.rs"]
 pub(crate) mod device_capture;

@@ -79,7 +79,7 @@ flowchart LR
   F --> Q
   I --> Q
   P --> Q
-  SET --> PS["permissions status facade live<br/>same declaration as capabilities"]
+  SET --> PS["permissions status + open-next live<br/>real status · exact pane · never consent"]
   PS --> Q
   SET --> HO["host open + notification live<br/>shell-free · acceptance ≠ verification"]
   HO --> Q
@@ -480,11 +480,12 @@ Q1 desktop closure
 Q2 fast delegated facades
 ├─ [~] caps/doctor/permissions/setup and app inventory
 │  ├─ [x] permissions: read-only platform state + gated verbs + repair guidance
-│  ├─ [ ] permissions: required/optional three-host evidence + open-next action
+│  ├─ [~] permissions open-next: macOS exact pane + granted no-op; denied-pane and two native courts pending
 │  ├─ [~] doctor: bounded read-only health receipt; local CLI green, three-host pending
 │  └─ [ ] setup: idempotent launcher/runtime repair
 ├─ [~] open/notify/state and terminal adoption
-│  └─ [x] state → bounded native desktop-state; open/notify/adoption remain
+│  ├─ [x] open/notify → typed host adapters; macOS public courts green, Linux/Windows pending
+│  └─ [x] state → bounded native desktop-state; terminal adoption remains separate
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
    ├─ [x] process-state: live/dead/unknown + stable start identity, observe-only

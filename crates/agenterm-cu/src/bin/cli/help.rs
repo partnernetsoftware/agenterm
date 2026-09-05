@@ -57,6 +57,10 @@ Live RDP session + UIA-over-RDP evidence is not claimed on this cut.
 pub fn top_level_text() -> String {
     let mut text = verbs::cold_text("top_level_text").to_owned();
     text = text.replace(
+        "  permissions                       observe  permission state, affected verbs and repair guidance",
+        "  permissions                       mixed    status observes; open dispatches one exact settings pane",
+    );
+    text = text.replace(
         "MCU-aligned verbs with no mechanism here (pty, simulator, drag, ...) answer typed\nunsupported, never unknown; `capabilities` lists them per target.\n",
         "Unmapped MCU groups answer typed unsupported; `capabilities` lists them per target.\n",
     );
@@ -161,6 +165,10 @@ pub fn verbs_json() -> String {
 
 pub fn verbs_text() -> String {
     let mut text = verbs::cold_text("verbs_text").to_owned();
+    text = text.replace(
+        "permissions                                           observe  system        permission state, affected verbs and repair guidance",
+        "permissions                                           mixed    system        status observes; open dispatches an exact settings pane",
+    );
     for spec in verbs::VERBS {
         if text.lines().any(|line| line.starts_with(spec.name)) {
             continue;

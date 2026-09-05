@@ -19,11 +19,15 @@
       "name": "permissions",
       "command": "permissions",
       "aliases": [],
-      "grant": "observe",
+      "grant": "actuate",
       "family": "system",
-      "summary": "permission state, affected verbs and repair guidance",
-      "usage": "permissions",
-      "args": []
+      "summary": "inspect permission state or open one exact consent settings pane",
+      "usage": "permissions [status]\npermissions open [accessibility|screen-capture]",
+      "args": [
+        {"flag": "status", "value": "", "help": "read-only canonical permission state (default)"},
+        {"flag": "open", "value": "", "help": "open one exact missing settings pane; requires actuate"},
+        {"flag": "accessibility|screen-capture", "value": "", "help": "optional exact permission; omission selects the next known missing grant"}
+      ]
     },
     {
       "name": "doctor",
@@ -4329,7 +4333,7 @@
     },
     {
       "name": "permissions",
-      "text": "agenterm-cu permissions\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  permissions\n\nReports the current host's permission model without opening settings or\nclaiming a grant that the platform cannot inspect. Each permission names the verbs it gates and\nthe exact repair surface when one exists. This is a read-only status facade; system consent stays\nwith the user and `permissions` never attempts to bypass it.\n"
+      "text": "agenterm-cu permissions\n  scope: observe for status; actuate for open    family: System & permissions\n\nusage:\n  permissions [status]\n  permissions open [accessibility|screen-capture]\n\nStatus reports the canonical host permission model without mutation. Open reads the real state first: an already granted permission is a verified no-op; otherwise macOS dispatches only the exact System Settings pane. Omitting the selector chooses Accessibility before Screen Capture, but unknown state fails typed instead of guessing. Linux reports not-applicable and Windows reports provider-specific unsupported. Opening settings is not consent: accepted=true never claims the grant changed, and callers must re-run status after the user acts.\n"
     },
     {
       "name": "doctor",

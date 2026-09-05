@@ -122,6 +122,7 @@ pub enum Capability {
     DesktopHost,
     HostOpen,
     HostNotification,
+    PermissionSettings,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -203,6 +204,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         ),
         Capability::HostOpen => (cfg!(feature = "host-open"), true),
         Capability::HostNotification => (cfg!(feature = "host-notification"), true),
+        Capability::PermissionSettings => (cfg!(feature = "permission-settings"), true),
     };
     if enabled && implemented {
         CapabilityStatus::Available
@@ -413,6 +415,9 @@ pub mod host_open;
 
 #[cfg(feature = "host-notification")]
 pub mod host_notification;
+
+#[cfg(feature = "permission-settings")]
+pub mod permission_settings;
 
 #[cfg(feature = "contained-process-spawn")]
 pub mod contained_process;

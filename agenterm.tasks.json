@@ -773,6 +773,17 @@
         "task.cu-host-open-smoke"
       ]
     },
+    "cu-permissions-open-smoke": {
+      "inputs": ["built-agenterm-cu"],
+      "outputs": ["cu-permissions-open-evidence"],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": ["task.cu-permissions-open-smoke"]
+    },
     "cu-host-notify-smoke": {
       "inputs": ["built-agenterm-cu"],
       "outputs": ["cu-host-notify-evidence"],
@@ -2548,6 +2559,17 @@
         "artifact_write",
         "process_spawn"
       ]
+    },
+    {
+      "id": "cu-permissions-open-smoke",
+      "description": "Prove permission status is read-only, macOS already-granted open is a verified no-op, and hosts without a generic pane fail typed without opening UI.",
+      "entry": "scripts/qjs/cu-permissions-open-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [".", "target/debug/agenterm-cu"],
+      "dependencies": [],
+      "platforms": ["windows", "linux", "macos"],
+      "side_effects": ["artifact_write", "process_spawn"]
     },
     {
       "id": "cu-host-notify-smoke",

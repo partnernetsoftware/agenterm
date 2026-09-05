@@ -1,0 +1,107 @@
+// Public black-box court for permission status and settings dispatch semantics.
+// It never opens a visible pane: macOS exercises only an already-granted no-op;
+// Linux/Windows exercise their typed non-applicable/provider-specific result.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.permissions-open.contract"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push(argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      HOME: run_directory
+    },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.command === "permissions", "cu_permissions_wrong_command");
+  return { output, reply };
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_permissions_executable_missing");
+const context = harness.new_context(repo, "cu-permissions-open");
+const run_directory = context.run_directory;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP status is read-only and names the platform permission model");
+  const status = invoke(run_directory, executable, "observe", ["permissions", "status"]);
+  ensure(status.output.success === true && status.reply.ok === true,
+    "cu_permissions_status_failed:" + JSON.stringify(status.reply));
+  ensure(status.reply.data.action.performed === false, "cu_permissions_status_mutated");
+  const platform = status.reply.data.platform;
+
+  if (platform === "macos") {
+    const accessibility = status.reply.data.permissions.accessibility.grant.status;
+    const screen = status.reply.data.permissions.screen_recording.grant.status;
+    let permission = "";
+    if (accessibility === "granted") { permission = "accessibility"; }
+    else if (screen === "granted") { permission = "screen-capture"; }
+    if (permission === "") {
+      print("STEP typed skip: no already-granted permission is safe for a no-UI dispatch court");
+    } else {
+      print("STEP already-granted macOS permission is a verified no-op");
+      const opened = invoke(run_directory, executable, "actuate", ["permissions", "open", permission]);
+      ensure(opened.output.success === true && opened.reply.ok === true,
+        "cu_permissions_noop_failed:" + JSON.stringify(opened.reply));
+      ensure(opened.reply.data.performed === false && opened.reply.data.opened === false,
+        "cu_permissions_noop_performed");
+      ensure(opened.reply.data.already_granted === true && opened.reply.data.verified === true,
+        "cu_permissions_noop_not_verified");
+    }
+  } else {
+    print("STEP non-macOS does not invent a generic consent pane");
+    const opened = invoke(run_directory, executable, "actuate",
+      ["permissions", "open", "accessibility"]);
+    ensure(opened.output.success !== true && opened.reply.ok !== true,
+      "cu_permissions_expected_typed_failure");
+    if (platform === "linux") {
+      ensure(opened.reply.error.code === "permission_open_not_applicable",
+        "cu_permissions_linux_wrong_error:" + JSON.stringify(opened.reply));
+    } else if (platform === "windows") {
+      ensure(opened.reply.error.code === "permission_open_provider_specific",
+        "cu_permissions_windows_wrong_error:" + JSON.stringify(opened.reply));
+    } else {
+      throw "cu_permissions_unknown_platform:" + platform;
+    }
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.permissions-open.contract");
+  harness.remove_run(context);
+  print("PASS: permission status and no-UI settings-dispatch contract");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

@@ -12,7 +12,24 @@ impl Executor {
     ) -> Result<serde_json::Value, CuError> {
         match command {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
-            Command::Permissions { .. } => Ok(permissions_payload()),
+            Command::Permissions {
+                action, permission, ..
+            } => match action {
+                PermissionAction::Status => {
+                    if permission.is_some() {
+                        Err(CuError::new(
+                            "invalid_input",
+                            "permissions status does not accept a permission selector",
+                        ))
+                    } else {
+                        Ok(permissions_payload())
+                    }
+                }
+                PermissionAction::Open => permissions_open_payload(
+                    *permission,
+                    &mut self.open_receipts(command.target())?,
+                ),
+            },
             Command::Doctor { .. } => Ok(doctor_payload()),
             Command::HostOpen {
                 value,

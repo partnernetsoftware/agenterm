@@ -486,13 +486,22 @@ flowchart LR
   circuit are green; registered Linux/macOS journey evidence and the Windows
   refusal court remain to execute before promotion.
 - [~] Permission discovery no longer requires agents to mine the broad
-  capability document: `permissions` is a live observe-only public command
+  capability document: `permissions status` is a live observe-only public command
   that returns the host permission model, every gated verb and exact repair
   guidance. It reuses the identical declaration embedded in `capabilities`,
   performs no settings mutation and never claims a grant the host cannot
   inspect. Unit and local public-CLI evidence are green on macOS; required vs
   optional classification and native Linux/Windows journey evidence remain
-  open, as does the separate consent-preserving `open-next` action.
+  open. `permissions open [accessibility|screen-capture]` is now the separate
+  actuate shape: it reads native state first, returns a verified no-op when the
+  selected grant is already held, or on macOS dispatches only that grant's
+  exact System Settings pane. Omission selects Accessibility before Screen
+  Capture; any unknown state fails typed rather than guessing. Linux answers
+  `permission_open_not_applicable` and Windows answers the truthful
+  provider-specific gap. Dispatcher acceptance never claims consent changed;
+  the caller must re-run status after the user acts. The no-visible-UI public
+  qjswasm court is green locally; a denied macOS exact-pane court plus native
+  Linux/Windows execution remain open.
 - [~] `doctor` is now a first-class observe-only command. It performs bounded
   live window and display probes, embeds the exact canonical `permissions` and
   `capabilities` declarations, and reports `ready|degraded` without opening
@@ -526,11 +535,11 @@ flowchart LR
   sound are macOS-only until another provider can prove equivalent semantics.
   MCU `notify` now routes here, reducing top-level `STAY` from 20 to 19.
 - [x] The compatibility boundary no longer lies about `permissions`: `acu
-  permissions` now reaches the same canonical observe-only ACU facade used by
+  permissions [status]` reaches the canonical observe-only ACU facade used by
   `doctor` and `capabilities`, and the old MCU entry advertises ACU as its
   replacement. This reduces the compatibility `STAY` inventory from 30 to 29;
-  operating-system consent remains user-controlled and the command never
-  mutates setup state.
+  `acu permissions open` reaches the consent-preserving action above, while
+  operating-system authorization itself remains user-controlled.
 - [~] Process identity observation is live as `process-state --pid N` on
   current/ssh/vnc. It returns `live|dead|unknown`, preserves fail-closed unknown
   evidence, and publishes the platform start identity when available. MCU

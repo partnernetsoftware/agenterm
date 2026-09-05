@@ -65,8 +65,8 @@ pub mod worker_wire;
 
 pub use auth::{Authorization, Grant};
 pub use command::{
-    Command, FileTransactionAction, OrderRelation, PointerButton, TerminalWaitCondition,
-    WaitCondition,
+    Command, FileTransactionAction, OrderRelation, PermissionAction, PermissionKind, PointerButton,
+    TerminalWaitCondition, WaitCondition,
 };
 pub use executor::{Executor, RequestIdentity};
 pub use rdp_transport::RdpEndpoint;

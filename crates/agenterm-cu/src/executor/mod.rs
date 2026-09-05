@@ -25,7 +25,8 @@ use crate::{
     auth::{Authorization, Grant},
     auth_store::{AuthStore, AuthStoreErrorKind, GrantAttempt, GrantDecision, GrantDenialKind},
     command::{
-        Command, InvokeAction, InvokeValueKind, OrderRelation, PointerButton, WaitCondition,
+        Command, InvokeAction, InvokeValueKind, OrderRelation, PermissionAction, PermissionKind,
+        PointerButton, WaitCondition,
     },
     idempotency_store::{
         FinalOutcome, FinalOutcomeKind, FinalReplay, IdempotencyStore, MAX_RETENTION_TTL_MS,

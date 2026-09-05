@@ -668,6 +668,10 @@ pub enum Command {
     /// VNC workers all receive the same stable shape.
     Permissions {
         target: TargetRef,
+        #[serde(default, skip_serializing_if = "PermissionAction::is_status")]
+        action: PermissionAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permission: Option<PermissionKind>,
     },
     /// Bounded read-only health report composed from the canonical
     /// capability/permission declarations plus live inventory probes.
@@ -2634,6 +2638,37 @@ fn is_zero_u64(value: &u64) -> bool {
     *value == 0
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionAction {
+    #[default]
+    Status,
+    Open,
+}
+
+impl PermissionAction {
+    fn is_status(&self) -> bool {
+        *self == Self::Status
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionKind {
+    Accessibility,
+    ScreenCapture,
+}
+
+impl PermissionKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Accessibility => "accessibility",
+            Self::ScreenCapture => "screen-capture",
+        }
+    }
+}
+
 impl Command {
     pub fn verb(&self) -> String {
         match self {
@@ -2941,7 +2976,11 @@ impl Command {
 
     pub fn required_grant(&self) -> crate::auth::Grant {
         match self {
-            Self::HostOpen { .. }
+            Self::Permissions {
+                action: PermissionAction::Open,
+                ..
+            }
+            | Self::HostOpen { .. }
             | Self::HostNotify { .. }
             | Self::PointerMove { .. }
             | Self::AuditCompact { apply: true, .. }
@@ -3464,6 +3503,8 @@ mod tests {
     fn permissions_is_a_first_class_observe_wire_command() {
         let command = Command::Permissions {
             target: TargetRef::Ssh,
+            action: PermissionAction::Status,
+            permission: None,
         };
         assert_eq!(command.verb(), "permissions");
         assert_eq!(command.target(), TargetRef::Ssh);
@@ -3474,9 +3515,18 @@ mod tests {
         assert!(matches!(
             back,
             Command::Permissions {
-                target: TargetRef::Ssh
+                target: TargetRef::Ssh,
+                action: PermissionAction::Status,
+                permission: None,
             }
         ));
+
+        let open = Command::Permissions {
+            target: TargetRef::Current,
+            action: PermissionAction::Open,
+            permission: Some(PermissionKind::Accessibility),
+        };
+        assert_eq!(open.required_grant(), Grant::Actuate);
     }
 
     #[test]

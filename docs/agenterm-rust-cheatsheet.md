@@ -4109,6 +4109,17 @@ receipts by storing length and digest. When a fixed interpreter is unavoidable
 (for example macOS notification AppleScript), keep the program constant and
 pass all caller text as argv data; never interpolate caller text into source.
 
+Permission repair has the same evidence boundary. Read the selected process'
+real permission state before choosing a repair surface; on macOS Accessibility
+uses `AXIsProcessTrusted` and Screen Capture uses the non-prompting
+`CGPreflightScreenCaptureAccess`. An already granted permission is a verified
+no-op. Opening one exact System Settings pane proves only dispatcher acceptance,
+never that consent changed; require a later status read after the user acts.
+Default-next selection must fail when any earlier candidate state is unknown,
+rather than guessing or opening a broader settings page. Hosts without an
+equivalent per-application consent model return typed not-applicable or
+provider-specific results instead of borrowing macOS vocabulary.
+
 ## Keep privileged intent, consent and effect ownership separate
 
 A digest of an expiring privilege plan proves only which bytes were proposed;

@@ -998,10 +998,13 @@
         {
           "id": "permissions.open-next",
           "mcu_shape": "permissions open or setup opens only the next missing system settings surface",
-          "acu_shape": null,
+          "acu_shape": "permissions open [accessibility|screen-capture] reads native state, returns a verified no-op when already granted, or dispatches one exact macOS settings pane without claiming consent",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "mostly-not-applicable", "windows": "provider-specific"},
-          "next": "platform guidance action that opens one exact settings surface without fabricating or bypassing consent"
+          "platforms": {"macos": "native-noop-public-court-denied-pane-court-pending", "linux": "typed-not-applicable", "windows": "typed-provider-specific"},
+          "qualification": "platform-contract-unit-public-qjs-no-ui-court-linux-windows-native-courts-pending",
+          "evidence": ["cu.permissions-open.contract", "agenterm-platform permission-settings feature tests"],
+          "note": "Default-next orders required Accessibility before optional Screen Capture and refuses unknown status instead of guessing. Opening System Settings proves dispatcher acceptance only; it does not grant, bypass or verify user consent.",
+          "next": "prove a denied macOS permission opens the exact pane under an explicit native court, then run typed Linux and Windows public journeys"
         },
         {
           "id": "host.open",
