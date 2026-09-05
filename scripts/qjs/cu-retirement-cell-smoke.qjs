@@ -1,8 +1,10 @@
 // Execute one final packaged agenterm-cu/libagenterm pair on its native host
-// and publish a source/run/archive-bound, mutation-free Candidate receipt.
+// and publish a source/run/archive-bound Candidate receipt. The paired setup
+// court may mutate only its owned run directory, must clean it, and leaves no
+// persistent machine mutation.
 //
 // Args: AGENTERM_CU LIBAGENTERM PLATFORM_ID SOURCE_SHA ARCHIVE_SHA256
-//       RUN_ID RUN_ATTEMPT OUTPUT_JSON
+//       RUN_ID RUN_ATTEMPT OUTPUT_JSON SETUP_RECEIPT
 import * as rh from "lib/rh_compat";
 
 function require_ok(condition, message) {
@@ -14,7 +16,7 @@ function valid_hex(value, length) {
 }
 
 const args = rh.args();
-require_ok(args.length === 8, "cu_retirement_cell_arguments");
+require_ok(args.length === 9, "cu_retirement_cell_arguments");
 const executable = rh.absolute(args[0]);
 const abi = rh.absolute(args[1]);
 const platform_id = args[2];
@@ -23,6 +25,7 @@ const archive_sha256 = args[4];
 const run_id = args[5];
 const run_attempt = args[6];
 const output = rh.absolute(args[7]);
+const setup_receipt_path = rh.absolute(args[8]);
 
 const platforms = {
   "windows-x86_64": { os: "windows", arch: "x86_64" },
@@ -63,9 +66,23 @@ require_ok(runtime.data.action.performed === false, "cu_retirement_cell_runtime_
 require_ok(runtime.data.global_daemon.present === false
              && runtime.data.global_daemon.required === false,
            "cu_retirement_cell_daemon_claim");
+require_ok(rh.exists(setup_receipt_path) && rh.metadata(setup_receipt_path).is_file,
+           "cu_retirement_cell_setup_receipt_missing");
+const setup = rh.parse_file(setup_receipt_path);
+require_ok(setup.schema_version === 1
+             && setup.kind === "agenterm-cu-setup-cell"
+             && setup.platform_id === platform_id
+             && setup.agenterm_cu_sha256 === rh.sha256_file(executable)
+             && setup.owned_ephemeral_cleanup === "complete"
+             && setup.persistent_mutation_performed === false
+             && setup.result === "passed",
+           "cu_retirement_cell_setup_receipt_invalid");
+require_ok(setup.evidence.length === 1
+             && setup.evidence[0] === "cu.setup-cli-entrypoint",
+           "cu_retirement_cell_setup_evidence_invalid");
 
 const receipt = {
-  schema_version: 1,
+  schema_version: 2,
   kind: "agenterm-cu-runtime-cell",
   source_sha: source_sha,
   run: { id: run_id, attempt: run_attempt },
@@ -82,12 +99,18 @@ const receipt = {
       : (platform.os === "macos" ? "libagenterm.dylib" : "libagenterm.so"),
     sha256: rh.sha256_file(abi)
   },
-  evidence: ["cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status"],
-  mutation_performed: false,
+  evidence: [
+    "cu.retirement-cell.capabilities",
+    "cu.retirement-cell.runtime-status",
+    "cu.setup-cli-entrypoint"
+  ],
+  owned_ephemeral_cleanup: "complete",
+  persistent_mutation_performed: false,
   result: "passed"
 };
 rh.atomic_write(output, rh.stringify_pretty(receipt) + "\n");
 print("EVIDENCE cu.retirement-cell.capabilities");
 print("EVIDENCE cu.retirement-cell.runtime-status");
+print("EVIDENCE cu.setup-cli-entrypoint");
 print("PASS " + platform_id + " " + archive_sha256);
 return;

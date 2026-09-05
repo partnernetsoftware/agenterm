@@ -1,5 +1,5 @@
 // Platform-neutral black-box journey for the stable native ACU launcher.
-// Args: REPO AGENTERM_CU_EXE | --list-evidence
+// Args: REPO AGENTERM_CU_EXE [OUTPUT_RECEIPT PLATFORM_ID] | --list-evidence
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -41,9 +41,12 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   for (let i = 0; i < declared_evidence.length; i = i + 1) { print(declared_evidence[i]); }
   return;
 }
-harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(args.length === 2 || args.length === 4,
+                "expected: REPO AGENTERM_CU_EXE [OUTPUT_RECEIPT PLATFORM_ID]");
 const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
+const output_receipt = args.length === 4 ? rh.absolute(args[2]) : "";
+const platform_id = args.length === 4 ? args[3] : "";
 if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
 ensure(direct_file(executable), "cu_setup_executable_missing");
 
@@ -116,6 +119,18 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.setup-cli-entrypoint");
   harness.remove_run(context);
+  if (output_receipt !== "") {
+    rh.atomic_write(output_receipt, rh.stringify_pretty({
+      schema_version: 1,
+      kind: "agenterm-cu-setup-cell",
+      platform_id: platform_id,
+      agenterm_cu_sha256: rh.sha256_file(executable),
+      evidence: declared_evidence,
+      owned_ephemeral_cleanup: "complete",
+      persistent_mutation_performed: false,
+      result: "passed"
+    }) + "\n");
+  }
   print("PASS: agenterm-cu stable CLI entrypoint");
 }
 if (failure !== "") { throw failure; }

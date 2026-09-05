@@ -136,9 +136,16 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   own stale bytes, and refuses foreign files or links without changing them.
   `path-install` is only a compatibility alias. The macOS public qjswasm
   journey `cu.setup-cli-entrypoint` proves missing/check, install,
-  idempotence, exact binary forwarding and collision preservation. Linux,
-  Windows and exact six-cell Candidate evidence remain open, as does the
-  separate coordinator-aware runtime-refresh leaf.
+  idempotence, exact binary forwarding and collision preservation on native
+  arm64 and a real x86_64 executable under Rosetta. Candidate runtime schema 2
+  now requires the same journey before each cell may publish its receipt,
+  binds its exact CU digest, and distinguishes cleaned owned-ephemeral effects
+  from persistent machine mutation. Linux, Windows and one exact six-cell
+  Candidate aggregate remain unproved until the workflow actually runs, as
+  does the separate coordinator-aware runtime-refresh leaf. Direct workflow
+  script runs carry their explicit task-equivalent wall/operation/output
+  budgets; relying on the generic run defaults made the slower x86_64 launch
+  cancel even though the command itself was healthy.
 - [x] Two MCU-only surfaces are reviewed retirements, not ACU gaps. `ghost X Y`
   drew a decorative cursor with no observation or effect authority; callers
   must use real pointer state, structured hit-testing or screenshots instead.

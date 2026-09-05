@@ -543,7 +543,7 @@ Q2 fast delegated facades
 │  ├─ [x] permissions: read-only platform state + gated verbs + repair guidance
 │  ├─ [~] permissions open-next: macOS exact pane + granted no-op; denied-pane and two native courts pending
 │  ├─ [~] doctor: bounded read-only health receipt; local CLI green, three-host pending
-│  ├─ [~] setup launcher: native zero-write check + atomic apply; macOS public qjswasm court green, Linux/Windows and six-cell Candidate binding pending
+│  ├─ [~] setup launcher: native zero-write check + atomic apply; macOS arm64 and Rosetta x86_64 qjswasm courts green; Candidate six-cell execution wired but not yet run
 │  └─ [ ] setup runtime refresh: coordinator-aware repair that must not disrupt owned jobs or device leases
 ├─ [~] open/notify/state and terminal adoption
 │  ├─ [x] open/notify → typed host adapters; macOS public courts green, Linux/Windows pending

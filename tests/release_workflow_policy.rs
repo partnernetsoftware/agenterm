@@ -714,6 +714,9 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     assert!(runtime.contains("name: cu-retirement-cell-smoke"));
     assert!(CANDIDATE.contains("Upload exact-source ACU runtime control"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-retirement-cell-smoke.qjs"));
+    assert!(CANDIDATE.contains("scripts/qjs/cu-setup-cli-smoke.qjs"));
+    assert!(CANDIDATE.contains("scripts/qjs/lib/test_harness.qjs"));
+    assert!(runtime.contains("runtime-control/cu-setup-cli-smoke.qjs"));
     assert!(runtime.contains("runtime-control/cu-retirement-cell-smoke.qjs"));
     assert!(runtime.contains(
         "candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}"

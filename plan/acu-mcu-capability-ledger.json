@@ -1013,9 +1013,9 @@
           "mcu_shape": "setup and setup --check install or inspect the stable CLI entrypoint",
           "acu_shape": "setup [--check] [--bin-dir PATH] and the path-install alias inspect or publish one owned launcher for the exact packaged agenterm-cu binary",
           "state": "native",
-          "qualification": "public-qjs-macos-green-linux-windows-pending",
+          "qualification": "public-qjs-macos-aarch64-and-rosetta-x86_64-green-linux-windows-candidate-pending",
           "evidence": ["cu.setup-cli-entrypoint"],
-          "next": "run the same public qjswasm court against packaged Linux and Windows binaries, then bind it into the exact six-cell Candidate receipt"
+          "next": "run the now-wired Candidate court against all six packaged native cells; no six-cell claim exists until one exact Candidate aggregate is green"
         },
         {
           "id": "setup.runtime-refresh",

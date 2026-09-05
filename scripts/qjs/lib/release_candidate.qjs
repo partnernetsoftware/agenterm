@@ -162,7 +162,7 @@ export function validate_cu_runtime_summary(summary, source_sha, run_id, run_att
     const agenterm_cu = child(cell, "agenterm_cu");
     const libagenterm = child(cell, "libagenterm");
     rh.require(
-      cell.schema_version === 1
+      cell.schema_version === 2
         && cell.kind === "agenterm-cu-runtime-cell"
         && cell.source_sha === source_sha
         && text(cell_run.id) === text(run_id)
@@ -173,10 +173,11 @@ export function validate_cu_runtime_summary(summary, source_sha, run_id, run_att
         && valid_sha256(text(cell.archive_sha256))
         && valid_sha256(text(agenterm_cu.sha256))
         && valid_sha256(text(libagenterm.sha256))
-        && cell.mutation_performed === false
+        && cell.owned_ephemeral_cleanup === "complete"
+        && cell.persistent_mutation_performed === false
         && cell.result === "passed"
         && exact_values(
-          ["cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status"],
+          ["cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status", "cu.setup-cli-entrypoint"],
           list(cell, "evidence")
         ),
       "candidate_cu_runtime_cell:" + expected[i].platform_id
