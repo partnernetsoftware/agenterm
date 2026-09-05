@@ -4,11 +4,21 @@
 //! `agenterm-cu` binary is the native host; callers compose these pure pieces.
 
 mod assets;
+mod host;
+mod installer;
 mod registry;
 
 pub use assets::{
     ExtensionAsset, ExtensionMaterializationPlan, MaterializationError, extension_assets,
     native_host_manifest,
+};
+pub use host::{
+    BridgeHostError, BridgeResponse, BridgeStatus, BridgeWireError, ConnectionInventory,
+    RequestLedger, list_live_connections, run_native_host, send_to_connection,
+};
+pub use installer::{
+    BrowserBridgeInstall, BrowserBridgeInstallError, BrowserBridgeInstallPaths,
+    install_for_current_user,
 };
 pub use registry::{
     ConnectionEndpoint, ConnectionEntry, ConnectionId, ConnectionRegistry, ProcessIdentity,
@@ -30,6 +40,9 @@ pub const DEBUG_READ_MAX_RESULTS: u16 = 1_000;
 pub const TAB_MAX_RESULTS: usize = 512;
 pub const TAB_TITLE_MAX_BYTES: usize = 4 * 1024;
 pub const TAB_URL_MAX_BYTES: usize = 8 * 1024;
+/// One browser-created host retains at most this many terminal replies for
+/// exact replay. With the one-MiB frame ceiling this also bounds replay memory.
+pub const REQUEST_LEDGER_MAX_ENTRIES: usize = 32;
 const COMMANDS: &[&str] = &["status", "tabs", "debug-read"];
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

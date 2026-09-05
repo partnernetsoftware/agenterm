@@ -28,6 +28,10 @@ impl ConnectionId {
         &self.0
     }
 
+    pub fn parse(encoded: &str) -> Result<Self, RegistryError> {
+        Self::from_encoded(encoded.to_owned())
+    }
+
     fn from_encoded(encoded: String) -> Result<Self, RegistryError> {
         if encoded.len() != 64
             || encoded

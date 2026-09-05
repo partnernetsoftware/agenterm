@@ -195,8 +195,13 @@ function connect() {
   port = chrome.runtime.connectNative(HOST);
   port.onMessage.addListener(async request => {
     try {
-      port.postMessage({ protocol: PROTOCOL, id: request && request.id,
-        ok: true, result: await dispatch(request) });
+      const result = await dispatch(request);
+      if (request.command === "debug-read" && result && result.code && result.detach) {
+        port.postMessage({ protocol: PROTOCOL, id: request.id, ok: false,
+          error: { code: result.code, tab_id: result.tab_id, detach: result.detach } });
+      } else {
+        port.postMessage({ protocol: PROTOCOL, id: request.id, ok: true, result });
+      }
     } catch (error) {
       const code = String(error && error.message || "browser_bridge_failed")
         .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").slice(0, 96);
