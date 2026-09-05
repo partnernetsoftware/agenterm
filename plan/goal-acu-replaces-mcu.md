@@ -201,7 +201,9 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **18 top-level `STAY` spellings**. This is not the remaining
+`acu.ts` now has **16 top-level `STAY` spellings**. The reviewed retirement of
+the no-authority `ghost` overlay and obsolete `desktop-helper` sidecar removed
+two fallbacks without inventing replacement mechanisms. This is not the remaining
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
@@ -294,13 +296,15 @@ shapes fail typed instead of being ignored.
   tests prove lossless argv routing and honest refusal only; they do not prove
   native post-state or platform parity.
 - The 31 current stays split into four implementation queues:
-  - desktop closure: window activation (`focus`) and the diagnostic `ghost`
-    overlay;
+  - desktop closure: window activation (`focus`); the decorative `ghost`
+    overlay is reviewed-retired because it has no control authority;
   - process/runtime: `exec`, `process`, `job`, `pty`, `term`, `signal`,
     `kill`, `service`, `daemon`, `session`, `lock` and `audit`;
   - machine/system: `setup`, `permissions`, `caps`, `state`, `open`,
     `notify`, `resource`, `power`, `login-session`, `storage`, `file`,
-    `network`, `device`, `audio`, `privilege` and `desktop-helper`;
+    `network`, `device`, `audio` and `privilege`; the MCU-only
+    `desktop-helper` sidecar is reviewed-retired because ACU uses libagenterm
+    in-process;
   - platform product: `simulator`.
   This grouping is sequencing, not permanent ownership. Every retained item
   must leave `STAY` before R4/R6 can pass.

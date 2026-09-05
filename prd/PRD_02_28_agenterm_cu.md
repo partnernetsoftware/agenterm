@@ -69,6 +69,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   schema, `Executor`, deadline/cleanup behavior, failure vocabulary and receipt
   contract. Once callers no longer require legacy MCU syntax, `acu.qjs` itself
   may retire.
+- [x] Two MCU-only surfaces are reviewed retirements, not ACU gaps. `ghost X Y`
+  drew a decorative cursor with no observation or effect authority; callers
+  must use real pointer state, structured hit-testing or screenshots instead.
+  `desktop-helper status|probe|start|restart|stop` managed the obsolete
+  `cu-helper-mac` sidecar; ACU loads libagenterm in-process and exposes
+  permission status/repair separately. Compatibility callers receive an
+  explicit typed retirement instead of silently invoking MCU or recreating the
+  sidecar architecture.
 - [x] CU is the first runtime consumer of the `libagenterm` dynamic library.
   Product code owns command and action meaning while ABI/platform layers own
   native mechanisms.

@@ -279,7 +279,9 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "page" => {
             "MCU page read --js maps to page-js --expression, page read to the CDP page-text, page targets to page-targets, page text to page-text (a11y with --window, CDP with --target-*), page find/click/hover/scroll/drag/dialog/files/fill/nav/screenshot map to typed CDP verbs (background tabs, no focus change); any other page sub-verb is typed unsupported"
         }
-        "ghost" => "ACU migration gap: the ghost cursor overlay has no typed facade yet",
+        "ghost" => {
+            "retired: decorative ghost cursor overlay has no control authority and is not part of ACU replacement"
+        }
         "ps" | "exec" => {
             "ACU migration gap: delegate through the bounded process/qjswasm facade; typed refuse"
         }
@@ -430,7 +432,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "desktop-helper" => (
             "unsupported",
-            "cu-helper-mac is MCU desktop-helper; this binary uses libagenterm",
+            "retired: the MCU cu-helper-mac sidecar is replaced by agenterm-cu using libagenterm in-process",
         ),
         "simulator" => (
             if os == "macos" {
@@ -1044,11 +1046,11 @@ mod tests {
                 "{absorbed} must stay declared in capabilities"
             );
         }
-        // `ghost` (a cursor overlay drawn on the desktop) is still a declared
-        // migration gap and stays typed rather than silently unknown.
+        // `ghost` remains typed so old callers get an explicit reviewed
+        // retirement result instead of a silent unknown command.
         assert!(is_align_verb("ghost") && is_align_verb("page"));
         assert!(
-            typed_reason_for_verb("ghost").contains("ACU migration gap"),
+            typed_reason_for_verb("ghost").contains("retired"),
             "{}",
             typed_reason_for_verb("ghost")
         );

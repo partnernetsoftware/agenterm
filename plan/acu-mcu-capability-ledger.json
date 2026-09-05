@@ -904,6 +904,13 @@
           "next": "small native ACU coordinator for leases, jobs, locks and recovery; do not recreate a Bun sidecar"
         },
         {
+          "id": "runtime.desktop-helper-sidecar",
+          "mcu_shape": "desktop-helper status|probe|start|restart|stop for cu-helper-mac",
+          "acu_shape": null,
+          "state": "retired",
+          "note": "The MCU macOS sidecar was an implementation workaround, not a user capability. agenterm-cu consumes libagenterm in-process, so preserving sidecar lifecycle commands would recreate obsolete architecture. Permission state and repair remain owned by the public permissions facade."
+        },
+        {
           "id": "runtime.login-service",
           "mcu_shape": "daemon service install|status|start|stop|uninstall with crash recovery",
           "acu_shape": null,
