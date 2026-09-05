@@ -134,6 +134,13 @@ AgenTerm — local agent & process fleet work OS
 │
 ├─ agenterm-cu（computer-use 子树 · partial；六格 execute-only Candidate court 已接线、待首跑）
 │  └─ 28 agenterm-cu            自有 computer-use 底座：定义、边界、不变量、晋升门
+│     ├─ transition             `acu.ts` 只做旧 argv 映射、binary 发现与 stdio/exit 转发
+│     │                       每个 `STAY` 都是待消除的下架阻塞，不得在 TypeScript 里新增 effect
+│     ├─ convergence            qjswasm embedder 提供 `agenterm:acu` 对象（qjs 中为 `acu`）
+│     │                       CLI / MCP / qjs 共用 typed schema、Executor、error 与 receipt
+│     ├─ Bun-free bridge         零 `STAY` + MCU-absent 门绿后，才用 `acu.qjs` 接替过渡薄壳
+│     │                       `acu.qjs` 仅保留旧语法兼容，不复制机制、权威或验证
+│     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ 29 Command surface       抽象命令集、洋葱分层、结构化控件树、确定性等待
 │     ├─ 30 Targets & transports  current/ssh/rdp/vnc 目标族、transport、平台后端
 │     │  ├─ target family        current（首发）/ ssh / rdp / vnc
@@ -177,6 +184,9 @@ flowchart LR
   CLI["Public control<br/>CLI · mux · MCP"]
   SCRIPT["Script runtime<br/>qjswasm + tinyvm"]
   CU["agenterm-cu<br/>typed machine control · agenterm:acu"]
+  ACTS["temporary acu.ts<br/>argv mapping · binary discovery<br/>no product effects"]
+  ACUOBJ["agenterm:acu object<br/>one schema · Executor · receipts"]
+  ACUQJS["temporary acu.qjs<br/>Bun-free legacy mapping"]
   REFRESH["owner-preserving refresh<br/>stable admission fence · no daemon restart"]
   PLATFORM["agenterm-platform<br/>Win · macOS · Linux mechanisms"]
   CC["Control Center<br/>typed consumer"]
@@ -186,13 +196,15 @@ flowchart LR
 
   U --> TERM --> FLEET --> CLI
   PLATFORM --> TERM & CU
+  ACTS -. shrink every STAY .-> CU
   CU --> REFRESH
   FLEET --> SCRIPT & CU & CC
   SCRIPT --> CU & CC
+  CU & SCRIPT --> ACUOBJ
   TERM & CLI & SCRIPT & CU --> EVIDENCE --> RELEASE
-  REFRESH --> RETIRE{"retirement court<br/>zero gap · native courts · six-cell<br/>Bun-free · MCU absent"}
+  REFRESH & ACTS --> RETIRE{"retirement court<br/>zero gap · native courts · six-cell<br/>Bun-free · MCU absent"}
   RETIRE -->|red| CU
-  RETIRE -->|green| EVIDENCE
+  RETIRE -->|green| ACUQJS --> ACUOBJ --> EVIDENCE
   ROAD -. assigns bounded versions .-> CU & CC & RELEASE
 ```
 
