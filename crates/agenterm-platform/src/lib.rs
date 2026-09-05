@@ -121,6 +121,7 @@ pub enum Capability {
     WebView,
     DesktopHost,
     HostOpen,
+    HostNotification,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -201,6 +202,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
             crate::selected::desktop_host_supported(),
         ),
         Capability::HostOpen => (cfg!(feature = "host-open"), true),
+        Capability::HostNotification => (cfg!(feature = "host-notification"), true),
     };
     if enabled && implemented {
         CapabilityStatus::Available
@@ -408,6 +410,9 @@ pub mod process_spawn;
 
 #[cfg(feature = "host-open")]
 pub mod host_open;
+
+#[cfg(feature = "host-notification")]
+pub mod host_notification;
 
 #[cfg(feature = "contained-process-spawn")]
 pub mod contained_process;

@@ -696,6 +696,17 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "verification": "dispatcher-accepted-only",
             }),
         );
+        verbs.insert(
+            "host-notify".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "setup",
+                "grant": "actuate",
+                "mode": "agenterm-platform-desktop-notification",
+                "shell": false,
+                "verification": "dispatcher-accepted-only",
+            }),
+        );
     }
     if let Some(verbs) = payload.get("verbs").cloned() {
         payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);

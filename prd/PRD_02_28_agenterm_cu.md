@@ -515,6 +515,16 @@ flowchart LR
   background no-window macOS qjswasm fixture is green as
   `cu.host-open.macos`; Linux/Windows native courts remain open. MCU `open` now
   routes here, reducing the top-level compatibility `STAY` set from 21 to 20.
+- [~] Desktop notification dispatch now follows the same typed boundary as
+  host-open: `host-notify TITLE [BODY] [--subtitle TEXT] [--sound]` (alias
+  `notify`) sends bounded text as native argv data, never shell or generated
+  AppleScript source. Receipts redact all content to byte length and SHA-256.
+  macOS Notification Center is green through `cu.host-notify.macos`; the reply
+  remains `verified=false` because acceptance cannot prove presentation or
+  user attention. Linux `notify-send` and the Windows native notification-icon
+  provider compile for both ISAs and remain native-court pending. Subtitle and
+  sound are macOS-only until another provider can prove equivalent semantics.
+  MCU `notify` now routes here, reducing top-level `STAY` from 20 to 19.
 - [x] The compatibility boundary no longer lies about `permissions`: `acu
   permissions` now reaches the same canonical observe-only ACU facade used by
   `doctor` and `capabilities`, and the old MCU entry advertises ACU as its

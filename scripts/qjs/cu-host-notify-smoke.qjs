@@ -1,0 +1,76 @@
+// macOS public black-box journey for typed desktop notification dispatch.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.host-notify.macos"];
+function ensure(condition, message) { if (!condition) { throw message; } }
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+function invoke(run_directory, executable, arguments, expected_error) {
+  const argv = ["--target", "current", "--grant", "actuate"];
+  for (const argument of arguments) { argv.push(argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"), HOME: run_directory },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.command === "host-notify", "cu_host_notify_wrong_command");
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true && reply.error.code === expected_error,
+      "cu_host_notify_wrong_failure:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_host_notify_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_host_notify_executable_missing");
+const context = harness.new_context(repo, "cu-host-notify");
+const run_directory = context.run_directory;
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP oversized body fails typed before native dispatch");
+  const oversized = "x".repeat(16385);
+  const invalid = invoke(run_directory, executable, ["host-notify", "AgenTerm", oversized],
+    "host_notification_invalid_input");
+  ensure(invalid.detail.effect === "not_performed", "cu_host_notify_invalid_effect");
+
+  print("STEP native notification dispatcher accepts bounded redacted content");
+  const sent = invoke(run_directory, executable, [
+    "notify", "AgenTerm CU", "host-notify black-box evidence"
+  ]);
+  ensure(sent.performed === true && sent.accepted === true && sent.verified === false,
+    "cu_host_notify_receipt_truth:" + JSON.stringify(sent));
+  ensure(sent.provider === "macos-user-notification"
+      && sent.verification === "dispatcher-accepted-only",
+    "cu_host_notify_provider_truth");
+  ensure(sent.title_evidence.sha256.length === 64 && sent.body_evidence.sha256.length === 64,
+    "cu_host_notify_redacted_evidence");
+  succeeded = 1;
+} catch (error) { failure = "" + error; }
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.host-notify.macos");
+  harness.remove_run(context);
+  print("PASS: agenterm-cu typed desktop notification dispatch");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

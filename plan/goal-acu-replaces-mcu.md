@@ -81,7 +81,7 @@ flowchart LR
   P --> Q
   SET --> PS["permissions status facade live<br/>same declaration as capabilities"]
   PS --> Q
-  SET --> HO["host-open live<br/>shell-free · acceptance ≠ verification"]
+  SET --> HO["host open + notification live<br/>shell-free · acceptance ≠ verification"]
   HO --> Q
   PTY --> TL["owned tab lifecycle live<br/>new → read/send/wait → close"]
   PTY --> SE["shell-exec live<br/>contained · bounded dual-stream · exact exit"]
@@ -152,7 +152,7 @@ MCU retirement blockers
 │  │  ├─ [x] start-identity gate + retained pidfd/audit-token effect authority
 │  │  ├─ [x] scheduler read-back + closed success/failure receipt + public qjswasm court
 │  │  └─ [ ] Linux native and Windows typed-refusal courts
-│  ├─ [~] host open: shell-free typed dispatcher; macOS qjswasm green, Linux/Windows courts pending
+│  ├─ [~] host dispatch: open + notification typed; macOS qjswasm green, Linux/Windows courts pending
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
 │  ├─ [~] privilege plan/broker/OS consent
 │  │  ├─ [x] read-only `process.set-priority` plan on macOS/Linux: exact start identity + before/after + expiry + dual digest
@@ -163,7 +163,7 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **20 top-level `STAY` spellings**. This is not the remaining
+`acu.ts` now has **19 top-level `STAY` spellings**. This is not the remaining
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
@@ -209,6 +209,15 @@ lengths and digests. Native dispatcher acceptance is deliberately reported as
 handler rendered or consumed the target. A no-window macOS `.app` fixture is
 green through the public qjswasm court; Linux and Windows handler-owned courts
 remain before three-host promotion.
+
+`notify TITLE [BODY] [--subtitle TEXT] [--sound]` now routes to
+`host-notify`. Text is bounded and passed as argv data rather than shell or
+AppleScript source; durable evidence contains lengths and SHA-256 only. A
+normal macOS Notification Center dispatch is green through
+`cu.host-notify.macos`, while the reply remains `verified=false` because user
+presentation and attention are not observable. Linux and Windows mechanisms
+compile in both ISAs and await their native courts; unsupported subtitle/sound
+shapes fail typed instead of being ignored.
 
 ## Historical observed frontier (2026-09-04)
 

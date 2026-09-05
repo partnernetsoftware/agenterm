@@ -62,6 +62,21 @@
       ]
     },
     {
+      "name": "host-notify",
+      "command": "host-notify",
+      "aliases": ["notify"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "dispatch one bounded desktop notification",
+      "usage": "host-notify TITLE [BODY] [--subtitle TEXT] [--sound]\nnotify TITLE [BODY] [--subtitle TEXT] [--sound]",
+      "args": [
+        { "flag": "TITLE", "value": "TEXT", "help": "required notification title" },
+        { "flag": "BODY", "value": "TEXT", "help": "optional notification body" },
+        { "flag": "--subtitle", "value": "TEXT", "help": "macOS subtitle; unsupported hosts fail typed" },
+        { "flag": "--sound", "value": "", "help": "macOS notification sound; unsupported hosts fail typed" }
+      ]
+    },
+    {
       "name": "audit-query",
       "command": "audit-query",
       "aliases": [],
@@ -4163,6 +4178,10 @@
     {
       "name": "host-open",
       "text": "agenterm-cu host-open    (also: open)\n  scope: actuate    family: System & permissions\n\nusage: host-open TARGET [--app APPLICATION] [--background]\n\nDispatches one path or URL through the host's registered application mechanism without a shell. A successful reply proves only that the native dispatcher accepted the request: accepted=true, performed=true, verified=false. It never claims that a handler rendered or consumed the target. Explicit application selection is currently macOS-only; unsupported shapes fail typed instead of being ignored.\n"
+    },
+    {
+      "name": "host-notify",
+      "text": "agenterm-cu host-notify    (also: notify)\n  scope: actuate    family: System & permissions\n\nusage: host-notify TITLE [BODY] [--subtitle TEXT] [--sound]\n\nDispatches bounded notification text without a shell. The durable receipt contains lengths and digests rather than plaintext. accepted=true proves only that the host dispatcher accepted the request; verified remains false because user presentation and attention are not observable. Subtitle and sound are currently macOS-only; unsupported shapes fail typed instead of being ignored.\n"
     },
     {
       "name": "audit-query",

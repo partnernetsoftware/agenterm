@@ -4072,3 +4072,10 @@ durable receipt before touching the dispatcher. A launcher timeout or status
 read failure may happen after dispatch, so report its effect as `unknown`
 rather than `not_performed`. Store only target/application length and digest in
 receipts unless the caller explicitly requested disclosure.
+
+Desktop notifications have the same boundary: a provider can prove that its
+dispatcher accepted bounded title/body data, but not that the operating system
+presented it or that a person noticed it. Keep notification text out of durable
+receipts by storing length and digest. When a fixed interpreter is unavoidable
+(for example macOS notification AppleScript), keep the program constant and
+pass all caller text as argv data; never interpolate caller text into source.

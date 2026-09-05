@@ -610,6 +610,16 @@ pub enum Command {
         #[serde(default)]
         background: bool,
     },
+    HostNotify {
+        target: TargetRef,
+        title: String,
+        #[serde(default)]
+        body: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subtitle: Option<String>,
+        #[serde(default)]
+        sound: bool,
+    },
     /// Newest-first bounded read of the append-only control audit. Byte,
     /// record-scan and returned-result budgets are independent.
     AuditQuery {
@@ -2454,6 +2464,7 @@ impl Command {
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
             Self::HostOpen { .. } => "host-open".into(),
+            Self::HostNotify { .. } => "host-notify".into(),
             Self::AuditQuery { .. } => "audit-query".into(),
             Self::AuditCompact { .. } => "audit-compact".into(),
             Self::SessionStart { .. } => "session-start".into(),
@@ -2598,6 +2609,7 @@ impl Command {
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
             | Self::HostOpen { target, .. }
+            | Self::HostNotify { target, .. }
             | Self::AuditQuery { target, .. }
             | Self::AuditCompact { target, .. }
             | Self::SessionStart { target, .. }
@@ -2739,6 +2751,7 @@ impl Command {
     pub fn required_grant(&self) -> crate::auth::Grant {
         match self {
             Self::HostOpen { .. }
+            | Self::HostNotify { .. }
             | Self::PointerMove { .. }
             | Self::AuditCompact { apply: true, .. }
             | Self::SessionStart { .. }

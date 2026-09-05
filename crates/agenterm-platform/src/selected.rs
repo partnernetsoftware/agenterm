@@ -35,6 +35,18 @@ pub(crate) const fn platform_kind() -> crate::PlatformKind {
 #[path = "adapters/windows/host_open.rs"]
 pub(crate) mod host_open;
 
+#[cfg(all(feature = "host-notification", windows))]
+#[path = "adapters/windows/host_notification.rs"]
+pub(crate) mod host_notification;
+
+#[cfg(all(feature = "host-notification", target_os = "macos"))]
+#[path = "adapters/macos/host_notification.rs"]
+pub(crate) mod host_notification;
+
+#[cfg(all(feature = "host-notification", target_os = "linux"))]
+#[path = "adapters/linux/host_notification.rs"]
+pub(crate) mod host_notification;
+
 #[cfg(all(feature = "host-open", target_os = "macos"))]
 #[path = "adapters/macos/host_open.rs"]
 pub(crate) mod host_open;

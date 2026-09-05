@@ -64,6 +64,10 @@ pub fn top_level_text() -> String {
     text = text.replace("\n\nClipboard", "\nClipboard");
     text = text.replace("\n\nNetwork", "\nNetwork");
     text = text.replace("\nshell-exec", "\n  shell-exec");
+    text = text.replace(
+        "\nAll replies are JSON on stdout: {\"ok\":bool,\"target\":..,\"command\":..,\"data\":..,\"error\":..}",
+        "",
+    );
     text = text.replace("\n\nProcesses", "\nProcesses");
     text = text.replace("\n\nAccessibility: observe", "\nAccessibility: observe");
     text = text.replace("\n\nAgenTerm terminals", "\nAgenTerm terminals");
@@ -219,6 +223,8 @@ fn append_missing_top_level_rows(text: &mut String) {
         "browser-session-remove",
     ];
     let compact_runtime = [
+        "host-open",
+        "host-notify",
         "audit-query",
         "audit-compact",
         "session-start",
@@ -287,7 +293,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  audit-query  audit-compact  session-start  session-list  session-status  session-renew\n  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-events  job-write  job-wait  job-stop  job-renew\n  file-copy  file-move  file-transaction  privilege-plan"
+            "  host-open  host-notify  audit-query  audit-compact\n  session-start  session-list  session-status  session-renew\n  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-events  job-write  job-wait  job-stop  job-renew\n  file-copy  file-move  file-transaction  privilege-plan"
                 .to_owned(),
         );
     }

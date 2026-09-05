@@ -1752,6 +1752,7 @@ mod surface_tests {
                     "exited",
                 ],
                 "host-open" => vec!["https://example.invalid"],
+                "host-notify" => vec!["AgenTerm"],
                 "app" => vec!["--window", "1"],
                 _ => vec![],
             }

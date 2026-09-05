@@ -165,6 +165,7 @@ machine-control
 | 目标 | 本机 | `current`/`ssh`/`vnc`；`rdp` 占位 | **cu 多一层 transport** |
 | App 生命周期 | `app launch/quit/hide/show` | **四个都做了**（mac live）：`hide`/`show` 写应用级 `AXHidden` 且按 **pid** 寻址（隐藏后句柄就不存在了）；`quit` 按下应用**自己的 Quit 菜单项**并配 `close` 那套三件套 + 收据，**不是信号**；`launch` 走 LaunchServices，**回复明说没有 pid**（进程归 launcher 管），要 pid 就等窗口出现 | **已对齐** |
 | 主机打开 | `open PATH_OR_URL [--app APPLICATION] [--bg]` | `host-open` / `open`：单一 argv、无 shell、输入有界；macOS LaunchServices 无窗口 fixture 已真跑，Linux `xdg-open` / Windows `ShellExecuteW` 已编译待 native court；回执区分 dispatcher `accepted` 与 handler `verified` | **macOS 已对齐，L/W 待真机**；不把投递谎报成展示成功 |
+| 主机通知 | `notify TITLE [BODY] [--subtitle TEXT] [--sound]` | `host-notify` / `notify`：内容作为有界 argv 数据，receipt 仅留长度+摘要；macOS Notification Center 已真跑，Linux `notify-send` / Windows native notification icon 已编译待 court | **macOS 已对齐，L/W 待真机**；acceptance 不冒充用户已看到 |
 | 进程/文件/网络/PTY/job/设备/提权/Simulator/spaces | MCU 工坊/库房/地库 | `ps` 基础 inventory、`process-state` 稳定身份、`process-usage` 单次/有界序列、`process-wait` 原生稳定对象等待、`process-watch` identity-bound lifecycle diff 已 live；`file-inspect` / MCU-shaped `acu file inspect` 已有末级链接不跟随、稳定对象身份与无损元数据；`network-probe` / MCU-shaped `acu network probe` 已走有界 DNS+TCP reachability；`pty`/`job`/`process` 与网络 inventory 其余形状仍 **typed unsupported** | 已开始共用 platform/qjswasm 内核；其余属于 ACU 替代门的待迁移 facade，不是永久留 MCU |
 
 ## 2. 互相该补的缺口（文档已点名，实现另立项）

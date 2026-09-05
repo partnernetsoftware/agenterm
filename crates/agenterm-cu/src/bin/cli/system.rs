@@ -108,6 +108,29 @@ pub fn parse(
             background,
         });
     }
+    if spec.name == "host-notify" {
+        let subtitle = flag_text(args, "--subtitle")?;
+        let sound = take_switch(args, "--sound");
+        let title = positional(args, "TITLE")?;
+        let body = if args.is_empty() {
+            String::new()
+        } else {
+            args.remove(0)
+        };
+        if !args.is_empty() {
+            return Err(format!(
+                "host-notify accepts TITLE [BODY] [--subtitle TEXT] [--sound]; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::HostNotify {
+            target,
+            title,
+            body,
+            subtitle,
+            sound,
+        });
+    }
     if !args.is_empty() {
         return Err(format!(
             "{} accepts no arguments; unexpected {:?}",

@@ -25,6 +25,19 @@ impl Executor {
                 *background,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::HostNotify {
+                title,
+                body,
+                subtitle,
+                sound,
+                ..
+            } => host_notify_payload(
+                title,
+                body,
+                subtitle.as_deref(),
+                *sound,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::AuditQuery {
                 verb_filter,
                 outcome,

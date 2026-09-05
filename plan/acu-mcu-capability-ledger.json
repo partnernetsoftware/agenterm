@@ -974,6 +974,17 @@
           "next": "run handler-owned no-window fixtures in Linux and Windows native courts; unsupported application/background shapes must remain typed rather than ignored"
         },
         {
+          "id": "host.notification",
+          "mcu_shape": "notify TITLE [BODY] [--subtitle TEXT] [--sound]",
+          "acu_shape": "host-notify TITLE [BODY] [--subtitle TEXT] [--sound] (also: notify)",
+          "state": "delegated",
+          "platforms": { "macos": "native-black-box", "linux": "native-court-pending", "windows": "native-court-pending" },
+          "qualification": "macos-public-qjswasm-green-linux-windows-native-courts-pending",
+          "evidence": ["cu.host-notify.macos", "agenterm-platform host-notification feature tests"],
+          "note": "Notification title/body/subtitle are passed as bounded argv data, never shell or AppleScript source. Durable receipts store only byte lengths and SHA-256. Dispatcher acceptance is not presented as proof that the user saw the notification.",
+          "next": "run native Linux and Windows courts; retain typed unsupported results for subtitle/sound where the provider cannot promise those semantics"
+        },
+        {
           "id": "runtime.capability-probe",
           "mcu_shape": "caps performs live probes and returns the full manifest plus state counts",
           "acu_shape": "capabilities returns the ACU verb/target/mechanism matrix",

@@ -720,6 +720,17 @@
         "task.cu-host-open-smoke"
       ]
     },
+    "cu-host-notify-smoke": {
+      "inputs": ["built-agenterm-cu"],
+      "outputs": ["cu-host-notify-evidence"],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": ["task.cu-host-notify-smoke"]
+    },
     "cu-network-probe-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2421,6 +2432,17 @@
         "artifact_write",
         "process_spawn"
       ]
+    },
+    {
+      "id": "cu-host-notify-smoke",
+      "description": "Prove macOS notification dispatch rejects oversized content, passes bounded text as argv rather than code, redacts durable evidence, and distinguishes dispatcher acceptance from user presentation.",
+      "entry": "scripts/qjs/cu-host-notify-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [".", "target/debug/agenterm-cu"],
+      "dependencies": [],
+      "platforms": ["macos"],
+      "side_effects": ["artifact_write", "gui_spawn", "process_spawn"]
     },
     {
       "id": "cu-network-probe-smoke",
