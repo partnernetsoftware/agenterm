@@ -576,7 +576,7 @@ usage (after the global flags):
   file-copy SOURCE DESTINATION [--replace] [--apply]
   file copy SOURCE DESTINATION [--replace] [--apply]
 
-The default is a mutation-free plan. It snapshots an opened, non-symlink regular source and any existing regular destination by identity, size, modification time and SHA-256. --apply reserves a private recovery receipt before mutation, serializes the exact destination across processes, publishes a verified same-directory temporary, and keeps a replaced destination as a backup until finalize. --replace is mandatory when the destination exists. File contents are never returned.
+The default is a mutation-free plan. It snapshots an opened, non-symlink regular source and any existing regular destination by identity, size, modification time, permissions and SHA-256. --apply reserves a private recovery receipt before mutation, serializes the exact destination across processes, publishes a verified same-directory temporary with source permissions, and keeps a replaced destination as a backup until finalize. The receipt reports destination_durable=false if publication became visible but parent-directory durability could not be confirmed. --replace is mandatory when the destination exists. File contents are never returned.
 ```
 
 ### `file-transaction`

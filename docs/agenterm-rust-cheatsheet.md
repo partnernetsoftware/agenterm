@@ -2446,7 +2446,7 @@ prepare/commit or compensation contract and failure evidence for that boundary.
 A recoverable file replacement needs more than one atomic publish. Persist a
 bounded receipt before the first data-file mutation; bind source, old
 destination, prepared temporary, retained backup and installed result to
-opened-object identity plus complete size/digest evidence. Create the sibling
+opened-object identity plus complete size/digest/permission evidence. Create the sibling
 temporary exclusively, persist its identity before filling it, sync and verify
 it before moving the old destination, and retain the old object until an
 explicit finalize. Persist rollback/finalize intent before deleting or

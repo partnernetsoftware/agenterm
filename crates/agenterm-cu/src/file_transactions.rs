@@ -37,6 +37,8 @@ pub struct FileSnapshot {
     pub object_id: String,
     pub size_bytes: String,
     pub modified_unix_ns: String,
+    pub readonly: bool,
+    pub unix_mode: Option<u32>,
     pub sha256: String,
 }
 
@@ -82,6 +84,7 @@ pub struct FileTransactionReceipt {
     pub prepared_snapshot: Option<FileSnapshot>,
     pub backup: Option<PathBuf>,
     pub result_snapshot: Option<FileSnapshot>,
+    pub destination_durable: Option<bool>,
     pub created_unix_ms: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery: Option<String>,
@@ -187,6 +190,7 @@ impl FileTransactionStore {
             prepared_snapshot: None,
             backup,
             result_snapshot: None,
+            destination_durable: None,
             created_unix_ms: now_unix_ms()?.to_string(),
             recovery: None,
         };
@@ -200,7 +204,8 @@ impl FileTransactionStore {
             let mut source = open_regular(&receipt.source, "source")?;
             ensure_snapshot(&mut source, &receipt.source_snapshot, "source")?;
             std::io::copy(&mut source, &mut temporary)
-                .and_then(|_| temporary.sync_all())
+                .and_then(|_| temporary.set_permissions(source.metadata()?.permissions()))
+                .and_then(|()| temporary.sync_all())
                 .map_err(|error| failure("file_transaction_copy_failed", error.to_string()))?;
             let prepared = snapshot_opened(&mut temporary)?;
             if !same_content(&prepared, &receipt.source_snapshot) {
@@ -231,18 +236,25 @@ impl FileTransactionStore {
                 receipt.state = TransactionState::BackupMoved;
                 self.persist(&receipt)?;
             }
-            publish_file(&receipt.temporary, &receipt.destination).map_err(|error| {
-                failure("file_transaction_publish_failed", error.to_string())
-                    .with_detail(serde_json::json!({ "published": error.published() }))
-            })?;
+            let destination_durable = match publish_file(&receipt.temporary, &receipt.destination) {
+                Ok(_) => true,
+                Err(error) if error.published() => sync_parent(parent).is_ok(),
+                Err(error) => {
+                    return Err(
+                        failure("file_transaction_publish_failed", error.to_string())
+                            .with_detail(serde_json::json!({ "published": false })),
+                    );
+                }
+            };
             let result = snapshot_path(&receipt.destination, "destination")?;
-            if !same_content(&result, &receipt.source_snapshot) {
+            if !same_copy_result(&result, &receipt.source_snapshot) {
                 return Err(failure(
                     "file_transaction_readback_failed",
                     "installed destination does not match the source",
                 ));
             }
             receipt.result_snapshot = Some(result);
+            receipt.destination_durable = Some(destination_durable);
             receipt.state = TransactionState::Completed;
             self.persist(&receipt)?;
             Ok(receipt.clone())
@@ -260,8 +272,7 @@ impl FileTransactionStore {
     }
 
     pub fn recover(&self, transaction_id: &str) -> Result<FileTransactionReceipt, CuError> {
-        let mut receipt = self.read(transaction_id)?;
-        let _lock = self.destination_lock(&receipt.destination)?;
+        let (mut receipt, _lock) = self.locked_receipt(transaction_id)?;
         match receipt.state {
             TransactionState::Reserved
             | TransactionState::CopyPrepared
@@ -293,8 +304,7 @@ impl FileTransactionStore {
     }
 
     pub fn rollback(&self, transaction_id: &str) -> Result<FileTransactionReceipt, CuError> {
-        let mut receipt = self.read(transaction_id)?;
-        let _lock = self.destination_lock(&receipt.destination)?;
+        let (mut receipt, _lock) = self.locked_receipt(transaction_id)?;
         if receipt.state != TransactionState::Completed {
             return Err(invalid_state(&receipt, "rollback"));
         }
@@ -316,8 +326,7 @@ impl FileTransactionStore {
     }
 
     pub fn finalize(&self, transaction_id: &str) -> Result<FileTransactionReceipt, CuError> {
-        let mut receipt = self.read(transaction_id)?;
-        let _lock = self.destination_lock(&receipt.destination)?;
+        let (mut receipt, _lock) = self.locked_receipt(transaction_id)?;
         if receipt.state != TransactionState::Completed {
             return Err(invalid_state(&receipt, "finalize"));
         }
@@ -353,6 +362,7 @@ impl FileTransactionStore {
         });
         if installed {
             receipt.result_snapshot = destination;
+            verify_backup(receipt)?;
             receipt.state = TransactionState::RollingBack;
             self.persist(receipt)?;
             return self.finish_rollback(receipt);
@@ -489,6 +499,21 @@ impl FileTransactionStore {
         PathLock::try_acquire(&self.directory.join(format!("destination-{digest}.lock")))
             .map_err(|error| failure("file_transaction_busy", error.to_string()))
     }
+
+    fn locked_receipt(
+        &self,
+        transaction_id: &str,
+    ) -> Result<(FileTransactionReceipt, PathLock), CuError> {
+        let before = self.read(transaction_id)?;
+        let lock = self.destination_lock(&before.destination)?;
+        let after = self.read(transaction_id)?;
+        if before.destination != after.destination {
+            return Err(corrupt(
+                "destination changed while acquiring its transaction lock",
+            ));
+        }
+        Ok((after, lock))
+    }
 }
 
 fn exact_destination(path: &Path) -> Result<PathBuf, CuError> {
@@ -592,6 +617,8 @@ fn snapshot_opened(file: &mut File) -> Result<FileSnapshot, CuError> {
         modified_unix_ns: (modified.as_secs() as u128 * 1_000_000_000
             + modified.subsec_nanos() as u128)
             .to_string(),
+        readonly: metadata.permissions().readonly(),
+        unix_mode: unix_mode(&metadata),
         sha256: digest.iter().map(|byte| format!("{byte:02x}")).collect(),
     })
 }
@@ -614,6 +641,23 @@ fn ensure_path_snapshot(path: &Path, expected: &FileSnapshot, label: &str) -> Re
 
 fn same_content(left: &FileSnapshot, right: &FileSnapshot) -> bool {
     left.size_bytes == right.size_bytes && left.sha256 == right.sha256
+}
+
+fn same_copy_result(left: &FileSnapshot, right: &FileSnapshot) -> bool {
+    same_content(left, right)
+        && left.readonly == right.readonly
+        && left.unix_mode == right.unix_mode
+}
+
+#[cfg(unix)]
+fn unix_mode(metadata: &fs::Metadata) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt as _;
+    Some(metadata.mode())
+}
+
+#[cfg(windows)]
+fn unix_mode(_metadata: &fs::Metadata) -> Option<u32> {
+    None
 }
 
 fn same_object(snapshot: &FileSnapshot, identity: &ObjectIdentity) -> bool {
@@ -784,10 +828,23 @@ mod tests {
         let source = root.join("source");
         let destination = root.join("destination");
         fs::write(&source, b"new value").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(&source, fs::Permissions::from_mode(0o644)).unwrap();
+        }
         let plan = store.plan(&source, &destination, false).unwrap();
         assert!(!destination.exists());
         let receipt = store.apply(&plan).unwrap();
         assert_eq!(fs::read(&destination).unwrap(), b"new value");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            assert_eq!(
+                fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+                0o644
+            );
+        }
         let rolled = store.rollback(&receipt.transaction_id).unwrap();
         assert_eq!(rolled.state, TransactionState::RolledBack);
         assert!(!destination.exists());
@@ -809,6 +866,24 @@ mod tests {
         assert_eq!(finalized.state, TransactionState::Finalized);
         assert!(!receipt.backup.as_ref().unwrap().exists());
         assert_eq!(fs::read(destination).unwrap(), b"new");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacement_rollback_restores_exact_old_object() {
+        let (root, store) = fixture("replace-rollback");
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::write(&source, b"new").unwrap();
+        fs::write(&destination, b"old").unwrap();
+        let old = snapshot_path(&destination, "destination").unwrap();
+        let receipt = store
+            .apply(&store.plan(&source, &destination, true).unwrap())
+            .unwrap();
+        let rolled = store.rollback(&receipt.transaction_id).unwrap();
+        assert_eq!(rolled.state, TransactionState::RolledBack);
+        assert_eq!(snapshot_path(&destination, "destination").unwrap(), old);
+        assert_eq!(fs::read(destination).unwrap(), b"old");
         fs::remove_dir_all(root).unwrap();
     }
 

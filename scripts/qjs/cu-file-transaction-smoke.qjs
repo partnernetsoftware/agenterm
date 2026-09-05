@@ -73,7 +73,7 @@ try {
   const applied = invoke(run_directory, executable, "actuate", [
     "file-copy", source, destination, "--apply"
   ], "file-copy");
-  ensure(applied.state === "completed" && rh.read_text(destination) === "first-source", "cu_file_transaction_apply_poststate");
+  ensure(applied.state === "completed" && applied.destination_durable === true && rh.read_text(destination) === "first-source", "cu_file_transaction_apply_poststate");
   const status = invoke(run_directory, executable, "observe", [
     "file-transaction", "status", applied.transaction_id
   ], "file-transaction");
