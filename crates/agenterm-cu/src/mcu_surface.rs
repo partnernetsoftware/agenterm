@@ -245,9 +245,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "exec",
     "open",
     "notify",
-    "audit",
-    "session",
-    "lock",
     "service",
     "term",
 ];
@@ -285,7 +282,7 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "network" => {
             "network interfaces and probe are live; routes/DNS inventory/sockets remain typed gaps"
         }
-        "audit" | "session" | "lock" | "service" | "term" => {
+        "service" | "term" => {
             "ACU migration gap: delegate through the AgenTerm runtime facade; typed refuse"
         }
         _ => group_status(group_id_for_verb(verb), host_os()).1,
@@ -386,8 +383,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "native durable PTY and managed-job lifecycles are live; canonical leaf verbs replace MCU's grouped spelling without shell delegation",
         ),
         "process" => (
-            "unsupported",
-            "ACU partial migration: ps/process state/argv/cwd/environment/usage/watch/wait are live where the OS has a stable provider; fds/maps/threads/sockets/policy/cgroup and richer mutation remain typed gaps",
+            "available",
+            "ps/process state/argv/cwd/environment/usage/watch/wait are live where the OS has a stable provider; fds/maps/threads/sockets/policy/cgroup and richer mutation remain typed gaps",
         ),
         "resource" => (
             "unsupported",
@@ -406,8 +403,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "ACU migration gap: typed volume inventory facade pending",
         ),
         "file" => (
-            "unsupported",
-            "ACU migration gap: typed file plan/apply facade pending",
+            "available",
+            "file-inspect and recoverable file-copy plan/apply/status/rollback/recover/finalize are live; move and metadata mutation remain typed gaps",
         ),
         "network" => (
             "available",
@@ -422,8 +419,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "ACU migration gap: typed privilege-broker facade pending; no root shell",
         ),
         "runtime" => (
-            "unsupported",
-            "ACU migration gap: AgenTerm daemon/session facade pending",
+            "available",
+            "session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; daemon/service/term remain typed gaps",
         ),
         "desktop-helper" => (
             "unsupported",
