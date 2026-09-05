@@ -47,6 +47,7 @@ ACU replaces MCU
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency
+│  ├─ synchronous child calls default to a 60-second wall deadline
 │  ├─ all child entry paths enter native containment before user code
 │  └─ invocation-owned cleanup with no cross-run global state
 ├─ evidence

@@ -211,6 +211,11 @@ second route around ACU/AgenTerm product contracts.
   public `script` failure class through direct run, task run, and check-many;
   loader, signature, and host-door setup failures remain `configuration`.
 - [x] qjswasm tool profile executes bounded child processes with typed failures.
+- [x] Synchronous `process.command`, `process.command_stdout` and
+  `process.status` calls apply the documented 60-second deadline when the spec
+  omits `timeout_ms`; the wasm step budget cannot bound time spent inside a
+  host call. `process.spawn` remains explicitly long-lived and is instead
+  bounded by its retained-handle ceiling, optional deadline and slot cleanup.
 - [x] One qjswasm slot retains at most 32 `process.spawn` handles, including
   completed handles whose first wait answer remains replayable. The 33rd call
   is rejected before parsing into a host command, spawning an OS process, or

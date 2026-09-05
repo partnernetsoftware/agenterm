@@ -842,7 +842,7 @@ pub(crate) fn install(
             direct(&state, "process.status", || {
                 let spec: CommandSpec = serde_json::from_str(utf8(spec)?)
                     .map_err(|e| format!("process.status: the spec is not valid: {e}"))?;
-                let timeout = spec.timeout_ms.map(Duration::from_millis);
+                let timeout = spec.synchronous_timeout();
                 // Not captured: spawned with null pipes, so a chatty child
                 // neither blocks on a pipe nobody reads nor dies of SIGPIPE on
                 // one that was dropped.
@@ -855,7 +855,7 @@ pub(crate) fn install(
                             return Ok(-1);
                         }
                         Ok(Some(_)) => return Ok(-1),
-                        Ok(None) if timeout.is_some_and(|t| started.elapsed() >= t) => {
+                        Ok(None) if started.elapsed() >= timeout => {
                             let _ = child.terminate_and_wait(Duration::from_secs(5));
                             return Err("process.status: timed out".to_string());
                         }
@@ -2174,6 +2174,12 @@ struct CommandSpec {
     stderr_path: Option<String>,
 }
 
+impl CommandSpec {
+    fn synchronous_timeout(&self) -> Duration {
+        Duration::from_millis(self.timeout_ms.unwrap_or(DEFAULT_COMMAND_TIMEOUT_MS))
+    }
+}
+
 /// Spawn, feed stdin, capture both streams, wait bounded, answer as JSON:
 /// `{"exit_code": n | null, "success": bool, "stdout", "stderr",
 /// "stdout_truncated", "stderr_truncated", "timed_out"}`.
@@ -2187,7 +2193,7 @@ fn run_command(
     max_capture: usize,
     cancel: &Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<String, String> {
-    let timeout = spec.timeout_ms.map(Duration::from_millis);
+    let timeout = Some(spec.synchronous_timeout());
     let child = spawn_command(&spec, true)?;
     wait_child(child, timeout, max_capture, cancel)
 }
@@ -2573,6 +2579,19 @@ mod tests {
         let err = serde_json::from_str::<CommandSpec>(r#"{"program":"x","timeout":5}"#)
             .expect_err("`timeout` is not a field");
         assert!(err.to_string().contains("timeout"), "{err}");
+    }
+
+    #[test]
+    fn synchronous_commands_have_a_real_default_deadline() {
+        let default = serde_json::from_str::<CommandSpec>(r#"{"program":"x"}"#)
+            .expect("minimal command spec");
+        assert_eq!(
+            default.synchronous_timeout(),
+            Duration::from_millis(DEFAULT_COMMAND_TIMEOUT_MS)
+        );
+        let explicit = serde_json::from_str::<CommandSpec>(r#"{"program":"x","timeout_ms":73}"#)
+            .expect("explicit command timeout");
+        assert_eq!(explicit.synchronous_timeout(), Duration::from_millis(73));
     }
 
     #[cfg(unix)]
