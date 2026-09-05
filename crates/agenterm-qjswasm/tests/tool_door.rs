@@ -503,6 +503,83 @@ fn fs_try_lock_exclusive_refuses_a_second_taker_until_unlock() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn fs_try_lock_exclusive_refuses_before_creating_the_thirty_third_file() {
+    let scratch = Scratch::new("lock-handle-limit");
+    let stem = js(&scratch.path("held-"));
+    let forbidden = scratch.path("held-32.lock");
+    let forbidden_js = js(&forbidden);
+    let out = run_tool(&format!(
+        r#"
+        const handles = [];
+        for (let i = 0; i < 32; i = i + 1) {{
+            const h = fs_try_lock_exclusive({stem} + i + ".lock");
+            if (h < 0) {{ return "early:" + i + ":" + tool_result(); }}
+            handles.push(h);
+        }}
+        const refused = fs_try_lock_exclusive({forbidden_js});
+        const refusal = tool_result();
+        const created = fs_exists({forbidden_js});
+        let unlocked = 0;
+        for (const h of handles) {{
+            if (fs_unlock(h) === 0) {{ unlocked = unlocked + 1; }}
+        }}
+        return "" + refused + "|" + refusal + "|" + created + "|" + unlocked;
+        "#
+    ));
+    assert_eq!(
+        string_of(&out),
+        "-1|fs.try_lock_exclusive: lock handle limit 32 reached|0|32",
+        "{out:?}"
+    );
+    assert!(
+        !forbidden.exists(),
+        "the refused lock must not create its path"
+    );
+}
+
+#[test]
+fn unlocked_lock_handles_remain_tombstones_across_engine_calls() {
+    let scratch = Scratch::new("lock-handle-tombstones");
+    let path = js(&scratch.path("reused.lock"));
+    let source = format!(
+        r#"
+        let h = -1;
+        for (let attempt = 0; attempt < 40 && h < 0; attempt = attempt + 1) {{
+            h = fs_try_lock_exclusive({path});
+            if (h < 0) {{
+                const error = tool_result();
+                if (error !== "") {{ return "lock:" + error; }}
+                time_sleep_ms(25);
+            }}
+        }}
+        if (h < 0) {{ return "lock:contention"; }}
+        const unlocked = fs_unlock(h);
+        return "" + h + "|" + unlocked;
+        "#
+    );
+    let wasm = compile_qjs_tool(&source).expect("compiles");
+    let mut engine = Engine::with_tool_door(Budget::default());
+    let slot = engine
+        .spawn(Guest::CompiledQjs(&wasm), None)
+        .expect("loads");
+
+    for expected_handle in 0..32 {
+        let out = engine.call(slot, "main", &[]).expect("lock then unlock");
+        assert_eq!(
+            string_of(&out),
+            format!("{expected_handle}|0"),
+            "call {expected_handle}"
+        );
+    }
+
+    let refused = engine.call(slot, "main", &[]).expect("typed refusal");
+    assert_eq!(
+        string_of(&refused),
+        "lock:fs.try_lock_exclusive: lock handle limit 32 reached"
+    );
+}
+
 /// `fs.append` writes at the end without reading the file back: the harness
 /// journal was read whole, concatenated and rewritten per record.
 #[test]

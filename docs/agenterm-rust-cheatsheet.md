@@ -3820,3 +3820,10 @@ child, or starting pipe-drain threads. Completed handles still count while they
 retain captured output. Choose the ceiling from measured public-journey demand
 with explicit headroom, then test that the first refused call creates no handle
 and leaves every earlier handle waitable and cleanable.
+
+Apply the same lifetime accounting to guest-visible native lock handles. An
+unlock releases its file descriptor but cannot make that numeric slot reusable:
+a stale guest handle would then name a later, unrelated lock. Keep the tombstone,
+cap the complete per-slot handle ledger independently of per-call operation
+fuel, and reject exhaustion before opening or creating a file. Test both the
+no-create refusal and repeated lock/unlock across exported calls on one slot.

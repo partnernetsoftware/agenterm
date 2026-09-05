@@ -48,6 +48,7 @@ agenterm-qjswasm
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
+│  ├─ [x] advisory locks retain stable tombstones and refuse a 33rd lifetime handle before file creation
 │  ├─ [x] bare declared-host values fail by name; no implicit zero-argument effect
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
@@ -91,6 +92,7 @@ flowchart LR
   EXPLICIT["explicit call sites only<br/>bare host value → typed compile refusal"]
   CAPTURE["bounded child capture<br/>per-stream loss flags · JSON-fit"]
   HANDLES["per-slot child ledger<br/>32 retained · pre-spawn refusal"]
+  LOCKS["per-slot lock ledger<br/>32 lifetime handles · stable tombstones<br/>pre-open refusal"]
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
   QPTY["ACU headless PTY journey<br/>snapshot/diff · verified resize · send/wait · events · restart refusal"]
@@ -125,6 +127,7 @@ flowchart LR
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
+  PRODUCT -. advisory lock .-> LOCKS --> RECEIPT
   PRODUCT -. process.command .-> QPTY --> RECEIPT
   PRODUCT -. native path identity .-> PATHS --> RECEIPT
   LOAD -->|no| REJECT

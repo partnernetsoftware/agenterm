@@ -435,6 +435,14 @@ pub(crate) struct ToolState {
 /// their replay answer until the slot ends.
 const PROCESS_CHILD_HANDLE_LIMIT: usize = 32;
 
+/// One slot may mint this many advisory-lock handles over its lifetime.
+/// Unlocking releases the native file immediately but deliberately leaves a
+/// tombstone: reusing that index would let a stale guest handle unlock an
+/// unrelated lock acquired later. Bound the stable handle ledger separately
+/// from `max_host_ops`, which resets for every exported call, and refuse before
+/// opening or creating the next file so exhaustion has no filesystem effect.
+const FS_LOCK_HANDLE_LIMIT: usize = 32;
+
 /// One spawned child, by handle index. A waited child keeps its pid and
 /// replays its first answer: rh scripts `wait_with_output` a child they
 /// already reaped, and `complete` re-waits every owned handle -- wave 2 met
@@ -648,6 +656,11 @@ pub(crate) fn install(
         move |args, memory| {
             let path = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
             direct(&state, "fs.try_lock_exclusive", || {
+                if state.borrow().locks.len() >= FS_LOCK_HANDLE_LIMIT {
+                    return Err(format!(
+                        "fs.try_lock_exclusive: lock handle limit {FS_LOCK_HANDLE_LIMIT} reached"
+                    ));
+                }
                 let path = utf8(path)?;
                 let file = std::fs::OpenOptions::new()
                     .read(true)
