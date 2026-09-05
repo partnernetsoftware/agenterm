@@ -1261,7 +1261,9 @@ flowchart LR
   switches to its upstream file. If that upstream source is unavailable, the
   reply is `coverage=stub-only, complete=false` rather than a fabricated full
   DNS configuration. No resolver is contacted. The public macOS qjswasm
-  journey `cu.network-dns` is green and all six targets compile; Linux and
+  journey `cu.network-dns` is green and all six targets compile. The same
+  journey ran from exact source `dbfed944` in native Linux arm64 and emulated
+  x86_64 UTM courts with byte-manifest verification and typed exit receipts;
   Windows native courts remain, so this row moves from `gap` only to
   `platform-limited`. The compatibility entry routes exactly
   `acu network interfaces|routes|dns [--max N]`. The identity-safe per-process
