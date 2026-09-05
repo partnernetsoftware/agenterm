@@ -664,9 +664,18 @@ flowchart LR
   and returns separate stable-contract and expiring-approval SHA-256 digests.
   `cu.privilege-plan` proves the public qjswasm path and `mutation_performed`
   remains false. Windows returns `privilege_operation_unsupported` because a
-  priority-class contract is not Unix nice. Consent, broker installation and
-  apply/postcondition remain explicit gaps; no shell, password capture or
-  hidden elevation substitutes for them.
+  priority-class contract is not Unix nice. The next provider boundary now has
+  a bounded protocol-v1 request/reply codec: it rejects unknown fields,
+  whitespace/unbounded identities, changed plan bytes, expired plans and
+  non-current targets before any consent UI; it recomputes both digests and
+  emits only a canonical request fingerprint for provider-side replay state.
+  This is protocol infrastructure, not shipped elevation: `approval_digest`
+  identifies an expiring intent and is never evidence of human consent.
+  Authorization Services, polkit or UAC must authenticate the peer and consent
+  out of band; the privileged provider must then revalidate, reserve before the
+  effect, own postcondition read-back, and return completed or outcome-unknown.
+  Provider installation, native consent and real apply remain explicit gaps;
+  no shell, password capture or hidden elevation substitutes for them.
 
 - [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU
   compatibility frontier; ACU's transport worker `exec --json` keeps its old

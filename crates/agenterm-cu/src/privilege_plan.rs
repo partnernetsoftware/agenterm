@@ -3,7 +3,7 @@
 //! Planning never invokes a broker, native consent surface, shell, or mutation.
 //! A later provider must validate the complete plan and its digest again.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -13,21 +13,30 @@ pub const DEFAULT_PLAN_TTL_SECONDS: u64 = 120;
 pub const MIN_PLAN_TTL_SECONDS: u64 = 1;
 pub const MAX_PLAN_TTL_SECONDS: u64 = 600;
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum PrivilegeOperation {
+    #[serde(rename = "process.set-priority")]
+    ProcessSetPriority,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProcessPriorityTarget {
     pub pid: u32,
     pub start_identity: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProcessPriorityState {
     pub nice: i32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProcessPriorityPlan {
     pub schema_version: u32,
-    pub operation: &'static str,
+    pub operation: PrivilegeOperation,
     pub target: ProcessPriorityTarget,
     pub before: ProcessPriorityState,
     pub after: ProcessPriorityState,
@@ -78,7 +87,7 @@ pub fn process_priority_plan_now(
 #[derive(Serialize)]
 struct ContractProjection<'a> {
     schema_version: u32,
-    operation: &'static str,
+    operation: PrivilegeOperation,
     target: &'a ProcessPriorityTarget,
     before: ProcessPriorityState,
     after: ProcessPriorityState,
@@ -146,7 +155,7 @@ pub fn process_priority_plan(
     let after = ProcessPriorityState { nice: desired_nice };
     let contract = ContractProjection {
         schema_version: 1,
-        operation: "process.set-priority",
+        operation: PrivilegeOperation::ProcessSetPriority,
         target: &target,
         before,
         after,
@@ -159,7 +168,7 @@ pub fn process_priority_plan(
     })?;
     Ok(ProcessPriorityPlan {
         schema_version: 1,
-        operation: "process.set-priority",
+        operation: PrivilegeOperation::ProcessSetPriority,
         target,
         before,
         after,
@@ -169,6 +178,89 @@ pub fn process_priority_plan(
         approval_digest,
         mutation_performed: false,
     })
+}
+
+/// Validate the closed plan without treating its digest as user consent.
+///
+/// A privileged provider must call this after its native consent succeeds,
+/// then call [`revalidate_process_priority_precondition`] immediately before
+/// reserving and attempting the effect.
+pub fn validate_process_priority_plan(
+    plan: &ProcessPriorityPlan,
+    now_utc_ms: u64,
+) -> Result<(), CuError> {
+    if plan.schema_version != 1
+        || plan.operation != PrivilegeOperation::ProcessSetPriority
+        || plan.target.pid == 0
+        || !(-20..=20).contains(&plan.before.nice)
+        || !(-20..=20).contains(&plan.after.nice)
+        || plan.target.start_identity.is_empty()
+        || plan.target.start_identity.len() > 256
+        || plan.mutation_performed
+    {
+        return Err(CuError::new(
+            "privilege_plan_invalid",
+            "privilege plan has an invalid closed shape",
+        ));
+    }
+    let ttl_ms = plan
+        .expires_at_utc_ms
+        .checked_sub(plan.issued_at_utc_ms)
+        .ok_or_else(|| {
+            CuError::new(
+                "privilege_plan_invalid",
+                "privilege plan expiry precedes its issue time",
+            )
+        })?;
+    if !(MIN_PLAN_TTL_SECONDS * 1_000..=MAX_PLAN_TTL_SECONDS * 1_000).contains(&ttl_ms) {
+        return Err(CuError::new(
+            "privilege_plan_invalid",
+            "privilege plan lifetime is outside the bounded contract",
+        ));
+    }
+    if now_utc_ms > plan.expires_at_utc_ms {
+        return Err(CuError::new(
+            "privilege_plan_expired",
+            "privilege plan expired before provider reservation",
+        ));
+    }
+    let contract = ContractProjection {
+        schema_version: plan.schema_version,
+        operation: plan.operation,
+        target: &plan.target,
+        before: plan.before,
+        after: plan.after,
+    };
+    if digest_json(&contract)? != plan.contract_digest
+        || digest_json(&ApprovalProjection {
+            contract,
+            issued_at_utc_ms: plan.issued_at_utc_ms,
+            expires_at_utc_ms: plan.expires_at_utc_ms,
+        })? != plan.approval_digest
+    {
+        return Err(CuError::new(
+            "privilege_plan_digest_mismatch",
+            "privilege plan content does not match its canonical digests",
+        ));
+    }
+    Ok(())
+}
+
+/// Re-read the exact target identity and pre-effect state.
+///
+/// This check is necessary but is not itself an authority to mutate a PID.
+/// Unix priority mutation remains unavailable until the provider owns an
+/// exact-object primitive rather than reopening a mutable numeric PID.
+pub fn revalidate_process_priority_precondition(plan: &ProcessPriorityPlan) -> Result<(), CuError> {
+    let identity = live_start_identity(plan.target.pid)?;
+    let nice = read_nice(plan.target.pid)?;
+    if identity != plan.target.start_identity || nice != plan.before.nice {
+        return Err(CuError::new(
+            "privilege_precondition_changed",
+            "process identity or priority changed after the plan was prepared",
+        ));
+    }
+    Ok(())
 }
 
 fn live_start_identity(pid: u32) -> Result<String, CuError> {
@@ -257,6 +349,31 @@ mod tests {
         assert_eq!(
             process_priority_plan(1, 0, 0, 1).unwrap_err().code,
             "privilege_plan_ttl_invalid"
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn provider_validation_recomputes_digests_and_rechecks_precondition() {
+        let pid = std::process::id();
+        let nice = agenterm_platform::process_metrics::nice(pid).unwrap();
+        let plan = process_priority_plan(pid, nice, 120, 1_000).unwrap();
+        validate_process_priority_plan(&plan, 1_001).unwrap();
+        revalidate_process_priority_precondition(&plan).unwrap();
+
+        let mut tampered = plan.clone();
+        tampered.after.nice = if nice == 20 { 19 } else { nice + 1 };
+        assert_eq!(
+            validate_process_priority_plan(&tampered, 1_001)
+                .unwrap_err()
+                .code,
+            "privilege_plan_digest_mismatch"
+        );
+        assert_eq!(
+            validate_process_priority_plan(&plan, plan.expires_at_utc_ms + 1)
+                .unwrap_err()
+                .code,
+            "privilege_plan_expired"
         );
     }
 }

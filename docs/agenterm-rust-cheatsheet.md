@@ -4079,3 +4079,23 @@ presented it or that a person noticed it. Keep notification text out of durable
 receipts by storing length and digest. When a fixed interpreter is unavoidable
 (for example macOS notification AppleScript), keep the program constant and
 pass all caller text as argv data; never interpolate caller text into source.
+
+## Keep privileged intent, consent and effect ownership separate
+
+A digest of an expiring privilege plan proves only which bytes were proposed;
+it does not prove that a person consented. Parse the untrusted provider wire as
+a closed, bounded, versioned shape with unknown fields denied, then recompute
+the canonical contract and expiring-plan digests before opening any native
+consent surface. Passwords, MFA responses, biometric results, generic shell
+commands and authorization bearer material never belong in JSON, argv, audit,
+receipts or the ordinary caller's durable request store.
+
+The privileged provider is the effect and at-most-once owner. After native
+Authorization Services, polkit or UAC consent, it must authenticate the peer,
+recheck expiry and exact preconditions, durably reserve in provider-owned
+storage, attempt one closed operation, read back the postcondition, and publish
+`completed`, `failed` or `outcome_unknown`. A reservation made only by the
+ordinary process cannot prevent a duplicate root effect after a transport
+break. Likewise, reading the same process identity before and after a PID-only
+Unix syscall does not turn that syscall into exact-object authority; retain the
+typed platform gap until the native mutation primitive itself is identity-safe.
