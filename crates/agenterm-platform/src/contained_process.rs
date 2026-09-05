@@ -130,6 +130,16 @@ impl ContainedHeadlessCommand {
 /// Exact root-process ownership plus its native descendant-containment owner.
 pub struct ContainedChild(crate::selected::contained_process::ContainedChild);
 
+/// One bounded native-containment membership inventory.
+///
+/// The inventory describes the named containment group, not every genealogical
+/// descendant a member might have moved into another group.
+pub struct ContainedMemberIds {
+    pub provider: &'static str,
+    pub breakaway_prevented: bool,
+    pub process_ids: Vec<u32>,
+}
+
 /// One captured child output stream.
 ///
 /// The stream is owned and `Send`, so stdout and stderr can be drained on two
@@ -166,6 +176,35 @@ impl ContainedChild {
 
     pub fn try_wait(&mut self) -> io::Result<Option<ProcessExit>> {
         self.0.try_wait()
+    }
+
+    /// Enumerates every current member of this child's native containment
+    /// group, or refuses when the caller's hard member bound is exceeded.
+    pub fn containment_members(&self, max_members: usize) -> io::Result<ContainedMemberIds> {
+        if max_members == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "contained member bound must be nonzero",
+            ));
+        }
+        let mut process_ids = self.0.containment_process_ids(max_members)?;
+        process_ids.sort_unstable();
+        process_ids.dedup();
+        if process_ids.len() > max_members {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "contained process group exceeds the member bound",
+            ));
+        }
+        Ok(ContainedMemberIds {
+            provider: if cfg!(windows) {
+                "windows-job-object"
+            } else {
+                "posix-process-group"
+            },
+            breakaway_prevented: cfg!(windows),
+            process_ids,
+        })
     }
 
     /// Takes the captured stdout stream, when output capture was requested.
@@ -271,6 +310,32 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         };
         assert_eq!(exit, ProcessExit::Code(0));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn unix_containment_inventory_is_group_complete_and_bounded() {
+        let mut command = ContainedHeadlessCommand::new("/bin/sh");
+        command.args(["-c", "sleep 30 & wait"]);
+        let mut child = command.spawn().expect("spawn contained group");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let members = loop {
+            let members = child
+                .containment_members(8)
+                .expect("inventory contained group");
+            if members.process_ids.len() >= 2 {
+                break members;
+            }
+            assert!(Instant::now() < deadline, "descendant did not join group");
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(members.provider, "posix-process-group");
+        assert!(!members.breakaway_prevented);
+        assert!(members.process_ids.contains(&child.id()));
+        assert!(child.containment_members(1).is_err());
+        child
+            .terminate_and_wait(Duration::from_secs(5))
+            .expect("terminate contained group");
     }
 
     #[test]

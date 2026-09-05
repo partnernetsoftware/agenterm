@@ -17,8 +17,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::managed_job_owner::{
-    ManagedJobOwnerError, OutputCursorError, ResidentJobOwner, ResidentJobState, ResidentJobStatus,
-    StdinWriteError, now_utc_ms, read_launch, start_owner_from_launch,
+    ManagedJobOwnerError, OutputCursorError, RESOURCE_MEMBERS_MAX, ResidentJobOwner,
+    ResidentJobState, ResidentJobStatus, ResidentResourceSnapshot, StdinWriteError, now_utc_ms,
+    read_launch, start_owner_from_launch,
 };
 use crate::managed_job_store::{ManagedJobHandle, ManagedJobStore};
 
@@ -111,6 +112,9 @@ pub(crate) struct ManagedJobRequest {
 #[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub(crate) enum ManagedJobOperation {
     Status,
+    Resources {
+        max_members: usize,
+    },
     Output {
         stream: OutputStream,
         cursor: u64,
@@ -208,6 +212,9 @@ pub(crate) struct ManagedJobReply {
 pub(crate) enum ManagedJobResult {
     Status {
         status: JobStatus,
+    },
+    Resources {
+        snapshot: ResidentResourceSnapshot,
     },
     Output {
         stream: OutputStream,
@@ -316,6 +323,11 @@ fn decode_request(bytes: &[u8]) -> Result<ManagedJobRequest, &'static str> {
 
 fn validate_operation(operation: &ManagedJobOperation) -> Result<(), &'static str> {
     match operation {
+        ManagedJobOperation::Resources { max_members }
+            if !(1..=RESOURCE_MEMBERS_MAX).contains(max_members) =>
+        {
+            return Err("managed_job_resource_member_limit");
+        }
         ManagedJobOperation::Output { max_bytes, .. } => {
             if !(1..=OUTPUT_BYTES_MAX).contains(max_bytes) {
                 return Err("managed_job_output_limit");
@@ -340,6 +352,9 @@ fn dispatch(owner: &mut ResidentJobOwner, request: ManagedJobRequest) -> Managed
         ManagedJobOperation::Status => owner.status().map(|status| ManagedJobResult::Status {
             status: status.into(),
         }),
+        ManagedJobOperation::Resources { max_members } => owner
+            .resource_snapshot(max_members)
+            .map(|snapshot| ManagedJobResult::Resources { snapshot }),
         ManagedJobOperation::Output {
             stream,
             cursor,
@@ -702,6 +717,17 @@ mod tests {
             base64_decode(&base64_encode(&[0, 255, 1])).unwrap(),
             [0, 255, 1]
         );
+        assert_eq!(
+            validate_operation(&ManagedJobOperation::Resources { max_members: 0 })
+                .expect_err("zero members"),
+            "managed_job_resource_member_limit"
+        );
+        assert!(
+            validate_operation(&ManagedJobOperation::Resources {
+                max_members: RESOURCE_MEMBERS_MAX
+            })
+            .is_ok()
+        );
     }
 
     #[test]
@@ -725,8 +751,33 @@ mod tests {
     }
 
     #[test]
+    fn resources_refuse_when_the_resident_owner_is_absent() {
+        let error = client_request(
+            &test_handle('f'),
+            ManagedJobOperation::Resources { max_members: 8 },
+        )
+        .expect_err("an absent owner must not be reconstructed from process IDs");
+        assert_eq!(error.code, "managed_job_owner_unavailable");
+    }
+
+    #[test]
     fn binary_stdin_and_independent_output_cursors_cross_the_owner_boundary() {
         let (directory, mut owner) = owner_fixture("binary");
+        let resources = dispatch(
+            &mut owner,
+            ManagedJobRequest {
+                schema_version: SCHEMA_VERSION,
+                request_id: "resources-1".into(),
+                operation: ManagedJobOperation::Resources { max_members: 8 },
+            },
+        );
+        let Some(ManagedJobResult::Resources { snapshot }) = resources.result else {
+            panic!("resource snapshot result")
+        };
+        assert!(resources.ok);
+        assert!(snapshot.membership_complete);
+        assert_eq!(snapshot.members.len(), 1);
+        assert_ne!(snapshot.members[0].pid, 0);
         let binary = [0, 255, b'\n', 1, 2, 3];
         let write_reply = dispatch(
             &mut owner,

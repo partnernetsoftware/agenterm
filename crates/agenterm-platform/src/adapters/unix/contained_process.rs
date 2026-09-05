@@ -111,6 +111,10 @@ impl ContainedChild {
         })
     }
 
+    pub(crate) fn containment_process_ids(&self, max_members: usize) -> io::Result<Vec<u32>> {
+        self.tree.process_ids(max_members).map_err(io::Error::other)
+    }
+
     pub(crate) fn take_stdout(&mut self) -> Option<ContainedChildOutput> {
         self.child.stdout.take().map(ContainedChildOutput::Stdout)
     }

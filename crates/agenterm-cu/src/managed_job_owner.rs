@@ -41,6 +41,8 @@ const WAIT_MAX: Duration = Duration::from_secs(300);
 const WAIT_POLL: Duration = Duration::from_millis(10);
 const DRAIN_SETTLE_WAIT: Duration = Duration::from_secs(1);
 const CLEANUP_WAIT: Duration = Duration::from_secs(5);
+pub(crate) const RESOURCE_MEMBERS_MAX: usize = 256;
+const RESOURCE_STABILITY_ATTEMPTS: usize = 6;
 
 /// One same-host launch document sent over a private inherited byte stream.
 ///
@@ -110,6 +112,32 @@ pub(crate) struct ResidentJobStatus {
     pub stdout_current_cursor: u64,
     pub stderr_earliest_cursor: u64,
     pub stderr_current_cursor: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResidentResourceMember {
+    pub pid: u32,
+    pub start_identity: String,
+    pub cpu_time_ns: String,
+    pub rss_bytes: String,
+    pub page_faults_total: String,
+    pub page_faults_soft: Option<String>,
+    pub page_faults_hard: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResidentResourceSnapshot {
+    pub provider: String,
+    pub breakaway_prevented: bool,
+    pub membership_complete: bool,
+    pub members: Vec<ResidentResourceMember>,
+    pub cpu_time_ns: String,
+    pub rss_bytes: String,
+    pub page_faults_total: String,
+    pub page_faults_soft: Option<String>,
+    pub page_faults_hard: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -295,6 +323,75 @@ impl ResidentJobOwner {
             stdout_current_cursor: stdout.current_cursor,
             stderr_earliest_cursor: stderr.earliest_cursor(),
             stderr_current_cursor: stderr.current_cursor,
+        })
+    }
+
+    pub(crate) fn resource_snapshot(
+        &mut self,
+        max_members: usize,
+    ) -> Result<ResidentResourceSnapshot, ManagedJobOwnerError> {
+        if !(1..=RESOURCE_MEMBERS_MAX).contains(&max_members) {
+            return Err(ManagedJobOwnerError::new(
+                "managed_job_resource_member_limit",
+            ));
+        }
+        self.poll_lifecycle()?;
+        if self.finished {
+            return Err(ManagedJobOwnerError::new("managed_job_resources_terminal"));
+        }
+        for _ in 0..RESOURCE_STABILITY_ATTEMPTS {
+            let before = self.resource_member_identities(max_members)?;
+            let Some(members) = sample_resource_members(&before.identities)? else {
+                continue;
+            };
+            let after = self.resource_member_identities(max_members)?;
+            if before.provider == after.provider
+                && before.breakaway_prevented == after.breakaway_prevented
+                && before.identities == after.identities
+            {
+                return aggregate_resource_members(
+                    before.provider,
+                    before.breakaway_prevented,
+                    members,
+                );
+            }
+        }
+        Err(ManagedJobOwnerError::new("managed_job_membership_unstable"))
+    }
+
+    fn resource_member_identities(
+        &self,
+        max_members: usize,
+    ) -> Result<ResourceMemberIdentities, ManagedJobOwnerError> {
+        let containment = self
+            .child
+            .as_ref()
+            .ok_or_else(|| ManagedJobOwnerError::new("managed_job_resources_terminal"))?
+            .containment_members(max_members)
+            .map_err(|_| ManagedJobOwnerError::new("managed_job_containment_inventory_failed"))?;
+        let mut identities = Vec::with_capacity(containment.process_ids.len());
+        for pid in containment.process_ids {
+            let identity = start_identity(pid)
+                .map_err(|_| ManagedJobOwnerError::new("managed_job_member_identity_unknown"))?;
+            identities.push(ExactProcessIdentity {
+                pid,
+                start_identity: identity,
+            });
+        }
+        if !identities.contains(&self.process) {
+            return Err(ManagedJobOwnerError::new(
+                "managed_job_containment_root_missing",
+            ));
+        }
+        identities.sort_by(|left, right| {
+            left.pid
+                .cmp(&right.pid)
+                .then_with(|| left.start_identity.cmp(&right.start_identity))
+        });
+        Ok(ResourceMemberIdentities {
+            provider: containment.provider.to_owned(),
+            breakaway_prevented: containment.breakaway_prevented,
+            identities,
         })
     }
 
@@ -510,6 +607,100 @@ impl ResidentJobOwner {
 
     fn drains_finalized(&self) -> bool {
         lock_ring(&self.stdout).finalized && lock_ring(&self.stderr).finalized
+    }
+}
+
+struct ResourceMemberIdentities {
+    provider: String,
+    breakaway_prevented: bool,
+    identities: Vec<ExactProcessIdentity>,
+}
+
+fn sample_resource_members(
+    identities: &[ExactProcessIdentity],
+) -> Result<Option<Vec<ResidentResourceMember>>, ManagedJobOwnerError> {
+    let mut members = Vec::with_capacity(identities.len());
+    for expected in identities {
+        if start_identity(expected.pid).ok().as_deref() != Some(&expected.start_identity) {
+            return Ok(None);
+        }
+        let metrics = match agenterm_platform::process_metrics::metrics(expected.pid) {
+            Ok(metrics) => metrics,
+            Err(error)
+                if error.kind()
+                    == agenterm_platform::process_metrics::ProcessMetricsErrorKind::NotFound =>
+            {
+                return Ok(None);
+            }
+            Err(_) => {
+                return Err(ManagedJobOwnerError::new(
+                    "managed_job_member_metrics_failed",
+                ));
+            }
+        };
+        if start_identity(expected.pid).ok().as_deref() != Some(&expected.start_identity) {
+            return Ok(None);
+        }
+        members.push(ResidentResourceMember {
+            pid: expected.pid,
+            start_identity: expected.start_identity.clone(),
+            cpu_time_ns: metrics.cpu_time.as_nanos().to_string(),
+            rss_bytes: metrics.resident_bytes.to_string(),
+            page_faults_total: metrics.page_faults.total.to_string(),
+            page_faults_soft: metrics.page_faults.soft.map(|value| value.to_string()),
+            page_faults_hard: metrics.page_faults.hard.map(|value| value.to_string()),
+        });
+    }
+    Ok(Some(members))
+}
+
+fn aggregate_resource_members(
+    provider: String,
+    breakaway_prevented: bool,
+    members: Vec<ResidentResourceMember>,
+) -> Result<ResidentResourceSnapshot, ManagedJobOwnerError> {
+    let mut cpu_time_ns = 0_u128;
+    let mut rss_bytes = 0_u128;
+    let mut page_faults_total = 0_u128;
+    let mut page_faults_soft = Some(0_u128);
+    let mut page_faults_hard = Some(0_u128);
+    for member in &members {
+        cpu_time_ns = checked_resource_sum(cpu_time_ns, &member.cpu_time_ns)?;
+        rss_bytes = checked_resource_sum(rss_bytes, &member.rss_bytes)?;
+        page_faults_total = checked_resource_sum(page_faults_total, &member.page_faults_total)?;
+        page_faults_soft =
+            checked_optional_resource_sum(page_faults_soft, member.page_faults_soft.as_deref())?;
+        page_faults_hard =
+            checked_optional_resource_sum(page_faults_hard, member.page_faults_hard.as_deref())?;
+    }
+    Ok(ResidentResourceSnapshot {
+        provider,
+        breakaway_prevented,
+        membership_complete: true,
+        members,
+        cpu_time_ns: cpu_time_ns.to_string(),
+        rss_bytes: rss_bytes.to_string(),
+        page_faults_total: page_faults_total.to_string(),
+        page_faults_soft: page_faults_soft.map(|value| value.to_string()),
+        page_faults_hard: page_faults_hard.map(|value| value.to_string()),
+    })
+}
+
+fn checked_resource_sum(total: u128, value: &str) -> Result<u128, ManagedJobOwnerError> {
+    value
+        .parse::<u128>()
+        .ok()
+        .and_then(|value| total.checked_add(value))
+        .ok_or_else(|| ManagedJobOwnerError::new("managed_job_resource_counter_invalid"))
+}
+
+fn checked_optional_resource_sum(
+    total: Option<u128>,
+    value: Option<&str>,
+) -> Result<Option<u128>, ManagedJobOwnerError> {
+    match (total, value) {
+        (Some(total), Some(value)) => checked_resource_sum(total, value).map(Some),
+        _ => Ok(None),
     }
 }
 
@@ -1066,5 +1257,41 @@ mod tests {
         assert_eq!(stored.owner.expect("owner").pid, std::process::id());
         assert!(stored.process.expect("process").pid != 0);
         fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn resource_aggregation_is_lossless_and_preserves_unavailable_subcounters() {
+        let snapshot = aggregate_resource_members(
+            "test-containment".into(),
+            false,
+            vec![
+                ResidentResourceMember {
+                    pid: 2,
+                    start_identity: "two".into(),
+                    cpu_time_ns: "1000001".into(),
+                    rss_bytes: "20".into(),
+                    page_faults_total: "3".into(),
+                    page_faults_soft: Some("2".into()),
+                    page_faults_hard: Some("1".into()),
+                },
+                ResidentResourceMember {
+                    pid: 3,
+                    start_identity: "three".into(),
+                    cpu_time_ns: "2000002".into(),
+                    rss_bytes: "40".into(),
+                    page_faults_total: "5".into(),
+                    page_faults_soft: None,
+                    page_faults_hard: Some("4".into()),
+                },
+            ],
+        )
+        .expect("aggregate resources");
+        assert_eq!(snapshot.cpu_time_ns, "3000003");
+        assert_eq!(snapshot.rss_bytes, "60");
+        assert_eq!(snapshot.page_faults_total, "8");
+        assert_eq!(snapshot.page_faults_soft, None);
+        assert_eq!(snapshot.page_faults_hard.as_deref(), Some("5"));
+        assert!(snapshot.membership_complete);
+        assert!(!snapshot.breakaway_prevented);
     }
 }

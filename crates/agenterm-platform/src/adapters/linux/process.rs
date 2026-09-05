@@ -828,6 +828,72 @@ impl ProcessTreeGuard {
         })
     }
 
+    pub fn process_ids(&self, max_members: usize) -> Result<Vec<u32>, String> {
+        if !self.active || !self.root_is_owned() {
+            return Err("owned process-group root identity is no longer live".to_owned());
+        }
+        let entries = std::fs::read_dir("/proc")
+            .map_err(|error| format!("owned process-group inventory failed: {error}"))?;
+        let mut process_ids = Vec::new();
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| format!("owned process-group inventory failed: {error}"))?;
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|value| value.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            let stat = match std::fs::read_to_string(entry.path().join("stat")) {
+                Ok(stat) => stat,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(format!("owned process-group member read failed: {error}"));
+                }
+            };
+            let close = stat
+                .rfind(')')
+                .ok_or_else(|| "owned process-group member stat is malformed".to_owned())?;
+            let process_group = stat[close + 1..]
+                .split_whitespace()
+                .nth(2)
+                .ok_or_else(|| "owned process-group member stat omitted pgrp".to_owned())?
+                .parse::<libc::pid_t>()
+                .map_err(|error| format!("owned process-group member pgrp is invalid: {error}"))?;
+            if process_group == self.process_group {
+                process_ids.push(pid);
+                if process_ids.len() > max_members {
+                    return Err("owned process group exceeds the member bound".to_owned());
+                }
+            }
+        }
+        if !self.root_is_owned() || !process_ids.contains(&(self.process_group as u32)) {
+            return Err("owned process-group root changed during inventory".to_owned());
+        }
+        Ok(process_ids)
+    }
+
+    fn root_is_owned(&self) -> bool {
+        let Ok(root_id) = u32::try_from(self.process_group) else {
+            return false;
+        };
+        let identity_matches = matches!(
+            (&self.root_start_identity, observe(root_id)),
+            (
+                Some(expected),
+                ProcessObservation::Live {
+                    start_identity: Some(current),
+                },
+            ) if current == *expected
+        );
+        identity_matches
+            && self
+                .root_reference
+                .as_ref()
+                .is_some_and(|reference| reference.is_alive().unwrap_or(false))
+    }
+
     pub fn terminate(&mut self) -> Result<(), String> {
         if !self.active {
             return Ok(());

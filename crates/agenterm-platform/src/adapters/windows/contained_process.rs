@@ -243,6 +243,17 @@ impl ContainedChild {
         Ok(Some(exit))
     }
 
+    pub(crate) fn containment_process_ids(&self, max_members: usize) -> io::Result<Vec<u32>> {
+        let process_ids = self.containment.process_ids().map_err(io::Error::other)?;
+        if process_ids.len() > max_members {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "contained Job Object exceeds the member bound",
+            ));
+        }
+        Ok(process_ids)
+    }
+
     pub(crate) fn take_stdout(&mut self) -> Option<ContainedChildOutput> {
         self.stdout.take()
     }

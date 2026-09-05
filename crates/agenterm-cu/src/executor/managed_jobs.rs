@@ -10,6 +10,7 @@ use std::{
 
 use agenterm_platform::process::{DetachedSpawnMode, spawn_detached_child};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::{
     command::{JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter},
@@ -32,6 +33,7 @@ const START_POLL: Duration = Duration::from_millis(20);
 const OUTPUT_CAPACITY_BYTES: usize = 1024 * 1024;
 const IPC_PAGE_BYTES: usize = 64 * 1024;
 const JOB_RESOURCE_MAX_SAMPLES: usize = 256;
+const JOB_RESOURCE_MAX_MEMBERS: usize = 256;
 
 pub(super) struct JobRequestContext<'a> {
     pub session_id: &'a str,
@@ -368,7 +370,7 @@ pub(super) fn job_resources_payload(
     watch_ms: Option<u64>,
 ) -> Result<Value, CuError> {
     let record = checked_record(job_id, generation)?;
-    let expected = record.process.clone().ok_or_else(|| {
+    let expected = record.process.as_ref().ok_or_else(|| {
         CuError::new(
             "managed_job_process_identity_unavailable",
             "managed-job has no published exact child process identity",
@@ -379,114 +381,160 @@ pub(super) fn job_resources_payload(
             "state": record.state,
         }))
     })?;
-    let usage = match watch_ms {
-        Some(duration_ms) => {
-            let intervals = (JOB_RESOURCE_MAX_SAMPLES - 1) as u64;
-            let interval_ms = duration_ms.div_ceil(intervals).max(1);
-            super::process_usage_watch_payload(
-                expected.pid,
-                duration_ms,
-                Some(interval_ms),
-                Some(JOB_RESOURCE_MAX_SAMPLES),
-            )?
+    if watch_ms.is_none() {
+        return resource_point_payload(&record, expected);
+    }
+
+    let duration_ms = watch_ms.expect("checked above");
+    let interval_ms = duration_ms
+        .div_ceil((JOB_RESOURCE_MAX_SAMPLES - 1) as u64)
+        .max(1);
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(duration_ms);
+    let mut samples = Vec::with_capacity(JOB_RESOURCE_MAX_SAMPLES);
+    let mut latest = None;
+    let ended_reason = loop {
+        match resource_point_payload(&record, expected) {
+            Ok(point) => {
+                samples.push(json!({
+                    "t_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                    "member_count": point["member_count"],
+                    "membership_sha256": point["membership_sha256"],
+                    "cpu_time_ns": point["cpu_time_ns"],
+                    "cpu_ms": point["cpu_ms"],
+                    "rss_bytes": point["rss_bytes"],
+                    "page_faults": point["page_faults"],
+                    "membership_complete": true,
+                }));
+                latest = Some(point);
+            }
+            Err(error) if error.code == "managed_job_resources_terminal" && !samples.is_empty() => {
+                break "job-terminal";
+            }
+            Err(error) => return Err(error),
         }
-        None => super::process_usage_payload(expected.pid)?,
+        if Instant::now() >= deadline {
+            break "duration";
+        }
+        if samples.len() >= JOB_RESOURCE_MAX_SAMPLES {
+            break "max-samples";
+        }
+        thread::sleep(
+            Duration::from_millis(interval_ms)
+                .min(deadline.saturating_duration_since(Instant::now())),
+        );
     };
-    let after_record = checked_record(job_id, generation)?;
-    if after_record.process.as_ref() != Some(&expected) {
-        return Err(CuError::new(
-            "managed_job_process_identity_changed",
-            "managed-job durable child identity changed while metrics were sampled",
-        )
-        .with_detail(json!({
-            "job_id": job_id,
-            "generation": generation,
-            "expected_pid": expected.pid,
-            "expected_start_identity": expected.start_identity,
-        })));
-    }
-    let observed_identity = usage["start_identity"].as_str().ok_or_else(|| {
-        CuError::new(
-            "process_metrics_contract_invalid",
-            "identity-bracketed process metrics omitted start_identity",
-        )
-    })?;
-    if observed_identity != expected.start_identity {
-        return Err(CuError::new(
-            "managed_job_process_identity_changed",
-            "managed-job child identity no longer matches its durable record",
-        )
-        .with_detail(json!({
-            "job_id": job_id,
-            "generation": generation,
-            "pid": expected.pid,
-            "expected_start_identity": expected.start_identity,
-            "actual_start_identity": observed_identity,
-        })));
-    }
-
-    if let Some(duration_ms) = watch_ms {
-        let samples = usage["samples"]
-            .as_array()
-            .ok_or_else(metrics_contract_error)?
-            .iter()
-            .map(|sample| {
-                Ok(json!({
-                    "t_ms": sample["t_ms"],
-                    "members": [resource_member(expected.pid, &expected.start_identity, sample)?],
-                }))
-            })
-            .collect::<Result<Vec<_>, CuError>>()?;
-        let members = samples
-            .last()
-            .and_then(|sample| sample["members"].as_array())
-            .cloned()
-            .unwrap_or_default();
-        return Ok(json!({
-            "job_id": job_id,
-            "generation": generation,
-            "scope": "root-only",
-            "tree_complete": false,
-            "mode": "bounded-series",
-            "duration_ms": duration_ms,
-            "interval_ms": usage["interval_ms"],
-            "max_samples": usage["max_samples"],
-            "emitted": usage["emitted"],
-            "completed": usage["completed"],
-            "truncated": usage["truncated"],
-            "members": members,
-            "samples": samples,
-            "verified": true,
-        }));
-    }
-
+    let latest = latest.expect("watch always attempts one sample");
     Ok(json!({
         "job_id": job_id,
         "generation": generation,
-        "scope": "root-only",
-        "tree_complete": false,
-        "mode": "point",
-        "members": [resource_member(expected.pid, &expected.start_identity, &usage)?],
+        "scope": "containment-group",
+        "provider": latest["provider"],
+        "breakaway_prevented": latest["breakaway_prevented"],
+        "membership_complete": true,
+        "tree_complete": latest["tree_complete"],
+        "coherence": "stable-membership-sweep",
+        "mode": "bounded-series",
+        "duration_ms": duration_ms,
+        "interval_ms": interval_ms,
+        "max_samples": JOB_RESOURCE_MAX_SAMPLES,
+        "emitted": samples.len(),
+        "completed": ended_reason == "duration",
+        "truncated": ended_reason == "max-samples",
+        "ended_reason": ended_reason,
+        "member_count": latest["member_count"],
+        "members": latest["members"],
+        "samples": samples,
         "verified": true,
     }))
 }
 
-fn resource_member(pid: u32, start_identity: &str, sample: &Value) -> Result<Value, CuError> {
-    let cpu_time_ns = sample["cpu_time_ns"]
-        .as_str()
-        .ok_or_else(metrics_contract_error)?;
-    let resident_bytes = sample["resident_bytes"]
-        .as_str()
-        .ok_or_else(metrics_contract_error)?;
+fn resource_point_payload(
+    record: &ManagedJobRecord,
+    expected: &crate::managed_job_store::ExactProcessIdentity,
+) -> Result<Value, CuError> {
+    let result = client_request(
+        &record.handle(),
+        ManagedJobOperation::Resources {
+            max_members: JOB_RESOURCE_MAX_MEMBERS,
+        },
+    )
+    .map_err(client_error)?;
+    let ManagedJobResult::Resources { snapshot } = result else {
+        return Err(response_kind_error());
+    };
+    if !snapshot.members.iter().any(|member| {
+        member.pid == expected.pid && member.start_identity == expected.start_identity
+    }) {
+        return Err(CuError::new(
+            "managed_job_containment_root_missing",
+            "resident containment snapshot omitted the durable root identity",
+        ));
+    }
+    let after = checked_record(&record.job_id, record.generation)?;
+    if after.process.as_ref() != Some(expected) {
+        return Err(CuError::new(
+            "managed_job_process_identity_changed",
+            "managed-job durable child identity changed while resources were sampled",
+        ));
+    }
+    let membership_sha256 = membership_digest(&snapshot.members);
+    let members = snapshot
+        .members
+        .iter()
+        .map(|member| {
+            Ok(json!({
+                "pid": member.pid,
+                "start_identity": member.start_identity,
+                "cpu_time_ns": member.cpu_time_ns,
+                "cpu_ms": cpu_ms_decimal(&member.cpu_time_ns)?,
+                "rss_bytes": member.rss_bytes,
+                "page_faults": {
+                    "total": member.page_faults_total,
+                    "soft": member.page_faults_soft,
+                    "hard": member.page_faults_hard,
+                },
+                "verified": true,
+            }))
+        })
+        .collect::<Result<Vec<_>, CuError>>()?;
     Ok(json!({
-        "pid": pid,
-        "start_identity": start_identity,
-        "cpu_time_ns": cpu_time_ns,
-        "cpu_ms": cpu_ms_decimal(cpu_time_ns)?,
-        "rss_bytes": resident_bytes,
-        "page_faults": sample["page_faults"],
+        "job_id": record.job_id,
+        "generation": record.generation,
+        "scope": "containment-group",
+        "provider": snapshot.provider,
+        "breakaway_prevented": snapshot.breakaway_prevented,
+        "membership_complete": snapshot.membership_complete,
+        "tree_complete": snapshot.breakaway_prevented,
+        "coherence": "stable-membership-sweep",
+        "mode": "point",
+        "member_count": members.len(),
+        "membership_sha256": membership_sha256,
+        "cpu_time_ns": snapshot.cpu_time_ns,
+        "cpu_ms": cpu_ms_decimal(&snapshot.cpu_time_ns)?,
+        "rss_bytes": snapshot.rss_bytes,
+        "page_faults": {
+            "total": snapshot.page_faults_total,
+            "soft": snapshot.page_faults_soft,
+            "hard": snapshot.page_faults_hard,
+        },
+        "members": members,
         "verified": true,
     }))
+}
+
+fn membership_digest(members: &[crate::managed_job_owner::ResidentResourceMember]) -> String {
+    let mut digest = Sha256::new();
+    for member in members {
+        digest.update(member.pid.to_be_bytes());
+        digest.update((member.start_identity.len() as u64).to_be_bytes());
+        digest.update(member.start_identity.as_bytes());
+    }
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn cpu_ms_decimal(nanoseconds: &str) -> Result<String, CuError> {

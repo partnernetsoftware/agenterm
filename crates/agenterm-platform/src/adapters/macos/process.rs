@@ -843,6 +843,75 @@ impl ProcessTreeGuard {
         })
     }
 
+    pub fn process_ids(&self, max_members: usize) -> Result<Vec<u32>, String> {
+        use std::{ffi::c_void, mem::size_of};
+        const PROC_PGRP_ONLY: u32 = 2;
+        #[link(name = "proc")]
+        unsafe extern "C" {
+            fn proc_listpids(
+                process_type: u32,
+                type_info: u32,
+                buffer: *mut c_void,
+                buffer_size: libc::c_int,
+            ) -> libc::c_int;
+        }
+        if !self.active || !self.root_is_owned() {
+            return Err("owned process-group root identity is no longer live".to_owned());
+        }
+        let expected_group = u32::try_from(self.process_group)
+            .map_err(|_| "owned process-group ID is invalid".to_owned())?;
+        let required =
+            unsafe { proc_listpids(PROC_PGRP_ONLY, expected_group, std::ptr::null_mut(), 0) };
+        if required <= 0 {
+            return Err("owned process-group inventory sizing failed".to_owned());
+        }
+        let capacity =
+            usize::try_from(required).unwrap_or_default() / size_of::<libc::c_int>() + 32;
+        let mut ids = vec![0 as libc::c_int; capacity];
+        let buffer_size = libc::c_int::try_from(ids.len().saturating_mul(size_of::<libc::c_int>()))
+            .map_err(|_| "owned process-group inventory buffer overflow".to_owned())?;
+        let bytes = unsafe {
+            proc_listpids(
+                PROC_PGRP_ONLY,
+                expected_group,
+                ids.as_mut_ptr().cast(),
+                buffer_size,
+            )
+        };
+        if bytes <= 0 || bytes >= buffer_size {
+            return Err("owned process-group inventory was truncated".to_owned());
+        }
+        ids.truncate(usize::try_from(bytes).unwrap_or_default() / size_of::<libc::c_int>());
+        let mut process_ids = Vec::new();
+        for pid in ids.into_iter().filter(|pid| *pid > 0) {
+            let pid = u32::try_from(pid)
+                .map_err(|_| "owned process-group member ID is invalid".to_owned())?;
+            process_ids.push(pid);
+            if process_ids.len() > max_members {
+                return Err("owned process group exceeds the member bound".to_owned());
+            }
+        }
+        if !self.root_is_owned() || !process_ids.contains(&expected_group) {
+            return Err("owned process-group root changed during inventory".to_owned());
+        }
+        Ok(process_ids)
+    }
+
+    fn root_is_owned(&self) -> bool {
+        let Ok(root_id) = u32::try_from(self.process_group) else {
+            return false;
+        };
+        matches!(
+            (&self.root_start_identity, observe(root_id)),
+            (
+                Some(expected),
+                ProcessObservation::Live {
+                    start_identity: Some(current),
+                },
+            ) if current == *expected
+        )
+    }
+
     pub fn terminate(&mut self) -> Result<(), String> {
         if !self.active {
             return Ok(());
