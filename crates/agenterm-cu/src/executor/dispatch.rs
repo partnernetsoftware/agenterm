@@ -142,6 +142,14 @@ impl Executor {
                 *timeout_ms,
                 *max_bytes,
             ),
+            Command::JobOutput {
+                job_id,
+                generation,
+                stream,
+                cursor,
+                max_bytes,
+                ..
+            } => job_output_payload(job_id, *generation, *stream, cursor, *max_bytes),
             Command::JobWrite {
                 job_id,
                 generation,

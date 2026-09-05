@@ -498,6 +498,14 @@ evidence to retain a compact ISA fork; GUI frame timing alone was too noisy.
 Terminal and GUI code must remain bounded under slow consumers and abnormal
 children.
 
+A dual-stream event facade and a one-stream output facade are different public
+contracts even when both read the same retained rings. Do not implement the
+one-stream form by calling the dual-stream form: splitting the aggregate budget
+silently halves the requested stream and can advance an unrequested peer
+cursor. Share the bounded page collector beneath both facades, keep each
+stream's absolute cursor and truncation state independent, and prove identical
+bytes for the same stream/cursor at the public black-box boundary.
+
 A bounded command buffer does not necessarily bound the native work it
 schedules. For duration-bearing media or timer protocols, validate record
 count and aggregate scheduled duration before dispatch, in addition to byte

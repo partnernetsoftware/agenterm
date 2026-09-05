@@ -678,10 +678,11 @@ flowchart LR
   not be simulated by a visible tab or by single-process metrics.
 
 - [~] The arbitrary managed-job facade is now public as
-  `job-spawn/list/status/events/write/wait/renew/stop`. It is distinct from an
+  `job-spawn/list/status/events/output/write/wait/renew/stop`. It is distinct from an
   AgenTerm tab and from the bounded synchronous `shell-exec`: an independent
   resident owner contains the exact child tree, retains separate bounded
-  stdout/stderr cursor rings, owns stdin EOF, and serves one request per
+  stdout/stderr cursor rings, exposes either a dual-stream long poll or one
+  stream with its full byte budget, owns stdin EOF, and serves one request per
   current-user native socket/pipe connection. The durable registry never
   stores command arguments, environment values, session lease, stdin bytes or
   the private owner nonce in a public reply. Mutating spawn/write/renew/stop
@@ -689,7 +690,8 @@ flowchart LR
   same `{job_id,generation}` and does not create another process. Delivery
   uncertainty remains typed and is never retried automatically. A macOS
   public qjswasm court has proved exact replay, binary stdin plus EOF, both
-  output streams with independently advancing cursors, exit verification,
+  output streams with independently advancing cursors, the single-stream
+  `job-output` byte-for-byte projection, exit verification,
   renewal, identity-bound stop and owner cleanup on macOS. The independent
   `utm-court` Linux x86_64 execute-only court then verified the complete
   delivery closure by SHA-256 and passed the same public journey at exact

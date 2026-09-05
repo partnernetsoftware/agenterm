@@ -45,6 +45,13 @@ pub enum JobStateFilter {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JobOutputStream {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FileTransactionAction {
     Status,
@@ -236,6 +243,19 @@ where
     if !(2..=JOB_EVENTS_BYTES_MAX).contains(&value) {
         return Err(serde::de::Error::custom(
             "managed-job events max_bytes must be in 2..=1048576",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_job_output_max<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = usize::deserialize(deserializer)?;
+    if !(1..=JOB_EVENTS_BYTES_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "managed-job output max_bytes must be in 1..=1048576",
         ));
     }
     Ok(value)
@@ -790,6 +810,16 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_job_events_timeout")]
         timeout_ms: u64,
         #[serde(deserialize_with = "deserialize_job_events_max")]
+        max_bytes: usize,
+    },
+    JobOutput {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        stream: JobOutputStream,
+        cursor: JobOutputCursor,
+        #[serde(deserialize_with = "deserialize_job_output_max")]
         max_bytes: usize,
     },
     JobWrite {
@@ -2617,6 +2647,7 @@ impl Command {
             Self::JobList { .. } => "job-list".into(),
             Self::JobStatus { .. } => "job-status".into(),
             Self::JobEvents { .. } => "job-events".into(),
+            Self::JobOutput { .. } => "job-output".into(),
             Self::JobWrite { .. } => "job-write".into(),
             Self::JobWait { .. } => "job-wait".into(),
             Self::JobStop { .. } => "job-stop".into(),
@@ -2767,6 +2798,7 @@ impl Command {
             | Self::JobList { target, .. }
             | Self::JobStatus { target, .. }
             | Self::JobEvents { target, .. }
+            | Self::JobOutput { target, .. }
             | Self::JobWrite { target, .. }
             | Self::JobWait { target, .. }
             | Self::JobStop { target, .. }
@@ -3028,6 +3060,21 @@ impl Command {
                 }
                 Ok(())
             }
+            Self::JobOutput {
+                job_id,
+                generation,
+                cursor,
+                max_bytes,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                validate_job_cursor(cursor.as_str())?;
+                if !(1..=JOB_EVENTS_BYTES_MAX).contains(max_bytes) {
+                    return Err("managed-job output max_bytes must be in 1..=1048576");
+                }
+                Ok(())
+            }
             Self::JobWrite {
                 job_id,
                 generation,
@@ -3163,6 +3210,23 @@ mod tests {
         assert_eq!(
             serde_json::to_value(events_command).expect("serialize events"),
             events
+        );
+
+        let output = serde_json::json!({
+            "verb": "job-output",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "stream": "stderr",
+            "cursor": "12",
+            "max_bytes": 1_048_576
+        });
+        let output_command: Command = serde_json::from_value(output.clone()).expect("output");
+        assert_eq!(output_command.verb(), "job-output");
+        assert_eq!(output_command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(output_command).expect("serialize output"),
+            output
         );
 
         let write: Command = serde_json::from_value(serde_json::json!({

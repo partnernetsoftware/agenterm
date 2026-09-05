@@ -143,7 +143,8 @@ MCU retirement blockers
 │  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
 │  ├─ [x] cross-platform owned stdin pipe; drop is explicit EOF, not process stop
 │  ├─ [x] closed current-user native IPC + opaque bounded endpoint + resident expiry loop
-│  ├─ [x] detached launcher + public spawn/list/status/events/write/wait/renew/stop
+│  ├─ [x] detached launcher + public spawn/list/status/events/output/write/wait/renew/stop
+│  ├─ [x] MCU `job output` single-stream cursor/byte-budget shape routes to ACU with explicit generation
 │  ├─ [x] exact request replay returns the same public job identity without a second spawn
 │  ├─ [x] session-end closes admission, stops every bound job, releases locks and retries idempotently
 │  ├─ [x] macOS public-process lifecycle: dual output, write/EOF, wait, renew and stop

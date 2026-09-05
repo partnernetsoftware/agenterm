@@ -2,7 +2,7 @@
 
 use agenterm_cu::{
     Command, TargetRef,
-    command::{JobEnvironment, JobOutputCursor, JobStateFilter},
+    command::{JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter},
 };
 
 use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
@@ -169,6 +169,20 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
             stdout_cursor: cursor_flag(args, "--stdout-cursor")?,
             stderr_cursor: cursor_flag(args, "--stderr-cursor")?,
             timeout_ms: flag_parsed(args, "--timeout-ms")?.unwrap_or(0),
+            max_bytes: flag_parsed(args, "--max-bytes")?.unwrap_or(DEFAULT_JOB_EVENTS_MAX_BYTES),
+        },
+        "job-output" => Command::JobOutput {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            stream: match flag_text(args, "--stream")?.as_deref().unwrap_or("stdout") {
+                "stdout" => JobOutputStream::Stdout,
+                "stderr" => JobOutputStream::Stderr,
+                value => return Err(format!("--stream must be stdout or stderr, got {value:?}")),
+            },
+            cursor: cursor_flag(args, "--cursor")?,
             max_bytes: flag_parsed(args, "--max-bytes")?.unwrap_or(DEFAULT_JOB_EVENTS_MAX_BYTES),
         },
         "job-write" => {
@@ -514,6 +528,33 @@ mod tests {
         assert_eq!(stdout_cursor.as_str(), "7");
         assert_eq!(stderr_cursor.as_str(), "9");
         assert_eq!(max_bytes, 128);
+        let Command::JobOutput {
+            stream,
+            cursor,
+            max_bytes,
+            ..
+        } = parse(
+            "job",
+            &[
+                "output",
+                id,
+                "1",
+                "--stream",
+                "stderr",
+                "--cursor",
+                "11",
+                "--max-bytes",
+                "1",
+            ],
+        )
+        .unwrap()
+        else {
+            panic!("job-output command")
+        };
+        assert_eq!(stream, JobOutputStream::Stderr);
+        assert_eq!(cursor.as_str(), "11");
+        assert_eq!(max_bytes, 1);
+        assert!(parse("job-output", &[id, "1", "--stream", "merged"]).is_err());
         assert!(parse("job-events", &[id, "0"]).is_err());
         assert!(parse("job-write", &[id, "1"]).is_err());
         assert!(matches!(

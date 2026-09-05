@@ -2364,7 +2364,7 @@
     },
     {
       "id": "cu-managed-job-smoke",
-      "description": "Prove the platform-neutral public managed-job lifecycle plus bounded audit retention: runtime session ownership, exact spawn replay, privacy-safe list/status, stdin write and close, independent output cursors, exit wait, lease renewal, exact stop, session-end admission closure with bound-job/owner/lock cleanup and idempotent retry, then retention plan/apply/readback with explicit malformed and expired drops.",
+      "description": "Prove the platform-neutral public managed-job lifecycle plus bounded audit retention: runtime session ownership, exact spawn replay, privacy-safe list/status, stdin write and close, independent dual-stream cursors plus the full-budget single-stream output projection, exit wait, lease renewal, exact stop, session-end admission closure with bound-job/owner/lock cleanup and idempotent retry, then retention plan/apply/readback with explicit malformed and expired drops.",
       "entry": "scripts/qjs/cu-managed-job-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

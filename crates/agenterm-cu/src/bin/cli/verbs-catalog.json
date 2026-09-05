@@ -217,6 +217,16 @@
       "args": []
     },
     {
+      "name": "job-output",
+      "command": "job-output",
+      "aliases": ["job output"],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read one bounded managed-job output stream",
+      "usage": "job-output JOB_ID GENERATION [--stream stdout|stderr] [--cursor N] [--max-bytes N]",
+      "args": []
+    },
+    {
       "name": "job-write",
       "command": "job-write",
       "aliases": ["job write"],
@@ -4378,6 +4388,10 @@
     {
       "name": "job-events",
       "text": "agenterm-cu job-events    (also: job events)\n  scope: observe    family: Managed jobs\n\nusage: job-events JOB_ID GENERATION [--stdout-cursor N] [--stderr-cursor N] [--timeout-ms N] [--max-bytes N]\n\nReads independent bounded stdout/stderr rings. Cursors are canonical decimal byte positions; truncation and native read failures stay explicit.\n"
+    },
+    {
+      "name": "job-output",
+      "text": "agenterm-cu job-output    (also: job output)\n  scope: observe    family: Managed jobs\n\nusage: job-output JOB_ID GENERATION [--stream stdout|stderr] [--cursor N] [--max-bytes N]\n\nReads exactly one bounded output stream without splitting its byte budget with the peer stream. Data remains binary-safe base64; cursors are canonical decimal byte positions and truncation stays explicit.\n"
     },
     {
       "name": "job-write",

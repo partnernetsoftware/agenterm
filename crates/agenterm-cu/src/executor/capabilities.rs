@@ -551,6 +551,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             ("job-list", "observe", "durable-bounded-inventory"),
             ("job-status", "observe", "durable-plus-live-status"),
             ("job-events", "observe", "loss-aware-dual-output-cursors"),
+            ("job-output", "observe", "loss-aware-single-output-cursor"),
             ("job-write", "actuate", "bounded-atomic-stdin-write"),
             ("job-wait", "observe", "bounded-terminal-state-wait"),
             ("job-stop", "actuate", "identity-bound-tree-stop"),
@@ -996,6 +997,7 @@ mod tests {
         assert!(tsv.contains("shell-pty-job\tlinux\tavailable\t"));
         assert_eq!(data["verbs"]["job-spawn"]["status"], "available");
         assert_eq!(data["verbs"]["job-events"]["grant"], "observe");
+        assert_eq!(data["verbs"]["job-output"]["grant"], "observe");
         assert!(!tsv.contains("still-gap"));
         assert_eq!(data["verbs"]["windows-watch"]["mode"], "poll-diff");
         assert_eq!(data["verbs"]["windows-watch"]["group"], "discover");

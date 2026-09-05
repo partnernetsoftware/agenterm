@@ -632,12 +632,12 @@
         {
           "id": "job.output-events-input",
           "mcu_shape": "job output|events|write with independent stdout/stderr cursors and bounded long poll",
-          "acu_shape": "job-events|job-write with independent decimal cursors, bounded long poll and explicit stdin EOF",
+          "acu_shape": "job-output|job-events|job-write with single- or dual-stream decimal cursors, bounded byte budgets, long poll and explicit stdin EOF",
           "state": "native",
           "qualification": "local-macos-public-qjswasm-journey-green-linux-windows-pending",
           "evidence": ["cu.managed-job-lifecycle"],
           "next": "run the same public cursor and write/EOF court on Linux and Windows",
-          "note": "One resident owner drains both streams concurrently into bounded loss-aware rings. Writes report the accepted byte lower bound and whether delivery was complete; unknown delivery remains typed."
+          "note": "One resident owner drains both streams concurrently into bounded loss-aware rings. job-output preserves MCU's one-stream offset/limit shape without halving its byte budget; the compatibility route requires the exact job generation. Writes report the accepted byte lower bound and whether delivery was complete; unknown delivery remains typed."
         },
         {
           "id": "job.context-resources",

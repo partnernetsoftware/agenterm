@@ -224,6 +224,18 @@ try {
       && stdout_cursor !== "0" && stderr_cursor !== "0",
     "cu_managed_job_events_initial_contract"
   );
+  const stderr_output = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-output", first_job.job_id, "" + first_job.generation,
+    "--stream", "stderr", "--cursor", "0", "--max-bytes", "4096"
+  ], "job-output");
+  ensure(
+    stderr_output.stream === "stderr"
+      && stderr_output.output.data_base64 === first_events.stderr.data_base64
+      && stderr_output.output.bytes === first_events.stderr.bytes
+      && stderr_output.output.next_cursor === stderr_cursor,
+    "cu_managed_job_output_single_stream_contract"
+  );
   const stderr_replay = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "observe",
     "job-events", first_job.job_id, "" + first_job.generation,

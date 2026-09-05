@@ -12,7 +12,7 @@ use agenterm_platform::process::{DetachedSpawnMode, spawn_detached_child};
 use serde_json::{Value, json};
 
 use crate::{
-    command::{JobEnvironment, JobOutputCursor, JobStateFilter},
+    command::{JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter},
     idempotency_store::FinalReplay,
     managed_job_ipc::{
         JobState, ManagedJobOperation, ManagedJobProtocolError, ManagedJobResult, OutputStream,
@@ -521,6 +521,36 @@ pub(super) fn job_events_payload(
         }
         thread::sleep(START_POLL.min(deadline.saturating_duration_since(Instant::now())));
     }
+}
+
+pub(super) fn job_output_payload(
+    job_id: &str,
+    generation: u64,
+    stream: JobOutputStream,
+    cursor: &JobOutputCursor,
+    max_bytes: usize,
+) -> Result<Value, CuError> {
+    let record = checked_record(job_id, generation)?;
+    let output = collect_output(
+        &record,
+        match stream {
+            JobOutputStream::Stdout => OutputStream::Stdout,
+            JobOutputStream::Stderr => OutputStream::Stderr,
+        },
+        cursor.value(),
+        max_bytes,
+    )?;
+    let status = live_status(&record)?;
+    Ok(json!({
+        "job_id": job_id,
+        "generation": generation,
+        "stream": match stream {
+            JobOutputStream::Stdout => "stdout",
+            JobOutputStream::Stderr => "stderr",
+        },
+        "output": output,
+        "status": status,
+    }))
 }
 
 fn collect_output(
