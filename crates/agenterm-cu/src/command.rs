@@ -591,6 +591,18 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         byte_max: Option<usize>,
     },
+    /// Plan or atomically apply bounded retention to the local control audit.
+    AuditCompact {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_age_days: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_events: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_bytes: Option<usize>,
+        #[serde(default)]
+        apply: bool,
+    },
     SessionStart {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2373,6 +2385,7 @@ impl Command {
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
             Self::AuditQuery { .. } => "audit-query".into(),
+            Self::AuditCompact { .. } => "audit-compact".into(),
             Self::SessionStart { .. } => "session-start".into(),
             Self::SessionList { .. } => "session-list".into(),
             Self::SessionStatus { .. } => "session-status".into(),
@@ -2512,6 +2525,7 @@ impl Command {
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
             | Self::AuditQuery { target, .. }
+            | Self::AuditCompact { target, .. }
             | Self::SessionStart { target, .. }
             | Self::SessionList { target, .. }
             | Self::SessionStatus { target, .. }
@@ -2648,6 +2662,7 @@ impl Command {
     pub fn required_grant(&self) -> crate::auth::Grant {
         match self {
             Self::PointerMove { .. }
+            | Self::AuditCompact { apply: true, .. }
             | Self::SessionStart { .. }
             | Self::SessionRenew { .. }
             | Self::SessionEnd { .. }

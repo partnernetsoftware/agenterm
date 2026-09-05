@@ -32,6 +32,18 @@ impl Executor {
                 scan_max: *scan_max,
                 byte_max: *byte_max,
             }),
+            Command::AuditCompact {
+                max_age_days,
+                max_events,
+                max_bytes,
+                apply,
+                ..
+            } => audit::compact(audit::AuditRetention {
+                max_age_days: *max_age_days,
+                max_events: *max_events,
+                max_bytes: *max_bytes,
+                apply: *apply,
+            }),
             Command::SessionStart {
                 label, ttl_seconds, ..
             } => session_start_payload(label.as_deref(), *ttl_seconds),

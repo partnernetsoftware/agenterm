@@ -341,9 +341,10 @@
         {
           "id": "desktop.session-lock-audit",
           "mcu_shape": "session/lock/audit plus crash-persistent effect receipts",
-          "acu_shape": "durable public session and target-lock lifecycle, bounded audit-query, grant/grant-id and crash-persistent effect receipts",
-          "state": "gap",
-          "next": "add universal request identity/at-most-once admission plus audit retention, then prove the same facade on remote targets"
+          "acu_shape": "durable public session and target-lock lifecycle, bounded audit query/retention, grant/grant-id and crash-persistent at-most-once effect receipts",
+          "state": "platform-limited",
+          "evidence": ["cu.managed-job-lifecycle", "cu.audit-retention"],
+          "next": "prove the same facade on the remaining native target courts"
         },
         {
           "id": "desktop.ghost-cursor",
@@ -882,10 +883,10 @@
         {
           "id": "runtime.audit-query-retention",
           "mcu_shape": "audit query|compact with filters, pagination and scan/result/byte/age/event ceilings",
-          "acu_shape": "durable serialized audit append plus newest-first audit-query with verb/outcome/time filters and independent offset/result/scan/byte ceilings",
-          "state": "gap",
-          "evidence": ["agenterm-cu audit unit/concurrency suite", "agenterm-cu macos isolated public runtime loop"],
-          "next": "add crash-safe dry-run compaction/retention; query already exposes malformed counts and all truncation dimensions"
+          "acu_shape": "durable serialized audit append; newest-first audit-query; plan-first audit-compact with age/event/byte ceilings, shared append lock and atomic publication",
+          "state": "native",
+          "evidence": ["agenterm-cu audit unit/concurrency suite", "cu.audit-retention"],
+          "note": "Malformed, expired and bounded drops are explicit. Appenders reopen the path under the shared stable lock after compaction so outcomes cannot land in an unlinked inode."
         },
         {
           "id": "runtime.audit-replay",

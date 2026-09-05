@@ -10,7 +10,10 @@ use std::{
 use serde::Serialize;
 
 use crate::{auth::Grant, command::Command, reply::CuError, target::TargetRef};
-use agenterm_platform::locking::{LockErrorKind, PathLock};
+use agenterm_platform::{
+    filesystem::write_private_atomic,
+    locking::{LockErrorKind, PathLock},
+};
 
 const MAX_AUDIT_RECORD_BYTES: usize = 256 * 1024;
 
@@ -49,6 +52,15 @@ pub const DEFAULT_QUERY_SCAN_MAX: usize = 10_000;
 pub const MAX_QUERY_SCAN_MAX: usize = 100_000;
 pub const DEFAULT_QUERY_BYTE_MAX: usize = 4 * 1024 * 1024;
 pub const MAX_QUERY_BYTE_MAX: usize = 16 * 1024 * 1024;
+pub const DEFAULT_RETENTION_MAX_AGE_DAYS: u64 = 30;
+pub const MAX_RETENTION_MAX_AGE_DAYS: u64 = 3_650;
+pub const DEFAULT_RETENTION_MAX_EVENTS: usize = 100_000;
+pub const MIN_RETENTION_MAX_EVENTS: usize = 100;
+pub const MAX_RETENTION_MAX_EVENTS: usize = 1_000_000;
+pub const DEFAULT_RETENTION_MAX_BYTES: usize = 8 * 1024 * 1024;
+pub const MIN_RETENTION_MAX_BYTES: usize = 64 * 1024;
+pub const MAX_RETENTION_MAX_BYTES: usize = 64 * 1024 * 1024;
+const RETENTION_SOURCE_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Default)]
 pub struct AuditQuery<'a> {
@@ -59,6 +71,14 @@ pub struct AuditQuery<'a> {
     pub max: Option<usize>,
     pub scan_max: Option<usize>,
     pub byte_max: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AuditRetention {
+    pub max_age_days: Option<u64>,
+    pub max_events: Option<usize>,
+    pub max_bytes: Option<usize>,
+    pub apply: bool,
 }
 
 #[cfg(test)]
@@ -198,6 +218,22 @@ impl AuditLog {
         }
         let lock_path = self.path.with_extension("jsonl.lock");
         let _lock = acquire_audit_lock(&lock_path)?;
+        // Compaction atomically replaces the pathname. Reopen after taking the
+        // same lock so this handle never appends an outcome to the unlinked
+        // pre-compaction inode it opened earlier.
+        self.file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|error| {
+                CuError::new(
+                    "audit_unavailable",
+                    format!(
+                        "could not reopen audit log {}: {error}",
+                        self.path.display()
+                    ),
+                )
+            })?;
         #[cfg(test)]
         if matches!(
             self.injected_failure,
@@ -253,6 +289,205 @@ impl AuditLog {
         }
         Ok(())
     }
+}
+
+/// Plan or apply bounded audit retention. Applying serializes with appenders,
+/// rebuilds the retained suffix in memory under a hard 64 MiB source ceiling,
+/// and atomically replaces the log. The caller's subsequent outcome append
+/// reopens the pathname, so both the attempt and result survive compaction.
+pub fn compact(retention: AuditRetention) -> Result<serde_json::Value, CuError> {
+    let path = resolved_audit_path().map_err(|error| CuError::new("audit_unavailable", error))?;
+    compact_at(&path, retention, now_ms())
+}
+
+pub(crate) fn compact_at(
+    path: &Path,
+    retention: AuditRetention,
+    now_ms: u128,
+) -> Result<serde_json::Value, CuError> {
+    let max_age_days = retention
+        .max_age_days
+        .unwrap_or(DEFAULT_RETENTION_MAX_AGE_DAYS);
+    if !(1..=MAX_RETENTION_MAX_AGE_DAYS).contains(&max_age_days) {
+        return Err(CuError::new(
+            "invalid_input",
+            format!("--max-age-days must be in 1..={MAX_RETENTION_MAX_AGE_DAYS}"),
+        ));
+    }
+    let max_events = bounded(
+        "--max-events",
+        retention.max_events.unwrap_or(DEFAULT_RETENTION_MAX_EVENTS),
+        MIN_RETENTION_MAX_EVENTS,
+        MAX_RETENTION_MAX_EVENTS,
+    )?;
+    let max_bytes = bounded(
+        "--max-bytes",
+        retention.max_bytes.unwrap_or(DEFAULT_RETENTION_MAX_BYTES),
+        MIN_RETENTION_MAX_BYTES,
+        MAX_RETENTION_MAX_BYTES,
+    )?;
+
+    let run = || retention_plan(path, now_ms, max_age_days, max_events, max_bytes);
+    let (result, retained) = if retention.apply {
+        let lock_path = path.with_extension("jsonl.lock");
+        let _lock = acquire_audit_lock(&lock_path)?;
+        let (mut result, retained) = run()?;
+        let durable = match write_private_atomic(path, &retained) {
+            Ok(()) => true,
+            Err(error) => match std::fs::read(path) {
+                Ok(published) if published == retained => false,
+                _ => {
+                    return Err(CuError::new(
+                        "audit_compact_publish_failed",
+                        "audit retention bytes could not be atomically published",
+                    )
+                    .with_detail(serde_json::json!({
+                        "effect": "unknown",
+                        "error_kind": format!("{:?}", error.kind()),
+                    })));
+                }
+            },
+        };
+        result["status"] = serde_json::json!("applied");
+        result["apply_required"] = serde_json::json!(false);
+        result["destination_durable"] = serde_json::json!(durable);
+        (result, retained)
+    } else {
+        let (mut result, retained) = run()?;
+        result["status"] = serde_json::json!("planned");
+        result["apply_required"] = serde_json::json!(true);
+        result["destination_durable"] = serde_json::Value::Null;
+        (result, retained)
+    };
+    debug_assert_eq!(result["after_bytes"].as_u64(), Some(retained.len() as u64));
+    Ok(result)
+}
+
+fn retention_plan(
+    path: &Path,
+    now_ms: u128,
+    max_age_days: u64,
+    max_events: usize,
+    max_bytes: usize,
+) -> Result<(serde_json::Value, Vec<u8>), CuError> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((retention_reply(0, false, 0, 0, 0, 0, 0, 0), Vec::new()));
+        }
+        Err(error) => {
+            return Err(CuError::new(
+                "audit_unavailable",
+                format!("could not open audit log {}: {error}", path.display()),
+            ));
+        }
+    };
+    let before_bytes = file
+        .metadata()
+        .map_err(|_| CuError::new("audit_unavailable", "could not stat audit log"))?
+        .len();
+    let read_len = before_bytes.min(RETENTION_SOURCE_MAX_BYTES as u64) as usize;
+    let start = before_bytes.saturating_sub(read_len as u64);
+    let mut source = file
+        .seek(SeekFrom::Start(start))
+        .and_then(|_| {
+            let mut bytes = vec![0; read_len];
+            file.read_exact(&mut bytes)?;
+            Ok(bytes)
+        })
+        .map_err(|_| CuError::new("audit_unavailable", "could not read audit log"))?;
+    let source_truncated = start > 0;
+    if source_truncated {
+        source = source
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or_else(Vec::new, |boundary| source.split_off(boundary + 1));
+    }
+    let max_age_ms = u128::from(max_age_days) * 86_400_000;
+    let cutoff = now_ms.saturating_sub(max_age_ms);
+    let mut retained_newest: Vec<Vec<u8>> = Vec::new();
+    let mut retained_bytes = 0usize;
+    let mut scanned = 0usize;
+    let mut malformed_dropped = 0usize;
+    let mut expired_dropped = 0usize;
+    let mut bounded_dropped = 0usize;
+    for line in source.split(|byte| *byte == b'\n').rev() {
+        if line.is_empty() {
+            continue;
+        }
+        scanned += 1;
+        let value: serde_json::Value = match serde_json::from_slice(line) {
+            Ok(serde_json::Value::Object(object)) => serde_json::Value::Object(object),
+            _ => {
+                malformed_dropped += 1;
+                continue;
+            }
+        };
+        let timestamp = value["ts_ms"].as_u64().map(u128::from);
+        if timestamp.is_none_or(|timestamp| timestamp < cutoff) {
+            expired_dropped += 1;
+            continue;
+        }
+        let encoded_len = line.len().saturating_add(1);
+        if retained_newest.len() >= max_events
+            || retained_bytes.saturating_add(encoded_len) > max_bytes
+        {
+            bounded_dropped += 1;
+            continue;
+        }
+        let mut encoded = Vec::with_capacity(encoded_len);
+        encoded.extend_from_slice(line);
+        encoded.push(b'\n');
+        retained_bytes += encoded.len();
+        retained_newest.push(encoded);
+    }
+    retained_newest.reverse();
+    let retained_count = retained_newest.len();
+    let retained = retained_newest.concat();
+    Ok((
+        retention_reply(
+            before_bytes,
+            source_truncated,
+            scanned,
+            retained_count,
+            malformed_dropped,
+            expired_dropped,
+            bounded_dropped,
+            retained.len(),
+        ),
+        retained,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn retention_reply(
+    before_bytes: u64,
+    source_truncated: bool,
+    scanned: usize,
+    retained: usize,
+    malformed_dropped: usize,
+    expired_dropped: usize,
+    bounded_dropped: usize,
+    after_bytes: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1,
+        "before_bytes": before_bytes,
+        "source_truncated": source_truncated,
+        "scanned": scanned,
+        "retained": retained,
+        "malformed_dropped": malformed_dropped,
+        "expired_dropped": expired_dropped,
+        "bounded_dropped": bounded_dropped,
+        "after_bytes": after_bytes,
+    })
+}
+
+fn now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
 }
 
 fn acquire_audit_lock(path: &Path) -> Result<PathLock, CuError> {
@@ -537,7 +772,10 @@ mod tests {
         },
     };
 
-    use super::{AuditLog, AuditQuery, InjectedAuditFailure, default_audit_path, query_at};
+    use super::{
+        AuditLog, AuditQuery, AuditRetention, InjectedAuditFailure, compact_at, default_audit_path,
+        query_at,
+    };
     use crate::{auth::Grant, command::Command, target::TargetRef};
 
     static NEXT_SCRATCH: AtomicU64 = AtomicU64::new(0);
@@ -720,6 +958,76 @@ mod tests {
             },
         )
         .expect_err("zero max");
+        assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn retention_plan_is_read_only_and_apply_is_bounded_atomic() {
+        let path = scratch_path("retention");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let now_ms = 2_000_000_000_000_u128;
+        let mut source = Vec::new();
+        source.extend_from_slice(b"{malformed\n");
+        source.extend_from_slice(
+            format!("{{\"ts_ms\":{},\"verb\":\"old\"}}\n", now_ms - 172_800_000).as_bytes(),
+        );
+        for index in 0..101 {
+            source.extend_from_slice(
+                format!("{{\"ts_ms\":{now_ms},\"verb\":\"fresh-{index}\"}}\n").as_bytes(),
+            );
+        }
+        std::fs::write(&path, &source).unwrap();
+        let retention = AuditRetention {
+            max_age_days: Some(1),
+            max_events: Some(100),
+            max_bytes: Some(64 * 1024),
+            apply: false,
+        };
+        let plan = compact_at(&path, retention, now_ms).expect("retention plan");
+        assert_eq!(plan["status"], "planned");
+        assert_eq!(plan["retained"], 100);
+        assert_eq!(plan["malformed_dropped"], 1);
+        assert_eq!(plan["expired_dropped"], 1);
+        assert_eq!(plan["bounded_dropped"], 1);
+        assert_eq!(std::fs::read(&path).unwrap(), source);
+
+        let mut stale_handle = AuditLog::open_at(&path).expect("open before replace");
+        let applied = compact_at(
+            &path,
+            AuditRetention {
+                apply: true,
+                ..retention
+            },
+            now_ms,
+        )
+        .expect("apply retention");
+        assert_eq!(applied["status"], "applied");
+        assert_eq!(applied["apply_required"], false);
+        assert_eq!(applied["destination_durable"], true);
+        assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 100);
+
+        stale_handle
+            .record_actuation(TargetRef::Current, &command(), Grant::Actuate, "ok", None)
+            .expect("append reopens atomically replaced path");
+        assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 101);
+        remove_scratch(&path);
+    }
+
+    #[test]
+    fn retention_missing_file_and_invalid_limits_are_typed() {
+        let path = scratch_path("retention-missing");
+        let empty = compact_at(&path, AuditRetention::default(), 1).expect("missing plan");
+        assert_eq!(empty["before_bytes"], 0);
+        assert_eq!(empty["retained"], 0);
+        let error = compact_at(
+            &path,
+            AuditRetention {
+                max_events: Some(99),
+                ..AuditRetention::default()
+            },
+            1,
+        )
+        .expect_err("event floor");
         assert_eq!(error.code, "invalid_input");
     }
 

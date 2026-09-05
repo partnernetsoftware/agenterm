@@ -2468,6 +2468,12 @@ link-swap race. Recovery may remove an identity-less file only when its complete
 bounded content matches the persisted marker digest; otherwise preserve it and
 return an ambiguous-state error.
 
+Atomic audit-log compaction changes the inode behind the pathname. All
+cooperating appenders and compactors need one stable sidecar lock, and an
+appender that retained an earlier file handle must reopen the pathname while
+holding that lock before every append. Otherwise a successful compaction can be
+followed by a successful-looking outcome write into the now-unlinked old inode.
+
 Bounded one-shot authority must be durably reserved before the authorized
 side effect and must not be refunded merely because the downstream mechanism
 fails; refunding makes a failed attempt replayable. Validate target/session,

@@ -9,7 +9,7 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.managed-job-lifecycle"];
+const declared_evidence = ["cu.managed-job-lifecycle", "cu.audit-retention"];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -112,6 +112,7 @@ ensure(direct_file(executable), "cu_managed_job_executable_missing");
 
 const context = harness.new_context(repo, "cu-managed-job");
 const run_directory = context.run_directory;
+const audit_path = rh.join(run_directory, "cu-audit.jsonl");
 const windows = harness.host_is_windows();
 const request_root = "managed-job-" + context.run_id;
 let session_id = "";
@@ -293,6 +294,45 @@ try {
       && ended.released_locks === 0,
     "cu_managed_job_session_end_contract"
   );
+
+  print("STEP plan and atomically apply bounded audit retention without hiding malformed or expired drops");
+  rh.write_text(
+    audit_path,
+    rh.read_text(audit_path)
+      + "{malformed\n"
+      + "{\"ts_ms\":1,\"verb\":\"expired-fixture\",\"outcome\":\"ok\"}\n"
+  );
+  const retention_plan = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "audit-compact", "--max-age-days", "1", "--max-events", "100",
+    "--max-bytes", "65536"
+  ], "audit-compact");
+  ensure(
+    retention_plan.status === "planned" && retention_plan.apply_required === true
+      && retention_plan.destination_durable === null
+      && retention_plan.malformed_dropped >= 1 && retention_plan.expired_dropped >= 1,
+    "cu_audit_retention_plan_contract"
+  );
+  const retention_apply = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "audit-compact", "--max-age-days", "1", "--max-events", "100",
+    "--max-bytes", "65536", "--apply"
+  ], "audit-compact");
+  ensure(
+    retention_apply.status === "applied" && retention_apply.apply_required === false
+      && retention_apply.destination_durable === true
+      && retention_apply.malformed_dropped >= 1 && retention_apply.expired_dropped >= 1
+      && retention_apply.after_bytes <= 65536,
+    "cu_audit_retention_apply_contract"
+  );
+  const retained_audit = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "audit-query", "--verb", "audit-compact", "--max", "10"
+  ], "audit-query");
+  ensure(
+    retained_audit.records.length >= 2 && retained_audit.malformed === 0,
+    "cu_audit_retention_readback_contract"
+  );
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -347,8 +387,9 @@ try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-lifecycle");
+  harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
   harness.remove_run(context);
-  print("PASS: agenterm-cu platform-neutral managed-job lifecycle (replay, dual cursors, renewal, stop and owned cleanup)");
+  print("PASS: agenterm-cu platform-neutral managed-job lifecycle and bounded audit retention");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

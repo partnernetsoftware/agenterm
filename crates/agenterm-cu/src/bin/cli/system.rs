@@ -17,6 +17,9 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name == "audit-compact" && args.first().is_some_and(|arg| arg == "compact") {
+        args.remove(0);
+    }
     if spec.name.starts_with("job-") {
         if args
             .first()
@@ -67,6 +70,25 @@ pub fn parse(
             max,
             scan_max,
             byte_max,
+        });
+    }
+    if spec.name == "audit-compact" {
+        let max_age_days = flag_parsed::<u64>(args, "--max-age-days")?;
+        let max_events = flag_parsed::<usize>(args, "--max-events")?;
+        let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?;
+        let apply = take_switch(args, "--apply");
+        if !args.is_empty() {
+            return Err(format!(
+                "audit-compact accepts only --max-age-days/--max-events/--max-bytes/--apply; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::AuditCompact {
+            target,
+            max_age_days,
+            max_events,
+            max_bytes,
+            apply,
         });
     }
     if !args.is_empty() {

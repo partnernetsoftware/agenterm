@@ -178,12 +178,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   → queryable audit. The middle three public leaves are now live: durable
   `session start|list|status|renew|end`, session-bound idempotent
   `lock acquire|list|release`, and newest-first `audit-query` with independent
-  result/scan/byte budgets. Lease plaintext is returned once and never reaches
+  result/scan/byte budgets. Bounded `audit-compact` is plan-first; apply shares
+  the append sidecar lock, drops malformed/expired/excess records explicitly,
+  and atomically publishes a retained suffix under age/event/byte ceilings.
+  Lease plaintext is returned once and never reaches
   durable state or audit. The transitional MCU-shaped entry now rewrites every
-  session and lock operation plus `audit query` onto these same ACU commands;
-  `audit compact` remains explicitly on MCU until retention lands. macOS
-  isolated public CLI evidence covers the full
-  create/status/acquire/reacquire/release/end/query loop. Current-target
+  session and lock operation plus `audit query|compact` onto these same ACU
+  commands, removing the top-level `audit` fallback. The platform-neutral
+  public qjswasm journey covers the full create/status/acquire/reacquire/
+  release/end/query/retention loop on macOS. Current-target
   mutations can now carry the all-or-none `--request-id`, `--session` and
   `--session-lease` envelope: admission verifies the active lease without
   renewing it, reserves a private crash-persistent request record before the
@@ -197,7 +200,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   effect-scope digest so another endpoint conflicts instead of receiving a
   false replay. Unit and process-boundary worker courts are green; public
   SSH/VNC mutation journeys, exact target-lock derivation, three-host evidence,
-  retention compaction and daemon ownership remain open.
+  daemon ownership remain open; the enlarged runtime journey still needs the
+  remaining native courts.
   The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
   Managed-job implementation has entered an internal, deliberately unshipped

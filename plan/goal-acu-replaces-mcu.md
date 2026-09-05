@@ -128,8 +128,9 @@ MCU retirement blockers
 ├─ [~] shared runtime spine
 │  ├─ [x] session create/list/status/renew/end + target lock acquire/list/release
 │  ├─ [x] audit query with bounded result/scan/byte budgets
-│  ├─ [x] MCU-shaped session/lock/audit-query compatibility routes to ACU
-│  └─ [ ] daemon ownership + audit retention/compaction
+│  ├─ [x] audit retention: plan/apply + atomic bounded compact + qjswasm court
+│  ├─ [x] MCU-shaped session/lock/audit-query/compact compatibility routes to ACU
+│  └─ [ ] daemon ownership
 ├─ [~] managed job facade
 │  ├─ [x] private crash-safe identity/state registry; no command/env/lease persistence
 │  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
@@ -150,15 +151,16 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **23 top-level `STAY` spellings**. This is not the remaining
+`acu.ts` now has **22 top-level `STAY` spellings**. This is not the remaining
 capability count: group verbs contain multiple independently gated shapes. The
 machine-readable ledger, not the top-level number, decides retirement.
 
-The latest removed fallbacks are `session` and `lock`; all their MCU public
-shapes now rewrite onto the native ACU runtime spine, while `audit query` also
-rewrites losslessly and `audit compact` remains an explicit gap. The adapter
-suite is green at 69 tests, and an isolated macOS public loop proved
-create/status/acquire/list/query/release/end through the MCU-shaped entry.
+The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
+public shapes now rewrite onto the native ACU runtime spine. `audit compact`
+defaults to a read-only plan and applies only under explicit actuation, sharing
+the append lock and publishing bounded retained bytes atomically. The adapter
+suite is green at 69 tests, and the platform-neutral public qjswasm journey
+proved create/status/acquire/list/query/retention/release/end on macOS.
 
 The preceding removed fallback is `state`. `desktop-state` (also spelled `state`)
 composes one complete bounded window inventory, one exact window accessibility

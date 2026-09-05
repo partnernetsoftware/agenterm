@@ -46,6 +46,16 @@
       "args": []
     },
     {
+      "name": "audit-compact",
+      "command": "audit-compact",
+      "aliases": ["audit compact"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "plan or atomically apply bounded audit retention",
+      "usage": "audit-compact [--max-age-days N] [--max-events N] [--max-bytes N] [--apply]\naudit compact [--max-age-days N] [--max-events N] [--max-bytes N] [--apply]",
+      "args": []
+    },
+    {
       "name": "session-start",
       "command": "session-start",
       "aliases": ["session create"],
@@ -4028,6 +4038,10 @@
     {
       "name": "audit-query",
       "text": "agenterm-cu audit-query\n  scope: observe    family: Runtime coordination\n\nusage: audit-query [--verb TEXT] [--outcome KIND] [--since-ms UTC_MS] [budgets]\n\nNewest-first bounded read of the append-only control audit. Returned rows, scanned rows and scanned bytes have independent ceilings; truncation and the next offset are explicit.\n"
+    },
+    {
+      "name": "audit-compact",
+      "text": "agenterm-cu audit-compact    (also: audit compact)\n  scope: actuate when --apply; observe for a plan\n\nusage: audit-compact [--max-age-days N] [--max-events N] [--max-bytes N] [--apply]\n\nPlans retention by default. --apply serializes with appenders, retains the newest valid records under independent age/event/byte ceilings, and atomically replaces the audit. The receipt reports malformed, expired and bounded drops plus publication durability.\n"
     },
     {
       "name": "session-start",
