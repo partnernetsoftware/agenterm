@@ -197,6 +197,27 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   retention compaction and daemon ownership remain open.
   The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
+  Managed-job implementation has entered an internal, deliberately unshipped
+  cohort: a private crash-safe registry seals start intent, generation, owner
+  and exact child identity without accepting command, environment or lease
+  plaintext; a resident owner claims that intent before contained spawn and
+  drains stdout/stderr concurrently into loss-aware bounded rings. The shared
+  platform child now yields one owned stdin writer whose drop is EOF, while
+  containment ownership remains separate. No `job-*` verb is claimed yet:
+  resident IPC, request-bound public mutation, expiry and the platform-neutral
+  qjswasm black-box journey remain required before any ledger row turns green.
+
+```mermaid
+flowchart LR
+  R["request + live session"] --> I["seal StartIntent<br/>no argv/env/lease plaintext"]
+  I --> O["resident owner claims<br/>exact PID + start identity"]
+  O --> C["contained spawn<br/>before first child instruction"]
+  C --> IO["owned stdin writer<br/>dual bounded output rings"]
+  IO --> P["resident IPC<br/>events · write · wait · stop · renew"]
+  P --> Q{"public qjswasm court"}
+  Q -->|green| G["promote job ledger cohort"]
+  Q -->|unknown / gap| U["retain orphaned_uncertain<br/>never replay blindly"]
+```
 - [~] absorbed from that skill on 2026-08-30 (review and slices in
   [plan/design-mcu-absorption.md](../plan/design-mcu-absorption.md)): its
   default control loop `windows -> bounded query/tree -> invoke <selector>`,

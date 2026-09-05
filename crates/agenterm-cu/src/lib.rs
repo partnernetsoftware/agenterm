@@ -23,6 +23,16 @@ pub mod idempotency_store;
 #[cfg(target_os = "macos")]
 pub mod macos_focus;
 pub mod macos_spaces;
+#[allow(
+    dead_code,
+    reason = "internal managed-job cohort under staged integration"
+)]
+pub(crate) mod managed_job_owner;
+#[allow(
+    dead_code,
+    reason = "internal managed-job cohort under staged integration"
+)]
+pub(crate) mod managed_job_store;
 pub mod mcu_surface;
 pub mod mechanism;
 pub mod network_probe;

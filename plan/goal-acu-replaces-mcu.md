@@ -123,10 +123,13 @@ product branches do not pre-empt these blockers.
 ```text
 MCU retirement blockers
 ├─ [x] desktop state: bounded native desktop-state + state alias
-├─ [ ] shared runtime spine
+├─ [~] shared runtime spine
 │  └─ daemon → session lease → target lock → request identity → queryable audit
-├─ [ ] managed job facade
-│  └─ spawn/adopt/inventory → streams/input → resources/state → wait/stop/expiry
+├─ [~] managed job facade
+│  ├─ [x] private crash-safe identity/state registry; no command/env/lease persistence
+│  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
+│  ├─ [x] cross-platform owned stdin pipe; drop is explicit EOF, not process stop
+│  └─ [ ] public spawn/list/status/events/write/wait/renew/stop + resident IPC/expiry
 ├─ [ ] machine transactions
 │  ├─ recoverable file copy/move
 │  ├─ MV3 browser bridge and managed profile/window lifecycle
