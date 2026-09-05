@@ -43,6 +43,8 @@ pub mod local_clock;
 pub mod native_virtualization;
 #[cfg(feature = "network-interfaces")]
 pub mod network_interfaces;
+#[cfg(feature = "network-routes")]
+pub mod network_routes;
 pub mod pixel_present;
 #[cfg(feature = "process")]
 pub mod process;

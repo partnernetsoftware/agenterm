@@ -279,6 +279,8 @@ pub mod local_clock;
 
 #[cfg(feature = "network-interfaces")]
 pub mod network_interfaces;
+#[cfg(feature = "network-routes")]
+pub mod network_routes;
 
 // Host-neutral and deliberately non-generic at the std thread boundary.
 pub mod threading;

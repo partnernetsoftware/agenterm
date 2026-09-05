@@ -979,7 +979,8 @@ flowchart LR
   contracts rather than a false cross-platform spelling match.
   The MCU-shaped compatibility entry routes `acu file inspect PATH`, file copy,
   status, and explicit `--apply` rollback/recover/finalize to these typed ACU
-  facades. Move, mode and xattr mutation remain explicit MCU fallbacks; the MCU
+  facades. Move uses the same native recoverable transaction; mode and xattr
+  mutation remain explicit MCU fallbacks. The MCU
   plan-wrapper form of transaction actions without `--apply` also stays rather
   than accidentally performing the mutation.
 - [~] Network replacement is classified into interfaces, routes, active DNS,
@@ -991,10 +992,17 @@ flowchart LR
   `--max` is rejected outside 1..=5000 before enumeration. The public macOS
   command is green and both Windows ISAs compile under strict Clippy; Linux and
   Windows runtime courts remain, so the ledger truthfully stays
-  `platform-limited`. The compatibility entry routes exactly `acu network
-  interfaces [--max N]`. The identity-safe per-process socket slice is now live
-  through `process-sockets`; routes, DNS and global/name-selected sockets remain
-  MCU gaps.
+  `platform-limited`. `network-routes` now adds the matching shell-free route
+  inventory through Linux NETLINK_ROUTE, macOS PF_ROUTE/NET_RT_DUMP2 and
+  Windows GetIpForwardTable2. It preserves ifindex/LUID identities, normalizes
+  destination prefixes, treats a null gateway as on-link, and refuses
+  interrupted or malformed kernel snapshots. Native scanning is capped at
+  10,000 records and the public response at 1 MiB. The public macOS qjswasm
+  journey `cu.network-routes` is green; Linux and Windows native courts remain,
+  so this leaf is also `platform-limited`. The compatibility entry routes
+  exactly `acu network interfaces|routes [--max N]`. The identity-safe
+  per-process socket slice is live through `process-sockets`; DNS and
+  global/name-selected sockets remain MCU gaps.
 
   `network-probe` is implemented as an Observe
   facade: resolve once through the host resolver, deduplicate/freeze addresses,
@@ -1018,14 +1026,17 @@ flowchart LR
   bind matching process start identities; a future global inventory must join
   every row back to the same exact-process contract rather than a reusable PID.
   The MCU-shaped compatibility entry routes exactly `acu network probe HOST`
-  to `network-probe`; routes, DNS and global/name socket inventory remain explicit MCU fallbacks
+  to `network-probe`; DNS and global/name socket inventory remain explicit MCU fallbacks
   instead of being mislabeled as the same capability.
 
 ```mermaid
 flowchart LR
-  N["network request"] --> I["interfaces: validate max"] & A["probe: validate before effect"] & PS["process sockets<br/>PID + start identity"]
+  N["network request"] --> I["interfaces: validate max"] & R["routes: validate max"] & A["probe: validate before effect"] & PS["process sockets<br/>PID + start identity"]
   I --> U["Unix getifaddrs + ifindex"] & W["Windows adapters + LUID"]
   U & W --> S["stable rows<br/>scan 10k · response 1 MiB"]
+  R --> RL["Linux netlink"] & RM["macOS route socket"] & RW["Windows IP Helper"]
+  RL & RM & RW --> RS["native id + normalized prefix<br/>interrupted dump fails typed"]
+  RS --> E
   S --> E["three-OS public evidence"]
   A --> H["owned helper<br/>system resolver once"]
   H --> F["dedupe + freeze addresses"]

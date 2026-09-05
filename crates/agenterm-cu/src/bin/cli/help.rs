@@ -67,6 +67,10 @@ pub fn top_level_text() -> String {
     text = text.replace("\n\nUnmapped MCU groups", "\nUnmapped MCU groups");
     text = text.replace("\n\nClipboard", "\nClipboard");
     text = text.replace("\n\nNetwork", "\nNetwork");
+    text = text.replace(
+        "  network-interfaces (network interfaces) observe  bounded native interface inventory",
+        "  network-interfaces  observe  addresses;  network-routes  observe  routing table",
+    );
     text = text.replace("\nshell-exec", "\n  shell-exec");
     text = text.replace(
         "\nAll replies are JSON on stdout: {\"ok\":bool,\"target\":..,\"command\":..,\"data\":..,\"error\":..}",
@@ -197,6 +201,7 @@ pub fn verbs_text() -> String {
 /// readable, but default toward truthful discovery when a newly registered
 /// verb has not yet been manually placed into those prose blocks.
 fn append_missing_top_level_rows(text: &mut String) {
+    let compact_inline = ["network-routes"];
     let compact_process = [
         "process-argv",
         "process-cwd",
@@ -268,6 +273,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .filter(|spec| !compact_terminal.contains(&spec.name))
         .filter(|spec| !compact_browser_session.contains(&spec.name))
         .filter(|spec| !compact_runtime.contains(&spec.name))
+        .filter(|spec| !compact_inline.contains(&spec.name))
         .filter(|spec| {
             !text
                 .lines()

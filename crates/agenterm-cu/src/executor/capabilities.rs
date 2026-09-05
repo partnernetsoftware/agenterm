@@ -513,6 +513,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "network-routes".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "network",
+                "grant": "observe",
+                "mode": "bounded-native-route-table",
+                "identity": "ifindex-on-unix-adapter-luid-on-windows",
+                "scan_ceiling": 10000,
+                "response_ceiling_bytes": 1048576,
+                "interrupted_snapshot": "typed-failure",
+            }),
+        );
+        verbs.insert(
             "file-inspect".into(),
             serde_json::json!({
                 "status": "available",

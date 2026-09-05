@@ -13,17 +13,29 @@ pub fn parse(
     if spelled == "network" {
         if !matches!(
             args.first().map(String::as_str),
-            Some("probe" | "interfaces")
+            Some("probe" | "interfaces" | "routes")
         ) {
-            return Err("network requires subcommand interfaces or probe".into());
+            return Err("network requires subcommand interfaces, routes or probe".into());
         }
         args.remove(0);
     }
     match spec.name {
         "network-interfaces" => network_interfaces(target, args),
+        "network-routes" => network_routes(target, args),
         "network-probe" => network_probe(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
+}
+
+fn network_routes(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let max = flag_parsed::<usize>(args, "--max")?.unwrap_or(1000);
+    if !(1..=5000).contains(&max) {
+        return Err("network-routes --max must be in 1..=5000".into());
+    }
+    if !args.is_empty() {
+        return Err(format!("network-routes received unexpected {:?}", args[0]));
+    }
+    Ok(Command::NetworkRoutes { target, max })
 }
 
 fn network_interfaces(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -117,5 +129,26 @@ mod tests {
         assert!(parse(spec, "network-probe", TargetRef::Current, &mut args).is_err());
         let mut args = vec!["localhost".into(), "--attempts".into(), "21".into()];
         assert!(parse(spec, "network-probe", TargetRef::Current, &mut args).is_err());
+    }
+
+    #[test]
+    fn parses_network_routes_defaults_and_closed_limit() {
+        let mut args = Vec::new();
+        assert!(matches!(
+            network_routes(TargetRef::Current, &mut args).unwrap(),
+            Command::NetworkRoutes { max: 1000, .. }
+        ));
+        let mut args = vec!["--max".into(), "5000".into()];
+        assert!(matches!(
+            network_routes(TargetRef::Ssh, &mut args).unwrap(),
+            Command::NetworkRoutes {
+                target: TargetRef::Ssh,
+                max: 5000
+            }
+        ));
+        for value in ["0", "5001", "invalid"] {
+            let mut args = vec!["--max".into(), value.into()];
+            assert!(network_routes(TargetRef::Current, &mut args).is_err());
+        }
     }
 }

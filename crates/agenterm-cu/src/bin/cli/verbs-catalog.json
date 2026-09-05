@@ -332,6 +332,24 @@
       ]
     },
     {
+      "name": "network-routes",
+      "command": "network-routes",
+      "aliases": [
+        "network routes"
+      ],
+      "grant": "observe",
+      "family": "network",
+      "summary": "bounded native network route-table inventory",
+      "usage": "network-routes [--max N]\nnetwork routes [--max N]",
+      "args": [
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "returned route rows, 1..=5000 (default 1000)"
+        }
+      ]
+    },
+    {
       "name": "file-inspect",
       "command": "file-inspect",
       "aliases": [
@@ -4434,6 +4452,10 @@
     {
       "name": "network-probe",
       "text": "agenterm-cu network-probe    (also: network probe)\n  scope: observe    family: Network\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  network-probe HOST [--port N] [--attempts N] [--timeout-ms N]\n  network probe HOST [--port N] [--attempts N] [--timeout-ms N]\n\narguments:\n  HOST                          bare hostname or IP address\n  --port N                      TCP port, 1..=65535 (default 443)\n  --attempts N                  exact attempts, 1..=20 (default 3)\n  --timeout-ms N                resolver and per-connect bound, 100..=60000 (default 3000)\n\nResolves through the host resolver once, deduplicates and freezes the\naddress set, then makes the exact requested number of TCP attempts round-robin.\nThe blocking resolver lives in an invocation-owned internal child; the parent\nenforces the overall deadline and kills and reaps that child on expiry. A TCP\nrefusal or timeout is a successful unreachable observation. Resolver, worker\nand protocol failures stay typed. This is reachability evidence, not HTTP/TLS.\n"
+    },
+    {
+      "name": "network-routes",
+      "text": "agenterm-cu network-routes    (also: network routes)\n  scope: observe    family: Network\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  network-routes [--max N]\n  network routes [--max N]\n\narguments:\n  --max N                       returned route rows, 1..=5000 (default 1000)\n\nEnumerates the native IPv4 and IPv6 route table without invoking a shell.\nRows preserve the native interface identity (ifindex on Unix, adapter LUID on\nWindows), normalize destination prefixes, and keep platform-only metadata\nexplicit. The native scan is capped at 10,000 records, output at 1 MiB, and an\ninterrupted or malformed kernel snapshot fails typed instead of appearing\ncomplete. A null gateway means an on-link route; it is not missing evidence.\n"
     },
     {
       "name": "file-inspect",

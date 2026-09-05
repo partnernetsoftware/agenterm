@@ -1156,6 +1156,12 @@ pub enum Command {
         target: TargetRef,
         max: usize,
     },
+    /// Enumerate a bounded, stable-sorted snapshot of the native route table.
+    /// Missing cross-platform fields remain explicit rather than inferred.
+    NetworkRoutes {
+        target: TargetRef,
+        max: usize,
+    },
     /// Resolve once through the host resolver, freeze the deduplicated address
     /// set, and perform an exact number of bounded TCP reachability attempts.
     NetworkProbe {
@@ -2718,6 +2724,7 @@ impl Command {
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::ShellExec { .. } => "shell-exec".into(),
             Self::NetworkInterfaces { .. } => "network-interfaces".into(),
+            Self::NetworkRoutes { .. } => "network-routes".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::FileCopy { .. } => "file-copy".into(),
@@ -2870,6 +2877,7 @@ impl Command {
             | Self::ProcessWatch { target, .. }
             | Self::ShellExec { target, .. }
             | Self::NetworkInterfaces { target, .. }
+            | Self::NetworkRoutes { target, .. }
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
             | Self::FileCopy { target, .. }
@@ -5002,6 +5010,27 @@ mod tests {
             Command::NetworkInterfaces {
                 target: TargetRef::Vnc,
                 max: 5000,
+            }
+        ));
+    }
+
+    #[test]
+    fn network_routes_is_observe_only_and_keeps_its_closed_remote_shape() {
+        let command = Command::NetworkRoutes {
+            target: TargetRef::Ssh,
+            max: 5000,
+        };
+        assert_eq!(command.verb(), "network-routes");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let json = serde_json::to_value(&command).unwrap();
+        assert_eq!(json["max"], 5000);
+        let round_trip: Command = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            round_trip,
+            Command::NetworkRoutes {
+                target: TargetRef::Ssh,
+                max: 5000
             }
         ));
     }

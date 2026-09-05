@@ -411,6 +411,18 @@ pub(crate) mod process_observation;
 #[path = "adapters/windows/network_interfaces.rs"]
 pub(crate) mod network_interfaces;
 
+#[cfg(all(feature = "network-routes", windows))]
+#[path = "adapters/windows/network_routes.rs"]
+pub(crate) mod network_routes;
+
+#[cfg(all(feature = "network-routes", target_os = "linux"))]
+#[path = "adapters/linux/network_routes.rs"]
+pub(crate) mod network_routes;
+
+#[cfg(all(feature = "network-routes", target_os = "macos"))]
+#[path = "adapters/macos/network_routes.rs"]
+pub(crate) mod network_routes;
+
 #[cfg(all(
     feature = "network-interfaces",
     any(target_os = "linux", target_os = "macos")

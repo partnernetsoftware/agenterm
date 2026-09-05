@@ -411,9 +411,15 @@ shapes fail typed instead of being ignored.
   a 10,000-record scan ceiling and a 1 MiB response ceiling. MCU-shaped
   `network interfaces [--max N]` routes to it; Linux and Windows public runtime
   courts remain before promotion from `platform-limited` to `native`.
+  `network-routes` now inventories the native routing table through netlink,
+  route sockets, or IP Helper without a shell. It preserves ifindex/LUID
+  identity, rejects interrupted/malformed native snapshots, and shares the
+  10,000-record / 1 MiB bounds. The MCU-shaped `network routes [--max N]`
+  routes losslessly; macOS public qjswasm evidence is green while Linux and
+  Windows native courts remain.
   The active qjswasm/tinyvm host surface still has no generic TCP or DNS API;
-  historical catalog names are not implementation. Routes/DNS remain native
-  platform work. Process-owned socket rows now join one native fd to a snapshot
+  historical catalog names are not implementation. DNS remains native platform
+  work. Process-owned socket rows now join one native fd to a snapshot
   bracketed by the same start identity; global/name-selected socket inventory
   and watch/diff remain open rather than reusing a naked PID.
 - Device/audio accounting is complete across peripheral inventory and events,
@@ -528,6 +534,11 @@ Q3 owned runtime facades
    ├─ [~] network-interfaces: native ifindex/LUID + bounded stable snapshot
    │  ├─ [x] macOS public CLI schema/count/prefix court
    │  ├─ [x] Windows x86_64 + arm64 compile/Clippy
+   │  └─ [ ] Linux + Windows native public runtime courts
+   ├─ [~] network-routes: netlink/route-socket/IP-Helper bounded snapshot
+   │  ├─ [x] ifindex/LUID identity + deterministic public ordering
+   │  ├─ [x] interrupted/malformed snapshot fails typed; no shell
+   │  ├─ [x] macOS public qjswasm journey `cu.network-routes`
    │  └─ [ ] Linux + Windows native public runtime courts
    ├─ [~] file-inspect: no-follow final entry + bounded metadata + stable identity
    │  ├─ [x] macOS public qjswasm journey: 41 STEP / 42 evidence + cleanup

@@ -757,9 +757,11 @@
         {
           "id": "network.routes",
           "mcu_shape": "network routes --max N with destination, gateway, interface, flags, table and metric",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "native route-table facade with normalized destination/gateway plus preserved platform-specific metadata"
+          "acu_shape": "agenterm-cu network-routes --max N (alias: network routes)",
+          "state": "platform-limited",
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "pending-native-court", "windows": "pending-native-court"},
+          "next": "run the same public qjswasm journey in Linux and Windows native courts, then promote to native",
+          "note": "The shared platform facade uses NETLINK_ROUTE on Linux, PF_ROUTE NET_RT_DUMP2 on macOS and GetIpForwardTable2 on Windows. It preserves ifindex/LUID identity, rejects interrupted or malformed snapshots, stable-sorts a 10000-record scan under a 1 MiB response ceiling, and never invokes a shell. The compatibility adapter routes the lossless --max shape. macOS public evidence cu.network-routes is green; Linux/Windows runtime evidence is not claimed yet."
         },
         {
           "id": "network.dns.resolvers",

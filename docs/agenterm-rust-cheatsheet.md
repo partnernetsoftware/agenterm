@@ -4186,3 +4186,20 @@ not directly bindgen-backed. The C side fills caller-owned bounded records; the
 Rust side validates return codes, counts, lengths and ranges before constructing
 neutral platform types. Do not compile a helper at runtime or expose `libproc`
 records directly to product code.
+
+Route-table inventories need two independent bounds: count every native route
+record against the scan ceiling before deciding whether the row can be
+represented, then apply the caller's result limit only after deterministic
+sorting. Never replace the native `visited` count with the represented-row
+count. Preserve the platform-native interface identity (ifindex on Unix,
+adapter LUID on Windows), because a display name or Windows interface index is
+not a durable join key.
+
+For Linux netlink dumps, accept only kernel-sender datagrams for the request
+sequence, validate every message and attribute alignment before slicing, and
+refuse `NLM_F_DUMP_INTR`; an interrupted multipart dump is not a complete
+snapshot. Multipath rows must be fully represented or counted as unreadable,
+never flattened into one guessed next hop. On macOS, do not relabel route
+metrics such as hop count as a portable administrative metric. Across hosts,
+keep on-link `gateway = null` distinct from unavailable data and make every
+emitted field part of the deterministic tie-break order.
