@@ -10,6 +10,7 @@ use std::borrow::Cow;
 pub mod adapters;
 pub mod byte_search;
 pub mod device_capture;
+pub mod native_messaging;
 pub mod numeric;
 
 /// Selected-host startup support for X11 keyboard libraries. Non-Linux hosts
