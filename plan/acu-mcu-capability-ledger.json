@@ -1100,6 +1100,36 @@
         }
       ]
     },
+    "power": {
+      "accounting": "complete",
+      "owner": "agenterm-platform host/boot identity plus the native privilege provider for terminal power effects",
+      "capabilities": [
+        {
+          "id": "power.host-status",
+          "mcu_shape": "power status returns stable host identity, boot identity and uptime",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
+          "next": "product-neutral host and boot identity facade; do not expose hardware serials or treat wall-clock uptime as boot identity"
+        },
+        {
+          "id": "power.action-plan",
+          "mcu_shape": "privilege plan system.power-action sleep|restart|shutdown binds host/boot identity, expiry and before state",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
+          "next": "closed privilege operation whose plan binds exact host+boot identity and expires before native consent"
+        },
+        {
+          "id": "power.action-apply",
+          "mcu_shape": "approved sleep|restart|shutdown terminal effect with replay prevention and pre-effect receipt",
+          "acu_shape": null,
+          "state": "platform-limited",
+          "platforms": {"macos": "consent-provider-pending", "linux": "consent-provider-pending", "windows": "consent-provider-pending"},
+          "next": "provider-owned reservation before the terminal effect; a disconnect after dispatch is outcome_unknown, never a retry invitation"
+        }
+      ]
+    },
     "privilege": {
       "accounting": "complete",
       "owner": "a separate native least-authority broker consumed by ACU typed operations",

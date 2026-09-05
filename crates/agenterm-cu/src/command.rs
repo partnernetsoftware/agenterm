@@ -25,6 +25,7 @@ const JOB_WAIT_TIMEOUT_MS_MAX: u64 = 86_400_000;
 const JOB_STOP_GRACE_MS_MAX: u64 = 60_000;
 pub const SIMULATOR_RESULTS_MAX: usize = 200;
 pub const SIMULATOR_TIMEOUT_MS_MAX: u64 = 600_000;
+pub const STORAGE_DEVICES_MAX: usize = 5_000;
 
 pub fn validate_simulator_udid(udid: &str) -> Result<(), &'static str> {
     let bytes = udid.as_bytes();
@@ -91,6 +92,19 @@ where
     let value = usize::deserialize(deserializer)?;
     if !(1..=SIMULATOR_RESULTS_MAX).contains(&value) {
         return Err(serde::de::Error::custom("simulator max must be in 1..=200"));
+    }
+    Ok(value)
+}
+
+fn deserialize_storage_devices_max<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = usize::deserialize(deserializer)?;
+    if !(1..=STORAGE_DEVICES_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "storage devices max must be in 1..=5000",
+        ));
     }
     Ok(value)
 }
@@ -1680,6 +1694,11 @@ pub enum Command {
     ResourceStatus {
         target: TargetRef,
     },
+    StorageDevices {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_storage_devices_max")]
+        max: usize,
+    },
     SimulatorDevices {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_simulator_max")]
@@ -2934,6 +2953,7 @@ impl Command {
             Self::Screenshot { .. } => "screenshot".into(),
             Self::DeviceScreenshot { .. } => "device-screenshot".into(),
             Self::ResourceStatus { .. } => "resource-status".into(),
+            Self::StorageDevices { .. } => "storage-devices".into(),
             Self::SimulatorDevices { .. } => "simulator-devices".into(),
             Self::SimulatorBoot { .. } => "simulator-boot".into(),
             Self::SimulatorApps { .. } => "simulator-apps".into(),
@@ -3098,6 +3118,7 @@ impl Command {
             | Self::Screenshot { target, .. }
             | Self::DeviceScreenshot { target, .. }
             | Self::ResourceStatus { target }
+            | Self::StorageDevices { target, .. }
             | Self::SimulatorDevices { target, .. }
             | Self::SimulatorBoot { target, .. }
             | Self::SimulatorApps { target, .. }
@@ -3393,6 +3414,12 @@ impl Command {
                 Ok(())
             }
             Self::SimulatorDevices { max, .. } => validate_simulator_max(*max),
+            Self::StorageDevices { max, .. } => {
+                if !(1..=STORAGE_DEVICES_MAX).contains(max) {
+                    return Err("storage devices max must be in 1..=5000");
+                }
+                Ok(())
+            }
             Self::SimulatorBoot {
                 udid,
                 timeout_ms,

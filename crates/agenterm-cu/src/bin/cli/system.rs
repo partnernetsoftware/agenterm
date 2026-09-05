@@ -2,7 +2,9 @@
 
 use agenterm_cu::{
     Command, PermissionAction, PermissionKind, TargetRef,
-    command::{JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter},
+    command::{
+        JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter, STORAGE_DEVICES_MAX,
+    },
 };
 
 use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
@@ -28,6 +30,22 @@ pub fn parse(
             ));
         }
         return Ok(Command::ResourceStatus { target });
+    }
+    if spec.name == "storage-devices" {
+        if args.first().is_some_and(|arg| arg == "devices") {
+            args.remove(0);
+        }
+        let max = flag_parsed::<usize>(args, "--max")?.unwrap_or(500);
+        if !(1..=STORAGE_DEVICES_MAX).contains(&max) {
+            return Err("storage devices --max must be in 1..=5000".to_owned());
+        }
+        if !args.is_empty() {
+            return Err(format!(
+                "storage-devices accepts only --max N; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::StorageDevices { target, max });
     }
     if spec.name == "audit-compact" && args.first().is_some_and(|arg| arg == "compact") {
         args.remove(0);

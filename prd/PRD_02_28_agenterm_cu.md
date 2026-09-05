@@ -178,10 +178,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   [`plan/goal-acu-replaces-mcu.md`](../plan/goal-acu-replaces-mcu.md).
   Provenance: [14](PRD_02_14_research_provenance.md) (lessons, not a TS copy).
 - [x] R0 replacement accounting is exhaustive in
-  `plan/acu-mcu-capability-ledger.json`: 11 families cover desktop, browser,
+  `plan/acu-mcu-capability-ledger.json`: 13 families cover desktop, browser,
   process, PTY/job/terminal, file/storage, network, device/audio,
-  service/runtime/session/audit, setup/doctor/permissions, privilege and
-  CoreSimulator. `remaining_families` is empty. This closes only the discovery
+  service/runtime/session/audit, setup/doctor/permissions, host-resource,
+  power, privilege and CoreSimulator. `remaining_families` is empty. This closes only the discovery
   DAG; rows marked `gap` or `platform-limited` remain work and cannot be called
   shipped from catalog presence.
 - [~] MCU retirement is the current delivery cut, not a documentation-only

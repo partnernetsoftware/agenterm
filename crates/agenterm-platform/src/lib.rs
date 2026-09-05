@@ -80,6 +80,7 @@ pub enum Capability {
     HostMemory,
     HostResourceSnapshot,
     Storage,
+    StorageDeviceInventory,
     Entropy,
     ConsoleInterrupt,
     ConsoleLineEditor,
@@ -151,6 +152,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         Capability::HostMemory => (cfg!(feature = "host-memory"), true),
         Capability::HostResourceSnapshot => (cfg!(feature = "host-resource-snapshot"), true),
         Capability::Storage => (cfg!(feature = "storage"), true),
+        Capability::StorageDeviceInventory => (cfg!(feature = "storage-device-inventory"), true),
         Capability::Entropy => (cfg!(feature = "entropy"), true),
         Capability::ConsoleInterrupt => (cfg!(feature = "console-interrupt"), true),
         Capability::ConsoleLineEditor => (cfg!(feature = "console-line-editor"), true),
@@ -275,6 +277,9 @@ pub mod host_resource_snapshot;
 
 #[cfg(feature = "storage")]
 pub mod storage;
+
+#[cfg(feature = "storage-device-inventory")]
+pub mod storage_device_inventory;
 
 #[cfg(feature = "current-target-binding")]
 pub mod current_target_binding;

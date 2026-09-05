@@ -9,7 +9,7 @@ Capability ledger: [`plan/capability-mcu-cu.md`](capability-mcu-cu.md)
 
 Machine-readable state ledger:
 [`plan/acu-mcu-capability-ledger.json`](acu-mcu-capability-ledger.json). It is
-now exhaustive across 12 public capability families and R0 has zero
+now exhaustive across 13 public capability families and R0 has zero
 unclassified public shapes. This closes accounting, not implementation: every
 `gap` and `platform-limited` row still needs its owning slice and court.
 
@@ -72,8 +72,8 @@ ACU replaces MCU
 flowchart LR
   M["MCU capability inventory"]
   M --> DESK["desktop ✓"] & PROC["process ✓"] & BROW["browser ✓"] & PTY["PTY/job/terminal ✓"] & FILE["file/storage ✓"] & NET["network ✓"] & RES["host resource ✓"] & DEV["device/audio ✓"]
-  M --> RUN["service/runtime/session/audit ✓"] & SET["setup/doctor/permissions ✓"] & PRIV["privilege ✓"] & SIM["Simulator ✓"]
-  DESK & PROC & BROW & PTY & FILE & NET & RES & DEV & RUN & SET & PRIV & SIM --> L["12-family machine-readable ledger<br/>R0 accounting complete"]
+  M --> RUN["service/runtime/session/audit ✓"] & SET["setup/doctor/permissions ✓"] & POW["power ✓"] & PRIV["privilege ✓"] & SIM["Simulator ✓"]
+  DESK & PROC & BROW & PTY & FILE & NET & RES & DEV & RUN & SET & POW & PRIV & SIM --> L["13-family machine-readable ledger<br/>R0 accounting complete"]
   L --> C{"capability state"}
   C -->|native| CU["agenterm-cu mechanism"]
   C -->|delegated| F["typed owning facade"]
@@ -462,7 +462,7 @@ shapes fail typed instead of being ignored.
   exclusive device leases, byte I/O, serial configuration and default-output
   state. A path alone is never durable device identity, and audio backends stay
   explicitly platform-limited until each native court proves them.
-- R0 accounting is complete across all 11 families. Runtime/service/session/
+- R0 accounting is complete across all 13 families. Runtime/service/session/
   audit contains user/system services, native coordinator, login service,
   leases, target locks, request idempotency, desktop delivery, audit
   query/retention/replay and console-session locking. Setup/doctor/permissions,
