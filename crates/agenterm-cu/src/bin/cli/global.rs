@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 
 use agenterm_cu::{
-    Authorization, Command, CuError, CuReply, Executor, RdpEndpoint, SshEndpoint, TargetRef,
-    VncEndpoint,
+    Authorization, Command, CuError, CuReply, Executor, RdpEndpoint, RequestIdentity, SshEndpoint,
+    TargetRef, VncEndpoint,
 };
 
 use super::{command_error, help, usage_err};
@@ -26,6 +26,9 @@ pub struct Globals {
     pub vnc_cu: Option<PathBuf>,
     pub vnc_env: Vec<(String, String)>,
     pub rdp_dest: Option<String>,
+    pub request_id: Option<String>,
+    pub session_id: Option<String>,
+    pub session_lease: Option<String>,
 }
 
 impl Globals {
@@ -170,6 +173,24 @@ impl Globals {
                         return Err(Box::new(usage_err("--grant-store requires a path")));
                     }
                     globals.grant_store = Some(PathBuf::from(value));
+                }
+                "--request-id" => {
+                    if globals.request_id.is_some() {
+                        return Err(Box::new(usage_err("duplicate --request-id")));
+                    }
+                    globals.request_id = Some(take_value(args, "--request-id"));
+                }
+                "--session" => {
+                    if globals.session_id.is_some() {
+                        return Err(Box::new(usage_err("duplicate --session")));
+                    }
+                    globals.session_id = Some(take_value(args, "--session"));
+                }
+                "--session-lease" => {
+                    if globals.session_lease.is_some() {
+                        return Err(Box::new(usage_err("duplicate --session-lease")));
+                    }
+                    globals.session_lease = Some(take_value(args, "--session-lease"));
                 }
                 _ if flag.starts_with('-') => {
                     return Err(Box::new(usage_err(format!("unknown global flag '{flag}'"))));
@@ -319,6 +340,31 @@ impl Globals {
             ambient_authority_present,
             unsupported_authority_environment,
         )?;
+        let request_fields = [
+            self.request_id.is_some(),
+            self.session_id.is_some(),
+            self.session_lease.is_some(),
+        ];
+        if request_fields.iter().any(|present| *present)
+            && !request_fields.iter().all(|present| *present)
+        {
+            return Err(Box::new(command_error(
+                command,
+                "request_identity_incomplete",
+                "--request-id, --session and --session-lease must be supplied together",
+            )));
+        }
+        if let (Some(request_id), Some(session_id), Some(session_lease)) = (
+            self.request_id.take(),
+            self.session_id.take(),
+            self.session_lease.take(),
+        ) {
+            executor = executor.with_request_identity(RequestIdentity {
+                request_id,
+                session_id,
+                session_lease,
+            });
+        }
         if target == TargetRef::Ssh {
             let dest = self.ssh_dest.take().expect("ssh destination checked above");
             match SshEndpoint::from_parts(

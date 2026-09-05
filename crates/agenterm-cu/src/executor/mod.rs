@@ -27,10 +27,15 @@ use crate::{
     command::{
         Command, InvokeAction, InvokeValueKind, OrderRelation, PointerButton, WaitCondition,
     },
+    idempotency_store::{
+        FinalOutcome, FinalOutcomeKind, IdempotencyStore, MAX_RETENTION_TTL_MS, ReserveDecision,
+        fingerprint_canonical_request_with_secret,
+    },
     mechanism, network_probe, observe,
     rdp_transport::{self, RdpEndpoint},
     receipt::{self, ReceiptLog},
     reply::{CuError, CuReply},
+    runtime_coordinator::RuntimeCoordinator,
     ssh_transport::{self, SshEndpoint},
     target::TargetRef,
     target_binding::{CurrentIdentityProvider, resolve_target_binding},
@@ -86,6 +91,7 @@ use invoke::*;
 use menus::*;
 use network_interfaces::*;
 use node_match::*;
+use persisted::now_utc_ms;
 use placement::*;
 use pointer::*;
 use process::*;
@@ -109,12 +115,26 @@ pub struct Executor {
     vnc: Option<VncEndpoint>,
     rdp: Option<RdpEndpoint>,
     persisted: Option<PersistedAuthorization>,
+    request_identity: Option<RequestIdentity>,
     #[cfg(test)]
     audit_path: Option<PathBuf>,
     #[cfg(test)]
     audit_failure: Option<crate::audit::InjectedAuditFailure>,
     #[cfg(test)]
     persisted_binding: Option<crate::target_binding::TargetBinding>,
+    #[cfg(test)]
+    request_store_path: Option<PathBuf>,
+    #[cfg(test)]
+    runtime_path: Option<PathBuf>,
+}
+
+/// Caller-owned at-most-once identity for one mutating command. The lease is a
+/// bearer secret and is never serialized into command, audit or request state.
+#[derive(Clone, Debug)]
+pub struct RequestIdentity {
+    pub request_id: String,
+    pub session_id: String,
+    pub session_lease: String,
 }
 
 pub(super) struct PersistedAuthorization {
@@ -130,13 +150,23 @@ impl Executor {
             vnc: None,
             rdp: None,
             persisted: None,
+            request_identity: None,
             #[cfg(test)]
             audit_path: None,
             #[cfg(test)]
             audit_failure: None,
             #[cfg(test)]
             persisted_binding: None,
+            #[cfg(test)]
+            request_store_path: None,
+            #[cfg(test)]
+            runtime_path: None,
         }
+    }
+
+    pub fn with_request_identity(mut self, identity: RequestIdentity) -> Self {
+        self.request_identity = Some(identity);
+        self
     }
 
     #[cfg(test)]
@@ -154,6 +184,13 @@ impl Executor {
     #[cfg(test)]
     fn with_persisted_binding(mut self, binding: crate::target_binding::TargetBinding) -> Self {
         self.persisted_binding = Some(binding);
+        self
+    }
+
+    #[cfg(test)]
+    fn with_request_state_paths(mut self, request_store: PathBuf, runtime: PathBuf) -> Self {
+        self.request_store_path = Some(request_store);
+        self.runtime_path = Some(runtime);
         self
     }
 
@@ -185,6 +222,9 @@ impl Executor {
     }
 
     pub fn execute(&self, command: &Command) -> CuReply {
+        if let Some(identity) = self.request_identity.as_ref() {
+            return self.execute_with_request_identity(command, identity);
+        }
         if let Some(persisted) = self.persisted.as_ref() {
             return self.execute_persisted(command, persisted);
         }
@@ -252,6 +292,231 @@ impl Executor {
         }
 
         reply
+    }
+
+    fn execute_with_request_identity(
+        &self,
+        command: &Command,
+        identity: &RequestIdentity,
+    ) -> CuReply {
+        if command.required_grant() != Grant::Actuate {
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "request_identity_not_actuation",
+                    "caller request identity is valid only for mutating commands",
+                ),
+            );
+        }
+        if command.target() != TargetRef::Current {
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "request_identity_remote_unavailable",
+                    "remote request identity must be admitted by the remote worker; transport projection is not implemented yet",
+                ),
+            );
+        }
+        if self.persisted.is_some() {
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "request_identity_persisted_grant_unavailable",
+                    "caller request identity is not yet composed with persisted grant consumption",
+                ),
+            );
+        }
+        if !self.auth.allows(Grant::Actuate) {
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "refused",
+                    "command requires Actuate grant; pass --grant or set AGENTERM_CU_GRANT",
+                ),
+            );
+        }
+
+        let now_ms = match now_utc_ms() {
+            Some(now) => now,
+            None => {
+                return CuReply::err(
+                    command,
+                    CuError::new("request_clock_invalid", "system clock is unavailable"),
+                );
+            }
+        };
+        let now_s = now_ms / 1_000;
+        if let Err(error) = self.open_runtime_coordinator().and_then(|coordinator| {
+            coordinator.session_verify(&identity.session_id, &identity.session_lease, now_s)
+        }) {
+            return CuReply::err(command, error);
+        }
+
+        let canonical = match serde_json::to_vec(&serde_json::json!({
+            "session_id": identity.session_id,
+            "command": command,
+        })) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                return CuReply::err(
+                    command,
+                    CuError::new(
+                        "request_fingerprint_unavailable",
+                        "command could not be projected into a request fingerprint",
+                    ),
+                );
+            }
+        };
+        let fingerprint = match fingerprint_canonical_request_with_secret(
+            &canonical,
+            identity.session_lease.as_bytes(),
+        ) {
+            Ok(fingerprint) => fingerprint,
+            Err(error) => return CuReply::err(command, error),
+        };
+        let store = match self.open_idempotency_store() {
+            Ok(store) => store,
+            Err(error) => return CuReply::err(command, error),
+        };
+        let reservation = match store.reserve(
+            &identity.request_id,
+            &fingerprint,
+            MAX_RETENTION_TTL_MS,
+            now_ms,
+        ) {
+            Ok(ReserveDecision::Fresh(reservation)) => reservation,
+            Ok(ReserveDecision::ReplayFinalized(status)) => {
+                let succeeded = status
+                    .outcome
+                    .as_ref()
+                    .is_some_and(|outcome| outcome.kind == FinalOutcomeKind::Succeeded);
+                if succeeded {
+                    return CuReply::ok(
+                        command,
+                        serde_json::json!({
+                            "effect": "not_repeated",
+                            "idempotent": true,
+                            "request": status,
+                        }),
+                    );
+                }
+                return CuReply::err(
+                    command,
+                    CuError::new(
+                        "request_previously_failed",
+                        "this request identity already has a terminal failed receipt",
+                    )
+                    .with_detail(serde_json::json!({
+                        "effect": "not_repeated",
+                        "idempotent": true,
+                        "request": status,
+                    })),
+                );
+            }
+            Ok(ReserveDecision::Uncertain(status)) => {
+                return CuReply::err(
+                    command,
+                    CuError::new(
+                        "request_outcome_unknown",
+                        "this request identity may already have been delivered; automatic replay is refused",
+                    )
+                    .with_detail(serde_json::json!({
+                        "effect": "unknown",
+                        "idempotent": true,
+                        "request": status,
+                    })),
+                );
+            }
+            Err(error) => return CuReply::err(command, error),
+        };
+
+        let mut audit = match self.begin_audit(command) {
+            Ok(audit) => audit,
+            Err(error) => {
+                let _ = store.finalize(
+                    &identity.request_id,
+                    &fingerprint,
+                    &reservation.completion_token,
+                    FinalOutcome::new(FinalOutcomeKind::Failed, "audit_unavailable", None)
+                        .expect("static outcome is valid"),
+                    now_ms,
+                );
+                return CuReply::err(command, error);
+            }
+        };
+        let reply = self.execute_current(command);
+        if let Err(mut error) = Self::audit_after(&mut audit, command, &reply) {
+            let _ = store.mark_outcome_unknown(
+                &identity.request_id,
+                &fingerprint,
+                &reservation.completion_token,
+                now_utc_ms().unwrap_or(now_ms),
+            );
+            error.detail = Some(serde_json::json!({
+                "stage": "audit_outcome",
+                "effect": "unknown",
+                "request_id": identity.request_id,
+                "original_reply": reply,
+            }));
+            return CuReply::err(command, error);
+        }
+
+        let outcome = if reply.ok {
+            FinalOutcome::new(FinalOutcomeKind::Succeeded, "ok", None)
+        } else {
+            FinalOutcome::new(
+                FinalOutcomeKind::Failed,
+                reply
+                    .error
+                    .as_ref()
+                    .map_or("failed", |error| error.code.as_str()),
+                None,
+            )
+        }
+        .expect("reply error codes satisfy the bounded outcome contract");
+        if let Err(error) = store.finalize(
+            &identity.request_id,
+            &fingerprint,
+            &reservation.completion_token,
+            outcome,
+            now_utc_ms().unwrap_or(now_ms),
+        ) {
+            let _ = store.mark_outcome_unknown(
+                &identity.request_id,
+                &fingerprint,
+                &reservation.completion_token,
+                now_utc_ms().unwrap_or(now_ms),
+            );
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "request_outcome_persist_failed",
+                    "effect finished but its at-most-once receipt could not be durably finalized",
+                )
+                .with_detail(serde_json::json!({
+                    "effect": "unknown",
+                    "request_id": identity.request_id,
+                    "store_error": error.code,
+                })),
+            );
+        }
+        reply
+    }
+
+    fn open_runtime_coordinator(&self) -> Result<RuntimeCoordinator, CuError> {
+        #[cfg(test)]
+        if let Some(path) = self.runtime_path.as_ref() {
+            return RuntimeCoordinator::open_at(path);
+        }
+        RuntimeCoordinator::open()
+    }
+
+    fn open_idempotency_store(&self) -> Result<IdempotencyStore, CuError> {
+        #[cfg(test)]
+        if let Some(path) = self.request_store_path.as_ref() {
+            return IdempotencyStore::open_at(path);
+        }
+        IdempotencyStore::open()
     }
 
     fn execute_ssh(&self, command: &Command) -> CuReply {
@@ -417,6 +682,51 @@ impl Executor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caller_request_identity_replays_terminal_receipt_without_repeating_effect() {
+        let audit_path = audit_scratch("request-identity");
+        let root = audit_path.parent().expect("scratch root");
+        let runtime_path = root.join("runtime.json");
+        let request_path = root.join("requests.json");
+        let now_ms = now_utc_ms().expect("test clock");
+        let session = RuntimeCoordinator::open_at(&runtime_path)
+            .unwrap()
+            .session_start(Some("request fixture"), 60, now_ms / 1_000)
+            .unwrap();
+        let identity = RequestIdentity {
+            request_id: "fixture.request-1".into(),
+            session_id: session.session_id,
+            session_lease: session.lease.clone(),
+        };
+        let executor = actuate_executor()
+            .with_audit_path(audit_path.clone())
+            .with_request_state_paths(request_path.clone(), runtime_path)
+            .with_request_identity(identity);
+        let command = Command::ClipboardClear {
+            target: TargetRef::Current,
+            apply: false,
+        };
+
+        let first = executor.execute(&command);
+        assert!(first.ok, "{first:?}");
+        assert_eq!(first.data.as_ref().unwrap()["status"], "planned");
+
+        let replay = executor.execute(&command);
+        assert!(replay.ok, "{replay:?}");
+        assert_eq!(replay.data.as_ref().unwrap()["effect"], "not_repeated");
+        assert_eq!(replay.data.as_ref().unwrap()["idempotent"], true);
+
+        let conflict = executor.execute(&Command::ClipboardClear {
+            target: TargetRef::Current,
+            apply: true,
+        });
+        assert!(!conflict.ok);
+        assert_eq!(conflict.error.as_ref().unwrap().code, "request_id_conflict");
+        let state = std::fs::read_to_string(request_path).unwrap();
+        assert!(!state.contains(&session.lease));
+        remove_audit_scratch(&audit_path);
+    }
 
     #[test]
     fn audit_open_failure_prevents_actuation_dispatch() {

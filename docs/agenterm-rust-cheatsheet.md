@@ -2642,6 +2642,13 @@ Proven on the `agenterm-cu host` / `AgentermCu.app` host (`scripts/install-cu-ho
   may produce a device-specific diagnosis. Routine automation must use the
   fixed, promoted, signed app-bundle bytes. Worktree binaries are test-only
   identities whose changing path/cdhash legitimately loses prior consent.
+- At-most-once mutation admission is a state machine, not a retry loop. Reserve
+  a caller request id under an active session before dispatch; bind its digest
+  to both session id and the complete command projection; persist only the
+  session-secret-bound digest and completion-token digest. Exact finalized retries return bounded
+  terminal metadata without redispatch, while `reserved` or
+  `outcome_unknown` retries fail closed. Remote effects must reserve at the
+  remote worker that owns the effect, never only in the local transport.
 
 ### CLI success is not host success
 

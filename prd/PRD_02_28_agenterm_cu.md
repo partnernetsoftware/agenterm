@@ -180,8 +180,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `lock acquire|list|release`, and newest-first `audit-query` with independent
   result/scan/byte budgets. Lease plaintext is returned once and never reaches
   durable state or audit. macOS isolated public CLI evidence covers the full
-  create/status/acquire/reacquire/release/end/query loop; three-host evidence,
-  request identity, retention/compaction and daemon ownership remain open.
+  create/status/acquire/reacquire/release/end/query loop. Current-target
+  mutations can now carry the all-or-none `--request-id`, `--session` and
+  `--session-lease` envelope: admission verifies the active lease without
+  renewing it, reserves a private crash-persistent request record before the
+  effect, returns terminal metadata on exact retry, and refuses an uncertain
+  retry rather than executing twice. A changed command or session under the
+  same request id is a typed conflict; command and lease plaintext never enter
+  the request store. Remote worker projection, exact target-lock derivation,
+  three-host evidence, retention compaction and daemon ownership remain open.
   The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
 - [~] absorbed from that skill on 2026-08-30 (review and slices in
@@ -809,12 +816,13 @@ flowchart LR
   host Camera TCC, usbmux availability/pairing, DAL source publication and
   stream/frame delivery: zero sources with denied/unknown Camera permission is
   `host_camera_denied|host_camera_consent_required`; a healthy paired device
-  with no published DAL row is `dal_source_unavailable`; only an enumerated
+  with no published DAL row is `device_source_not_published`; only an enumerated
   target plus direct evidence may produce a device-specific failure. `--list`
   reports those host signals. Accessibility is independent from pure DAL
-  capture. The implementation belongs behind an `agenterm-platform` contract,
-  uses fixture classification without a real phone or visible prompt, and
-  atomically refuses overwrite/partial output.
+  capture. The pure `agenterm-platform::device_capture` contract and eight
+  fixture classifiers are now live without touching a real phone or prompt;
+  the native adapter, public verb and atomic no-overwrite PNG publication are
+  still pending.
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm

@@ -160,7 +160,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   with independent returned-row, scanned-row and byte ceilings, malformed-row
   counts, truncation flags and a continuation offset when only the result
   window truncates. Retention/compaction, an older-byte cursor and
-  universal request correlation remain open.
+  universal request correlation remain open. Current-target actuation now has
+  a shared durable request envelope (`request-id` + active session id/lease):
+  same request/session/command replays terminal metadata without redispatch,
+  a changed fingerprint conflicts, and a reserved or outcome-unknown retry
+  fails closed. Remote-worker admission and audit-query correlation remain
+  open, so this is not yet universal.
 - [~] the versioned JSONL audit is machine-readable, cross-process append
   serialized, durably flushed and survives the session that produced it.
 - [x] failure to record is failure to act: if the audit path is unavailable, the

@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn row_order_is_name_family_address_scope_then_native_id() {
-        let mut rows = vec![
+        let mut rows = [
             row("z", "127.0.0.1", 1),
             row("a", "::1", 1),
             row("a", "10.0.0.2", 3),

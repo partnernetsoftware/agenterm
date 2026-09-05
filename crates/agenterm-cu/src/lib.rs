@@ -19,6 +19,7 @@ pub mod executor;
 pub mod grant_management;
 pub mod host_actions;
 pub mod hotkeys;
+pub mod idempotency_store;
 #[cfg(target_os = "macos")]
 pub mod macos_focus;
 pub mod macos_spaces;
@@ -44,7 +45,7 @@ pub mod vnc_transport;
 
 pub use auth::{Authorization, Grant};
 pub use command::{Command, OrderRelation, PointerButton, TerminalWaitCondition, WaitCondition};
-pub use executor::Executor;
+pub use executor::{Executor, RequestIdentity};
 pub use rdp_transport::RdpEndpoint;
 pub use reply::{CuError, CuReply};
 pub use ssh_transport::SshEndpoint;

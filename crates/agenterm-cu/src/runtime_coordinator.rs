@@ -232,6 +232,21 @@ impl RuntimeCoordinator {
         })
     }
 
+    /// Verify that `lease` still owns one active session without renewing it.
+    /// This is the admission check used by effects carrying a caller request
+    /// identity; observation alone must never extend the lease.
+    pub fn session_verify(
+        &self,
+        session_id: &str,
+        lease: &str,
+        now_utc_s: i64,
+    ) -> Result<SessionStatus, CuError> {
+        self.inspect(now_utc_s, |document| {
+            let record = checked_session(document, session_id, lease)?;
+            Ok(session_status(record))
+        })
+    }
+
     pub fn session_renew(
         &self,
         session_id: &str,
@@ -809,6 +824,20 @@ mod tests {
                 .unwrap()
                 .label,
             "lease test"
+        );
+        assert_eq!(
+            coordinator
+                .session_verify(&started.session_id, &started.lease, 100)
+                .unwrap()
+                .state,
+            SessionState::Active
+        );
+        assert_eq!(
+            coordinator
+                .session_verify(&started.session_id, "wrong", 100)
+                .unwrap_err()
+                .code,
+            "runtime_session_lease_invalid"
         );
         let renewed = coordinator
             .session_renew(&started.session_id, &started.lease, 20, 105)
