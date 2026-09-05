@@ -15,16 +15,26 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
+function isolated_env(run_directory) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
+  };
+}
+
 function invoke(run_directory, executable, grant, arguments, expected_error) {
   const argv = ["--target", "current", "--grant", grant];
   for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: {
-      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
-      AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
-      AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
-    },
+    env: isolated_env(run_directory),
     timeout_ms: 30000
   });
   let reply = null;
@@ -84,6 +94,11 @@ try {
   ]);
   ensure(installed.status === "ready" && installed.action.outcome === "installed", "cu_setup_install_status");
   ensure(installed.action.performed === true && installed.effect === "committed", "cu_setup_install_effect");
+  ensure(installed.installation_identity.status === "ready"
+           && installed.installation_identity.scope === "installation"
+           && installed.installation_identity.action.performed === true
+           && installed.installation_identity.action.outcome === "enrolled",
+         "cu_setup_install_identity");
   ensure(installed.runtime_refresh.status === "ready"
            && installed.runtime_refresh.future_activation.aligned === true
            && installed.runtime_refresh.action.performed === true
@@ -101,6 +116,10 @@ try {
   ]);
   ensure(unchanged.status === "ready" && unchanged.action.outcome === "unchanged", "cu_setup_idempotent_status");
   ensure(unchanged.action.performed === false && rh.sha256_file(launcher) === digest, "cu_setup_idempotent_bytes");
+  ensure(unchanged.installation_identity.status === "ready"
+           && unchanged.installation_identity.action.performed === false
+           && unchanged.installation_identity.action.outcome === "unchanged",
+         "cu_setup_identity_idempotent");
   ensure(unchanged.runtime_refresh.action.performed === false
            && unchanged.runtime_refresh.action.outcome === "unchanged",
          "cu_setup_runtime_idempotent");

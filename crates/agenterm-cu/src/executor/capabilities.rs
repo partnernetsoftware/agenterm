@@ -698,6 +698,17 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("zoom".into(), zoom_verb);
         verbs.insert("drag".into(), drag_verb);
         verbs.insert(
+            "device-list".into(),
+            serde_json::json!({
+                "status": "available",
+                "grant": "observe",
+                "group": "device",
+                "mode": "agenterm-platform-device-inventory",
+                "identity_scope": "installation",
+                "provider_states": ["complete", "partial", "unavailable"],
+            }),
+        );
+        verbs.insert(
             "doctor".into(),
             serde_json::json!({
                 "status": "available",
@@ -1083,6 +1094,7 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("observe", "observe"),
             ("screenshot", "observe"),
             ("device-screenshot", "observe"),
+            ("device-list", "observe"),
             ("pointer-position", "observe"),
             ("clipboard-read", "observe"),
             ("get-text", "observe"),

@@ -1,9 +1,10 @@
 //! Host-level discovery that is independent of the desktop/window family.
 
 use agenterm_cu::{
-    Command, PermissionAction, PermissionKind, SetupAction, TargetRef,
+    Command, DeviceInventorySelector, PermissionAction, PermissionKind, SetupAction, TargetRef,
     command::{
-        JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter, STORAGE_DEVICES_MAX,
+        DEVICE_INVENTORY_MAX, JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter,
+        STORAGE_DEVICES_MAX,
     },
 };
 
@@ -79,6 +80,28 @@ pub fn parse(
             ));
         }
         return Ok(Command::StorageDevices { target, max });
+    }
+    if spec.name == "device-list" {
+        if args.first().is_some_and(|arg| arg == "list") {
+            args.remove(0);
+        }
+        let selector =
+            DeviceInventorySelector::parse(flag_text(args, "--type")?.as_deref().unwrap_or("all"))?;
+        let max = flag_parsed::<usize>(args, "--max")?.unwrap_or(500);
+        if !(1..=DEVICE_INVENTORY_MAX).contains(&max) {
+            return Err("device list --max must be in 1..=5000".to_owned());
+        }
+        if !args.is_empty() {
+            return Err(format!(
+                "device-list accepts only --type KIND and --max N; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::DeviceList {
+            target,
+            selector,
+            max,
+        });
     }
     if spec.name == "audit-compact" && args.first().is_some_and(|arg| arg == "compact") {
         args.remove(0);
@@ -669,6 +692,29 @@ mod tests {
         ));
         assert!(parse("storage-devices", &["--max", "0"]).is_err());
         assert!(parse("storage", &["devices", "extra"]).is_err());
+    }
+
+    #[test]
+    fn device_list_flat_and_grouped_shapes_are_closed() {
+        assert!(matches!(
+            parse("device-list", &["--type", "camera", "--max", "7"]).unwrap(),
+            Command::DeviceList {
+                selector: DeviceInventorySelector::Camera,
+                max: 7,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("device", &["list"]).unwrap(),
+            Command::DeviceList {
+                selector: DeviceInventorySelector::All,
+                max: 500,
+                ..
+            }
+        ));
+        assert!(parse("device-list", &["--type", "serial"]).is_err());
+        assert!(parse("device", &["list", "--max", "0"]).is_err());
+        assert!(parse("device", &["list", "extra"]).is_err());
     }
 
     #[test]

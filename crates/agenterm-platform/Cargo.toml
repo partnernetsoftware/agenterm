@@ -64,6 +64,7 @@ storage-device-inventory = [
     "dep:serde_json",
     "windows-sys/Win32_System_SystemInformation",
 ]
+device-inventory = ["current-target-binding", "storage-device-inventory"]
 entropy = [
     "dep:libc",
     "dep:windows-sys",

@@ -4290,6 +4290,19 @@ does not round values above 2^53. Legitimate provider states such as macOS
 snapshot; reserve malformed failures for values outside the provider's real
 vocabulary or structural contract.
 
+Peripheral identity needs a private keyed boundary, not public hashing. Native
+serials, MAC addresses, provider instance ids and topology paths may have low
+entropy or identify a physical device, so hashing them without a secret still
+permits dictionary recovery. Consume them only inside `agenterm-platform`, use
+an explicitly enrolled installation key with a domain-separated HMAC, and
+return only the opaque pseudonym plus an honest continuity class. A provider
+serial can support `provider-stable`; a port/path fallback is only `topology`
+and must not be advertised as reconnect-stable. Observation loads an existing
+key and fails typed when absent; only an explicit setup/mutation path may enroll
+or rotate it. Bound provider scan count, provider output, public rows and final
+JSON independently, and report each requested provider as complete, partial or
+unavailable rather than treating an empty class as a global success.
+
 ## Install stable CLI entrypoints without forking package identity
 
 A PATH setup command should publish a tiny owned launcher that points to the

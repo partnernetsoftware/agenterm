@@ -26,6 +26,7 @@ const JOB_STOP_GRACE_MS_MAX: u64 = 60_000;
 pub const SIMULATOR_RESULTS_MAX: usize = 200;
 pub const SIMULATOR_TIMEOUT_MS_MAX: u64 = 600_000;
 pub const STORAGE_DEVICES_MAX: usize = 5_000;
+pub const DEVICE_INVENTORY_MAX: usize = 5_000;
 
 pub fn validate_simulator_udid(udid: &str) -> Result<(), &'static str> {
     let bytes = udid.as_bytes();
@@ -109,6 +110,19 @@ where
     Ok(value)
 }
 
+fn deserialize_device_inventory_max<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = usize::deserialize(deserializer)?;
+    if !(1..=DEVICE_INVENTORY_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "device inventory max must be in 1..=5000",
+        ));
+    }
+    Ok(value)
+}
+
 fn deserialize_simulator_timeout_ms<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -170,6 +184,31 @@ pub enum FileTransactionAction {
     Rollback,
     Recover,
     Finalize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DeviceInventorySelector {
+    Usb,
+    Bluetooth,
+    Audio,
+    Camera,
+    Gpu,
+    All,
+}
+
+impl DeviceInventorySelector {
+    pub fn parse(value: &str) -> Result<Self, &'static str> {
+        match value {
+            "usb" => Ok(Self::Usb),
+            "bluetooth" => Ok(Self::Bluetooth),
+            "audio" => Ok(Self::Audio),
+            "camera" => Ok(Self::Camera),
+            "gpu" => Ok(Self::Gpu),
+            "all" => Ok(Self::All),
+            _ => Err("device inventory type must be usb|bluetooth|audio|camera|gpu|all"),
+        }
+    }
 }
 
 /// An absolute byte position in one managed job output stream. Stdout and
@@ -1715,6 +1754,12 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_storage_devices_max")]
         max: usize,
     },
+    DeviceList {
+        target: TargetRef,
+        selector: DeviceInventorySelector,
+        #[serde(deserialize_with = "deserialize_device_inventory_max")]
+        max: usize,
+    },
     SimulatorDevices {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_simulator_max")]
@@ -2986,6 +3031,7 @@ impl Command {
             Self::DeviceScreenshot { .. } => "device-screenshot".into(),
             Self::ResourceStatus { .. } => "resource-status".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
+            Self::DeviceList { .. } => "device-list".into(),
             Self::SimulatorDevices { .. } => "simulator-devices".into(),
             Self::SimulatorBoot { .. } => "simulator-boot".into(),
             Self::SimulatorApps { .. } => "simulator-apps".into(),
@@ -3153,6 +3199,7 @@ impl Command {
             | Self::DeviceScreenshot { target, .. }
             | Self::ResourceStatus { target }
             | Self::StorageDevices { target, .. }
+            | Self::DeviceList { target, .. }
             | Self::SimulatorDevices { target, .. }
             | Self::SimulatorBoot { target, .. }
             | Self::SimulatorApps { target, .. }
@@ -3468,6 +3515,12 @@ impl Command {
             Self::StorageDevices { max, .. } => {
                 if !(1..=STORAGE_DEVICES_MAX).contains(max) {
                     return Err("storage devices max must be in 1..=5000");
+                }
+                Ok(())
+            }
+            Self::DeviceList { max, .. } => {
+                if !(1..=DEVICE_INVENTORY_MAX).contains(max) {
+                    return Err("device inventory max must be in 1..=5000");
                 }
                 Ok(())
             }

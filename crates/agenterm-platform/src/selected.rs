@@ -75,6 +75,18 @@ pub(crate) mod device_capture;
 #[path = "adapters/unsupported_device_capture.rs"]
 pub(crate) mod device_capture;
 
+#[cfg(all(feature = "device-inventory", target_os = "linux"))]
+#[path = "adapters/linux/device_inventory.rs"]
+pub(crate) mod device_inventory;
+
+#[cfg(all(feature = "device-inventory", target_os = "macos"))]
+#[path = "adapters/macos/device_inventory.rs"]
+pub(crate) mod device_inventory;
+
+#[cfg(all(feature = "device-inventory", windows))]
+#[path = "adapters/windows/device_inventory.rs"]
+pub(crate) mod device_inventory;
+
 pub(crate) const fn app_container_process_supported() -> bool {
     #[cfg(windows)]
     {

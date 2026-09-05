@@ -807,6 +807,23 @@
         "task.cu-storage-devices-smoke"
       ]
     },
+    "cu-device-inventory-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-device-inventory-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-device-inventory-smoke"
+      ]
+    },
     "cu-privilege-plan-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2758,6 +2775,27 @@
       "id": "cu-storage-devices-smoke",
       "description": "Prove the public current-host block-device inventory is bounded, read-only, capacity-exact and excludes stable hardware identifiers on each native platform.",
       "entry": "scripts/qjs/cu-storage-devices-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-device-inventory-smoke",
+      "description": "Prove native peripheral inventory is bounded, read-only, provider-explicit and uses stable installation-scoped opaque identities without disclosing serials, addresses or native paths.",
+      "entry": "scripts/qjs/cu-device-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

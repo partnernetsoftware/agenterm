@@ -833,9 +833,17 @@
         {
           "id": "device.inventory",
           "mcu_shape": "device list --type usb|bluetooth|audio|camera|gpu|all --max N",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "bounded cross-platform peripheral inventory with stable device identity and preserved provider-specific properties"
+          "acu_shape": "agenterm-cu device-list --type usb|bluetooth|audio|camera|gpu|all --max N (alias: device list)",
+          "state": "platform-limited",
+          "platforms": {
+            "macos": "native-public-qjswasm-green",
+            "linux": "native-compile-and-fixture-only",
+            "windows": "native-compile-and-fixture-only"
+          },
+          "qualification": "macos-public-qjswasm-live-linux-windows-native-courts-pending",
+          "evidence": ["cu.device-inventory"],
+          "note": "Setup apply explicitly enrolls or reuses one private installation identity. Observation is load-only and returns installation-scoped HMAC pseudonyms plus an explicit provider-stable or topology continuity class; serials, addresses, provider instance ids and raw native paths never cross the platform facade.",
+          "next": "run the same public qjswasm journey on Linux and Windows native courts, then add watch as a bounded diff over this exact snapshot contract"
         },
         {
           "id": "device.watch",

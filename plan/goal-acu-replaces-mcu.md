@@ -492,6 +492,13 @@ shapes fail typed instead of being ignored.
   exclusive device leases, byte I/O, serial configuration and default-output
   state. A path alone is never durable device identity, and audio backends stay
   explicitly platform-limited until each native court proves them.
+- `device.inventory` has left the pure gap state. Public `device-list` now
+  returns bounded USB/Bluetooth/audio/camera/GPU rows through platform-owned
+  providers; low-entropy native identifiers remain private and become
+  installation-scoped HMAC pseudonyms with an honest continuity class. The
+  macOS arm64 qjswasm court is green. Linux and Windows runtime courts still
+  keep the row platform-limited, while device watch/claim/byte I/O remain
+  separate blockers rather than being implied by inventory.
 - R0 accounting is complete across all 13 families. Runtime/service/session/
   audit contains user/system services, native coordinator, login service,
   leases, target locks, request idempotency, desktop delivery, audit
@@ -688,10 +695,10 @@ Q5 retirement
 └─ [ ] parity corpus + three-host native + MCU-absent rehearsal
 ```
 
-The first `acu-retirement-readiness` run is intentionally red as a promotion
+The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 131 ledger capabilities
-currently include 21 `gap` and 50 `platform-limited` rows, the compatibility
-adapter reports 14 static stays and explicitly says its argument-sensitive
+currently include 17 `gap` and 51 `platform-limited` rows, the compatibility
+adapter reports 13 static stays and explicitly says its argument-sensitive
 corpus is incomplete, the Candidate workflow has no
 `cu-retirement-cell-smoke`, and the release-dispatch helper still requires Bun.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that

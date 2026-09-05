@@ -23,6 +23,7 @@ pub mod control_window;
 pub mod current_target_binding;
 #[cfg(feature = "desktop-host")]
 pub mod desktop_host;
+pub mod device_inventory;
 #[cfg(feature = "entropy")]
 pub mod entropy;
 #[cfg(feature = "font")]

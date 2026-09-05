@@ -1304,6 +1304,39 @@ flowchart LR
   output state. Device paths are locators rather than durable identity;
   mutations require a live lease or plan, target revalidation, bounded I/O and
   independently read-back post-state. Backend gaps remain platform-limited.
+- [~] `device-list` / `device list` now owns the bounded native peripheral
+  inventory leaf for USB, Bluetooth, audio, camera and GPU. It is not a raw
+  system-profiler dump: native serials, addresses, provider instance ids and
+  paths stay below `agenterm-platform`; the public row receives only an
+  installation-scoped HMAC pseudonym and an explicit `provider-stable` or
+  `topology` continuity label. `setup` apply is the sole explicit enrollment
+  action for that private installation identity. Inventory observation only
+  loads it and fails typed when it is absent; it never silently creates or
+  rotates identity. The registered `cu.device-inventory` qjswasm court is green
+  on macOS arm64 with all five provider statuses, repeated-id equality, a
+  single-provider bound, private-field absence and invalid-selector refusal.
+  Linux and Windows adapters compile and have fixture coverage, but their
+  native public courts remain open, so the ledger row is `platform-limited`.
+
+```text
+device.inventory
+├─ [x] explicit setup apply → private installation identity
+├─ [x] observe-only bounded snapshot → five provider statuses
+├─ [x] native identifiers stay private → installation HMAC pseudonym
+├─ [x] macOS arm64 public qjswasm court
+├─ [ ] Linux native public qjswasm courts
+└─ [ ] Windows native public qjswasm courts
+```
+
+```mermaid
+flowchart LR
+  S["setup apply"] --> K["private installation key"]
+  N["native provider rows<br/>serial/address/path remain private"] --> H["platform HMAC boundary"]
+  K --> H --> P["opaque device id<br/>continuity class"]
+  P --> Q["device-list typed reply"] --> C["qjswasm public court"]
+  C -->|macOS green| M["platform-limited"]
+  C -->|Linux + Windows green| V["native inventory leaf"]
+```
 - [~] `device-screenshot` is now an integrated current-target leaf, with live
   promotion still waiting on a non-sensitive device court. Its classifier must
   never infer a phone

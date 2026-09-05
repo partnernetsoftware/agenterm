@@ -8,6 +8,7 @@ use crate::{
     reply::CuError,
     runtime_coordinator::RuntimeCoordinator,
     setup_entrypoint::{self, SetupMode},
+    target_binding::{CurrentIdentityProvider, enroll_current_installation},
 };
 
 pub(super) fn setup_payload(
@@ -40,10 +41,69 @@ pub(super) fn setup_payload(
                 .refresh_blockers()
                 .map_err(runtime_refresh_preflight_error)?;
             let mut setup = setup_entrypoint::run(&source, &bin_dir, SetupMode::Apply)?;
+            attach_installation_identity(&mut setup)?;
             attach_runtime_refresh(&mut setup, SetupAction::Apply, blockers)?;
             Ok(setup)
         }
     }
+}
+
+fn attach_installation_identity(setup: &mut serde_json::Value) -> Result<(), CuError> {
+    let provider = CurrentIdentityProvider::default_for_current_user().map_err(|_| {
+        setup_identity_error(
+            setup,
+            "the private installation identity directory is unavailable",
+        )
+    })?;
+    let performed = enroll_current_installation(&provider).map_err(|_| {
+        setup_identity_error(
+            setup,
+            "the private installation identity could not be enrolled",
+        )
+    })?;
+    let object = setup.as_object_mut().ok_or_else(|| {
+        CuError::new(
+            "setup_entrypoint_serialization_failed",
+            "setup result is not a JSON object",
+        )
+    })?;
+    let launcher_performed = object
+        .get("action")
+        .and_then(|value| value.get("performed"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    object.insert(
+        "installation_identity".into(),
+        serde_json::json!({
+            "schema": 1,
+            "scope": "installation",
+            "status": "ready",
+            "action": {
+                "performed": performed,
+                "outcome": if performed { "enrolled" } else { "unchanged" },
+            }
+        }),
+    );
+    if performed && !launcher_performed {
+        object.insert(
+            "action".into(),
+            serde_json::json!({ "performed": true, "outcome": "identity-enrolled" }),
+        );
+        object.insert("effect".into(), serde_json::json!("committed"));
+    }
+    Ok(())
+}
+
+fn setup_identity_error(setup: &serde_json::Value, message: &'static str) -> CuError {
+    let launcher_performed = setup
+        .get("action")
+        .and_then(|value| value.get("performed"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    CuError::new("setup_identity_enrollment_failed", message).with_detail(serde_json::json!({
+        "effect": if launcher_performed { "committed" } else { "none" },
+        "launcher": setup,
+    }))
 }
 
 fn runtime_refresh_preflight_error(error: CuError) -> CuError {

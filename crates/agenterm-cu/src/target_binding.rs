@@ -196,14 +196,25 @@ pub fn enroll_current_identity(
             TargetRef::Current,
         ));
     }
+    enroll_current_installation(provider).map(|_| ())
+}
+
+/// Explicitly creates or reuses only the installation identity.
+///
+/// Unlike [`enroll_current_identity`], this operation does not claim that the
+/// host can prove a live desktop session. It is the setup-owned prerequisite
+/// for installation-scoped pseudonyms such as device inventory identifiers.
+pub(crate) fn enroll_current_installation(
+    provider: &CurrentIdentityProvider,
+) -> Result<bool, TargetBindingError> {
     std::fs::create_dir_all(provider.private_state_dir()).map_err(|_| {
         TargetBindingError::new(
             TargetBindingErrorKind::IdentityUnavailable,
             TargetRef::Current,
         )
     })?;
-    platform_binding::enroll_installation(provider.private_state_dir())
-        .map(|_| ())
+    platform_binding::enroll_installation_with_status(provider.private_state_dir())
+        .map(|enrollment| enrollment.performed())
         .map_err(|error| TargetBindingError::new(map_platform_error(error), TargetRef::Current))
 }
 

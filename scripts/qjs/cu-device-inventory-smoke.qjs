@@ -1,0 +1,147 @@
+// Public black-box court for bounded, privacy-preserving native device inventory.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.device-inventory"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory, prefix) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, prefix + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, prefix + "-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
+  };
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const receipt_path = rh.join(run_directory, "observe-receipts.jsonl");
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: isolated_env(run_directory, "observe"),
+    timeout_ms: 30000
+  });
+  ensure(output.success === expect_success, "cu_device_inventory_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_device_inventory_reply_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "", "cu_device_inventory_effect_receipt_created");
+  return reply;
+}
+
+function setup(run_directory, executable) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "actuate", "setup",
+    "--bin-dir", rh.join(run_directory, "bin")
+  ], { cwd: run_directory, env: isolated_env(run_directory, "setup"), timeout_ms: 30000 });
+  ensure(output.success === true, "cu_device_inventory_setup_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true && reply.command === "setup", "cu_device_inventory_setup_reply");
+  ensure(reply.data.installation_identity.status === "ready"
+         && reply.data.installation_identity.scope === "installation"
+         && reply.data.installation_identity.action.performed === true,
+         "cu_device_inventory_identity_enrollment");
+  return ["--target", "current", "--grant", "observe"];
+}
+
+function assert_inventory(reply, max) {
+  ensure(reply.command === "device-list" && reply.target === "current", "cu_device_inventory_identity");
+  const data = reply.data;
+  ensure(Array.isArray(data.devices), "cu_device_inventory_rows");
+  ensure(Array.isArray(data.providers), "cu_device_inventory_providers");
+  ensure(data.returned === data.devices.length && data.returned <= max, "cu_device_inventory_count");
+  ensure(typeof data.truncated === "boolean" && typeof data.complete === "boolean", "cu_device_inventory_bounds");
+  ensure(data.identity_scope === "installation", "cu_device_inventory_scope");
+  ensure(data.response_ceiling_bytes === 1048576, "cu_device_inventory_response_ceiling");
+  for (const provider of data.providers) {
+    ensure(["usb", "bluetooth", "audio", "camera", "gpu"].includes(provider.kind), "cu_device_inventory_provider_kind");
+    ensure(["complete", "partial", "unavailable"].includes(provider.state), "cu_device_inventory_provider_state");
+    ensure(typeof provider.provider === "string" && provider.provider.length > 0, "cu_device_inventory_provider_name");
+    ensure(typeof provider.visited === "number" && typeof provider.read_errors === "number", "cu_device_inventory_provider_counts");
+  }
+  for (const row of data.devices) {
+    ensure(typeof row.id === "string" && row.id.startsWith("agt-device-v1-"), "cu_device_inventory_id");
+    ensure(["provider-stable", "topology"].includes(row.identity_continuity), "cu_device_inventory_continuity");
+    ensure(["usb", "bluetooth", "audio", "camera", "gpu"].includes(row.kind), "cu_device_inventory_kind");
+    ensure(row.serial === undefined && row.address === undefined && row.path === undefined, "cu_device_inventory_private_identity");
+    ensure(row.instance_id === undefined && row.location_id === undefined, "cu_device_inventory_native_locator");
+  }
+  return data;
+}
+
+function id_snapshot(data) {
+  const ids = [];
+  for (const row of data.devices) { ids.push(row.id); }
+  ids.sort();
+  return JSON.stringify(ids);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_device_inventory_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-device-inventory");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP explicit isolated setup creates the installation identity");
+  const auth = setup(context.run_directory, executable);
+
+  print("STEP all providers publish bounded explicit status without private identity");
+  const first = assert_inventory(invoke(context.run_directory, executable,
+    auth.concat(["device-list", "--type", "all", "--max", "50"]), true), 50);
+  ensure(first.providers.length === 5, "cu_device_inventory_provider_coverage");
+
+  print("STEP repeated observation preserves installation-scoped ids");
+  const second = assert_inventory(invoke(context.run_directory, executable,
+    auth.concat(["device", "list", "--type", "all", "--max", "50"]), true), 50);
+  ensure(id_snapshot(first) === id_snapshot(second), "cu_device_inventory_id_stability");
+
+  print("STEP one provider selector remains closed and bounded");
+  const camera = assert_inventory(invoke(context.run_directory, executable,
+    auth.concat(["device-list", "--type", "camera", "--max", "1"]), true), 1);
+  ensure(camera.providers.length === 1 && camera.providers[0].kind === "camera", "cu_device_inventory_selector");
+
+  print("STEP invalid selector fails before native observation");
+  const invalid = invoke(context.run_directory, executable,
+    auth.concat(["device-list", "--type", "serial"]), false);
+  ensure(invalid.error.code === "usage", "cu_device_inventory_invalid_code");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.device-inventory");
+  harness.remove_run(context);
+  print("PASS: native device inventory is bounded, stable, read-only and privacy-preserving");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

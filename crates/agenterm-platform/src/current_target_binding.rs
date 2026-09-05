@@ -27,6 +27,29 @@ const KEY_FILE_NAME: &str = ".current-target-binding-key-v1";
 const LOCK_FILE_NAME: &str = ".current-target-binding-key-v1.lock";
 const PROVIDER_DOMAIN: &[u8] = b"agenterm-platform/current-target-provider/v1\0";
 const SESSION_DOMAIN: &[u8] = b"agenterm-platform/current-target-session/v1\0";
+const DERIVATION_DOMAIN: &[u8] = b"agenterm-platform/installation-scoped-digest/v1\0";
+
+/// Result of an explicit installation-identity enrollment.
+///
+/// `performed` is true only when this call published the private key. Loading
+/// an already-enrolled identity is idempotent and reports false.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InstallationEnrollment {
+    provider: ProviderIdentity,
+    performed: bool,
+}
+
+impl InstallationEnrollment {
+    #[must_use]
+    pub const fn provider(self) -> ProviderIdentity {
+        self.provider
+    }
+
+    #[must_use]
+    pub const fn performed(self) -> bool {
+        self.performed
+    }
+}
 
 #[must_use]
 pub fn capability_status() -> CapabilityStatus {
@@ -40,10 +63,22 @@ pub fn capability_status() -> CapabilityStatus {
 pub fn enroll_installation(
     private_state_dir: &Path,
 ) -> Result<ProviderIdentity, CurrentTargetBindingError> {
+    enroll_installation_with_status(private_state_dir).map(InstallationEnrollment::provider)
+}
+
+/// Enroll or load the installation identity and report whether this call
+/// published it. This additive form lets explicit setup surfaces produce an
+/// exact mutation receipt while the original enrollment API remains stable.
+pub fn enroll_installation_with_status(
+    private_state_dir: &Path,
+) -> Result<InstallationEnrollment, CurrentTargetBindingError> {
     prepare_directory(private_state_dir)?;
     let _lock = acquire_lock(private_state_dir)?;
     match load_key(private_state_dir) {
-        Ok(key) => Ok(provider_identity(&key)),
+        Ok(key) => Ok(InstallationEnrollment {
+            provider: provider_identity(&key),
+            performed: false,
+        }),
         Err(failure) if failure.kind() == CurrentTargetBindingErrorKind::Missing => {
             let key = crate::entropy::secure_random_array::<KEY_BYTES>().map_err(|_| {
                 error(
@@ -61,7 +96,10 @@ pub fn enroll_installation(
                     "published installation key did not match enrollment",
                 ));
             }
-            Ok(provider_identity(&published))
+            Ok(InstallationEnrollment {
+                provider: provider_identity(&published),
+                performed: true,
+            })
         }
         Err(failure) => Err(failure),
     }
@@ -74,6 +112,53 @@ pub fn load_provider_identity(
     prepare_directory(private_state_dir)?;
     let _lock = acquire_lock(private_state_dir)?;
     load_key(private_state_dir).map(|key| provider_identity(&key))
+}
+
+/// Derive opaque installation-scoped digests without exposing the private key.
+///
+/// This crate-internal boundary is load-only: a missing installation remains a
+/// typed failure and never triggers enrollment. The caller owns the public
+/// purpose domain and bounded input materials.
+pub(crate) fn derive_installation_scoped_digests(
+    private_state_dir: &Path,
+    purpose: &[u8],
+    materials: &[&[u8]],
+) -> Result<Vec<[u8; CURRENT_TARGET_ID_BYTES]>, CurrentTargetBindingError> {
+    let total_material_bytes = materials
+        .iter()
+        .try_fold(0_usize, |total, material| total.checked_add(material.len()));
+    if purpose.is_empty()
+        || purpose.len() > 128
+        || materials.len() > 5_000
+        || materials.iter().any(|material| material.len() > 4_096)
+        || total_material_bytes.is_none_or(|total| total > 4 * 1024 * 1024)
+    {
+        return Err(error(
+            CurrentTargetBindingErrorKind::Corrupt,
+            "install-key-derivation-input",
+            "installation digest derivation input is invalid",
+        ));
+    }
+    prepare_directory(private_state_dir)?;
+    let _lock = acquire_lock(private_state_dir)?;
+    let key = load_key(private_state_dir)?;
+    let mut digests = Vec::new();
+    digests.try_reserve(materials.len()).map_err(|_| {
+        error(
+            CurrentTargetBindingErrorKind::Native,
+            "install-key-derivation-allocation",
+            "installation digest allocation failed",
+        )
+    })?;
+    for material in materials {
+        let mut scoped = Vec::with_capacity(purpose.len() + material.len() + 16);
+        scoped.extend_from_slice(&(purpose.len() as u64).to_le_bytes());
+        scoped.extend_from_slice(purpose);
+        scoped.extend_from_slice(&(material.len() as u64).to_le_bytes());
+        scoped.extend_from_slice(material);
+        digests.push(hmac_sha256(&key, DERIVATION_DOMAIN, &scoped));
+    }
+    Ok(digests)
 }
 
 /// Inspect the current provider installation and exact interactive desktop session.
@@ -182,6 +267,31 @@ fn hash_parts(domain: &[u8], parts: &[&[u8]]) -> [u8; CURRENT_TARGET_ID_BYTES] {
         digest.update(part);
     }
     digest.finalize().into()
+}
+
+fn hmac_sha256(
+    key: &[u8; KEY_BYTES],
+    domain: &[u8],
+    material: &[u8],
+) -> [u8; CURRENT_TARGET_ID_BYTES] {
+    let mut block = [0x36_u8; 64];
+    for (slot, byte) in block.iter_mut().zip(key.iter().copied()) {
+        *slot ^= byte;
+    }
+    let mut inner = Sha256::new();
+    inner.update(block);
+    inner.update(domain);
+    inner.update(material);
+    let inner: [u8; CURRENT_TARGET_ID_BYTES] = inner.finalize().into();
+
+    block.fill(0x5c);
+    for (slot, byte) in block.iter_mut().zip(key.iter().copied()) {
+        *slot ^= byte;
+    }
+    let mut outer = Sha256::new();
+    outer.update(block);
+    outer.update(inner);
+    outer.finalize().into()
 }
 
 fn map_state_io(failure: io::Error) -> CurrentTargetBindingError {
@@ -299,11 +409,37 @@ mod tests {
     }
 
     #[test]
+    fn scoped_derivation_is_load_only_stable_and_domain_separated() {
+        let fixture = Fixture::new();
+        let missing = derive_installation_scoped_digests(&fixture.0, b"first", &[b"material"])
+            .expect_err("derivation must not enroll");
+        assert_eq!(missing.kind(), CurrentTargetBindingErrorKind::Missing);
+        assert!(!key_path(&fixture.0).exists());
+
+        assert!(
+            enroll_installation_with_status(&fixture.0)
+                .expect("enroll fixture")
+                .performed()
+        );
+        let first = derive_installation_scoped_digests(&fixture.0, b"first", &[b"material"])
+            .expect("derive first");
+        let repeat = derive_installation_scoped_digests(&fixture.0, b"first", &[b"material"])
+            .expect("derive repeat");
+        let other = derive_installation_scoped_digests(&fixture.0, b"second", &[b"material"])
+            .expect("derive other domain");
+        assert_eq!(first, repeat);
+        assert_ne!(first, other);
+    }
+
+    #[test]
     fn enrollment_is_idempotent_and_persists_exactly_32_bytes() {
         let fixture = Fixture::new();
-        let first = enroll_installation(&fixture.0).expect("enroll installation");
-        let second = enroll_installation(&fixture.0).expect("load enrolled installation");
-        assert_eq!(first, second);
+        let first = enroll_installation_with_status(&fixture.0).expect("enroll installation");
+        let second =
+            enroll_installation_with_status(&fixture.0).expect("load enrolled installation");
+        assert!(first.performed());
+        assert!(!second.performed());
+        assert_eq!(first.provider(), second.provider());
         assert_eq!(
             fs::metadata(key_path(&fixture.0))
                 .expect("key metadata")
@@ -312,8 +448,9 @@ mod tests {
         );
         assert_eq!(
             load_provider_identity(&fixture.0).expect("load provider identity"),
-            first
+            first.provider()
         );
+        assert_eq!(enroll_installation(&fixture.0).unwrap(), first.provider());
     }
 
     #[test]
