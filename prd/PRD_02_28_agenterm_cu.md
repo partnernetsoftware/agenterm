@@ -1323,7 +1323,7 @@ flowchart LR
   single-provider bound, private-field absence and invalid-selector refusal.
   Linux and Windows adapters compile and have fixture coverage, but their
   native public courts remain open, so the ledger row is `platform-limited`.
-- [~] `device-watch` is the next device-retirement slice. It is a bounded
+- [~] `device-watch` is the bounded observation slice. It is a bounded
   poll/diff observer over the same private inventory owner, not a second
   provider stack and not a TypeScript effect. A change is provable only across
   two consecutive complete, non-truncated snapshots for that device kind.
@@ -1333,8 +1333,28 @@ flowchart LR
   event ceilings, and preserves an overall monotonic deadline. The registered
   `cu.device-watch` qjswasm court is green on macOS arm64; both Windows targets,
   both Linux targets and macOS x86_64 cross-build. Linux and Windows native
-  runtime courts remain open, so this leaf stays `[~]`. Device claim/lease and
-  byte I/O remain separate retirement blockers.
+  runtime courts remain open, so this leaf stays `[~]`.
+- [~] `device-claims`, `device-claim`, `device-status`, `device-read`,
+  `device-write`, `device-renew` and `device-release` now form one candidate
+  native ownership slice. A public opaque installation-HMAC device id is only
+  a selector: the platform adapter re-enumerates and binds the exact private
+  locator and native object at claim time. One resident owner retains that
+  same fd/HANDLE through configuration, bounded byte I/O, renewal and release;
+  the durable store never persists the locator or plaintext lease secret.
+  Claim admission is tied to the caller's runtime session and target lock,
+  exact request replay never opens a second native object, and `session-end`
+  must close both managed jobs and device owners or report
+  `runtime_session_cleanup_uncertain`.
+
+  This is implementation progress, not yet a delivery claim. The next owning
+  evidence is a guarded, non-sensitive public qjswasm fixture that exercises
+  claim → write → read → renew → release, exact replay, wrong-secret/session/
+  generation refusal, TTL cleanup, setup-refresh deferral and session-end
+  cleanup without exposing a raw device path as test authority. Unix may use a
+  private PTY-backed device fixture whose owner and object identity are
+  revalidated; Windows still needs a native COM/virtual-COM court. Until those
+  courts pass, lifecycle, serial configuration and byte I/O remain `[~]` and
+  may not remove their MCU fallback.
 
 ```text
 device.inventory
@@ -1353,6 +1373,18 @@ device.watch
 ├─ [x] macOS arm64 public qjswasm black-box
 ├─ [x] six target cells compile
 └─ [ ] Linux/Windows native runtime courts
+
+device.claim + byte I/O
+├─ [x] opaque public id → private re-enumeration → exact native object
+├─ [x] resident fd/HANDLE owner + exclusive TTL lease + session/target lock
+├─ [x] serial vocabulary validated and native configuration read back
+├─ [x] read/write bounded to 64 KiB; timeout bounded to 300 s
+├─ [x] durable crash states contain no locator, payload or plaintext lease
+├─ [x] setup refresh defers around active/uncertain owners without disrupting them
+├─ [x] session-end closes jobs and device owners or returns cleanup-uncertain
+├─ [ ] public qjswasm fixture: replay/refusal/I/O/renew/release/TTL/session cleanup
+├─ [ ] macOS + Linux native runtime courts
+└─ [ ] Windows native COM/virtual-COM runtime court
 ```
 
 ```mermaid
@@ -1362,10 +1394,15 @@ flowchart LR
   K --> H --> P["opaque device id<br/>continuity class"]
   P --> Q["device-list typed reply"] --> C["qjswasm public court"]
   P --> W["device-watch bounded diff<br/>complete snapshots only"]
+  P --> A["claim admission<br/>session + target lock"]
+  A --> O["resident exact-object owner<br/>fd / HANDLE"]
+  O --> IO["bounded config + read/write<br/>renew / release / expiry"]
+  IO --> DC["public qjs fixture<br/>then native courts"]
   W --> WC{"coverage complete?"}
   WC -->|no| WS["suppress inferred events<br/>typed incomplete coverage"]
   WC -->|yes| WE["added · removed · changed"]
   WS & WE --> C
+  DC --> C
   C -->|macOS green| M["platform-limited"]
   C -->|Linux + Windows green| V["native inventory leaf"]
 ```

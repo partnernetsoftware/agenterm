@@ -863,25 +863,32 @@
         {
           "id": "device.claim.lifecycle",
           "mcu_shape": "device claims|claim|renew|release with exclusive TTL secret lease",
-          "acu_shape": null,
+          "acu_shape": "device-claims; device-claim DEVICE_ID with bounded serial configuration and TTL; device-status/read/write/renew/release by lease id, generation and secret",
           "state": "platform-limited",
-          "platforms": {"macos": "character-device-gap", "linux": "character-device-gap", "windows": "device-path-contract-pending"},
-          "next": "shared control-session lease plus platform-specific exclusive-open identity; never accept a path as proof of the same device after reconnect"
+          "platforms": {"macos": "native-implementation-public-fixture-pending", "linux": "native-implementation-public-fixture-pending", "windows": "native-implementation-public-court-pending"},
+          "qualification": "unit-and-cross-target-compile-only-public-qjswasm-and-native-courts-pending",
+          "note": "The public id is only an installation-HMAC selector. Claim re-enumerates the private locator, opens one exact native object under an exclusive resident owner, ties admission to a runtime session and target lock, returns the secret once, and persists neither locator nor plaintext secret. Setup refresh defers around active or uncertain owners; session-end must release them or report cleanup uncertainty.",
+          "next": "prove exact replay, TTL, setup-refresh and session-end cleanup through a guarded non-sensitive public qjswasm fixture, then run native Unix and Windows COM courts"
         },
         {
           "id": "device.byte-io",
           "mcu_shape": "device read|write with bounded hex bytes under a live lease",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "binary-safe bounded reads/writes tied to exact device and lease identity, with partial-I/O receipts"
+          "acu_shape": "device-read and device-write with base64|hex encoding, 64 KiB bound, 300 s timeout bound and exact lease/session/generation authority",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-implementation-public-fixture-pending", "linux": "native-implementation-public-fixture-pending", "windows": "native-implementation-public-court-pending"},
+          "qualification": "unit-and-cross-target-compile-only-public-qjswasm-and-native-courts-pending",
+          "note": "One resident owner performs I/O on the same native object retained at claim. Read and write replies are bounded and typed; payload and lease material must not enter durable state or audit evidence.",
+          "next": "add public qjswasm echo evidence including wrong authority and timeout paths; preserve partial-delivery uncertainty instead of claiming exact completion"
         },
         {
           "id": "device.serial-config",
           "mcu_shape": "device claim with baud/data-bits/parity/stop-bits/flow and readback",
-          "acu_shape": null,
+          "acu_shape": "device-claim DEVICE_ID --baud/--data-bits/--parity/--stop-bits/--flow with native readback",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
-          "next": "portable serial vocabulary mapped by native adapters, with unsupported combinations rejected before opening"
+          "platforms": {"macos": "native-implementation-public-fixture-pending", "linux": "native-implementation-public-fixture-pending", "windows": "native-implementation-public-court-pending"},
+          "qualification": "unit-and-cross-target-compile-only-public-qjswasm-and-native-courts-pending",
+          "note": "Portable serial values are validated before launch, applied by the selected native adapter and read back on the retained object. Unsupported combinations fail typed rather than silently degrading.",
+          "next": "prove the portable subset and restoration on Unix PTY/native serial and Windows COM courts"
         },
         {
           "id": "device.screen-capture",
@@ -1039,9 +1046,9 @@
           "mcu_shape": "setup refreshes an idle daemon and refuses to disrupt running jobs or device leases",
           "acu_shape": "setup apply serializes with future managed-job admission, reports the bounded resident-owner snapshot, aligns future activation when idle and otherwise defers without stopping, restarting or releasing an owner",
           "state": "native",
-          "qualification": "public-qjs-macos-owned-job-green-six-cell-candidate-wired-not-run-device-claim-provider-unavailable",
+          "qualification": "public-qjs-macos-owned-job-green-six-cell-candidate-wired-not-run-device-owner-public-court-pending",
           "evidence": ["cu.setup-runtime-refresh-owned-job"],
-          "next": "run the wired six-cell Candidate court and add a native device-claim inventory before claiming device-owner preservation"
+          "next": "extend the public owner-preservation court to an active device lease, then run the wired six-cell Candidate court"
         },
         {
           "id": "doctor.health",
