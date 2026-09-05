@@ -152,6 +152,7 @@ MCU retirement blockers
 │  ├─ [x] session create/list/status/renew/end + target lock acquire/list/release/expiry sweep
 │  ├─ [x] audit query with bounded result/scan/byte budgets
 │  ├─ [x] audit retention: plan/apply + atomic bounded compact + qjswasm court
+│  ├─ [x] audit replay rejected: MCU never shipped it; request-id owns exact retry and uncertainty never replays
 │  ├─ [x] MCU-shaped session/lock/audit-query/compact compatibility routes to ACU
 │  ├─ [x] runtime-status + daemon status/caps aliases report truthful topology without publishing state
 │  ├─ [x] setup refresh: stable admission fence + resident-owner snapshot; never recreate global daemon lifecycle
@@ -213,6 +214,9 @@ serializes future job admission with setup, snapshots resident owners, aligns
 future activation when idle, and otherwise returns `deferred` without stopping,
 restarting or releasing anything. Its local public qjswasm owner-preservation
 court is green and its six-cell Candidate court is wired but not yet executed.
+The ledger no longer treats MCU's never-shipped `audit replay` idea as a
+required parity gap: audit rows remain evidence, while exact retry stays in the
+request-id state machine and uncertain effects remain closed.
 The exact `storage devices` route and truthful `daemon status|caps`
 observations have left the static set. `setup refresh` now reaches the same
 owner-preserving native setup, and obsolete `daemon start|restart|stop`

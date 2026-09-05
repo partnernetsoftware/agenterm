@@ -991,8 +991,9 @@
           "id": "runtime.audit-replay",
           "mcu_shape": "planned replay for explicitly idempotent typed actions only",
           "acu_shape": null,
-          "state": "gap",
-          "next": "keep planned until universal request identity exists; never replay an uncertain or non-idempotent effect"
+          "state": "retired",
+          "evidence": ["MCU source and capability tree expose no audit replay command", "agenterm-cu request idempotency state-machine suite"],
+          "note": "MCU never shipped this planned surface. Audit is immutable evidence, not a command queue. Exact retries belong to the request-id state machine, and uncertain or non-idempotent effects are never replayed from audit rows."
         },
         {
           "id": "login-session.inventory-lock",

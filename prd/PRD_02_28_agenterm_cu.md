@@ -128,8 +128,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `cu.retirement-readiness`; its first baseline measures 131 capabilities,
   including 20 gaps and 50 platform-limited rows, plus 13 static adapter stays
   and an incomplete dynamic parity corpus. The owner-preserving setup refresh
-  cut reduces the current ledger to 19 gaps without changing the 13 static
-  top-level spellings. Only `enforce-absent` may emit
+  cut reduced that count to 19, and the never-shipped audit-replay
+  reclassification below makes the current count 18, without changing the 13
+  static top-level spellings. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
 - [~] The setup family has left its implementation fallback. Native
@@ -168,6 +169,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   successful no-ops nor aliases for destructive owner cleanup. The distinct
   `daemon service` login-lifecycle family remains an honest native-provider
   gap.
+- [x] Audit replay is not a replacement requirement. MCU exposed no such
+  command; it recorded only a future idea. Audit rows are immutable evidence,
+  never an effect queue. ACU's request-id state machine owns exact replay of a
+  previously admitted request, while uncertain or non-idempotent effects stay
+  closed. Classifying this leaf as retired reduces the current required gap
+  count from 19 to 18 without removing any shipped MCU behavior.
 
 ```mermaid
 flowchart LR
