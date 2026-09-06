@@ -12,7 +12,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.managed-job-lifecycle",
   "cu.managed-job-resources",
-  "cu.audit-retention"
+  "cu.audit-retention",
+  "cu.target-lock-lifecycle"
 ];
 
 function ensure(condition, message) {
@@ -559,6 +560,7 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-lifecycle");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-resources");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
+  harness.emit_evidence(context, declared_evidence, "cu.target-lock-lifecycle");
   harness.remove_run(context);
   print("PASS: agenterm-cu managed-job lifecycle, containment resources and bounded audit retention");
 }

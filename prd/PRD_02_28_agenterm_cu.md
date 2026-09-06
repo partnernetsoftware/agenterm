@@ -388,7 +388,9 @@ flowchart LR
   commands, removing the top-level `audit` fallback. The platform-neutral
   public qjswasm journey covers the full create/status/acquire/reacquire/
   release/end/query/retention loop on macOS, including expiry sweeping the
-  session's target lock from public state. Job admission and session
+  session's target lock from public state. That lock acquire/session-end/expiry
+  slice emits the distinct registered evidence `cu.target-lock-lifecycle`.
+  Job admission and session
   termination now share one stable per-session cross-process sidecar gate. A
   job rechecks the live lease inside that gate before reserving or spawning;
   `session-end` first makes the session terminal, then stops every nonterminal

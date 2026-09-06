@@ -1035,7 +1035,7 @@
           "mcu_shape": "lock acquire|status|renew|release over namespaced targets",
           "acu_shape": "lock acquire|list|release over namespace:target, bound to a durable session lease",
           "state": "native",
-          "evidence": ["agenterm-cu macos isolated public runtime loop", "agenterm-cu runtime coordinator conflict/idempotency tests"],
+          "evidence": ["cu.target-lock-lifecycle", "agenterm-cu runtime coordinator conflict/idempotency tests"],
           "note": "Same-owner reacquisition preserves lock identity and renews expiry; another session fails typed. Session end/expiry releases the lock."
         },
         {

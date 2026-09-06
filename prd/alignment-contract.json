@@ -263,6 +263,7 @@
         "cu.managed-job-lifecycle",
         "cu.managed-job-resources",
         "cu.audit-retention",
+        "cu.target-lock-lifecycle",
         "cu.setup-cli-entrypoint",
         "cu.setup-runtime-refresh-owned-job",
         "cu.power-host-status",

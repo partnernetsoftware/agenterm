@@ -166,7 +166,7 @@ into qjswasm would preserve the duplication and is explicitly rejected.
 MCU retirement blockers
 ├─ [x] desktop state: bounded native desktop-state + state alias
 ├─ [~] shared runtime spine
-│  ├─ [x] session create/list/status/renew/end + target lock acquire/list/release/expiry sweep
+│  ├─ [x] session create/list/status/renew/end + target lock acquire/list/release/expiry sweep (`cu.target-lock-lifecycle`)
 │  ├─ [x] audit query with bounded result/scan/byte budgets
 │  ├─ [x] audit retention: plan/apply + atomic bounded compact + qjswasm court
 │  ├─ [x] audit replay rejected: MCU never shipped it; request-id owns exact retry and uncertainty never replays
