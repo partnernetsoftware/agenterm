@@ -784,15 +784,21 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 131 ledger capabilities
-currently include 12 `gap` and 54 `platform-limited` rows. The compatibility
-adapter reports only the four top-level spellings that can actually reach the
-MCU fallback; its argument-sensitive corpus
-is still incomplete. The Candidate workflow now includes
+currently include 12 `gap` and 53 `platform-limited` rows. The compatibility
+adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
+still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
 removed; release authority and dispatch remain owned by the release skill and
 GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
+
+Evidence accounting is fail-closed. An available ledger row is credited only
+when at least one `cu.*` identifier is registered by the qualification or
+host-native evidence manifests. Unit-test prose, catalog presence, a script
+path, or a merely nonempty array cannot satisfy retirement. Candidate and
+MCU-absent courts must still produce the registered receipts for the exact
+source identity.
 
 `moltbaby/skills/mcu/acu.ts` is only the transition router. Its `stay` result
 means “ACU cannot yet express this exact public shape; use MCU temporarily,”

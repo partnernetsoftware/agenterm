@@ -159,13 +159,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   automation for Bun/MCU dependencies, and consumes the temporary adapter's
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measures 131 capabilities,
-  including 20 gaps and 50 platform-limited rows, plus 13 static adapter stays
-  and an incomplete dynamic parity corpus. The owner-preserving setup refresh
-  cut reduced that count to 19, and the never-shipped audit-replay
-  reclassification below makes the current count 18, without changing the 13
-  static top-level spellings. Only `enforce-absent` may emit
+  while the current ledger has 12 gaps, 53 platform-limited rows, zero static
+  adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
+- [~] Readiness evidence accounting is fail-closed. An available capability
+  must reference at least one `cu.*` identifier registered in the qualification
+  or host-native evidence manifests; unit-test names, catalog presence and a
+  journey file alone do not discharge the public black-box obligation. Exact
+  Candidate and MCU-absent receipts remain separate promotion evidence.
 - [~] The setup family has left its implementation fallback. Native
   `setup --check` is a
   zero-write inspection; `setup` atomically publishes one owned launcher for

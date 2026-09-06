@@ -66,11 +66,26 @@ const context = harness.new_context(repo, mode === "report" ? "acu-retirement-re
 const contract = rh.parse_file(rh.join(repo, "plan/acu-retirement-contract.json"));
 const ledger = rh.parse_file(rh.join(repo, contract.ledger));
 const manifest = rh.parse_file(rh.join(repo, "agenterm.tasks.json"));
+const qualification_manifest = rh.parse_file(rh.join(repo, "scripts/qualification-gates.json"));
+const host_native_manifest = rh.parse_file(rh.join(repo, "scripts/host-native-evidence-gates.json"));
 const blockers = [];
 const counts = { total: 0, native: 0, delegated: 0, gap: 0, platform_limited: 0, retired: 0 };
+const registered_evidence = {};
 
 harness.require(contract.schema === 1 && ledger.schema === 1, "retirement_contract_schema");
 harness.require(Array.isArray(ledger.family_order) && ledger.family_order.length === 13, "retirement_family_order");
+harness.require(qualification_manifest.schema_version === 1, "retirement_qualification_schema");
+harness.require(host_native_manifest.schema_version === 1, "retirement_host_native_schema");
+for (const gate of qualification_manifest.required_gates) {
+  for (const evidence_id of gate.evidence) {
+    if (evidence_id.startsWith("cu.")) { registered_evidence[evidence_id] = true; }
+  }
+}
+for (const gate of host_native_manifest.gates) {
+  for (const evidence_id of gate.evidence) {
+    if (evidence_id.startsWith("cu.")) { registered_evidence[evidence_id] = true; }
+  }
+}
 
 for (const family_id of ledger.family_order) {
   const family = ledger.families[family_id];
@@ -91,9 +106,16 @@ for (const family_id of ledger.family_order) {
       if ((state === "native" || state === "delegated") && !has_text(capability.acu_shape)) {
         add(blockers, "available_without_acu_shape", "" + capability.id);
       }
-      if ((state === "native" || state === "delegated" || state === "platform-limited")
-          && !has_rows(capability.evidence)) {
-        add(blockers, "available_without_evidence", "" + capability.id);
+      if (state === "native" || state === "delegated" || state === "platform-limited") {
+        let has_registered_evidence = false;
+        if (has_rows(capability.evidence)) {
+          for (const evidence_id of capability.evidence) {
+            if (registered_evidence[evidence_id] === true) { has_registered_evidence = true; }
+          }
+        }
+        if (!has_registered_evidence) {
+          add(blockers, "available_without_registered_evidence", "" + capability.id);
+        }
       }
       if (state === "platform-limited" && !has_text(capability.qualification)) {
         add(blockers, "platform_limit_without_qualification", "" + capability.id);
@@ -198,6 +220,7 @@ const report = {
   ready: blockers.length === 0,
   counts: counts,
   compatibility: compatibility,
+  registered_evidence_count: Object.keys(registered_evidence).length,
   blocker_count: blockers.length,
   blockers: blockers
 };
