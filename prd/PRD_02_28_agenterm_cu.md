@@ -159,7 +159,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   automation for Bun/MCU dependencies, and consumes the temporary adapter's
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measures 131 capabilities,
-  while the current ledger has 12 gaps, 53 platform-limited rows, zero static
+  while the current ledger has 13 gaps, 52 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
@@ -1367,6 +1367,11 @@ flowchart LR
   `cu.macos-ax-stacking`: it binds display and space identities and joins the
   window stack without treating catalog presence as proof. Linux and Windows
   display courts remain; spaces are explicitly macOS-only.
+- [~] Global pointer movement has a registered macOS owned-fixture court with
+  independent position read-back and exact restoration. Exact-window pixel
+  delivery is reclassified from `platform-limited` to `gap`: no host supplies
+  it today, and `cu.macos-pointer-refusals` proves an honest refusal rather
+  than parity.
 
   `network-probe` is implemented as an Observe
   facade: resolve once through the host resolver, deduplicate/freeze addresses,

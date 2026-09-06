@@ -271,7 +271,11 @@
         "cu.runtime-status",
         "cu.device-inventory",
         "cu.device-watch",
-        "cu.device-lease"
+        "cu.device-lease",
+        "cu.macos-pointer-capabilities",
+        "cu.macos-pointer-move",
+        "cu.macos-pointer-restored",
+        "cu.macos-pointer-refusals"
       ]
     },
     {

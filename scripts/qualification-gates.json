@@ -417,6 +417,15 @@
     {
       "id": "cu-device-lease-smoke",
       "evidence": ["cu.device-lease"]
+    },
+    {
+      "id": "cu-macos-pointer-smoke",
+      "evidence": [
+        "cu.macos-pointer-capabilities",
+        "cu.macos-pointer-move",
+        "cu.macos-pointer-restored",
+        "cu.macos-pointer-refusals"
+      ]
     }
   ]
 }

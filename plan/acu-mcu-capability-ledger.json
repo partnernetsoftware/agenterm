@@ -239,7 +239,7 @@
           "id": "process.cgroup",
           "mcu_shape": "process cgroup PID",
           "acu_shape": null,
-          "state": "platform-limited",
+          "state": "gap",
           "platforms": {"linux": "gap", "macos": "not-applicable", "windows": "not-applicable"},
           "next": "Linux cgroup v2 observation facade"
         }
@@ -328,7 +328,9 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "typed-rejected-after-native-experiment", "linux": "gap", "windows": "gap"},
-          "next": "retain semantic accessibility actions as the default; only add a raw exact-window provider with independent delivery and postcondition evidence"
+          "evidence": ["cu.macos-pointer-refusals"],
+          "next": "retain semantic accessibility actions as the default; only add a raw exact-window provider with independent delivery and postcondition evidence",
+          "note": "No host currently supplies this exact-window pixel-delivery contract. The registered macOS court proves explicit refusal after the native experiment; a typed refusal is evidence of the gap, not capability parity."
         },
         {
           "id": "desktop.keyboard.text",
@@ -511,7 +513,7 @@
           "mcu_shape": "macOS NSOpenPanel/NSSavePanel semantic discovery and operation",
           "acu_shape": "exact CGWindowID resolves through bounded AXWindow/AXSheet descendants; semantic Cancel and Save have exact disappearance receipts",
           "state": "native",
-          "evidence": ["scripts/qjs/cu-macos-save-panel-smoke.qjs"],
+          "evidence": ["cu.macos-save-panel-tree", "cu.macos-save-panel-cancel", "cu.macos-save-panel-save", "cu.macos-save-panel-cleanup"],
           "next": "add the unified CDP/native download-state reducer and extend the controlled court to a separate dialog, different owner and off-Space panel",
           "note": "The owned Cocoa court proves an AXSheet filename, location, Cancel and Save without coordinates or activation. Cancel creates no file; Save creates one bounded ordinary file; both require performed=true, verified=true and exact handle disappearance, and every fixture is reaped. This closes native panel semantics, not the future reducer that arbitrates CDP download events against native panels."
         }

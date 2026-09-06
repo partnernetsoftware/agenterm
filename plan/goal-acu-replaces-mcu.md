@@ -603,7 +603,9 @@ Q1 desktop closure
 ├─ [~] Linux and Windows journeys for the same verbs
 │  ├─ [x] Linux exact-3390 rerun: 24/24 STEP · 25/25 evidence · cleanup green
 │  └─ [~] Windows x86 UTM: public `.com` + process/UIA path live; background focus court remains typed-red
-└─ [ ] explicit pointer court for drag/wheel/global input; never hide degradation
+└─ [~] pointer courts
+   ├─ [x] macOS global move has independent read-back, exact restoration and typed refusal evidence
+   └─ [ ] exact-window pixel delivery remains a real cross-host gap; never hide degradation
 Q2 fast delegated facades
 ├─ [~] caps/doctor/permissions/setup and app inventory
 │  ├─ [x] permissions: read-only platform state + gated verbs + repair guidance
@@ -787,7 +789,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 131 ledger capabilities
-currently include 12 `gap` and 53 `platform-limited` rows. The compatibility
+currently include 13 `gap` and 52 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
