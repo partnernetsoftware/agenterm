@@ -25,9 +25,16 @@ function invoke(run_directory, executable, grant, arguments) {
     },
     timeout_ms: 30000
   });
-  ensure(output.success === true, "cu_runtime_capability_exit:" + output.exit_code);
-  const reply = JSON.parse(output.stdout.trim());
-  ensure(reply.ok === true, "cu_runtime_capability_reply:" + JSON.stringify(reply.error));
+  const stdout = output.stdout.trim();
+  ensure(
+    stdout !== "",
+    "cu_runtime_capability_empty_reply:exit=" + output.exit_code + ":stderr=" + output.stderr.trim()
+  );
+  const reply = JSON.parse(stdout);
+  ensure(
+    output.success === true && reply.ok === true,
+    "cu_runtime_capability_reply:exit=" + output.exit_code + ":" + JSON.stringify(reply.error)
+  );
   ensure(reply.target === "current", "cu_runtime_capability_target");
   return reply;
 }
