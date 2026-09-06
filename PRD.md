@@ -177,6 +177,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       macOS/Linux 原生 inventory/status + user plan/apply、防重放与 qjswasm 只读 court，
 │     │                       one-call 已绑定 request/session + target lock，静态 STAY 清零；system privilege provider、
 │     │                       动态 gap、跨平台 mutation court 与 MCU-absent 总门仍未收口，故 MCU 继续保留
+│     │                       managed job 的 Unix STOP/CONT 已绑定 owning session + generation + durable root，
+│     │                       复用 crash-recoverable exact-tree 日志并逐成员读回；非幂等 signal 在 request-id
+│     │                       replay 落地前拒绝，Windows 不采用未公开 Job Object freeze class
 │     │                       login-session 已有 macOS 原生有界 inventory、精确会话短时 plan、
 │     │                       持久化防重放与锁定回读；只读 qjswasm 绿，显式可见锁屏 court 待跑
 │     │                       external term observe + 显式前台 send 在 macOS/Windows ARM64/Linux x86_64

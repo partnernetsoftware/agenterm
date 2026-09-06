@@ -6,7 +6,8 @@ use agenterm_cu::{
         DEVICE_INVENTORY_MAX, DEVICE_IO_BYTES_MAX, DEVICE_WATCH_DURATION_MS_MAX,
         DEVICE_WATCH_EVENTS_MAX, DEVICE_WATCH_INTERVAL_MS_MAX, DEVICE_WATCH_INTERVAL_MS_MIN,
         DeviceDataEncoding, DeviceSerialConfiguration, DeviceSerialFlow, DeviceSerialParity,
-        JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter, STORAGE_DEVICES_MAX,
+        JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter, ProcessRunState,
+        ProcessSignalKind, STORAGE_DEVICES_MAX,
     },
     service_control::{ServiceOperation, ServiceScope},
 };
@@ -808,6 +809,34 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
             timeout_ms: flag_parsed(args, "--timeout-ms")?.unwrap_or(0),
             expect_exit: flag_parsed(args, "--expect-exit")?,
         },
+        "job-set-state" => Command::JobSetState {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            state: match positional(args, "running|stopped")?.as_str() {
+                "running" => ProcessRunState::Running,
+                "stopped" => ProcessRunState::Stopped,
+                value => {
+                    return Err(format!(
+                        "job state must be running or stopped, got {value:?}"
+                    ));
+                }
+            },
+            timeout_ms: flag_parsed(args, "--timeout-ms")?.unwrap_or(5_000),
+        },
+        "job-signal" => Command::JobSignal {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            signal: ProcessSignalKind::parse(&positional(args, "SIGNAL")?)
+                .ok_or_else(|| "SIGNAL must be STOP or CONT".to_owned())?,
+            timeout_ms: flag_parsed(args, "--timeout-ms")?.unwrap_or(5_000),
+            force: take_switch(args, "--force"),
+        },
         "job-stop" => Command::JobStop {
             target,
             job_id: positional(args, "JOB_ID")?,
@@ -1599,6 +1628,25 @@ mod tests {
         assert_eq!(watch_ms, Some(25));
         assert!(parse("job-resources", &[id, "1", "--watch-ms", "0"]).is_err());
         assert!(parse("job-resources", &[id, "1", "--watch-ms", "300001"]).is_err());
+        assert!(matches!(
+            parse("job", &["set-state", id, "2", "stopped"]).unwrap(),
+            Command::JobSetState {
+                state: ProcessRunState::Stopped,
+                timeout_ms: 5_000,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("job-signal", &[id, "2", "CONT"]).unwrap(),
+            Command::JobSignal {
+                signal: ProcessSignalKind::Continue,
+                force: false,
+                ..
+            }
+        ));
+        assert!(parse("job-signal", &[id, "2", "KILL"]).is_err());
+        assert!(parse("job-signal", &[id, "2", "USR1"]).is_err());
+        assert!(parse("job-signal", &[id, "2", "CONT", "--force"]).is_err());
         assert!(parse("job-output", &[id, "1", "--stream", "merged"]).is_err());
         assert!(parse("job-events", &[id, "0"]).is_err());
         assert!(parse("job-write", &[id, "1"]).is_err());

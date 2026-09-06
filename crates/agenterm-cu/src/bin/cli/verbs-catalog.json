@@ -274,6 +274,26 @@
       "args": []
     },
     {
+      "name": "job-set-state",
+      "command": "job-set-state",
+      "aliases": ["job set-state"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "set and verify the complete exact managed-job tree run state",
+      "usage": "job-set-state JOB_ID GENERATION running|stopped [--timeout-ms N]",
+      "args": []
+    },
+    {
+      "name": "job-signal",
+      "command": "job-signal",
+      "aliases": ["job signal"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "deliver retry-safe STOP or CONT to the complete exact managed-job tree",
+      "usage": "job-signal JOB_ID GENERATION STOP|CONT [--timeout-ms N]",
+      "args": []
+    },
+    {
       "name": "job-stop",
       "command": "job-stop",
       "aliases": ["job stop"],
@@ -5276,6 +5296,14 @@
     {
       "name": "job-wait",
       "text": "agenterm-cu job-wait    (also: job wait)\n  scope: observe    family: Managed jobs\n\nusage: job-wait JOB_ID GENERATION [--timeout-ms N] [--expect-exit CODE]\n\nWaits up to 24 hours through bounded resident requests. --expect-exit turns a different or unfinished result into a typed mismatch.\n"
+    },
+    {
+      "name": "job-set-state",
+      "text": "agenterm-cu job-set-state    (also: job set-state)\n  scope: actuate    family: Managed jobs\n\nusage: job-set-state JOB_ID GENERATION running|stopped [--timeout-ms N]\n\nRequires global request and owning session identity, then binds the durable root start identity and uses the crash-recoverable exact-process tree transaction. Unix freezes a stable bounded tree and verifies every member; Windows refuses because no documented exact Job Object freeze API is available.\n"
+    },
+    {
+      "name": "job-signal",
+      "text": "agenterm-cu job-signal    (also: job signal)\n  scope: actuate    family: Managed jobs\n\nusage: job-signal JOB_ID GENERATION STOP|CONT [--timeout-ms N]\n\nRequires global request and owning session identity. Only read-back-verifiable, retry-safe STOP and CONT are accepted in this slice. The complete bounded Unix tree is stabilized under exact process references with a durable recovery transaction. Other signals remain unavailable until their request-id replay ledger lands; Windows refuses because no documented exact Job Object freeze API is available.\n"
     },
     {
       "name": "job-stop",

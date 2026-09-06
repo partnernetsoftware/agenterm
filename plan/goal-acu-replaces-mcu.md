@@ -187,6 +187,11 @@ MCU retirement blockers
 │  ├─ [x] macOS public-process lifecycle: dual output, write/EOF, wait, renew and stop
 │  ├─ [x] registered qjswasm journey green on macOS
 │  ├─ [x] same journey green on Linux x86_64 execute-only court
+│  ├─ [~] job set-state/signal: owning session + generation + durable root identity → crash-recoverable exact tree
+│  │  ├─ [x] Unix STOP/CONT share the proven tree recovery journal and verified post-state
+│  │  ├─ [x] non-idempotent signals refuse until request-id replay prevents duplicate delivery
+│  │  ├─ [x] Windows refuses undocumented Job Object freeze and non-equivalent POSIX signals
+│  │  └─ [ ] policy/priority, Linux rerun and Windows typed-refusal public evidence
 │  └─ [ ] Linux aarch64 and Windows journeys green
 ├─ [~] machine transactions
 │  ├─ [x] recoverable file copy: marker-owned no-replace publication + crash recovery

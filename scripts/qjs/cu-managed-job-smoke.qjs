@@ -12,6 +12,7 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.managed-job-lifecycle",
   "cu.managed-job-resources",
+  "cu.managed-job-state-signal",
   "cu.audit-retention",
   "cu.target-lock-lifecycle"
 ];
@@ -61,6 +62,29 @@ function invoke_cu(run_directory, executable, arguments, expected_command) {
   return reply.data;
 }
 
+function invoke_cu_failure(run_directory, executable, arguments, expected_command, expected_code) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+      AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_managed_job_invalid_failure_reply:" + expected_command; }
+  ensure(output.success !== true && reply.ok === false, "cu_managed_job_expected_failure:" + expected_command);
+  ensure(reply.command === expected_command, "cu_managed_job_wrong_failure_reply:" + expected_command);
+  ensure(text_of(reply.error.code) === expected_code, "cu_managed_job_wrong_failure_code:" + expected_command);
+  return reply.error;
+}
+
 function mutation_prefix(request_id, session_id, session_lease) {
   return [
     "--target", "current", "--grant", "actuate",
@@ -103,6 +127,16 @@ function valid_resource_samples(samples) {
       || text_of(sample.rss_bytes) === ""
       || text_of(sample.cpu_ms) === ""
       || text_of(sample.cpu_time_ns) === "") {
+      return false;
+    }
+  }
+  return true;
+}
+
+function members_have_state(members, state) {
+  if (members.length < 1) { return false; }
+  for (const member of members) {
+    if (member.verified !== true || member.state !== state || text_of(member.start_identity) === "") {
       return false;
     }
   }
@@ -359,6 +393,41 @@ try {
   const second_spawned = invoke_cu(run_directory, executable, second_spawn_args, "job-spawn");
   second_job = { job_id: text_of(second_spawned.job_id), generation: second_spawned.generation };
   ensure(second_job.job_id !== "" && second_job.generation > 0, "cu_managed_job_second_identity");
+
+  print("STEP control the complete owned job tree through exact, crash-recoverable state and signal verbs");
+  const state_args = mutation_prefix(request_root + "-state-stop", session_id, session_lease);
+  append_all(state_args, [
+    "job-set-state", second_job.job_id, "" + second_job.generation,
+    "stopped", "--timeout-ms", "5000"
+  ]);
+  if (windows) {
+    invoke_cu_failure(
+      run_directory, executable, state_args, "job-set-state", "process_tree_signal_unsupported"
+    );
+  } else {
+    const state_stopped = invoke_cu(run_directory, executable, state_args, "job-set-state");
+    ensure(
+      state_stopped.job_id === second_job.job_id
+        && state_stopped.generation === second_job.generation
+        && state_stopped.requested_state === "stopped"
+        && state_stopped.verified === true
+        && members_have_state(state_stopped.members, "stopped"),
+      "cu_managed_job_state_stop_contract"
+    );
+    const signal_args = mutation_prefix(request_root + "-signal-cont", session_id, session_lease);
+    append_all(signal_args, [
+      "job-signal", second_job.job_id, "" + second_job.generation,
+      "CONT", "--timeout-ms", "5000"
+    ]);
+    const continued = invoke_cu(run_directory, executable, signal_args, "job-signal");
+    ensure(
+      continued.job_id === second_job.job_id
+        && continued.generation === second_job.generation
+        && continued.signal === "SIGCONT" && continued.verified === true
+        && members_have_state(continued.members, "running"),
+      "cu_managed_job_signal_continue_contract"
+    );
+  }
   const stopped = stop_owned_job(
     run_directory, executable, session_id, session_lease,
     request_root + "-stop", second_job
@@ -559,6 +628,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-lifecycle");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-resources");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-state-signal");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
   harness.emit_evidence(context, declared_evidence, "cu.target-lock-lifecycle");
   harness.remove_run(context);

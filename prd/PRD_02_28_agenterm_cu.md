@@ -1087,7 +1087,7 @@ flowchart LR
   not be simulated by a visible tab or by single-process metrics.
 
 - [~] The arbitrary managed-job facade is now public as
-  `job-spawn/list/status/resources/events/output/write/wait/renew/stop`. It is distinct from an
+  `job-spawn/list/status/resources/events/output/write/wait/set-state/signal/renew/stop`. It is distinct from an
   AgenTerm tab and from the bounded synchronous `shell-exec`: an independent
   resident owner contains the exact child tree, retains separate bounded
   stdout/stderr cursor rings, exposes either a dual-stream long poll or one
@@ -1123,7 +1123,17 @@ flowchart LR
   membership but deliberately do not claim genealogy after breakaway. The
   macOS public qjswasm court proves both point and bounded-watch projections;
   Linux and Windows native evidence and exact MCU flag alignment remain before
-  routing. Stored job environment is a separate secret-bearing gap.
+  routing. `job-set-state` and the retry-safe `job-signal STOP|CONT` subset now
+  require the owning session, exact generation and durable root start identity,
+  then reuse the same write-ahead exact-tree transaction as `process-signal
+  --tree`: every temporary freeze is recoverable, every final member is read
+  back, and a changed or unstable tree fails closed. The macOS public qjswasm
+  journey proves stopped and resumed postconditions. Non-idempotent signals
+  remain unavailable until request-id replay can prevent duplicate delivery;
+  Windows returns a typed refusal rather than depending on MCU's undocumented
+  Job Object freeze information class. Resource policy, group priority, Linux
+  rerun and Windows refusal evidence remain in the owning gap. Stored job
+  environment is a separate secret-bearing gap.
 
 - [~] Privilege is now split at the real authority boundary. The public
   `privilege plan process.set-priority` command is read-only on macOS/Linux:

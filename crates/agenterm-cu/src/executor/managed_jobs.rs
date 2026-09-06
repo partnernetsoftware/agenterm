@@ -26,7 +26,10 @@ use crate::{
     runtime_coordinator::RuntimeCoordinator,
 };
 
-use super::{CuError, now_utc_ms};
+use super::{
+    CuError, now_utc_ms,
+    process::{ProcessSignalOptions, process_signal_payload},
+};
 
 const START_READY_TIMEOUT: Duration = Duration::from_secs(5);
 const START_POLL: Duration = Duration::from_millis(20);
@@ -640,6 +643,76 @@ pub(super) fn job_wait_payload(
             }));
         }
     }
+}
+
+pub(super) fn job_set_state_payload(
+    job_id: &str,
+    generation: u64,
+    state: crate::command::ProcessRunState,
+    timeout_ms: u64,
+    session_id: &str,
+    receipts: &mut crate::receipt::ReceiptLog,
+) -> Result<Value, CuError> {
+    let signal = match state {
+        crate::command::ProcessRunState::Running => crate::command::ProcessSignalKind::Continue,
+        crate::command::ProcessRunState::Stopped => crate::command::ProcessSignalKind::Stop,
+    };
+    let mut payload = job_tree_signal(
+        job_id, generation, signal, timeout_ms, false, session_id, receipts,
+    )?;
+    let object = payload.as_object_mut().ok_or_else(response_kind_error)?;
+    object.insert("job_id".into(), json!(job_id));
+    object.insert("generation".into(), json!(generation));
+    object.insert("requested_state".into(), json!(state.as_str()));
+    Ok(payload)
+}
+
+pub(super) fn job_signal_payload(
+    job_id: &str,
+    generation: u64,
+    signal: crate::command::ProcessSignalKind,
+    timeout_ms: u64,
+    force: bool,
+    session_id: &str,
+    receipts: &mut crate::receipt::ReceiptLog,
+) -> Result<Value, CuError> {
+    let mut payload = job_tree_signal(
+        job_id, generation, signal, timeout_ms, force, session_id, receipts,
+    )?;
+    let object = payload.as_object_mut().ok_or_else(response_kind_error)?;
+    object.insert("job_id".into(), json!(job_id));
+    object.insert("generation".into(), json!(generation));
+    Ok(payload)
+}
+
+fn job_tree_signal(
+    job_id: &str,
+    generation: u64,
+    signal: crate::command::ProcessSignalKind,
+    timeout_ms: u64,
+    force: bool,
+    session_id: &str,
+    receipts: &mut crate::receipt::ReceiptLog,
+) -> Result<Value, CuError> {
+    let record = checked_owned_record(job_id, generation, session_id)?;
+    let process = record.process.as_ref().ok_or_else(|| {
+        CuError::new(
+            "managed_job_process_identity_missing",
+            "managed-job durable record has no exact process identity",
+        )
+    })?;
+    process_signal_payload(
+        process.pid,
+        Some(&process.start_identity),
+        signal,
+        ProcessSignalOptions {
+            timeout_ms,
+            force,
+            tree: true,
+            max_descendants: JOB_RESOURCE_MAX_MEMBERS,
+        },
+        receipts,
+    )
 }
 
 pub(super) fn job_stop_payload(

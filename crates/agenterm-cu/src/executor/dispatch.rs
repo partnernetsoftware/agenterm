@@ -334,6 +334,42 @@ impl Executor {
                 expect_exit,
                 ..
             } => job_wait_payload(job_id, *generation, *timeout_ms, *expect_exit),
+            Command::JobSetState {
+                job_id,
+                generation,
+                state,
+                timeout_ms,
+                ..
+            } => {
+                let request = require_job_request(job_request, "job-set-state")?;
+                job_set_state_payload(
+                    job_id,
+                    *generation,
+                    *state,
+                    *timeout_ms,
+                    request.session_id,
+                    &mut self.open_receipts(command.target())?,
+                )
+            }
+            Command::JobSignal {
+                job_id,
+                generation,
+                signal,
+                timeout_ms,
+                force,
+                ..
+            } => {
+                let request = require_job_request(job_request, "job-signal")?;
+                job_signal_payload(
+                    job_id,
+                    *generation,
+                    *signal,
+                    *timeout_ms,
+                    *force,
+                    request.session_id,
+                    &mut self.open_receipts(command.target())?,
+                )
+            }
             Command::JobStop {
                 job_id,
                 generation,

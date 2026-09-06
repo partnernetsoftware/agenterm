@@ -734,9 +734,12 @@
         {
           "id": "job.policy-priority-state",
           "mcu_shape": "job policy|priority|set-state|signal",
-          "acu_shape": null,
+          "acu_shape": "job-set-state and retry-safe job-signal STOP|CONT bind the owning session, generation and durable root identity, then reuse the crash-recoverable exact-process tree transaction on Unix; policy, priority, non-idempotent signals and documented Windows group control remain absent",
           "state": "gap",
-          "next": "lease-authorized process-group mutation with read-before, identity recheck, delivery receipt and verified post-state"
+          "qualification": "macos-public-qjswasm-live-linux-and-windows-typed-refusal-reruns-pending",
+          "evidence": ["cu.managed-job-state-signal"],
+          "next": "add resident resource policy and group priority with durable intent/readback, then bind non-idempotent signals to request-id replay; keep Windows group suspend typed until a documented exact containment mechanism exists",
+          "note": "The state subset no longer uses MCU or a mutable bare PID. STOP/CONT freeze a bounded stable tree under retained pidfd/audit-token references, write ahead every temporary freeze, verify every member and recover interrupted transitions. Non-idempotent signals fail before effect until their replay ledger exists. Windows refuses unsupported state meanings rather than copying MCU's undocumented JobObjectFreezeInformation class."
         },
         {
           "id": "job.lease-wait-stop",

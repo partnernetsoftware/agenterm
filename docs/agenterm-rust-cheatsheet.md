@@ -3781,6 +3781,18 @@ and effect outcome. Seal stable membership before delivery, and close the
 public receipt from a durable terminal phase before retiring the private
 transaction so either side of the dual-write crash window is idempotent.
 
+A managed-job control verb may reuse that exact-tree transaction only after it
+binds the durable job generation, owning runtime session and stored root start
+identity; a job id alone is not effect authority. Keep STOP/CONT separate from
+arbitrary signal delivery: their scheduler postcondition is observable and an
+exact retry converges, while HUP/INT/USR signals may trigger application work a
+second time. Requiring a `request-id` flag is not replay protection by itself.
+Do not expose a non-idempotent managed-job signal until the completed or
+outcome-unknown result is durably keyed by that request identity. Also do not
+claim Rust `Drop` as crash recovery: destructors do not run after SIGKILL, so
+any temporary group freeze needs the write-ahead recovery record even when a
+resident owner normally holds a tree guard.
+
 Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
 private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
 never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second

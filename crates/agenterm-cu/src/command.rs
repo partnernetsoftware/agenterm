@@ -570,6 +570,19 @@ where
     Ok(value)
 }
 
+fn deserialize_job_control_timeout<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if !(1..=60_000).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "managed-job control timeout_ms must be in 1..=60000",
+        ));
+    }
+    Ok(value)
+}
+
 fn deserialize_job_stop_grace<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -1329,6 +1342,26 @@ pub enum Command {
         timeout_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expect_exit: Option<i32>,
+    },
+    JobSetState {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        state: ProcessRunState,
+        #[serde(deserialize_with = "deserialize_job_control_timeout")]
+        timeout_ms: u64,
+    },
+    JobSignal {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        signal: ProcessSignalKind,
+        #[serde(deserialize_with = "deserialize_job_control_timeout")]
+        timeout_ms: u64,
+        #[serde(default, skip_serializing_if = "is_false")]
+        force: bool,
     },
     JobStop {
         target: TargetRef,
@@ -3509,6 +3542,8 @@ impl Command {
             Self::JobOutput { .. } => "job-output".into(),
             Self::JobWrite { .. } => "job-write".into(),
             Self::JobWait { .. } => "job-wait".into(),
+            Self::JobSetState { .. } => "job-set-state".into(),
+            Self::JobSignal { .. } => "job-signal".into(),
             Self::JobStop { .. } => "job-stop".into(),
             Self::JobRenew { .. } => "job-renew".into(),
             Self::Windows { .. } => "windows".into(),
@@ -3873,6 +3908,8 @@ impl Command {
             | Self::JobOutput { target, .. }
             | Self::JobWrite { target, .. }
             | Self::JobWait { target, .. }
+            | Self::JobSetState { target, .. }
+            | Self::JobSignal { target, .. }
             | Self::JobStop { target, .. }
             | Self::JobRenew { target, .. }
             | Self::Windows { target, .. }
@@ -4068,6 +4105,8 @@ impl Command {
             | Self::LockRelease { .. }
             | Self::JobSpawn { .. }
             | Self::JobWrite { .. }
+            | Self::JobSetState { .. }
+            | Self::JobSignal { .. }
             | Self::JobStop { .. }
             | Self::JobRenew { .. }
             | Self::DeviceClaim { .. }
@@ -4387,6 +4426,43 @@ impl Command {
                 validate_job_generation(*generation)?;
                 if *timeout_ms > JOB_WAIT_TIMEOUT_MS_MAX {
                     return Err("managed-job wait timeout_ms must be at most 86400000");
+                }
+                Ok(())
+            }
+            Self::JobSetState {
+                job_id,
+                generation,
+                timeout_ms,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                if !(1..=60_000).contains(timeout_ms) {
+                    return Err("managed-job state timeout_ms must be in 1..=60000");
+                }
+                Ok(())
+            }
+            Self::JobSignal {
+                job_id,
+                generation,
+                signal,
+                timeout_ms,
+                force,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                if !(1..=60_000).contains(timeout_ms) {
+                    return Err("managed-job signal timeout_ms must be in 1..=60000");
+                }
+                if !matches!(
+                    signal,
+                    ProcessSignalKind::Stop | ProcessSignalKind::Continue
+                ) || *force
+                {
+                    return Err(
+                        "managed-job signal currently accepts only retry-safe SIGSTOP or SIGCONT without --force",
+                    );
                 }
                 Ok(())
             }
@@ -4897,6 +4973,38 @@ mod tests {
         assert_eq!(wait.verb(), "job-wait");
         assert_eq!(wait.required_grant(), Grant::Observe);
 
+        let state = serde_json::json!({
+            "verb": "job-set-state",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "state": "stopped",
+            "timeout_ms": 5_000
+        });
+        let state_command: Command = serde_json::from_value(state.clone()).expect("set state");
+        assert_eq!(state_command.verb(), "job-set-state");
+        assert_eq!(state_command.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(state_command).expect("serialize set state"),
+            state
+        );
+
+        let signal = serde_json::json!({
+            "verb": "job-signal",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "signal": "SIGCONT",
+            "timeout_ms": 5_000
+        });
+        let signal_command: Command = serde_json::from_value(signal.clone()).expect("signal");
+        assert_eq!(signal_command.verb(), "job-signal");
+        assert_eq!(signal_command.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(signal_command).expect("serialize signal"),
+            signal
+        );
+
         let stop: Command = serde_json::from_value(serde_json::json!({
             "verb": "job-stop",
             "target": "current",
@@ -4964,6 +5072,22 @@ mod tests {
             "verb": "job-wait", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
             "timeout_ms": 86400001
         }));
+        reject(serde_json::json!({
+            "verb": "job-set-state", "target": "current", "job_id": TEST_JOB_ID,
+            "generation": 1, "state": "stopped", "timeout_ms": 0
+        }));
+        let unsupported_signal: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-signal", "target": "current", "job_id": TEST_JOB_ID,
+            "generation": 1, "signal": "SIGKILL", "timeout_ms": 5000
+        }))
+        .expect("closed signal enum");
+        assert!(unsupported_signal.validate().is_err());
+        let non_idempotent_signal: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-signal", "target": "current", "job_id": TEST_JOB_ID,
+            "generation": 1, "signal": "SIGUSR1", "timeout_ms": 5000
+        }))
+        .expect("closed signal enum");
+        assert!(non_idempotent_signal.validate().is_err());
         reject(serde_json::json!({
             "verb": "job-stop", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
             "grace_ms": 60001, "expect_stopped": true
