@@ -19,6 +19,18 @@ impl Executor {
                 ),
             );
         }
+        if let Err(message) = command.validate() {
+            return CuReply::err(command, CuError::new("invalid_input", message));
+        }
+        let Some(operation) = command.authorization_operation() else {
+            return CuReply::err(
+                command,
+                CuError::new(
+                    "authorization_operation_unavailable",
+                    "command has no canonical persisted-authorization operation",
+                ),
+            );
+        };
         let decision_id = match generated_decision_id() {
             Some(id) => id,
             None => {
@@ -65,7 +77,7 @@ impl Executor {
                 );
             }
         };
-        let attempt = GrantAttempt::new(&persisted.grant_id, &binding, required);
+        let attempt = GrantAttempt::new(&persisted.grant_id, &binding, required, &operation);
         match store.reserve_attempt(&attempt, now) {
             Ok(GrantDecision::Denied(denial)) => {
                 let outcome = match denial.kind {
@@ -75,6 +87,8 @@ impl Executor {
                     GrantDenialKind::Revoked => "revoked",
                     GrantDenialKind::Exhausted => "exhausted",
                     GrantDenialKind::TargetMismatch => "target_mismatch",
+                    GrantDenialKind::OperationUnbound => "operation_unbound",
+                    GrantDenialKind::OperationMismatch => "operation_mismatch",
                     GrantDenialKind::ScopeMissing => "scope_missing",
                 };
                 if let Err(error) = audit.record_persisted(
@@ -287,7 +301,10 @@ mod tests {
             .create(crate::auth_store::GrantSpec::new(
                 &grant_id,
                 &binding,
-                BTreeSet::from([Grant::Observe]),
+                crate::auth_store::GrantAuthority::new(
+                    BTreeSet::from([Grant::Observe]),
+                    BTreeSet::from(["capabilities".to_owned()]),
+                ),
                 now,
                 now,
                 now + 60_000,
@@ -338,6 +355,67 @@ mod tests {
     }
 
     #[test]
+    fn same_scope_wrong_operation_is_refused_without_consuming() {
+        let audit_path = audit_scratch("persisted-operation");
+        let root = audit_path.parent().unwrap();
+        let store_path = root.join("cu-grants.json");
+        let binding = crate::target_binding::TargetBinding {
+            tier: TargetRef::Current,
+            target_id: format!("agt-cu-tgt-v1-{}", "7".repeat(64)),
+            session_binding: format!("agt-cu-ses-v1-{}", "8".repeat(64)),
+        };
+        let grant_id = format!("cu1_{}", "9".repeat(64));
+        let now = now_utc_ms().unwrap();
+        let mut store = AuthStore::open_private_at(&store_path).unwrap();
+        store
+            .create(crate::auth_store::GrantSpec::new(
+                &grant_id,
+                &binding,
+                crate::auth_store::GrantAuthority::new(
+                    BTreeSet::from([Grant::Observe]),
+                    BTreeSet::from(["capabilities".to_owned()]),
+                ),
+                now,
+                now,
+                now + 60_000,
+                1,
+            ))
+            .unwrap();
+        drop(store);
+
+        let executor = Executor::new(Authorization::new(BTreeSet::new()))
+            .with_persisted_grant(&grant_id, &store_path)
+            .with_persisted_binding(binding)
+            .with_audit_path(audit_path.clone());
+        let refused = executor.execute(&Command::Doctor {
+            target: TargetRef::Current,
+        });
+        assert!(!refused.ok);
+        assert!(
+            refused
+                .error
+                .as_ref()
+                .is_some_and(|error| error.message.contains("operation_mismatch"))
+        );
+        assert_eq!(
+            AuthStore::open_private_at(&store_path).unwrap().list()[0].consumed_uses,
+            0
+        );
+        assert!(
+            executor
+                .execute(&Command::Capabilities {
+                    target: TargetRef::Current,
+                })
+                .ok
+        );
+        assert_eq!(
+            AuthStore::open_private_at(&store_path).unwrap().list()[0].consumed_uses,
+            1
+        );
+        remove_audit_scratch(&audit_path);
+    }
+
+    #[test]
     fn persisted_audit_open_failure_does_not_reserve_the_grant() {
         let audit_path = audit_scratch("persisted-audit-open");
         let root = audit_path.parent().unwrap();
@@ -354,7 +432,10 @@ mod tests {
             .create(crate::auth_store::GrantSpec::new(
                 &grant_id,
                 &binding,
-                BTreeSet::from([Grant::Observe]),
+                crate::auth_store::GrantAuthority::new(
+                    BTreeSet::from([Grant::Observe]),
+                    BTreeSet::from(["capabilities".to_owned()]),
+                ),
                 now,
                 now,
                 now + 60_000,

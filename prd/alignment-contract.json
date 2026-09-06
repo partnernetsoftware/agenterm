@@ -258,6 +258,7 @@
         "cu.resource-status",
         "cu.storage-devices",
         "cu.privilege-plan",
+        "cu.persisted-grant-operation-binding.macos",
         "cu.simulator-readonly",
         "cu.file-copy-transaction",
         "cu.file-move-transaction",

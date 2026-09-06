@@ -4302,9 +4302,10 @@ Target, desktop session, scope, expiry and use count do not stop one broad
 `actuate` grant from authorizing a different effect. A durable grant must also
 freeze canonical operation ids at issuance, validate the requested operation
 before consuming a use, and never derive operation identity from an alias.
-Omitting an operation selector may freeze the current release's complete
-scope-compatible set, but an older schema without that set cannot be migrated
-to today's catalog: keep list/revoke available and refuse execution as typed
+Require the issuer to name one or more discoverable operations explicitly;
+reject unknown ids before creating the store directory or installation
+identity. An older schema without that set cannot be migrated to today's
+catalog: keep list/revoke available and refuse execution as typed
 `operation_unbound`. Otherwise adding a future verb silently expands every old
 grant. Operation, target or session mismatch must not consume a use; a matched
 attempt reserves durably before dispatch and is never refunded after an effect

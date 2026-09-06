@@ -13,7 +13,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
-    io::{self, Write as _},
+    io::{self, Read as _, Write as _},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -33,9 +33,12 @@ use crate::{
     target_binding::{TARGET_BINDING_VERSION, TargetBinding},
 };
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 const MAX_RECORDS: usize = 4_096;
 const MAX_TEXT_BYTES: usize = 512;
+const MAX_STORE_BYTES: usize = 4 * 1_024 * 1_024;
+const MAX_OPERATIONS: usize = 256;
+const MAX_OPERATION_BYTES: usize = 128;
 const MAX_OBSERVE_USES: u64 = 10_000;
 const MAX_ACTUATE_USES: u64 = 100;
 const MAX_OBSERVE_LIFETIME_MS: i64 = 24 * 60 * 60 * 1_000;
@@ -51,6 +54,10 @@ pub struct GrantRecord {
     pub tier: String,
     pub session_binding: Option<String>,
     pub scopes: BTreeSet<Grant>,
+    pub operations: BTreeSet<String>,
+    /// Schema-2 grants did not bind operations and therefore cannot execute.
+    #[serde(default)]
+    pub legacy_operation_unbound: bool,
     pub issued_at_utc_ms: i64,
     pub not_before_utc_ms: i64,
     pub expires_at_utc_ms: i64,
@@ -70,6 +77,7 @@ pub struct GrantSpec {
     tier: String,
     session_binding: Option<String>,
     scopes: BTreeSet<Grant>,
+    operations: BTreeSet<String>,
     issued_at_utc_ms: i64,
     not_before_utc_ms: i64,
     expires_at_utc_ms: i64,
@@ -78,11 +86,23 @@ pub struct GrantSpec {
     session_bound: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GrantAuthority {
+    scopes: BTreeSet<Grant>,
+    operations: BTreeSet<String>,
+}
+
+impl GrantAuthority {
+    pub fn new(scopes: BTreeSet<Grant>, operations: BTreeSet<String>) -> Self {
+        Self { scopes, operations }
+    }
+}
+
 impl GrantSpec {
     pub fn new(
         grant_id: impl Into<String>,
         binding: &TargetBinding,
-        scopes: BTreeSet<Grant>,
+        authority: GrantAuthority,
         issued_at_utc_ms: i64,
         not_before_utc_ms: i64,
         expires_at_utc_ms: i64,
@@ -94,7 +114,8 @@ impl GrantSpec {
             target_id: binding.target_id().to_owned(),
             tier: binding.tier().as_str().to_owned(),
             session_binding: Some(binding.session_binding().to_owned()),
-            scopes,
+            scopes: authority.scopes,
+            operations: authority.operations,
             issued_at_utc_ms,
             not_before_utc_ms,
             expires_at_utc_ms,
@@ -114,6 +135,8 @@ impl From<GrantSpec> for GrantRecord {
             tier: spec.tier,
             session_binding: spec.session_binding,
             scopes: spec.scopes,
+            operations: spec.operations,
+            legacy_operation_unbound: false,
             issued_at_utc_ms: spec.issued_at_utc_ms,
             not_before_utc_ms: spec.not_before_utc_ms,
             expires_at_utc_ms: spec.expires_at_utc_ms,
@@ -134,16 +157,23 @@ pub struct GrantAttempt {
     tier: String,
     session_binding: Option<String>,
     scope: Grant,
+    operation: String,
 }
 
 impl GrantAttempt {
-    pub fn new(grant_id: impl Into<String>, binding: &TargetBinding, scope: Grant) -> Self {
+    pub fn new(
+        grant_id: impl Into<String>,
+        binding: &TargetBinding,
+        scope: Grant,
+        operation: impl Into<String>,
+    ) -> Self {
         Self {
             grant_id: grant_id.into(),
             target_id: binding.target_id().to_owned(),
             tier: binding.tier().as_str().to_owned(),
             session_binding: Some(binding.session_binding().to_owned()),
             scope,
+            operation: operation.into(),
         }
     }
 }
@@ -164,6 +194,8 @@ pub enum GrantDenialKind {
     Revoked,
     Exhausted,
     TargetMismatch,
+    OperationUnbound,
+    OperationMismatch,
     ScopeMissing,
 }
 
@@ -262,6 +294,59 @@ struct StoreDocument {
     schema_version: u32,
     generation: u64,
     records: BTreeMap<String, GrantRecord>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyStoreDocument {
+    schema_version: u32,
+    generation: u64,
+    records: BTreeMap<String, LegacyGrantRecord>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyGrantRecord {
+    #[serde(default)]
+    binding_version: u16,
+    grant_id: String,
+    target_id: String,
+    tier: String,
+    session_binding: Option<String>,
+    scopes: BTreeSet<Grant>,
+    issued_at_utc_ms: i64,
+    not_before_utc_ms: i64,
+    expires_at_utc_ms: i64,
+    max_uses: u64,
+    consumed_uses: u64,
+    revocation_epoch: u64,
+    revoked_at_utc_ms: Option<i64>,
+    one_shot: bool,
+    session_bound: bool,
+}
+
+impl From<LegacyGrantRecord> for GrantRecord {
+    fn from(record: LegacyGrantRecord) -> Self {
+        Self {
+            binding_version: record.binding_version,
+            grant_id: record.grant_id,
+            target_id: record.target_id,
+            tier: record.tier,
+            session_binding: record.session_binding,
+            scopes: record.scopes,
+            operations: BTreeSet::new(),
+            legacy_operation_unbound: true,
+            issued_at_utc_ms: record.issued_at_utc_ms,
+            not_before_utc_ms: record.not_before_utc_ms,
+            expires_at_utc_ms: record.expires_at_utc_ms,
+            max_uses: record.max_uses,
+            consumed_uses: record.consumed_uses,
+            revocation_epoch: record.revocation_epoch,
+            revoked_at_utc_ms: record.revoked_at_utc_ms,
+            one_shot: record.one_shot,
+            session_bound: record.session_bound,
+        }
+    }
 }
 
 impl Default for StoreDocument {
@@ -363,6 +448,12 @@ impl AuthStore {
     pub fn create(&mut self, spec: GrantSpec) -> Result<GrantRecord, AuthStoreError> {
         let record = GrantRecord::from(spec);
         validate_record(&record)?;
+        if record.legacy_operation_unbound {
+            return Err(AuthStoreError::new(
+                AuthStoreErrorKind::Validate,
+                "a new grant must bind at least one operation",
+            ));
+        }
         if self.document.records.contains_key(&record.grant_id) {
             return Err(AuthStoreError::new(
                 AuthStoreErrorKind::DuplicateGrant,
@@ -400,6 +491,10 @@ impl AuthStore {
             || record.session_binding != attempt.session_binding
         {
             Some(GrantDenialKind::TargetMismatch)
+        } else if record.legacy_operation_unbound {
+            Some(GrantDenialKind::OperationUnbound)
+        } else if !record.operations.contains(&attempt.operation) {
+            Some(GrantDenialKind::OperationMismatch)
         } else if !record.scopes.contains(&attempt.scope) {
             Some(GrantDenialKind::ScopeMissing)
         } else if record.revoked_at_utc_ms.is_some() {
@@ -561,8 +656,8 @@ fn denied(grant_id: &str, kind: GrantDenialKind) -> GrantDecision {
 }
 
 fn read_document(path: &Path) -> Result<Option<StoreDocument>, AuthStoreError> {
-    let raw = match fs::read(path) {
-        Ok(raw) => raw,
+    let file = match File::open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(AuthStoreError::new(
@@ -571,23 +666,74 @@ fn read_document(path: &Path) -> Result<Option<StoreDocument>, AuthStoreError> {
             ));
         }
     };
-    let document: StoreDocument = serde_json::from_slice(&raw).map_err(|error| {
+    if file.metadata().map(|metadata| metadata.len()).unwrap_or(0) > MAX_STORE_BYTES as u64 {
+        return Err(AuthStoreError::new(
+            AuthStoreErrorKind::Validate,
+            format!("grant store input exceeds {MAX_STORE_BYTES} bytes"),
+        ));
+    }
+    let mut raw = Vec::new();
+    file.take((MAX_STORE_BYTES + 1) as u64)
+        .read_to_end(&mut raw)
+        .map_err(|error| {
+            AuthStoreError::new(
+                AuthStoreErrorKind::Read,
+                format!("read {}: {error}", path.display()),
+            )
+        })?;
+    if raw.len() > MAX_STORE_BYTES {
+        return Err(AuthStoreError::new(
+            AuthStoreErrorKind::Validate,
+            format!("grant store input exceeds {MAX_STORE_BYTES} bytes"),
+        ));
+    }
+    #[derive(Deserialize)]
+    struct SchemaHeader {
+        schema_version: u32,
+    }
+    let header: SchemaHeader = serde_json::from_slice(&raw).map_err(|error| {
         AuthStoreError::new(
             AuthStoreErrorKind::Parse,
             format!("parse {}: {error}", path.display()),
         )
     })?;
-    validate_document(&document)?;
-    Ok(Some(document))
-}
-
-fn validate_document(document: &StoreDocument) -> Result<(), AuthStoreError> {
-    if document.schema_version == 1 {
+    if header.schema_version == 1 {
         return Err(AuthStoreError::new(
             AuthStoreErrorKind::LegacyUnverified,
             "grant store schema 1 contains unverified target identity and requires explicit migration",
         ));
     }
+    let document = match header.schema_version {
+        2 => {
+            let legacy: LegacyStoreDocument = serde_json::from_slice(&raw).map_err(|error| {
+                AuthStoreError::new(
+                    AuthStoreErrorKind::Parse,
+                    format!("parse {}: {error}", path.display()),
+                )
+            })?;
+            debug_assert_eq!(legacy.schema_version, 2);
+            StoreDocument {
+                schema_version: SCHEMA_VERSION,
+                generation: legacy.generation,
+                records: legacy
+                    .records
+                    .into_iter()
+                    .map(|(key, record)| (key, record.into()))
+                    .collect(),
+            }
+        }
+        _ => serde_json::from_slice(&raw).map_err(|error| {
+            AuthStoreError::new(
+                AuthStoreErrorKind::Parse,
+                format!("parse {}: {error}", path.display()),
+            )
+        })?,
+    };
+    validate_document(&document)?;
+    Ok(Some(document))
+}
+
+fn validate_document(document: &StoreDocument) -> Result<(), AuthStoreError> {
     if document.schema_version != SCHEMA_VERSION {
         return Err(AuthStoreError::new(
             AuthStoreErrorKind::Validate,
@@ -672,6 +818,21 @@ fn validate_record(record: &GrantRecord) -> Result<(), AuthStoreError> {
             "grant must contain at least one explicit scope",
         ));
     }
+    if record.operations.len() > MAX_OPERATIONS {
+        return Err(AuthStoreError::new(
+            AuthStoreErrorKind::Validate,
+            format!("grant may contain at most {MAX_OPERATIONS} operations"),
+        ));
+    }
+    if record.legacy_operation_unbound != record.operations.is_empty() {
+        return Err(AuthStoreError::new(
+            AuthStoreErrorKind::Validate,
+            "only a migrated schema 2 grant may have no bound operations",
+        ));
+    }
+    for operation in &record.operations {
+        validate_operation(operation)?;
+    }
     if record.issued_at_utc_ms < 0
         || record.not_before_utc_ms < record.issued_at_utc_ms
         || record.expires_at_utc_ms <= record.not_before_utc_ms
@@ -731,6 +892,31 @@ fn validate_record(record: &GrantRecord) -> Result<(), AuthStoreError> {
     Ok(())
 }
 
+fn validate_operation(operation: &str) -> Result<(), AuthStoreError> {
+    let valid_byte = |byte: u8| {
+        byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+    };
+    let separator = |byte: u8| matches!(byte, b'.' | b'_' | b'-');
+    let bytes = operation.as_bytes();
+    if bytes.is_empty()
+        || bytes.len() > MAX_OPERATION_BYTES
+        || !bytes.iter().copied().all(valid_byte)
+        || separator(bytes[0])
+        || separator(bytes[bytes.len() - 1])
+        || bytes
+            .windows(2)
+            .any(|pair| separator(pair[0]) && separator(pair[1]))
+    {
+        return Err(AuthStoreError::new(
+            AuthStoreErrorKind::Validate,
+            format!(
+                "operation must be a canonical 1..={MAX_OPERATION_BYTES} byte lowercase ASCII id"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn valid_binding_id(value: &str, prefix: &str) -> bool {
     value.strip_prefix(prefix).is_some_and(|hex| {
         hex.len() == 64
@@ -753,6 +939,12 @@ fn publish_document(path: &Path, document: &StoreDocument) -> Result<(), AuthSto
     })?;
     let raw = serde_json::to_vec_pretty(document)
         .map_err(|error| AuthStoreError::new(AuthStoreErrorKind::Serialize, error.to_string()))?;
+    if raw.len() > MAX_STORE_BYTES {
+        return Err(AuthStoreError::new(
+            AuthStoreErrorKind::Validate,
+            format!("grant store output exceeds {MAX_STORE_BYTES} bytes"),
+        ));
+    }
     let (temporary, mut file) = create_temporary(parent, path).map_err(|error| {
         AuthStoreError::new(
             AuthStoreErrorKind::Prepare,
@@ -867,7 +1059,10 @@ mod tests {
         GrantSpec::new(
             id,
             &binding(),
-            scopes.iter().copied().collect(),
+            GrantAuthority::new(
+                scopes.iter().copied().collect(),
+                BTreeSet::from(["capabilities".to_owned()]),
+            ),
             1_000,
             1_100,
             2_000,
@@ -876,7 +1071,7 @@ mod tests {
     }
 
     fn attempt(id: &str, scope: Grant) -> GrantAttempt {
-        GrantAttempt::new(id, &binding(), scope)
+        GrantAttempt::new(id, &binding(), scope, "capabilities")
     }
 
     fn temporary_path(label: &str) -> PathBuf {
@@ -886,6 +1081,19 @@ mod tests {
             std::process::id(),
             NEXT_TEST.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    fn schema_two_document(record: GrantRecord) -> serde_json::Value {
+        let grant_id = record.grant_id.clone();
+        let mut record = serde_json::to_value(record).unwrap();
+        let fields = record.as_object_mut().unwrap();
+        fields.remove("operations");
+        fields.remove("legacy_operation_unbound");
+        serde_json::json!({
+            "schema_version": 2,
+            "generation": 7,
+            "records": { grant_id: record },
+        })
     }
 
     struct TestPath(PathBuf);
@@ -919,6 +1127,8 @@ mod tests {
         let reopened = AuthStore::open_at(&path.0).unwrap();
         assert_eq!(reopened.generation(), 2);
         assert_eq!(reopened.list().len(), 2);
+        let raw: serde_json::Value = serde_json::from_slice(&fs::read(&path.0).unwrap()).unwrap();
+        assert_eq!(raw["schema_version"], SCHEMA_VERSION);
     }
 
     #[test]
@@ -1049,7 +1259,61 @@ mod tests {
     }
 
     #[test]
-    fn schema_two_rejects_binding_text_that_did_not_come_from_the_sealed_provider() {
+    fn schema_two_loads_validated_as_operation_unbound_and_can_be_revoked() {
+        let path = TestPath::new("schema-two-unbound");
+        let record = GrantRecord::from(spec("legacy", &[Grant::Observe], 2));
+        fs::write(
+            &path.0,
+            serde_json::to_vec_pretty(&schema_two_document(record)).unwrap(),
+        )
+        .unwrap();
+
+        let mut store = AuthStore::open_at(&path.0).unwrap();
+        let loaded = &store.list()[0];
+        assert!(loaded.operations.is_empty());
+        assert!(loaded.legacy_operation_unbound);
+        let generation = store.generation();
+        assert_eq!(
+            store
+                .reserve_attempt(
+                    &GrantAttempt::new("legacy", &binding(), Grant::Actuate, "doctor"),
+                    i64::MAX,
+                )
+                .unwrap(),
+            denied("legacy", GrantDenialKind::OperationUnbound)
+        );
+        assert_eq!(store.generation(), generation);
+        assert_eq!(store.list()[0].consumed_uses, 0);
+
+        assert!(matches!(
+            store.revoke("legacy", 1_500).unwrap(),
+            RevokeDecision::Revoked(_)
+        ));
+        let raw: serde_json::Value = serde_json::from_slice(&fs::read(&path.0).unwrap()).unwrap();
+        assert_eq!(raw["schema_version"], SCHEMA_VERSION);
+        assert_eq!(raw["records"]["legacy"]["legacy_operation_unbound"], true);
+        let reopened = AuthStore::open_at(&path.0).unwrap();
+        assert!(reopened.list()[0].legacy_operation_unbound);
+    }
+
+    #[test]
+    fn schema_two_records_are_still_semantically_validated() {
+        let path = TestPath::new("schema-two-invalid");
+        let mut record = GrantRecord::from(spec("legacy", &[Grant::Observe], 1));
+        record.target_id = "caller-supplied-target".to_owned();
+        fs::write(
+            &path.0,
+            serde_json::to_vec(&schema_two_document(record)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            AuthStore::open_at(&path.0).unwrap_err().kind,
+            AuthStoreErrorKind::Validate
+        );
+    }
+
+    #[test]
+    fn schema_three_rejects_binding_text_that_did_not_come_from_the_sealed_provider() {
         let path = TestPath::new("unverified-binding");
         let mut record = GrantRecord::from(spec("grant", &[Grant::Observe], 1));
         record.target_id = format!("agt-cu-tgt-v1-{}", "A".repeat(64));
@@ -1093,6 +1357,105 @@ mod tests {
                 .unwrap(),
             denied("grant", GrantDenialKind::Exhausted)
         );
+    }
+
+    #[test]
+    fn operation_mismatch_precedes_scope_time_and_exhaustion_without_consuming() {
+        let path = TestPath::new("operation-mismatch");
+        let mut store = AuthStore::open_at(&path.0).unwrap();
+        store.create(spec("grant", &[Grant::Observe], 1)).unwrap();
+        assert!(matches!(
+            store
+                .reserve_attempt(&attempt("grant", Grant::Observe), 1_200)
+                .unwrap(),
+            GrantDecision::Authorized(_)
+        ));
+        let generation = store.generation();
+        assert_eq!(
+            store
+                .reserve_attempt(
+                    &GrantAttempt::new("grant", &binding(), Grant::Actuate, "doctor"),
+                    i64::MAX,
+                )
+                .unwrap(),
+            denied("grant", GrantDenialKind::OperationMismatch)
+        );
+        assert_eq!(store.generation(), generation);
+        assert_eq!(store.list()[0].consumed_uses, 1);
+    }
+
+    #[test]
+    fn target_mismatch_precedes_legacy_operation_unbound() {
+        let path = TestPath::new("legacy-target-priority");
+        let record = GrantRecord::from(spec("legacy", &[Grant::Observe], 1));
+        fs::write(
+            &path.0,
+            serde_json::to_vec(&schema_two_document(record)).unwrap(),
+        )
+        .unwrap();
+        let mut store = AuthStore::open_at(&path.0).unwrap();
+        let mut wrong = GrantAttempt::new("legacy", &binding(), Grant::Observe, "capabilities");
+        wrong.session_binding = Some(format!("agt-cu-ses-v1-{}", "3".repeat(64)));
+        assert_eq!(
+            store.reserve_attempt(&wrong, 1_200).unwrap(),
+            denied("legacy", GrantDenialKind::TargetMismatch)
+        );
+        assert_eq!(store.list()[0].consumed_uses, 0);
+    }
+
+    #[test]
+    fn operation_sets_have_canonical_syntax_count_and_length_bounds() {
+        let path = TestPath::new("operation-validation");
+        let mut store = AuthStore::open_at(&path.0).unwrap();
+        let mut valid = spec("valid", &[Grant::Observe], 1);
+        valid.operations = BTreeSet::from([
+            "browser.session-open".to_owned(),
+            "ui_pointer.move2".to_owned(),
+        ]);
+        store.create(valid).unwrap();
+
+        for (id, operation) in [
+            ("empty", "".to_owned()),
+            ("uppercase", "Doctor".to_owned()),
+            ("leading", ".doctor".to_owned()),
+            ("trailing", "doctor-".to_owned()),
+            ("repeated", "browser..open".to_owned()),
+            ("non-ascii", "dóctor".to_owned()),
+            ("too-long", "a".repeat(MAX_OPERATION_BYTES + 1)),
+        ] {
+            let mut invalid = spec(id, &[Grant::Observe], 1);
+            invalid.operations = BTreeSet::from([operation]);
+            assert_eq!(
+                store.create(invalid).unwrap_err().kind,
+                AuthStoreErrorKind::Validate,
+                "{id} should be rejected"
+            );
+        }
+
+        let mut too_many = spec("too-many", &[Grant::Observe], 1);
+        too_many.operations = (0..=MAX_OPERATIONS)
+            .map(|index| format!("op{index}"))
+            .collect();
+        assert_eq!(
+            store.create(too_many).unwrap_err().kind,
+            AuthStoreErrorKind::Validate
+        );
+
+        let mut unbound = spec("unbound", &[Grant::Observe], 1);
+        unbound.operations.clear();
+        assert_eq!(
+            store.create(unbound).unwrap_err().kind,
+            AuthStoreErrorKind::Validate
+        );
+    }
+
+    #[test]
+    fn oversized_store_input_is_refused_before_json_parsing() {
+        let path = TestPath::new("input-ceiling");
+        fs::write(&path.0, vec![b' '; MAX_STORE_BYTES + 1]).unwrap();
+        let error = AuthStore::open_at(&path.0).unwrap_err();
+        assert_eq!(error.kind, AuthStoreErrorKind::Validate);
+        assert!(error.message.contains("input exceeds"));
     }
 
     #[test]

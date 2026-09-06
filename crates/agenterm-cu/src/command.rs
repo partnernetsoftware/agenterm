@@ -14,6 +14,23 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+const fn service_scope_operation(scope: ServiceScope) -> &'static str {
+    match scope {
+        ServiceScope::User => "user",
+        ServiceScope::System => "system",
+    }
+}
+
+const fn service_operation(operation: ServiceOperation) -> &'static str {
+    match operation {
+        ServiceOperation::Start => "start",
+        ServiceOperation::Stop => "stop",
+        ServiceOperation::Restart => "restart",
+        ServiceOperation::Bootstrap => "bootstrap",
+        ServiceOperation::Bootout => "bootout",
+    }
+}
+
 const JOB_COMMAND_PARTS_MAX: usize = 256;
 const JOB_COMMAND_BYTES_MAX: usize = 32 * 1024;
 const JOB_ENVIRONMENT_ENTRIES_MAX: usize = 128;
@@ -3475,6 +3492,162 @@ impl Command {
         }
     }
 
+    /// Stable persisted-authority identity for this exact command shape.
+    ///
+    /// This is deliberately narrower than [`Self::verb`]: verbs with
+    /// materially different effects receive different operation ids. Dynamic
+    /// MCU alignment placeholders never become persisted authority.
+    pub fn authorization_operation(&self) -> Option<String> {
+        let operation = match self {
+            Self::Setup { action, .. } => match action {
+                SetupAction::Check => "setup.check".to_owned(),
+                SetupAction::Apply => "setup.apply".to_owned(),
+            },
+            Self::Permissions { action, .. } => match action {
+                PermissionAction::Status => "permissions.status".to_owned(),
+                PermissionAction::Open => "permissions.open".to_owned(),
+            },
+            Self::AudioStatus { .. } => "audio.status".to_owned(),
+            Self::AudioPlanVolume { .. } => "audio.plan-volume".to_owned(),
+            Self::AudioPlanMuted { .. } => "audio.plan-muted".to_owned(),
+            Self::AudioApply { .. } => "audio.apply".to_owned(),
+            Self::ServiceList { scope, .. } => {
+                format!("service.list.{}", service_scope_operation(*scope))
+            }
+            Self::ServiceStatus { scope, .. } => {
+                format!("service.status.{}", service_scope_operation(*scope))
+            }
+            Self::ServicePlan {
+                scope, operation, ..
+            } => format!(
+                "service.plan.{}.{}",
+                service_scope_operation(*scope),
+                service_operation(*operation)
+            ),
+            Self::ServiceApply { .. } => "service.apply".to_owned(),
+            Self::ServiceTransact {
+                scope, operation, ..
+            } => format!(
+                "service.transact.{}.{}",
+                service_scope_operation(*scope),
+                service_operation(*operation)
+            ),
+            Self::LoginSessionStatus { .. } => "login-session.status".to_owned(),
+            Self::LoginSessionPlanLock { .. } => "login-session.plan-lock".to_owned(),
+            Self::LoginSessionApplyLock { .. } => "login-session.apply-lock".to_owned(),
+            Self::AuditCompact { apply, .. } => {
+                format!("audit-compact.{}", if *apply { "apply" } else { "plan" })
+            }
+            Self::FileCopy { apply, .. } => {
+                format!("file-copy.{}", if *apply { "apply" } else { "plan" })
+            }
+            Self::FileMove { apply, .. } => {
+                format!("file-move.{}", if *apply { "apply" } else { "plan" })
+            }
+            Self::FileTransaction { action, .. } => format!(
+                "file-transaction.{}",
+                match action {
+                    FileTransactionAction::Status => "status",
+                    FileTransactionAction::Rollback => "rollback",
+                    FileTransactionAction::Recover => "recover",
+                    FileTransactionAction::Finalize => "finalize",
+                }
+            ),
+            Self::ProcessKill { mode, .. } => format!(
+                "process-kill.{}",
+                match mode {
+                    ProcessKillMode::Graceful => "graceful",
+                    ProcessKillMode::Forceful => "forceful",
+                }
+            ),
+            Self::ProcessSetState { state, .. } => format!(
+                "process-set-state.{}",
+                match state {
+                    ProcessRunState::Running => "running",
+                    ProcessRunState::Stopped => "stopped",
+                }
+            ),
+            Self::ProcessSignal {
+                signal,
+                force,
+                tree,
+                ..
+            } => format!(
+                "process-signal.{}.{}.{}",
+                if *tree { "tree" } else { "single" },
+                if *force { "force" } else { "normal" },
+                signal.as_str().to_ascii_lowercase()
+            ),
+            Self::PtyDiff { advance, .. } => {
+                format!("pty-diff.{}", if *advance { "advance" } else { "read" })
+            }
+            Self::ClipboardClear { apply, .. } => {
+                format!("clipboard-clear.{}", if *apply { "apply" } else { "plan" })
+            }
+            Self::PageScreenshot { activate, .. } => format!(
+                "page-screenshot.{}",
+                if *activate {
+                    "capture-and-activate"
+                } else {
+                    "capture"
+                }
+            ),
+            Self::Invoke { action, .. } => format!(
+                "invoke.{}",
+                match action {
+                    InvokeAction::Press => "press",
+                    InvokeAction::SetValue => "set-value",
+                    InvokeAction::SelectOption => "select-option",
+                    InvokeAction::SetChecked => "set-checked",
+                    InvokeAction::SetExpanded => "set-expanded",
+                    InvokeAction::Increment => "increment",
+                    InvokeAction::Decrement => "decrement",
+                    InvokeAction::SetSelected => "set-selected",
+                    InvokeAction::SetSelection => "set-selection",
+                    InvokeAction::ScrollTo => "scroll-to",
+                    InvokeAction::Cancel => "cancel",
+                    InvokeAction::ShowDefaultUi => "show-default-ui",
+                }
+            ),
+            Self::App { action, .. } => format!(
+                "app.{}",
+                match action {
+                    AppAction::Hide => "hide",
+                    AppAction::Show => "show",
+                    AppAction::Quit => "quit",
+                    AppAction::Launch => "launch",
+                }
+            ),
+            Self::WindowPlace { action, frame, .. } => {
+                let canonical = match action.as_str() {
+                    "frame" | "move" | "resize" if frame.is_some() => action.as_str(),
+                    _ if frame.is_none() => crate::place::PlaceAction::parse(action)?.kebab(),
+                    _ => return None,
+                };
+                format!("window-place.{canonical}")
+            }
+            Self::DeviceScreenshot { list, path, .. } => {
+                if *list && path.is_none() {
+                    "device-screenshot.list".to_owned()
+                } else if !*list && path.is_some() {
+                    "device-screenshot.capture".to_owned()
+                } else {
+                    return None;
+                }
+            }
+            Self::PageDialog { dismiss, .. } => format!(
+                "page-dialog.{}",
+                if *dismiss { "dismiss" } else { "accept" }
+            ),
+            Self::Diff { advance, .. } => {
+                format!("diff.{}", if *advance { "advance" } else { "read" })
+            }
+            Self::Align { .. } => return None,
+            _ => self.verb(),
+        };
+        Some(operation)
+    }
+
     pub fn target(&self) -> TargetRef {
         match self {
             Self::Capabilities { target, .. }
@@ -6805,5 +6978,68 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<Command>(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn persisted_authority_uses_shape_specific_canonical_operations() {
+        assert_eq!(
+            Command::Capabilities {
+                target: TargetRef::Current,
+            }
+            .authorization_operation()
+            .as_deref(),
+            Some("capabilities")
+        );
+        assert_eq!(
+            Command::Setup {
+                target: TargetRef::Current,
+                action: SetupAction::Check,
+                bin_dir: None,
+            }
+            .authorization_operation()
+            .as_deref(),
+            Some("setup.check")
+        );
+        assert_eq!(
+            Command::Setup {
+                target: TargetRef::Current,
+                action: SetupAction::Apply,
+                bin_dir: None,
+            }
+            .authorization_operation()
+            .as_deref(),
+            Some("setup.apply")
+        );
+        assert_eq!(
+            Command::Diff {
+                target: TargetRef::Current,
+                window: 1,
+                base: None,
+                advance: true,
+                max: None,
+            }
+            .authorization_operation()
+            .as_deref(),
+            Some("diff.advance")
+        );
+        assert_eq!(
+            Command::DeviceScreenshot {
+                target: TargetRef::Current,
+                path: None,
+                device: None,
+                timeout_ms: None,
+                list: false,
+            }
+            .authorization_operation(),
+            None
+        );
+        assert_eq!(
+            Command::Align {
+                target: TargetRef::Current,
+                group: "caller-controlled".to_owned(),
+            }
+            .authorization_operation(),
+            None
+        );
     }
 }

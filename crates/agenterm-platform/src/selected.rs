@@ -131,11 +131,11 @@ pub(crate) const fn app_container_process_supported() -> bool {
 }
 
 pub(crate) const fn current_target_binding_supported() -> bool {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         true
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         false
     }

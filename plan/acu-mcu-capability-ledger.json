@@ -1055,9 +1055,13 @@
         {
           "id": "runtime.desktop-delivery",
           "mcu_shape": "runtime-issued bounded desktop delivery capability tied to session, target, operation, expiry and max use",
-          "acu_shape": "persisted grant schema 2 binds target, desktop session, scopes, not-before/expiry and max/consumed uses but not a canonical operation",
-          "state": "gap",
-          "next": "add a canonical frozen operation set before consumption; migrate schema 2 records to non-executable operation-unbound state rather than expanding their authority"
+          "acu_shape": "persisted grant schema 3 binds target, desktop session, explicit canonical operation set, scopes, not-before/expiry and max/consumed uses; schema 2 remains listable/revocable but execution is operation-unbound",
+          "state": "platform-limited",
+          "platforms": {"windows": "native-public-rerun-pending", "macos": "native-public-qjswasm", "linux": "current-target-binding-gap", "ssh": "persisted-grant-intentionally-current-only", "vnc": "persisted-grant-intentionally-current-only", "rdp": "gap"},
+          "qualification": "macos-schema3-operation-no-consumption-revoke-green-windows-rerun-linux-provider-pending",
+          "evidence": ["cu.persisted-grant-operation-binding.macos", "agenterm-cu schema3 grant-store and persisted-executor unit suite", "agenterm-platform macOS current-target-binding tests"],
+          "note": "The macOS provider accepts only the completed console session owned by the effective user, derives facts from opaque session identity plus native numeric session/audit facts, and excludes username, display name and native UUID. The public qjswasm court proves wrong-operation refusal spends zero uses, the intended operation spends exactly one, and revocation is durable.",
+          "next": "run the same public operation-mismatch/no-consumption/revoke court on Windows, then implement and qualify the sealed Linux current-session identity provider"
         },
         {
           "id": "runtime.audit-query-retention",

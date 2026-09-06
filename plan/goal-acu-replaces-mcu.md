@@ -803,7 +803,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 133 ledger capabilities
-currently include 12 `gap` and 53 `platform-limited` rows. The compatibility
+currently include 11 `gap` and 54 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
@@ -828,6 +828,16 @@ fixture proves the remaining macOS window/tree/query/read/screenshot vocabulary
 without foreground change. Linux/Windows same-source receipts remain mandatory;
 macOS completeness does not change the cross-platform row from `gap` or
 authorize MCU removal.
+
+Persisted desktop-delivery authority has moved from `gap` to
+`platform-limited`: schema 3 freezes explicit canonical operation ids in
+addition to target, session, scope, lifetime and use count. Wrong operations
+do not consume a use, legacy schema-2 records never gain inferred authority,
+and unknown operation ids fail before creating product state. macOS now has a
+sealed completed-console-session provider and a public qjswasm court proving
+operation mismatch, zero consumption, exact intended consumption and durable
+revocation. Windows still needs the exact public rerun, while Linux needs its
+sealed current-session identity provider before this row can become native.
 
 `moltbaby/skills/mcu/acu.ts` is only the transition router. Its `stay` result
 means “ACU cannot yet express this exact public shape; use MCU temporarily,”

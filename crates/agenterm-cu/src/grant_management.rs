@@ -9,7 +9,9 @@ use serde_json::json;
 
 use crate::{
     CuError, CuReply, Grant,
-    auth_store::{AuthStore, AuthStoreError, AuthStoreErrorKind, GrantRecord, GrantSpec},
+    auth_store::{
+        AuthStore, AuthStoreError, AuthStoreErrorKind, GrantAuthority, GrantRecord, GrantSpec,
+    },
     target::TargetRef,
     target_binding::{CurrentIdentityProvider, enroll_current_identity, resolve_target_binding},
 };
@@ -54,6 +56,10 @@ fn create(args: &[String]) -> CuReply {
         Err(_) => {
             return failure("grant-create", "invalid_grant", "grant scopes are invalid");
         }
+    };
+    let operations = match parse_operations(&parsed.operations) {
+        Ok(operations) => operations,
+        Err(message) => return failure("grant-create", "invalid_grant", message),
     };
     let max_uses = if parsed.one_shot {
         1
@@ -116,7 +122,15 @@ fn create(args: &[String]) -> CuReply {
             );
         }
     };
-    let spec = GrantSpec::new(&grant_id, &binding, scopes, now, now, expires, max_uses);
+    let spec = GrantSpec::new(
+        &grant_id,
+        &binding,
+        GrantAuthority::new(scopes, operations),
+        now,
+        now,
+        expires,
+        max_uses,
+    );
     match store.create(spec) {
         Ok(record) => success(
             "grant-create",
@@ -194,6 +208,7 @@ fn revoke(args: &[String]) -> CuReply {
 struct CreateArgs {
     target: String,
     scopes: String,
+    operations: String,
     ttl_ms: i64,
     max_uses: Option<u64>,
     one_shot: bool,
@@ -204,6 +219,7 @@ impl CreateArgs {
     fn parse(args: &[String]) -> Result<Self, &'static str> {
         let mut target = None;
         let mut scopes = None;
+        let mut operations = None;
         let mut ttl_ms = None;
         let mut seen_ttl = false;
         let mut max_uses = None;
@@ -228,6 +244,7 @@ impl CreateArgs {
             match flag {
                 "--target" if target.is_none() => target = Some(value.clone()),
                 "--scopes" if scopes.is_none() => scopes = Some(value.clone()),
+                "--operations" if operations.is_none() => operations = Some(value.clone()),
                 "--ttl-ms" if !seen_ttl => {
                     seen_ttl = true;
                     ttl_ms = Some(
@@ -245,7 +262,8 @@ impl CreateArgs {
                     );
                 }
                 "--grant-store" if store.is_none() => store = Some(PathBuf::from(value)),
-                "--target" | "--scopes" | "--ttl-ms" | "--max-uses" | "--grant-store" => {
+                "--target" | "--scopes" | "--operations" | "--ttl-ms" | "--max-uses"
+                | "--grant-store" => {
                     return Err("duplicate grant flag");
                 }
                 _ => return Err("unknown grant flag"),
@@ -264,12 +282,215 @@ impl CreateArgs {
         Ok(Self {
             target: target.ok_or("--target current is required")?,
             scopes: scopes.ok_or("--scopes is required")?,
+            operations: operations.ok_or("--operations is required")?,
             ttl_ms,
             max_uses,
             one_shot,
             store,
         })
     }
+}
+
+fn parse_operations(value: &str) -> Result<std::collections::BTreeSet<String>, &'static str> {
+    let operations = value
+        .split(',')
+        .map(str::trim)
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+    if operations.is_empty() || operations.contains("") {
+        return Err("--operations requires one or more comma-separated canonical ids");
+    }
+    if operations
+        .iter()
+        .any(|operation| !known_authorization_operation(operation))
+    {
+        return Err("--operations contains an unknown canonical operation id");
+    }
+    Ok(operations)
+}
+
+fn known_authorization_operation(operation: &str) -> bool {
+    const SPLIT_BASES: &[&str] = &[
+        "app",
+        "audio",
+        "audit-compact",
+        "clipboard-clear",
+        "device-screenshot",
+        "diff",
+        "file-copy",
+        "file-move",
+        "file-transaction",
+        "invoke",
+        "login-session",
+        "page-dialog",
+        "page-screenshot",
+        "permissions",
+        "process-kill",
+        "process-set-state",
+        "process-signal",
+        "pty-diff",
+        "service",
+        "setup",
+        "window-place",
+    ];
+    if matches!(
+        operation,
+        "setup.check"
+            | "setup.apply"
+            | "permissions.status"
+            | "permissions.open"
+            | "audio.status"
+            | "audio.plan-volume"
+            | "audio.plan-muted"
+            | "audio.apply"
+            | "login-session.status"
+            | "login-session.plan-lock"
+            | "login-session.apply-lock"
+            | "audit-compact.plan"
+            | "audit-compact.apply"
+            | "file-copy.plan"
+            | "file-copy.apply"
+            | "file-move.plan"
+            | "file-move.apply"
+            | "file-transaction.status"
+            | "file-transaction.rollback"
+            | "file-transaction.recover"
+            | "file-transaction.finalize"
+            | "page-screenshot.capture"
+            | "page-screenshot.capture-and-activate"
+            | "app.hide"
+            | "app.show"
+            | "app.quit"
+            | "app.launch"
+            | "device-screenshot.list"
+            | "device-screenshot.capture"
+            | "page-dialog.accept"
+            | "page-dialog.dismiss"
+            | "diff.read"
+            | "diff.advance"
+            | "process-kill.graceful"
+            | "process-kill.forceful"
+            | "process-set-state.running"
+            | "process-set-state.stopped"
+            | "pty-diff.read"
+            | "pty-diff.advance"
+            | "clipboard-clear.plan"
+            | "clipboard-clear.apply"
+    ) {
+        return true;
+    }
+    let parts = operation.split('.').collect::<Vec<_>>();
+    if matches!(
+        parts.as_slice(),
+        ["service", "list" | "status", "user" | "system"]
+    ) || matches!(
+        parts.as_slice(),
+        [
+            "service",
+            "plan" | "transact",
+            "user" | "system",
+            "start" | "stop" | "restart" | "bootstrap" | "bootout"
+        ]
+    ) || matches!(parts.as_slice(), ["service", "apply"])
+        || matches!(
+            parts.as_slice(),
+            [
+                "invoke",
+                "press"
+                    | "set-value"
+                    | "select-option"
+                    | "set-checked"
+                    | "set-expanded"
+                    | "increment"
+                    | "decrement"
+                    | "set-selected"
+                    | "set-selection"
+                    | "scroll-to"
+                    | "cancel"
+                    | "show-default-ui"
+            ]
+        )
+        || matches!(
+            parts.as_slice(),
+            [
+                "window-place",
+                "center"
+                    | "fullscreen"
+                    | "left-half"
+                    | "right-half"
+                    | "top-half"
+                    | "bottom-half"
+                    | "upper-left"
+                    | "lower-left"
+                    | "upper-right"
+                    | "lower-right"
+                    | "next-third"
+                    | "previous-third"
+                    | "next-display"
+                    | "previous-display"
+                    | "larger"
+                    | "smaller"
+                    | "undo"
+                    | "redo"
+                    | "frame"
+                    | "move"
+                    | "resize"
+            ]
+        )
+        || matches!(
+            parts.as_slice(),
+            [
+                "process-signal",
+                "single" | "tree",
+                "normal" | "force",
+                "sighup"
+                    | "sigint"
+                    | "sigterm"
+                    | "sigkill"
+                    | "sigstop"
+                    | "sigcont"
+                    | "sigusr1"
+                    | "sigusr2"
+            ]
+        )
+    {
+        return true;
+    }
+
+    if SPLIT_BASES.contains(&operation)
+        || matches!(operation, "exec" | "grant" | "help" | "host" | "verbs")
+        || matches!(
+            operation,
+            "pty"
+                | "job"
+                | "process"
+                | "resource"
+                | "power"
+                | "storage"
+                | "file"
+                | "network"
+                | "device"
+                | "privilege"
+                | "daemon"
+                | "desktop-helper"
+                | "simulator"
+                | "page"
+                | "ghost"
+                | "open"
+                | "notify"
+                | "service"
+        )
+    {
+        return false;
+    }
+    let Ok(catalog) =
+        serde_json::from_str::<serde_json::Value>(include_str!("bin/cli/verbs-catalog.json"))
+    else {
+        return false;
+    };
+    catalog["verbs"]
+        .as_array()
+        .is_some_and(|rows| rows.iter().any(|row| row["name"] == operation))
 }
 
 fn only_store_arg(args: &[String]) -> Result<Option<PathBuf>, &'static str> {
@@ -347,6 +568,8 @@ fn projection(record: &GrantRecord) -> serde_json::Value {
         "target_id": record.target_id,
         "tier": record.tier,
         "scopes": record.scopes,
+        "operations": record.operations,
+        "legacy_operation_unbound": record.legacy_operation_unbound,
         "issued_at_utc_ms": record.issued_at_utc_ms,
         "expires_at_utc_ms": record.expires_at_utc_ms,
         "max_uses": record.max_uses,
@@ -409,6 +632,8 @@ mod tests {
                 "current",
                 "--scopes",
                 "observe",
+                "--operations",
+                "capabilities",
                 "--ttl-ms",
                 "1000",
                 "--one-shot"
@@ -423,6 +648,8 @@ mod tests {
                 "current",
                 "--scopes",
                 "observe",
+                "--operations",
+                "capabilities",
                 "--ttl-ms",
                 "1000",
                 "--one-shot"
@@ -431,7 +658,33 @@ mod tests {
         );
         assert!(
             CreateArgs::parse(&strings(&[
-                "--target", "current", "--scopes", "observe", "--ttl-ms", "1000"
+                "--target",
+                "current",
+                "--scopes",
+                "observe",
+                "--ttl-ms",
+                "1000",
+                "--one-shot"
+            ]))
+            .is_err()
+        );
+        assert_eq!(
+            parse_operations("capabilities,doctor,capabilities").unwrap(),
+            std::collections::BTreeSet::from(["capabilities".to_owned(), "doctor".to_owned()])
+        );
+        assert!(parse_operations("future-operation").is_err());
+        assert!(parse_operations("setup.apply,process-kill.forceful").is_ok());
+        assert!(parse_operations("window-place.SpectacleWindowActionCenter").is_err());
+        assert!(
+            CreateArgs::parse(&strings(&[
+                "--target",
+                "current",
+                "--scopes",
+                "observe",
+                "--operations",
+                "capabilities",
+                "--ttl-ms",
+                "1000"
             ]))
             .is_err()
         );
@@ -455,7 +708,10 @@ mod tests {
         let record = GrantRecord::from(GrantSpec::new(
             "cu1_test",
             &binding,
-            std::collections::BTreeSet::from([Grant::Observe]),
+            GrantAuthority::new(
+                std::collections::BTreeSet::from([Grant::Observe]),
+                std::collections::BTreeSet::from(["capabilities".to_owned()]),
+            ),
             1,
             1,
             2,

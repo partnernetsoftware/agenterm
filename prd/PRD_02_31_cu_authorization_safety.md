@@ -237,7 +237,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   contention is typed and publishes nothing. This closes the local
   compare-to-rename race without claiming protection from non-cooperating
   writers, hostile sidecar replacement, cross-session Windows callers or
-  filesystems without coherent locking. Store schema 2 now accepts grant specs
+  filesystems without coherent locking. Store schema 3 now accepts grant specs
   and attempts only through the sealed verified binding type, persists an
   explicit binding version, and requires exact fixed-prefix lowercase target
   and session identifiers. Legacy schema 1 contained caller-provided identity;
@@ -256,12 +256,18 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   dispatch, and writes the outcome with the same opaque decision ID. Denials
   are recorded without consuming uses; a failed downstream command does not
   refund a reserved use. Session identity/key material is absent from the
-  audit. One retirement-blocking authority gap remains explicit: schema 2 binds
-  target, session, scopes, time and use count, but not the canonical operation.
-  Schema 3 must freeze an operation set at issuance and reject a wrong operation
-  without consuming a use. A schema 2 record cannot be safely expanded to
-  today's operation catalog; migration must retain list/revoke while making it
-  typed `operation_unbound` for execution. The public Windows smoke now owns an
+  audit. Schema 3 now freezes an explicit, bounded canonical operation set at
+  issuance. Composite verbs separate materially different effects (including
+  plan/apply, process signal mode, app action, diff advance and placement
+  action), aliases normalize before matching, and an unknown operation is
+  refused before store or installation-identity creation. A same-scope wrong
+  operation is denied without consuming a use. Schema 2 cannot be safely
+  expanded to today's catalog: it remains listable/revocable but executes as
+  typed `operation_unbound`, and the first later mutation preserves that marker
+  in schema 3. Store input/output is independently capped at 4 MiB. A public
+  macOS qjswasm court now proves operation mismatch consumes zero uses, the
+  intended `capabilities` operation consumes exactly one, and revocation
+  durably refuses the remaining use. The public Windows smoke owns an
   isolated one-shot observe grant:
   its first `capabilities` command succeeds, the second is refused as
   exhausted, and a separately revoked grant is refused before dispatch. Four
@@ -271,7 +277,9 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   passed against a current-source CU binary; the complete staged smoke still
   needs a same-source ABI artifact rerun because the available older staged
   library failed the unrelated clipboard-read contract later in the task.
-  Remote delegation and session-nonce invalidation remain open.
+  That existing Windows smoke predates operation binding; an exact schema-3
+  public rerun remains required. Remote delegation and session-nonce
+  invalidation remain open.
 - [~] A sealed `TargetBinding` contract now separates opaque provider identity
   and exact desktop-session identity from routing material. Current, SSH and
   VNC fail typed when no crate-owned verified provider is available; RDP stays
@@ -284,11 +292,16 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   session identifiers, positive WTS active/logon evidence, and the current
   input desktop. Session zero, a disconnected or changed desktop, unsafe key
   state, and unavailable proof fail typed. The digest is only an opaque
-  equality identifier, not an authenticator. CU now adapts those two opaque
+  equality identifier, not an authenticator. macOS now supplies the same sealed
+  contract from the completed console session owned by the effective user. Its
+  session facts use the already-opaque login-session identity plus numeric
+  session/security/audit identifiers and expose no username, display name or
+  native UUID; its key is a singly linked regular file owned by that user at
+  exact mode `0600`. CU now adapts those two opaque
   32-byte identities into its sealed, fixed-prefix target/session binding;
   resolution never creates state, while a separate explicit enrollment call
-  owns first installation. Linux and macOS providers remain explicitly
-  unsupported. Store schema 2, the management CLI and the current-target
+  owns first installation. Linux remains explicitly unsupported. Store schema
+  3, the management CLI and the current-target
   executor now consume this verified binding; remote tiers still have no
   verified provider or delegation path.
 - [x] The staged Windows x86_64 `cu-windows-smoke` proves an observe-only

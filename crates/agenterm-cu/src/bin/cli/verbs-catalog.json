@@ -4943,7 +4943,7 @@
       "grant": "none",
       "family": "host",
       "summary": "create / list / revoke bounded persisted grants",
-      "usage": "grant create --target current --scopes S --ttl-ms N (--one-shot|--max-uses N) [--grant-store PATH]\ngrant list [--grant-store PATH]\ngrant revoke --grant-id ID [--grant-store PATH]",
+      "usage": "grant create --target current --scopes S --operations OP[,OP...] --ttl-ms N (--one-shot|--max-uses N) [--grant-store PATH]\ngrant list [--grant-store PATH]\ngrant revoke --grant-id ID [--grant-store PATH]",
       "args": [
         {
           "flag": "--scopes",
@@ -5743,7 +5743,7 @@
     },
     {
       "name": "grant",
-      "text": "agenterm-cu grant\n  scope: none       family: Grants, host & help\n\nusage:\n  agenterm-cu grant create --target current --scopes S --ttl-ms N (--one-shot|--max-uses N) [--grant-store PATH]\n  agenterm-cu grant list [--grant-store PATH]\n  agenterm-cu grant revoke --grant-id ID [--grant-store PATH]\n\narguments:\n  --scopes S                    observe, actuate or observe,actuate\n  --ttl-ms N                    lifetime\n  --one-shot                    single use\n  --max-uses N                  bounded use count\n  --grant-store PATH            explicit store (test / admin seam)\n\nGrant management is local/current only. It refuses ambient\nAGENTERM_CU_GRANT* and AGENTERM_CU_AUTH* selectors; --grant-store is an\nexplicit test/admin seam. A created grant is selected on later commands\nwith --grant-id ID, which is mutually exclusive with --grant and the\nenvironment.\n"
+      "text": "agenterm-cu grant\n  scope: none       family: Grants, host & help\n\nusage:\n  agenterm-cu grant create --target current --scopes S --operations OP[,OP...] --ttl-ms N (--one-shot|--max-uses N) [--grant-store PATH]\n  agenterm-cu grant list [--grant-store PATH]\n  agenterm-cu grant revoke --grant-id ID [--grant-store PATH]\n\narguments:\n  --scopes S                    observe, actuate or observe,actuate\n  --operations OP[,OP...]       exact canonical operations this grant may invoke\n  --ttl-ms N                    lifetime\n  --one-shot                    single use\n  --max-uses N                  bounded use count\n  --grant-store PATH            explicit store (test / admin seam)\n\nGrant management is local/current only. It refuses ambient\nAGENTERM_CU_GRANT* and AGENTERM_CU_AUTH* selectors; --grant-store is an\nexplicit test/admin seam. A created grant is selected on later commands\nwith --grant-id ID, which is mutually exclusive with --grant and the\nenvironment. Operations are frozen in the grant; a later command cannot\ninherit authority merely because it uses the same observe/actuate scope.\nSchema-2 grants remain listable and revocable but fail closed as\noperation_unbound when used.\n"
     },
     {
       "name": "host",

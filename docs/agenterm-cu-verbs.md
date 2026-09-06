@@ -4912,7 +4912,7 @@ command's own target and scope apply; grant sources never union.
 ### `grant`
 
 ```text
-grant create --target current --scopes S --ttl-ms N (--one-shot|--max-uses N) [--grant-store PATH]
+grant create --target current --scopes S --operations OP[,OP...] --ttl-ms N (--one-shot|--max-uses N) [--grant-store PATH]
 grant list [--grant-store PATH]
 grant revoke --grant-id ID [--grant-store PATH]
 ```
@@ -4922,12 +4922,13 @@ agenterm-cu grant
   scope: none       family: Grants, host & help
 
 usage:
-  agenterm-cu grant create --target current --scopes S --ttl-ms N (--one-shot|--max-uses N) [--grant-store PATH]
+  agenterm-cu grant create --target current --scopes S --operations OP[,OP...] --ttl-ms N (--one-shot|--max-uses N) [--grant-store PATH]
   agenterm-cu grant list [--grant-store PATH]
   agenterm-cu grant revoke --grant-id ID [--grant-store PATH]
 
 arguments:
   --scopes S                    observe, actuate or observe,actuate
+  --operations OP[,OP...]       exact canonical operations this grant may invoke
   --ttl-ms N                    lifetime
   --one-shot                    single use
   --max-uses N                  bounded use count
@@ -4937,7 +4938,10 @@ Grant management is local/current only. It refuses ambient
 AGENTERM_CU_GRANT* and AGENTERM_CU_AUTH* selectors; --grant-store is an
 explicit test/admin seam. A created grant is selected on later commands
 with --grant-id ID, which is mutually exclusive with --grant and the
-environment.
+environment. Operations are frozen in the grant; a later command cannot
+inherit authority merely because it uses the same observe/actuate scope.
+Schema-2 grants remain listable and revocable but fail closed as
+operation_unbound when used.
 ```
 
 ### `host`

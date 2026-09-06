@@ -366,9 +366,14 @@ headless profile under `mktemp` that is removed on exit.
   `AGENTERM_CU_GRANT`, sources never union, `current` is not exempt. Missing
   grant -> `refused` (distinct from `unsupported` and mechanism failures).
 - Bounded persisted grants: `agenterm-cu grant create --target current
-  --scopes S --ttl-ms N (--one-shot|--max-uses N)`, `grant list`,
+  --scopes S --operations OP[,OP...] --ttl-ms N
+  (--one-shot|--max-uses N)`, `grant list`,
   `grant revoke --grant-id ID`; run with `--grant-id ID` (exclusive with every
-  other auth source). Local / `current` only; SSH / VNC do not forward it.
+  other auth source). Use `help grant` for the canonical operation contract.
+  Operations are frozen per grant, so a future command cannot inherit an old
+  scope merely by sharing `observe` or `actuate`. Schema-2 grants remain
+  listable/revocable but execute fail-closed as `operation_unbound`. Local /
+  `current` only; SSH / VNC do not forward it.
 - Every authorized actuation appends to the JSONL audit log
   (`AGENTERM_CU_AUDIT_PATH`, default `~/.local/share/agenterm/cu-audit.jsonl`);
   if it cannot be written, nothing executes. Clipboard text never enters it.

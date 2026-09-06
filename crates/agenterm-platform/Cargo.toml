@@ -115,6 +115,7 @@ user-identity = [
 current-target-binding = [
     "entropy",
     "filesystem",
+    "login-session",
     "locking",
     "user-identity",
     "dep:sha2",

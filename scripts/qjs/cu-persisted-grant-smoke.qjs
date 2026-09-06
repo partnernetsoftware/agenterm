@@ -1,0 +1,133 @@
+// Public black-box contract for operation-bound persisted authority.
+// Args: REPO AGENTERM_CU_EXE
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.persisted-grant-operation-binding.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function run(executable, directory, args) {
+  return rh.command(executable, args, {
+    cwd: directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(directory, "cu-audit.jsonl"),
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 30000
+  });
+}
+
+function reply(output, label) {
+  ensure(output.stdout.trim() !== "", label + "_empty_reply");
+  return JSON.parse(output.stdout.trim());
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print(declared_evidence[0]);
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_persisted_grant_executable_missing");
+
+const context = harness.new_context(repo, "cu-persisted-grant");
+const store = rh.join(context.run_directory, "grants.json");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP create one bounded grant for one canonical operation");
+  const created_output = run(executable, context.run_directory, [
+    "grant", "create", "--target", "current", "--scopes", "observe",
+    "--operations", "capabilities", "--ttl-ms", "60000", "--max-uses", "2",
+    "--grant-store", store
+  ]);
+  const created = reply(created_output, "cu_persisted_grant_create");
+  ensure(created_output.success === true && created.ok === true, "cu_persisted_grant_create_failed");
+  const grant = created.data.grant;
+  ensure(grant.legacy_operation_unbound === false, "cu_persisted_grant_legacy_marker");
+  ensure(grant.operations.length === 1 && grant.operations[0] === "capabilities", "cu_persisted_grant_operation");
+  ensure(grant.consumed_uses === 0 && grant.remaining_uses === 2, "cu_persisted_grant_initial_budget");
+
+  print("STEP same-scope wrong operation fails without consuming authority");
+  const wrong_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant-id", grant.grant_id, "--grant-store", store,
+    "doctor"
+  ]);
+  const wrong = reply(wrong_output, "cu_persisted_grant_wrong_operation");
+  ensure(wrong_output.success !== true && wrong.ok === false, "cu_persisted_grant_wrong_false_success");
+  ensure(wrong.error.code === "refused", "cu_persisted_grant_wrong_error_kind");
+  ensure(wrong.error.message.indexOf("operation_mismatch") >= 0, "cu_persisted_grant_wrong_error_reason");
+
+  const unchanged_output = run(executable, context.run_directory, [
+    "grant", "list", "--grant-store", store
+  ]);
+  const unchanged = reply(unchanged_output, "cu_persisted_grant_list_before");
+  ensure(unchanged_output.success === true && unchanged.ok === true, "cu_persisted_grant_list_before_failed");
+  ensure(unchanged.data.grants.length === 1, "cu_persisted_grant_list_before_count");
+  ensure(unchanged.data.grants[0].consumed_uses === 0, "cu_persisted_grant_wrong_consumed");
+
+  print("STEP intended operation consumes exactly once");
+  const intended_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant-id", grant.grant_id, "--grant-store", store,
+    "capabilities"
+  ]);
+  const intended = reply(intended_output, "cu_persisted_grant_intended");
+  ensure(intended_output.success === true && intended.ok === true, "cu_persisted_grant_intended_failed");
+  ensure(intended.command === "capabilities", "cu_persisted_grant_intended_command");
+
+  const consumed_output = run(executable, context.run_directory, [
+    "grant", "list", "--grant-store", store
+  ]);
+  const consumed = reply(consumed_output, "cu_persisted_grant_list_after");
+  ensure(consumed.data.grants[0].consumed_uses === 1, "cu_persisted_grant_intended_consumption");
+  ensure(consumed.data.grants[0].remaining_uses === 1, "cu_persisted_grant_remaining_budget");
+
+  print("STEP revocation is durable and does not spend the remaining use");
+  const revoked_output = run(executable, context.run_directory, [
+    "grant", "revoke", "--grant-id", grant.grant_id, "--grant-store", store
+  ]);
+  const revoked = reply(revoked_output, "cu_persisted_grant_revoke");
+  ensure(revoked_output.success === true && revoked.ok === true, "cu_persisted_grant_revoke_failed");
+  ensure(revoked.data.grant.revoked === true, "cu_persisted_grant_revoke_state");
+
+  const after_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant-id", grant.grant_id, "--grant-store", store,
+    "capabilities"
+  ]);
+  const after = reply(after_output, "cu_persisted_grant_after_revoke");
+  ensure(after_output.success !== true && after.ok === false, "cu_persisted_grant_revoked_false_success");
+  ensure(after.error.message.indexOf("revoked") >= 0, "cu_persisted_grant_revoked_reason");
+
+  const final_output = run(executable, context.run_directory, [
+    "grant", "list", "--grant-store", store
+  ]);
+  const final_reply = reply(final_output, "cu_persisted_grant_final_list");
+  ensure(final_reply.data.grants[0].consumed_uses === 1, "cu_persisted_grant_revoked_consumed");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: persisted grants bind exact operations, preserve budgets on refusal, and revoke durably");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

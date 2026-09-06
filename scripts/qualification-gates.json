@@ -364,6 +364,10 @@
       "evidence": ["cu.privilege-plan"]
     },
     {
+      "id": "cu-persisted-grant-smoke",
+      "evidence": ["cu.persisted-grant-operation-binding.macos"]
+    },
+    {
       "id": "cu-simulator-readonly-smoke",
       "evidence": ["cu.simulator-readonly"]
     },
