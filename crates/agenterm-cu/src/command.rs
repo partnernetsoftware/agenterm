@@ -1651,6 +1651,49 @@ pub enum Command {
         condition: TerminalWaitCondition,
         timeout_ms: u64,
     },
+    /// Read one exact external terminal window through its accessibility
+    /// text buffer. A desktop window identity is not an AgenTerm `@tab`.
+    TermRead {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tail: Option<usize>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        raw: bool,
+        #[serde(default = "default_term_max_bytes")]
+        max_bytes: usize,
+    },
+    /// Send to one exact external terminal. Background delivery must be
+    /// independently observed; `foreground` explicitly permits a bounded
+    /// activate, inject and previous-focus restore transaction.
+    TermSend {
+        target: TargetRef,
+        window: isize,
+        text: String,
+        /// Independent postcondition. When absent, the literal text itself
+        /// must newly appear in the selected terminal buffer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+        #[serde(default = "default_term_enter")]
+        enter: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        foreground: bool,
+        #[serde(default = "default_term_send_timeout_ms")]
+        verify_timeout_ms: u64,
+    },
+    /// Wait for a regular-expression match in one exact external terminal.
+    /// Timeout diagnostics carry hashes and lengths, never terminal content.
+    TermWait {
+        target: TargetRef,
+        window: isize,
+        pattern: String,
+        #[serde(default = "default_term_wait_timeout_ms")]
+        timeout_ms: u64,
+        #[serde(default = "default_term_wait_interval_ms")]
+        interval_ms: u64,
+        #[serde(default = "default_term_max_bytes")]
+        max_bytes: usize,
+    },
     /// Bounded control-tree observation. `depth` (root = 0) and `max_nodes`
     /// apply while the platform adapter walks the backend; the reply reports
     /// `truncated` / `visited` / `returned`. `flat` lists the same nodes in
@@ -3072,6 +3115,26 @@ fn default_clicks() -> u32 {
     1
 }
 
+fn default_term_max_bytes() -> usize {
+    1_048_576
+}
+
+fn default_term_enter() -> bool {
+    true
+}
+
+fn default_term_send_timeout_ms() -> u64 {
+    2_000
+}
+
+fn default_term_wait_timeout_ms() -> u64 {
+    30_000
+}
+
+fn default_term_wait_interval_ms() -> u64 {
+    100
+}
+
 fn is_zero_u64(value: &u64) -> bool {
     *value == 0
 }
@@ -3201,6 +3264,9 @@ impl Command {
             Self::TerminalOutput { .. } => "terminal-output".into(),
             Self::TerminalSend { .. } => "terminal-send".into(),
             Self::TerminalWait { .. } => "terminal-wait".into(),
+            Self::TermRead { .. } => "term-read".into(),
+            Self::TermSend { .. } => "term-send".into(),
+            Self::TermWait { .. } => "term-wait".into(),
             Self::Tree { .. } => "tree".into(),
             Self::DesktopState { .. } => "desktop-state".into(),
             Self::Query { .. } => "query".into(),
@@ -3379,6 +3445,9 @@ impl Command {
             | Self::TerminalOutput { target, .. }
             | Self::TerminalSend { target, .. }
             | Self::TerminalWait { target, .. }
+            | Self::TermRead { target, .. }
+            | Self::TermSend { target, .. }
+            | Self::TermWait { target, .. }
             | Self::Tree { target, .. }
             | Self::DesktopState { target, .. }
             | Self::Query { target, .. }
@@ -3527,6 +3596,7 @@ impl Command {
             | Self::TerminalSend { .. }
             | Self::TerminalNew { .. }
             | Self::TerminalClose { .. }
+            | Self::TermSend { .. }
             | Self::Invoke { .. }
             | Self::MenuInvoke { .. }
             | Self::Click { .. }
@@ -3864,6 +3934,60 @@ impl Command {
                 validate_simulator_timeout_ms(*timeout_ms)?;
                 if !expect_accepted {
                     return Err("simulator app lifecycle requires expect_accepted=true");
+                }
+                Ok(())
+            }
+            Self::TermRead {
+                window,
+                tail,
+                max_bytes,
+                ..
+            } => {
+                if *window == 0
+                    || tail.is_some_and(|value| !(1..=100_000).contains(&value))
+                    || !(1..=1_048_576).contains(max_bytes)
+                {
+                    return Err("term-read fields are outside their bounded contract");
+                }
+                Ok(())
+            }
+            Self::TermSend {
+                window,
+                text,
+                expect,
+                enter,
+                verify_timeout_ms,
+                ..
+            } => {
+                if *window == 0
+                    || (text.is_empty() && !enter)
+                    || (text.is_empty() && expect.is_none())
+                    || text.len() > 65_536
+                    || expect
+                        .as_ref()
+                        .is_some_and(|pattern| pattern.is_empty() || pattern.len() > 4_096)
+                    || !(1..=30_000).contains(verify_timeout_ms)
+                {
+                    return Err("term-send fields are outside their bounded contract");
+                }
+                Ok(())
+            }
+            Self::TermWait {
+                window,
+                pattern,
+                timeout_ms,
+                interval_ms,
+                max_bytes,
+                ..
+            } => {
+                if *window == 0
+                    || pattern.is_empty()
+                    || pattern.len() > 4_096
+                    || !(1..=86_400_000).contains(timeout_ms)
+                    || !(10..=10_000).contains(interval_ms)
+                    || !(1..=1_048_576).contains(max_bytes)
+                {
+                    return Err("term-wait fields are outside their bounded contract");
                 }
                 Ok(())
             }

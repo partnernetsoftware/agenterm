@@ -215,8 +215,8 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **5 reachable top-level `STAY` spellings**: power,
-login-session, audio, service and external-terminal adoption. Family routers
+`acu.ts` now has **4 reachable top-level `STAY` spellings**: login-session,
+audio, service and external-terminal adoption. Family routers
 still report their argument-sensitive gaps dynamically; they are not hidden in
 the static count. Native
 `setup --check|apply` and its `path-install` alias removed launcher filesystem
@@ -584,7 +584,11 @@ Q2 fast delegated facades
 │  └─ [~] setup runtime refresh: stable admission fence; exact managed-job owner survives locally; device-claim inventory and six-cell execution pending
 ├─ [~] open/notify/state and terminal adoption
 │  ├─ [x] open/notify → typed host adapters; macOS public courts green, Linux/Windows pending
-│  └─ [x] state → bounded native desktop-state; terminal adoption remains separate
+│  ├─ [x] state → bounded native desktop-state
+│  └─ [~] external terminal exact-window adoption
+│     ├─ [x] macOS read/wait + background/no-activate refusal public qjswasm evidence
+│     ├─ [ ] Linux/Windows terminal-like fixture evidence
+│     └─ [ ] explicit foreground send visible court; retirement marker remains until this is green
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
    ├─ [~] rich ps: composable command/resource filters + sampled CPU + pid tree/file/socket detail
@@ -735,7 +739,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 131 ledger capabilities
-currently include 13 `gap` and 54 `platform-limited` rows. The compatibility
+currently include 12 `gap` and 54 `platform-limited` rows. The compatibility
 adapter reports only the four top-level spellings that can actually reach the
 MCU fallback; its argument-sensitive corpus
 is still incomplete. The Candidate workflow now includes

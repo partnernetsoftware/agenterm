@@ -90,6 +90,7 @@ const declared_evidence = [
   "cu.macos-ax-window-state",
   "cu.macos-ax-raise",
   "cu.macos-terminal-control",
+  "cu.macos-external-terminal-observe",
   "cu.macos-ax-fixture-cleanup"
 ];
 
@@ -558,8 +559,10 @@ try {
       // The report says the grant gates the verb and where to fix it; it
       // does not claim to know whether it is held, because the capture API
       // reports "no permission" and "window is gone" identically.
-      && text_at(capabilities, "data.permissions.screen_recording.grant.status") === "required"
-      && text_at(capabilities, "data.permissions.screen_recording.grant.repair") !== ""
+      && (text_at(capabilities, "data.permissions.screen_recording.grant.status") === "required"
+        || text_at(capabilities, "data.permissions.screen_recording.grant.status") === "granted")
+      && (text_at(capabilities, "data.permissions.screen_recording.grant.status") === "granted"
+        || text_at(capabilities, "data.permissions.screen_recording.grant.repair") !== "")
       && text_at(capabilities, "data.verbs.screenshot.status") === "available",
     "cu_macos_smoke_permissions:" + JSON.stringify(capabilities.data.permissions)
   );
@@ -1005,6 +1008,75 @@ try {
     }
   }
   ensure(seeded_text_matches === 1, "cu_macos_smoke_query_seeded_text:" + JSON.stringify(by_role.data.nodes));
+
+  print("STEP external-terminal read/wait binds the native window and never invents background input");
+  const term_read = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "term-read", handle_text,
+      "--tail", "1", "--max-bytes", "5"]
+  );
+  ensure(
+    text_at(term_read, "data.addressing") === "exact-desktop-window"
+      && text_at(term_read, "data.backend") === "ax"
+      && int_at(term_read, "data.window_identity.handle") === fixture_handle
+      && int_at(term_read, "data.window_identity.pid") === fixture_pid
+      && text_at(term_read, "data.window_identity.start_identity") === process_identity
+      && text_at(term_read, "data.node") === text_area_id
+      && text_at(term_read, "data.text") === "XTREE"
+      && flag_at(term_read, "data.truncated_head")
+      && flag_at(term_read, "data.source_complete")
+      && text_at(term_read, "data.tail_scope") === "complete-buffer",
+    "cu_macos_external_terminal_read:" + JSON.stringify(term_read.data)
+  );
+  const term_wait = run_cu_json(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "term-wait", handle_text,
+      "345AXTREE", "--timeout-ms", "500", "--interval-ms", "20"]
+  );
+  ensure(
+    text_at(term_wait, "data.matched") === "345AXTREE"
+      && text_at(term_wait, "data.node") === text_area_id
+      && int_at(term_wait, "data.window_identity.handle") === fixture_handle,
+    "cu_macos_external_terminal_wait:" + JSON.stringify(term_wait.data)
+  );
+  const invalid_term_pattern = run_cu_reply(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "observe", "term-wait", handle_text,
+      "private([", "--timeout-ms", "10", "--interval-ms", "10"]
+  );
+  ensure(
+    !flag_at(invalid_term_pattern, "ok")
+      && text_at(invalid_term_pattern, "error.code") === "terminal_pattern_invalid"
+      && !JSON.stringify(invalid_term_pattern).includes("private(["),
+    "cu_macos_external_terminal_pattern_redaction:" + JSON.stringify(invalid_term_pattern)
+  );
+  const background_term_send = run_cu_reply(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "actuate", "term-send", handle_text,
+      "--", "private-terminal-input"]
+  );
+  ensure(
+    !flag_at(background_term_send, "ok")
+      && text_at(background_term_send, "error.code") === "terminal_background_input_unavailable"
+      && !JSON.stringify(background_term_send).includes("private-terminal-input"),
+    "cu_macos_external_terminal_background_refusal:" + JSON.stringify(background_term_send)
+  );
+  const forbidden_term_send = run_cu_reply(
+    run_directory,
+    executable,
+    ["--target", "current", "--grant", "actuate", "term-send", handle_text,
+      "--foreground", "--", "private-terminal-input"]
+  );
+  ensure(
+    !flag_at(forbidden_term_send, "ok")
+      && text_at(forbidden_term_send, "error.code") === "terminal_foreground_forbidden"
+      && !JSON.stringify(forbidden_term_send).includes("private-terminal-input"),
+    "cu_macos_external_terminal_foreground_refusal:" + JSON.stringify(forbidden_term_send)
+  );
   const by_identifier = run_cu_json(
     run_directory,
     executable,
@@ -3171,6 +3243,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-hit-zoom");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-window-state");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-raise");
 harness.emit_evidence(context, declared_evidence, "cu.macos-terminal-control");
+harness.emit_evidence(context, declared_evidence, "cu.macos-external-terminal-observe");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-fixture-cleanup");
 harness.remove_run(context);
 print("PASS: agenterm-cu macOS AX + terminal-control journey (capabilities, windows, query, bounded tree, invoke, verify, menu, focused, observe, click, frame, snapshot/diff, hit/zoom, raise, minimize/restore, terminal list/read/send/wait, close, receipts)");

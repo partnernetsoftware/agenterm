@@ -703,6 +703,38 @@ impl Executor {
                 timeout_ms,
                 ..
             } => terminal_wait_payload(tab, condition, *timeout_ms),
+            Command::TermRead {
+                window,
+                tail,
+                raw,
+                max_bytes,
+                ..
+            } => term_read_payload(*window, *tail, *raw, *max_bytes),
+            Command::TermSend {
+                window,
+                text,
+                expect,
+                enter,
+                foreground,
+                verify_timeout_ms,
+                ..
+            } => term_send_payload(
+                *window,
+                text,
+                expect.as_deref(),
+                *enter,
+                *foreground,
+                *verify_timeout_ms,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::TermWait {
+                window,
+                pattern,
+                timeout_ms,
+                interval_ms,
+                max_bytes,
+                ..
+            } => term_wait_payload(*window, pattern, *timeout_ms, *interval_ms, *max_bytes),
             Command::Tree {
                 window,
                 depth,

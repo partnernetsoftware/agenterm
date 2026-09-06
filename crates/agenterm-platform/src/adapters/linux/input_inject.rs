@@ -153,7 +153,19 @@ fn keysym_for_token(token: &str) -> Option<u32> {
         "f10" => Some(0xffc7),
         "f11" => Some(0xffc8),
         "f12" => Some(0xffc9),
-        _ => token.chars().next().map(|ch| u32::from(ch as u8)),
+        _ => token.chars().next().map(keysym_for_char),
+    }
+}
+
+fn keysym_for_char(ch: char) -> u32 {
+    let scalar = u32::from(ch);
+    if scalar <= 0xff {
+        scalar
+    } else {
+        // X11's conventional Unicode keysym encoding. The key-map lookup
+        // below still refuses characters the active layout cannot produce;
+        // it must never truncate a Unicode scalar to an unrelated byte.
+        0x0100_0000 | scalar
     }
 }
 
@@ -277,7 +289,7 @@ pub(crate) fn pointer_drag(
 pub(crate) fn type_text(text: &str) -> Result<(), InputInjectError> {
     let context = connect()?;
     for ch in text.chars() {
-        let keysym = u32::from(ch as u8);
+        let keysym = keysym_for_char(ch);
         let keycode = keycode(&context, keysym)?;
         press_key(&context, keycode)?;
         release_key(&context, keycode)?;
@@ -327,5 +339,8 @@ mod tests {
         assert_eq!(keysym_for_token("enter"), Some(0xff0d));
         assert_eq!(modifier_keysym("ctrl"), Some(0xffe3));
         assert_eq!(keysym_for_token("a"), Some(b'a'.into()));
+        assert_eq!(keysym_for_token("é"), Some(0x00e9));
+        assert_eq!(keysym_for_token("中"), Some(0x0100_4e2d));
+        assert_ne!(keysym_for_token("中"), Some(0x2d));
     }
 }

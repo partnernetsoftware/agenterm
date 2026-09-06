@@ -144,6 +144,9 @@ pub const GROUPS: &[Group] = &[
             "terminal-read",
             "terminal-send",
             "terminal-wait",
+            "term-read",
+            "term-send",
+            "term-wait",
             "pty-start",
             "pty-list",
             "pty-prune",
@@ -202,7 +205,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "runtime",
-        verbs: &["daemon", "audit", "session", "lock", "service", "term"],
+        verbs: &["daemon", "audit", "session", "lock", "service"],
     },
     Group {
         id: "desktop-helper",
@@ -251,7 +254,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "open",
     "notify",
     "service",
-    "term",
 ];
 
 pub fn is_align_verb(verb: &str) -> bool {
@@ -289,7 +291,7 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "network" => {
             "network interfaces, routes and probe are live; DNS inventory/sockets remain typed gaps"
         }
-        "service" | "term" => {
+        "service" => {
             "ACU migration gap: delegate through the AgenTerm runtime facade; typed refuse"
         }
         _ => group_status(group_id_for_verb(verb), host_os()).1,
@@ -427,7 +429,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "runtime" => (
             "available",
-            "runtime-status truthfully reports the on-demand coordinator and per-resource owners; session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; global daemon lifecycle is not applicable, while service/term remain typed gaps",
+            "runtime-status truthfully reports the on-demand coordinator and per-resource owners; session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; exact-window external terminal read/send/wait is live; global daemon lifecycle is not applicable, while service remains a typed gap",
         ),
         "desktop-helper" => (
             "unsupported",

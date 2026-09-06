@@ -608,6 +608,52 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             );
         }
         for (verb, grant, mode) in [
+            ("term-read", "observe", "exact-window-accessibility-buffer"),
+            ("term-wait", "observe", "bounded-regex-buffer-wait"),
+        ] {
+            verbs.insert(
+                verb.into(),
+                capability_verb(
+                    mechanism::Capability::AccessibilityTree,
+                    serde_json::json!({
+                        "group": "external-terminal",
+                        "grant": grant,
+                        "mode": mode,
+                        "transport": "libagenterm-accessibility",
+                        "input": "none",
+                        "background_literal_text": "not-applicable",
+                        "requires_running_agenterm": false,
+                        "window_identity": "native-handle+owner-pid+process-start+app",
+                    }),
+                ),
+            );
+        }
+        let mut term_send =
+            if tree_verb.get("status").and_then(serde_json::Value::as_str) == Some("available") {
+                capability_verb(mechanism::Capability::InputInject, serde_json::json!({}))
+            } else {
+                tree_verb.clone()
+            };
+        if let Some(object) = term_send.as_object_mut() {
+            object.extend(
+                serde_json::json!({
+                    "group": "external-terminal",
+                    "grant": "actuate",
+                    "mode": "explicit-foreground-node-focus-input-restore",
+                    "transport": "libagenterm-accessibility+input-inject",
+                    "background_literal_text": "unavailable",
+                    "requires": ["--foreground", "accessibility-tree", "input-inject"],
+                    "forbidden_when": "AGENTERM_NO_ACTIVATE",
+                    "requires_running_agenterm": false,
+                    "window_identity": "native-handle+owner-pid+process-start+app",
+                })
+                .as_object()
+                .expect("static object")
+                .clone(),
+            );
+        }
+        verbs.insert("term-send".into(), term_send);
+        for (verb, grant, mode) in [
             ("pty-start", "actuate", "isolated-headless-job-start"),
             (
                 "pty-list",
@@ -805,6 +851,7 @@ pub(super) fn permissions_declaration() -> serde_json::Value {
                     "send-text", "send-keys", "scroll", "get-extents", "select",
                     "get-selection", "set-caret", "get-caret", "get-text",
                     "close", "unlock", "pointer-move", "pointer-position",
+                    "term-read", "term-send", "term-wait",
                 ],
             },
             "screen_recording": {

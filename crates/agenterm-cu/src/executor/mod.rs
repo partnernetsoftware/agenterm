@@ -57,6 +57,7 @@ mod device_inventory;
 mod device_leases;
 mod dispatch;
 mod errors;
+mod external_terminal;
 mod files;
 mod host_notification;
 mod host_open;
@@ -106,6 +107,7 @@ use device_capture::*;
 use device_inventory::*;
 use device_leases::*;
 use errors::*;
+use external_terminal::*;
 use files::*;
 use host_notification::*;
 use host_open::*;
@@ -578,7 +580,10 @@ impl Executor {
         if reply.error.as_ref().is_some_and(|error| {
             matches!(
                 error.code.as_str(),
-                "managed_job_outcome_unknown" | "device_owner_outcome_unknown"
+                "managed_job_outcome_unknown"
+                    | "device_owner_outcome_unknown"
+                    | "terminal_input_outcome_unknown"
+                    | "terminal_input_unverified"
             )
         }) {
             let _ = store.mark_outcome_unknown(

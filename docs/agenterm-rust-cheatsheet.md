@@ -4079,6 +4079,29 @@ end in the explicit handle list—the parent writer must stay non-inheritable—
 EOF can never arrive. Stop and expiry terminate/reap containment first, then
 join the writer and both output drains.
 
+## External terminal input is an attributed foreground transaction
+
+An accessibility window handle is not an AgenTerm scope/epoch/tab identity.
+Bind an adopted terminal to the native handle, owner pid, process-start
+identity and one unambiguous showing text buffer, then revalidate that tuple
+around every tree read. A backend with a bounded text provider but no
+completeness bit may prove a match; it cannot prove absence, so timeout is
+inconclusive rather than an authoritative no-match.
+
+Global keyboard injection is not background delivery merely because an API
+accepts a process or window hint. Without a measured target-local literal-text
+provider, refuse the background shape before effect. An explicitly requested
+foreground path must activate the exact window, focus and read back the exact
+buffer node, revalidate the process generation, inject, restore the previous
+focus, and require a newly satisfied caller-visible postcondition on that same
+buffer. Mark the receipt uncertain before crossing an injector that can
+partially deliver. If injection, read-back, node identity or focus restoration
+cannot be proved afterward, preserve the reserved receipt and report an
+unknown outcome instead of false success or safe retry. Diagnostics and
+receipts retain only input/content/pattern lengths and digests. On X11, encode
+non-Latin Unicode keysyms with the conventional `0x01000000 | scalar` form;
+never truncate a scalar to `u8` and type an unrelated character.
+
 ## Cap parked diagnostics on every host return shape
 
 A host operation returning `i32` can still park an arbitrarily long diagnostic

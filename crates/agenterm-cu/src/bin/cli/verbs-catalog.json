@@ -1341,6 +1341,54 @@
       ]
     },
     {
+      "name": "term-read",
+      "command": "term-read",
+      "aliases": ["term read"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "read one exact external terminal window's bounded accessibility buffer",
+      "usage": "term-read WINDOW [--tail N] [--raw] [--max-bytes N]\nterm read WINDOW [options]",
+      "args": [
+        {"flag": "WINDOW", "value": "HANDLE", "help": "exact non-zero handle from windows; not an AgenTerm @tab"},
+        {"flag": "--tail", "value": "N", "help": "return the last 1..=100000 non-padding lines"},
+        {"flag": "--raw", "value": "", "help": "retain terminal viewport padding lines"},
+        {"flag": "--max-bytes", "value": "N", "help": "UTF-8 response ceiling, 1..=1048576 (default 1048576)"}
+      ]
+    },
+    {
+      "name": "term-send",
+      "command": "term-send",
+      "aliases": ["term send"],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "send to one exact external terminal with independent buffer verification",
+      "usage": "term-send WINDOW [--enter true|false] [--foreground] [--expect REGEX] [--verify-timeout-ms N] -- TEXT\nterm send WINDOW [options] -- TEXT",
+      "args": [
+        {"flag": "WINDOW", "value": "HANDLE", "help": "exact non-zero handle from windows; identity is revalidated"},
+        {"flag": "--enter", "value": "true|false", "help": "send Enter after text (default true)"},
+        {"flag": "--foreground", "value": "", "help": "explicitly permit bounded activate, inject and previous-focus restore when background delivery is unavailable"},
+        {"flag": "--expect", "value": "REGEX", "help": "independent new buffer postcondition; defaults to the escaped literal TEXT"},
+        {"flag": "--verify-timeout-ms", "value": "N", "help": "postcondition deadline, 1..=30000 (default 2000)"},
+        {"flag": "--", "value": "TEXT", "help": "one literal UTF-8 argument, at most 65536 bytes"}
+      ]
+    },
+    {
+      "name": "term-wait",
+      "command": "term-wait",
+      "aliases": ["term wait"],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "wait for a regex in one exact external terminal without leaking timeout content",
+      "usage": "term-wait WINDOW PATTERN [--timeout-ms N] [--interval-ms N] [--max-bytes N]\nterm wait WINDOW PATTERN [options]",
+      "args": [
+        {"flag": "WINDOW", "value": "HANDLE", "help": "exact non-zero handle from windows; identity is revalidated per poll"},
+        {"flag": "PATTERN", "value": "REGEX", "help": "Rust regex, 1..=4096 UTF-8 bytes"},
+        {"flag": "--timeout-ms", "value": "N", "help": "monotonic deadline, 1..=86400000 (default 30000); --timeout S is the MCU alias"},
+        {"flag": "--interval-ms", "value": "N", "help": "poll interval, 10..=10000 (default 100); --interval S is the MCU alias"},
+        {"flag": "--max-bytes", "value": "N", "help": "matched-text response ceiling, 1..=1048576"}
+      ]
+    },
+    {
       "name": "terminal-list",
       "command": "terminal-list",
       "aliases": [
@@ -5112,6 +5160,18 @@
     {
       "name": "pty-stop",
       "text": "agenterm-cu pty-stop    (also: pty stop)\n  scope: actuate    family: Headless PTY jobs\n\nusage:\n  pty-stop NAME --expect stopped\n  pty stop NAME --expect stopped\n\nRequires the explicit destructive postcondition, closes the exact epoch-scoped job tab through AgenTerm's own lifecycle, asks the now-empty authority to shut down, and verifies that its IPC endpoint disappears.\n"
+    },
+    {
+      "name": "term-read",
+      "text": "agenterm-cu term-read    (also: term read)\n  scope: observe    family: External terminals\n\nusage:\n  term-read WINDOW [--tail N] [--raw] [--max-bytes N]\n  term read WINDOW [options]\n\nReads the longest showing TextArea/ScrollArea accessibility buffer in one exact desktop window. The native handle, owner pid and application are revalidated around the bounded tree walk. Padding lines are removed unless --raw; --tail selects recent lines and --max-bytes bounds returned UTF-8. This identity is not an AgenTerm @tab.\n"
+    },
+    {
+      "name": "term-send",
+      "text": "agenterm-cu term-send    (also: term send)\n  scope: actuate    family: External terminals\n\nusage:\n  term-send WINDOW [--enter true|false] --foreground [--expect REGEX] [--verify-timeout-ms N] -- TEXT\n  term send WINDOW [options] -- TEXT\n\nBinds one exact desktop window, process-start identity and terminal text node. No host currently claims a proven background literal-text route, so omission of --foreground fails before any receipt or input. The explicit transaction activates and verifies the exact window, focuses and verifies the selected node, reserves before input, restores prior focus, and requires a newly satisfied postcondition. By default that postcondition is escaped literal TEXT; --expect supplies a bounded regex. Inputs and expectations are persisted only as lengths and SHA-256. Any possibly dispatched but unattributed input remains outcome_unknown and must not be replayed blindly. AGENTERM_NO_ACTIVATE refuses this route before actuation.\n"
+    },
+    {
+      "name": "term-wait",
+      "text": "agenterm-cu term-wait    (also: term wait)\n  scope: observe    family: External terminals\n\nusage:\n  term-wait WINDOW PATTERN [--timeout-ms N] [--interval-ms N] [--max-bytes N]\n  term wait WINDOW PATTERN [options]\n\nPolls the independently read exact-window terminal buffer against one bounded Rust regular expression. Every poll revalidates handle plus owner identity. Success returns only the bounded match. Timeout returns lengths and SHA-256 digests but no terminal contents, avoiding MCU's five-line content leak. --timeout S and --interval S remain compatibility aliases.\n"
     },
     {
       "name": "terminal-list",

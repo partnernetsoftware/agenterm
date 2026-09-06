@@ -10,7 +10,7 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
-    if spelled == "terminal" || spelled == "pty" {
+    if spelled == "terminal" || spelled == "pty" || spelled == "term" {
         let group = spelled;
         let expected = spec
             .aliases
@@ -23,6 +23,118 @@ pub fn parse(
         args.remove(0);
     }
     match spec.name {
+        "term-read" => {
+            let window = required_window(args, "term read")?;
+            let tail = flag_parsed::<usize>(args, "--tail")?;
+            if tail.is_some_and(|value| !(1..=100_000).contains(&value)) {
+                return Err("term read --tail must be in 1..=100000".into());
+            }
+            let raw = take_switch(args, "--raw");
+            let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?.unwrap_or(1_048_576);
+            if !(1..=1_048_576).contains(&max_bytes) {
+                return Err("term read --max-bytes must be in 1..=1048576".into());
+            }
+            empty(args, "term-read")?;
+            Ok(Command::TermRead {
+                target,
+                window,
+                tail,
+                raw,
+                max_bytes,
+            })
+        }
+        "term-send" => {
+            let window = required_window(args, "term send")?;
+            let foreground = take_switch(args, "--foreground");
+            let expect = flag_text(args, "--expect")?;
+            if expect
+                .as_ref()
+                .is_some_and(|pattern| pattern.is_empty() || pattern.len() > 4_096)
+            {
+                return Err("term send --expect must be 1..=4096 bytes".into());
+            }
+            let enter = match flag_text(args, "--enter")? {
+                None => true,
+                Some(value) if value == "true" => true,
+                Some(value) if value == "false" => false,
+                Some(_) => return Err("term send --enter must be true or false".into()),
+            };
+            let verify_timeout_ms =
+                flag_parsed::<u64>(args, "--verify-timeout-ms")?.unwrap_or(2_000);
+            if !(1..=30_000).contains(&verify_timeout_ms) {
+                return Err("term send --verify-timeout-ms must be in 1..=30000".into());
+            }
+            if args.first().map(String::as_str) == Some("--") {
+                args.remove(0);
+            }
+            if args.len() != 1 || args[0].len() > 65_536 {
+                return Err(
+                    "term send requires exactly one text argument of at most 65536 bytes".into(),
+                );
+            }
+            let text = args.remove(0);
+            if text.is_empty() && (!enter || expect.is_none()) {
+                return Err(
+                    "term send with empty text requires --enter true and --expect PATTERN".into(),
+                );
+            }
+            Ok(Command::TermSend {
+                target,
+                window,
+                text,
+                expect,
+                enter,
+                foreground,
+                verify_timeout_ms,
+            })
+        }
+        "term-wait" => {
+            let window = required_window(args, "term wait")?;
+            if args.first().map(String::as_str) == Some("--") {
+                args.remove(0);
+            }
+            let Some(pattern) = args
+                .first()
+                .filter(|value| !value.starts_with('-'))
+                .cloned()
+            else {
+                return Err("term wait requires PATTERN after WINDOW".into());
+            };
+            args.remove(0);
+            if pattern.is_empty() || pattern.len() > 4_096 {
+                return Err("term wait PATTERN must be 1..=4096 bytes".into());
+            }
+            let timeout_ms = if let Some(seconds) = flag_parsed::<u64>(args, "--timeout")? {
+                seconds
+                    .checked_mul(1_000)
+                    .ok_or_else(|| "term wait --timeout is too large".to_owned())?
+            } else {
+                flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(30_000)
+            };
+            let interval_ms = if let Some(seconds) = flag_parsed::<u64>(args, "--interval")? {
+                seconds
+                    .checked_mul(1_000)
+                    .ok_or_else(|| "term wait --interval is too large".to_owned())?
+            } else {
+                flag_parsed::<u64>(args, "--interval-ms")?.unwrap_or(100)
+            };
+            let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?.unwrap_or(1_048_576);
+            if !(1..=86_400_000).contains(&timeout_ms)
+                || !(10..=10_000).contains(&interval_ms)
+                || !(1..=1_048_576).contains(&max_bytes)
+            {
+                return Err("term wait bounds are timeout-ms 1..=86400000, interval-ms 10..=10000, max-bytes 1..=1048576".into());
+            }
+            empty(args, "term-wait")?;
+            Ok(Command::TermWait {
+                target,
+                window,
+                pattern,
+                timeout_ms,
+                interval_ms,
+                max_bytes,
+            })
+        }
         "pty-start" => {
             let command = command_tail(args);
             let name = required_name(args, "pty-start")?;
@@ -416,6 +528,22 @@ fn required_tab(args: &mut Vec<String>) -> Result<String, String> {
     Ok(tab)
 }
 
+fn required_window(args: &mut Vec<String>, verb: &str) -> Result<isize, String> {
+    let raw = args
+        .first()
+        .filter(|value| !value.starts_with('-'))
+        .cloned()
+        .ok_or_else(|| format!("{verb} requires WINDOW from `windows`"))?;
+    args.remove(0);
+    let window = raw
+        .parse::<isize>()
+        .map_err(|_| format!("{verb} WINDOW must be a non-zero native handle"))?;
+    if window == 0 {
+        return Err(format!("{verb} WINDOW must be non-zero"));
+    }
+    Ok(window)
+}
+
 fn validate_tab(tab: &str, label: &str) -> Result<(), String> {
     let valid = tab
         .strip_prefix('@')
@@ -450,6 +578,36 @@ mod tests {
 
     #[test]
     fn terminal_shapes_are_closed_and_bounded() {
+        assert!(matches!(
+            parse("term-read", &["42", "--tail", "3"]).unwrap(),
+            Command::TermRead {
+                window: 42,
+                tail: Some(3),
+                raw: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(
+                "term-send",
+                &["42", "--foreground", "--enter", "false", "--", "hello world"]
+            )
+            .unwrap(),
+            Command::TermSend { window: 42, text, expect: None, enter: false, foreground: true, .. }
+                if text == "hello world"
+        ));
+        assert!(matches!(
+            parse("term-send", &["42", "--expect", "ready.*", "hello"]).unwrap(),
+            Command::TermSend { expect: Some(pattern), .. } if pattern == "ready.*"
+        ));
+        assert!(matches!(
+            parse("term-wait", &["42", "ready.*", "--timeout", "2"]).unwrap(),
+            Command::TermWait { window: 42, pattern, timeout_ms: 2_000, .. }
+                if pattern == "ready.*"
+        ));
+        assert!(parse("term-read", &["0"]).is_err());
+        assert!(parse("term-send", &["42", "--enter", "false", ""]).is_err());
+        assert!(parse("term-wait", &["42"]).is_err());
         assert!(matches!(
             parse("pty-start", &["build", "--cwd", ".", "--", "sh", "-lc", "printf ok"]).unwrap(),
             Command::PtyStart { name, cwd: Some(cwd), command, .. }

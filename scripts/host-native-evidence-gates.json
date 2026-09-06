@@ -97,6 +97,7 @@
         "cu.macos-ax-window-state",
         "cu.macos-ax-raise",
         "cu.macos-terminal-control",
+        "cu.macos-external-terminal-observe",
         "cu.macos-ax-fixture-cleanup"
       ]
     },

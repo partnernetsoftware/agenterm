@@ -1536,6 +1536,37 @@ flowchart LR
   deployment must publish one versioned artifact, verify its digest/signature,
   switch the fixed path atomically, and surface any required human consent as a
   host-side typed state. The release/signing/install court remains open.
+- [~] External terminal adoption now has one exact-window ACU facade instead
+  of an MCU-only effect. `term-read` and `term-wait` bind the native window,
+  owner pid, process-start identity and one unambiguous showing accessibility
+  buffer. Reads state whether the backend proves a complete buffer; waits on
+  bounded UIA/AT-SPI prefixes return inconclusive rather than claiming absence.
+  `term-send` does not pretend that global input is background delivery: the
+  default path refuses before effect, while `--foreground` explicitly permits
+  activate → target-node focus → input → previous-focus restore. It succeeds
+  only when a previously false postcondition becomes true on the same buffer.
+  Partial dispatch or failed read-back remains an uncertain reserved receipt;
+  input, terminal content and patterns are represented by lengths and digests
+  in failure evidence. The macOS public qjswasm journey proves exact read,
+  immediate wait, redacted invalid-pattern failure, background refusal and the
+  `AGENTERM_NO_ACTIVATE` refusal. Linux and Windows fixtures plus a separate
+  explicitly visible foreground-send court remain open, so the transitional
+  `term` retirement marker stays and this leaf is only platform-limited.
+
+  ```mermaid
+  flowchart LR
+    W["native window + pid + process generation"] --> B["one unambiguous a11y buffer"]
+    B --> R["term-read"]
+    B --> T["term-wait · bounded regex"]
+    B --> S{"term-send mode"}
+    S -->|default| X["typed refusal · no effect"]
+    S -->|explicit foreground| F["activate · focus node · inject · restore"]
+    F --> V{"new postcondition<br/>same buffer?"}
+    V -->|yes| C["completed receipt"]
+    V -->|no / unreadable| U["reserved · outcome unknown"]
+    C --> M["macOS observe court green"]
+    M --> P["Linux + Windows + visible send pending"]
+  ```
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
   already publishes exact structured bounds through `ui-snapshot`, so AgenTerm
