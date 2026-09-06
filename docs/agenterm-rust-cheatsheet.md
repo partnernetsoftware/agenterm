@@ -4468,3 +4468,17 @@ allocation's actual owner; use full allocation stacks before assigning blame.
 Do not assume a smaller retained source (RLE or an alternate color space)
 reduces CoreGraphics resident memory: downstream decode/conversion can erase
 or reverse the gain. Keep only changes with measured end-to-end benefit.
+
+
+### Full-frame temporary storage and screenshot completion
+
+A freed whole-frame `Vec` can remain resident in malloc's large-block cache.
+In the MiniCon macOS screenshot journey, two 9008 KiB free malloc regions
+survived screenshot completion despite only 2320 bytes of live-heap growth.
+Use the screenshot facade's bounded `OwnedXrgbPixels` for a worker snapshot
+that must unmap on completion, and convert portable PNG rows incrementally.
+Keep the mapping owner alive through encoding and drop it before signaling
+completion. Feature dependencies must cover every supported target: an
+unconditional snapshot facade cannot use a Unix-only optional dependency.
+Streaming encoder completion also needs explicit I/O failure verification;
+a library destructor can discard an error from a final buffered chunk.

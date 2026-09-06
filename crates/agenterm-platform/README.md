@@ -88,7 +88,7 @@ clipboard, IPC, or screenshot modules.
 | `ime` | preedit/commit state machine and the neutral pixel-window runner when `window` + `input` are enabled | `input` |
 | `activation` | neutral policy, typed requests, native window operation and application wake | `window`, target `winit` / Win32 |
 | `clipboard` | caller-bounded Unicode clipboard with configurable open deadline | target native APIs |
-| `screenshot` | bounded XRGB encoding and typed native-window capture | `png`, target Win32 APIs |
+| `screenshot` | bounded XRGB encoding, mapped async snapshot ownership and typed native-window capture | `memmap2`, Unix `png`, target Win32 APIs |
 | `font` | discovery, metrics and RAII native font resource | target `ab_glyph` / GDI |
 | `webview` | passive system-runtime discovery | none |
 | `full` | every declared feature | union of the above |
