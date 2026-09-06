@@ -252,6 +252,7 @@ pub const AGT_NATIVE_WINDOW_RESTORE: i32 = 4;
 /// EXPECTED_ABI_MAJOR`, so this value cannot drift from the library without
 /// that gate failing first.
 const EXPECTED_ABI_MAJOR: u16 = 1;
+const REQUIRED_ABI_MINOR: u16 = WINDOW_ACTIVATE_ABI_MINOR;
 pub const WINDOW_PLACEMENT_ABI_MINOR: u16 = 10;
 pub const POINTER_POSITION_ABI_MINOR: u16 = 11;
 /// ABI 1.12: `agt_a11y_tree_snapshot_bounded`, snapshot meta fields
@@ -360,6 +361,104 @@ impl Dynlib {
         let f = unsafe { self.sym::<AbiVersion>(b"agt_abi_version") }?;
         Ok(unsafe { f() })
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct AbiReadiness {
+    pub major: u16,
+    pub minor: u16,
+    pub required_major: u16,
+    pub required_minor: u16,
+    pub required_symbols: usize,
+}
+
+/// Every libagenterm export the current ACU mechanism layer resolves. The
+/// doctor checks presence only and never calls an effectful function.
+const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[
+    b"agt_abi_version",
+    b"agt_last_error",
+    b"agt_capability_query",
+    b"agt_window_enumerate",
+    b"agt_window_stacking_list",
+    b"agt_screen_list",
+    b"agt_native_window_show",
+    b"agt_native_window_activate",
+    b"agt_native_window_move",
+    b"agt_native_window_rect",
+    b"agt_native_window_set_topmost",
+    b"agt_native_window_minimized",
+    b"agt_native_window_close",
+    b"agt_input_pointer_move",
+    b"agt_input_pointer_position",
+    b"agt_input_pointer_click",
+    b"agt_input_pointer_drag",
+    b"agt_input_type_text",
+    b"agt_input_send_keys",
+    b"agt_screenshot_capture_window",
+    b"agt_a11y_tree_snapshot",
+    b"agt_a11y_tree_snapshot_bounded",
+    b"agt_a11y_tree_meta_string",
+    b"agt_a11y_tree_node",
+    b"agt_a11y_node_string",
+    b"agt_a11y_node_action_name",
+    b"agt_a11y_node_perform",
+    b"agt_a11y_node_invoke",
+    b"agt_a11y_node_scroll",
+    b"agt_a11y_node_get_extents",
+    b"agt_a11y_node_set_text",
+    b"agt_a11y_node_send_keys",
+    b"agt_a11y_node_get_text",
+    b"agt_a11y_node_set_selection",
+    b"agt_a11y_node_get_selection",
+    b"agt_a11y_node_set_caret_offset",
+    b"agt_a11y_node_get_caret_offset",
+    b"agt_a11y_focused_snapshot",
+    b"agt_a11y_menu_snapshot",
+    b"agt_a11y_menu_invoke",
+    b"agt_a11y_manual_accessibility_poke",
+    b"agt_a11y_application_set_hidden",
+    b"agt_a11y_observe_window",
+    b"agt_a11y_observe_event_time_ms",
+    b"agt_a11y_observe_event_string",
+    b"agt_a11y_drain_bus",
+    b"agt_a11y_last_text_write_via",
+    b"agt_clipboard_get_text",
+    b"agt_clipboard_set_text",
+    b"agt_clipboard_types",
+    b"agt_clipboard_get",
+    b"agt_clipboard_set",
+    b"agt_clipboard_set_file",
+    b"agt_clipboard_clear",
+    b"agt_app_list_installed",
+    b"agt_app_launch",
+    b"agt_window_placement_query",
+    b"agt_desktop_host_open",
+    b"agt_desktop_host_poll",
+    b"agt_desktop_host_close",
+];
+
+pub fn readiness() -> Result<AbiReadiness, String> {
+    let library = load().map_err(|error| error.message.clone())?;
+    let version = library.abi_version()?;
+    let major = (version >> 16) as u16;
+    let minor = (version & 0xffff) as u16;
+    if major != EXPECTED_ABI_MAJOR || minor < REQUIRED_ABI_MINOR {
+        return Err(format!(
+            "libagenterm ABI {major}.{minor} is older than required {EXPECTED_ABI_MAJOR}.{REQUIRED_ABI_MINOR}"
+        ));
+    }
+    for name in REQUIRED_RUNTIME_SYMBOLS {
+        // Presence only: a data-sized pointer avoids asserting an effectful
+        // function signature and is never dereferenced or called.
+        unsafe { library.sym::<*const std::ffi::c_void>(name) }?;
+    }
+    Ok(AbiReadiness {
+        major,
+        minor,
+        required_major: EXPECTED_ABI_MAJOR,
+        required_minor: REQUIRED_ABI_MINOR,
+        required_symbols: REQUIRED_RUNTIME_SYMBOLS.len(),
+    })
 }
 
 type LastError = unsafe extern "C" fn(*mut agt_error) -> i32;
@@ -625,5 +724,17 @@ mod tests {
             reported >> 16,
             EXPECTED_ABI_MAJOR,
         );
+    }
+
+    #[test]
+    fn gate_readiness_resolves_the_current_real_artifact() {
+        if locate_library().is_err() {
+            println!("SKIP: could not locate the libagenterm dynamic library");
+            return;
+        }
+        let report = readiness().expect("current libagenterm readiness");
+        assert_eq!(report.required_major, EXPECTED_ABI_MAJOR);
+        assert!(report.minor >= report.required_minor);
+        assert_eq!(report.required_symbols, REQUIRED_RUNTIME_SYMBOLS.len());
     }
 }

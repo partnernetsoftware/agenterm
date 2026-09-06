@@ -160,7 +160,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measured 131 capabilities;
   after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger measures 133 capabilities with 13 gaps, 53 platform-limited rows, zero static
+  ledger measures 133 capabilities with 12 gaps, 53 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
@@ -828,15 +828,16 @@ flowchart LR
   the caller must re-run status after the user acts. The no-visible-UI public
   qjswasm court is green locally; a denied macOS exact-pane court plus native
   Linux/Windows execution remain open.
-- [~] `doctor` is now a first-class observe-only command. It performs bounded
-  live window and display probes, embeds the exact canonical `permissions` and
-  `capabilities` declarations, and reports `ready|degraded` without opening
-  settings, installing helpers or claiming consent. The public qjswasm evidence
-  `cu.doctor-desktop-baseline` is green on macOS and also proves that
-  `setup --check` does not publish its requested launcher. Linux/Windows native
-  courts remain open. Runtime/store, native service provider, ABI and exact
-  target-binding health are a separate `doctor.system-readiness` gap; they may
-  not be inferred from the green desktop baseline.
+- [~] `doctor` is now a first-class observe-only command. Schema 2 performs
+  bounded live window/display probes and zero-write runtime/store, native
+  service-provider, ABI version + required-symbol, exact target/session-binding
+  and browser-bridge checks. It embeds the exact canonical `permissions` and
+  `capabilities` declarations, opens no settings and installs no helper. A
+  required failure returns nonzero `doctor_not_ready` while preserving the
+  complete report; optional/non-applicable rows remain explicit. Public qjswasm
+  evidence `cu.doctor-desktop-baseline` and `cu.doctor-system-readiness` is green
+  on macOS and also proves `setup --check` does not publish its launcher.
+  Linux/Windows native courts remain open.
 - [~] `capabilities` now publishes deterministic `verb_status_counts` over the
   final merged public inventory. The public `cu.capabilities-declaration`
   journey proves every verb contributes exactly once and the count total equals
@@ -853,7 +854,7 @@ flowchart LR
   OLD["MCU aggregate<br/>setup + doctor + caps"] -->|retired shape| SET["setup authority<br/>publish + preserve owners"]
   OLD --> BASE["doctor desktop baseline<br/>bounded live probes"]
   OLD --> DECL["capability declaration<br/>deterministic counts"]
-  BASE --> SYS["system readiness<br/>runtime · service · ABI · target<br/>gap"]
+  BASE --> SYS["system readiness<br/>runtime · service · ABI · target<br/>native · macOS qjswasm green"]
   DECL --> LIVE["cross-mechanism live probe<br/>gap"]
   SET & BASE & DECL & SYS & LIVE --> RET["MCU-absent retirement court"]
 ```

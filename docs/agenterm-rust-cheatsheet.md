@@ -3727,11 +3727,15 @@ authority to open settings, synthesize a grant, or claim a state the native API
 cannot inspect.
 
 A composed `doctor` follows the same rule: reuse canonical declarations, add
-only bounded live probes, and keep each probe failure as a typed row inside a
-successful diagnostic document. The document may become `degraded`; one
-missing optional mechanism must not turn diagnostics themselves into an opaque
-command failure. Diagnosis is never authority to install, repair, open consent
-surfaces or mutate helper lifecycle.
+only bounded live probes, and keep every probe failure as a typed row in one
+complete diagnostic document. Optional and not-applicable failures may return a
+successful `degraded` report; a failed required check must return a typed
+nonzero error carrying that same full report, not an opaque first-error or a
+green exit. A read-only health probe must not call a store `open()` that creates
+parents or locks. Missing state is empty; existing state is opened through a
+bounded, component-wise no-follow handle so a name swap cannot turn diagnosis
+into an unintended read. Diagnosis is never authority to install, repair, open
+consent surfaces or mutate helper lifecycle.
 
 Keep declaration integrity and mechanism health as two separately named
 claims. A merged capability catalog should publish deterministic status counts

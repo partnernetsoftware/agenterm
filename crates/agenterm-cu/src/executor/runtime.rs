@@ -110,6 +110,29 @@ pub(super) fn runtime_status_payload() -> Result<serde_json::Value, CuError> {
     }))
 }
 
+/// Zero-write health projection for `doctor`. Unlike `runtime-status`, this
+/// never opens a creating store or acquires a mutation lock: missing state is
+/// an empty healthy installation, while malformed or link-like state fails.
+pub(super) fn runtime_readiness_payload() -> Result<serde_json::Value, CuError> {
+    let now = runtime_now_utc_s()?;
+    let counts = RuntimeCoordinator::status_counts_read_only(now)?;
+    let jobs = ManagedJobStore::refresh_blockers_read_only()?;
+    let devices = DeviceLeaseStore::refresh_blockers_read_only()?;
+    Ok(serde_json::json!({
+        "status": "available",
+        "coordinator": {
+            "active_sessions": counts.active_sessions,
+            "active_locks": counts.active_locks,
+        },
+        "managed_jobs": jobs,
+        "device_leases": devices,
+        "action": {
+            "performed": false,
+            "reason": "read-only state validation; missing state is empty and no parent is created",
+        },
+    }))
+}
+
 pub(super) fn session_start_payload(
     label: Option<&str>,
     ttl_seconds: u64,

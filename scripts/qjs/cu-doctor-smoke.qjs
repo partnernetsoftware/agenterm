@@ -3,7 +3,11 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.doctor-desktop-baseline", "cu.capabilities-declaration"];
+const declared_evidence = [
+  "cu.doctor-desktop-baseline",
+  "cu.doctor-system-readiness",
+  "cu.capabilities-declaration"
+];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -30,7 +34,7 @@ function isolated_env(run_directory) {
   };
 }
 
-function invoke(run_directory, executable, arguments) {
+function invoke_reply(run_directory, executable, arguments) {
   const argv = ["--target", "current", "--grant", "observe"];
   for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
   const output = rh.command(executable, argv, {
@@ -41,9 +45,14 @@ function invoke(run_directory, executable, arguments) {
   let reply = null;
   try { reply = JSON.parse(output.stdout.trim()); }
   catch (error) { throw "cu_doctor_invalid_reply:" + arguments[0]; }
-  ensure(output.success === true && reply.ok === true,
-         "cu_doctor_command_failed:" + arguments[0] + ":" + JSON.stringify(reply));
-  return reply.data;
+  return { process: output, reply: reply };
+}
+
+function invoke(run_directory, executable, arguments) {
+  const result = invoke_reply(run_directory, executable, arguments);
+  ensure(result.process.success === true && result.reply.ok === true,
+         "cu_doctor_command_failed:" + arguments[0] + ":" + JSON.stringify(result.reply));
+  return result.reply.data;
 }
 
 const args = rh.args();
@@ -83,13 +92,38 @@ try {
          "cu_permission_declaration_drift");
 
   print("STEP doctor performs bounded live probes without setup or consent mutation");
-  const doctor = invoke(run_directory, executable, ["doctor"]);
-  ensure(doctor.schema === 1 && doctor.platform === permissions.platform, "cu_doctor_schema");
+  const doctor_result = invoke_reply(run_directory, executable, ["doctor"]);
+  ensure(doctor_result.reply.ok === true
+           || (doctor_result.reply.error !== undefined
+               && doctor_result.reply.error.code === "doctor_not_ready"),
+         "cu_doctor_typed_result");
+  const doctor = doctor_result.reply.ok === true
+    ? doctor_result.reply.data : doctor_result.reply.error.detail.report;
+  ensure(doctor_result.process.success === (doctor.status === "ready"),
+         "cu_doctor_exit_status_not_derived");
+  ensure(doctor.schema === 2 && doctor.platform === permissions.platform, "cu_doctor_schema");
   ensure(doctor.status === "ready" || doctor.status === "degraded", "cu_doctor_status");
   ensure(doctor.checks.windows.status === "available"
            || doctor.checks.windows.status === "failed", "cu_doctor_windows_check");
   ensure(doctor.checks.displays.status === "available"
            || doctor.checks.displays.status === "failed", "cu_doctor_displays_check");
+  ensure(doctor.checks.runtime.required === true, "cu_doctor_runtime_required");
+  ensure(doctor.checks.runtime.status === "available"
+           || doctor.checks.runtime.status === "failed", "cu_doctor_runtime_check");
+  ensure(doctor.checks.abi.required === true, "cu_doctor_abi_required");
+  ensure(doctor.checks.abi.status === "available"
+           || doctor.checks.abi.status === "failed", "cu_doctor_abi_check");
+  ensure(doctor.checks.target_binding.required === true, "cu_doctor_binding_required");
+  ensure(doctor.checks.target_binding.status === "available"
+           || doctor.checks.target_binding.status === "failed", "cu_doctor_binding_check");
+  ensure(doctor.checks.services.user.status === "available"
+           || doctor.checks.services.user.status === "not-applicable"
+           || doctor.checks.services.user.status === "failed", "cu_doctor_user_service_check");
+  ensure(doctor.checks.services.system.status === "available"
+           || doctor.checks.services.system.status === "not-applicable"
+           || doctor.checks.services.system.status === "failed", "cu_doctor_system_service_check");
+  ensure(doctor.checks.browser_bridge.status === "available"
+           || doctor.checks.browser_bridge.status === "failed", "cu_doctor_browser_bridge_check");
   ensure(doctor.action.performed === false, "cu_doctor_mutated");
   ensure(JSON.stringify(doctor.permissions) === JSON.stringify(permissions.permissions),
          "cu_doctor_permission_drift");
@@ -97,6 +131,11 @@ try {
          "cu_doctor_capability_drift");
   const expected_status = doctor.checks.windows.status === "available"
     && doctor.checks.displays.status === "available"
+    && doctor.checks.runtime.status === "available"
+    && doctor.checks.abi.status === "available"
+    && doctor.checks.target_binding.status === "available"
+    && doctor.checks.services.user.status !== "failed"
+    && doctor.checks.services.system.status !== "failed"
     && !(doctor.permissions.accessibility !== undefined
          && doctor.permissions.accessibility.grant.status !== "granted")
     ? "ready" : "degraded";
@@ -116,7 +155,9 @@ let completion_failure = "";
 try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
-  harness.emit_evidence(context, declared_evidence, "cu.doctor-desktop-baseline");
+  for (let i = 0; i < declared_evidence.length; i = i + 1) {
+    harness.emit_evidence(context, declared_evidence, declared_evidence[i]);
+  }
   harness.remove_run(context);
   print("PASS: agenterm-cu health and capability diagnosis");
 }

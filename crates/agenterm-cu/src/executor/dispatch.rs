@@ -33,7 +33,7 @@ impl Executor {
                     &mut self.open_receipts(command.target())?,
                 ),
             },
-            Command::Doctor { .. } => Ok(doctor_payload()),
+            Command::Doctor { .. } => doctor_payload(),
             Command::RuntimeStatus { .. } => runtime_status_payload(),
             Command::AudioStatus { .. } => serde_json::to_value(crate::audio_control::status()?)
                 .map_err(|_| {

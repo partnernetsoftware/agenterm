@@ -9,7 +9,8 @@
 
 use std::{
     collections::BTreeMap,
-    fs, io,
+    fs,
+    io::{self, Read as _},
     path::{Path, PathBuf},
 };
 
@@ -140,17 +141,61 @@ pub struct RuntimeStatusCounts {
 impl RuntimeCoordinator {
     /// Open the machine-local private spine at `~/.../agenterm/cu-runtime.json`.
     pub fn open() -> Result<Self, CuError> {
+        Self::open_at(Self::configured_path()?)
+    }
+
+    fn configured_path() -> Result<PathBuf, CuError> {
         if let Some(path) = std::env::var_os("AGENTERM_CU_RUNTIME_PATH") {
-            return Self::open_at(PathBuf::from(path));
+            return Ok(PathBuf::from(path));
         }
         let directories =
             host_directories().map_err(|_| unavailable("runtime directory unavailable"))?;
-        Self::open_at(
-            directories
-                .local_data
-                .join("agenterm")
-                .join("cu-runtime.json"),
-        )
+        Ok(directories
+            .local_data
+            .join("agenterm")
+            .join("cu-runtime.json"))
+    }
+
+    /// Inspect current runtime counts without creating or protecting a parent,
+    /// acquiring a lock, sweeping expiry, or publishing an empty document.
+    pub(crate) fn status_counts_read_only(now_utc_s: i64) -> Result<RuntimeStatusCounts, CuError> {
+        Self::status_counts_read_only_at(Self::configured_path()?, now_utc_s)
+    }
+
+    fn status_counts_read_only_at(
+        path: PathBuf,
+        now_utc_s: i64,
+    ) -> Result<RuntimeStatusCounts, CuError> {
+        let parent = parent(&path)?;
+        match fs::symlink_metadata(parent) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(unavailable(
+                    "runtime state parent is not a direct directory",
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(RuntimeStatusCounts {
+                    active_sessions: 0,
+                    active_locks: 0,
+                });
+            }
+            Err(_) => return Err(unavailable("runtime state parent could not be inspected")),
+        }
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                return Err(unavailable("runtime state is not a direct file"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(RuntimeStatusCounts {
+                    active_sessions: 0,
+                    active_locks: 0,
+                });
+            }
+            Err(_) => return Err(unavailable("runtime state could not be inspected")),
+        }
+        Self { path }.status_counts(now_utc_s)
     }
 
     /// Open an explicit private state file.  The parent is created and
@@ -563,11 +608,18 @@ impl RuntimeCoordinator {
     }
 
     fn read_document(&self) -> Result<Option<Document>, CuError> {
-        let raw = match fs::read(&self.path) {
-            Ok(raw) => raw,
+        let file = match agenterm_platform::filesystem_open::open_existing_path(
+            &self.path,
+            agenterm_platform::filesystem_open::ExistingEntryType::File,
+        ) {
+            Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(unavailable("runtime state could not be read")),
         };
+        let mut raw = Vec::new();
+        file.take((MAX_FILE_BYTES + 1) as u64)
+            .read_to_end(&mut raw)
+            .map_err(|_| unavailable("runtime state could not be read"))?;
         if raw.len() > MAX_FILE_BYTES {
             return Err(CuError::new(
                 "runtime_state_corrupt",
@@ -960,6 +1012,36 @@ mod tests {
             }
         );
         assert_eq!(fs::read(&path.0).unwrap(), before);
+    }
+
+    #[test]
+    fn read_only_status_does_not_create_a_missing_parent() {
+        let path = TestPath::new("status-read-only-missing");
+        let parent = path.0.parent().unwrap().to_path_buf();
+        assert_eq!(
+            RuntimeCoordinator::status_counts_read_only_at(path.0.clone(), 100).unwrap(),
+            RuntimeStatusCounts {
+                active_sessions: 0,
+                active_locks: 0,
+            }
+        );
+        assert!(!parent.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_status_refuses_a_link_like_state_file() {
+        use std::os::unix::fs::symlink;
+
+        let path = TestPath::new("status-read-only-link");
+        fs::create_dir_all(path.0.parent().unwrap()).unwrap();
+        let target = path.0.with_file_name("target.json");
+        fs::write(&target, b"{}").unwrap();
+        symlink(&target, &path.0).unwrap();
+        let error = RuntimeCoordinator::status_counts_read_only_at(path.0.clone(), 100)
+            .expect_err("link-like runtime state must be refused");
+        assert_eq!(error.code, "runtime_state_unavailable");
+        assert_eq!(fs::read(&target).unwrap(), b"{}");
     }
 
     #[test]

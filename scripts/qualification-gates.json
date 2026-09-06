@@ -394,7 +394,7 @@
     },
     {
       "id": "cu-doctor-smoke",
-      "evidence": ["cu.doctor-desktop-baseline", "cu.capabilities-declaration"]
+      "evidence": ["cu.doctor-desktop-baseline", "cu.doctor-system-readiness", "cu.capabilities-declaration"]
     },
     {
       "id": "cu-power-status-smoke",

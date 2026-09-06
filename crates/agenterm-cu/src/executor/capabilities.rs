@@ -1167,26 +1167,132 @@ pub(super) fn permissions_payload() -> serde_json::Value {
 fn doctor_check(result: Result<serde_json::Value, CuError>, count: &str) -> serde_json::Value {
     match result {
         Ok(value) => serde_json::json!({
+            "required": true,
             "status": "available",
             "count": value.get(count).and_then(serde_json::Value::as_u64),
         }),
         Err(error) => serde_json::json!({
+            "required": true,
             "status": "failed",
             "error": error_payload(&error),
         }),
     }
 }
 
+fn doctor_result(result: Result<serde_json::Value, CuError>) -> serde_json::Value {
+    match result {
+        Ok(value) => {
+            serde_json::json!({ "required": true, "status": "available", "detail": value })
+        }
+        Err(error) => serde_json::json!({
+            "required": true,
+            "status": "failed",
+            "error": error_payload(&error),
+        }),
+    }
+}
+
+fn doctor_service(scope: crate::service_control::ServiceScope) -> serde_json::Value {
+    match crate::service_control::list(scope, None, 1) {
+        Ok(inventory) => serde_json::json!({
+            "required": true,
+            "status": "available",
+            "returned": inventory.services.len(),
+            "visited": inventory.visited,
+            "complete": inventory.complete,
+        }),
+        Err(error) if error.code == "service_unsupported" => serde_json::json!({
+            "required": false,
+            "status": "not-applicable",
+            "reason": error.code,
+        }),
+        Err(error) => serde_json::json!({
+            "required": true,
+            "status": "failed",
+            "error": error_payload(&error),
+        }),
+    }
+}
+
+fn doctor_abi() -> serde_json::Value {
+    match crate::dynlib::readiness() {
+        Ok(readiness) => serde_json::json!({
+            "required": true,
+            "status": "available",
+            "detail": readiness,
+        }),
+        Err(_) => serde_json::json!({
+            "required": true,
+            "status": "failed",
+            "error": {
+                "code": "abi_not_ready",
+                "message": "the required libagenterm ABI is unavailable or incompatible",
+            },
+            "repair": "install the matching packaged libagenterm beside agenterm-cu and repeat doctor",
+        }),
+    }
+}
+
+fn doctor_target_binding() -> serde_json::Value {
+    let result = CurrentIdentityProvider::default_for_current_user()
+        .and_then(|provider| resolve_target_binding(TargetRef::Current, Some(&provider)));
+    match result {
+        Ok(_) => serde_json::json!({
+            "required": true,
+            "status": "available",
+            "tier": "current",
+            "identity_returned": false,
+        }),
+        Err(error) => {
+            let code = match error.kind() {
+                crate::target_binding::TargetBindingErrorKind::IdentityUnavailable => {
+                    "target_identity_unavailable"
+                }
+                crate::target_binding::TargetBindingErrorKind::SessionUnavailable => {
+                    "target_session_unavailable"
+                }
+                crate::target_binding::TargetBindingErrorKind::UnsupportedTier => {
+                    "target_binding_unsupported"
+                }
+                crate::target_binding::TargetBindingErrorKind::VerifiedIdentityProviderRequired => {
+                    "target_identity_provider_required"
+                }
+                crate::target_binding::TargetBindingErrorKind::UnverifiedTransport => {
+                    "target_transport_unverified"
+                }
+                crate::target_binding::TargetBindingErrorKind::InvalidProviderEvidence => {
+                    "target_binding_invalid"
+                }
+            };
+            serde_json::json!({
+                "required": true,
+                "status": "failed",
+                "error": {
+                    "code": code,
+                    "message": "the current installation/session binding is not ready",
+                },
+                "repair": "run setup, then repeat doctor in the intended desktop session",
+            })
+        }
+    }
+}
+
 /// One bounded, read-only answer for an agent deciding whether this host is
 /// ready for desktop work. The declarations are embedded rather than
 /// reconstructed so `doctor`, `permissions` and `capabilities` cannot drift.
-pub(super) fn doctor_payload() -> serde_json::Value {
+pub(super) fn doctor_payload() -> Result<serde_json::Value, CuError> {
     let permissions = permissions_declaration();
     let windows = doctor_check(
         windows_payload(observe::WindowFilter::default(), None, Some(0), Some(1)),
         "returned",
     );
     let displays = doctor_check(displays_payload(), "returned");
+    let runtime = doctor_result(runtime_readiness_payload());
+    let services_user = doctor_service(crate::service_control::ServiceScope::User);
+    let services_system = doctor_service(crate::service_control::ServiceScope::System);
+    let abi = doctor_abi();
+    let target_binding = doctor_target_binding();
+    let browser_bridge = doctor_result(browser_bridge_connections_payload());
     let mechanism_degraded = [&windows, &displays]
         .iter()
         .any(|check| check["status"] != "available");
@@ -1197,14 +1303,31 @@ pub(super) fn doctor_payload() -> serde_json::Value {
         .pointer("/accessibility/grant/status")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|status| status != "granted");
-    let degraded = mechanism_degraded || permission_degraded;
-    serde_json::json!({
-        "schema": 1,
+    let system_degraded = [
+        &runtime,
+        &services_user,
+        &services_system,
+        &abi,
+        &target_binding,
+    ]
+    .iter()
+    .any(|check| check["status"] == "failed");
+    let degraded = mechanism_degraded || permission_degraded || system_degraded;
+    let report = serde_json::json!({
+        "schema": 2,
         "platform": crate::mcu_surface::host_os(),
         "status": if degraded { "degraded" } else { "ready" },
         "checks": {
             "windows": windows,
             "displays": displays,
+            "runtime": runtime,
+            "services": {
+                "user": services_user,
+                "system": services_system,
+            },
+            "abi": abi,
+            "target_binding": target_binding,
+            "browser_bridge": browser_bridge,
         },
         "permissions": permissions,
         "capabilities": capabilities_payload(),
@@ -1212,7 +1335,16 @@ pub(super) fn doctor_payload() -> serde_json::Value {
             "performed": false,
             "reason": "diagnosis-only; setup, consent and helper lifecycle are separate operations",
         },
-    })
+    });
+    if degraded {
+        Err(CuError::new(
+            "doctor_not_ready",
+            "one or more required host readiness checks are degraded",
+        )
+        .with_detail(serde_json::json!({ "report": report })))
+    } else {
+        Ok(report)
+    }
 }
 
 /// Every verb's `grant` (`observe` / `actuate`), filled in only where the
@@ -1514,10 +1646,20 @@ mod tests {
         let reply = observe_executor().execute(&Command::Doctor {
             target: TargetRef::Current,
         });
-        assert!(reply.ok, "{reply:?}");
         assert_eq!(reply.command, "doctor");
-        let data = reply.data.expect("doctor data");
-        assert_eq!(data["schema"], 1);
+        let data = if reply.ok {
+            reply.data.expect("doctor data")
+        } else {
+            let error = reply.error.expect("typed doctor error");
+            assert_eq!(error.code, "doctor_not_ready");
+            error
+                .detail
+                .expect("doctor failure detail")
+                .get("report")
+                .cloned()
+                .expect("complete doctor report")
+        };
+        assert_eq!(data["schema"], 2);
         assert_eq!(data["platform"], crate::mcu_surface::host_os());
         assert!(matches!(
             data["status"].as_str(),
@@ -1532,20 +1674,24 @@ mod tests {
             "available"
         );
         assert_eq!(data["action"]["performed"], false);
-        let checks_failed = ["windows", "displays"]
+        let checks_failed = ["windows", "displays", "runtime", "abi", "target_binding"]
             .iter()
             .any(|check| data["checks"][check]["status"] != "available");
+        let service_failed = ["user", "system"]
+            .iter()
+            .any(|scope| data["checks"]["services"][scope]["status"] == "failed");
         let permission_failed = data["permissions"]
             .pointer("/accessibility/grant/status")
             .and_then(serde_json::Value::as_str)
             .is_some_and(|status| status != "granted");
         assert_eq!(
             data["status"],
-            if checks_failed || permission_failed {
+            if checks_failed || service_failed || permission_failed {
                 "degraded"
             } else {
                 "ready"
             }
         );
+        assert_eq!(reply.ok, data["status"] == "ready");
     }
 }

@@ -772,7 +772,8 @@
         "built-agenterm-cu"
       ],
       "outputs": [
-        "cu-doctor-desktop-baseline-evidence"
+        "cu-doctor-desktop-baseline-evidence",
+        "cu-doctor-system-readiness-evidence"
       ],
       "budget": {
         "timeout_ms": 120000,

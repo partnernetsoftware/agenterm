@@ -1121,9 +1121,11 @@
         {
           "id": "doctor.system-readiness",
           "mcu_shape": "doctor verifies runtime, helper/browser bridges, native service provider, ABI health and current target binding",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "compose bounded zero-mutation runtime/store, service-provider, ABI and target-binding checks; required degradation must keep the complete report and return nonzero"
+          "acu_shape": "doctor schema 2 aggregates zero-write runtime/store health, bounded service-provider inventory, exact ABI version plus required symbol presence, current target/session binding and browser-bridge inventory; every check remains visible and required degradation returns doctor_not_ready with the complete report and process failure",
+          "state": "native",
+          "qualification": "public-qjswasm-macos-typed-ready-or-degraded-green-linux-windows-native-courts-pending",
+          "evidence": ["cu.doctor-system-readiness"],
+          "next": "run the same no-write full-report and exit-status contract in Linux and Windows native courts"
         },
         {
           "id": "permissions.status-guidance",

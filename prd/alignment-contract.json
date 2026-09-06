@@ -268,6 +268,7 @@
         "cu.setup-cli-entrypoint",
         "cu.setup-runtime-refresh-owned-job",
         "cu.doctor-desktop-baseline",
+        "cu.doctor-system-readiness",
         "cu.capabilities-declaration",
         "cu.power-host-status",
         "cu.host-open.macos",
