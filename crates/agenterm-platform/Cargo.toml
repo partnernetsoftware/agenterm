@@ -450,6 +450,7 @@ screenshot = [
 device-capture = []
 font = [
     "dep:ab_glyph",
+    "dep:memmap2",
     "windows-sys/Win32_Foundation",
     "windows-sys/Win32_Graphics_Gdi",
 ]
@@ -500,6 +501,7 @@ libc = { version = "0.2", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 ab_glyph = { version = "0.2.32", optional = true }
+memmap2 = { version = "0.9", optional = true }
 png = { version = "0.17", optional = true }
 winit = { version = "0.30", optional = true }
 softbuffer = { version = "0.4", optional = true }

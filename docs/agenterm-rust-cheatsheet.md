@@ -4396,3 +4396,16 @@ the public CLI rather than accepting catalog or unit-test presence as delivery.
 - Observation must load only. Missing installation identity is a typed setup
   prerequisite; only an explicit setup/mutation command may enroll or rotate
   it.
+
+## Installed font memory ownership
+
+Do not `fs::read` plus `Box::leak` installed font collections: an idle
+consumer can acquire hundreds of MiB of dirty heap before drawing emoji.
+Keep an owned read-only mapping and borrow `FontRef` only during a lookup;
+this avoids self-referential storage and makes mapping cleanup automatic.
+Mapping assumes installed font inodes are not modified/truncated in place.
+Fallback candidates get independent `OnceLock<Option<...>>` slots: only a
+missing glyph advances the search, and failed opens are cached as well.
+Prove ASCII leaves fallback slots untouched and CJK stops before emoji, then
+measure the consumer's RSS plus vmmap/heap; mapped virtual size is not dirty
+heap, and a loose RSS regression pass is not the product memory target.
