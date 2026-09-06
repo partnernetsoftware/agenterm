@@ -3116,6 +3116,10 @@ pub enum Command {
         target: TargetRef,
         name: String,
         browser: String,
+        /// Materialize and load the fixed ACU MV3 bridge in this isolated
+        /// profile. The live connection remains the proof of activation.
+        #[serde(default, skip_serializing_if = "is_false")]
+        bridge: bool,
         ready_timeout_ms: u64,
         ttl_ms: u64,
     },
@@ -6455,6 +6459,7 @@ mod tests {
             target: TargetRef::Current,
             name: "research".into(),
             browser: "/opt/browser".into(),
+            bridge: true,
             ready_timeout_ms: 15_000,
             ttl_ms: 3_600_000,
         };
@@ -6466,6 +6471,7 @@ mod tests {
             serde_json::json!({
                 "verb": "browser-session-start", "target": "current",
                 "name": "research", "browser": "/opt/browser",
+                "bridge": true,
                 "ready_timeout_ms": 15000, "ttl_ms": 3600000
             })
         );

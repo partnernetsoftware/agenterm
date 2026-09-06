@@ -209,8 +209,9 @@ MCU retirement blockers
 │  │  ├─ [x] same-binary native host + current-user manifest/registry installer
 │  │  ├─ [x] public exact-connection setup/connections/status/tabs/windows/debug-read CLI
 │  │  ├─ [x] guarded exact `window-state`: closed state vocabulary + focus/tab read-back + rollback
+│  │  ├─ [x] macOS owned Profile loads exact extension; live connection + host EOF/TTL cleanup qjswasm court
 │  │  ├─ [ ] native background-browser focus bridge for the no-focused-browser case
-│  │  └─ [ ] explicit loaded-extension window/closed-shadow court
+│  │  └─ [ ] real-window state/closed-shadow court + Linux/Windows owned-Profile bridge courts
 │  ├─ [~] privilege plan/broker/OS consent
 │  │  ├─ [x] read-only `process.set-priority` plan on macOS/Linux: exact start identity + before/after + expiry + dual digest
 │  │  ├─ [x] public qjswasm `cu.privilege-plan`; Windows names the semantic gap instead of fabricating Unix nice
@@ -798,7 +799,7 @@ Q4 browser and platform depth
 │  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
 ├─ [~] browser control without a pre-opened CDP port
 │  ├─ [~] owned browser-session: public lifecycle + macOS live cleanup ✓; Windows exact-Job first instruction win-x86/ARM64 ✓; Win ARM64 managed-Job Edge ready→status→stopped→removed ✓; Linux + descendant-kill courts pending
-│  ├─ [~] MV3/Native Messaging: fixed ACU extension assets + bounded secret-free protocol/registry core + same-binary host/current-user installer + exact-connection public CLI; profile-scoped windows and guarded state mutation are typed; explicit extension load, native focus bridge and closed-shadow court pending
+│  ├─ [~] MV3/Native Messaging: fixed ACU extension assets + bounded secret-free protocol/registry core + same-binary host/current-user installer + exact-connection public CLI; macOS owned-Profile load/host EOF cleanup is public-qjswasm green; real-window state, native focus bridge, closed-shadow and Linux/Windows courts pending
 │  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
 ├─ [~] Simulator facade: public bounded device/app inventory + exact boot/launch/terminate routes
 │  ├─ [x] macOS qjswasm read-only court `cu.simulator-readonly`; app paths never leave the provider

@@ -3,7 +3,10 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.browser-managed-profile.macos"];
+const declared_evidence = [
+  "cu.browser-managed-profile.macos",
+  "cu.browser-bridge-owned-profile.macos"
+];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -17,7 +20,7 @@ function direct_file(path) {
 
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
-  print(declared_evidence[0]);
+  for (const id of declared_evidence) { print(id); }
   return;
 }
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
@@ -31,8 +34,6 @@ ensure(direct_file(executable), "cu_browser_session_executable_missing");
 ensure(direct_file(browser), "cu_browser_session_browser_missing");
 
 const context = harness.new_context(repo, "cu-browser-session");
-const isolated_home = rh.join(context.run_directory, "home");
-rh.create_dir_all(isolated_home);
 const name = "qjswasm-owned-profile";
 
 function invoke(grant, arguments) {
@@ -41,7 +42,6 @@ function invoke(grant, arguments) {
   const output = rh.command(executable, argv, {
     cwd: context.run_directory,
     env: {
-      HOME: isolated_home,
       AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "cu-audit.jsonl"),
       AGENTERM_NO_ACTIVATE: "1"
     },
@@ -66,12 +66,38 @@ function cleanup() {
   }
 }
 
+function connection_in(rows, id) {
+  for (const row of rows) {
+    if (row.connection_id === id) { return true; }
+  }
+  return false;
+}
+
+function one_new_bridge_connection(deadline_ms, baseline) {
+  while (rh.now_ms() < deadline_ms) {
+    const inventory = invoke("observe", ["browser-bridge-connections"]);
+    if (inventory.reply.ok === true) {
+      const added = [];
+      for (const row of inventory.reply.data.connections) {
+        if (!connection_in(baseline, row.connection_id)) { added.push(row); }
+      }
+      if (added.length === 1) { return added[0]; }
+      ensure(added.length < 2, "cu_browser_bridge_connection_ambiguous");
+    }
+    rh.sleep_ms(50);
+  }
+  throw "cu_browser_bridge_connection_timeout";
+}
+
 let succeeded = 0;
 let failure = "";
 try {
+  const baseline_list = require_ok(invoke("observe", ["browser-session-list"]), "cu_browser_session_baseline_failed");
+  const baseline_connections = require_ok(invoke("observe", ["browser-bridge-connections"]), "cu_browser_bridge_baseline_failed").data.connections;
   print("STEP start one isolated headless browser with exact owner identity");
   const started = require_ok(invoke("actuate", [
     "browser-session-start", name, "--browser", browser,
+    "--bridge",
     "--ready-timeout-ms", "15000", "--ttl-ms", "60000"
   ]), "cu_browser_session_start_failed");
   ensure(started.command === "browser-session-start", "cu_browser_session_start_command");
@@ -81,12 +107,39 @@ try {
   ensure(started.data.owner.pid !== started.data.browser.pid, "cu_browser_session_process_alias");
   ensure(started.data.endpoint.port > 0, "cu_browser_session_endpoint");
 
+  print("STEP fixed MV3 identity creates one exact connection without a window or focus effect");
+  const connection = one_new_bridge_connection(rh.now_ms() + 15000, baseline_connections);
+  ensure(connection.process.pid > 0, "cu_browser_bridge_process_identity");
+  ensure(connection.endpoint.extension_id === "knofdkmmpkbnjhdkcjddbakbpmgpmjpe", "cu_browser_bridge_extension_identity");
+  const bridge_id = connection.connection_id;
+  const bridge_status = require_ok(invoke("observe", [
+    "browser-bridge-status", bridge_id
+  ]), "cu_browser_bridge_status_failed");
+  ensure(bridge_status.data.result.protocol === 1, "cu_browser_bridge_protocol");
+  const commands = bridge_status.data.result.commands;
+  ensure(commands.length === 5 && commands[0] === "status" && commands[1] === "tabs" &&
+    commands[2] === "windows" && commands[3] === "window-state" &&
+    commands[4] === "debug-read", "cu_browser_bridge_commands");
+  const bridge_tabs = require_ok(invoke("observe", [
+    "browser-bridge-tabs", bridge_id
+  ]), "cu_browser_bridge_tabs_failed");
+  const bridge_windows = require_ok(invoke("observe", [
+    "browser-bridge-windows", bridge_id
+  ]), "cu_browser_bridge_windows_failed");
+  ensure(Array.isArray(bridge_tabs.data.result.tabs), "cu_browser_bridge_tabs_shape");
+  ensure(Array.isArray(bridge_windows.data.result.windows), "cu_browser_bridge_windows_shape");
+
   print("STEP list and status preserve the exact generation and process identities");
   const listed = require_ok(invoke("observe", ["browser-session-list"]), "cu_browser_session_list_failed");
-  ensure(listed.data.total === 1 && listed.data.sessions.length === 1, "cu_browser_session_list_count");
-  ensure(listed.data.sessions[0].generation === started.data.generation, "cu_browser_session_list_generation");
-  ensure(listed.data.sessions[0].owner.pid === started.data.owner.pid, "cu_browser_session_list_owner");
-  ensure(listed.data.sessions[0].browser.pid === started.data.browser.pid, "cu_browser_session_list_browser");
+  ensure(listed.data.total === baseline_list.data.total + 1, "cu_browser_session_list_count");
+  let listed_own = null;
+  for (const row of listed.data.sessions) {
+    if (row.name === name) { listed_own = row; }
+  }
+  ensure(listed_own !== null, "cu_browser_session_list_own_missing");
+  ensure(listed_own.generation === started.data.generation, "cu_browser_session_list_generation");
+  ensure(listed_own.owner.pid === started.data.owner.pid, "cu_browser_session_list_owner");
+  ensure(listed_own.browser.pid === started.data.browser.pid, "cu_browser_session_list_browser");
   const status = require_ok(invoke("observe", ["browser-session-status", name]), "cu_browser_session_status_failed");
   ensure(status.data.state === "ready" && status.data.owner_observation === "live", "cu_browser_session_status_state");
 
@@ -96,16 +149,24 @@ try {
   ]), "cu_browser_session_stop_failed");
   ensure(stopped.data.state === "stopped", "cu_browser_session_stop_state");
   ensure(stopped.data.owner_observation === "dead", "cu_browser_session_owner_not_reaped");
+  const bridge_after_stop = require_ok(invoke("observe", [
+    "browser-bridge-connections"
+  ]), "cu_browser_bridge_cleanup_inventory_failed");
+  ensure(bridge_after_stop.data.connections.length === baseline_connections.length, "cu_browser_bridge_host_not_reaped");
+  for (const row of baseline_connections) {
+    ensure(connection_in(bridge_after_stop.data.connections, row.connection_id), "cu_browser_bridge_baseline_changed");
+  }
   const removed = require_ok(invoke("actuate", [
     "browser-session-remove", name, "--expect", "stopped"
   ]), "cu_browser_session_remove_failed");
   ensure(removed.data.state === "removed" && removed.data.verified === true, "cu_browser_session_remove_state");
   const empty = require_ok(invoke("observe", ["browser-session-list"]), "cu_browser_session_empty_list_failed");
-  ensure(empty.data.total === 0 && empty.data.sessions.length === 0, "cu_browser_session_not_empty");
+  ensure(empty.data.total === baseline_list.data.total, "cu_browser_session_not_empty");
 
   print("STEP same name restarts cleanly and TTL owns bounded cleanup");
   const restarted = require_ok(invoke("actuate", [
     "browser-session-start", name, "--browser", browser,
+    "--bridge",
     "--ready-timeout-ms", "15000", "--ttl-ms", "1200"
   ]), "cu_browser_session_restart_failed");
   ensure(restarted.data.state === "ready", "cu_browser_session_restart_state");
@@ -138,9 +199,11 @@ let completion_failure = "";
 try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
-  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  for (const id of declared_evidence) {
+    harness.emit_evidence(context, declared_evidence, id);
+  }
   harness.remove_run(context);
-  print("PASS: owned browser profile start, inventory, stop, restart, TTL and cleanup are verified");
+  print("PASS: owned browser profile and exact MV3 bridge lifecycle are verified");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

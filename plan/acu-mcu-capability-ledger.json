@@ -502,8 +502,9 @@
           "mcu_shape": "browser bridge setup/status/reload plus attached-profile session and target locks",
           "acu_shape": "browser-bridge-setup plus bounded exact-connection inventory/status/tabs/windows/window-state/debug-read over the fixed-identity embedded MV3 asset, same-binary Native Messaging host and current-user installer",
           "state": "gap",
-          "note": "The existing contract court proves only fixed asset identity, empty inventory and typed refusal; it deliberately does not install or load the extension and therefore is not availability evidence.",
-          "next": "add reload/attached-session semantics, load the exact materialized extension in a controlled profile court and prove connection identity, focus preservation, target-lock release, detach cleanup and host EOF cleanup"
+          "evidence": ["cu.browser-bridge-owned-profile.macos"],
+          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact fixed extension, proves the live connection/status/tab/window wire, then proves stop and TTL reap the Native Messaging host. This is real activation evidence, but reload/attached-session target locks and Linux/Windows courts are still absent.",
+          "next": "add reload/attached-session semantics and prove Linux/Windows owned-Profile activation, focus preservation, target-lock release and detach cleanup"
         },
         {
           "id": "browser.closed-tree",

@@ -150,7 +150,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       doctor desktop baseline、system readiness 与 capability counts 已有
 │     │                       公开 qjswasm 证据；跨机制 live probe 仍是明确 gap，不以 catalog 冒充
 │     │                       浏览器 exact MV3 connection 已有 profile-scoped windows 与 guarded
-│     │                       window-state；loaded-extension 活体 court/native focus bridge 未过，仍记 gap
+│     │                       window-state；macOS owned Profile 活体连接/host EOF cleanup 已绿，
+│     │                       real-window/closed-shadow、Linux/Windows 与 native focus bridge 未过，仍记 gap
 │     │                       macOS core 已证平台身份/显示/不读内容的剪贴板元数据/有界 shell 回收；
 │     │                       owned-process + owned-desktop 也已证，macOS vocabulary 完整；
 │     │                       Linux/Windows 同源回执未齐，故不改变跨平台 gap 判决

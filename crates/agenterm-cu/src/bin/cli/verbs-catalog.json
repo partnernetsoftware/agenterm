@@ -4623,7 +4623,7 @@
       "grant": "actuate",
       "family": "browser",
       "summary": "start one named bounded browser automation session",
-      "usage": "browser-session-start NAME --browser PATH [--ready-timeout-ms N] [--ttl-ms N]\nbrowser session-start ...",
+      "usage": "browser-session-start NAME --browser PATH [--bridge] [--ready-timeout-ms N] [--ttl-ms N]\nbrowser session-start ...",
       "args": [
         {
           "flag": "NAME",
@@ -4634,6 +4634,11 @@
           "flag": "--browser",
           "value": "PATH",
           "help": "exact browser executable path"
+        },
+        {
+          "flag": "--bridge",
+          "value": "",
+          "help": "materialize and request the fixed ACU MV3 bridge in this isolated profile"
         },
         {
           "flag": "--ready-timeout-ms",
@@ -5822,7 +5827,7 @@
     },
     {
       "name": "browser-session-start",
-      "text": "agenterm-cu browser-session-start    (also: browser session-start)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-start NAME --browser PATH [--ready-timeout-ms N] [--ttl-ms N]\n\nStarts one named browser automation session with an exact browser executable path. Readiness is bounded to 1000..=60000 ms (default 15000); lifetime is bounded to 1000..=86400000 ms (default 3600000).\n"
+      "text": "agenterm-cu browser-session-start    (also: browser session-start)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-session-start NAME --browser PATH [--bridge] [--ready-timeout-ms N] [--ttl-ms N]\n\nStarts one named browser automation session with an exact browser executable path. --bridge first installs the same executable as the fixed current-user Native Messaging host and asks Chromium to load the fixed extension in the isolated profile; only a later exact live connection proves activation. Readiness is bounded to 1000..=60000 ms (default 15000); lifetime is bounded to 1000..=86400000 ms (default 3600000).\n"
     },
     {
       "name": "browser-session-list",

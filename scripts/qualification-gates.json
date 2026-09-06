@@ -373,7 +373,10 @@
     },
     {
       "id": "cu-browser-session-smoke",
-      "evidence": ["cu.browser-managed-profile.macos"]
+      "evidence": [
+        "cu.browser-managed-profile.macos",
+        "cu.browser-bridge-owned-profile.macos"
+      ]
     },
     {
       "id": "cu-terminal-viewport-smoke",

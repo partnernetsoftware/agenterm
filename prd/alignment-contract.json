@@ -261,6 +261,7 @@
         "cu.privilege-plan",
         "cu.persisted-grant-operation-binding.macos",
         "cu.browser-managed-profile.macos",
+        "cu.browser-bridge-owned-profile.macos",
         "cu.terminal-viewport-image.macos",
         "cu.simulator-readonly",
         "cu.file-copy-transaction",

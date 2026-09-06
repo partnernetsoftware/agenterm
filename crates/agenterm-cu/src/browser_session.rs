@@ -300,14 +300,18 @@ pub fn active_port_path(profile_root: &Path) -> PathBuf {
     profile_root.join(ACTIVE_PORT_FILE)
 }
 
-pub fn owned_launch_args(profile_root: &Path) -> Vec<String> {
-    vec![
+pub fn owned_launch_args(profile_root: &Path, bridge_extension: Option<&Path>) -> Vec<String> {
+    let mut args = vec![
         format!("--user-data-dir={}", profile_root.display()),
         "--remote-debugging-port=0".into(),
         "--no-first-run".into(),
         "--no-default-browser-check".into(),
         "--no-startup-window".into(),
-    ]
+    ];
+    if let Some(extension) = bridge_extension {
+        args.push(format!("--load-extension={}", extension.display()));
+    }
+    args
 }
 
 #[cfg(test)]
@@ -400,7 +404,7 @@ mod tests {
     #[test]
     fn owned_launch_uses_random_port_file_contract() {
         let root = Path::new("browser-session-fixture");
-        let args = owned_launch_args(root);
+        let args = owned_launch_args(root, None);
         assert!(args.contains(&"--remote-debugging-port=0".to_owned()));
         assert!(args.contains(&"--no-startup-window".to_owned()));
         assert!(
@@ -408,6 +412,13 @@ mod tests {
                 .any(|arg| arg == "--user-data-dir=browser-session-fixture")
         );
         assert_eq!(active_port_path(root), root.join(ACTIVE_PORT_FILE));
+
+        let extension = Path::new("browser-session-fixture/extension");
+        let args = owned_launch_args(root, Some(extension));
+        assert!(
+            args.iter()
+                .any(|arg| arg == "--load-extension=browser-session-fixture/extension")
+        );
     }
 
     #[test]

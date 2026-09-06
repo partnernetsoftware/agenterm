@@ -895,6 +895,7 @@ fn browser(
             })
         }
         "session-start" => {
+            let bridge = take_switch(args, "--bridge");
             let browser = flag_text(args, "--browser")?
                 .ok_or_else(|| "browser session-start requires --browser PATH".to_owned())?;
             if browser.trim().is_empty() {
@@ -916,6 +917,7 @@ fn browser(
                 target,
                 name,
                 browser,
+                bridge,
                 ready_timeout_ms,
                 ttl_ms,
             })
@@ -1228,9 +1230,20 @@ mod tests {
                 target: TargetRef::Current,
                 ref name,
                 ref browser,
+                bridge: false,
                 ready_timeout_ms: 15_000,
                 ttl_ms: 3_600_000,
             }) if name == "research" && browser == "/opt/browser"
+        ));
+
+        let mut bridged = words(&["bridged", "--browser", "/opt/browser", "--bridge"]);
+        assert!(matches!(
+            browser(TargetRef::Current, Some("session-start"), &mut bridged),
+            Ok(Command::BrowserSessionStart {
+                bridge: true,
+                ref name,
+                ..
+            }) if name == "bridged"
         ));
 
         let mut grouped = words(&[

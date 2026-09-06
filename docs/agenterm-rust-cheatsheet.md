@@ -1654,6 +1654,15 @@ provider; never claim that `chrome.windows.update` preserved foreground merely
 because it returned successfully. A failed postcondition must roll back or
 report rollback uncertainty, not return a plausible success receipt.
 
+An owned Chromium Profile does not prove that a requested unpacked extension
+loaded. Pass only the atomically materialized fixed extension directory through
+the sealed owner spec, then require a new exact Native Messaging connection
+whose extension identity and protocol catalog match. Stop/TTL evidence must
+also show that this connection disappears after the contained browser tree is
+reaped. `--load-extension` in argv, an installed manifest, or an empty window
+inventory is supporting mechanism evidence; only the live connection closes
+the activation claim.
+
 For an owned Chromium session, request `--remote-debugging-port=0` and read the
 bounded `DevToolsActivePort` file from that session's private profile. Require a
 nonzero decimal port and a `/devtools/browser/` websocket path; reject extra

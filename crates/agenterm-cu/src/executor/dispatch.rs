@@ -1370,10 +1370,11 @@ impl Executor {
             Command::BrowserSessionStart {
                 name,
                 browser,
+                bridge,
                 ready_timeout_ms,
                 ttl_ms,
                 ..
-            } => browser_session_start_payload(name, browser, *ready_timeout_ms, *ttl_ms),
+            } => browser_session_start_payload(name, browser, *bridge, *ready_timeout_ms, *ttl_ms),
             Command::BrowserSessionList { .. } => browser_session_list_payload(),
             Command::BrowserSessionStatus { name, .. } => browser_session_status_payload(name),
             Command::BrowserSessionStop {

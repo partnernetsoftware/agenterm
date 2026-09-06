@@ -25,6 +25,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     CuError,
+    browser_bridge::install_for_current_user,
     browser_session::{
         BrowserSessionPaths, BrowserSessionRecord, BrowserSessionState, FileObjectIdentity,
         OWNER_MARKER_FILE, ProcessIdentity, create_session_directories, publish_record,
@@ -43,6 +44,7 @@ static NEXT_NONCE: AtomicU64 = AtomicU64::new(1);
 pub(super) fn browser_session_start_payload(
     name: &str,
     browser: &str,
+    bridge: bool,
     ready_timeout_ms: u64,
     ttl_ms: u64,
 ) -> Result<Value, CuError> {
@@ -60,6 +62,21 @@ pub(super) fn browser_session_start_payload(
         Err(error) => return Err(state_unavailable(error)),
     }
     let browser = canonical_browser(browser)?;
+    let bridge_extension = if bridge {
+        let current_executable = std::env::current_exe().map_err(|_| {
+            CuError::new(
+                "browser_bridge_current_executable_unavailable",
+                "current browser bridge executable is unavailable",
+            )
+        })?;
+        Some(
+            install_for_current_user(&current_executable)
+                .map_err(|error| CuError::new(error.code, error.code))?
+                .extension,
+        )
+    } else {
+        None
+    };
     create_session_directories(&paths).map_err(state_unavailable)?;
     write_private_atomic(&paths.profile.join(OWNER_MARKER_FILE), MARKER_BYTES)
         .map_err(state_unavailable)?;
@@ -71,6 +88,7 @@ pub(super) fn browser_session_start_payload(
         name: name.to_owned(),
         session_nonce: nonce.clone(),
         executable: browser,
+        bridge_extension,
         ready_timeout_ms,
         ttl_ms,
     };

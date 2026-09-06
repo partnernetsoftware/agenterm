@@ -4595,7 +4595,7 @@ Reads only bounded AX frame/node identity, role and name facts. Form/control val
 ### `browser-session-start`
 
 ```text
-browser-session-start NAME --browser PATH [--ready-timeout-ms N] [--ttl-ms N]
+browser-session-start NAME --browser PATH [--bridge] [--ready-timeout-ms N] [--ttl-ms N]
 browser session-start ...
 ```
 
@@ -4604,9 +4604,9 @@ agenterm-cu browser-session-start    (also: browser session-start)
   scope: actuate    family: Browser page & tabs
 
 usage:
-  browser-session-start NAME --browser PATH [--ready-timeout-ms N] [--ttl-ms N]
+  browser-session-start NAME --browser PATH [--bridge] [--ready-timeout-ms N] [--ttl-ms N]
 
-Starts one named browser automation session with an exact browser executable path. Readiness is bounded to 1000..=60000 ms (default 15000); lifetime is bounded to 1000..=86400000 ms (default 3600000).
+Starts one named browser automation session with an exact browser executable path. --bridge first installs the same executable as the fixed current-user Native Messaging host and asks Chromium to load the fixed extension in the isolated profile; only a later exact live connection proves activation. Readiness is bounded to 1000..=60000 ms (default 15000); lifetime is bounded to 1000..=86400000 ms (default 3600000).
 ```
 
 ### `browser-session-list`

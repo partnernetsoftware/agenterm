@@ -627,7 +627,14 @@ flowchart LR
   postcondition attempts rollback and never becomes success. This is useful
   implementation depth, not promotion evidence: an exact loaded-extension
   controlled-Profile court and the native background-browser focus bridge are
-  still pending. Unit, CLI, both Windows-ISA compile,
+  still pending. `browser-session-start --bridge` now materializes the fixed
+  current-user host registration and passes the exact extension directory to
+  Chromium's isolated owned Profile. A public macOS qjswasm court has proved a
+  real fixed extension connection, exact status/tab/window inventory, stop →
+  Native Messaging host EOF cleanup, same-name restart and TTL cleanup without
+  opening a window or changing foreground focus. This promotes owned-Profile
+  bridge activation on macOS only; it does not promote closed-shadow behavior
+  or window-state mutation without a real window. Unit, CLI, both Windows-ISA compile,
   foreign-origin stdout, and empty exact-connection inventory evidence are
   green. A loaded-extension real-profile closed-shadow journey is still the
   promotion boundary; setup/catalog presence alone does not promote the route.
@@ -645,7 +652,8 @@ flowchart LR
   W --> P["pending: Linux lifecycle<br/>descendant cleanup courts"]
   X --> R["versioned request + at-most-once receipt"]
   R --> Y["exact-connection CLI ✓<br/>windows + guarded window-state ✓"]
-  Y --> Z["loaded-extension court + native focus bridge pending"]
+  Y --> L["macOS owned Profile load + host EOF cleanup ✓"]
+  L --> Z["real-window state + closed-shadow<br/>Linux/Windows + native focus bridge pending"]
 ```
 - [~] Browser download ownership is now a native `page-download` vertical
   slice rather than a successful `page-js` / `page-click` acknowledgement.

@@ -30,7 +30,7 @@ use crate::browser_session::{
 
 pub const OWNER_ARG: &str = "--agenterm-cu-internal-browser-session-owner";
 pub const SPEC_FILE: &str = "owner-spec.json";
-pub const OWNER_SPEC_SCHEMA_VERSION: u32 = 1;
+pub const OWNER_SPEC_SCHEMA_VERSION: u32 = 2;
 const OWNER_SPEC_MAX_BYTES: usize = 64 * 1024;
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 const EXIT_WAIT: Duration = Duration::from_secs(5);
@@ -43,6 +43,8 @@ pub struct BrowserOwnerSpec {
     pub name: String,
     pub session_nonce: String,
     pub executable: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bridge_extension: Option<PathBuf>,
     pub ready_timeout_ms: u64,
     pub ttl_ms: u64,
 }
@@ -56,6 +58,13 @@ impl BrowserOwnerSpec {
             || !(1_000..=86_400_000).contains(&self.ttl_ms)
             || !self.executable.is_absolute()
             || !self.executable.is_file()
+            || self.bridge_extension.as_ref().is_some_and(|path| {
+                !path.is_absolute()
+                    || !path.is_dir()
+                    || fs::symlink_metadata(path)
+                        .map(|metadata| metadata.file_type().is_symlink())
+                        .unwrap_or(true)
+            })
         {
             return Err("browser_owner_spec_invalid");
         }
@@ -305,7 +314,7 @@ fn spawn_owned_browser(
     profile: &Path,
 ) -> Result<OwnedBrowser, OwnedSpawnError> {
     let mut command = ContainedHeadlessCommand::new(&spec.executable);
-    command.args(owned_launch_args(profile));
+    command.args(owned_launch_args(profile, spec.bridge_extension.as_deref()));
     let child = command
         .spawn()
         .map_err(|_| OwnedSpawnError::Clean("browser_owner_spawn_failed"))?;
@@ -522,6 +531,7 @@ mod tests {
             name: "work".into(),
             session_nonce: "0123456789abcdef".into(),
             executable: PathBuf::from("browser"),
+            bridge_extension: None,
             ready_timeout_ms: 999,
             ttl_ms: 1_000,
         };
