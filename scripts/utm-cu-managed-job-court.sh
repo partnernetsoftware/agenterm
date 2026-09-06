@@ -144,7 +144,7 @@ echo "UTM court phase: lease $COURT"
 LEASED=1
 ready_timeout=180
 interactive_timeout=180
-if [ "$COURT" = lnx-x86_64-desktop ]; then
+if [ "$COURT" = lnx-x86_64-desktop ] || [ "$COURT" = win-x86_64-desktop ]; then
   # Apple Silicon fully emulates this guest. Its cold QGA boot has exceeded
   # the native-cell budget without indicating a failed VM, so keep the slow
   # cell bounded independently rather than weakening every court.
