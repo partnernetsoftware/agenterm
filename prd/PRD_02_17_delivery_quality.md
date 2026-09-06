@@ -1142,6 +1142,17 @@ costs a full candidate cycle:
   status and lifecycle RPC is process-tree bounded: a wedged `utmctl` becomes
   typed unavailable/BLOCKED instead of retaining the single-active lease.
   Product court scripts only lease, transfer exact bytes, execute and release.
+- [~] Linux desktop execution must cross an interactive-session court, not raw
+  QGA. QGA is a root transport outside the login desktop; treating it as a
+  user session produced false `host adapter unavailable` and D-Bus errors even
+  while the product bytes were sound. The sibling service now owns the
+  declared user, unique active local graphical-session discovery, exact
+  display/session-bus environment, unprivileged execution and nonce proof.
+  It rejects greeters, remote/inactive/ambiguous sessions and missing display,
+  D-Bus or AT-SPI connectivity. The product runner supplies the complete
+  journey fixture and exact current PASS line. This leaf remains partial until
+  the X11 Linux x86_64 court returns a real full-journey receipt; Linux arm64
+  GNOME/Wayland is a separate parity verdict and may not borrow the X11 result.
 - [x] Windows guest logs are an encoding boundary. Windows PowerShell 5 may
   redirect native output as UTF-16LE while Linux and newer shells emit UTF-8;
   the host normalizes the pulled text copy to UTF-8 with LF endings before
@@ -1153,7 +1164,11 @@ costs a full candidate cycle:
 ```mermaid
 flowchart LR
   B["exact-SHA cross-build"] --> L["utm-court lease<br/>bounded lifecycle RPC"]
-  L --> X["push + manifest verify<br/>execute only"]
+  L --> S{"desktop court?"}
+  S -->|Linux| I["unique local user session<br/>display + D-Bus + AT-SPI + nonce"]
+  S -->|Windows| W["interactive job-agent nonce"]
+  I --> X["push + manifest verify<br/>execute as session user"]
+  W --> X
   X --> G{"guest log encoding"}
   G -->|UTF-8| N["canonical UTF-8 evidence"]
   G -->|PowerShell UTF-16LE| N

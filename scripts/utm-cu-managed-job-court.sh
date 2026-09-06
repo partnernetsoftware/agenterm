@@ -23,7 +23,7 @@ COURT="$1"
 PROFILE_DIR="$2"
 TASK="${AGENTERM_UTM_TASK:-cu-managed-job-smoke}"
 EVIDENCE="${AGENTERM_UTM_EVIDENCE:-cu.managed-job-lifecycle}"
-PASS_LINE="${AGENTERM_UTM_PASS_LINE:-PASS: agenterm-cu platform-neutral managed-job lifecycle (replay, dual cursors, renewal, stop and owned cleanup)}"
+PASS_LINE="${AGENTERM_UTM_PASS_LINE:-PASS: agenterm-cu managed-job lifecycle, containment resources and bounded audit retention}"
 case "$TASK" in ''|*[!a-z0-9-]*) echo "invalid UTM task id" >&2; exit 2 ;; esac
 case "$EVIDENCE" in ''|*[!a-z0-9.-]*) echo "invalid UTM evidence id" >&2; exit 2 ;; esac
 case "$COURT" in
@@ -90,6 +90,10 @@ cp "$REPO_ROOT/agenterm.tasks.json" "$PAYLOAD/"
 cp "$REPO_ROOT/scripts/qjs/$TASK.qjs" "$PAYLOAD/scripts/qjs/"
 cp "$REPO_ROOT/scripts/qjs/lib/rh_compat.qjs" "$PAYLOAD/scripts/qjs/lib/"
 cp "$REPO_ROOT/scripts/qjs/lib/test_harness.qjs" "$PAYLOAD/scripts/qjs/lib/"
+if [ "$TASK" = cu-linux-smoke ]; then
+  mkdir -p "$PAYLOAD/examples/python"
+  cp "$REPO_ROOT/examples/python/agenterm_atspi_fixture.py" "$PAYLOAD/examples/python/"
+fi
 printf '%s\n' "$SOURCE_SHA" >"$PAYLOAD/SOURCE_SHA"
 
 if [ "$GUEST_OS" = linux ]; then
@@ -123,6 +127,9 @@ BUNDLE_SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
 "$COURT_CLI" lease "$COURT" --disposable >/dev/null
 LEASED=1
 "$COURT_CLI" wait-ready "$COURT" 180 >/dev/null
+if [ "$GUEST_OS" = linux ]; then
+  "$COURT_CLI" interactive-ready "$COURT" 180 >/dev/null
+fi
 
 RUN_ID="${SOURCE_SHA:0:12}-$COURT-$$-$RANDOM"
 LOCAL_LOG="$SCRATCH/run.log"
@@ -164,7 +171,7 @@ if [ "$GUEST_OS" = linux ]; then
   # weaken the service-wide command/receipt deadlines.
   UTM_COURT_TRANSFER_TIMEOUT=180 \
     "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
-  "$COURT_CLI" exec "$COURT" -- /bin/bash -lc \
+  "$COURT_CLI" interactive-exec "$COURT" -- /bin/bash -lc \
     "rm -rf '$GUEST_ROOT'; mkdir -p '$GUEST_ROOT'; tar -xzf '$GUEST_ARCHIVE' -C '$GUEST_ROOT'; cd '$GUEST_ROOT'; sha256sum -c MANIFEST.sha256 >'$GUEST_LOG' 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then target/debug/agenterm cli script task run '$TASK' --manifest agenterm.tasks.json >>'$GUEST_LOG' 2>&1; rc=\$?; fi; printf '%s' \"\$rc\" >'$GUEST_EXIT.tmp'; mv -f '$GUEST_EXIT.tmp' '$GUEST_EXIT'"
 else
   "$COURT_CLI" interactive-ready "$COURT" 180 >/dev/null
