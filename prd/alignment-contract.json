@@ -256,7 +256,9 @@
         "cu.resource-status",
         "cu.storage-devices",
         "cu.privilege-plan",
-        "cu.simulator-readonly"
+        "cu.simulator-readonly",
+        "cu.file-copy-transaction",
+        "cu.file-move-transaction"
       ]
     },
     {

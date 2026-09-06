@@ -361,6 +361,14 @@
     {
       "id": "cu-simulator-readonly-smoke",
       "evidence": ["cu.simulator-readonly"]
+    },
+    {
+      "id": "cu-file-transaction-smoke",
+      "evidence": ["cu.file-copy-transaction"]
+    },
+    {
+      "id": "cu-file-move-transaction-smoke",
+      "evidence": ["cu.file-move-transaction"]
     }
   ]
 }
