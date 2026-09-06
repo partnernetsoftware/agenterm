@@ -427,7 +427,8 @@
           "mcu_shape": "page targets and page read --js with automatic or explicit target selection",
           "acu_shape": "page-targets and page-js with target id/url/title or MCU-compatible match across title+URL+description; endpoint by exclusive --port or identity-bound --pid",
           "state": "delegated",
-          "evidence": ["scripts/cu-cdp-smoke.sh"],
+          "qualification": "windows-public-qjswasm-browser-journey-registered-native-run-pending",
+          "evidence": ["cu.windows-browser-cdp-targets", "cu.windows-browser-cdp-page-js"],
           "note": "ACU improves MCU auto-pick: --match preserves the same three metadata fields but requires one unambiguous eligible target; zero/many are typed failures instead of first-hit guessing. PID endpoint discovery reads one bounded exact-process command line between equal start identities, extracts only an explicit debugging port, never scans, and never publishes the command line."
         },
         {
@@ -465,8 +466,8 @@
           "mcu_shape": "browser tabs plus tab activation/close",
           "acu_shape": "tab-list/tab-select/tab-close bound to a stable browser window",
           "state": "delegated",
-          "evidence": ["scripts/cu-brave-live-smoke.sh", "scripts/cu-brave-live-cdp-smoke.sh"],
-          "declared_evidence": ["cu.windows-browser-tab-list", "cu.windows-browser-tab-select"]
+          "qualification": "windows-public-qjswasm-browser-journey-registered-native-run-pending",
+          "evidence": ["cu.windows-browser-tab-list", "cu.windows-browser-tab-select"]
         },
         {
           "id": "browser.profile.inventory-open",
@@ -737,7 +738,8 @@
           "mcu_shape": "exec <command...> --timeout S",
           "acu_shape": "shell-exec --command TEXT [--timeout-ms N] [--max-output-bytes N]",
           "state": "native",
-          "evidence": [],
+          "qualification": "macos-public-qjswasm-live-windows-arm64-live-linux-and-windows-x86_64-pending",
+          "evidence": ["cu.runtime-capability-core.macos"],
           "next": "promote the shared public journey after Linux and Windows x86_64 native reruns; keep exec --json reserved for serialized CU worker commands",
           "note": "The MCU compatibility router maps only MCU exec to shell-exec and propagates the completed nested exit code. macOS and Windows arm64 native courts prove bounded dual-stream capture, exact nonzero exit and cleanup; Linux arm64 runtime evidence is still blocked by a corrupt guest transfer and is not claimed."
         }
