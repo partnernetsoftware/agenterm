@@ -325,6 +325,14 @@
     {
       "id": "cu-process-sockets-smoke",
       "evidence": ["cu.process-sockets"]
+    },
+    {
+      "id": "cu-process-set-state-smoke",
+      "evidence": ["cu.process-set-state"]
+    },
+    {
+      "id": "cu-process-signal-smoke",
+      "evidence": ["cu.process-signal"]
     }
   ]
 }

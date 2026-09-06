@@ -247,7 +247,9 @@
         "cu.desktop-state",
         "cu.process-inventory-rich",
         "cu.process-inspection",
-        "cu.process-sockets"
+        "cu.process-sockets",
+        "cu.process-set-state",
+        "cu.process-signal"
       ]
     },
     {
