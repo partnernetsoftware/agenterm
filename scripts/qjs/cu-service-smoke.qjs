@@ -1,0 +1,113 @@
+// Public, mutation-free native service observation and lifecycle-plan court.
+// Actual service mutation belongs to a disposable fixture court.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.service-plan"];
+
+function ensure(condition, message) { if (!condition) { throw message; } }
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+function hex64(value) {
+  if (typeof value !== "string" || value.length !== 64) { return false; }
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (!((code >= 48 && code <= 57) || (code >= 97 && code <= 102))) { return false; }
+  }
+  return true;
+}
+function invoke(executable, directory, audit_path, grant, args) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", grant, "service"
+  ].concat(args), {
+    cwd: directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: audit_path,
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(directory, "requests.json")
+    },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_service_empty:" + output.stderr);
+  return { output: output, stdout: stdout, reply: JSON.parse(stdout) };
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_service_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-service");
+let succeeded = 0;
+let failure = "";
+try {
+  const audit_path = rh.join(context.run_directory, "audit.jsonl");
+  print("STEP service inventory is bounded, filtered and platform-honest");
+  const inventory = invoke(executable, context.run_directory, audit_path, "observe", [
+    "list", "--max", "32"
+  ]);
+  if (inventory.reply.ok !== true) {
+    ensure(harness.host_is_windows(), "cu_service_native_inventory_failed:" + inventory.stdout);
+    ensure(inventory.output.success !== true, "cu_service_unsupported_false_success");
+    ensure(inventory.reply.error.code === "service_unsupported", "cu_service_unsupported_code");
+  } else {
+    ensure(inventory.output.success === true, "cu_service_inventory_exit");
+    const data = inventory.reply.data;
+    ensure(data.scope === "user", "cu_service_inventory_scope");
+    ensure(Array.isArray(data.services) && data.services.length > 0, "cu_service_inventory_empty");
+    ensure(data.services.length <= 32 && data.visited >= data.services.length, "cu_service_inventory_bound");
+
+    const row = data.services[0];
+    const name = row.identity.name;
+    ensure(typeof name === "string" && name.length > 0, "cu_service_name");
+    const filtered = invoke(executable, context.run_directory, audit_path, "observe", [
+      "list", "--match", name, "--max", "1"
+    ]);
+    ensure(filtered.reply.ok === true && filtered.reply.data.services.length === 1, "cu_service_filter");
+    ensure(filtered.reply.data.services[0].identity.name === name, "cu_service_filter_identity");
+
+    print("STEP exact status and lifecycle plan preserve provider identity without mutation");
+    const status = invoke(executable, context.run_directory, audit_path, "observe", ["status", name]);
+    ensure(status.reply.ok === true && status.output.success === true, "cu_service_status");
+    const before = status.reply.data;
+    ensure(before.identity.name === name && before.identity.scope === "user", "cu_service_status_identity");
+    ensure(typeof before.identity.provider === "string" && before.identity.provider.length > 0, "cu_service_provider");
+    ensure(typeof before.identity.provider_scope === "string" && before.identity.provider_scope.length > 0, "cu_service_domain");
+    const operation = before.state === "running" ? "stop" : "start";
+    const planned = invoke(executable, context.run_directory, audit_path, "observe", [
+      "plan", operation, name, "--ttl-seconds", "60"
+    ]);
+    ensure(planned.reply.ok === true && planned.output.success === true, "cu_service_plan:" + planned.stdout);
+    const plan = planned.reply.data;
+    ensure(plan.schema_version === 1 && plan.operation === operation, "cu_service_plan_shape");
+    ensure(JSON.stringify(plan.before) === JSON.stringify(before), "cu_service_plan_before");
+    ensure(plan.mutation_performed === false, "cu_service_plan_mutated");
+    ensure(plan.expires_at_utc_ms - plan.issued_at_utc_ms === 60000, "cu_service_plan_expiry");
+    ensure(hex64(plan.contract_digest) && plan.approval === plan.approval_digest, "cu_service_plan_digest");
+    ensure(typeof plan.request === "string" && plan.request.length > 0, "cu_service_request");
+    ensure(!rh.exists(rh.join(context.run_directory, "requests.json")), "cu_service_plan_reserved");
+
+    const after = invoke(executable, context.run_directory, audit_path, "observe", ["status", name]);
+    ensure(after.reply.ok === true && JSON.stringify(after.reply.data) === JSON.stringify(before), "cu_service_plan_changed_state");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.service-plan");
+  harness.remove_run(context);
+  print("PASS: service inventory, exact status and lifecycle planning are bounded, mutation-free and platform-honest");
+}
+if (failure !== "") { throw failure; }
+return;

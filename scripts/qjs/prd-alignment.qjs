@@ -257,6 +257,7 @@ const evidence_suites = {
   "cu-pty-smoke": true,
   "cu-login-session-smoke": true,
   "cu-audio-smoke": true,
+  "cu-service-smoke": true,
   "unix-frontend-linux-smoke": true,
   "unix-frontend-macos-smoke": true,
   "server-smoke": true,

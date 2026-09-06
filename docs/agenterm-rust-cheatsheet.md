@@ -4437,6 +4437,28 @@ the public CLI rather than accepting catalog or unit-test presence as delivery.
   prerequisite; only an explicit setup/mutation command may enroll or rotate
   it.
 
+## Service lifecycle: bind the native authority domain and admit uncertainty
+
+- A service name alone is not an identity. Bind it to the native provider and
+  authority domain (`launchd` bootstrap domain or systemd user/system manager),
+  and retain a provider-owned incarnation when one exists. Never infer a
+  process instance from a label alone.
+- On Linux, use systemd's D-Bus manager directly; do not parse `systemctl` or
+  route lifecycle effects through a shell. On macOS there is no equivalent
+  stable public framework, so invoke the fixed `/bin/launchctl` path with an
+  argument vector, bounded output and a deadline rather than trusting `PATH`.
+- A transport timeout after dispatch means `possibly_applied`, not
+  `not_performed`. Observe before compensating: if the complete snapshot still
+  equals the bound before-state, compensation is unnecessary. Otherwise bind
+  any inverse operation to the newly observed state and retain an uncertain
+  durable outcome when exact read-back or rollback cannot be proved.
+- Restart and stop-then-start can create a new incarnation. State equality is
+  not instance equality; never report rollback as verified unless the complete
+  original snapshot, including the provider instance identity, is restored.
+- Keep system-service mutation behind the privilege provider. Read-only system
+  inventory may remain public, but an unprivileged facade must return a typed
+  `requires_privilege` result rather than silently invoking elevation.
+
 ## Installed font memory ownership
 
 Do not `fs::read` plus `Box::leak` installed font collections: an idle

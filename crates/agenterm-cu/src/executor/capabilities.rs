@@ -584,6 +584,23 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "service".into(),
+            serde_json::json!({
+                "status": if cfg!(any(target_os = "macos", target_os = "linux")) { "available" } else { "unsupported" },
+                "group": "service",
+                "grant": "mixed",
+                "grant_by_shape": {
+                    "list": "observe",
+                    "status": "observe",
+                    "plan": "observe",
+                    "apply": "actuate",
+                },
+                "mode": "provider-domain-instance-bound-plan-apply",
+                "system_mutation": "requires-privilege-provider",
+                "uncertain_effect": "durably-closed-never-replayed",
+            }),
+        );
+        verbs.insert(
             "file-copy".into(),
             serde_json::json!({
                 "status": "available",

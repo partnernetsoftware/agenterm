@@ -298,6 +298,12 @@
       "evidence": [
         "cu.audio-plan"
       ]
+    },
+    {
+      "id": "cu-service-smoke",
+      "evidence": [
+        "cu.service-plan"
+      ]
     }
   ]
 }

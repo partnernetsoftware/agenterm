@@ -456,6 +456,9 @@ pub mod host_notification;
 #[cfg(feature = "audio")]
 pub mod audio;
 
+#[cfg(feature = "service")]
+pub mod service;
+
 #[cfg(feature = "login-session")]
 pub mod login_session;
 

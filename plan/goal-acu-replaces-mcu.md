@@ -249,6 +249,19 @@ mechanisms. This is not the remaining capability count: group verbs contain
 multiple independently gated shapes. The machine-readable ledger, not the
 top-level number, decides retirement.
 
+The service replacement is now a real typed frontier rather than a catalog
+placeholder: `agenterm-platform` owns bounded launchd/systemd inventory,
+provider-qualified identity and user-domain lifecycle mechanics, while
+`agenterm-cu service` exposes mutation-free list/status/plan plus approval-bound
+apply. Plans bind the complete before snapshot, native incarnation and (for
+launchd bootstrap) a current-user-owned plist's canonical path, declared Label,
+size and digest; apply reserves durably before effect and closes success,
+verified rollback or uncertainty without automatic replay. The public qjswasm
+`cu.service-plan` court is green on macOS and performs no mutation. Static
+`service` stays intentionally nonzero until the old one-call lifecycle shape is
+identity-bound, system mutation reaches the privilege provider, and Linux,
+Windows-refusal plus explicit mutation/rollback courts are green.
+
 ACU now owns `job-resources JOB_ID GENERATION [--watch-ms N]` as an exact,
 identity-bracketed observation of every current native containment-group
 member. Point and bounded-series replies expose a stable membership digest,

@@ -240,7 +240,8 @@
         "cu.windows-external-terminal-send",
         "cu.pty-background-interactive",
         "cu.login-session-plan",
-        "cu.audio-plan"
+        "cu.audio-plan",
+        "cu.service-plan"
       ]
     },
     {

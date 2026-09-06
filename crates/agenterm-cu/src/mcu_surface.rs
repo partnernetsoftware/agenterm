@@ -425,13 +425,21 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "available",
             "exact default-output status plus approval-bound at-most-once volume/mute plan/apply are native on macOS; Linux and Windows return the truthful platform limit",
         ),
+        "service" => (
+            if matches!(os, "macos" | "linux") {
+                "available"
+            } else {
+                "unsupported"
+            },
+            "bounded user/system inventory and status plus exact user-service plan/apply are native on macOS/Linux; direct legacy lifecycle, launchd plist-label admission, system privilege apply and daemon login-service remain typed migration gaps",
+        ),
         "privilege" => (
             "available",
             "identity-bound process priority plans and the closed provider protocol are live; native consent and one-shot apply remain typed gaps, and no root shell is exposed",
         ),
         "runtime" => (
             "available",
-            "runtime-status truthfully reports the on-demand coordinator and per-resource owners; session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; exact-window external terminal read/send/wait is live; global daemon lifecycle is not applicable, while service remains a typed gap",
+            "runtime-status truthfully reports the on-demand coordinator and per-resource owners; session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; exact-window external terminal read/send/wait is live; global daemon lifecycle is not applicable, while daemon login-service remains a typed gap",
         ),
         "desktop-helper" => (
             "unsupported",

@@ -2529,6 +2529,31 @@
       ]
     },
     {
+      "name": "service",
+      "command": "service",
+      "aliases": [],
+      "grant": "mixed",
+      "grant_by_shape": {
+        "list": "observe",
+        "system-list": "observe",
+        "status": "observe",
+        "system-status": "observe",
+        "plan": "observe",
+        "apply": "actuate"
+      },
+      "family": "system",
+      "summary": "observe native services or approval-bind one exact user-service lifecycle transaction",
+      "usage": "service list|system-list [--match S] [--max N]\nservice status|system-status NAME\nservice plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]\nservice apply --request R --approve H",
+      "args": [
+        { "flag": "--match", "value": "S", "help": "case-insensitive name filter applied before truncation" },
+        { "flag": "--max", "value": "N", "help": "result bound in 1..=5000 (default 500)" },
+        { "flag": "--definition", "value": "PATH", "help": "regular definition file required by bootstrap" },
+        { "flag": "--ttl-seconds", "value": "N", "help": "approval lifetime in 1..=600 seconds (default 120)" },
+        { "flag": "--request", "value": "R", "help": "bounded request returned by plan" },
+        { "flag": "--approve", "value": "H", "help": "exact 64-hex approval returned by plan" }
+      ]
+    },
+    {
       "name": "login-session",
       "command": "login-session",
       "aliases": [],
@@ -5400,6 +5425,10 @@
     {
       "name": "audio",
       "text": "agenterm-cu audio\n  scope: observe for status/plan; actuate for apply    family: System & permissions\n\nusage:\n  audio status\n  audio plan volume 0..100 [--ttl-seconds N]\n  audio plan muted true|false [--ttl-seconds N]\n  audio apply --request R --approve H\n\nStatus reads the exact current default-output device, integer volume and mute\nstate without opening an application. Plan binds that complete state and a\nshort expiry, performs no mutation, and returns request/approval plus a sealed\nreverse plan. Apply checks durable replay before fresh admission, reserves before\nCoreAudio mutation, and requires exact read-back. A failed read-back rolls back\nonly while the same device remains current; verified rollback is terminal while\nan uncertain effect is never replayed. Linux and Windows return audio_unsupported.\n"
+    },
+    {
+      "name": "service",
+      "text": "agenterm-cu service\n  scope: observe for inventory/status/plan; actuate for apply    family: System & permissions\n\nusage:\n  service list|system-list [--match S] [--max N]\n  service status|system-status NAME\n  service plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]\n  service apply --request R --approve H\n\nList and status resolve the current native authority domain and retain provider\nand instance identity. Plan performs no mutation and binds the complete before\nsnapshot plus a bounded definition digest. Apply checks durable replay before\nfresh admission, revalidates all bound facts, reserves before effect, and never\nrepeats an uncertain outcome. System services are observable; system mutation\nreturns service_requires_privilege. Linux uses systemd D-Bus, macOS uses the\nfixed /bin/launchctl path, and Windows returns service_unsupported.\n"
     },
     {
       "name": "login-session",

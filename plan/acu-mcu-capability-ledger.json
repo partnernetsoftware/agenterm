@@ -967,18 +967,22 @@
         {
           "id": "service.user.lifecycle",
           "mcu_shape": "service user list|status|bootstrap|start|restart|stop|bootout",
-          "acu_shape": null,
+          "acu_shape": "service list|status; service plan start|stop|restart|bootstrap|bootout NAME; service apply --request R --approve H",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "provider-pending"},
-          "next": "typed per-user service identity, lifecycle mutation and exact state/PID/invocation readback per native provider"
+          "platforms": {"macos": "native-plan-court-green", "linux": "native-implementation-unqualified", "windows": "typed-unsupported"},
+          "qualification": "mutation-free-public-plan-court-green-explicit-mutation-and-cross-platform-courts-pending",
+          "evidence": ["cu.service-plan", "agenterm-cu service transaction state-machine suite", "agenterm-platform service adapter suite"],
+          "note": "Provider-qualified inventory and status plus user-domain plan/apply are native. Plans bind complete state and incarnation; launchd bootstrap also binds the canonical current-user-owned plist, declared Label, size and digest. Durable reservation precedes effect and uncertainty never replays. The MCU one-call compatibility shape remains a static STAY until it has an identity-bound transaction and mutation evidence.",
+          "next": "close the identity-bound one-call compatibility transaction, then run explicit apply/readback/rollback on macOS and Linux plus Windows typed-refusal courts"
         },
         {
           "id": "service.system.lifecycle",
           "mcu_shape": "service system list|status|start|restart|stop through a typed privileged request",
-          "acu_shape": null,
+          "acu_shape": "service system-list|system-status; system mutation returns service_requires_privilege",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "provider-pending"},
-          "next": "bind service definition identity and before state into a privilege plan; revalidate before mutation and verify state after"
+          "platforms": {"macos": "native-read-only", "linux": "native-read-only", "windows": "typed-unsupported"},
+          "evidence": ["cu.service-plan", "agenterm-cu system service privilege-refusal suite"],
+          "next": "carry the complete provider identity and before snapshot through the privileged provider, then verify the exact post-state"
         },
         {
           "id": "runtime.topology-status",

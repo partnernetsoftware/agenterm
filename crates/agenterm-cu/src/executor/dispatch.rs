@@ -61,6 +61,60 @@ impl Executor {
                     )
                 })
             }
+            Command::ServiceList {
+                scope,
+                match_text,
+                max,
+                ..
+            } => serde_json::to_value(crate::service_control::list(
+                *scope,
+                match_text.as_deref(),
+                *max,
+            )?)
+            .map_err(|_| {
+                CuError::new(
+                    "service_serialization_failed",
+                    "service inventory could not be serialized",
+                )
+            }),
+            Command::ServiceStatus { scope, name, .. } => serde_json::to_value(
+                crate::service_control::status_named(*scope, name)?,
+            )
+            .map_err(|_| {
+                CuError::new(
+                    "service_serialization_failed",
+                    "service status could not be serialized",
+                )
+            }),
+            Command::ServicePlan {
+                scope,
+                name,
+                operation,
+                definition,
+                ttl_seconds,
+                ..
+            } => {
+                let identity = crate::service_control::identity(*scope, name)?;
+                service_plan_payload(crate::service_control::plan(
+                    &identity,
+                    *operation,
+                    definition.as_ref().map(std::path::PathBuf::from),
+                    *ttl_seconds,
+                )?)
+            }
+            Command::ServiceApply {
+                request, approval, ..
+            } => {
+                let plan = crate::service_control::decode_request(request)?;
+                serde_json::to_value(crate::service_control::apply(&plan, approval)?).map_err(
+                    |_| {
+                        CuError::new(
+                            "service_serialization_failed",
+                            "service apply receipt could not be serialized",
+                        )
+                    },
+                )
+            }
             Command::LoginSessionStatus { .. } => {
                 serde_json::to_value(crate::login_session::status()?).map_err(|_| {
                     CuError::new(
@@ -1711,6 +1765,21 @@ fn audio_plan_payload(plan: crate::audio_control::AudioPlan) -> Result<serde_jso
         "approval": reverse.approval_digest,
         "plan": reverse,
     });
+    Ok(value)
+}
+
+fn service_plan_payload(
+    plan: crate::service_control::ServicePlan,
+) -> Result<serde_json::Value, CuError> {
+    let request = crate::service_control::encode_request(&plan)?;
+    let mut value = serde_json::to_value(&plan).map_err(|_| {
+        CuError::new(
+            "service_serialization_failed",
+            "service plan could not be serialized",
+        )
+    })?;
+    value["request"] = serde_json::Value::String(request);
+    value["approval"] = serde_json::Value::String(plan.approval_digest.clone());
     Ok(value)
 }
 

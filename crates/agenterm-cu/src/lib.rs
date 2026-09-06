@@ -119,6 +119,7 @@ pub mod rdp_transport;
 pub mod receipt;
 pub mod reply;
 pub mod runtime_coordinator;
+pub mod service_control;
 pub mod setup_entrypoint;
 pub mod snapshot;
 pub mod ssh_transport;

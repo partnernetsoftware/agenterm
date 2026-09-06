@@ -421,6 +421,16 @@ flowchart LR
   and Windows x86_64 reruns remain open.
   The spine must serve jobs, file transactions, browser bridge,
   privilege and Simulator instead of spawning parallel coordinators.
+- [~] Native service control now owns bounded launchd/systemd user and system
+  inventory, exact provider/domain/name identity, status snapshots and
+  user-domain lifecycle mechanics. The public `service list|status|plan|apply`
+  contract binds native incarnation plus full before state; launchd bootstrap
+  additionally binds a current-user-owned plist's canonical path, declared
+  Label, byte length and digest. Approval is short-lived, reservation precedes
+  effect, and uncertain outcomes never reopen automatic replay. The
+  mutation-free qjswasm evidence is `cu.service-plan` on macOS. This does not
+  yet retire MCU: the legacy one-call shape, system privilege provider and
+  Linux/Windows plus explicit mutation/rollback courts remain open.
 - [~] The compatibility spelling `acu caps` now returns the replacement ACU
   per-target capability matrix. It does not preserve MCU's private manifest as
   a second source of truth; declared, live, unavailable and unsupported states

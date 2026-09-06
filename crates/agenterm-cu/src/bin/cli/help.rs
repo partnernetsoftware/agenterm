@@ -94,6 +94,10 @@ pub fn top_level_text() -> String {
         "  file-inspect                      observe  inspect one final filesystem entry without following it\n  process-signal                    actuate  deliver one closed signal through exact native process objects\n  term-read                         observe  read one exact external terminal window's bounded accessibility buffer\n  term-send                         actuate  send to one exact external terminal with independent buffer verification\n  term-wait                         observe  wait for a regex in one exact external terminal without leaking timeout content",
         "  file-inspect observe final entry;  process-signal actuate exact native process\n  term-read observe;  term-send actuate;  term-wait observe — exact external terminal window",
     );
+    text = text.replace(
+        "  simulator-devices  simulator-apps  simulator-boot\n  simulator-launch  simulator-terminate",
+        "  simulator-devices  simulator-apps  simulator-boot  simulator-launch  simulator-terminate",
+    );
     if let Some(row) = text
         .lines()
         .find(|line| line.trim_start().starts_with("resource-status "))
@@ -101,7 +105,7 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-watch  device-list  storage-devices  resource-status  power-status  runtime-status  device-claims\n  device-claim  device-status  device-read  device-write  device-renew  device-release  audio  login-session",
+            "  device-watch  device-list  storage-devices  resource-status  power-status  runtime-status  device-claims\n  device-claim  device-status  device-read  device-write  device-renew  device-release\n  audio  service  login-session",
             1,
         );
     }
@@ -260,6 +264,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "device-renew",
         "device-release",
         "audio",
+        "service",
     ];
     let compact_process = [
         "process-argv",

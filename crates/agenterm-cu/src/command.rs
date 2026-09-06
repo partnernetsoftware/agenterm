@@ -4,7 +4,11 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{browser_bridge::ConnectionId, target::TargetRef};
+use crate::{
+    browser_bridge::ConnectionId,
+    service_control::{ServiceOperation, ServiceScope},
+    target::TargetRef,
+};
 
 fn is_false(value: &bool) -> bool {
     !*value
@@ -951,6 +955,36 @@ pub enum Command {
     },
     /// Apply one encoded exact-device audio plan with durable replay closure.
     AudioApply {
+        target: TargetRef,
+        request: String,
+        approval: String,
+    },
+    /// List a bounded, optionally filtered native service inventory.
+    ServiceList {
+        target: TargetRef,
+        scope: ServiceScope,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        match_text: Option<String>,
+        max: usize,
+    },
+    /// Resolve and inspect one service in the current native authority domain.
+    ServiceStatus {
+        target: TargetRef,
+        scope: ServiceScope,
+        name: String,
+    },
+    /// Prepare a short-lived exact service lifecycle plan without mutation.
+    ServicePlan {
+        target: TargetRef,
+        scope: ServiceScope,
+        name: String,
+        operation: ServiceOperation,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definition: Option<String>,
+        ttl_seconds: u64,
+    },
+    /// Apply one encoded service plan with durable replay closure.
+    ServiceApply {
         target: TargetRef,
         request: String,
         approval: String,
@@ -3233,6 +3267,10 @@ impl Command {
             | Self::AudioPlanVolume { .. }
             | Self::AudioPlanMuted { .. }
             | Self::AudioApply { .. } => "audio".into(),
+            Self::ServiceList { .. }
+            | Self::ServiceStatus { .. }
+            | Self::ServicePlan { .. }
+            | Self::ServiceApply { .. } => "service".into(),
             Self::LoginSessionStatus { .. }
             | Self::LoginSessionPlanLock { .. }
             | Self::LoginSessionApplyLock { .. } => "login-session".into(),
@@ -3421,6 +3459,10 @@ impl Command {
             | Self::AudioPlanVolume { target, .. }
             | Self::AudioPlanMuted { target, .. }
             | Self::AudioApply { target, .. }
+            | Self::ServiceList { target, .. }
+            | Self::ServiceStatus { target, .. }
+            | Self::ServicePlan { target, .. }
+            | Self::ServiceApply { target, .. }
             | Self::LoginSessionStatus { target }
             | Self::LoginSessionPlanLock { target, .. }
             | Self::LoginSessionApplyLock { target, .. }
@@ -3611,6 +3653,7 @@ impl Command {
             | Self::HostOpen { .. }
             | Self::HostNotify { .. }
             | Self::AudioApply { .. }
+            | Self::ServiceApply { .. }
             | Self::LoginSessionApplyLock { .. }
             | Self::PointerMove { .. }
             | Self::AuditCompact { apply: true, .. }
@@ -3748,6 +3791,56 @@ impl Command {
                 }
                 if approval.len() != 64 || !approval.bytes().all(|byte| byte.is_ascii_hexdigit()) {
                     return Err("audio apply approval must be a 64-hex digest");
+                }
+                Ok(())
+            }
+            Self::ServiceList {
+                match_text, max, ..
+            } => {
+                if !(1..=5_000).contains(max) {
+                    return Err("service list max must be in 1..=5000");
+                }
+                if match_text
+                    .as_ref()
+                    .is_some_and(|value| value.len() > 1_024 || value.chars().any(char::is_control))
+                {
+                    return Err("service list match_text must be <=1024 non-control bytes");
+                }
+                Ok(())
+            }
+            Self::ServiceStatus { name, .. } => validate_service_name(name),
+            Self::ServicePlan {
+                name,
+                operation,
+                definition,
+                ttl_seconds,
+                ..
+            } => {
+                validate_service_name(name)?;
+                if !(1..=600).contains(ttl_seconds) {
+                    return Err("service plan ttl_seconds must be in 1..=600");
+                }
+                if matches!(operation, ServiceOperation::Bootstrap) && definition.is_none() {
+                    return Err("service bootstrap plan requires definition");
+                }
+                if !matches!(operation, ServiceOperation::Bootstrap) && definition.is_some() {
+                    return Err("service definition is accepted only by bootstrap plans");
+                }
+                if definition.as_ref().is_some_and(|path| {
+                    path.is_empty() || path.len() > 8_192 || path.as_bytes().contains(&0)
+                }) {
+                    return Err("service definition must be in 1..=8192 non-NUL bytes");
+                }
+                Ok(())
+            }
+            Self::ServiceApply {
+                request, approval, ..
+            } => {
+                if request.is_empty() || request.len() > 65_536 {
+                    return Err("service apply request must be in 1..=65536 bytes");
+                }
+                if approval.len() != 64 || !approval.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    return Err("service apply approval must be a 64-hex digest");
                 }
                 Ok(())
             }
@@ -4233,6 +4326,18 @@ fn is_lower_hex(value: &str) -> bool {
         .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+fn validate_service_name(value: &str) -> Result<(), &'static str> {
+    if value.is_empty()
+        || value.len() > 1_024
+        || value.chars().any(char::is_control)
+        || value.contains('/')
+    {
+        Err("service name must be in 1..=1024 non-control bytes without '/'")
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4658,6 +4763,51 @@ mod tests {
             assert_eq!(value["verb"], expected_wire_verb);
             let back: Command = serde_json::from_value(value).expect("deserialize");
             assert_eq!(back.verb(), "audio");
+        }
+    }
+
+    #[test]
+    fn service_shapes_keep_exact_targets_and_mixed_grants_on_the_wire() {
+        let list = Command::ServiceList {
+            target: TargetRef::Ssh,
+            scope: ServiceScope::System,
+            match_text: Some("agent".into()),
+            max: 500,
+        };
+        let status = Command::ServiceStatus {
+            target: TargetRef::Current,
+            scope: ServiceScope::User,
+            name: "example.service".into(),
+        };
+        let plan = Command::ServicePlan {
+            target: TargetRef::Vnc,
+            scope: ServiceScope::User,
+            name: "example.service".into(),
+            operation: ServiceOperation::Restart,
+            definition: None,
+            ttl_seconds: 60,
+        };
+        let apply = Command::ServiceApply {
+            target: TargetRef::Current,
+            request: "REQUEST".into(),
+            approval: "a".repeat(64),
+        };
+        assert_eq!(list.required_grant(), Grant::Observe);
+        assert_eq!(status.required_grant(), Grant::Observe);
+        assert_eq!(plan.required_grant(), Grant::Observe);
+        assert_eq!(apply.required_grant(), Grant::Actuate);
+        for (command, expected_wire_verb) in [
+            (list, "service-list"),
+            (status, "service-status"),
+            (plan, "service-plan"),
+            (apply, "service-apply"),
+        ] {
+            assert_eq!(command.verb(), "service");
+            assert_eq!(command.validate(), Ok(()));
+            let value = serde_json::to_value(&command).expect("serialize");
+            assert_eq!(value["verb"], expected_wire_verb);
+            let back: Command = serde_json::from_value(value).expect("deserialize");
+            assert_eq!(back.verb(), "service");
         }
     }
 

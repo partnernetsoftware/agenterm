@@ -989,6 +989,23 @@
         "task.cu-audio-smoke"
       ]
     },
+    "cu-service-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-service-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-service-smoke"
+      ]
+    },
     "cu-process-set-state-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3162,6 +3179,27 @@
       "id": "cu-audio-smoke",
       "description": "Prove exact default-output observation and mutation-free, approval-bound audio planning on macOS, with truthful no-effect platform refusal on Linux and Windows; audible mutation is outside this court.",
       "entry": "scripts/qjs/cu-audio-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-service-smoke",
+      "description": "Prove bounded native service inventory, exact provider-domain status and mutation-free lifecycle planning on macOS/Linux, with truthful no-effect refusal on Windows.",
+      "entry": "scripts/qjs/cu-service-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

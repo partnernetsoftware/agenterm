@@ -8,6 +8,7 @@ use agenterm_cu::{
         DeviceDataEncoding, DeviceSerialConfiguration, DeviceSerialFlow, DeviceSerialParity,
         JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter, STORAGE_DEVICES_MAX,
     },
+    service_control::{ServiceOperation, ServiceScope},
 };
 
 use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
@@ -24,6 +25,90 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name == "service" {
+        let subcommand = args
+            .first()
+            .cloned()
+            .ok_or_else(|| "service requires list, status, plan or apply".to_owned())?;
+        args.remove(0);
+        let command = match subcommand.as_str() {
+            "list" | "system-list" => Command::ServiceList {
+                target,
+                scope: if subcommand == "system-list" {
+                    ServiceScope::System
+                } else {
+                    ServiceScope::User
+                },
+                match_text: flag_text(args, "--match")?,
+                max: flag_parsed::<usize>(args, "--max")?.unwrap_or(500),
+            },
+            "status" | "system-status" => {
+                let name = args
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| format!("service {subcommand} requires a name"))?;
+                args.remove(0);
+                Command::ServiceStatus {
+                    target,
+                    scope: if subcommand == "system-status" {
+                        ServiceScope::System
+                    } else {
+                        ServiceScope::User
+                    },
+                    name,
+                }
+            }
+            "plan" => {
+                let operation = args
+                    .first()
+                    .map(String::as_str)
+                    .ok_or_else(|| "service plan requires an operation".to_owned())?;
+                let operation = match operation {
+                    "start" => ServiceOperation::Start,
+                    "stop" => ServiceOperation::Stop,
+                    "restart" => ServiceOperation::Restart,
+                    "bootstrap" => ServiceOperation::Bootstrap,
+                    "bootout" => ServiceOperation::Bootout,
+                    other => return Err(format!("unknown service plan operation {other:?}")),
+                };
+                args.remove(0);
+                let name = args
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| "service plan requires a service name".to_owned())?;
+                args.remove(0);
+                let scope = match flag_text(args, "--scope")?.as_deref() {
+                    None | Some("user") => ServiceScope::User,
+                    Some("system") => ServiceScope::System,
+                    Some(_) => return Err("service --scope must be user or system".to_owned()),
+                };
+                Command::ServicePlan {
+                    target,
+                    scope,
+                    name,
+                    operation,
+                    definition: flag_text(args, "--definition")?,
+                    ttl_seconds: flag_parsed::<u64>(args, "--ttl-seconds")?.unwrap_or(120),
+                }
+            }
+            "apply" => Command::ServiceApply {
+                target,
+                request: flag_text(args, "--request")?
+                    .ok_or_else(|| "service apply requires --request R".to_owned())?,
+                approval: flag_text(args, "--approve")?
+                    .ok_or_else(|| "service apply requires --approve H".to_owned())?,
+            },
+            other => return Err(format!("unknown service subcommand {other:?}")),
+        };
+        if !args.is_empty() {
+            return Err(format!(
+                "service {subcommand} has unexpected argument {:?}",
+                args[0]
+            ));
+        }
+        command.validate().map_err(str::to_owned)?;
+        return Ok(command);
+    }
     if spec.name == "audio" {
         let subcommand = args
             .first()
@@ -1013,6 +1098,64 @@ mod tests {
         assert!(parse("audio", &["plan", "volume", "101"]).is_err());
         assert!(parse("audio", &["plan", "muted", "yes"]).is_err());
         assert!(parse("audio", &["apply", "--request", "REQUEST"]).is_err());
+    }
+
+    #[test]
+    fn service_observation_plan_and_apply_are_closed() {
+        assert!(matches!(
+            parse("service", &["list", "--match", "agent", "--max", "5000"]).unwrap(),
+            Command::ServiceList {
+                scope: ServiceScope::User,
+                match_text: Some(value),
+                max: 5000,
+                ..
+            } if value == "agent"
+        ));
+        assert!(matches!(
+            parse("service", &["system-status", "example.service"]).unwrap(),
+            Command::ServiceStatus {
+                scope: ServiceScope::System,
+                name,
+                ..
+            } if name == "example.service"
+        ));
+        assert!(matches!(
+            parse(
+                "service",
+                &[
+                    "plan",
+                    "bootstrap",
+                    "example.service",
+                    "--definition",
+                    "fixture.plist",
+                    "--ttl-seconds",
+                    "30"
+                ]
+            )
+            .unwrap(),
+            Command::ServicePlan {
+                operation: ServiceOperation::Bootstrap,
+                ttl_seconds: 30,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(
+                "service",
+                &[
+                    "apply",
+                    "--request",
+                    "REQUEST",
+                    "--approve",
+                    &"a".repeat(64)
+                ]
+            )
+            .unwrap(),
+            Command::ServiceApply { .. }
+        ));
+        assert!(parse("service", &["list", "--max", "5001"]).is_err());
+        assert!(parse("service", &["plan", "bootstrap", "example.service"]).is_err());
+        assert!(parse("service", &["apply", "--request", "REQUEST"]).is_err());
     }
 
     #[test]
