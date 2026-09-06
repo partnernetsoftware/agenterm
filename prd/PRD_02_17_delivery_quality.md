@@ -1150,9 +1150,12 @@ costs a full candidate cycle:
   display/session-bus environment, unprivileged execution and nonce proof.
   It rejects greeters, remote/inactive/ambiguous sessions and missing display,
   D-Bus or AT-SPI connectivity. The product runner supplies the complete
-  journey fixture and exact current PASS line. This leaf remains partial until
-  the X11 Linux x86_64 court returns a real full-journey receipt; Linux arm64
-  GNOME/Wayland is a separate parity verdict and may not borrow the X11 result.
+  journey fixture and exact current PASS line. Exact source `7c489577` then
+  passed the X11 Linux x86_64 court with all 32 declared evidence lines,
+  matching guest/host exit zero and a stopped VM after release; the compact
+  receipt is [`evidence/cu/lnx-x86_64-cu-linux-smoke-7c489577.json`](../evidence/cu/lnx-x86_64-cu-linux-smoke-7c489577.json).
+  Linux arm64 GNOME/Wayland remains a separate parity verdict and may not
+  borrow this X11 result.
 - [x] A successful local court can persist a compact, redacted schema-2 receipt
   under `evidence/` instead of leaving the only proof under ignored `target/`.
   It binds source and bundle hashes, manifest/transcript hashes, the exact PASS
