@@ -215,7 +215,10 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **13 static top-level `STAY` spellings**. Native
+`acu.ts` now has **5 reachable top-level `STAY` spellings**: power,
+login-session, audio, service and external-terminal adoption. Family routers
+still report their argument-sensitive gaps dynamically; they are not hidden in
+the static count. Native
 `setup --check|apply` and its `path-install` alias removed launcher filesystem
 effects from the compatibility shell. Runtime refresh is now native too: it
 serializes future job admission with setup, snapshots resident owners, aligns
@@ -722,9 +725,9 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 131 ledger capabilities
-currently include 14 `gap` and 54 `platform-limited` rows. The compatibility
-adapter reports 13 syntactic static stays, but eight are intercepted by earlier
-typed routes and only five reach the MCU fallback; its argument-sensitive corpus
+currently include 13 `gap` and 54 `platform-limited` rows. The compatibility
+adapter reports only the five top-level spellings that can actually reach the
+MCU fallback; its argument-sensitive corpus
 is still incomplete. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
 removed; release authority and dispatch remain owned by the release skill and
