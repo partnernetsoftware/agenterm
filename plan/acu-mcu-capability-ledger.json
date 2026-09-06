@@ -1248,9 +1248,9 @@
           "state": "gap",
           "platforms": {"macos": "native-black-box", "linux": "native-court-pending", "windows": "native-court-pending"},
           "qualification": "macos-full-mcu-caps-probe-scope-green-linux-windows-native-courts-pending",
-          "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-process.macos", "cu.runtime-capability-desktop.macos"],
-          "note": "Three macOS public qjswasm components now bind the executable-reported host platform; inventory live display geometry; query clipboard provider/type metadata without reading payload bytes; prove bounded shell-child cleanup; observe only the qjswasm worker plus one invocation-owned listener for all process facets; and use one owned LSUIElement fixture for exact windows, tree/query/find/read, element text and PNG capture without foreground change. This covers the current MCU caps probe vocabulary on macOS without touching foreign processes or windows.",
-          "next": "port the same focused contract to Linux and Windows with exact typed not-applicable rows, then bind same-source runtime/CU/ABI receipts before promoting this row"
+          "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-core.linux", "cu.runtime-capability-core.windows", "cu.runtime-capability-process.macos", "cu.runtime-capability-desktop.macos"],
+          "note": "One shared qjswasm core now has thin macOS/Linux/Windows evidence entry points for exact host binding, live display geometry, clipboard metadata without payload bytes, and bounded shell-child cleanup. The macOS process and owned-desktop components additionally cover the full MCU caps vocabulary without touching foreign processes or windows. Linux/Windows core entries are registered but not yet qualified, so the row remains a gap rather than mistaking written courts for evidence.",
+          "next": "run the registered shared core on real Linux and Windows desktops, bind those receipts to their broader native process/desktop journeys and same-source runtime/CU/ABI identity, then promote this row"
         }
       ]
     },

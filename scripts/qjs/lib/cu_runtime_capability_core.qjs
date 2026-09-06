@@ -1,0 +1,119 @@
+// Shared current-host core for the MCU `caps` replacement courts.
+// Platform wrappers own evidence identity; this module owns one behavior.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 30000
+  });
+  ensure(output.success === true, "cu_runtime_capability_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_runtime_capability_reply:" + JSON.stringify(reply.error));
+  ensure(reply.target === "current", "cu_runtime_capability_target");
+  return reply;
+}
+
+export function run(args, evidence_id, expected_platform) {
+  harness.require(args.length === 3, "expected: REPO AGENTERM_CU_EXE EXPECTED_PLATFORM");
+  const repo = rh.absolute(args[0]);
+  let executable = rh.absolute(args[1]);
+  ensure(args[2].toLowerCase() === expected_platform, "cu_runtime_capability_wrapper_platform");
+  ensure(
+    expected_platform === "windows" || expected_platform === "linux" || expected_platform === "macos",
+    "cu_runtime_capability_expected_platform"
+  );
+  if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+  ensure(direct_file(executable), "cu_runtime_capability_executable_missing");
+
+  const context = harness.new_context(repo, "cu-runtime-capability-core-" + expected_platform);
+  let succeeded = 0;
+  let failure = "";
+  try {
+    print("STEP public capability identity binds the current host and target");
+    const capabilities = invoke(context.run_directory, executable, "observe", ["capabilities"]);
+    ensure(capabilities.command === "capabilities", "cu_runtime_capability_declaration_command");
+    ensure(capabilities.data.platform === expected_platform, "cu_runtime_capability_platform_mismatch");
+    ensure(capabilities.data.target === "current", "cu_runtime_capability_mechanism_target");
+    ensure(capabilities.data.mechanism === "libagenterm", "cu_runtime_capability_mechanism");
+
+    print("STEP native display inventory is live rather than catalog presence");
+    const displays = invoke(context.run_directory, executable, "observe", ["displays"]);
+    ensure(displays.command === "displays", "cu_runtime_capability_displays_command");
+    ensure(Array.isArray(displays.data.displays), "cu_runtime_capability_displays_shape");
+    ensure(displays.data.displays.length > 0, "cu_runtime_capability_no_live_display");
+    for (const display of displays.data.displays) {
+      ensure(
+        typeof display.frame.x === "number"
+          && typeof display.frame.y === "number"
+          && typeof display.frame.width === "number"
+          && display.frame.width > 0
+          && typeof display.frame.height === "number"
+          && display.frame.height > 0
+          && typeof display.index === "number"
+          && typeof display.primary === "boolean",
+        "cu_runtime_capability_display_geometry"
+      );
+    }
+
+    print("STEP clipboard provider answers without reading clipboard content");
+    const clipboard = invoke(context.run_directory, executable, "observe", ["clipboard-read", "--metadata-only"]);
+    ensure(clipboard.command === "clipboard-read", "cu_runtime_capability_clipboard_command");
+    ensure(clipboard.data.payload_read === false, "cu_runtime_capability_clipboard_payload_read");
+    ensure(
+      clipboard.data.text === undefined && clipboard.data.value === undefined,
+      "cu_runtime_capability_clipboard_payload_leaked"
+    );
+    ensure(
+      typeof clipboard.data.mechanism === "string" && clipboard.data.mechanism.length > 0,
+      "cu_runtime_capability_clipboard_provider"
+    );
+    ensure(Array.isArray(clipboard.data.types), "cu_runtime_capability_clipboard_types");
+    ensure(typeof clipboard.data.types_available === "boolean", "cu_runtime_capability_clipboard_types_status");
+
+    print("STEP bounded shell owns and reaps an otherwise side-effect-free child");
+    const shell = invoke(context.run_directory, executable, "observe,actuate", [
+      "shell-exec", "--command", "echo acu-capability-probe",
+      "--timeout-ms", "5000", "--max-output-bytes", "1024"
+    ]);
+    ensure(shell.command === "shell-exec", "cu_runtime_capability_shell_command");
+    ensure(shell.data.schema_version === 1, "cu_runtime_capability_shell_schema");
+    ensure(shell.data.success === true, "cu_runtime_capability_shell_status");
+    ensure(shell.data.exit.kind === "code" && shell.data.exit.code === 0, "cu_runtime_capability_shell_exit");
+    ensure(shell.data.stdout.trim() === "acu-capability-probe", "cu_runtime_capability_shell_output");
+    ensure(shell.data.output_complete === true, "cu_runtime_capability_shell_output_incomplete");
+    ensure(shell.data.cleanup === "verified", "cu_runtime_capability_shell_cleanup");
+    succeeded = 1;
+  } catch (error) {
+    failure = "" + error;
+  }
+
+  let completion_failure = "";
+  try { harness.complete_children(context, [], succeeded !== 0, failure); }
+  catch (error) { completion_failure = "" + error; }
+  if (succeeded !== 0 && completion_failure === "") {
+    harness.emit_evidence(context, [evidence_id], evidence_id);
+    harness.remove_run(context);
+    print("COMPONENT runtime-capability-core " + expected_platform + " PASS");
+  }
+  if (failure !== "") { throw failure; }
+  if (completion_failure !== "") { throw completion_failure; }
+}

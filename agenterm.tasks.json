@@ -803,6 +803,42 @@
         "task.cu-runtime-capability-core-smoke"
       ]
     },
+    "cu-runtime-capability-core-linux-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-runtime-capability-core-linux-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-runtime-capability-core-linux-smoke"
+      ]
+    },
+    "cu-runtime-capability-core-windows-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-runtime-capability-core-windows-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-runtime-capability-core-windows-smoke"
+      ]
+    },
     "cu-runtime-capability-process-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3143,6 +3179,46 @@
       "dependencies": [],
       "platforms": [
         "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-runtime-capability-core-linux-smoke",
+      "description": "Prove on a real Linux desktop that the shared current-host capability core binds Linux, inventories a live display, reports clipboard metadata without reading payload bytes, and reaps one bounded shell child.",
+      "entry": "scripts/qjs/cu-runtime-capability-core-linux-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu",
+        "linux"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-runtime-capability-core-windows-smoke",
+      "description": "Prove on a real Windows desktop that the shared current-host capability core binds Windows, inventories a live display, reports clipboard metadata without reading payload bytes, and reaps one bounded shell child.",
+      "entry": "scripts/qjs/cu-runtime-capability-core-windows-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu.exe",
+        "windows"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
       ],
       "side_effects": [
         "artifact_write",

@@ -882,15 +882,16 @@ reported green. Linux and Windows executions remain qualification work; the
 retirement ledger is now 35 native / 31 delegated / 58 platform-limited / 5
 gap / 5 retired.
 
-The runtime capability-probe frontier now has one deliberately partial macOS
-component: native platform identity, live displays, payload-free clipboard
-metadata and bounded shell cleanup are public qjswasm evidence. A second
+The runtime capability-probe frontier now has one shared qjswasm core with
+thin macOS/Linux/Windows evidence entry points: native platform identity, live
+displays, payload-free clipboard metadata and bounded shell cleanup cannot
+drift into three platform-specific contracts. macOS is green. Its second
 component covers owned-process inventory, identity, plaintext-free argv/env
-metadata, cwd, usage, fd/map/thread and socket attribution. A third owned Cocoa
-fixture proves the remaining macOS window/tree/query/read/screenshot vocabulary
-without foreground change. Linux/Windows same-source receipts remain mandatory;
-macOS completeness does not change the cross-platform row from `gap` or
-authorize MCU removal.
+metadata, cwd, usage, fd/map/thread and socket attribution; a third owned Cocoa
+fixture proves the remaining window/tree/query/read/screenshot vocabulary
+without foreground change. The Linux/Windows entry points are registered but
+not yet qualified; written courts are not evidence, so the cross-platform row
+remains `gap` and cannot authorize MCU removal.
 
 Persisted desktop-delivery authority has moved from `gap` to
 `platform-limited`: schema 3 freezes explicit canonical operation ids in

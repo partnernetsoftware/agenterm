@@ -889,17 +889,19 @@ flowchart LR
   final merged public inventory. The public `cu.capabilities-declaration`
   journey proves every verb contributes exactly once and the count total equals
   the inventory length. This is declaration integrity, not MCU's cross-mechanism
-  live probe. The first macOS core component now binds the native platform from
-  the executable reply, inventories live display geometry, queries clipboard
-  provider/type metadata without reading clipboard payload bytes, and proves a
-  bounded shell child was reaped. A second focused component observes only its
+  live probe. One shared core with thin macOS/Linux/Windows evidence entry
+  points binds the native platform from the executable reply, inventories live
+  display geometry, queries clipboard provider/type metadata without reading
+  clipboard payload bytes, and proves a bounded shell child was reaped without
+  allowing platform copies to drift. The macOS entry is green; the Linux and
+  Windows entries are registered but have not run. A second focused component observes only its
   qjswasm worker and one owned listener while proving process inventory, stable
   identity, argv/environment metadata without plaintext, cwd, usage,
   descriptors, mappings, threads and socket attribution. The row remains a
   gap. A third owned no-activate Cocoa fixture now closes the macOS vocabulary
   with exact windows, bounded tree, query/find/read aliases, element text and a
   nonempty PNG while proving foreground preservation and exact-child cleanup.
-  Linux and Windows same-source courts remain absent, so macOS completeness
+  Linux and Windows same-source receipts remain absent, so macOS completeness
   cannot promote the cross-platform row. Catalog presence and a caller-supplied
   cell label are never evidence.
 - [x] The old MCU-shaped `setup/doctor/caps` aggregate ledger row is retired as
@@ -913,7 +915,7 @@ flowchart LR
   OLD --> BASE["doctor desktop baseline<br/>bounded live probes"]
   OLD --> DECL["capability declaration<br/>deterministic counts"]
   BASE --> SYS["system readiness<br/>runtime · service · ABI · target<br/>native · macOS qjswasm green"]
-  DECL --> LIVE["cross-mechanism live probe<br/>macOS full vocabulary green<br/>Linux/Windows pending"]
+  DECL --> LIVE["cross-mechanism live probe<br/>one shared three-host core<br/>macOS green · Linux/Windows pending"]
   SET & BASE & DECL & SYS & LIVE --> RET["MCU-absent retirement court"]
 ```
 

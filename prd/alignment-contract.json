@@ -287,6 +287,8 @@
         "cu.doctor-system-readiness",
         "cu.capabilities-declaration",
         "cu.runtime-capability-core.macos",
+        "cu.runtime-capability-core.linux",
+        "cu.runtime-capability-core.windows",
         "cu.runtime-capability-process.macos",
         "cu.runtime-capability-desktop.macos",
         "cu.power-host-status",

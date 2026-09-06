@@ -1,12 +1,12 @@
-// macOS entry for the shared MCU `caps` replacement core.
+// Windows entry for the shared MCU `caps` replacement core.
 import * as rh from "lib/rh_compat";
 import * as core from "lib/cu_runtime_capability_core";
 
-const evidence = "cu.runtime-capability-core.macos";
+const evidence = "cu.runtime-capability-core.windows";
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   print(evidence);
   return;
 }
-core.run(args, evidence, "macos");
+core.run(args, evidence, "windows");
 return;

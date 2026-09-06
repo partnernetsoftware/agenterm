@@ -263,6 +263,12 @@
       ]
     },
     {
+      "id": "cu-runtime-capability-core-windows-smoke",
+      "evidence": [
+        "cu.runtime-capability-core.windows"
+      ]
+    },
+    {
       "id": "cu-windows-external-terminal-send-smoke",
       "evidence": [
         "cu.windows-external-terminal-send"
