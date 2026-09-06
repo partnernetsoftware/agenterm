@@ -6490,16 +6490,12 @@ pub extern "C" fn agt_screen_list(
             record_error(c"agt_screen_list", c"bad_pointer", "buf is null");
             return agt_status::AGT_FAILED;
         }
-        if !window_enumerate_available() {
-            return agt_status::AGT_UNSUPPORTED;
-        }
         let screens = match list_screens() {
             Ok(v) => v,
+            Err(agenterm_platform::window_enumerate::WindowEnumerateError::Unsupported {
+                reason,
+            }) => return unsupported_because(c"agt_screen_list", reason.into_owned()),
             Err(e) => {
-                // `WindowEnumerateError` has no `Display` impl in
-                // `agenterm-platform`; the facade convention is to forward
-                // the message verbatim, so `Debug` stands in (no variant
-                // matching, no type annotation — the crate is not modified).
                 record_error(c"agt_screen_list", c"window_failed", format!("{e:?}"));
                 return agt_status::AGT_FAILED;
             }

@@ -1526,6 +1526,11 @@ merely because `XDG_SESSION_TYPE=wayland` turns a live desktop into a false
 promote that success into a claim that Wayland client-window enumeration
 exists.
 
+That separation must survive every boundary. An ABI screen export must call
+the screen operation and translate its own typed result; it must not preflight
+a coarser window-enumeration capability flag. Such a preflight rejects a valid
+XWayland screen probe before the Linux adapter is ever called.
+
 ## An active cheap gate must own Candidate's static workflow contracts
 
 Do not let an expensive release Candidate be the first place that parses its
