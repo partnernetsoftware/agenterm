@@ -845,11 +845,13 @@ flowchart LR
   live probe. The first macOS core component now binds the native platform from
   the executable reply, inventories live display geometry, queries clipboard
   provider/type metadata without reading clipboard payload bytes, and proves a
-  bounded shell child was reaped. `runtime.capability-probe` remains a gap: the
-  MCU scope also includes process inventory/details, accessibility and element
-  reads, windows and screenshot, while Linux and Windows same-source courts are
-  still absent. Catalog presence and a caller-supplied cell label are never
-  evidence.
+  bounded shell child was reaped. A second focused component observes only its
+  qjswasm worker and one owned listener while proving process inventory, stable
+  identity, argv/environment metadata without plaintext, cwd, usage,
+  descriptors, mappings, threads and socket attribution. The row remains a
+  gap: accessibility and element reads, windows and screenshot plus Linux and
+  Windows same-source courts are still absent. Catalog presence and a
+  caller-supplied cell label are never evidence.
 - [x] The old MCU-shaped `setup/doctor/caps` aggregate ledger row is retired as
   an authority error, not as removed user value. Setup publication and owner
   preservation, desktop diagnosis, permission guidance, capability declaration,
@@ -861,7 +863,7 @@ flowchart LR
   OLD --> BASE["doctor desktop baseline<br/>bounded live probes"]
   OLD --> DECL["capability declaration<br/>deterministic counts"]
   BASE --> SYS["system readiness<br/>runtime · service · ABI · target<br/>native · macOS qjswasm green"]
-  DECL --> LIVE["cross-mechanism live probe<br/>macOS core green<br/>full scope + Linux/Windows pending"]
+  DECL --> LIVE["cross-mechanism live probe<br/>macOS core + owned process green<br/>desktop + Linux/Windows pending"]
   SET & BASE & DECL & SYS & LIVE --> RET["MCU-absent retirement court"]
 ```
 

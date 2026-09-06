@@ -285,6 +285,7 @@ const evidence_suites = {
   "cu-host-notify-smoke": true,
   "cu-runtime-status-smoke": true,
   "cu-runtime-capability-core-smoke": true,
+  "cu-runtime-capability-process-smoke": true,
   "cu-device-inventory-smoke": true,
   "cu-device-watch-smoke": true,
   "cu-device-lease-smoke": true,

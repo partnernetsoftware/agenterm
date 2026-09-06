@@ -1,0 +1,163 @@
+// Focused macOS process component of the MCU `caps` replacement.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+//
+// The court observes this qjswasm worker and one invocation-owned listener.
+// It never reads argv/environment values and never targets a foreign process.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.runtime-capability-process.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 30000
+  });
+  ensure(output.success === true, "cu_runtime_process_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_runtime_process_reply:" + JSON.stringify(reply.error));
+  ensure(reply.target === "current", "cu_runtime_process_target");
+  return reply;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print(declared_evidence[0]);
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_runtime_process_executable_missing");
+
+const context = harness.new_context(repo, "cu-runtime-capability-process");
+const children = [];
+let succeeded = 0;
+let failure = "";
+try {
+  const pid = rh.pid();
+
+  print("STEP bounded process inventory locates this exact qjswasm worker");
+  const inventory = invoke(context.run_directory, executable, [
+    "ps", "--pid", "" + pid, "--max", "2"
+  ]);
+  ensure(inventory.command === "ps", "cu_runtime_process_inventory_command");
+  ensure(inventory.data.processes.length === 1, "cu_runtime_process_inventory_count");
+  ensure(inventory.data.processes[0].pid === pid, "cu_runtime_process_inventory_pid");
+  ensure(inventory.data.verified === true, "cu_runtime_process_inventory_unverified");
+
+  print("STEP stable process identity brackets state and resource usage");
+  const state = invoke(context.run_directory, executable, ["process-state", "--pid", "" + pid]);
+  const identity = state.data.start_identity;
+  ensure(state.command === "process-state", "cu_runtime_process_state_command");
+  ensure(state.data.state === "live" && state.data.verified === true, "cu_runtime_process_state");
+  ensure(typeof identity === "string" && identity.length > 0, "cu_runtime_process_identity");
+  const usage = invoke(context.run_directory, executable, ["process-usage", "--pid", "" + pid]);
+  ensure(usage.data.start_identity === identity && usage.data.verified === true, "cu_runtime_process_usage_identity");
+  ensure(typeof usage.data.cpu_time_ns === "string", "cu_runtime_process_usage_cpu");
+  ensure(typeof usage.data.resident_bytes === "string", "cu_runtime_process_usage_memory");
+
+  print("STEP argv and environment expose bounded metadata but no plaintext values");
+  const argv = invoke(context.run_directory, executable, [
+    "process-argv", "--pid", "" + pid, "--limit", "2"
+  ]);
+  ensure(argv.data.start_identity === identity && argv.data.verified === true, "cu_runtime_process_argv_identity");
+  ensure(argv.data.values_included === false && argv.data.arguments.length > 0, "cu_runtime_process_argv_shape");
+  ensure(argv.data.arguments[0].value === undefined, "cu_runtime_process_argv_plaintext");
+  ensure(argv.data.arguments[0].sha256.length === 64, "cu_runtime_process_argv_digest");
+  const environment = invoke(context.run_directory, executable, [
+    "process-environment", "--pid", "" + pid, "--limit", "2"
+  ]);
+  ensure(environment.data.start_identity === identity && environment.data.verified === true, "cu_runtime_process_environment_identity");
+  ensure(environment.data.values_included === false, "cu_runtime_process_environment_values");
+  for (const entry of environment.data.entries) {
+    ensure(entry.value === undefined, "cu_runtime_process_environment_plaintext");
+    ensure(entry.name_sha256.length === 64 && entry.value_sha256.length === 64, "cu_runtime_process_environment_digest");
+  }
+
+  print("STEP cwd, descriptors, mappings and threads remain identity-bound and bounded");
+  const cwd = invoke(context.run_directory, executable, ["process-cwd", "--pid", "" + pid]);
+  ensure(cwd.data.start_identity === identity && cwd.data.verified === true, "cu_runtime_process_cwd_identity");
+  ensure(typeof cwd.data.path_sha256 === "string" && cwd.data.path_sha256.length === 64, "cu_runtime_process_cwd_digest");
+  const fds = invoke(context.run_directory, executable, [
+    "process-fds", "--pid", "" + pid, "--limit", "16", "--max-visited", "256"
+  ]);
+  ensure(fds.data.start_identity === identity && fds.data.verified === true, "cu_runtime_process_fds_identity");
+  ensure(fds.data.visited_count >= fds.data.returned_count, "cu_runtime_process_fds_bounds");
+  const maps = invoke(context.run_directory, executable, [
+    "process-maps", "--pid", "" + pid, "--executable-only", "--limit", "32", "--max-visited", "4096"
+  ]);
+  ensure(maps.data.start_identity === identity && maps.data.verified === true, "cu_runtime_process_maps_identity");
+  ensure(maps.data.regions.length > 0, "cu_runtime_process_maps_empty");
+  const threads = invoke(context.run_directory, executable, [
+    "process-threads", "--pid", "" + pid, "--limit", "32", "--max-visited", "256"
+  ]);
+  ensure(threads.data.start_identity === identity && threads.data.verified === true, "cu_runtime_process_threads_identity");
+  ensure(threads.data.threads.length > 0, "cu_runtime_process_threads_empty");
+
+  print("STEP exact owned listener proves native socket-to-process attribution");
+  const stdout_path = rh.join(context.run_directory, "listener.stdout");
+  const stderr_path = rh.join(context.run_directory, "listener.stderr");
+  const listener = harness.start_child(context, {
+    program: executable,
+    args: ["--agenterm-cu-internal-network-probe-fixture", "1", "30000"],
+    current_dir: context.run_directory,
+    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+    stdout_path: stdout_path,
+    stderr_path: stderr_path,
+    timeout_ms: 35000
+  }, "runtime-capability-listener");
+  children.push(listener);
+  let ready = null;
+  for (let poll = 0; poll < 400; poll = poll + 1) {
+    if (direct_file(stdout_path)) {
+      const text = rh.read_text(stdout_path).trim();
+      if (text.startsWith("{") && text.endsWith("}")) {
+        const candidate = JSON.parse(text);
+        if (candidate.port > 0) { ready = candidate; break; }
+      }
+    }
+    ensure(harness.child_state(listener) !== "exited", "cu_runtime_process_listener_early_exit");
+    harness.sleep_ms(10);
+  }
+  ensure(ready !== null, "cu_runtime_process_listener_not_ready");
+  const sockets = invoke(context.run_directory, executable, [
+    "process-sockets", "--pid", "" + listener.pid,
+    "--protocol", "tcp", "--state", "listen", "--endpoint", ":" + ready.port,
+    "--limit", "8", "--max-visited", "256"
+  ]);
+  ensure(sockets.data.verified === true && sockets.data.sockets.length === 1, "cu_runtime_process_socket_identity");
+  ensure(sockets.data.sockets[0].endpoint.endsWith(":" + ready.port), "cu_runtime_process_socket_endpoint");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("COMPONENT runtime-capability-process PASS");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

@@ -1189,10 +1189,10 @@
           "acu_shape": null,
           "state": "gap",
           "platforms": {"macos": "core-partial", "linux": "native-court-pending", "windows": "native-court-pending"},
-          "qualification": "macos-core-platform-display-clipboard-metadata-shell-green-full-mcu-probe-scope-pending",
-          "evidence": ["cu.runtime-capability-core.macos"],
-          "note": "The first macOS public qjswasm component binds the executable-reported host platform, inventories live display geometry, queries clipboard provider/type metadata without reading clipboard payload bytes, and proves bounded shell-child cleanup. It does not claim process, accessibility, element, screenshot, Linux or Windows coverage.",
-          "next": "add focused public process and owned-desktop components, preserve exact typed platform limitations, then bind same-source Linux and Windows receipts before promoting this row"
+          "qualification": "macos-core-and-owned-process-components-green-owned-desktop-and-linux-windows-native-courts-pending",
+          "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-process.macos"],
+          "note": "Two macOS public qjswasm components now bind the executable-reported host platform; inventory live display geometry; query clipboard provider/type metadata without reading clipboard payload bytes; prove bounded shell-child cleanup; and observe only the qjswasm worker plus one invocation-owned listener for process inventory, stable identity, argv/environment metadata, cwd, usage, descriptors, mappings, threads and socket attribution. They do not claim accessibility, element, screenshot, Linux or Windows coverage.",
+          "next": "add the focused owned-desktop component, preserve exact typed platform limitations, then bind same-source Linux and Windows receipts before promoting this row"
         }
       ]
     },

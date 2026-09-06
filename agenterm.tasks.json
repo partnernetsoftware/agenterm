@@ -803,6 +803,23 @@
         "task.cu-runtime-capability-core-smoke"
       ]
     },
+    "cu-runtime-capability-process-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-runtime-capability-process-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-runtime-capability-process-smoke"
+      ]
+    },
     "cu-browser-bridge-contract-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3031,6 +3048,25 @@
         ".",
         "target/debug/agenterm-cu",
         "macos"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-runtime-capability-process-smoke",
+      "description": "Prove on macOS that the public current-host capability probe observes only owned processes while covering bounded inventory, stable identity, plaintext-free argv/environment metadata, cwd, usage, descriptors, mappings, threads and socket attribution.",
+      "entry": "scripts/qjs/cu-runtime-capability-process-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [
