@@ -20,12 +20,16 @@ function ensure(condition, message) {
 }
 
 function text_of(value) {
-  return "" + (value ?? "");
+  if (value === null || value === undefined) { return ""; }
+  return "" + value;
 }
 
 function at(value, dotted) {
   let current = value;
-  for (const key of dotted.split(".")) { current = current?.[key]; }
+  for (const key of dotted.split(".")) {
+    if (current === null || current === undefined) { return undefined; }
+    current = current[key];
+  }
   return current;
 }
 

@@ -333,6 +333,18 @@
     {
       "id": "cu-process-signal-smoke",
       "evidence": ["cu.process-signal"]
+    },
+    {
+      "id": "cu-network-routes-smoke",
+      "evidence": ["cu.network-routes"]
+    },
+    {
+      "id": "cu-network-dns-smoke",
+      "evidence": ["cu.network-dns"]
+    },
+    {
+      "id": "cu-network-probe-smoke",
+      "evidence": ["cu.network-probe"]
     }
   ]
 }

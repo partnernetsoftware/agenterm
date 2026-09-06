@@ -249,7 +249,10 @@
         "cu.process-inspection",
         "cu.process-sockets",
         "cu.process-set-state",
-        "cu.process-signal"
+        "cu.process-signal",
+        "cu.network-routes",
+        "cu.network-dns",
+        "cu.network-probe"
       ]
     },
     {
