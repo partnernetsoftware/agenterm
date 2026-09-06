@@ -51,6 +51,7 @@ pub fn parse(
             "browser-bridge-status" => browser_bridge(target, Some("status"), args),
             "browser-bridge-tabs" => browser_bridge(target, Some("tabs"), args),
             "browser-bridge-windows" => browser_bridge(target, Some("windows"), args),
+            "browser-bridge-window-open" => browser_bridge(target, Some("window-open"), args),
             "browser-bridge-window-state" => browser_bridge(target, Some("window-state"), args),
             "browser-bridge-debug-read" => browser_bridge(target, Some("debug-read"), args),
             other => Err(format!("unknown command '{other}'")),
@@ -974,7 +975,7 @@ fn browser_bridge(
     let action = match action {
         Some(action) => action,
         None => args.first().map(String::as_str).ok_or_else(|| {
-            "browser bridge requires setup | connections | status | tabs | windows | window-state | debug-read"
+            "browser bridge requires setup | connections | status | tabs | windows | window-open | window-state | debug-read"
                 .to_owned()
         })?,
     }
@@ -984,11 +985,12 @@ fn browser_bridge(
         && action != "status"
         && action != "tabs"
         && action != "windows"
+        && action != "window-open"
         && action != "window-state"
         && action != "debug-read"
     {
         return Err(format!(
-            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | windows | window-state | debug-read"
+            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | windows | window-open | window-state | debug-read"
         ));
     }
     if action.is_empty() {
@@ -1018,6 +1020,22 @@ fn browser_bridge(
             target,
             connection_id: exact_connection_id("browser bridge windows", args)?,
         }),
+        "window-open" => {
+            let focused = take_switch(args, "--focused");
+            let url = flag_text(args, "--url")?
+                .ok_or_else(|| "browser bridge window-open requires --url URL".to_owned())?;
+            let request = agenterm_cu::browser_bridge::WindowOpenRequest {
+                url: url.clone(),
+                focused,
+            };
+            request.validate().map_err(|error| error.message)?;
+            Ok(Command::BrowserBridgeWindowOpen {
+                target,
+                connection_id: exact_connection_id("browser bridge window-open", args)?,
+                url,
+                focused,
+            })
+        }
         "window-state" => {
             let window_id = flag_parsed::<u32>(args, "--window-id")?
                 .ok_or_else(|| "browser bridge window-state requires --window-id N".to_owned())?;
@@ -1361,6 +1379,16 @@ mod tests {
             browser_bridge(TargetRef::Current, Some("windows"), &mut windows),
             Ok(Command::BrowserBridgeWindows { connection_id, .. })
                 if connection_id.as_str() == id
+        ));
+
+        let mut open = words(&[&id, "--url", "data:text/html,ACU", "--focused"]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("window-open"), &mut open),
+            Ok(Command::BrowserBridgeWindowOpen {
+                ref url,
+                focused: true,
+                ..
+            }) if url == "data:text/html,ACU"
         ));
 
         let mut state = words(&[&id, "--window-id", "9", "--state", "minimized"]);

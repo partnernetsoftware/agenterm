@@ -3306,6 +3306,15 @@ pub enum Command {
         target: TargetRef,
         connection_id: ConnectionId,
     },
+    /// Create one exact ordinary Chromium window through its exact extension
+    /// connection and verify the requested focus effect.
+    BrowserBridgeWindowOpen {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        url: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        focused: bool,
+    },
     /// Change one exact Chromium window state through its exact extension
     /// connection. The bridge verifies state and browser focus postconditions.
     BrowserBridgeWindowState {
@@ -3792,6 +3801,7 @@ impl Command {
             Self::BrowserBridgeStatus { .. } => "browser-bridge-status".into(),
             Self::BrowserBridgeTabs { .. } => "browser-bridge-tabs".into(),
             Self::BrowserBridgeWindows { .. } => "browser-bridge-windows".into(),
+            Self::BrowserBridgeWindowOpen { .. } => "browser-bridge-window-open".into(),
             Self::BrowserBridgeWindowState { .. } => "browser-bridge-window-state".into(),
             Self::BrowserBridgeDebugRead { .. } => "browser-bridge-debug-read".into(),
             Self::Unlock { .. } => "unlock".into(),
@@ -4164,6 +4174,7 @@ impl Command {
             | Self::BrowserBridgeStatus { target, .. }
             | Self::BrowserBridgeTabs { target, .. }
             | Self::BrowserBridgeWindows { target, .. }
+            | Self::BrowserBridgeWindowOpen { target, .. }
             | Self::BrowserBridgeWindowState { target, .. }
             | Self::BrowserBridgeDebugRead { target, .. }
             | Self::Unlock { target, .. }
@@ -4275,6 +4286,7 @@ impl Command {
             | Self::BrowserSessionStop { .. }
             | Self::BrowserSessionRemove { .. }
             | Self::BrowserBridgeSetup { .. }
+            | Self::BrowserBridgeWindowOpen { .. }
             | Self::BrowserBridgeWindowState { .. }
             | Self::SimulatorBoot { .. }
             | Self::SimulatorLaunch { .. }
@@ -7419,6 +7431,15 @@ mod tests {
         };
         assert_eq!(state.required_grant(), Grant::Actuate);
         assert_eq!(state.verb(), "browser-bridge-window-state");
+
+        let open = Command::BrowserBridgeWindowOpen {
+            target: TargetRef::Current,
+            connection_id: connection_id.clone(),
+            url: "data:text/html,ACU".into(),
+            focused: false,
+        };
+        assert_eq!(open.required_grant(), Grant::Actuate);
+        assert_eq!(open.verb(), "browser-bridge-window-open");
 
         let debug = Command::BrowserBridgeDebugRead {
             target: TargetRef::Ssh,

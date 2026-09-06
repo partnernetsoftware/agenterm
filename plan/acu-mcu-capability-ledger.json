@@ -516,10 +516,11 @@
         {
           "id": "browser.window-lifecycle",
           "mcu_shape": "browser windows and browser window-state",
-          "acu_shape": "browser-bridge-windows returns profile-scoped Chromium identity/state/focus/bounds/tab facts; browser-bridge-window-state has a closed normal|minimized|maximized vocabulary, foreground refusal, state/tab/focus read-back and rollback, while generic windows/window-place/minimize/restore remain the native desktop layer",
-          "state": "gap",
-          "note": "The typed implementation and contract court are present, but no loaded-extension live court proves the effect. MV3 also cannot restore an unrelated foreground application when the whole browser is backgrounded, so that case remains a typed focus-authority refusal rather than MCU parity.",
-          "next": "load the fixed extension in an ACU-owned profile court, prove inventory and minimize/restore/maximize; add an exact native focus bridge for background-browser restore before promotion"
+          "acu_shape": "browser-bridge-window-open creates one exact normal Chromium window with explicit focus semantics; browser-bridge-windows returns profile-scoped identity/state/focus/bounds/tab facts; browser-bridge-window-state has a closed normal|minimized|maximized vocabulary, foreground refusal, state/tab/focus read-back and rollback, plus exact native desktop-focus capture, settle and restore",
+          "state": "native",
+          "evidence": ["cu.browser-window-lifecycle.macos"],
+          "note": "The macOS public qjswasm court loads the fixed extension in an ACU-owned profile, creates one explicitly focused and one background window, proves minimize/restore/maximize/restore on the exact background identity, then backgrounds the whole browser behind an owned AgenTerm window and proves the same state path preserves the exact native foreground handle. Browser-internal postcondition failure rolls state back; delayed native focus drift is observed for 500 ms and restored before success.",
+          "next": "run the same owned-profile window court with native Chromium-family executables on Linux and Windows"
         },
         {
           "id": "browser.download",

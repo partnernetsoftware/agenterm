@@ -1,11 +1,12 @@
-// Public macOS black-box contract for one ACU-owned headless browser profile.
-// Args: REPO AGENTERM_CU_EXE; AGENTERM_CU_BROWSER_EXE names the browser.
+// Public macOS black-box contract for one ACU-owned browser profile.
+// Args: REPO AGENTERM_EXE AGENTERM_CU_EXE; AGENTERM_CU_BROWSER_EXE names the browser.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.browser-managed-profile.macos",
   "cu.browser-bridge-owned-profile.macos",
+  "cu.browser-window-lifecycle.macos",
   "cu.browser-cdp-actuate.macos",
   "cu.browser-cdp-screenshot.macos",
   "cu.browser-cdp-pointer-dialog-files.macos",
@@ -27,18 +28,24 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
   return;
 }
-harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(args.length === 3, "expected: REPO AGENTERM_EXE AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
-let executable = rh.absolute(args[1]);
+let product = rh.absolute(args[1]);
+let executable = rh.absolute(args[2]);
 const browser_input = rh.env_or("AGENTERM_CU_BROWSER_EXE", "");
 ensure(browser_input !== "", "cu_browser_session_browser_env_missing");
 const browser = rh.absolute(browser_input);
+if (!direct_file(product) && harness.host_is_windows()) { product = product + ".exe"; }
 if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(product), "cu_browser_session_product_missing");
 ensure(direct_file(executable), "cu_browser_session_executable_missing");
 ensure(direct_file(browser), "cu_browser_session_browser_missing");
 
 const context = harness.new_context(repo, "cu-browser-session");
 const name = "qjswasm-owned-profile";
+let controlled_focus_handle = null;
+let focus_fixture = null;
+const children = [];
 
 function invoke(grant, arguments) {
   const argv = ["--target", "current", "--grant", grant];
@@ -95,6 +102,29 @@ function cleanup() {
   if (stopped.reply.ok === true) {
     invoke("actuate", ["browser-session-remove", name, "--expect", "stopped"]);
   }
+  shutdown_focus_fixture();
+}
+
+function restore_exact_focus(handle, label) {
+  if (handle === null) { return; }
+  const current = invoke("observe", ["windows", "--focused", "true", "--max", "2"]);
+  if (current.reply.ok === true && current.reply.data.returned === 1 &&
+      current.reply.data.windows[0].handle === handle) { return; }
+  const restored = invoke("actuate", ["activate", "--window", "" + handle]);
+  ensure(restored.reply.ok === true && restored.reply.data.verified === true,
+    label);
+}
+
+function shutdown_focus_fixture() {
+  if (focus_fixture === null) { return; }
+  const spec = harness.configured_cli_spec(context, product, ["shutdown"]);
+  const stopped = rh.command(spec.program, spec.args, {
+    cwd: context.run_directory,
+    env: spec.env,
+    timeout_ms: 30000
+  });
+  ensure(stopped.success === true, "cu_browser_session_focus_fixture_shutdown_failed");
+  focus_fixture = null;
 }
 
 function connection_in(rows, id) {
@@ -123,6 +153,27 @@ function one_new_bridge_connection(deadline_ms, baseline) {
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP start one owned foreground fixture for exact cross-application focus restoration");
+  const fixture_spec = harness.configured_spec_with_env(
+    context, product, ["--address", context.address], {}, ["AGENTERM_NO_ACTIVATE"]
+  );
+  focus_fixture = harness.start_child(context, fixture_spec, "focus-fixture");
+  children.push(focus_fixture);
+  harness.wait_for_spawned_server(context, product, focus_fixture.handle);
+  const fixture_pid = focus_fixture.pid;
+  let fixture_row = null;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const rows = invoke("observe", ["windows", "--pid", "" + fixture_pid, "--max", "2"]);
+    if (rows.reply.ok === true && rows.reply.data.returned === 1) {
+      fixture_row = rows.reply.data.windows[0];
+      break;
+    }
+    rh.sleep_ms(25);
+  }
+  ensure(fixture_row !== null, "cu_browser_session_focus_fixture_window_missing");
+  controlled_focus_handle = fixture_row.handle;
+  restore_exact_focus(controlled_focus_handle,
+    "cu_browser_session_focus_fixture_activation_failed");
   const baseline_list = require_ok(invoke("observe", ["browser-session-list"]), "cu_browser_session_baseline_failed");
   const baseline_connections = require_ok(invoke("observe", ["browser-bridge-connections"]), "cu_browser_bridge_baseline_failed").data.connections;
   print("STEP start one isolated headless browser with exact owner identity");
@@ -148,9 +199,10 @@ try {
   ]), "cu_browser_bridge_status_failed");
   ensure(bridge_status.data.result.protocol === 1, "cu_browser_bridge_protocol");
   const commands = bridge_status.data.result.commands;
-  ensure(commands.length === 5 && commands[0] === "status" && commands[1] === "tabs" &&
-    commands[2] === "windows" && commands[3] === "window-state" &&
-    commands[4] === "debug-read", "cu_browser_bridge_commands");
+  ensure(commands.length === 6 && commands[0] === "status" && commands[1] === "tabs" &&
+    commands[2] === "windows" && commands[3] === "window-open" &&
+    commands[4] === "window-state" && commands[5] === "debug-read",
+    "cu_browser_bridge_commands");
   const bridge_tabs = require_ok(invoke("observe", [
     "browser-bridge-tabs", bridge_id
   ]), "cu_browser_bridge_tabs_failed");
@@ -159,6 +211,66 @@ try {
   ]), "cu_browser_bridge_windows_failed");
   ensure(Array.isArray(bridge_tabs.data.result.tabs), "cu_browser_bridge_tabs_shape");
   ensure(Array.isArray(bridge_windows.data.result.windows), "cu_browser_bridge_windows_shape");
+
+  print("STEP typed MV3 window lifecycle creates one focused and one background window");
+  const first_window = require_ok(invoke("observe,actuate", [
+    "browser-bridge-window-open", bridge_id, "--url", "data:text/html,acu-first", "--focused"
+  ]), "cu_browser_bridge_first_window_open_failed");
+  ensure(first_window.data.result.performed === true && first_window.data.result.verified === true,
+    "cu_browser_bridge_first_window_unverified");
+  ensure(first_window.data.result.requested_focused === true &&
+    first_window.data.result.window.focused === true,
+    "cu_browser_bridge_first_window_focus");
+  const first_window_id = first_window.data.result.window.window_id;
+  const second_window = require_ok(invoke("observe,actuate", [
+    "browser-bridge-window-open", bridge_id, "--url", "data:text/html,acu-second"
+  ]), "cu_browser_bridge_second_window_open_failed");
+  ensure(second_window.data.result.performed === true && second_window.data.result.verified === true,
+    "cu_browser_bridge_second_window_unverified");
+  ensure(second_window.data.result.focus_changed === false &&
+    second_window.data.result.focused_window_before === first_window_id &&
+    second_window.data.result.focused_window_after === first_window_id &&
+    second_window.data.result.window.focused === false,
+    "cu_browser_bridge_background_window_focus_changed");
+  const second_window_id = second_window.data.result.window.window_id;
+  const live_windows = require_ok(invoke("observe", [
+    "browser-bridge-windows", bridge_id
+  ]), "cu_browser_bridge_live_windows_failed");
+  ensure(live_windows.data.result.windows.length === 2,
+    "cu_browser_bridge_live_window_count");
+
+  print("STEP exact background window minimizes, restores, maximizes and restores with stable focus");
+  for (const state of ["minimized", "normal", "maximized", "normal"]) {
+    const changed = require_ok(invoke("observe,actuate", [
+      "browser-bridge-window-state", bridge_id,
+      "--window-id", "" + second_window_id, "--state", state
+    ]), "cu_browser_bridge_window_state_failed_" + state);
+    ensure(changed.data.result.requested_state === state &&
+      changed.data.result.after.state === state &&
+      changed.data.result.verified === true &&
+      changed.data.result.focus_preserved === true &&
+      changed.data.desktop_focus.verified === true &&
+      changed.data.desktop_focus.after === changed.data.desktop_focus.before &&
+      changed.data.result.after.focused === false &&
+      changed.data.result.after.active_tab_id === second_window.data.result.window.active_tab_id,
+      "cu_browser_bridge_window_state_unverified_" + state);
+  }
+
+  print("STEP whole-browser background state changes preserve the exact native foreground window");
+  restore_exact_focus(controlled_focus_handle,
+    "cu_browser_session_controlled_focus_restore_failed");
+  for (const state of ["minimized", "normal"]) {
+    const changed = require_ok(invoke("observe,actuate", [
+      "browser-bridge-window-state", bridge_id,
+      "--window-id", "" + second_window_id, "--state", state
+    ]), "cu_browser_bridge_background_state_failed_" + state);
+    ensure(changed.data.result.after.state === state &&
+      changed.data.result.focus_preserved === true &&
+      changed.data.desktop_focus.before === controlled_focus_handle &&
+      changed.data.desktop_focus.after === controlled_focus_handle &&
+      changed.data.desktop_focus.verified === true,
+      "cu_browser_bridge_background_native_focus_changed_" + state);
+  }
 
   print("STEP list and status preserve the exact generation and process identities");
   const listed = require_ok(invoke("observe", ["browser-session-list"]), "cu_browser_session_list_failed");
@@ -310,6 +422,8 @@ try {
   ]), "cu_browser_session_stop_failed");
   ensure(stopped.data.state === "stopped", "cu_browser_session_stop_state");
   ensure(stopped.data.owner_observation === "dead", "cu_browser_session_owner_not_reaped");
+  restore_exact_focus(controlled_focus_handle,
+    "cu_browser_session_controlled_focus_after_stop_failed");
   const bridge_after_stop = require_ok(invoke("observe", [
     "browser-bridge-connections"
   ]), "cu_browser_bridge_cleanup_inventory_failed");
@@ -348,6 +462,7 @@ try {
     "browser-session-remove", name, "--expect", "stopped"
   ]), "cu_browser_session_ttl_remove_failed");
   ensure(expired_removed.data.verified === true, "cu_browser_session_ttl_remove_unverified");
+  shutdown_focus_fixture();
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -357,7 +472,7 @@ if (succeeded === 0) {
   try { cleanup(); } catch (_) {}
 }
 let completion_failure = "";
-try { harness.complete_children(context, [], succeeded !== 0, failure); }
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   for (const id of declared_evidence) {

@@ -1654,6 +1654,23 @@ provider; never claim that `chrome.windows.update` preserved foreground merely
 because it returned successfully. A failed postcondition must roll back or
 report rollback uncertainty, not return a plausible success receipt.
 
+The composed provider must observe beyond the extension reply. On macOS,
+restoring a maximized Chromium window to normal can move the WindowServer's
+focused handle after the MV3 state/read-back has already succeeded. Capture the
+exact native foreground handle before the effect, watch it for a bounded settle
+window (currently 500 ms), restore any drift through the native window facade,
+and verify the same handle once more. Keep browser focus/state/tab verification
+inside the MV3 response and desktop foreground verification outside it; neither
+observation can substitute for the other.
+
+Do not use Chromium's first native startup window as extension evidence. Brave
+can show a `chrome://` startup surface in the OS window inventory while
+`chrome.tabs.query` and `chrome.windows.getAll` correctly return no addressable
+rows. A window-lifecycle court must create an ordinary window through the exact
+MV3 connection (or another typed browser mechanism), then bind all subsequent
+state changes to the returned Chromium window id. Native visibility alone is
+not proof that the authenticated extension can address the window.
+
 An owned Chromium Profile does not prove that a requested unpacked extension
 loaded. Pass only the atomically materialized fixed extension directory through
 the sealed owner spec, then require a new exact Native Messaging connection

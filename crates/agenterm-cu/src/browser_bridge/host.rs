@@ -26,8 +26,8 @@ use super::{
     ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME, BridgeProtocolError, BridgeRequest, ConnectionEndpoint,
     ConnectionEntry, ConnectionId, DebugReadFailure, DebugReadRequest, DebugReadResult,
     NATIVE_MESSAGE_MAX_BYTES, PROTOCOL_VERSION, ProcessIdentity, REQUEST_LEDGER_MAX_ENTRIES,
-    TabsResult, WindowStateRequest, WindowStateResult, WindowsResult, decode_request,
-    encode_native_message,
+    TabsResult, WindowOpenRequest, WindowOpenResult, WindowStateRequest, WindowStateResult,
+    WindowsResult, decode_request, encode_native_message,
 };
 
 const CONNECTION_SCHEMA: u32 = 1;
@@ -89,7 +89,14 @@ impl BridgeResponse {
                 if status.protocol != PROTOCOL_VERSION
                     || status.extension_id != ACU_EXTENSION_ID
                     || status.commands
-                        != ["status", "tabs", "windows", "window-state", "debug-read"]
+                        != [
+                            "status",
+                            "tabs",
+                            "windows",
+                            "window-open",
+                            "window-state",
+                            "debug-read",
+                        ]
                 {
                     return Err(BridgeHostError::new(
                         "browser_bridge_status_identity_mismatch",
@@ -109,6 +116,15 @@ impl BridgeResponse {
                     serde_json::from_value(Value::Object(request.args.clone()))
                         .map_err(|_| BridgeHostError::new("browser_bridge_request_invalid"))?;
                 serde_json::from_value::<WindowStateResult>(result)
+                    .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
+                    .validate_for(&args)
+                    .map_err(BridgeHostError::protocol)?;
+            }
+            "window-open" => {
+                let args: WindowOpenRequest =
+                    serde_json::from_value(Value::Object(request.args.clone()))
+                        .map_err(|_| BridgeHostError::new("browser_bridge_request_invalid"))?;
+                serde_json::from_value::<WindowOpenResult>(result)
                     .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
                     .validate_for(&args)
                     .map_err(BridgeHostError::protocol)?;
@@ -704,7 +720,7 @@ mod tests {
     #[test]
     fn exact_retry_replays_without_second_browser_effect_and_conflict_fails() {
         let request = request("status");
-        let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-state","debug-read"]});
+        let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-open","window-state","debug-read"]});
         let response_bytes = response(&request, status);
         let mut browser_in = response_bytes.as_slice();
         let mut browser_out = Vec::new();
@@ -808,7 +824,7 @@ mod tests {
         for index in 0..REQUEST_LEDGER_MAX_ENTRIES {
             let mut request = request("status");
             request.id = format!("request-{index}");
-            let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-state","debug-read"]});
+            let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-open","window-state","debug-read"]});
             let response_bytes = response(&request, status);
             exchange_one(
                 &mut ledger,
@@ -995,7 +1011,7 @@ mod tests {
     #[test]
     fn sole_browser_reader_preserves_split_frames_during_exchange() {
         let request = request("status");
-        let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-state","debug-read"]});
+        let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-open","window-state","debug-read"]});
         let input = BrowserInput::spawn(OneByteReader(io::Cursor::new(response(&request, status))));
         let mut output = Vec::new();
         exchange_from_browser_input(

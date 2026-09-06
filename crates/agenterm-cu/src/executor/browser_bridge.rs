@@ -1,3 +1,8 @@
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
+
 use serde_json::{Map, Value, json};
 
 use crate::{
@@ -7,6 +12,8 @@ use crate::{
     },
     reply::CuError,
 };
+
+use super::{map_mechanism_err, windows::resolve_inventory_focus};
 
 pub(super) fn browser_bridge_setup_payload() -> Result<Value, CuError> {
     let executable = std::env::current_exe().map_err(|_| {
@@ -107,6 +114,102 @@ pub(super) fn browser_bridge_request_payload(
         "connection_id": connection_id,
         "result": result,
     }))
+}
+
+pub(super) fn browser_bridge_window_state_payload(
+    connection_id: &ConnectionId,
+    args: Map<String, Value>,
+) -> Result<Value, CuError> {
+    let before = desktop_focus_handle()?.ok_or_else(|| {
+        CuError::new(
+            "browser_bridge_desktop_focus_unavailable",
+            "no exact desktop foreground window is available for focus restoration",
+        )
+    })?;
+    let bridge = browser_bridge_request_payload(connection_id, "window-state", args);
+    let after_effect = desktop_focus_handle()?;
+    let restored = preserve_desktop_focus(before, bridge.as_ref().err())?;
+    let after = desktop_focus_handle()?;
+    if after != Some(before) {
+        return Err(CuError::new(
+            "browser_bridge_desktop_focus_restore_failed",
+            "the exact previous desktop foreground window did not remain focused after the browser state settled",
+        )
+        .with_detail(json!({
+            "before": before,
+            "after_effect": after_effect,
+            "after": after,
+            "bridge_error": bridge.as_ref().err(),
+        })));
+    }
+    let desktop_focus = json!({
+        "before": before,
+        "after_effect": after_effect,
+        "after": after,
+        "restored": restored,
+        "verified": true,
+    });
+    match bridge {
+        Ok(mut value) => {
+            value["desktop_focus"] = desktop_focus;
+            Ok(value)
+        }
+        Err(error) => Err(CuError::new(error.code, error.message).with_detail(json!({
+            "bridge": error.detail,
+            "desktop_focus": desktop_focus,
+        }))),
+    }
+}
+
+fn preserve_desktop_focus(
+    expected: isize,
+    bridge_error: Option<&CuError>,
+) -> Result<bool, CuError> {
+    let deadline = Instant::now() + Duration::from_millis(500);
+    let mut restored = false;
+    while Instant::now() < deadline {
+        let observed = desktop_focus_handle()?;
+        if observed != Some(expected) {
+            crate::mechanism::window_op::activate(expected).map_err(|error| {
+                CuError::new(
+                    "browser_bridge_desktop_focus_restore_failed",
+                    "the browser state request changed desktop focus and the exact previous window could not be restored",
+                )
+                .with_detail(json!({
+                    "before": expected,
+                    "observed": observed,
+                    "mechanism": map_mechanism_err(error),
+                    "bridge_error": bridge_error,
+                }))
+            })?;
+            wait_for_desktop_focus(expected)?;
+            restored = true;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    Ok(restored)
+}
+
+fn desktop_focus_handle() -> Result<Option<isize>, CuError> {
+    let mut windows =
+        crate::mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let stacking = crate::mechanism::window_enumerate::stacking().unwrap_or_default();
+    Ok(resolve_inventory_focus(&mut windows, &stacking).handle)
+}
+
+fn wait_for_desktop_focus(expected: isize) -> Result<(), CuError> {
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_millis(1_500) {
+        if desktop_focus_handle()? == Some(expected) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    Err(CuError::new(
+        "browser_bridge_desktop_focus_restore_failed",
+        "the exact previous desktop foreground window was not observed after restoration",
+    )
+    .with_detail(json!({"expected": expected})))
 }
 
 fn request_id() -> Result<String, CuError> {

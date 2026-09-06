@@ -376,6 +376,7 @@
       "evidence": [
         "cu.browser-managed-profile.macos",
         "cu.browser-bridge-owned-profile.macos",
+        "cu.browser-window-lifecycle.macos",
         "cu.browser-cdp-actuate.macos",
         "cu.browser-cdp-screenshot.macos",
         "cu.browser-cdp-pointer-dialog-files.macos",

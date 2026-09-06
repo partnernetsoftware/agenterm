@@ -4624,6 +4624,32 @@
       ]
     },
     {
+      "name": "browser-bridge-window-open",
+      "command": "browser-bridge-window-open",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "open one exact Chromium window with explicit focus semantics",
+      "usage": "browser-bridge-window-open CONNECTION_ID --url URL [--focused]\nbrowser bridge window-open ...",
+      "args": [
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact 64-character lowercase hexadecimal id from browser-bridge-connections"
+        },
+        {
+          "flag": "--url",
+          "value": "URL",
+          "help": "initial URL for the new ordinary Chromium window"
+        },
+        {
+          "flag": "--focused",
+          "value": "",
+          "help": "explicitly focus the new window; default preserves existing focus"
+        }
+      ]
+    },
+    {
       "name": "browser-bridge-debug-read",
       "command": "browser-bridge-debug-read",
       "aliases": [],
@@ -5889,7 +5915,11 @@
     },
     {
       "name": "browser-bridge-window-state",
-      "text": "agenterm-cu browser-bridge-window-state\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-window-state CONNECTION_ID --window-id N --state normal|minimized|maximized\n  browser bridge window-state ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --window-id N                 exact positive Chromium window id from browser-bridge-windows\n  --state STATE                 normal, minimized or maximized\n\nChanges only one exact background Chromium window through the exact MV3 connection. A foreground target is refused. Mutation also requires exactly one other focused browser window so focus can be restored and verified; when the browser itself is background, the bridge refuses because it has no authority to restore another application's focus. Success proves requested state, unchanged focus ownership, tab count and active-tab identity. Failed postconditions trigger bounded rollback; uncertain or failed rollback is returned as a typed failure.\n"
+      "text": "agenterm-cu browser-bridge-window-state\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-window-state CONNECTION_ID --window-id N --state normal|minimized|maximized\n  browser bridge window-state ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --window-id N                 exact positive Chromium window id from browser-bridge-windows\n  --state STATE                 normal, minimized or maximized\n\nChanges only one exact background Chromium window through the exact MV3 connection. A foreground target is refused. Before the extension effect, the native layer captures the exact desktop foreground window; it verifies that identity afterward and restores it if Chromium changed application focus. Success proves requested state, unchanged browser focus ownership, unchanged desktop foreground ownership, tab count and active-tab identity. Failed postconditions trigger bounded rollback; uncertain state or failed focus restoration is returned as a typed failure.\n"
+    },
+    {
+      "name": "browser-bridge-window-open",
+      "text": "agenterm-cu browser-bridge-window-open\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-window-open CONNECTION_ID --url URL [--focused]\n  browser bridge window-open ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --url URL                     initial URL for the new ordinary Chromium window\n  --focused                     explicitly focus the new window; omitted preserves existing browser focus\n\nCreates one normal window through the exact fixed MV3 connection and returns its stable Chromium window/tab identity. The default verifies that browser focus ownership did not change; --focused is an explicit foreground request and verifies that the new window owns browser focus. A failed postcondition removes the created window and restores the prior browser focus, or fails typed if rollback cannot be proven.\n"
     },
     {
       "name": "browser-bridge-debug-read",

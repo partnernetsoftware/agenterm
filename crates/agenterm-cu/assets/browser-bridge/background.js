@@ -25,10 +25,10 @@ function validateRequest(request) {
       !request.args || Array.isArray(request.args) || typeof request.args !== "object") {
     throw new Error("browser_bridge_request_invalid");
   }
-  if (!["status", "tabs", "windows", "window-state", "debug-read"].includes(request.command)) {
+  if (!["status", "tabs", "windows", "window-open", "window-state", "debug-read"].includes(request.command)) {
     throw new Error("browser_bridge_command_unknown");
   }
-  if (!["debug-read", "window-state"].includes(request.command) && Object.keys(request.args).length !== 0) {
+  if (!["debug-read", "window-open", "window-state"].includes(request.command) && Object.keys(request.args).length !== 0) {
     throw new Error("browser_bridge_args_invalid");
   }
 }
@@ -202,6 +202,66 @@ async function windowSnapshot(windowId) {
   return projected.row;
 }
 
+async function focusedWindowId() {
+  const focused = (await chrome.windows.getAll()).filter(window => window.focused === true);
+  if (focused.length > 1) throw new Error("browser_bridge_window_focus_ambiguous");
+  return focused.length === 1 ? focused[0].id : null;
+}
+
+async function openWindow(args) {
+  const keys = Object.keys(args).sort().join(",");
+  if (keys !== "focused,url" || typeof args.focused !== "boolean" ||
+      typeof args.url !== "string" || args.url.length < 1 ||
+      Array.from(args.url).length > TAB_LIMITS.urlCharacters || hasControl(args.url)) {
+    throw new Error("browser_bridge_window_open_args_invalid");
+  }
+  const focusedBefore = await focusedWindowId();
+  let createdId = null;
+  try {
+    const created = await chrome.windows.create({
+      url: args.url,
+      focused: args.focused,
+      type: "normal"
+    });
+    if (!created || !boundedInteger(created.id, 0xffffffff)) {
+      throw new Error("browser_bridge_window_open_identity_missing");
+    }
+    createdId = created.id;
+    const window = await windowSnapshot(createdId);
+    const focusedAfter = await focusedWindowId();
+    const validFocus = args.focused
+      ? window.focused === true && focusedAfter === createdId
+      : window.focused === false && focusedAfter === focusedBefore;
+    if (window.state !== "normal" || window.tab_count !== 1 || !validFocus) {
+      throw new Error("browser_bridge_window_open_postcondition_failed");
+    }
+    return {
+      requested_focused: args.focused,
+      performed: true,
+      verified: true,
+      focus_changed: focusedBefore !== focusedAfter,
+      focused_window_before: focusedBefore === null ? undefined : focusedBefore,
+      focused_window_after: focusedAfter === null ? undefined : focusedAfter,
+      window
+    };
+  } catch (error) {
+    if (createdId !== null) {
+      try {
+        await chrome.windows.remove(createdId);
+        if (focusedBefore !== null) await chrome.windows.update(focusedBefore, { focused: true });
+        const remaining = await chrome.windows.getAll();
+        if (remaining.some(window => window.id === createdId) ||
+            await focusedWindowId() !== focusedBefore) {
+          throw new Error("browser_bridge_window_open_rollback_failed");
+        }
+      } catch (_) {
+        throw new Error("browser_bridge_window_open_rollback_failed");
+      }
+    }
+    throw error;
+  }
+}
+
 async function waitWindowState(windowId, state) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const current = await windowSnapshot(windowId);
@@ -225,24 +285,29 @@ async function updateWindowState(args) {
   if (before.focused) throw new Error("browser_bridge_window_state_foreground_refused");
 
   const focusBefore = (await chrome.windows.getAll()).filter(window => window.focused === true);
-  if (focusBefore.length !== 1 || !boundedInteger(focusBefore[0].id, 0xffffffff)) {
+  if (focusBefore.length > 1 ||
+      (focusBefore.length === 1 && !boundedInteger(focusBefore[0].id, 0xffffffff))) {
     throw new Error("browser_bridge_window_state_focus_authority_unavailable");
   }
-  const focusId = focusBefore[0].id;
+  const focusId = focusBefore.length === 1 ? focusBefore[0].id : null;
   let changed = false;
   try {
     await chrome.windows.update(args.window_id, { state: args.state });
     changed = true;
     await waitWindowState(args.window_id, args.state);
     const focusAfterEffect = (await chrome.windows.getAll()).filter(window => window.focused === true);
-    if (focusAfterEffect.length !== 1 || focusAfterEffect[0].id !== focusId) {
+    if (focusId !== null &&
+        (focusAfterEffect.length !== 1 || focusAfterEffect[0].id !== focusId)) {
       await chrome.windows.update(focusId, { focused: true });
     }
     const after = await windowSnapshot(args.window_id);
     const focusAfter = (await chrome.windows.getAll()).filter(window => window.focused === true);
+    const browserFocusPreserved = focusId === null
+      ? focusAfter.length === 0
+      : focusAfter.length === 1 && focusAfter[0].id === focusId;
     if (after.state !== args.state || after.focused !== before.focused ||
         after.tab_count !== before.tab_count || after.active_tab_id !== before.active_tab_id ||
-        focusAfter.length !== 1 || focusAfter[0].id !== focusId) {
+        !browserFocusPreserved) {
       throw new Error("browser_bridge_window_state_postcondition_failed");
     }
     return { window_id: args.window_id, requested_state: args.state, performed: true,
@@ -253,11 +318,13 @@ async function updateWindowState(args) {
         await chrome.windows.update(args.window_id, { state: before.state });
         await waitWindowState(args.window_id, before.state);
       }
-      await chrome.windows.update(focusId, { focused: true });
+      if (focusId !== null) await chrome.windows.update(focusId, { focused: true });
       const rolledBack = await windowSnapshot(args.window_id);
       const focusRolledBack = (await chrome.windows.getAll()).filter(window => window.focused === true);
-      if (rolledBack.state !== before.state || focusRolledBack.length !== 1 ||
-          focusRolledBack[0].id !== focusId) {
+      const browserFocusRolledBack = focusId === null
+        ? focusRolledBack.length === 0
+        : focusRolledBack.length === 1 && focusRolledBack[0].id === focusId;
+      if (rolledBack.state !== before.state || !browserFocusRolledBack) {
         throw new Error("browser_bridge_window_state_rollback_failed");
       }
     } catch (_) {
@@ -270,7 +337,7 @@ async function updateWindowState(args) {
 async function dispatch(request) {
   validateRequest(request);
   if (request.command === "status") {
-    return { protocol: PROTOCOL, extension_id: chrome.runtime.id, commands: ["status", "tabs", "windows", "window-state", "debug-read"] };
+    return { protocol: PROTOCOL, extension_id: chrome.runtime.id, commands: ["status", "tabs", "windows", "window-open", "window-state", "debug-read"] };
   }
   if (request.command === "tabs") {
     const tabs = await chrome.tabs.query({});
@@ -307,6 +374,7 @@ async function dispatch(request) {
     }
     return { windows: bounded, truncated };
   }
+  if (request.command === "window-open") return openWindow(request.args);
   if (request.command === "window-state") return updateWindowState(request.args);
   return debugRead(request.args);
 }

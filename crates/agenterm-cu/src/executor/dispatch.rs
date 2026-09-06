@@ -1477,6 +1477,19 @@ impl Executor {
             Command::BrowserBridgeWindows { connection_id, .. } => {
                 browser_bridge_request_payload(connection_id, "windows", serde_json::Map::new())
             }
+            Command::BrowserBridgeWindowOpen {
+                connection_id,
+                url,
+                focused,
+                ..
+            } => {
+                let args = serde_json::from_value(serde_json::json!({
+                    "url": url,
+                    "focused": focused,
+                }))
+                .expect("window-open args are an object");
+                browser_bridge_request_payload(connection_id, "window-open", args)
+            }
             Command::BrowserBridgeWindowState {
                 connection_id,
                 window_id,
@@ -1488,7 +1501,7 @@ impl Executor {
                     "state": state,
                 }))
                 .expect("window-state args are an object");
-                browser_bridge_request_payload(connection_id, "window-state", args)
+                browser_bridge_window_state_payload(connection_id, args)
             }
             Command::BrowserBridgeDebugRead {
                 connection_id,

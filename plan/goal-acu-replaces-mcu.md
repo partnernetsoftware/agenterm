@@ -840,7 +840,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 134 ledger capabilities
-currently include 6 `gap` and 58 `platform-limited` rows. The compatibility
+currently include 5 `gap` and 58 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
@@ -870,6 +870,17 @@ inventory and status, explicit stop, verified removal, same-name restart and
 TTL-owned cleanup in an isolated headless profile without foreground change.
 Linux and Windows native courts plus crash-recovery evidence remain required,
 so the row is `platform-limited`, not yet cross-platform native.
+
+The separate `browser.window-lifecycle` leaf has now left the gap set. A fixed
+MV3 connection owns explicit `window-open`, bounded identity inventory and
+background state changes. Its macOS qjswasm court proves real
+minimize/restore/maximize behavior twice: once with another browser window
+focused and once with the whole browser behind an owned AgenTerm window. The
+executor couples extension read-back to a 500 ms native foreground settle and
+exact-handle restoration, so a delayed WindowServer focus change cannot be
+reported green. Linux and Windows executions remain qualification work; the
+retirement ledger is now 35 native / 31 delegated / 58 platform-limited / 5
+gap / 5 retired.
 
 The runtime capability-probe frontier now has one deliberately partial macOS
 component: native platform identity, live displays, payload-free clipboard

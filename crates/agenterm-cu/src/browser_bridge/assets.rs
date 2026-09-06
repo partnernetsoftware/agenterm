@@ -172,7 +172,14 @@ mod tests {
         assert_eq!(manifest["background"]["service_worker"], "background.js");
         let source = std::str::from_utf8(ASSETS[1].bytes).unwrap();
         assert!(source.contains(ACU_NATIVE_HOST_NAME));
-        for command in ["status", "tabs", "windows", "window-state", "debug-read"] {
+        for command in [
+            "status",
+            "tabs",
+            "windows",
+            "window-open",
+            "window-state",
+            "debug-read",
+        ] {
             assert!(source.contains(command));
         }
         for forbidden in ["debug-type", "debug-invoke", "debug-files"] {

@@ -45,7 +45,14 @@ pub const TAB_URL_MAX_BYTES: usize = 8 * 1024;
 /// One browser-created host retains at most this many terminal replies for
 /// exact replay. With the one-MiB frame ceiling this also bounds replay memory.
 pub const REQUEST_LEDGER_MAX_ENTRIES: usize = 32;
-const COMMANDS: &[&str] = &["status", "tabs", "windows", "window-state", "debug-read"];
+const COMMANDS: &[&str] = &[
+    "status",
+    "tabs",
+    "windows",
+    "window-open",
+    "window-state",
+    "debug-read",
+];
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -110,6 +117,16 @@ impl BridgeRequest {
                         BridgeProtocolError::new(
                             "browser_bridge_args_invalid",
                             format!("window-state args are invalid: {e}"),
+                        )
+                    })?;
+                req.validate()
+            }
+            "window-open" => {
+                let req: WindowOpenRequest =
+                    serde_json::from_value(Value::Object(self.args.clone())).map_err(|e| {
+                        BridgeProtocolError::new(
+                            "browser_bridge_args_invalid",
+                            format!("window-open args are invalid: {e}"),
                         )
                     })?;
                 req.validate()
@@ -242,6 +259,25 @@ pub struct WindowStateRequest {
     pub state: BrowserWindowState,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowOpenRequest {
+    pub url: String,
+    pub focused: bool,
+}
+
+impl WindowOpenRequest {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        validate_text(
+            &self.url,
+            TAB_URL_MAX_BYTES,
+            false,
+            "browser_bridge_control_value",
+            "window URL",
+        )
+    }
+}
+
 impl WindowStateRequest {
     pub fn validate(&self) -> Result<(), BridgeProtocolError> {
         if self.window_id == 0 {
@@ -335,6 +371,53 @@ pub struct WindowStateResult {
     pub focus_preserved: bool,
     pub before: BrowserWindow,
     pub after: BrowserWindow,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowOpenResult {
+    pub requested_focused: bool,
+    pub performed: bool,
+    pub verified: bool,
+    pub focus_changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_window_before: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_window_after: Option<u32>,
+    pub window: BrowserWindow,
+}
+
+impl WindowOpenResult {
+    pub fn validate_for(&self, req: &WindowOpenRequest) -> Result<(), BridgeProtocolError> {
+        req.validate()?;
+        WindowsResult {
+            windows: vec![self.window.clone()],
+            truncated: false,
+        }
+        .validate()?;
+        let expected_change = self.focused_window_before != self.focused_window_after;
+        let focus_valid = if req.focused {
+            self.window.focused && self.focused_window_after == Some(self.window.window_id)
+        } else {
+            !self.window.focused
+                && self.focused_window_before == self.focused_window_after
+                && !self.focus_changed
+        };
+        if self.requested_focused != req.focused
+            || !self.performed
+            || !self.verified
+            || self.focus_changed != expected_change
+            || self.window.state != BrowserWindowState::Normal
+            || self.window.tab_count != 1
+            || !focus_valid
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_window_open_postcondition_invalid",
+                "window-open result does not prove one exact normal window and its requested focus effect",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl WindowStateResult {
@@ -1005,6 +1088,62 @@ mod tests {
         assert_eq!(
             invalid.validate().unwrap_err().code,
             "browser_bridge_window_state_unsupported"
+        );
+    }
+
+    #[test]
+    fn window_open_proves_exact_window_and_explicit_focus_semantics() {
+        let request = WindowOpenRequest {
+            url: "data:text/html,ACU".into(),
+            focused: false,
+        };
+        let window = BrowserWindow {
+            window_id: 9,
+            state: BrowserWindowState::Normal,
+            focused: false,
+            bounds: BrowserWindowBounds {
+                left: 20,
+                top: 10,
+                width: 800,
+                height: 600,
+            },
+            tab_count: 1,
+            active_tab_id: Some(4),
+            active_tab_title: "ACU".into(),
+        };
+        let mut result = WindowOpenResult {
+            requested_focused: false,
+            performed: true,
+            verified: true,
+            focus_changed: false,
+            focused_window_before: Some(7),
+            focused_window_after: Some(7),
+            window,
+        };
+        result.validate_for(&request).unwrap();
+        result.focus_changed = true;
+        assert_eq!(
+            result.validate_for(&request).unwrap_err().code,
+            "browser_bridge_window_open_postcondition_invalid"
+        );
+
+        let focused_request = WindowOpenRequest {
+            url: request.url.clone(),
+            focused: true,
+        };
+        result.requested_focused = true;
+        result.focus_changed = true;
+        result.focused_window_after = Some(9);
+        result.window.focused = true;
+        result.validate_for(&focused_request).unwrap();
+
+        let invalid = WindowOpenRequest {
+            url: "bad\nurl".into(),
+            focused: false,
+        };
+        assert_eq!(
+            invalid.validate().unwrap_err().code,
+            "browser_bridge_control_value"
         );
     }
 }

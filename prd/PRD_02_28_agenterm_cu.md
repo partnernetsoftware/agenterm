@@ -160,7 +160,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measured 131 capabilities;
   after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger now measures 134 capabilities with 7 gaps, 57 platform-limited rows, zero static
+  ledger now measures 134 capabilities with 5 gaps, 58 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
@@ -1971,3 +1971,46 @@ Those are execution projections; accepted scope and status belong to this
 subtree. Window-placement sequencing lives in
 [`plan/plan-v0.1.19.md`](../plan/plan-v0.1.19.md); v0.1.18 remains the
 in-progress unique version plan until it closes.
+
+## Browser window lifecycle closure
+
+- [x] `browser.window-lifecycle` is a native ACU capability rather than an MCU
+  fallback.
+  - **User problem:** an agent must create and manage an isolated Chromium
+    window by stable browser identity without guessing a desktop coordinate or
+    confusing a native startup surface with an extension-visible tab.
+  - **Behavior:** `browser-bridge-window-open` creates one normal window through
+    one exact fixed-extension connection. Focus is explicit (`--focused`) and
+    otherwise preserved. `browser-bridge-windows` inventories stable window and
+    active-tab identities. `browser-bridge-window-state` changes only a
+    background exact window through `normal|minimized|maximized`.
+  - **Invariant:** the extension proves browser focus, state, tab count and
+    active-tab identity. The native executor separately captures the exact
+    desktop foreground handle, observes delayed focus drift for 500 ms and
+    restores that handle before success. Browser postcondition failure rolls
+    state back; uncertain rollback or foreground restoration fails typed.
+  - **Evidence:** `scripts/qjs/cu-browser-session-smoke.qjs` emits
+    `cu.browser-window-lifecycle.macos` after a real fixed-MV3 connection creates
+    a focused and a background window, executes
+    minimize→normal→maximize→normal, backgrounds the whole browser behind an
+    owned AgenTerm window, repeats the state path, and reaps the browser plus
+    Native Messaging host.
+  - **Delivery:** Linux and Windows must run this same public court with native
+    Chromium-family executables before cross-host qualification; that remaining
+    evidence work does not turn the implemented capability back into a gap.
+  - **Non-goal:** a browser's first-run `chrome://` window is not accepted as
+    MV3 window evidence, and a unit/catalog row cannot replace the live court.
+
+```mermaid
+flowchart LR
+    C["exact live MV3 connection"] --> O["window-open<br/>explicit focus"]
+    O --> I["windows inventory<br/>stable window + tab ids"]
+    I --> S["background window-state<br/>min · normal · max"]
+    S --> B["browser read-back<br/>state · focus · active tab"]
+    S --> N["native foreground settle<br/>500 ms · exact handle"]
+    B --> V{"both proofs hold?"}
+    N --> V
+    V -->|yes| E["cu.browser-window-lifecycle.macos"]
+    V -->|no| R["rollback / exact focus restore<br/>or typed failure"]
+    E --> Q["Linux + Windows native courts"]
+```

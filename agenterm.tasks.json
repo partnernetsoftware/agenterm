@@ -1045,6 +1045,7 @@
     },
     "cu-browser-session-smoke": {
       "inputs": [
+        "built-agenterm",
         "built-agenterm-cu",
         "browser-executable"
       ],
@@ -2949,6 +2950,7 @@
       "cwd": ".",
       "args": [
         ".",
+        "target/debug/agenterm",
         "target/debug/agenterm-cu"
       ],
       "dependencies": [],
@@ -3436,12 +3438,13 @@
     },
     {
       "id": "cu-browser-session-smoke",
-      "description": "Prove one ACU-owned isolated headless browser profile, fixed MV3 bridge, background CDP actuation, pointer/dialog/file operations, screenshot and stat-only download through exact post-state, stop, host EOF and TTL cleanup without foreground activation.",
+      "description": "Prove one ACU-owned isolated browser profile, fixed MV3 bridge, explicit window creation and background state lifecycle with exact native focus restoration, background CDP actuation, stat-only download, stop, host EOF and TTL cleanup.",
       "entry": "scripts/qjs/cu-browser-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
         ".",
+        "target/debug/agenterm",
         "target/debug/agenterm-cu"
       ],
       "dependencies": [],
