@@ -31,6 +31,18 @@ pub(crate) const fn platform_kind() -> crate::PlatformKind {
     }
 }
 
+#[cfg(all(feature = "host-boot-identity", target_os = "linux"))]
+#[path = "adapters/linux/host_boot_identity.rs"]
+pub(crate) mod host_boot_identity;
+
+#[cfg(all(feature = "host-boot-identity", target_os = "macos"))]
+#[path = "adapters/macos/host_boot_identity.rs"]
+pub(crate) mod host_boot_identity;
+
+#[cfg(all(feature = "host-boot-identity", windows))]
+#[path = "adapters/windows/host_boot_identity.rs"]
+pub(crate) mod host_boot_identity;
+
 #[cfg(all(feature = "host-open", windows))]
 #[path = "adapters/windows/host_open.rs"]
 pub(crate) mod host_open;

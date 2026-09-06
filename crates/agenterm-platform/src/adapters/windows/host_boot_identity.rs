@@ -11,7 +11,7 @@ struct SystemBootEnvironmentInformation {
     boot_flags: u64,
 }
 
-pub(super) fn query_material() -> Result<Vec<u8>, HostBootIdentityError> {
+pub(crate) fn query_material() -> Result<Vec<u8>, HostBootIdentityError> {
     use windows_sys::Wdk::System::SystemInformation::NtQuerySystemInformation;
 
     let mut information: SystemBootEnvironmentInformation = unsafe { std::mem::zeroed() };

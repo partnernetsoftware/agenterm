@@ -1,6 +1,6 @@
 use crate::host_boot_identity::{HostBootIdentityError, HostBootIdentityErrorKind};
 
-pub(super) fn query_material() -> Result<Vec<u8>, HostBootIdentityError> {
+pub(crate) fn query_material() -> Result<Vec<u8>, HostBootIdentityError> {
     let value = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").map_err(|error| {
         HostBootIdentityError::new(
             HostBootIdentityErrorKind::Query,

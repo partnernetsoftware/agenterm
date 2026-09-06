@@ -1,6 +1,6 @@
 use crate::host_boot_identity::{HostBootIdentityError, HostBootIdentityErrorKind};
 
-pub(super) fn query_material() -> Result<Vec<u8>, HostBootIdentityError> {
+pub(crate) fn query_material() -> Result<Vec<u8>, HostBootIdentityError> {
     let mut boot = libc::timeval {
         tv_sec: 0,
         tv_usec: 0,
