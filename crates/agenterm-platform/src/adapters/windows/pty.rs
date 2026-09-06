@@ -53,8 +53,8 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::contract::pty::{
-    NativeInputOwnership, NativeTerminalKey, ProcessId, PtyCleanupReceipt, PtyError, PtyResult,
-    TerminalSize,
+    NativeInputOwnership, NativeTerminalKey, ProcessId, PtyCleanupReceipt, PtyError,
+    PtyForegroundSignal, PtyForegroundSignalReceipt, PtyResult, TerminalSize,
 };
 
 use super::console_agent;
@@ -519,6 +519,17 @@ impl PtyChild {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    pub fn signal_foreground(
+        &self,
+        _master: &PtyMaster,
+        _signal: PtyForegroundSignal,
+    ) -> PtyResult<PtyForegroundSignalReceipt> {
+        Err(PtyError::unsupported(
+            "signal foreground process group",
+            "ConPTY exposes no retained foreground-process-set authority; console control group 0 would also signal background processes, so AgenTerm refuses before mutation",
+        ))
     }
 
     /// Injects a native console key event into the child console.

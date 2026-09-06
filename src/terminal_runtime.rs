@@ -11,8 +11,8 @@ use std::{
 use anyhow::{Context as _, Result};
 
 use crate::pty::{
-    ChildCommand, NativeInputOwnership, NativeTerminalKey, PtyChild, PtyMaster, PtyResult,
-    TerminalSize,
+    ChildCommand, NativeInputOwnership, NativeTerminalKey, PtyChild, PtyForegroundSignal,
+    PtyForegroundSignalReceipt, PtyMaster, PtyResult, TerminalSize,
 };
 
 use crate::{
@@ -605,6 +605,13 @@ impl TerminalTab {
 
     pub(crate) fn native_input_ownership(&self) -> PtyResult<NativeInputOwnership> {
         self.child.native_input_ownership()
+    }
+
+    pub(crate) fn signal_foreground(
+        &self,
+        signal: PtyForegroundSignal,
+    ) -> PtyResult<PtyForegroundSignalReceipt> {
+        self.child.signal_foreground(&self.master, signal)
     }
 
     pub(crate) fn send_native_key(

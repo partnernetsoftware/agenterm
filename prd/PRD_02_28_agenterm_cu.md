@@ -1304,10 +1304,22 @@ flowchart LR
   native receipt even when the tab endpoint disappeared. The strengthened
   qjswasm journey proves a root and two HUP/TERM/INT-resistant children are
   absent after stop while a separately owned sibling remains alive. macOS arm64
-  is green; Linux and Windows runtime reruns remain required, and foreground
-  signaling remains governed by the separate decisive court.
-  The frozen court and kill criterion are
-  [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
+  is green; Linux and Windows runtime reruns remain required.
+  Foreground signaling has now passed its decisive architecture court. Public
+  `pty-signal NAME --signal ... --expect ...` binds the same job, scope, epoch
+  and stable tab, then derives the target group only from the retained POSIX
+  PTY master. STOP/CONT require scheduler-state read-back, TERM requires exact
+  member exit, and INT proves native delivery without fabricating application
+  acknowledgement. The macOS qjswasm journey proves STOP and TERM preserve a
+  separate same-session background job and an unrelated sibling while leaving
+  the interactive shell usable. Direct ConPTY has no retained foreground-set
+  authority; the console-agent's control group zero reaches background
+  processes. Windows therefore returns a typed limitation before mutation,
+  with no Ctrl-C byte, PID scan, activation or whole-Job substitute. Linux and
+  Windows runtime reruns remain qualification leaves, so the ledger row is
+  `platform-limited` rather than universally native. The frozen court and
+  result are [`plan/design-pty-process-control-experiment.md`](../plan/design-pty-process-control-experiment.md)
+  and [`research/pty-process-control/RESULTS.md`](../research/pty-process-control/RESULTS.md).
 
 - [~] AgenTerm viewport control is no longer conflated with background PTY
   screen parity. `terminal-scroll` addresses one stable `@tab`, rejects the
@@ -1347,11 +1359,12 @@ flowchart LR
   D --> Q
   B --> Q
   K --> H["headless server<br/>single PTY owner"]
-  H --> J["pty start/list/prune/status/read/send/wait/exit/stop ✓<br/>exact job + epoch + @tab"]
+  H --> J["pty start/list/prune/status/read/send/wait/exit/signal/stop ✓<br/>exact job + epoch + @tab"]
   J --> JE["pty snapshot/diff/events/resize<br/>macOS + Linux four cells ✓<br/>Win x86 121b76ed ✓ · Win arm 735b7e0c ✓"]
   J --> J1["qjswasm public PTY court · local six-cell ✓<br/>macOS arm64 + x86_64/Rosetta<br/>Linux + Windows x86_64/arm64 native"]
-  J1 --> J2["list/prune + absent/running/stale/absent ✓<br/>reuse + orphan process-tree cleanup"]
-  J2 --> Q
+  J1 --> J2["list/prune + absent/running/stale/absent ✓<br/>exact owned-session cleanup ✓"]
+  J2 --> JS["foreground signal<br/>POSIX retained master ✓<br/>ConPTY typed limit"]
+  JS --> Q
   JE --> Q
   M --> X["shell-exec<br/>contained first instruction<br/>bounded stdout+stderr"]
   X --> Q

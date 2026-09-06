@@ -1,6 +1,6 @@
 # PTY process-control semantics decision experiment
 
-Status: **IN PROGRESS · no capability promotion yet**
+Status: **COMPLETE · POSIX foreground semantics accepted; Windows typed-limited**
 
 Date: 2026-09-06  
 Purpose: decide whether a direct Windows ConPTY can support the same exact
@@ -147,8 +147,12 @@ research/pty-process-control/
 
 ## 8. Result backfill
 
-Pending. A valid result must include the C1–C6 table per backend, exact decision
-tree trace, deviations from this specification, rerun commands, and an explicit
-statement that criteria were not changed after observing results. Promotion
-then updates the owning PRD, capability ledger, and Rust condensed manual in
-one coherent increment.
+The result is recorded in
+[`research/pty-process-control/RESULTS.md`](../research/pty-process-control/RESULTS.md).
+macOS passed retained-master foreground isolation and post-state through the
+public qjswasm court. Linux shares the accepted POSIX implementation and
+compiles, with native runtime qualification still pending. Direct ConPTY and
+the console-agent both fail C1: neither exposes an exact retained foreground
+process-set authority, and console control group zero would cross into the
+background control. They therefore return a typed limitation before mutation.
+The criteria and kill conditions above were not changed after measurement.

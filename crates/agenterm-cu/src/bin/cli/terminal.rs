@@ -1,6 +1,6 @@
 //! AgenTerm-owned terminal/session commands.
 
-use agenterm_cu::{Command, TargetRef, TerminalScrollAction, TerminalWaitCondition};
+use agenterm_cu::{Command, PtySignalKind, TargetRef, TerminalScrollAction, TerminalWaitCondition};
 
 use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
 
@@ -317,6 +317,30 @@ pub fn parse(
                 name,
                 timeout_ms,
                 expect_status,
+            })
+        }
+        "pty-signal" => {
+            let name = required_name(args, "pty-signal")?;
+            let signal = flag_text(args, "--signal")?
+                .and_then(|value| PtySignalKind::parse(&value))
+                .ok_or_else(|| {
+                    "pty-signal requires --signal interrupt|terminate|stop|continue".to_owned()
+                })?;
+            let expect = flag_text(args, "--expect")?
+                .ok_or_else(|| "pty-signal requires --expect POSTCONDITION".to_owned())?;
+            if expect != signal.expected_postcondition() {
+                return Err(format!(
+                    "pty-signal --signal {} requires --expect {}",
+                    signal.as_str(),
+                    signal.expected_postcondition()
+                ));
+            }
+            empty(args, "pty-signal")?;
+            Ok(Command::PtySignal {
+                target,
+                name,
+                signal,
+                expect,
             })
         }
         "pty-stop" => {
@@ -730,6 +754,19 @@ mod tests {
                 if name == "build"
         ));
         assert!(matches!(
+            parse(
+                "pty-signal",
+                &["build", "--signal", "stop", "--expect", "stopped"]
+            )
+            .unwrap(),
+            Command::PtySignal {
+                name,
+                signal: PtySignalKind::Stop,
+                expect,
+                ..
+            } if name == "build" && expect == "stopped"
+        ));
+        assert!(matches!(
             parse("pty-stop", &["build", "--expect", "stopped"]).unwrap(),
             Command::PtyStop { name, expect_stopped: true, .. } if name == "build"
         ));
@@ -738,6 +775,14 @@ mod tests {
         assert!(parse("pty-send", &["build", ""]).is_err());
         assert!(parse("pty-wait", &["build"]).is_err());
         assert!(parse("pty-events", &["build", "--epoch", "e"]).is_err());
+        assert!(parse("pty-signal", &["build", "--signal", "stop"]).is_err());
+        assert!(
+            parse(
+                "pty-signal",
+                &["build", "--signal", "stop", "--expect", "running"]
+            )
+            .is_err()
+        );
         assert!(
             parse(
                 "pty-events",

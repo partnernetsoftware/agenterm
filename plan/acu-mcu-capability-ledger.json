@@ -666,11 +666,13 @@
         {
           "id": "pty.background.process-control",
           "mcu_shape": "pty --provider native|tmux signal|wait-exit|stop",
-          "acu_shape": "pty-wait-exit is native; pty-stop freezes and empties the bounded POSIX session or Windows Job Object, then requires worker and endpoint cleanup; standalone process-signal has exact-object semantics but no PTY foreground authority composes it",
-          "state": "gap",
+          "acu_shape": "pty-signal derives the exact foreground process group from the retained POSIX PTY master and requires signal-specific post-state; Windows refuses before mutation because ConPTY has no equivalent authority; pty-wait-exit and full-session pty-stop remain native",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "same-source-native-runtime-court-pending", "windows": "typed-limited-no-retained-foreground-authority"},
+          "qualification": "macos-public-qjswasm-foreground-isolation-and-cleanup-green-linux-windows-runtime-pending",
           "evidence": ["cu.pty-background-interactive"],
-          "next": "finish the decisive court for identity-bound foreground signaling; keep direct ConPTY typed platform-limited unless it yields a retained exact foreground authority",
-          "note": "The pre-fix public stop returned verified while HUP/TERM/INT-resistant session children survived. The platform now retains native containment authority, publishes containment/member/empty receipts, and the qjswasm court proves resistant descendants are gone while an unrelated sibling survives. This closes forced cleanup only; signal delivery remains the capability gap."
+          "next": "run the enlarged public journey on Linux and Windows courts; retain the Windows typed limitation unless a future native API provides exact foreground authority",
+          "note": "The public macOS journey proves STOP and TERM affect only the foreground group selected by tcgetpgrp(master), preserve a same-session background child and unrelated sibling, bind job/scope/epoch/tab identity, and verify signal-specific post-state. Native tests also prove CONT. INT reports exact delivery without fabricating application acknowledgement. Direct ConPTY exposes no foreground process-set handle; console control group zero would also signal background members, so no byte or whole-job fallback exists. Full-session pty-stop separately verifies resistant descendants are gone."
         },
         {
           "id": "pty.tmux.multi-pane",

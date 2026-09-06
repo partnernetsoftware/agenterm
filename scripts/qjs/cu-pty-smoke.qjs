@@ -55,6 +55,15 @@ function find_job(inventory, name) {
   return null;
 }
 
+function wait_file(path, label) {
+  const deadline = rh.now_ms() + 5000;
+  while (!rh.exists(path) && rh.now_ms() < deadline) { rh.sleep_ms(10); }
+  ensure(rh.exists(path), label + "_timeout");
+  const pid = Number(rh.read_text(path).trim());
+  ensure(pid > 0 && rh.process_alive(pid), label + "_not_live");
+  return pid;
+}
+
 function require_native_stop(stop, label) {
   const shutdown = stop.closed.native_shutdown;
   ensure(
@@ -103,6 +112,8 @@ let started = 0;
 let stopped = 0;
 let tree_started = 0;
 let tree_stopped = 0;
+let signal_started = 0;
+let signal_stopped = 0;
 const owned_children = [];
 let succeeded = 0;
 let failure = "";
@@ -431,6 +442,114 @@ try {
     "--expect", "stale"
   ]), "pty-prune");
   ensure(tree_prune.verified === true, "cu_pty_tree_prune_contract");
+
+  print("STEP signal only the retained PTY foreground group and preserve background controls");
+  const signal_job = job + "-signal";
+  const signal_start_arguments = [
+    "--target", "current", "--grant", "actuate", "pty-start", signal_job,
+    "--cwd", run_directory, "--"
+  ];
+  if (windows) {
+    signal_start_arguments.push("cmd.exe");
+    signal_start_arguments.push("/Q");
+  } else {
+    signal_start_arguments.push("/bin/sh");
+    signal_start_arguments.push("-i");
+  }
+  require_ok(
+    invoke_cu(run_directory, product, executable, signal_start_arguments),
+    "pty-start"
+  );
+  signal_started = 1;
+  if (windows) {
+    const unsupported = invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-signal", signal_job,
+      "--signal", "stop", "--expect", "stopped"
+    ]);
+    ensure(
+      unsupported.ok === false
+        && unsupported.error.code === "terminal_foreground_signal_unsupported"
+        && unsupported.error.detail.category === "unsupported"
+        && unsupported.error.detail.receipt.id.length > 0,
+      "cu_pty_windows_signal_limit_contract:" + JSON.stringify(unsupported)
+    );
+  } else {
+    const background_path = rh.join(run_directory, "pty-signal-background.pid");
+    const foreground_stop_path = rh.join(run_directory, "pty-signal-stop.pid");
+    const foreground_term_path = rh.join(run_directory, "pty-signal-term.pid");
+    const background_command = "/bin/sh -c 'trap \"\" HUP TERM INT; echo $$ > pty-signal-background.pid; while :; do sleep 60; done' &\n";
+    require_ok(invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-send", signal_job,
+      "--", background_command
+    ]), "pty-send");
+    const background_pid = wait_file(background_path, "cu_pty_signal_background");
+
+    const stop_command = "/bin/sh -c 'trap \"\" HUP INT; echo $$ > pty-signal-stop.pid; while :; do sleep 60; done'\n";
+    require_ok(invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-send", signal_job,
+      "--", stop_command
+    ]), "pty-send");
+    const stopped_pid = wait_file(foreground_stop_path, "cu_pty_signal_foreground_stop");
+    const stop_signal = require_ok(invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-signal", signal_job,
+      "--signal", "stop", "--expect", "stopped"
+    ]), "pty-signal");
+    ensure(
+      stop_signal.signal === "stop" && stop_signal.performed === true
+        && stop_signal.verified === true
+        && stop_signal.native.containment === "posix-foreground-process-group"
+        && stop_signal.native.postcondition === "stopped"
+        && stop_signal.native.members_observed >= 1
+        && stop_signal.receipt.id.length > 0
+        && rh.process_alive(stopped_pid) && rh.process_alive(background_pid)
+        && harness.child_state(owned_children[0]) === "running",
+      "cu_pty_foreground_stop_contract:" + JSON.stringify(stop_signal)
+    );
+
+    // The interactive shell owns job-control continuation; foreground-signal
+    // CONT itself is covered by the native retained-master test. Resume this
+    // fixture in the background, then prove the shell is still usable.
+    require_ok(invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-send", signal_job,
+      "--", "bg\nprintf 'PTY_SIGNAL_SHELL_READY\\n'\n"
+    ]), "pty-send");
+    require_ok(invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "observe", "pty-wait", signal_job,
+      "--contains", "PTY_SIGNAL_SHELL_READY", "--cursor", "earliest",
+      "--timeout-ms", "10000"
+    ]), "pty-wait");
+
+    const term_command = "/bin/sh -c 'trap \"\" HUP INT; echo $$ > pty-signal-term.pid; while :; do sleep 60; done'\n";
+    require_ok(invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-send", signal_job,
+      "--", term_command
+    ]), "pty-send");
+    const terminated_pid = wait_file(foreground_term_path, "cu_pty_signal_foreground_term");
+    const term_signal = require_ok(invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-signal", signal_job,
+      "--signal", "terminate", "--expect", "exited"
+    ]), "pty-signal");
+    ensure(
+      term_signal.signal === "terminate" && term_signal.performed === true
+        && term_signal.verified === true
+        && term_signal.native.postcondition === "exited"
+        && term_signal.receipt.id.length > 0
+        && !rh.process_alive(terminated_pid) && rh.process_alive(background_pid)
+        && harness.child_state(owned_children[0]) === "running",
+      "cu_pty_foreground_term_contract:" + JSON.stringify(term_signal)
+    );
+  }
+  const signal_stop = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-stop", signal_job,
+    "--expect", "stopped"
+  ]), "pty-stop");
+  require_native_stop(signal_stop, "cu_pty_signal_stop_contract");
+  signal_stopped = 1;
+  const signal_prune = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-prune", signal_job,
+    "--expect", "stale"
+  ]), "pty-prune");
+  ensure(signal_prune.verified === true, "cu_pty_signal_prune_contract");
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -460,22 +579,34 @@ if (tree_started !== 0 && tree_stopped === 0) {
     failure = failure + ";cu_pty_tree_cleanup_failed:" + cleanup_error;
   }
 }
+if (signal_started !== 0 && signal_stopped === 0) {
+  try {
+    const cleanup = invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-stop", job + "-signal",
+      "--expect", "stopped"
+    ]);
+    if (cleanup.ok === true && cleanup.data.verified === true) { signal_stopped = 1; }
+    else { failure = failure + ";cu_pty_signal_cleanup_unverified:" + JSON.stringify(cleanup); }
+  } catch (cleanup_error) {
+    failure = failure + ";cu_pty_signal_cleanup_failed:" + cleanup_error;
+  }
+}
 
 let completion_failure = "";
 try {
   harness.complete_children(
     context,
     owned_children,
-    succeeded !== 0 && stopped !== 0 && tree_stopped !== 0,
+    succeeded !== 0 && stopped !== 0 && tree_stopped !== 0 && signal_stopped !== 0,
     failure
   );
 } catch (error) {
   completion_failure = "" + error;
 }
-if (succeeded !== 0 && stopped !== 0 && tree_stopped !== 0 && completion_failure === "") {
+if (succeeded !== 0 && stopped !== 0 && tree_stopped !== 0 && signal_stopped !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.pty-background-interactive");
   harness.remove_run(context);
-  print("PASS: qjswasm orchestrated ACU PTY inventory, structured snapshot/diff/events, verified resize, input, loss-aware wait, exact exit, restart refusal and cleanup");
+  print("PASS: qjswasm orchestrated ACU PTY inventory, foreground signals, structured snapshot/diff/events, verified resize, input, loss-aware wait, exact exit, restart refusal and cleanup");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

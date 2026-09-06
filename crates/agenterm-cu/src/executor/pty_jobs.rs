@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use crate::cdp::page::base64_decode;
 use crate::{
-    CuError, TerminalWaitCondition,
+    CuError, PtySignalKind, TerminalWaitCondition,
     pty_snapshot::{self, PtySnapshotStore},
     receipt::ReceiptLog,
 };
@@ -1316,6 +1316,141 @@ pub(super) fn pty_wait_exit_payload(
     }
 }
 
+pub(super) fn pty_signal_payload(
+    name: &str,
+    signal: PtySignalKind,
+    expect: &str,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    if expect != signal.expected_postcondition() {
+        return Err(CuError::new(
+            "pty_signal_intent_required",
+            format!(
+                "pty-signal --signal {} requires --expect {}",
+                signal.as_str(),
+                signal.expected_postcondition()
+            ),
+        ));
+    }
+    let directory = job_directory(name)?;
+    let _lock = acquire_job_lock(&directory)?;
+    let client = client_for(name)?;
+    let (inventory, tab) = sole_job(&client, name)?;
+    let tab_id = tab["id"].as_str().ok_or_else(|| {
+        CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
+    })?;
+    let ticket = receipts.reserve(
+        "pty-signal",
+        0,
+        json!({
+            "name_bytes": name.len(),
+            "server_scope_id": inventory["server_scope_id"],
+            "server_epoch": inventory["server_epoch"],
+            "tab_id": tab_id,
+            "signal": signal.as_str(),
+            "expected_postcondition": expect,
+        }),
+    )?;
+    let response = match request(
+        &client,
+        vec![
+            "signal-terminal-foreground".to_owned(),
+            "-t".to_owned(),
+            tab_id.to_owned(),
+            "--signal".to_owned(),
+            signal.as_str().to_owned(),
+            "--expect".to_owned(),
+            expect.to_owned(),
+        ],
+        "command.signal.terminal.foreground",
+        Intent::Mutation,
+        Duration::from_secs(5),
+    ) {
+        Ok(response) => response,
+        Err(error) => {
+            receipts.complete(
+                &ticket,
+                "pty-signal",
+                0,
+                false,
+                json!({ "performed": false, "error_code": error.code }),
+            )?;
+            return Err(attach_receipt(error, ticket.json()));
+        }
+    };
+    let native = match parse_output(response, "pty_signal_receipt_invalid") {
+        Ok(native) => native,
+        Err(error) => {
+            receipts.complete(
+                &ticket,
+                "pty-signal",
+                0,
+                false,
+                json!({
+                    "performed": null,
+                    "outcome_unknown": true,
+                    "error_code": error.code,
+                }),
+            )?;
+            return Err(attach_receipt(error, ticket.json()));
+        }
+    };
+    let delivered = native["delivered"].as_bool() == Some(true);
+    let verified = native["verified"].as_bool() == Some(true);
+    let postcondition = native["postcondition"].as_str();
+    let expectation_met = match signal {
+        PtySignalKind::Interrupt => delivered,
+        PtySignalKind::Terminate | PtySignalKind::Stop | PtySignalKind::Continue => {
+            delivered && verified && postcondition == Some(expect)
+        }
+    };
+    let payload = json!({
+        "name": name,
+        "server_scope_id": inventory["server_scope_id"],
+        "server_epoch": inventory["server_epoch"],
+        "tab_id": tab_id,
+        "identity": "job-name+server-scope+epoch+tab-id+retained-pty-foreground-group",
+        "signal": signal.as_str(),
+        "expected_postcondition": expect,
+        "performed": delivered,
+        "verified": expectation_met,
+        "native": native,
+        "receipt": ticket.json(),
+    });
+    receipts.complete(
+        &ticket,
+        "pty-signal",
+        0,
+        expectation_met,
+        json!({
+            "performed": delivered,
+            "verified": expectation_met,
+            "postcondition": postcondition,
+        }),
+    )?;
+    if expectation_met {
+        Ok(payload)
+    } else {
+        Err(CuError::new(
+            "pty_signal_postcondition_unverified",
+            "the native PTY signal did not prove its declared postcondition",
+        )
+        .with_detail(payload))
+    }
+}
+
+fn attach_receipt(mut error: CuError, receipt: Value) -> CuError {
+    let detail = match error.detail.take() {
+        Some(Value::Object(mut detail)) => {
+            detail.insert("receipt".to_owned(), receipt);
+            Value::Object(detail)
+        }
+        Some(cause) => json!({ "cause": cause, "receipt": receipt }),
+        None => json!({ "receipt": receipt }),
+    };
+    error.with_detail(detail)
+}
+
 pub(super) fn pty_stop_payload(
     name: &str,
     expect_stopped: bool,
@@ -1405,5 +1540,18 @@ mod tests {
         drop(first);
         acquire_registry_lock(&root).expect("registry lock released");
         let _ = fs::remove_file(root.with_extension("registry.lock"));
+    }
+
+    #[test]
+    fn receipt_attachment_preserves_typed_control_detail() {
+        let error = CuError::new("typed", "failure").with_detail(json!({
+            "category": "unsupported",
+            "retryable": false,
+        }));
+        let enriched = attach_receipt(error, json!({ "id": "receipt-1" }));
+        let detail = enriched.detail.expect("detail");
+        assert_eq!(detail["category"], "unsupported");
+        assert_eq!(detail["retryable"], false);
+        assert_eq!(detail["receipt"]["id"], "receipt-1");
     }
 }

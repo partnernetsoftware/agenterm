@@ -143,7 +143,7 @@ AgenTerm — local agent & process fleet work OS
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 134 叶：
-│     │                       native 34 / delegated 31 / platform-limited 55 / gap 9 / retired 5
+│     │                       native 34 / delegated 31 / platform-limited 56 / gap 8 / retired 5
 │     │                       exact @tab 视口滚动与渲染 PNG 已走同一 control plane；
 │     │                       macOS qjswasm 黑盒已绿，Linux/Windows GUI court 待补
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
@@ -163,6 +163,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       macOS + Linux 双 ISA + Windows ARM journey 绿；Win x86 court 的
 │     │                       interactive agent 在 180s/360s 均无 nonce，属基础设施阻塞、无产品判决
 │     │                       rich ps 已由有界过滤/采样/树详情 + qjswasm macOS court 从 gap 晋级 native
+│     │                       PTY foreground signal 已从 gap 晋级 platform-limited：macOS 以 retained
+│     │                       master 精确证明前台组 STOP/TERM 与对照隔离；Linux court 待跑；ConPTY
+│     │                       无等价 authority，Windows 在 mutation 前 typed refusal，不用字节/整 Job 冒充
 │     │                       process cgroup 已有 Linux cgroup v2 精确对象/成员关系/目录身份三重夹持；
 │     │                       macOS typed not-applicable court 绿，Linux 双 ISA 与 Windows court 待跑
 │     │                       power status 已绑定安装伪身份 + 原生 boot instance；macOS qjswasm court 绿，

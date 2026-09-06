@@ -4548,6 +4548,7 @@ Usage:
   agenterm cli select-window -t target
   agenterm cli rename-window [-t target] name
   agenterm cli kill-window -t target
+  agenterm cli signal-terminal-foreground -t target --signal interrupt|terminate|stop|continue --expect delivered|exited|stopped|running
   agenterm cli send-keys [-t target] [-l|--native] key...
   agenterm cli set-buffer [-b name] [--] data...
   agenterm cli load-buffer [-b name] path
@@ -4701,7 +4702,7 @@ pub(crate) fn protocol_info_json_with_ui_bridge(
             "list-tab-tree", "set-tab-parent", "show-tab-parent",
             "save-workspace", "workspace-info", "shutdown",
             "new-agent", "list-instances", "server-list", "server-kill", "scroll-pane", "read-events",
-            "wait-events"
+            "wait-events", "signal-terminal-foreground"
         ],
         "features": {
             "remain_on_exit": true,

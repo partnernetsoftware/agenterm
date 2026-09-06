@@ -21,7 +21,7 @@ use crate::{
     frontend::settings::{AppearanceField, SettingsScope},
     operations::{UI_TABS_HIDE, UI_TABS_SET_WIDTH, UI_TABS_SHOW, UI_TABS_TOGGLE},
     protocol::IpcResponse,
-    pty::{NativeInputOwnership, NativeTerminalKey, PtyError},
+    pty::{NativeInputOwnership, NativeTerminalKey, PtyError, PtyForegroundSignal},
     settings::clamp_tabs_width,
     tab_tree::{TabTreeNode, TabTreeRow, tree_rows, would_create_cycle},
     terminal_runtime::TerminalTab,
@@ -2347,6 +2347,71 @@ pub(crate) fn dispatch_shared_command(
                 Err(error) => Some(IpcResponse::failure(error)),
             }
         }
+        "signal-terminal-foreground" => {
+            let Some(position) =
+                resolve_target_position(host.tabs(), host.active_id(), option_value(args, "-t"))
+            else {
+                return Some(IpcResponse::typed_failure(
+                    "can't find the exact terminal tab",
+                    "terminal_foreground_signal_target_missing",
+                    "not-found",
+                    false,
+                ));
+            };
+            let Some(signal) = option_value(args, "--signal").and_then(|value| match value {
+                "interrupt" => Some(PtyForegroundSignal::Interrupt),
+                "terminate" => Some(PtyForegroundSignal::Terminate),
+                "stop" => Some(PtyForegroundSignal::Stop),
+                "continue" => Some(PtyForegroundSignal::Continue),
+                _ => None,
+            }) else {
+                return Some(IpcResponse::typed_failure(
+                    "signal-terminal-foreground requires --signal interrupt|terminate|stop|continue",
+                    "terminal_foreground_signal_invalid",
+                    "configuration",
+                    false,
+                ));
+            };
+            let expected = match signal {
+                PtyForegroundSignal::Interrupt => "delivered",
+                PtyForegroundSignal::Terminate => "exited",
+                PtyForegroundSignal::Stop => "stopped",
+                PtyForegroundSignal::Continue => "running",
+                _ => {
+                    return Some(IpcResponse::typed_failure(
+                        "the PTY adapter returned an unsupported foreground signal kind",
+                        "terminal_foreground_signal_unsupported",
+                        "unsupported",
+                        false,
+                    ));
+                }
+            };
+            if option_value(args, "--expect") != Some(expected) {
+                return Some(IpcResponse::typed_failure(
+                    format!("--signal {} requires --expect {expected}", signal.as_str()),
+                    "terminal_foreground_signal_intent_required",
+                    "configuration",
+                    false,
+                ));
+            }
+            let tab_id = host.tabs()[position].id;
+            match host.tabs()[position].signal_foreground(signal) {
+                Ok(receipt) => Some(IpcResponse::success(
+                    serde_json::json!({
+                        "tab_id": format!("@{tab_id}"),
+                        "containment": receipt.containment,
+                        "signal": receipt.signal,
+                        "members_observed": receipt.members_observed,
+                        "members_retained_for_verification": receipt.members_retained_for_verification,
+                        "delivered": receipt.delivered,
+                        "verified": receipt.verified,
+                        "postcondition": receipt.postcondition,
+                    })
+                    .to_string(),
+                )),
+                Err(error) => Some(foreground_signal_failure(error)),
+            }
+        }
         "active-window" | "active-tab" => {
             let Some(position) = resolve_target_position(host.tabs(), host.active_id(), None)
             else {
@@ -2825,6 +2890,26 @@ fn native_key_failure(error: PtyError) -> IpcResponse {
         _ => IpcResponse::typed_failure(
             error.to_string(),
             "terminal_native_key_failed",
+            "native",
+            true,
+        ),
+    }
+}
+
+fn foreground_signal_failure(error: PtyError) -> IpcResponse {
+    match error {
+        PtyError::Unsupported { .. } => IpcResponse::typed_failure(
+            error.to_string(),
+            "terminal_foreground_signal_unsupported",
+            "unsupported",
+            false,
+        ),
+        PtyError::Failed { code, .. } => {
+            IpcResponse::typed_failure(error.to_string(), code, "native", true)
+        }
+        _ => IpcResponse::typed_failure(
+            error.to_string(),
+            "terminal_foreground_signal_failed",
             "native",
             true,
         ),

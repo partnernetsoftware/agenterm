@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use libc::{self, c_int, pid_t};
 
 use crate::contract::pty::{
-    NativeInputOwnership, NativeTerminalKey, ProcessId, PtyCleanupReceipt, PtyError, PtyResult,
-    TerminalSize,
+    NativeInputOwnership, NativeTerminalKey, ProcessId, PtyCleanupReceipt, PtyError,
+    PtyForegroundSignal, PtyForegroundSignalReceipt, PtyResult, TerminalSize,
 };
 use crate::process_control::TerminationMode;
 use crate::process_reference::{ProcessReference, ProcessWait};
@@ -42,6 +42,7 @@ pub fn login_shell_argument(
 const PTY_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const PTY_EXEC_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const PTY_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+const PTY_FOREGROUND_SIGNAL_TIMEOUT: Duration = Duration::from_secs(2);
 const PTY_SESSION_MEMBER_LIMIT: usize = 4096;
 const PTY_SESSION_FREEZE_ROUNDS: usize = 16;
 
@@ -224,6 +225,24 @@ impl PtyChild {
         terminate_owned_session(root, self.session_id)
     }
 
+    /// Delivers one signal to the native foreground process group selected by
+    /// this retained PTY master. Process inventory is used only for bounded
+    /// post-state evidence; `tcgetpgrp(master)` is the effect authority.
+    pub fn signal_foreground(
+        &self,
+        master: &PtyMaster,
+        signal: PtyForegroundSignal,
+    ) -> PtyResult<PtyForegroundSignalReceipt> {
+        let root = self.root_reference.as_ref().ok_or_else(|| {
+            PtyError::failed(
+                "signal foreground process group",
+                "pty_signal_without_authority",
+                "the wait-only PTY child clone has no foreground-signal authority",
+            )
+        })?;
+        signal_foreground_process_group(root, self.session_id, master.io.fd.as_raw_fd(), signal)
+    }
+
     pub fn send_native_key(&self, _key: NativeTerminalKey, _repeat_count: u16) -> PtyResult<()> {
         Err(PtyError::unsupported(
             "send native key",
@@ -236,6 +255,205 @@ impl PtyChild {
             "inspect native input ownership",
             "the POSIX PTY adapter has no Win32 console input mode",
         ))
+    }
+}
+
+fn signal_foreground_process_group(
+    root: &ProcessReference,
+    session_id: u32,
+    master_fd: RawFd,
+    signal: PtyForegroundSignal,
+) -> PtyResult<PtyForegroundSignalReceipt> {
+    if !root.is_alive().map_err(|error| {
+        PtyError::failed("inspect PTY owner", "pty_signal_owner_query_failed", error)
+    })? {
+        return Err(PtyError::failed(
+            "signal foreground process group",
+            "pty_signal_owner_exited",
+            "the retained PTY owner has already exited",
+        ));
+    }
+    let foreground = unsafe { libc::tcgetpgrp(master_fd) };
+    if foreground <= 0 {
+        return Err(PtyError::failed(
+            "resolve foreground process group",
+            "pty_foreground_group_unavailable",
+            io::Error::last_os_error(),
+        ));
+    }
+    if native_session_id(foreground as u32).map_err(|error| {
+        PtyError::failed(
+            "validate foreground process group",
+            "pty_foreground_group_query_failed",
+            error,
+        )
+    })? != Some(session_id)
+    {
+        return Err(PtyError::failed(
+            "validate foreground process group",
+            "pty_foreground_group_changed",
+            "the foreground process group does not belong to the retained PTY session",
+        ));
+    }
+
+    let mut members = Vec::new();
+    for pid in session_process_ids(session_id).map_err(|error| {
+        PtyError::failed(
+            "enumerate foreground process group",
+            "pty_foreground_group_enumeration_failed",
+            error,
+        )
+    })? {
+        let group = unsafe { libc::getpgid(pid as pid_t) };
+        if group == foreground {
+            match ProcessReference::open(pid) {
+                Ok(reference) => members.push(reference),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(PtyError::failed(
+                        "retain foreground process member",
+                        "pty_foreground_member_retain_failed",
+                        error,
+                    ));
+                }
+            }
+        } else if group == -1 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::NotFound && error.raw_os_error() != Some(libc::ESRCH)
+            {
+                return Err(PtyError::failed(
+                    "inspect foreground process member",
+                    "pty_foreground_member_query_failed",
+                    error,
+                ));
+            }
+        }
+    }
+    if members.is_empty() {
+        return Err(PtyError::failed(
+            "signal foreground process group",
+            "pty_foreground_group_empty",
+            "the retained PTY foreground process group had no observable live members",
+        ));
+    }
+    if unsafe { libc::tcgetpgrp(master_fd) } != foreground {
+        return Err(PtyError::failed(
+            "signal foreground process group",
+            "pty_foreground_group_changed",
+            "the PTY foreground process group changed before signal delivery",
+        ));
+    }
+
+    let native_signal = match signal {
+        PtyForegroundSignal::Interrupt => libc::SIGINT,
+        PtyForegroundSignal::Terminate => libc::SIGTERM,
+        PtyForegroundSignal::Stop => libc::SIGSTOP,
+        PtyForegroundSignal::Continue => libc::SIGCONT,
+    };
+    if unsafe { libc::killpg(foreground, native_signal) } == -1 {
+        return Err(PtyError::failed(
+            "signal foreground process group",
+            "pty_foreground_signal_failed",
+            io::Error::last_os_error(),
+        ));
+    }
+
+    let observed = members.len().try_into().unwrap_or(u32::MAX);
+    if signal == PtyForegroundSignal::Interrupt {
+        return Ok(PtyForegroundSignalReceipt {
+            containment: "posix-foreground-process-group",
+            signal: signal.as_str(),
+            members_observed: observed,
+            members_retained_for_verification: observed,
+            delivered: true,
+            verified: false,
+            postcondition: "application-acknowledgement-required",
+        });
+    }
+
+    let deadline = Instant::now() + PTY_FOREGROUND_SIGNAL_TIMEOUT;
+    loop {
+        let mut all_verified = true;
+        for member in &members {
+            let alive = member.is_alive().map_err(|error| {
+                PtyError::failed(
+                    "verify foreground process member",
+                    "pty_foreground_signal_verify_failed",
+                    error,
+                )
+            })?;
+            let matches = match signal {
+                PtyForegroundSignal::Terminate => !alive,
+                PtyForegroundSignal::Stop if alive => {
+                    let stopped =
+                        crate::process_metrics::is_stopped(member.id()).map_err(|error| {
+                            PtyError::failed(
+                                "verify foreground process member",
+                                "pty_foreground_signal_verify_failed",
+                                error,
+                            )
+                        })?;
+                    stopped
+                        && member.is_alive().map_err(|error| {
+                            PtyError::failed(
+                                "revalidate foreground process member",
+                                "pty_foreground_signal_verify_failed",
+                                error,
+                            )
+                        })?
+                }
+                PtyForegroundSignal::Continue if alive => {
+                    let stopped =
+                        crate::process_metrics::is_stopped(member.id()).map_err(|error| {
+                            PtyError::failed(
+                                "verify foreground process member",
+                                "pty_foreground_signal_verify_failed",
+                                error,
+                            )
+                        })?;
+                    !stopped
+                        && member.is_alive().map_err(|error| {
+                            PtyError::failed(
+                                "revalidate foreground process member",
+                                "pty_foreground_signal_verify_failed",
+                                error,
+                            )
+                        })?
+                }
+                PtyForegroundSignal::Stop | PtyForegroundSignal::Continue => false,
+                PtyForegroundSignal::Interrupt => unreachable!(),
+            };
+            all_verified &= matches;
+        }
+        if all_verified {
+            let postcondition = match signal {
+                PtyForegroundSignal::Terminate => "exited",
+                PtyForegroundSignal::Stop => "stopped",
+                PtyForegroundSignal::Continue => "running",
+                PtyForegroundSignal::Interrupt => unreachable!(),
+            };
+            return Ok(PtyForegroundSignalReceipt {
+                containment: "posix-foreground-process-group",
+                signal: signal.as_str(),
+                members_observed: observed,
+                members_retained_for_verification: observed,
+                delivered: true,
+                verified: true,
+                postcondition,
+            });
+        }
+        if Instant::now() >= deadline {
+            return Ok(PtyForegroundSignalReceipt {
+                containment: "posix-foreground-process-group",
+                signal: signal.as_str(),
+                members_observed: observed,
+                members_retained_for_verification: observed,
+                delivered: true,
+                verified: false,
+                postcondition: "deadline-before-observable-postcondition",
+            });
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -1254,6 +1472,41 @@ wait "$b""#,
             );
         }
         child.wait().expect("reap terminated PTY root");
+        drop(cleanup);
+    }
+
+    #[test]
+    fn retained_master_signals_and_verifies_its_foreground_group() {
+        let spawned = ChildCommand::new("/bin/sh")
+            .arg("-c")
+            .arg("printf 'FOREGROUND_READY\\n'; while :; do sleep 60; done")
+            .spawn()
+            .expect("spawn foreground PTY fixture");
+        let (master, mut child) = spawned.into_parts();
+        let cleanup = FixtureCleanup(child.pid().as_u32());
+        read_until(&master, b"FOREGROUND_READY");
+
+        let stopped = child
+            .signal_foreground(&master, PtyForegroundSignal::Stop)
+            .expect("stop exact foreground group");
+        assert_eq!(stopped.signal, "stop");
+        assert!(stopped.delivered && stopped.verified);
+        assert_eq!(stopped.postcondition, "stopped");
+
+        let continued = child
+            .signal_foreground(&master, PtyForegroundSignal::Continue)
+            .expect("continue exact foreground group");
+        assert_eq!(continued.signal, "continue");
+        assert!(continued.delivered && continued.verified);
+        assert_eq!(continued.postcondition, "running");
+
+        let terminated = child
+            .signal_foreground(&master, PtyForegroundSignal::Terminate)
+            .expect("terminate exact foreground group");
+        assert_eq!(terminated.signal, "terminate");
+        assert!(terminated.delivered && terminated.verified);
+        assert_eq!(terminated.postcondition, "exited");
+        child.wait().expect("reap terminated foreground root");
         drop(cleanup);
     }
 

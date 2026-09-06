@@ -765,6 +765,18 @@ Windows must terminate its retained Job Object and query
 cleanup receipt. Publish containment kind, member counts, empty postcondition
 and worker completion through the public control response.
 
+Foreground signaling is narrower than owned-session cleanup. On POSIX, derive
+the target process group from `tcgetpgrp` on the retained PTY master, recheck
+that group belongs to the retained session immediately before `killpg`, retain
+bounded member observers, and verify STOP/CONT scheduler state or TERM exit.
+INT may prove native delivery but must remain unverified without application
+acknowledgement. Direct ConPTY exposes no equivalent foreground-process-set
+handle; `GenerateConsoleCtrlEvent(..., 0)` reaches every attached process and
+therefore fails foreground isolation. Return a typed limitation before mutation
+instead of substituting input bytes, PID/name scans, foreground activation, or
+whole-Job termination. Keep `pty-stop` as the separate portable full-session
+safety contract.
+
 On macOS, a termination audit token captured between `fork` and `exec` becomes
 stale when the child image changes. A close-on-exec status pipe proves exec
 success, but does not make a pre-exec mutation token durable. Retain an

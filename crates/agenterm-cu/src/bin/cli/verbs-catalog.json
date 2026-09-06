@@ -1341,6 +1341,20 @@
       ]
     },
     {
+      "name": "pty-signal",
+      "command": "pty-signal",
+      "aliases": ["pty signal"],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "signal the exact native foreground group of one PTY job",
+      "usage": "pty-signal NAME --signal interrupt|terminate|stop|continue --expect delivered|exited|stopped|running\npty signal NAME ...",
+      "args": [
+        {"flag": "NAME", "value": "", "help": "stable job name"},
+        {"flag": "--signal", "value": "SIGNAL", "help": "interrupt, terminate, stop or continue"},
+        {"flag": "--expect", "value": "POSTCONDITION", "help": "signal-specific explicit postcondition"}
+      ]
+    },
+    {
       "name": "pty-stop",
       "command": "pty-stop",
       "aliases": ["pty stop"],
@@ -5319,6 +5333,10 @@
     {
       "name": "pty-wait-exit",
       "text": "agenterm-cu pty-wait-exit    (also: pty wait-exit)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-wait-exit NAME [--timeout-ms N] [--expect-status N]\n  pty wait-exit NAME ...\n\nWaits with a monotonic deadline until both the child and the terminal reader are finalized, then reads the exact exit status. An optional 0..=255 expected status is verified; timeout or mismatch is a typed nonzero failure.\n"
+    },
+    {
+      "name": "pty-signal",
+      "text": "agenterm-cu pty-signal    (also: pty signal)\n  scope: actuate    family: Headless PTY jobs\n\nusage:\n  pty-signal NAME --signal interrupt|terminate|stop|continue --expect delivered|exited|stopped|running\n  pty signal NAME ...\n\nSignals only the native foreground process group selected by the exact job's retained PTY master. The explicit postcondition is fixed per signal: interrupt=delivered, terminate=exited, stop=stopped, continue=running. POSIX derives authority from tcgetpgrp(master) and verifies bounded exact members; direct ConPTY refuses before mutation because it exposes no retained foreground-process-set authority. The operation never substitutes input bytes, process-name scans or whole-job termination.\n"
     },
     {
       "name": "pty-stop",

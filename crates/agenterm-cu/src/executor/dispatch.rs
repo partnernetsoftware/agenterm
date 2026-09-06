@@ -788,6 +788,17 @@ impl Executor {
                 expect_status,
                 ..
             } => pty_wait_exit_payload(name, *timeout_ms, *expect_status),
+            Command::PtySignal {
+                name,
+                signal,
+                expect,
+                ..
+            } => pty_signal_payload(
+                name,
+                *signal,
+                expect,
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::PtyStop {
                 name,
                 expect_stopped,

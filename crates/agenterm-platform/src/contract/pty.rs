@@ -65,6 +65,45 @@ pub struct PtyCleanupReceipt {
     pub verified_empty: bool,
 }
 
+/// The bounded foreground-process-group signals whose identity can be derived
+/// from a retained PTY master on POSIX hosts.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
+pub enum PtyForegroundSignal {
+    Interrupt,
+    Terminate,
+    Stop,
+    Continue,
+}
+
+impl PtyForegroundSignal {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Interrupt => "interrupt",
+            Self::Terminate => "terminate",
+            Self::Stop => "stop",
+            Self::Continue => "continue",
+        }
+    }
+}
+
+/// Evidence from one native foreground-process-group signal operation.
+///
+/// Process identifiers are deliberately omitted. The retained PTY master is
+/// the target authority; the counts and postcondition are bounded evidence,
+/// not reusable authority for a later effect.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PtyForegroundSignalReceipt {
+    pub containment: &'static str,
+    pub signal: &'static str,
+    pub members_observed: u32,
+    pub members_retained_for_verification: u32,
+    pub delivered: bool,
+    pub verified: bool,
+    pub postcondition: &'static str,
+}
+
 /// A platform-neutral terminal key whose native console semantics cannot
 /// always be represented faithfully as bytes written to a PTY stream.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -142,6 +181,14 @@ mod tests {
     fn native_terminal_keys_are_platform_neutral_values() {
         assert_ne!(NativeTerminalKey::Up, NativeTerminalKey::Down);
         assert_eq!(NativeTerminalKey::Up, NativeTerminalKey::Up);
+    }
+
+    #[test]
+    fn foreground_signal_names_are_stable() {
+        assert_eq!(PtyForegroundSignal::Interrupt.as_str(), "interrupt");
+        assert_eq!(PtyForegroundSignal::Terminate.as_str(), "terminate");
+        assert_eq!(PtyForegroundSignal::Stop.as_str(), "stop");
+        assert_eq!(PtyForegroundSignal::Continue.as_str(), "continue");
     }
 
     #[test]

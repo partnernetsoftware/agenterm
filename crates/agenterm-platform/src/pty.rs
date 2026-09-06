@@ -2,7 +2,7 @@
 
 pub use crate::contract::pty::{
     InvalidProcessId, NativeInputOwnership, NativeTerminalKey, ProcessId, PtyCleanupReceipt,
-    PtyError, PtyResult, TerminalSize,
+    PtyError, PtyForegroundSignal, PtyForegroundSignalReceipt, PtyResult, TerminalSize,
 };
 pub use crate::selected::pty::{ChildCommand, PtyChild, PtyMaster, login_shell_argument};
 

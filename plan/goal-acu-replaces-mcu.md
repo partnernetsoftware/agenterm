@@ -703,9 +703,10 @@ Q3 owned runtime facades
 │  │  ├─ [x] architecture/court frozen in `design-pty-process-control-experiment.md`
 │  │  ├─ [x] POSIX bounded session freeze/kill/empty + Windows Job accounting contract
 │  │  ├─ [x] public qjswasm resistant-child cleanup + unrelated-sibling isolation on macOS
-│  │  ├─ [ ] Linux/Windows runtime rerun of the strengthened cleanup court
-│  │  ├─ [ ] POSIX retained foreground group signal + exact post-state
-│  │  └─ [ ] direct ConPTY C1 verdict; no Ctrl-C byte or whole-job false parity
+│  │  ├─ [x] POSIX retained-master foreground STOP/CONT/TERM + exact post-state
+│  │  ├─ [x] macOS public qjswasm foreground/background/unrelated isolation court
+│  │  ├─ [x] direct ConPTY + console-agent C1 verdict: typed limit before mutation
+│  │  └─ [ ] Linux/Windows runtime rerun of the enlarged signal + cleanup court
 │  └─ [ ] adopt/prune, aggregate resources, policy/priority/state/signal and expiry-detach shape
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [~] host resource status: bounded CPU/memory/load/uptime/process snapshot
@@ -814,7 +815,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 134 ledger capabilities
-currently include 9 `gap` and 55 `platform-limited` rows. The compatibility
+currently include 8 `gap` and 56 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was

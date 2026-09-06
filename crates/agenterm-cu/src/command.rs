@@ -691,6 +691,47 @@ impl ProcessSignalKind {
     }
 }
 
+/// Signal semantics owned by the foreground process group of one retained PTY.
+/// This is deliberately narrower than arbitrary process signaling.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PtySignalKind {
+    Interrupt,
+    Terminate,
+    Stop,
+    Continue,
+}
+
+impl PtySignalKind {
+    pub fn parse(raw: &str) -> Option<Self> {
+        Some(match raw.trim().to_ascii_lowercase().as_str() {
+            "int" | "sigint" | "interrupt" => Self::Interrupt,
+            "term" | "sigterm" | "terminate" => Self::Terminate,
+            "stop" | "sigstop" => Self::Stop,
+            "cont" | "sigcont" | "continue" => Self::Continue,
+            _ => return None,
+        })
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Interrupt => "interrupt",
+            Self::Terminate => "terminate",
+            Self::Stop => "stop",
+            Self::Continue => "continue",
+        }
+    }
+
+    pub const fn expected_postcondition(self) -> &'static str {
+        match self {
+            Self::Interrupt => "delivered",
+            Self::Terminate => "exited",
+            Self::Stop => "stopped",
+            Self::Continue => "running",
+        }
+    }
+}
+
 impl ProcessRunState {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim() {
@@ -1726,6 +1767,14 @@ pub enum Command {
         timeout_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expect_status: Option<i32>,
+    },
+    /// Signal the native foreground process group selected by the sole
+    /// retained PTY master, with an explicit signal-specific postcondition.
+    PtySignal {
+        target: TargetRef,
+        name: String,
+        signal: PtySignalKind,
+        expect: String,
     },
     /// Close the exact job tab and shut down its otherwise-empty authority.
     PtyStop {
@@ -3435,6 +3484,7 @@ impl Command {
             Self::PtySend { .. } => "pty-send".into(),
             Self::PtyWait { .. } => "pty-wait".into(),
             Self::PtyWaitExit { .. } => "pty-wait-exit".into(),
+            Self::PtySignal { .. } => "pty-signal".into(),
             Self::PtyStop { .. } => "pty-stop".into(),
             Self::TerminalList { .. } => "terminal-list".into(),
             Self::TerminalNew { .. } => "terminal-new".into(),
@@ -3638,6 +3688,9 @@ impl Command {
             Self::PtyDiff { advance, .. } => {
                 format!("pty-diff.{}", if *advance { "advance" } else { "read" })
             }
+            Self::PtySignal { signal, .. } => {
+                format!("pty-signal.{}", signal.as_str())
+            }
             Self::ClipboardClear { apply, .. } => {
                 format!("clipboard-clear.{}", if *apply { "apply" } else { "plan" })
             }
@@ -3787,6 +3840,7 @@ impl Command {
             | Self::PtySend { target, .. }
             | Self::PtyWait { target, .. }
             | Self::PtyWaitExit { target, .. }
+            | Self::PtySignal { target, .. }
             | Self::PtyStop { target, .. }
             | Self::TerminalList { target, .. }
             | Self::TerminalNew { target, .. }
@@ -3950,6 +4004,7 @@ impl Command {
             | Self::PtyPrune { .. }
             | Self::PtyResize { .. }
             | Self::PtySend { .. }
+            | Self::PtySignal { .. }
             | Self::PtyStop { .. }
             | Self::TerminalSend { .. }
             | Self::TerminalScroll { .. }
@@ -6513,6 +6568,25 @@ mod tests {
         };
         assert_eq!(job_snapshot.required_grant(), Grant::Observe);
         assert_eq!(job_snapshot.verb(), "pty-snapshot");
+        let signal = Command::PtySignal {
+            target: TargetRef::Current,
+            name: "build".into(),
+            signal: PtySignalKind::Stop,
+            expect: "stopped".into(),
+        };
+        assert_eq!(signal.required_grant(), Grant::Actuate);
+        assert_eq!(signal.verb(), "pty-signal");
+        assert_eq!(
+            signal.authorization_operation().as_deref(),
+            Some("pty-signal.stop")
+        );
+        assert_eq!(
+            serde_json::to_value(&signal).unwrap(),
+            serde_json::json!({
+                "verb": "pty-signal", "target": "current", "name": "build",
+                "signal": "stop", "expect": "stopped"
+            })
+        );
         assert_eq!(
             serde_json::to_value(&job_snapshot).unwrap(),
             serde_json::json!({

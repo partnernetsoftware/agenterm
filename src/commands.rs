@@ -61,6 +61,7 @@ pub(crate) const COMMAND_CATALOG: &[CommandIdentity] = &[
     command("send-keys", &["send"]),
     command("send-composer", &[]),
     command("send-mouse", &[]),
+    command("signal-terminal-foreground", &[]),
     command("server-list", &[]),
     command("set-buffer", &["setb"]),
     command("set-setting", &[]),
@@ -526,6 +527,12 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
         "kill-window" | "killw" => (
             "agenterm cli kill-window -t target",
             &["-t"][..],
+            &[][..],
+            false,
+        ),
+        "signal-terminal-foreground" => (
+            "agenterm cli signal-terminal-foreground -t target --signal interrupt|terminate|stop|continue --expect delivered|exited|stopped|running",
+            &["-t", "--signal", "--expect"][..],
             &[][..],
             false,
         ),

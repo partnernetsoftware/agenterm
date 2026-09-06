@@ -135,8 +135,8 @@ pub mod worker_wire;
 pub use auth::{Authorization, Grant};
 pub use command::{
     Command, DeviceInventorySelector, FileTransactionAction, OrderRelation, PermissionAction,
-    PermissionKind, PointerButton, SetupAction, TerminalScrollAction, TerminalWaitCondition,
-    WaitCondition,
+    PermissionKind, PointerButton, PtySignalKind, SetupAction, TerminalScrollAction,
+    TerminalWaitCondition, WaitCondition,
 };
 pub use executor::{Executor, RequestIdentity};
 pub use rdp_transport::RdpEndpoint;
