@@ -772,7 +772,10 @@ try {
         === external_terminal_fixture_pid
       && text_at(external_terminal_wait, "data.window_identity.start_identity")
         === external_terminal_start_identity
-      && int_at(external_terminal_wait, "data.polls") > 1,
+      // The preceding read proves this token absent. On a fully emulated x86
+      // guest the fixture timer may fire before the first bounded poll, so one
+      // successful poll is still a real newly-satisfied wait postcondition.
+      && int_at(external_terminal_wait, "data.polls") >= 1,
     "cu_linux_external_terminal_wait:" + JSON.stringify(external_terminal_wait.data)
   );
 
