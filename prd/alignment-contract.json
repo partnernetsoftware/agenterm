@@ -233,6 +233,7 @@
         "cu.macos-external-terminal-observe",
         "cu.macos-external-terminal-send",
         "cu.linux-external-terminal-observe",
+        "cu.linux-external-terminal-send",
         "cu.windows-network-probe",
         "cu.windows-terminal-control",
         "cu.windows-external-terminal-observe",

@@ -135,10 +135,10 @@ trigger = sys.argv[1]
 window = Gtk.Window(title="agenterm-linux-external-terminal-%d" % pid)
 window.set_default_size(440, 220)
 window.set_focus_on_map(False)
-window.set_accept_focus(False)
+window.set_accept_focus(True)
 
 view = Gtk.TextView()
-view.set_can_focus(False)
+view.set_can_focus(True)
 view.set_editable(True)
 view.set_cursor_visible(False)
 buffer = view.get_buffer()
@@ -199,6 +199,15 @@ function cu_env(run_directory) {
   return terminal_env(run_directory);
 }
 
+function cu_visible_env(run_directory) {
+  const source = terminal_env(run_directory);
+  const environment = {};
+  for (const name of Object.keys(source)) {
+    if (name !== "AGENTERM_NO_ACTIVATE") { environment[name] = source[name]; }
+  }
+  return environment;
+}
+
 // One agenterm-cu call whose reply must be `ok: true`.
 function run_cu_json(run_directory, executable, arguments) {
   const output = rh.command(
@@ -222,6 +231,24 @@ function run_cu_reply(run_directory, executable, arguments) {
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_smoke_cli_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
+}
+
+function run_cu_visible_json(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    {
+      cwd: run_directory,
+      env: cu_visible_env(run_directory),
+      env_remove: ["AGENTERM_NO_ACTIVATE"],
+      timeout_ms: 30000
+    }
+  );
+  ensure(output.success === true, "cu_linux_visible_cli_process:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_visible_cli_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_visible_cli_reply:" + JSON.stringify(document));
+  return document;
 }
 
 function run_agenterm(run_directory, executable, arguments) {
@@ -343,9 +370,16 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
   return;
 }
-harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(
+  args.length === 2 || (args.length === 3 && args[2] === "--visible-external-terminal-send"),
+  "expected: REPO AGENTERM_CU_EXE [--visible-external-terminal-send]"
+);
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+const visible_external_terminal_send = args.length === 3;
+if (visible_external_terminal_send) {
+  declared_evidence.push("cu.linux-external-terminal-send");
+}
 ensure(direct_file(executable), "cu_linux_smoke_executable_missing:" + executable);
 ensure(
   direct_file(rh.join(rh.parent(executable), "libagenterm.so")),
@@ -805,6 +839,26 @@ try {
     "cu_linux_external_terminal_refusal_wrote_receipt:"
       + JSON.stringify(external_terminal_receipts.data)
   );
+
+  if (visible_external_terminal_send) {
+    print("STEP explicit visible external-terminal send focuses the exact owned AT-SPI terminal buffer, verifies a new token and restores foreground focus");
+    const visible_token = "visiblelinuxterm" + external_terminal_fixture_pid;
+    const visible_send = run_cu_visible_json(run_directory, executable, [
+      "--target", "current", "--grant", "observe,actuate", "term-send",
+      external_terminal_handle_text, "--foreground", "--enter", "false",
+      "--expect", visible_token, "--", visible_token
+    ]);
+    ensure(
+      flag_at(visible_send, "data.performed")
+        && flag_at(visible_send, "data.verified")
+        && flag_at(visible_send, "data.focus_restored")
+        && flag_at(visible_send, "data.buffer_changed")
+        && int_at(visible_send, "data.window_identity.handle")
+          === external_terminal_handle
+        && text_at(visible_send, "data.node") === external_terminal_node,
+      "cu_linux_external_terminal_visible_send:" + JSON.stringify(visible_send.data)
+    );
+  }
 
   rh.command(
     "kill",
@@ -1636,6 +1690,9 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-network-probe");
 harness.emit_evidence(context, declared_evidence, "cu.linux-file-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-terminal-control");
 harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-observe");
+if (visible_external_terminal_send) {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-send");
+}
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");

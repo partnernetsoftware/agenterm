@@ -1551,10 +1551,11 @@ flowchart LR
   immediate wait, redacted invalid-pattern failure, background refusal and the
   `AGENTERM_NO_ACTIVATE` refusal. Its separate explicit visible court also
   proves same-buffer token read-back and restoration of the prior foreground
-  window. Linux and Windows terminal-like observe fixtures are scripted but
-  still need native desktop runs; their explicit visible-send courts remain
-  open. The transitional `term` retirement marker therefore stays and this
-  leaf is only platform-limited.
+  window. Windows ARM64 now proves the corresponding UIA document observation,
+  safe refusals and explicit visible send in its public UTM court. The Linux
+  terminal-like observe and explicit visible-send courts are scripted but
+  still need their native x86 desktop run. The transitional `term` retirement
+  marker therefore stays and this leaf is only platform-limited.
 
   ```mermaid
   flowchart LR
@@ -1567,8 +1568,8 @@ flowchart LR
     F --> V{"new postcondition<br/>same buffer?"}
     V -->|yes| C["completed receipt"]
     V -->|no / unreadable| U["reserved · outcome unknown"]
-    C --> M["macOS observe + visible send green"]
-    M --> P["Linux + Windows native observe/send pending"]
+    C --> MW["macOS + Windows ARM64<br/>observe + visible send green"]
+    MW --> P["Linux native observe/send pending"]
   ```
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm

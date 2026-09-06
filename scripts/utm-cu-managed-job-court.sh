@@ -90,9 +90,12 @@ cp "$REPO_ROOT/agenterm.tasks.json" "$PAYLOAD/"
 cp "$REPO_ROOT/scripts/qjs/$TASK.qjs" "$PAYLOAD/scripts/qjs/"
 cp "$REPO_ROOT/scripts/qjs/lib/rh_compat.qjs" "$PAYLOAD/scripts/qjs/lib/"
 cp "$REPO_ROOT/scripts/qjs/lib/test_harness.qjs" "$PAYLOAD/scripts/qjs/lib/"
-if [ "$TASK" = cu-linux-smoke ]; then
+if [ "$TASK" = cu-linux-smoke ] || [ "$TASK" = cu-linux-external-terminal-send-smoke ]; then
   mkdir -p "$PAYLOAD/examples/python"
   cp "$REPO_ROOT/examples/python/agenterm_atspi_fixture.py" "$PAYLOAD/examples/python/"
+  if [ "$TASK" = cu-linux-external-terminal-send-smoke ]; then
+    cp "$REPO_ROOT/scripts/qjs/cu-linux-smoke.qjs" "$PAYLOAD/scripts/qjs/"
+  fi
 fi
 if [ "$TASK" = cu-windows-smoke ] || [ "$TASK" = cu-windows-external-terminal-send-smoke ]; then
   mkdir -p "$PAYLOAD/examples/csharp"
@@ -131,11 +134,23 @@ else
 fi
 BUNDLE_SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
 
+echo "UTM court phase: lease $COURT"
 "$COURT_CLI" lease "$COURT" --disposable >/dev/null
 LEASED=1
-"$COURT_CLI" wait-ready "$COURT" 180 >/dev/null
+ready_timeout=180
+interactive_timeout=180
+if [ "$COURT" = lnx-x86_64-desktop ]; then
+  # Apple Silicon fully emulates this guest. Its cold QGA boot has exceeded
+  # the native-cell budget without indicating a failed VM, so keep the slow
+  # cell bounded independently rather than weakening every court.
+  ready_timeout=600
+  interactive_timeout=300
+fi
+echo "UTM court phase: transport-ready ${ready_timeout}s"
+"$COURT_CLI" wait-ready "$COURT" "$ready_timeout" >/dev/null
 SESSION_RECEIPT="$SCRATCH/interactive-ready.json"
-"$COURT_CLI" interactive-ready "$COURT" 180 >"$SESSION_RECEIPT"
+echo "UTM court phase: interactive-ready ${interactive_timeout}s"
+"$COURT_CLI" interactive-ready "$COURT" "$interactive_timeout" >"$SESSION_RECEIPT"
 
 RUN_ID="${SOURCE_SHA:0:12}-$COURT-$$-$RANDOM"
 LOCAL_LOG="$SCRATCH/run.log"
@@ -175,6 +190,7 @@ if [ "$GUEST_OS" = linux ]; then
   # transfer deadline even though the Guest Agent is healthy (the tiny probe
   # above still completes).  Bound this exact bulk transfer separately; do not
   # weaken the service-wide command/receipt deadlines.
+  echo "UTM court phase: payload-transfer"
   UTM_COURT_TRANSFER_TIMEOUT=180 \
     "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
   "$COURT_CLI" interactive-exec "$COURT" -- /bin/bash -lc \
@@ -187,6 +203,7 @@ else
   GUEST_EXIT="$GUEST_BASE\\agenterm-$RUN_ID.exit"
   JOB="$GUEST_BASE\\agent-v2\\job.pending.ps1"
   READY="$GUEST_BASE\\agent-v2\\job.ready"
+  echo "UTM court phase: payload-transfer"
   UTM_COURT_TRANSFER_TIMEOUT=180 \
     "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
   printf '%s\n' \
@@ -221,6 +238,7 @@ else
   printf ready | "$COURT_CLI" push "$COURT" - "$READY"
 fi
 
+echo "UTM court phase: journey-result"
 result_timeout=360
 [ "$COURT" = win-x86_64-desktop ] && result_timeout=600
 deadline=$((SECONDS + result_timeout))

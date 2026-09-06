@@ -553,14 +553,16 @@
           "mcu_shape": "term read|send|wait <window-handle> for Terminal, iTerm or an editor terminal",
           "acu_shape": "term-read|term-wait observe one exact native window plus owner process generation and selected accessibility buffer; term-send is an explicit foreground-only activate/focus/inject/restore transaction with an independent newly-satisfied postcondition",
           "state": "platform-limited",
-          "qualification": "macos-public-observe-and-visible-send-green-linux-and-windows-public-courts-scripted-pending-native-run",
+          "qualification": "macos-and-windows-arm64-public-observe-and-visible-send-green-linux-public-courts-scripted-pending-native-run",
           "declared_evidence": [
             "cu.macos-external-terminal-observe",
             "cu.macos-external-terminal-send",
             "cu.linux-external-terminal-observe",
-            "cu.windows-external-terminal-observe"
+            "cu.linux-external-terminal-send",
+            "cu.windows-external-terminal-observe",
+            "cu.windows-external-terminal-send"
           ],
-          "next": "run the scripted Linux and Windows terminal-like fixtures in their native desktop courts, then add equivalent explicit visible send courts on both hosts; retain the MCU retirement marker until all three hosts prove the same-buffer postcondition",
+          "next": "run the scripted Linux terminal-like observe and explicit visible-send courts in the native x86_64 desktop session; retain the MCU retirement marker until Linux proves the same-buffer postcondition",
           "note": "AgenTerm scope/epoch/@tab identity is never substituted for a desktop window. No current host claims exact-window background literal delivery: default send refuses before effect; routine no-activate journeys prove that refusal. Dispatch uncertainty keeps the receipt reserved, and diagnostics store hashes and lengths rather than terminal text or input."
         },
         {

@@ -141,6 +141,13 @@
       ]
     },
     {
+      "id": "cu-linux-external-terminal-send-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-external-terminal-send"
+      ]
+    },
+    {
       "id": "cu-macos-external-terminal-send-smoke",
       "platform": "macos",
       "evidence": [

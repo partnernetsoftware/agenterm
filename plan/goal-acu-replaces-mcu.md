@@ -588,8 +588,9 @@ Q2 fast delegated facades
 │  └─ [~] external terminal exact-window adoption
 │     ├─ [x] macOS read/wait + background/no-activate refusal public qjswasm evidence
 │     ├─ [x] macOS explicit foreground send: same-buffer postcondition + focus restore visible court
-│     ├─ [~] Linux/Windows terminal-like observe courts scripted; native runs pending
-│     └─ [ ] Linux/Windows explicit foreground send; retirement marker remains until three-host green
+│     ├─ [x] Windows ARM64 observe + explicit foreground send public UTM courts green
+│     ├─ [~] Linux terminal-like observe + explicit foreground-send courts scripted
+│     └─ [ ] x86 desktop native run pending; retirement marker remains until three-host green
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
    ├─ [~] rich ps: composable command/resource filters + sampled CPU + pid tree/file/socket detail

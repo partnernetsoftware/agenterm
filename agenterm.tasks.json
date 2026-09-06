@@ -640,6 +640,27 @@
         "task.cu-macos-external-terminal-send-smoke"
       ]
     },
+    "cu-linux-external-terminal-send-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session",
+        "explicit-visible-input-court"
+      ],
+      "outputs": [
+        "cu-linux-external-terminal-send-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 320000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-external-terminal-send-smoke"
+      ]
+    },
     "cu-windows-external-terminal-send-smoke": {
       "inputs": [
         "built-agenterm",
@@ -2721,6 +2742,26 @@
       "dependencies": [],
       "platforms": [
         "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-external-terminal-send-smoke",
+      "description": "Explicit visible Linux court for exact-window external-terminal send: focus the owned AT-SPI terminal buffer, inject one unique token, verify the same-buffer postcondition, and restore the prior foreground window.",
+      "entry": "scripts/qjs/cu-linux-external-terminal-send-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
       ],
       "side_effects": [
         "artifact_write",
