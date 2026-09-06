@@ -148,7 +148,7 @@ AgenTerm — local agent & process fleet work OS
 │     │                       macOS qjswasm 黑盒已绿，Linux/Windows GUI court 待补
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
 │     │                       doctor desktop baseline、system readiness 与 capability counts 已有
-│     │                       公开 qjswasm 证据；live probe 共核已有 macOS/Linux/Windows 薄入口，后两者待真机，不以已写 court 冒充已证
+│     │                       公开 qjswasm 证据；live probe 共核 macOS + Windows ARM64 真机已绿，Linux 待真机，不以已写 court 冒充已证
 │     │                       managed-job prune 已有零写 plan 与锁内 apply；spawn limits 已在首条
 │     │                       target 指令前由 POSIX rlimit / Windows suspended Job 原生安装，
 │     │                       macOS 不可用的有限 RLIMIT_AS 明确拒绝；identity-bound adopt

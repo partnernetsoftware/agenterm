@@ -885,13 +885,16 @@ gap / 5 retired.
 The runtime capability-probe frontier now has one shared qjswasm core with
 thin macOS/Linux/Windows evidence entry points: native platform identity, live
 displays, payload-free clipboard metadata and bounded shell cleanup cannot
-drift into three platform-specific contracts. macOS is green. Its second
+drift into three platform-specific contracts. macOS and a real Windows ARM64
+UTM desktop are green at source `e0a2ab54`. Its second
 component covers owned-process inventory, identity, plaintext-free argv/env
 metadata, cwd, usage, fd/map/thread and socket attribution; a third owned Cocoa
 fixture proves the remaining window/tree/query/read/screenshot vocabulary
-without foreground change. The Linux/Windows entry points are registered but
-not yet qualified; written courts are not evidence, so the cross-platform row
-remains `gap` and cannot authorize MCU removal.
+without foreground change. Linux remains registered but unqualified; a written
+court is not evidence, so the cross-platform row remains `gap` and cannot
+authorize MCU removal. The separate Windows x86_64 court was stopped before
+product execution after QGA stayed unavailable for 600 seconds and is now
+marked non-ready in `utm-court`, preventing another false runtime attempt.
 
 Persisted desktop-delivery authority has moved from `gap` to
 `platform-limited`: schema 3 freezes explicit canonical operation ids in
