@@ -453,11 +453,21 @@ impl DeviceLeaseStore {
                 .join("agenterm")
                 .join("cu-device-leases.json")
         };
+        Self::refresh_blockers_read_only_at(path)
+    }
+
+    fn refresh_blockers_read_only_at(path: PathBuf) -> Result<DeviceLeaseRefreshBlockers, CuError> {
         let path = absolutize(path)?;
         let parent = explicit_parent(&path)?;
-        let metadata = fs::symlink_metadata(parent).map_err(|_| unavailable())?;
-        if metadata_is_link_like(&metadata) || !metadata.is_dir() {
-            return Err(corrupt("device lease parent must be a direct directory"));
+        match fs::symlink_metadata(parent) {
+            Ok(metadata) if metadata_is_link_like(&metadata) || !metadata.is_dir() => {
+                return Err(corrupt("device lease parent must be a direct directory"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(DeviceLeaseRefreshBlockers::default());
+            }
+            Err(_) => return Err(unavailable()),
         }
         let store = Self { path };
         store.refresh_blockers()
@@ -1087,6 +1097,17 @@ mod tests {
                 6_000,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn read_only_refresh_treats_an_absent_state_parent_as_no_leases() {
+        let scratch = Scratch::new("read-only-absent");
+        let path = scratch.root.join("missing").join("leases.json");
+        assert_eq!(
+            DeviceLeaseStore::refresh_blockers_read_only_at(path).unwrap(),
+            DeviceLeaseRefreshBlockers::default()
+        );
+        assert!(!scratch.root.join("missing").exists());
     }
 
     #[test]

@@ -190,9 +190,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `cu.setup-runtime-refresh-owned-job` is green on macOS: the exact job id,
   generation, process id and running state survive the refresh, and only the
   later explicit owner cleanup stops it. Candidate runtime schema 3 now binds
-  this second receipt in every native cell. Device-lease refresh stays
-  explicitly unavailable until ACU owns a native claim inventory; reporting
-  zero active leases is not evidence that no external device owner exists.
+  this second receipt in every native cell. Device leases now have a resident
+  native owner and durable inventory. A fresh-install read-only check treats a
+  missing state parent as zero ACU-owned leases without creating it, while an
+  existing link, malformed document or unreadable parent stays typed uncertain.
   Linux, Windows and one exact six-cell Candidate aggregate remain unproved.
   Direct workflow
   script runs carry their explicit task-equivalent wall/operation/output

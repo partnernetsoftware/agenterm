@@ -106,8 +106,9 @@ try {
            && installed.runtime_refresh.preservation.restarted === 0
            && installed.runtime_refresh.preservation.released === 0,
          "cu_setup_runtime_refresh_contract");
-  ensure(installed.runtime_refresh.owned_resources.device_leases.provider === "unavailable"
-           && installed.runtime_refresh.owned_resources.device_leases.active === 0,
+  ensure(installed.runtime_refresh.owned_resources.device_leases.authority === "resident-native-owner"
+           && installed.runtime_refresh.owned_resources.device_leases.blocking === 0
+           && installed.runtime_refresh.owned_resources.device_leases.states.active === 0,
          "cu_setup_device_provider_truth");
   ensure(direct_file(launcher), "cu_setup_launcher_missing");
   const digest = rh.sha256_file(launcher);

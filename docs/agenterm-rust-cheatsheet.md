@@ -4406,6 +4406,14 @@ Replace only a regular file carrying the exact product marker and schema.
 Foreign files, links and non-files are conflicts and must be preserved. Test
 missing, stale-owned, repeated, collision and exact forwarding behavior through
 the public CLI rather than accepting catalog or unit-test presence as delivery.
+
+When zero-write setup checks aggregate optional durable owner stores, a missing
+state parent means that store has no records yet; return an empty blocker
+summary without creating the directory. An existing link/non-directory,
+unreadable parent, malformed document or unknown in-flight record remains a
+typed uncertainty. Keep this distinction identical across every resident-owner
+store so a fresh installation is not misdiagnosed as corrupt or unsafe.
+
 ### Process inventory: never relabel cumulative CPU as a percentage
 
 - A one-shot native CPU-time counter is not CPU percentage. Percentage needs

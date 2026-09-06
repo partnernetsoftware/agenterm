@@ -610,7 +610,7 @@ Q2 fast delegated facades
 │  ├─ [~] permissions open-next: macOS exact pane + granted no-op; denied-pane and two native courts pending
 │  ├─ [~] doctor: bounded read-only health receipt; local CLI green, three-host pending
 │  ├─ [~] setup launcher: native zero-write check + atomic apply; macOS arm64 and Rosetta x86_64 qjswasm courts green; Candidate six-cell execution wired but not yet run
-│  └─ [~] setup runtime refresh: stable admission fence; exact managed-job owner survives locally; device-claim inventory and six-cell execution pending
+│  └─ [~] setup runtime refresh: stable admission fence; exact managed-job owner survives locally; native device-claim inventory participates, fresh missing state is zero-write empty; six-cell execution pending
 ├─ [~] open/notify/state and terminal adoption
 │  ├─ [x] open/notify → typed host adapters; macOS public courts green, Linux/Windows pending
 │  ├─ [x] state → bounded native desktop-state
