@@ -1832,10 +1832,12 @@ mod surface_tests {
     }
 
     #[test]
-    fn every_single_token_alias_dispatches_as_its_canonical_command() {
-        // Minimal valid argv per verb so the alias reaches the executor with
-        // the canonical `reply.command` (window 1 is never a real handle, so
-        // the mechanism answers typed, never usage).
+    fn every_single_token_alias_parses_as_its_canonical_command_without_execution() {
+        // This is a CLI-surface test, not an effectful smoke. Keep every alias
+        // above the executor boundary: several verbs (host-open, host-notify,
+        // clipboard and pointer actions) can perform real work without a live
+        // window handle. Real host-open dispatch is covered by the dedicated
+        // temporary-file/background-fixture smoke instead.
         let argv_for = |name: &str| -> Vec<&'static str> {
             match name {
                 "capabilities" | "pointer-position" | "displays" | "spaces" | "clipboard-read"
@@ -1868,7 +1870,7 @@ mod surface_tests {
                 if alias.contains(' ') {
                     continue;
                 }
-                let mut argv = vec!["--target", "current", "--grant", "observe,actuate", alias];
+                let mut argv = Vec::new();
                 if spec.name == "app" && alias == "launch" {
                     argv.push("/Applications/Nonexistent.app");
                 } else if spec.name == "query" && alias == "find" {
@@ -1878,18 +1880,15 @@ mod surface_tests {
                 } else {
                     argv.extend(argv_for(spec.name));
                 }
-                let reply = run(&argv);
+                let mut args: Vec<String> = argv.into_iter().map(str::to_owned).collect();
+                let command =
+                    cli::parse_command(spec, alias, agenterm_cu::TargetRef::Current, &mut args)
+                        .unwrap_or_else(|error| panic!("{alias} -> {}: {error}", spec.name));
                 assert_eq!(
-                    reply.command,
+                    command.verb(),
                     verbs::cold_verb(spec.name)["command"],
                     "{alias} -> {}",
                     spec.name
-                );
-                assert_ne!(
-                    reply.error.as_ref().map(|e| e.code.as_str()).unwrap_or(""),
-                    "usage",
-                    "{alias}: {:?}",
-                    reply.error
                 );
             }
         }
