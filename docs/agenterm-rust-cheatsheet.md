@@ -2976,3 +2976,22 @@ missing glyph advances the search, and failed opens are cached as well.
 Prove ASCII leaves fallback slots untouched and CJK stops before emoji, then
 measure the consumer's RSS plus vmmap/heap; mapped virtual size is not dirty
 heap, and a loose RSS regression pass is not the product memory target.
+
+## Large transient pixel frames
+
+On macOS a full 960×600 logical Retina XRGB frame is 8.79 MiB. Freeing a
+`Vec<u32>` after presentation can leave a whole old frame in malloc's cache.
+An anonymous owned mapping returns its pages when the last CoreGraphics data
+provider reference releases it. Freeze pixels read-only before transfer;
+keep the mapping owner in the provider context and unmap only in its final
+release callback. Check dimensions before mapping and prove provider-retained
+bytes survive the original frame owner's move/drop. The optional vendored
+backend tests run directly from `third_party/softbuffer/Cargo.toml`.
+
+Use repeated alternating exact-artifact RSS comparisons, plus heap/VM evidence,
+not one favorable sample. A generic allocator symbol inferred by `heap -s`
+can name a coalesced Rust instantiation (for example gimli) rather than the
+allocation's actual owner; use full allocation stacks before assigning blame.
+Do not assume a smaller retained source (RLE or an alternate color space)
+reduces CoreGraphics resident memory: downstream decode/conversion can erase
+or reverse the gain. Keep only changes with measured end-to-end benefit.
