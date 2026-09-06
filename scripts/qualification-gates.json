@@ -372,6 +372,10 @@
       "evidence": ["cu.browser-managed-profile.macos"]
     },
     {
+      "id": "cu-terminal-viewport-smoke",
+      "evidence": ["cu.terminal-viewport-image.macos"]
+    },
+    {
       "id": "cu-simulator-readonly-smoke",
       "evidence": ["cu.simulator-readonly"]
     },

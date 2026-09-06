@@ -820,6 +820,15 @@ impl Executor {
             ),
             Command::TerminalRead { tab, max_bytes, .. } => terminal_read_payload(tab, *max_bytes),
             Command::TerminalSnapshot { tab, .. } => terminal_snapshot_payload(tab),
+            Command::TerminalScroll {
+                tab, action, rows, ..
+            } => terminal_scroll_payload(
+                tab,
+                *action,
+                *rows,
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::TerminalScreenshot { tab, out, .. } => terminal_screenshot_payload(tab, out),
             Command::TerminalEvents {
                 tab,
                 epoch,

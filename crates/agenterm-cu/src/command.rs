@@ -723,6 +723,44 @@ pub enum TerminalWaitCondition {
     Finalized,
 }
 
+/// One explicit local scrollback-viewport mutation. This never sends cursor
+/// keys or mouse input to the terminal application.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminalScrollAction {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Top,
+    Bottom,
+}
+
+impl TerminalScrollAction {
+    pub fn parse(raw: &str) -> Option<Self> {
+        Some(match raw {
+            "up" => Self::Up,
+            "down" => Self::Down,
+            "page-up" => Self::PageUp,
+            "page-down" => Self::PageDown,
+            "top" => Self::Top,
+            "bottom" => Self::Bottom,
+            _ => return None,
+        })
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Up => "up",
+            Self::Down => "down",
+            Self::PageUp => "page-up",
+            Self::PageDown => "page-down",
+            Self::Top => "top",
+            Self::Bottom => "bottom",
+        }
+    }
+}
+
 impl ProcessKillMode {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim() {
@@ -1729,6 +1767,23 @@ pub enum Command {
     TerminalSnapshot {
         target: TargetRef,
         tab: String,
+    },
+    /// Mutate only the local scrollback viewport of one exact AgenTerm tab.
+    /// This is not terminal input and is refused on the alternate screen.
+    TerminalScroll {
+        target: TargetRef,
+        tab: String,
+        action: TerminalScrollAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rows: Option<usize>,
+    },
+    /// Capture the already-active exact AgenTerm tab as a rendered PNG.
+    /// The product publishes with no-clobber semantics and returns frame
+    /// identity; this observe command never selects or activates a tab.
+    TerminalScreenshot {
+        target: TargetRef,
+        tab: String,
+        out: String,
     },
     /// Read one bounded, loss-aware event page after an explicit server
     /// epoch/sequence cursor. Events for other tabs are scanned so the cursor
@@ -3386,6 +3441,8 @@ impl Command {
             Self::TerminalClose { .. } => "terminal-close".into(),
             Self::TerminalRead { .. } => "terminal-read".into(),
             Self::TerminalSnapshot { .. } => "terminal-snapshot".into(),
+            Self::TerminalScroll { .. } => "terminal-scroll".into(),
+            Self::TerminalScreenshot { .. } => "terminal-screenshot".into(),
             Self::TerminalEvents { .. } => "terminal-events".into(),
             Self::TerminalOutput { .. } => "terminal-output".into(),
             Self::TerminalSend { .. } => "terminal-send".into(),
@@ -3736,6 +3793,8 @@ impl Command {
             | Self::TerminalClose { target, .. }
             | Self::TerminalRead { target, .. }
             | Self::TerminalSnapshot { target, .. }
+            | Self::TerminalScroll { target, .. }
+            | Self::TerminalScreenshot { target, .. }
             | Self::TerminalEvents { target, .. }
             | Self::TerminalOutput { target, .. }
             | Self::TerminalSend { target, .. }
@@ -3893,6 +3952,7 @@ impl Command {
             | Self::PtySend { .. }
             | Self::PtyStop { .. }
             | Self::TerminalSend { .. }
+            | Self::TerminalScroll { .. }
             | Self::TerminalNew { .. }
             | Self::TerminalClose { .. }
             | Self::TermSend { .. }
@@ -6506,6 +6566,25 @@ mod tests {
         };
         assert_eq!(snapshot.required_grant(), Grant::Observe);
         assert_eq!(snapshot.verb(), "terminal-snapshot");
+        let scroll = Command::TerminalScroll {
+            target: TargetRef::Current,
+            tab: "@9".into(),
+            action: TerminalScrollAction::Top,
+            rows: None,
+        };
+        assert_eq!(scroll.verb(), "terminal-scroll");
+        assert_eq!(
+            scroll.authorization_operation().as_deref(),
+            Some("terminal-scroll")
+        );
+        assert_eq!(scroll.required_grant(), Grant::Actuate);
+        let screenshot = Command::TerminalScreenshot {
+            target: TargetRef::Current,
+            tab: "@9".into(),
+            out: "/tmp/pane.png".into(),
+        };
+        assert_eq!(screenshot.verb(), "terminal-screenshot");
+        assert_eq!(screenshot.required_grant(), Grant::Observe);
         let events = Command::TerminalEvents {
             target: TargetRef::Ssh,
             tab: "@9".into(),

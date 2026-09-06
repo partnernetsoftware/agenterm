@@ -142,6 +142,8 @@ pub const GROUPS: &[Group] = &[
             "terminal-new",
             "terminal-close",
             "terminal-read",
+            "terminal-scroll",
+            "terminal-screenshot",
             "terminal-send",
             "terminal-wait",
             "term-read",

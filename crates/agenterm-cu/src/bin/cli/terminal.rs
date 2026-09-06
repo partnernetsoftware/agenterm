@@ -1,6 +1,6 @@
 //! AgenTerm-owned terminal/session commands.
 
-use agenterm_cu::{Command, TargetRef, TerminalWaitCondition};
+use agenterm_cu::{Command, TargetRef, TerminalScrollAction, TerminalWaitCondition};
 
 use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
 
@@ -398,6 +398,57 @@ pub fn parse(
             empty(args, "terminal-snapshot")?;
             Ok(Command::TerminalSnapshot { target, tab })
         }
+        "terminal-scroll" => {
+            let tab = required_tab(args)?;
+            let action_text = args
+                .first()
+                .ok_or_else(|| {
+                    "terminal-scroll requires up|down|page-up|page-down|top|bottom".to_owned()
+                })?
+                .clone();
+            let action = TerminalScrollAction::parse(&action_text).ok_or_else(|| {
+                "terminal-scroll action must be up|down|page-up|page-down|top|bottom".to_owned()
+            })?;
+            args.remove(0);
+            let rows = match args.first() {
+                Some(value) => Some(
+                    value
+                        .parse::<usize>()
+                        .map_err(|_| "terminal-scroll rows must be a positive integer")?,
+                ),
+                None => None,
+            };
+            if rows == Some(0) || rows.is_some_and(|value| value > 1_000_000) {
+                return Err("terminal-scroll rows must be in 1..=1000000".into());
+            }
+            if rows.is_some() {
+                args.remove(0);
+            }
+            if matches!(
+                action,
+                TerminalScrollAction::Top | TerminalScrollAction::Bottom
+            ) && rows.is_some()
+            {
+                return Err("terminal-scroll top and bottom do not accept rows".into());
+            }
+            empty(args, "terminal-scroll")?;
+            Ok(Command::TerminalScroll {
+                target,
+                tab,
+                action,
+                rows,
+            })
+        }
+        "terminal-screenshot" => {
+            let tab = required_tab(args)?;
+            let out = flag_text(args, "--out")?
+                .ok_or_else(|| "terminal-screenshot requires --out PATH".to_owned())?;
+            if out.is_empty() || out.len() > 8_192 || out.as_bytes().contains(&0) {
+                return Err("terminal-screenshot --out must be 1..=8192 non-NUL bytes".into());
+            }
+            empty(args, "terminal-screenshot")?;
+            Ok(Command::TerminalScreenshot { target, tab, out })
+        }
         "terminal-events" => {
             let tab = required_tab(args)?;
             let epoch = flag_text(args, "--epoch")?
@@ -745,6 +796,24 @@ mod tests {
             parse("terminal-snapshot", &["--tab", "@7"]).unwrap(),
             Command::TerminalSnapshot { tab, .. } if tab == "@7"
         ));
+        assert!(matches!(
+            parse("terminal-scroll", &["--tab", "@7", "page-up", "12"]).unwrap(),
+            Command::TerminalScroll {
+                tab,
+                action: TerminalScrollAction::PageUp,
+                rows: Some(12),
+                ..
+            } if tab == "@7"
+        ));
+        assert!(parse("terminal-scroll", &["--tab", "@7", "top", "1"]).is_err());
+        assert!(parse("terminal-scroll", &["--tab", "@7", "sideways"]).is_err());
+        assert!(matches!(
+            parse("terminal-screenshot", &["--tab", "@7", "--out", "/tmp/pane.png"])
+                .unwrap(),
+            Command::TerminalScreenshot { tab, out, .. }
+                if tab == "@7" && out == "/tmp/pane.png"
+        ));
+        assert!(parse("terminal-screenshot", &["--tab", "@7"]).is_err());
         assert!(matches!(
             parse(
                 "terminal-events",

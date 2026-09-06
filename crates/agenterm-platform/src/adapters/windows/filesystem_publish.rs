@@ -61,6 +61,32 @@ pub fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
     unreachable!("bounded replacement loop always returns")
 }
 
+pub fn install_file_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    let source = verbatim(full_path(source)?);
+    let destination = verbatim(full_path(destination)?);
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    if unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_WRITE_THROUGH,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 pub fn sync_parent(_parent: &Path) -> std::io::Result<()> {
     // MOVEFILE_WRITE_THROUGH owns the Windows durability barrier.
     Ok(())

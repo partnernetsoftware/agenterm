@@ -1061,6 +1061,25 @@
         "task.cu-browser-session-smoke"
       ]
     },
+    "cu-terminal-viewport-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-terminal-viewport-evidence",
+        "png-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-terminal-viewport-smoke"
+      ]
+    },
     "cu-login-session-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3415,6 +3434,27 @@
       "side_effects": [
         "artifact_write",
         "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-terminal-viewport-smoke",
+      "description": "Prove exact-tab local viewport scrolling, unchanged PTY output and grid, active rendered PNG identity, no-clobber publication and inactive-tab refusal through public qjswasm.",
+      "entry": "scripts/qjs/cu-terminal-viewport-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
       ]
     },
     {

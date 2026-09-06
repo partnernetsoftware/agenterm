@@ -6,6 +6,13 @@ pub fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
     std::fs::rename(source, destination)
 }
 
+pub fn install_file_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    // Creating the destination hard link is atomic and fails when any entry,
+    // including a symlink, already owns that final name. Both paths are
+    // siblings, so the link cannot cross filesystems.
+    std::fs::hard_link(source, destination)
+}
+
 pub fn sync_parent(parent: &Path) -> std::io::Result<()> {
     std::fs::File::open(parent)?.sync_all()
 }

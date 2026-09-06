@@ -1,8 +1,10 @@
-use std::{collections::BTreeSet, mem};
+use std::{collections::BTreeSet, fmt::Write as _, fs::File, io::Read, mem, path::Path};
 
 // Wheel button codes are protocol constants, not UX policy, so they come from
 // the platform contract rather than being re-spelled here.
 use agenterm_platform::terminal_input::{MOUSE_WHEEL_DOWN, MOUSE_WHEEL_UP};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::{
     SCROLLBACK_LINES,
@@ -40,6 +42,77 @@ use crate::{
 
 pub(crate) const CAPTURE_PUBLIC_MAX_BYTES: usize = 1024 * 1024;
 const TERMINAL_OUTPUT_DEFAULT_MAX_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Serialize)]
+pub(crate) struct TerminalViewportImageReceipt<'a> {
+    schema_version: u32,
+    path: String,
+    tab_id: &'a str,
+    server_epoch: &'a str,
+    screen_generation: u64,
+    scrollback_offset: usize,
+    rows: u32,
+    columns: u32,
+    pixel_width: u32,
+    pixel_height: u32,
+    byte_count: u64,
+    sha256: String,
+    target_active: bool,
+}
+
+pub(crate) struct TerminalViewportImageFacts<'a> {
+    pub tab_id: &'a str,
+    pub server_epoch: &'a str,
+    pub screen_generation: u64,
+    pub scrollback_offset: usize,
+    pub rows: u32,
+    pub columns: u32,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+}
+
+pub(crate) fn terminal_viewport_image_json(
+    path: &Path,
+    facts: TerminalViewportImageFacts<'_>,
+) -> Result<String, String> {
+    let mut file = File::open(path).map_err(|error| format!("read screenshot receipt: {error}"))?;
+    let byte_count = file
+        .metadata()
+        .map_err(|error| format!("inspect screenshot receipt: {error}"))?
+        .len();
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("hash screenshot receipt: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    let digest = digest.finalize();
+    let mut sha256 = String::with_capacity(64);
+    for byte in digest {
+        write!(&mut sha256, "{byte:02x}").expect("writing into a String cannot fail");
+    }
+    let receipt = TerminalViewportImageReceipt {
+        schema_version: 1,
+        path: path.display().to_string(),
+        tab_id: facts.tab_id,
+        server_epoch: facts.server_epoch,
+        screen_generation: facts.screen_generation,
+        scrollback_offset: facts.scrollback_offset,
+        rows: facts.rows,
+        columns: facts.columns,
+        pixel_width: facts.pixel_width,
+        pixel_height: facts.pixel_height,
+        byte_count,
+        sha256,
+        target_active: true,
+    };
+    serde_json::to_string(&receipt).map_err(|error| format!("encode screenshot receipt: {error}"))
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TerminalOutputCursor {
@@ -3025,5 +3098,42 @@ mod tests {
             prepare_paste_buffer_bytes(&[0xff, 0x00, 0x41], false).unwrap(),
             vec![0xff, 0x00, 0x41]
         );
+    }
+
+    #[test]
+    fn viewport_image_receipt_binds_frame_and_file_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("pane.png");
+        std::fs::write(&path, b"abc").unwrap();
+        let json = terminal_viewport_image_json(
+            &path,
+            TerminalViewportImageFacts {
+                tab_id: "@7",
+                server_epoch: "epoch-9",
+                screen_generation: 42,
+                scrollback_offset: 3,
+                rows: 24,
+                columns: 80,
+                pixel_width: 640,
+                pixel_height: 384,
+            },
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["schema_version"], 1);
+        assert_eq!(value["tab_id"], "@7");
+        assert_eq!(value["server_epoch"], "epoch-9");
+        assert_eq!(value["screen_generation"], 42);
+        assert_eq!(value["scrollback_offset"], 3);
+        assert_eq!(value["rows"], 24);
+        assert_eq!(value["columns"], 80);
+        assert_eq!(value["pixel_width"], 640);
+        assert_eq!(value["pixel_height"], 384);
+        assert_eq!(value["byte_count"], 3);
+        assert_eq!(
+            value["sha256"],
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(value["target_active"], true);
     }
 }

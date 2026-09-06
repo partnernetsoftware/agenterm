@@ -29,6 +29,7 @@ use crate::{
         alternate_screen_wheel_bytes, option_value, positional_values, screenshot_output_path,
         tmux_key_bytes_with_modifiers,
     },
+    control_dispatch::{TerminalViewportImageFacts, terminal_viewport_image_json},
     frontend::{
         action,
         close_confirmation::CloseConfirmation,
@@ -1226,8 +1227,17 @@ impl RemoteWindowState {
         // `ui-input` owns its own failure vocabulary: a refusal must name the
         // surface that swallowed the gesture, so it must not be flattened into
         // the generic `ui_client_command_failed` this funnel produces.
-        let response = if command.args.first().map(String::as_str) == Some("ui-input") {
+        let command_name = command.args.first().map(String::as_str);
+        let response = if command_name == Some("ui-input") {
             let response = self.execute_ui_input_command(&command.args);
+            if !response.ok {
+                self.last_error = Some(response.error.clone());
+            }
+            response
+        } else if matches!(command_name, Some("screenshot-pane" | "screenshot-tab"))
+            && command.args.iter().any(|argument| argument == "--json")
+        {
+            let response = self.execute_pane_screenshot_command(&command.args);
             if !response.ok {
                 self.last_error = Some(response.error.clone());
             }
@@ -1676,6 +1686,131 @@ impl RemoteWindowState {
         Ok(None)
     }
 
+    fn execute_pane_screenshot_command(&mut self, args: &[String]) -> IpcResponse {
+        let requested = option_value(args, "-t").map(str::to_owned).or_else(|| {
+            self.client
+                .as_ref()
+                .and_then(|client| client.snapshot().active_tab_id.clone())
+        });
+        let Some(requested) = requested else {
+            return IpcResponse::typed_failure(
+                "no screenshot tab is active",
+                "ui_screenshot_target_not_found",
+                "validation",
+                false,
+            );
+        };
+        let stable = match self.resolve_stable_tab_target(&requested) {
+            Ok(stable) => stable,
+            Err(error) => {
+                return IpcResponse::typed_failure(
+                    format!("{error:#}"),
+                    "ui_screenshot_target_not_found",
+                    "validation",
+                    false,
+                );
+            }
+        };
+        let Some((server_epoch, tab, active_tab_id)) = self.client.as_ref().and_then(|client| {
+            let snapshot = client.snapshot();
+            let tab = snapshot.tabs.iter().find(|tab| tab.id == stable)?.clone();
+            Some((
+                snapshot.server_epoch.clone(),
+                tab,
+                snapshot.active_tab_id.clone(),
+            ))
+        }) else {
+            return IpcResponse::typed_failure(
+                format!("can't find stable tab: {stable}"),
+                "ui_screenshot_target_not_found",
+                "validation",
+                false,
+            );
+        };
+        if active_tab_id.as_deref() != Some(stable.as_str()) {
+            return IpcResponse::typed_failure(
+                format!("screenshot target {stable} is not the active tab"),
+                "ui_screenshot_target_inactive",
+                "precondition",
+                false,
+            );
+        }
+        let path = screenshot_output_path(args, "agenterm-pane");
+        let terminal = self.workspace_geometry().terminal;
+        self.window.request_redraw();
+        let area = agenterm_platform::screenshot::NativeCaptureArea::Client {
+            left: terminal.left,
+            top: terminal.top,
+            width: terminal.width(),
+            height: terminal.height(),
+        };
+        let pixel_width = u32::try_from(terminal.width()).unwrap_or_default();
+        let pixel_height = u32::try_from(terminal.height()).unwrap_or_default();
+        let json_reply = args.iter().any(|argument| argument == "--json");
+        let written = if json_reply {
+            let mut capture_error = None;
+            let result = agenterm_platform::filesystem_publish::write_path_atomic_no_clobber(
+                &path,
+                |temporary| match self.window.capture_png(temporary, area) {
+                    Ok(written) => Ok(written),
+                    Err(error) => {
+                        capture_error = Some(error);
+                        Err(std::io::Error::other("native screenshot capture failed"))
+                    }
+                },
+            );
+            match result {
+                Ok(written) => Ok(written),
+                Err(_) if capture_error.is_some() => Err(capture_error.expect("checked above")),
+                Err(error) => {
+                    return IpcResponse::typed_failure(
+                        error.to_string(),
+                        "ui_screenshot_publish_failed",
+                        "operation",
+                        false,
+                    );
+                }
+            }
+        } else {
+            self.window.capture_png(&path, area)
+        };
+        match written {
+            Ok(()) => {}
+            Err(error) => {
+                return IpcResponse::typed_failure(
+                    error.to_string(),
+                    "ui_screenshot_failed",
+                    "operation",
+                    false,
+                );
+            }
+        }
+        if !json_reply {
+            return IpcResponse::success(path.display().to_string());
+        }
+        match terminal_viewport_image_json(
+            &path,
+            TerminalViewportImageFacts {
+                tab_id: &tab.id,
+                server_epoch: &server_epoch,
+                screen_generation: tab.screen.generation,
+                scrollback_offset: tab.screen.scrollback_offset,
+                rows: tab.screen.rows,
+                columns: tab.screen.columns,
+                pixel_width,
+                pixel_height,
+            },
+        ) {
+            Ok(json) => IpcResponse::success(json),
+            Err(error) => IpcResponse::typed_failure(
+                error,
+                "ui_screenshot_receipt_failed",
+                "operation",
+                false,
+            ),
+        }
+    }
+
     fn execute_client_local_command(
         &mut self,
         command: &UiClientCommand,
@@ -1809,38 +1944,6 @@ impl RemoteWindowState {
                     .capture_png(
                         &path,
                         agenterm_platform::screenshot::NativeCaptureArea::Window,
-                    )
-                    .map_err(|error| anyhow::anyhow!(error))?;
-                output = Some(path.display().to_string());
-            }
-            "screenshot-pane" | "screenshot-tab" => {
-                if let Some(target) = option_value(&command.args, "-t") {
-                    let stable = self.resolve_stable_tab_target(target)?;
-                    if self.active_tab().is_none_or(|tab| tab.id != stable) {
-                        self.client
-                            .as_mut()
-                            .context("UI is disconnected")?
-                            .select_tab(&stable)?;
-                        self.client
-                            .as_mut()
-                            .context("UI is disconnected")?
-                            .poll_deltas()?;
-                        self.load_composer();
-                        self.resize_active_terminal();
-                    }
-                }
-                let path = screenshot_output_path(&command.args, "agenterm-pane");
-                let terminal = self.workspace_geometry().terminal;
-                self.window.request_redraw();
-                self.window
-                    .capture_png(
-                        &path,
-                        agenterm_platform::screenshot::NativeCaptureArea::Client {
-                            left: terminal.left,
-                            top: terminal.top,
-                            width: terminal.width(),
-                            height: terminal.height(),
-                        },
                     )
                     .map_err(|error| anyhow::anyhow!(error))?;
                 output = Some(path.display().to_string());

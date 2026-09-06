@@ -1534,6 +1534,57 @@
       ]
     },
     {
+      "name": "terminal-scroll",
+      "command": "terminal-scroll",
+      "aliases": [
+        "terminal scroll"
+      ],
+      "grant": "actuate",
+      "family": "terminal",
+      "summary": "scroll one exact AgenTerm tab's local viewport without terminal input",
+      "usage": "terminal-scroll --tab @N up|down|page-up|page-down [ROWS]\nterminal-scroll --tab @N top|bottom\nterminal scroll ...",
+      "args": [
+        {
+          "flag": "--tab",
+          "value": "@N",
+          "help": "stable tab id from terminal-snapshot"
+        },
+        {
+          "flag": "",
+          "value": "ACTION",
+          "help": "up|down|page-up|page-down|top|bottom"
+        },
+        {
+          "flag": "",
+          "value": "ROWS",
+          "help": "optional positive row count for up/down/page-up/page-down"
+        }
+      ]
+    },
+    {
+      "name": "terminal-screenshot",
+      "command": "terminal-screenshot",
+      "aliases": [
+        "terminal screenshot"
+      ],
+      "grant": "observe",
+      "family": "terminal",
+      "summary": "capture the already-active exact AgenTerm tab as a verified rendered PNG",
+      "usage": "terminal-screenshot --tab @N --out ABSOLUTE_PATH\nterminal screenshot --tab @N --out ABSOLUTE_PATH",
+      "args": [
+        {
+          "flag": "--tab",
+          "value": "@N",
+          "help": "stable active tab id from terminal-snapshot"
+        },
+        {
+          "flag": "--out",
+          "value": "ABSOLUTE_PATH",
+          "help": "new PNG path; existing entries are never replaced"
+        }
+      ]
+    },
+    {
       "name": "terminal-events",
       "command": "terminal-events",
       "aliases": [
@@ -5308,6 +5359,14 @@
     {
       "name": "terminal-snapshot",
       "text": "agenterm-cu terminal-snapshot    (also: terminal snapshot)\n  scope: observe    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  terminal-snapshot --tab @N\n  terminal snapshot --tab @N\n\narguments:\n  --tab @N                      stable tab id from terminal-list\n\nReturns one bounded structured screen, including cell runs, styles, cursor,\nterminal modes and completeness flags, together with server_scope_id and an\nexact {server_epoch, sequence} cursor. This is an event-journal cursor, not a\nraw PTY byte offset. Continue it with terminal-events.\n"
+    },
+    {
+      "name": "terminal-scroll",
+      "text": "agenterm-cu terminal-scroll    (also: terminal scroll)\n  scope: actuate    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  terminal-scroll --tab @N up|down|page-up|page-down [ROWS]\n  terminal-scroll --tab @N top|bottom\n  terminal scroll ...\n\nMutates only the local scrollback viewport of one exact stable tab. It never sends cursor keys or mouse input to the terminal application. Before and after snapshots must retain the same server scope, epoch, tab and grid; the structured scrollback offset must match the product reply. Alternate-screen ownership is refused typed. A clamped boundary remains an honest success with viewport_changed=false.\n"
+    },
+    {
+      "name": "terminal-screenshot",
+      "text": "agenterm-cu terminal-screenshot    (also: terminal screenshot)\n  scope: observe    family: AgenTerm terminals\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  terminal-screenshot --tab @N --out ABSOLUTE_PATH\n  terminal screenshot --tab @N --out ABSOLUTE_PATH\n\nCaptures the already-active exact stable tab through AgenTerm's real renderer. Observe authority never activates or selects an inactive tab. The new destination is published atomically without replacing a regular file, symlink or reparse point. Success independently binds server scope, epoch, tab, screen generation, scrollback offset, grid, pixel dimensions, byte count and PNG SHA-256; no terminal text or image bytes enter stdout or audit receipts.\n"
     },
     {
       "name": "terminal-events",

@@ -680,6 +680,10 @@ Q3 owned runtime facades
 │  ├─ [~] terminal cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
 │  ├─ [x] terminal-output: retained raw bytes + absolute cursor + typed gap/future failures
 │  ├─ [~] raw-output cursor qualification: macOS registered qjswasm journey green; Linux/Windows pending
+│  ├─ [x] terminal-scroll: exact @tab viewport + scope/epoch/grid/offset read-back; alternate screen refuses typed
+│  ├─ [~] terminal-screenshot: active exact @tab + screen generation/offset identity + atomic no-clobber PNG
+│  │  ├─ [x] macOS public qjswasm journey proves top/bottom frames, distinct digests and unchanged PTY output cursor
+│  │  └─ [ ] Linux + Windows native GUI courts
 │  ├─ [~] portable owned headless PTY: existing agenterm server selected as sole owner
 │  │  ├─ [x] decision court: cross-process, zero-tab, cursor continuation, shutdown green
 │  │  ├─ [x] public pty-start/status/read/send/wait/wait-exit/stop + exact identity
@@ -802,8 +806,8 @@ Q5 retirement
 ```
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
-decision while remaining a successful bounded audit: 133 ledger capabilities
-currently include 10 `gap` and 55 `platform-limited` rows. The compatibility
+decision while remaining a successful bounded audit: 134 ledger capabilities
+currently include 9 `gap` and 55 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
@@ -811,6 +815,14 @@ removed; release authority and dispatch remain owned by the release skill and
 GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
+
+The previous `terminal.agenterm.viewport-image` gap incorrectly collapsed two
+product-level behaviors into MCU's already-covered PTY screen parity. It is now
+split into exact viewport scrolling and rendered-image publication. Both are
+native ACU facades over AgenTerm's sole control plane rather than new terminal
+owners. The macOS public qjswasm journey proves exact top/bottom offsets,
+unchanged raw-output cursors, identity-bound PNG metadata and atomic
+no-clobber publication; Linux and Windows qualification remain open.
 
 Evidence accounting is fail-closed. An available ledger row is credited only
 when at least one `cu.*` identifier is registered by the qualification or

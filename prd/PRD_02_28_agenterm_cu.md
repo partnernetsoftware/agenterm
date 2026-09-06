@@ -160,7 +160,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measured 131 capabilities;
   after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger measures 133 capabilities with 12 gaps, 53 platform-limited rows, zero static
+  ledger now measures 134 capabilities with 9 gaps, 55 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
@@ -1298,6 +1298,19 @@ flowchart LR
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
 
+- [~] AgenTerm viewport control is no longer conflated with background PTY
+  screen parity. `terminal-scroll` addresses one stable `@tab`, rejects the
+  alternate screen, performs no PTY input, and independently verifies the same
+  scope, epoch, grid, scrollback bounds and resulting offset. `terminal-screenshot`
+  accepts only the active exact tab, publishes a PNG atomically without
+  replacing an existing final name, and independently verifies file identity,
+  PNG framing, dimensions, byte count, digest, screen generation and viewport
+  offset. It never returns image contents or activates another tab. The public
+  qjswasm journey `cu.terminal-viewport-image.macos` proves top/bottom frames,
+  distinct image digests, an unchanged raw-output cursor, typed inactive-tab
+  refusal and no-clobber preservation. Linux and Windows GUI courts remain the
+  promotion boundary.
+
   The same macOS journey's opt-in qjswasm attribution receipt reported
   135,426,214 steps, 519 host operations / 649,108 host bytes, and a 49,608 →
   7,217,696-byte heap waterline. `JSON.parse` / `JSON.stringify` account for
@@ -1774,7 +1787,7 @@ independent implementation.
 |--------|-------------|-----------|
 | OS 级 screenshot / window / input / process 机制 | [20 Native platform](PRD_02_20_native_platform.md) `agenterm-platform` | **消费**。cu 不得直调 OS API，新机制先沉入 platform 并带 typed `Unsupported`/`Failed` |
 | OS 级 accessibility-tree 机制（观察 + 节点动作） | `crates/agenterm-abi` libagenterm `agt_a11y_*`（里程碑 6）→ `agenterm-platform` 适配器 | **消费**。Linux `current` 的 `tree` / 结构化 `click` / `focus` / named `send-text` / focused `send-text --window` / named `copy` / focused `copy --window` / named `paste` / focused `paste --window` / named `send-keys` / focused `send-keys --window` 经 ABI 机制层，不在 cu 内复刻 AT-SPI/UIA/AX |
-| 工作台观察/控制、确定性等待、身份 | [07 Agent control plane](PRD_02_07_agent_control_plane.md) | **不重叠**。cu 不为 agenterm 自己的 tab/PTY 提供第二条控制平面 |
+| 工作台观察/控制、确定性等待、身份 | [07 Agent control plane](PRD_02_07_agent_control_plane.md) | **复用，不分叉**。cu 的 terminal facade 只能调用这条既有控制平面并验证同一 scope/epoch/@tab；不得提供第二个 tab/PTY owner |
 | `agenterm-cc` 的 screenshot/snapshot 投影 | [21 Control Center](PRD_02_21_control_center.md) | **不重叠**。CC 是产品投影，不是通用机器控制面 |
 | `agenterm-con cli` 的输入/截图/等待 | [26 con control CLI](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_26_con_control_cli.md) | **不重叠**。con 是 GUI 生命期内的本进程终端控制 |
 | 可选智能 / LLM 网关 | [12](PRD_02_12_specialized_intelligence.md) / [13](PRD_02_13_llm_gateway.md) | **独立**。cu 是工具面，不含模型、推理或提示策略 |

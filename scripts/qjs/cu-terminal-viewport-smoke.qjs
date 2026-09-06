@@ -1,0 +1,191 @@
+// Public qjswasm black-box for exact AgenTerm viewport scroll and rendered PNG.
+// Args: REPO AGENTERM_EXE AGENTERM_CU_EXE
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.terminal-viewport-image.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print(declared_evidence[0]);
+  return;
+}
+harness.require(args.length === 3, "expected: REPO AGENTERM_EXE AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const product = rh.absolute(args[1]);
+const cu = rh.absolute(args[2]);
+ensure(rh.exists(product), "cu_terminal_viewport_product_missing");
+ensure(rh.exists(cu), "cu_terminal_viewport_cu_missing");
+
+const context = harness.new_context(repo, "cu-terminal-viewport");
+const top_png = rh.join(context.run_directory, "top.png");
+const bottom_png = rh.join(context.run_directory, "bottom.png");
+const inactive_png = rh.join(context.run_directory, "inactive.png");
+let children = [];
+let created_tab = "";
+let initial_tab = "";
+let succeeded = 0;
+let failure = "";
+
+function invoke_product(arguments, expected_failure) {
+  const spec = harness.configured_cli_spec(context, product, arguments);
+  const output = rh.command(spec.program, spec.args, { env: spec.env, timeout_ms: 30000 });
+  harness.append_command_record(context, arguments, output, expected_failure, []);
+  if (expected_failure === 0) {
+    ensure(output.success === true, "cu_terminal_viewport_product_failed:" + output.stderr);
+  } else {
+    ensure(output.success === false, "cu_terminal_viewport_product_unexpected_success");
+  }
+  return output;
+}
+
+function invoke_cu(grant, arguments, expected_failure) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const spec = harness.configured_spec(context, cu, argv);
+  const output = rh.command(spec.program, spec.args, { env: spec.env, timeout_ms: 30000 });
+  harness.append_command_record(context, argv, output, expected_failure, []);
+  const text = output.stdout.trim();
+  ensure(text !== "", "cu_terminal_viewport_empty_reply");
+  const reply = JSON.parse(text);
+  if (expected_failure === 0) {
+    ensure(output.success === true && reply.ok === true,
+      "cu_terminal_viewport_cu_failed:" + text + output.stderr);
+  } else {
+    ensure(output.success === false && reply.ok === false,
+      "cu_terminal_viewport_cu_unexpected_success:" + text);
+  }
+  return reply;
+}
+
+function snapshot(tab) {
+  return invoke_cu("observe", ["terminal-snapshot", "--tab", tab], 0).data;
+}
+
+function screen(snapshot_value) {
+  return snapshot_value.tab.screen;
+}
+
+try {
+  print("STEP start one isolated no-activate GUI and its owned server");
+  const gui = harness.start(harness.configured_spec(
+    context, product, ["--no-activate", "--address", context.address]
+  ));
+  children.push(gui);
+  harness.wait_for_spawned_server(context, product, gui);
+  const initial = invoke_cu("observe", ["terminal-list"], 0).data;
+  initial_tab = "" + initial.active_tab_id;
+  ensure(initial_tab.startsWith("@"), "cu_terminal_viewport_initial_tab_missing");
+
+  print("STEP create a quiet long screen and bind its raw-output cursor");
+  const token = "ACU_VIEWPORT_" + context.run_id;
+  const script = "i=1; while [ $i -le 120 ]; do printf '" + token
+    + "_%03d\\n' $i; i=$((i+1)); done; sleep 120";
+  const created = invoke_cu("observe,actuate", [
+    "terminal-new", "--title", token, "--", "/bin/sh", "-c", script
+  ], 0).data;
+  created_tab = "" + created.tab_id;
+  let baseline = null;
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const candidate = snapshot(created_tab);
+    if (Number(screen(candidate).scrollback_offset) === 0
+        && Number(screen(candidate).max_scrollback) > 0) {
+      baseline = candidate;
+      break;
+    }
+    rh.sleep_ms(25);
+  }
+  ensure(baseline !== null, "cu_terminal_viewport_no_scrollback");
+  const rows = Number(screen(baseline).rows);
+  const columns = Number(screen(baseline).columns);
+  const output_origin = invoke_cu("observe", [
+    "terminal-output", "--tab", created_tab, "--cursor", "current"
+  ], 0).data;
+  const output_cursor = Number(output_origin.next_cursor);
+
+  print("STEP scroll top without PTY input and capture the exact rendered frame");
+  const top = invoke_cu("actuate", [
+    "terminal-scroll", "--tab", created_tab, "top"
+  ], 0).data;
+  ensure(top.verified === true && top.performed === true && top.viewport_changed === true,
+    "cu_terminal_viewport_top_unverified");
+  ensure(Number(top.after_offset) > 0
+      && Number(top.after_offset) === Number(top.after_max_offset)
+      && Number(top.rows) === rows && Number(top.columns) === columns,
+    "cu_terminal_viewport_top_state");
+  const top_snapshot = snapshot(created_tab);
+  ensure(Number(screen(top_snapshot).scrollback_offset) === Number(top.after_offset),
+    "cu_terminal_viewport_top_snapshot");
+  const unchanged_output = invoke_cu("observe", [
+    "terminal-output", "--tab", created_tab, "--cursor", "" + output_cursor
+  ], 0).data;
+  ensure(Number(unchanged_output.bytes) === 0 && Number(unchanged_output.next_cursor) === output_cursor,
+    "cu_terminal_viewport_scroll_wrote_pty");
+  const top_image = invoke_cu("observe", [
+    "terminal-screenshot", "--tab", created_tab, "--out", top_png
+  ], 0).data;
+  ensure(top_image.verified === true && top_image.focus_changed === false
+      && top_image.content_returned === false && top_image.sha256 === rh.sha256_file(top_png)
+      && Number(top_image.scrollback_offset) === Number(top.after_offset)
+      && Number(top_image.rows) === rows && Number(top_image.columns) === columns
+      && Number(top_image.pixel_width) > 0 && Number(top_image.pixel_height) > 0,
+    "cu_terminal_viewport_top_image");
+
+  print("STEP no-clobber and inactive-tab observation fail before a substituted image");
+  const existing = invoke_cu("observe", [
+    "terminal-screenshot", "--tab", created_tab, "--out", top_png
+  ], 1);
+  ensure(existing.error.code === "ui_screenshot_publish_failed"
+      && top_image.sha256 === rh.sha256_file(top_png),
+    "cu_terminal_viewport_no_clobber");
+  const inactive = invoke_cu("observe", [
+    "terminal-screenshot", "--tab", initial_tab, "--out", inactive_png
+  ], 1);
+  ensure(inactive.error.code === "ui_screenshot_target_inactive" && !rh.exists(inactive_png),
+    "cu_terminal_viewport_inactive_refusal");
+
+  print("STEP scroll bottom and prove structured and rendered states change together");
+  const bottom = invoke_cu("actuate", [
+    "terminal-scroll", "--tab", created_tab, "bottom"
+  ], 0).data;
+  ensure(bottom.verified === true && Number(bottom.after_offset) === 0
+      && Number(bottom.rows) === rows && Number(bottom.columns) === columns,
+    "cu_terminal_viewport_bottom_state");
+  const bottom_image = invoke_cu("observe", [
+    "terminal-screenshot", "--tab", created_tab, "--out", bottom_png
+  ], 0).data;
+  ensure(bottom_image.verified === true && Number(bottom_image.scrollback_offset) === 0
+      && bottom_image.sha256 === rh.sha256_file(bottom_png)
+      && bottom_image.sha256 !== top_image.sha256,
+    "cu_terminal_viewport_bottom_image");
+
+  invoke_cu("actuate", ["terminal-close", "--tab", created_tab, "--expect", "closed"], 0);
+  created_tab = "";
+  invoke_product(["shutdown"], 0);
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (created_tab !== "") {
+  try { invoke_cu("actuate", ["terminal-close", "--tab", created_tab, "--expect", "closed"], 0); }
+  catch (_) {}
+}
+rh.try_remove_file(top_png);
+rh.try_remove_file(bottom_png);
+rh.try_remove_file(inactive_png);
+let completion_failure = "";
+try { harness.complete(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: exact terminal viewport scroll and rendered PNG remain identity-bound and no-clobber");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

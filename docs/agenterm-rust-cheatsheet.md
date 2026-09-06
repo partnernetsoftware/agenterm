@@ -2549,6 +2549,15 @@ ambiguity and must be preserved. Use the same primitive in reverse when
 restoring a retired source. This rule applies to both a replaced destination
 and the source-retirement half of a cross-volume move.
 
+Path-only native encoders need the same object binding even when their final
+output is intentionally create-only. Reserve the sibling temporary with
+`create_new`, retain that handle while the encoder writes by path, sync the
+retained handle, and require the path to resolve to the originally reserved
+object before the atomic no-replace install. The final install must refuse an
+existing file, link, or reparse point. Test both final-name preservation and a
+staging-path substitution; a unique-looking temporary name is not object
+identity.
+
 A topology/status observation must not be assembled from state-list APIs that
 also advance a durable clock high-water mark, sweep expiry, publish repaired
 state, or create a replacement generation. Give the status surface a dedicated

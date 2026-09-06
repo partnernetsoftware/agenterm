@@ -600,11 +600,26 @@
           "note": "The product retention ring remains capped at 1 MiB and a page at 1 MiB. Overwritten and future cursors fail typed; continuation never silently skips bytes or decodes arbitrary bytes lossily. The macOS journey proves current bootstrap, output advance, exact continuation and an empty completed tail."
         },
         {
-          "id": "terminal.agenterm.viewport-image",
-          "mcu_shape": "pty resize plus screen observation",
-          "acu_shape": "pty-resize plus pty-snapshot/diff/events are native; viewport scroll and rendered per-tab PNG remain absent",
-          "state": "gap",
-          "next": "separate PTY dimensions, viewport scroll and rendered screenshot instead of collapsing them into one resize claim"
+          "id": "terminal.agenterm.viewport-scroll",
+          "mcu_shape": "generic wheel and scroll input without an exact AgenTerm tab or scrollback-frame identity",
+          "acu_shape": "terminal-scroll mutates one stable @tab viewport without PTY input, then independently verifies scope, epoch, grid, scrollback bounds and the exact resulting offset",
+          "state": "native",
+          "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
+          "evidence": ["cu.terminal-viewport-image.macos"],
+          "declared_evidence": ["cu.terminal-viewport-image.macos"],
+          "next": "run the exact viewport journey on Linux and Windows GUI courts",
+          "note": "Alternate-screen terminals fail typed because they have no retained scrollback viewport. Top, bottom, row and page actions are clamped against structured product state; the receipt proves whether the viewport changed and never infers success from injected wheel input."
+        },
+        {
+          "id": "terminal.agenterm.rendered-image",
+          "mcu_shape": "generic window screenshots without an AgenTerm @tab, terminal generation or scrollback identity",
+          "acu_shape": "terminal-screenshot captures the active exact @tab and atomically publishes a no-clobber PNG whose identity, bounds, dimensions and SHA-256 are independently verified",
+          "state": "native",
+          "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
+          "evidence": ["cu.terminal-viewport-image.macos"],
+          "declared_evidence": ["cu.terminal-viewport-image.macos"],
+          "next": "run the exact rendered-image journey on Linux and Windows GUI courts",
+          "note": "The command neither activates an inactive tab nor returns image contents. Existing destinations and final-name links are preserved, while the receipt binds server scope, epoch, tab, screen generation, scrollback offset, grid, pixel dimensions, byte count and digest."
         },
         {
           "id": "pty.background.lifecycle",

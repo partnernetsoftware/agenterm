@@ -1,14 +1,18 @@
 //! Typed facade over the AgenTerm-owned terminal/session control plane.
 
 use std::{
+    fmt::Write as _,
+    io::Read as _,
+    path::Path,
     thread,
     time::{Duration, Instant},
 };
 
 use agenterm_control_client::{ControlClient, ControlResponse, Intent};
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 
-use crate::{CuError, TerminalWaitCondition, receipt::ReceiptLog};
+use crate::{CuError, TerminalScrollAction, TerminalWaitCondition, receipt::ReceiptLog};
 
 const CAPTURE_MAX_BYTES: usize = 1_048_576;
 const MAX_WAIT_MS: u64 = 86_400_000;
@@ -518,6 +522,391 @@ fn terminal_snapshot_from_bootstrap(
         "cursor_kind": "loss-aware-event-position",
         "identity": "server-scope+epoch+tab-id",
     }))
+}
+
+pub(super) fn terminal_scroll_payload(
+    tab: &str,
+    action: TerminalScrollAction,
+    rows: Option<usize>,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    if rows == Some(0) || rows.is_some_and(|value| value > 1_000_000) {
+        return Err(CuError::new(
+            "terminal_scroll_rows_invalid",
+            "terminal-scroll rows must be in 1..=1000000",
+        ));
+    }
+    if matches!(
+        action,
+        TerminalScrollAction::Top | TerminalScrollAction::Bottom
+    ) && rows.is_some()
+    {
+        return Err(CuError::new(
+            "terminal_scroll_rows_invalid",
+            "terminal-scroll top and bottom do not accept rows",
+        ));
+    }
+    let client = client()?;
+    terminal_scroll_with_client(&client, tab, action, rows, receipts)
+}
+
+fn terminal_screen_usize(snapshot: &Value, field: &str) -> Result<usize, CuError> {
+    snapshot["tab"]["screen"][field]
+        .as_u64()
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| {
+            CuError::new(
+                "terminal_scroll_snapshot_invalid",
+                format!("terminal snapshot omitted a valid {field}"),
+            )
+        })
+}
+
+fn expected_scroll_offset(
+    action: TerminalScrollAction,
+    rows: Option<usize>,
+    current: usize,
+    maximum: usize,
+    terminal_rows: usize,
+) -> usize {
+    let page = terminal_rows.saturating_sub(1).max(1);
+    match action {
+        TerminalScrollAction::Up => current.saturating_add(rows.unwrap_or(1)).min(maximum),
+        TerminalScrollAction::Down => current.saturating_sub(rows.unwrap_or(1)),
+        TerminalScrollAction::PageUp => current.saturating_add(rows.unwrap_or(page)).min(maximum),
+        TerminalScrollAction::PageDown => current.saturating_sub(rows.unwrap_or(page)),
+        TerminalScrollAction::Top => maximum,
+        TerminalScrollAction::Bottom => 0,
+    }
+}
+
+pub(super) fn terminal_scroll_with_client(
+    client: &ControlClient,
+    tab: &str,
+    action: TerminalScrollAction,
+    rows: Option<usize>,
+    receipts: &mut ReceiptLog,
+) -> Result<Value, CuError> {
+    let before = terminal_snapshot_with_client(client, tab)?;
+    if before["tab"]["screen"]["alternate_screen"].as_bool() == Some(true) {
+        return Err(CuError::new(
+            "terminal_viewport_unavailable",
+            "local scrollback viewport is unavailable while the terminal owns the alternate screen",
+        )
+        .with_detail(json!({ "tab_id": tab, "reason": "alternate-screen" })));
+    }
+    let before_offset = terminal_screen_usize(&before, "scrollback_offset")?;
+    let before_max = terminal_screen_usize(&before, "max_scrollback")?;
+    let before_rows = terminal_screen_usize(&before, "rows")?;
+    let before_columns = terminal_screen_usize(&before, "columns")?;
+    let expected_offset =
+        expected_scroll_offset(action, rows, before_offset, before_max, before_rows);
+    let ticket = receipts.reserve(
+        "terminal-scroll",
+        0,
+        json!({
+            "tab_id": tab,
+            "action": action.as_str(),
+            "requested_rows": rows,
+            "server_scope_id": before["server_scope_id"],
+            "server_epoch": before["server_epoch"],
+            "before_offset": before_offset,
+            "before_max_offset": before_max,
+        }),
+    )?;
+    let mut args = vec![
+        "scroll-pane".to_owned(),
+        "-t".to_owned(),
+        tab.to_owned(),
+        action.as_str().to_owned(),
+    ];
+    if let Some(rows) = rows {
+        args.push(rows.to_string());
+    }
+    let result = request(
+        client,
+        args,
+        "command.scroll.pane",
+        Intent::Mutation,
+        Duration::from_secs(5),
+    );
+    let response = match result {
+        Ok(response) => response,
+        Err(error) => {
+            receipts.complete(
+                &ticket,
+                "terminal-scroll",
+                0,
+                false,
+                json!({ "performed": false, "error": { "code": error.code, "message": error.message } }),
+            )?;
+            return Err(error.with_detail(json!({ "receipt": ticket.json() })));
+        }
+    };
+    let reported_offset = match response.output.trim().parse::<usize>() {
+        Ok(offset) => offset,
+        Err(_) => {
+            let evidence = json!({
+                "performed": true,
+                "verified": false,
+                "reply_bytes": response.output.len(),
+                "postcheck_error": { "code": "terminal_scroll_reply_invalid" },
+            });
+            receipts.complete(&ticket, "terminal-scroll", 0, false, evidence.clone())?;
+            return Err(CuError::new(
+                "terminal_scroll_unverified",
+                "AgenTerm scrolled the viewport but returned a non-numeric offset",
+            )
+            .with_detail(json!({ "evidence": evidence, "receipt": ticket.json() })));
+        }
+    };
+    let after = match terminal_snapshot_with_client(client, tab) {
+        Ok(after) => after,
+        Err(error) => {
+            let evidence = json!({
+                "performed": true,
+                "verified": false,
+                "reported_offset": reported_offset,
+                "postcheck_error": { "code": error.code, "message": error.message },
+            });
+            receipts.complete(&ticket, "terminal-scroll", 0, false, evidence.clone())?;
+            return Err(CuError::new(
+                "terminal_scroll_unverified",
+                "AgenTerm scrolled the viewport but its exact post-state was unreadable",
+            )
+            .with_detail(json!({ "evidence": evidence, "receipt": ticket.json() })));
+        }
+    };
+    let post_fields = (|| {
+        Ok::<_, CuError>((
+            terminal_screen_usize(&after, "scrollback_offset")?,
+            terminal_screen_usize(&after, "max_scrollback")?,
+            terminal_screen_usize(&after, "rows")?,
+            terminal_screen_usize(&after, "columns")?,
+        ))
+    })();
+    let (after_offset, after_max, after_rows, after_columns) = match post_fields {
+        Ok(fields) => fields,
+        Err(error) => {
+            let evidence = json!({
+                "performed": true,
+                "verified": false,
+                "reported_offset": reported_offset,
+                "postcheck_error": { "code": error.code, "message": error.message },
+            });
+            receipts.complete(&ticket, "terminal-scroll", 0, false, evidence.clone())?;
+            return Err(CuError::new(
+                "terminal_scroll_unverified",
+                "AgenTerm scrolled the viewport but returned an incomplete post-state",
+            )
+            .with_detail(json!({ "evidence": evidence, "receipt": ticket.json() })));
+        }
+    };
+    let same_identity = after["server_scope_id"] == before["server_scope_id"]
+        && after["server_epoch"] == before["server_epoch"]
+        && after["tab"]["id"].as_str() == Some(tab);
+    let verified = same_identity
+        && reported_offset == after_offset
+        && after_offset == expected_offset
+        && before_max == after_max
+        && before_rows == after_rows
+        && before_columns == after_columns
+        && after["tab"]["screen"]["alternate_screen"].as_bool() == Some(false);
+    let evidence = json!({
+        "tab_id": tab,
+        "server_scope_id": after["server_scope_id"],
+        "server_epoch": after["server_epoch"],
+        "action": action.as_str(),
+        "requested_rows": rows,
+        "before_offset": before_offset,
+        "after_offset": after_offset,
+        "expected_offset": expected_offset,
+        "before_max_offset": before_max,
+        "after_max_offset": after_max,
+        "rows": after_rows,
+        "columns": after_columns,
+        "performed": true,
+        "viewport_changed": before_offset != after_offset,
+        "effective_rows": before_offset.abs_diff(after_offset),
+        "verified": verified,
+        "verification": "same-scope-epoch-tab-and-structured-offset-readback",
+        "control_receipt": response.receipt,
+    });
+    receipts.complete(&ticket, "terminal-scroll", 0, verified, evidence.clone())?;
+    if verified {
+        let mut payload = evidence;
+        payload["receipt"] = ticket.json();
+        Ok(payload)
+    } else {
+        Err(CuError::new(
+            "terminal_scroll_unverified",
+            "viewport mutation did not preserve and verify the exact terminal identity and grid",
+        )
+        .with_detail(json!({ "evidence": evidence, "receipt": ticket.json() })))
+    }
+}
+
+pub(super) fn terminal_screenshot_payload(tab: &str, out: &str) -> Result<Value, CuError> {
+    validate_tab(tab)?;
+    let path = Path::new(out);
+    if out.is_empty() || out.len() > 8_192 || out.as_bytes().contains(&0) || !path.is_absolute() {
+        return Err(CuError::new(
+            "terminal_screenshot_path_invalid",
+            "terminal-screenshot --out must be an absolute 1..=8192-byte non-NUL path",
+        ));
+    }
+    let client = client()?;
+    let before = terminal_snapshot_with_client(&client, tab)?;
+    let response = request(
+        &client,
+        vec![
+            "screenshot-pane".to_owned(),
+            "-t".to_owned(),
+            tab.to_owned(),
+            "-o".to_owned(),
+            out.to_owned(),
+            "--json".to_owned(),
+        ],
+        "command.screenshot.pane",
+        Intent::Query,
+        Duration::from_secs(15),
+    )?;
+    let product = parse_output(response, "terminal_screenshot_reply_invalid")?;
+    let after = terminal_snapshot_with_client(&client, tab)?;
+    let opened = agenterm_platform::filesystem_open::open_existing(
+        path,
+        agenterm_platform::filesystem_open::ExistingEntryType::File,
+    )
+    .map_err(|error| {
+        CuError::new(
+            "terminal_screenshot_output_invalid",
+            format!("open published terminal screenshot without following links: {error}"),
+        )
+    })?;
+    let opened_identity =
+        agenterm_platform::file_identity::file_identity(&opened).map_err(|error| {
+            CuError::new(
+                "terminal_screenshot_output_invalid",
+                format!("read published terminal screenshot identity: {error}"),
+            )
+        })?;
+    let path_identity = agenterm_platform::file_identity::path_identity(path).map_err(|error| {
+        CuError::new(
+            "terminal_screenshot_output_invalid",
+            format!("revalidate published terminal screenshot identity: {error}"),
+        )
+    })?;
+    if !opened_identity.same_object(path_identity) {
+        return Err(CuError::new(
+            "terminal_screenshot_output_changed",
+            "terminal screenshot path changed while its published file was being verified",
+        ));
+    }
+    let byte_count = opened
+        .metadata()
+        .map_err(|error| {
+            CuError::new(
+                "terminal_screenshot_output_invalid",
+                format!("inspect published terminal screenshot: {error}"),
+            )
+        })?
+        .len();
+    if !(24..=268_435_456).contains(&byte_count) {
+        return Err(CuError::new(
+            "terminal_screenshot_output_invalid",
+            "published terminal screenshot size must be in 24..=268435456 bytes",
+        ));
+    }
+    let mut file = opened;
+    let mut header = [0_u8; 24];
+    file.read_exact(&mut header).map_err(|error| {
+        CuError::new(
+            "terminal_screenshot_output_invalid",
+            format!("read published terminal screenshot header: {error}"),
+        )
+    })?;
+    if header[..8] != [137, 80, 78, 71, 13, 10, 26, 10] || &header[12..16] != b"IHDR" {
+        return Err(CuError::new(
+            "terminal_screenshot_output_invalid",
+            "published terminal screenshot is not a PNG with an IHDR header",
+        ));
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(header);
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| {
+            CuError::new(
+                "terminal_screenshot_output_invalid",
+                format!("hash published terminal screenshot: {error}"),
+            )
+        })?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    let digest = hasher.finalize();
+    let mut sha256 = String::with_capacity(64);
+    for byte in digest {
+        write!(&mut sha256, "{byte:02x}").expect("writing into a String cannot fail");
+    }
+    let before_screen = &before["tab"]["screen"];
+    let after_screen = &after["tab"]["screen"];
+    let product_path = product["path"].as_str();
+    let verified = product["schema_version"].as_u64() == Some(1)
+        && product_path == Some(out)
+        && product["tab_id"].as_str() == Some(tab)
+        && product["target_active"].as_bool() == Some(true)
+        && product["server_epoch"] == before["server_epoch"]
+        && product["server_epoch"] == after["server_epoch"]
+        && before["server_scope_id"] == after["server_scope_id"]
+        && product["screen_generation"] == before_screen["generation"]
+        && product["screen_generation"] == after_screen["generation"]
+        && product["scrollback_offset"] == before_screen["scrollback_offset"]
+        && product["scrollback_offset"] == after_screen["scrollback_offset"]
+        && product["rows"] == before_screen["rows"]
+        && product["rows"] == after_screen["rows"]
+        && product["columns"] == before_screen["columns"]
+        && product["columns"] == after_screen["columns"]
+        && product["pixel_width"]
+            .as_u64()
+            .is_some_and(|value| value > 0)
+        && product["pixel_height"]
+            .as_u64()
+            .is_some_and(|value| value > 0)
+        && product["byte_count"].as_u64() == Some(byte_count)
+        && product["sha256"].as_str() == Some(sha256.as_str());
+    let evidence = json!({
+        "path": out,
+        "tab_id": tab,
+        "server_scope_id": after["server_scope_id"],
+        "server_epoch": after["server_epoch"],
+        "screen_generation": product["screen_generation"],
+        "scrollback_offset": product["scrollback_offset"],
+        "rows": product["rows"],
+        "columns": product["columns"],
+        "pixel_width": product["pixel_width"],
+        "pixel_height": product["pixel_height"],
+        "bytes": byte_count,
+        "sha256": sha256,
+        "performed": true,
+        "verified": verified,
+        "focus_changed": false,
+        "content_returned": false,
+        "publication": "atomic-no-clobber",
+        "identity": "server-scope+epoch+tab+screen-generation+scrollback+png-sha256",
+    });
+    if verified {
+        Ok(evidence)
+    } else {
+        Err(CuError::new(
+            "terminal_screenshot_unverified",
+            "rendered screenshot did not match one stable active terminal frame and published PNG",
+        )
+        .with_detail(evidence))
+    }
 }
 
 pub(super) fn terminal_events_payload(
@@ -1042,5 +1431,33 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.code, "terminal_events_invalid");
+    }
+
+    #[test]
+    fn viewport_scroll_expectations_match_product_clamping() {
+        assert_eq!(
+            expected_scroll_offset(TerminalScrollAction::Up, Some(9), 4, 10, 24),
+            10
+        );
+        assert_eq!(
+            expected_scroll_offset(TerminalScrollAction::Down, Some(9), 4, 10, 24),
+            0
+        );
+        assert_eq!(
+            expected_scroll_offset(TerminalScrollAction::PageUp, None, 2, 100, 24),
+            25
+        );
+        assert_eq!(
+            expected_scroll_offset(TerminalScrollAction::PageDown, None, 25, 100, 24),
+            2
+        );
+        assert_eq!(
+            expected_scroll_offset(TerminalScrollAction::Top, None, 2, 100, 24),
+            100
+        );
+        assert_eq!(
+            expected_scroll_offset(TerminalScrollAction::Bottom, None, 100, 100, 24),
+            0
+        );
     }
 }

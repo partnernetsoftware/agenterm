@@ -753,6 +753,16 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "bounded-structured-screen-with-event-cursor",
             ),
             (
+                "terminal-scroll",
+                "actuate",
+                "verified-exact-tab-local-scrollback-viewport",
+            ),
+            (
+                "terminal-screenshot",
+                "observe",
+                "active-exact-tab-rendered-png-atomic-no-clobber",
+            ),
+            (
                 "terminal-events",
                 "observe",
                 "loss-aware-ordered-event-cursor",

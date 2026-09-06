@@ -229,6 +229,80 @@ pub fn write_path_atomic<T>(
     Ok(value)
 }
 
+/// Creates a complete sibling file and atomically installs it only when the
+/// destination name is absent.
+///
+/// The final install is one no-replace filesystem operation, so an existing
+/// regular file, symlink, or Windows reparse point is never followed or
+/// replaced. The temporary is removed on every pre-publication failure.
+pub fn write_path_atomic_no_clobber<T>(
+    destination: &Path,
+    write: impl FnOnce(&Path) -> io::Result<T>,
+) -> Result<T, FilePublishError> {
+    let destination = owned_destination(destination)?;
+    let parent = destination.parent().expect("normalized parent");
+    let name = destination.file_name().expect("normalized file name");
+    let (temporary, file) = create_temporary(parent, name)?;
+    let _cleanup = TemporaryFile::new(temporary.clone());
+    let reserved_identity = crate::file_identity::file_identity(&file).map_err(|error| {
+        FilePublishError::new(
+            FilePublishErrorKind::Inspect,
+            format!("inspect reserved file identity failed: {error}"),
+        )
+    })?;
+    let value = write(&temporary).map_err(|error| {
+        FilePublishError::new(
+            FilePublishErrorKind::Write,
+            format!("write prepared path failed: {error}"),
+        )
+    })?;
+    file.sync_all().map_err(|error| {
+        FilePublishError::new(
+            FilePublishErrorKind::SyncFile,
+            format!("sync reserved file handle failed: {error}"),
+        )
+    })?;
+    let staging_metadata = fs::symlink_metadata(&temporary).map_err(|error| {
+        FilePublishError::new(
+            FilePublishErrorKind::Inspect,
+            format!("inspect prepared file failed: {error}"),
+        )
+    })?;
+    if !staging_metadata.file_type().is_file() || staging_metadata.file_type().is_symlink() {
+        return Err(FilePublishError::new(
+            FilePublishErrorKind::InvalidInput,
+            "prepared path must remain a real regular file entry",
+        ));
+    }
+    let prepared_identity = crate::file_identity::path_identity(&temporary).map_err(|error| {
+        FilePublishError::new(
+            FilePublishErrorKind::Inspect,
+            format!("revalidate prepared file identity failed: {error}"),
+        )
+    })?;
+    if !reserved_identity.same_object(prepared_identity) {
+        return Err(FilePublishError::new(
+            FilePublishErrorKind::Inspect,
+            "path encoder replaced the reserved temporary file object",
+        ));
+    }
+    crate::selected::filesystem_publish::install_file_no_replace(&temporary, &destination)
+        .map_err(|error| {
+            FilePublishError::new(
+                FilePublishErrorKind::Install,
+                format!("install prepared file without replacement failed: {error}"),
+            )
+        })?;
+    crate::selected::filesystem_publish::sync_parent(parent).map_err(|error| {
+        FilePublishError::new(
+            FilePublishErrorKind::Durability,
+            format!("sync published file parent failed: {error}"),
+        )
+        .after_publish()
+    })?;
+    Ok(value)
+}
+
 /// Publishes a temporary created by `create_temporary` beside an already
 /// normalized destination. Unlike the public `publish_file`, this path does
 /// not need to rediscover whether two caller-owned paths share a physical
@@ -741,6 +815,65 @@ mod tests {
         assert!(!error.published());
         assert_eq!(fs::read(&destination).unwrap(), b"old");
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        crate::filesystem_cleanup::remove_tree(&root).unwrap();
+    }
+
+    #[test]
+    fn no_clobber_path_writer_installs_once_and_preserves_existing_file() {
+        let root = fixture("file-no-clobber");
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("capture.png");
+        write_path_atomic_no_clobber(&destination, |path| fs::write(path, b"first"))
+            .expect("initial publish");
+        let error = write_path_atomic_no_clobber(&destination, |path| fs::write(path, b"second"))
+            .expect_err("existing destination must be refused");
+        assert_eq!(error.kind(), FilePublishErrorKind::Install);
+        assert!(!error.published());
+        assert_eq!(fs::read(&destination).unwrap(), b"first");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        crate::filesystem_cleanup::remove_tree(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_clobber_path_writer_does_not_follow_final_symlink() {
+        let root = fixture("file-no-clobber-link");
+        fs::create_dir_all(&root).unwrap();
+        let target = root.join("target.png");
+        let destination = root.join("capture.png");
+        fs::write(&target, b"target").unwrap();
+        std::os::unix::fs::symlink(&target, &destination).unwrap();
+        let error = write_path_atomic_no_clobber(&destination, |path| fs::write(path, b"new"))
+            .expect_err("final symlink must be refused");
+        assert_eq!(error.kind(), FilePublishErrorKind::Install);
+        assert!(!error.published());
+        assert_eq!(fs::read(&target).unwrap(), b"target");
+        assert!(
+            fs::symlink_metadata(&destination)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        crate::filesystem_cleanup::remove_tree(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_clobber_path_writer_rejects_replaced_reserved_object() {
+        let root = fixture("file-no-clobber-staging-swap");
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("capture.png");
+        let error = write_path_atomic_no_clobber(&destination, |path| {
+            let replacement = root.join("replacement");
+            fs::write(&replacement, b"substituted")?;
+            fs::rename(replacement, path)
+        })
+        .expect_err("replaced reserved object must be refused");
+        assert_eq!(error.kind(), FilePublishErrorKind::Inspect);
+        assert!(!error.published());
+        assert!(!destination.exists());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
         crate::filesystem_cleanup::remove_tree(&root).unwrap();
     }
 

@@ -34,7 +34,10 @@ use unicode_width::UnicodeWidthStr;
 use crate::{
     client::{no_activate_from_environment, resolved_ipc_endpoint},
     commands::{alternate_screen_wheel_bytes, option_value, screenshot_output_path},
-    control_dispatch::{ControlHost, dispatch_shared_command, resolve_target_position},
+    control_dispatch::{
+        ControlHost, TerminalViewportImageFacts, dispatch_shared_command, resolve_target_position,
+        terminal_viewport_image_json,
+    },
     event_journal::{EventJournal, EventKind},
     frontend::{
         GuiHandoffResult, GuiLaunchResult, UNIX_GUI_CLI_NAME, UNIX_GUI_LAUNCH_POLICY,
@@ -4516,9 +4519,62 @@ impl UnixApp {
             ) =>
             {
                 let pane_only = !matches!(command, Some("screenshot"));
-                match self.save_screenshot(&envelope.request.args, pane_only) {
-                    Ok(path) => IpcResponse::success(path),
-                    Err(error) => IpcResponse::failure(error),
+                let json_reply = pane_only
+                    && envelope
+                        .request
+                        .args
+                        .iter()
+                        .any(|argument| argument == "--json");
+                let target_position = if json_reply {
+                    match screenshot_target_decision(
+                        resolve_target_position(
+                            &self.tabs,
+                            self.active,
+                            option_value(&envelope.request.args, "-t"),
+                        ),
+                        self.active_position(),
+                    ) {
+                        ScreenshotTargetDecision::Active(position) => Ok(Some(position)),
+                        ScreenshotTargetDecision::Inactive(position) => {
+                            Err(IpcResponse::typed_failure(
+                                format!(
+                                    "screenshot target @{} is not the active tab",
+                                    self.tabs[position].id
+                                ),
+                                "ui_screenshot_target_inactive",
+                                "precondition",
+                                false,
+                            ))
+                        }
+                        ScreenshotTargetDecision::NotFound => Err(IpcResponse::typed_failure(
+                            "screenshot target does not resolve to a live tab",
+                            "ui_screenshot_target_not_found",
+                            "validation",
+                            false,
+                        )),
+                    }
+                } else {
+                    Ok(None)
+                };
+                match target_position {
+                    Err(response) => response,
+                    Ok(target_position) => {
+                        match self.save_screenshot(
+                            &envelope.request.args,
+                            pane_only,
+                            target_position,
+                        ) {
+                            Ok(output) => IpcResponse::success(output),
+                            Err(error) => {
+                                let code = if error.starts_with("publish terminal screenshot: ") {
+                                    "ui_screenshot_publish_failed"
+                                } else {
+                                    "ui_screenshot_failed"
+                                };
+                                IpcResponse::typed_failure(error, code, "operation", false)
+                            }
+                        }
+                    }
                 }
             }
             None if command == Some("ui-input") => {
@@ -5349,7 +5405,12 @@ impl UnixApp {
         self.request_redraw();
     }
 
-    fn save_screenshot(&mut self, args: &[String], pane_only: bool) -> Result<String, String> {
+    fn save_screenshot(
+        &mut self,
+        args: &[String],
+        pane_only: bool,
+        target_position: Option<usize>,
+    ) -> Result<String, String> {
         self.cursor_blink.reset(Instant::now());
         self.render_buffers.request_capture();
         let metrics = self
@@ -5420,8 +5481,62 @@ impl UnixApp {
         } else {
             None
         };
-        screenshot::write_xrgb_png(&path, width, height, &pixels, clip)?;
+        let json_reply = pane_only && args.iter().any(|argument| argument == "--json");
+        if json_reply {
+            agenterm_platform::filesystem_publish::write_path_atomic_no_clobber(
+                &path,
+                |temporary| {
+                    screenshot::write_xrgb_png(temporary, width, height, &pixels, clip)
+                        .map_err(std::io::Error::other)
+                },
+            )
+            .map_err(|error| format!("publish terminal screenshot: {error}"))?;
+        } else {
+            screenshot::write_xrgb_png(&path, width, height, &pixels, clip)?;
+        }
+        if json_reply {
+            let position =
+                target_position.ok_or_else(|| "no screenshot tab is active".to_owned())?;
+            let tab = &self.tabs[position];
+            let screen = tab.parser.screen();
+            let (rows, columns) = screen.size();
+            let journal_position = self.event_journal.position();
+            let (pixel_width, pixel_height) = clip
+                .map(|(_, _, width, height)| (width, height))
+                .ok_or_else(|| "terminal screenshot clip is unavailable".to_owned())?;
+            return terminal_viewport_image_json(
+                &path,
+                TerminalViewportImageFacts {
+                    tab_id: &format!("@{}", tab.id),
+                    server_epoch: &journal_position.epoch,
+                    screen_generation: journal_position.sequence,
+                    scrollback_offset: screen.scrollback(),
+                    rows: u32::from(rows),
+                    columns: u32::from(columns),
+                    pixel_width,
+                    pixel_height,
+                },
+            );
+        }
         Ok(path.display().to_string())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ScreenshotTargetDecision {
+    Active(usize),
+    Inactive(usize),
+    NotFound,
+}
+
+fn screenshot_target_decision(
+    resolved: Option<usize>,
+    active: Option<usize>,
+) -> ScreenshotTargetDecision {
+    match resolved {
+        Some(position) if Some(position) == active => ScreenshotTargetDecision::Active(position),
+        Some(position) => ScreenshotTargetDecision::Inactive(position),
+        None => ScreenshotTargetDecision::NotFound,
     }
 }
 
@@ -6848,11 +6963,11 @@ fn workspace_toolbar_snapshot_json(toolbar: WorkspaceToolbarLayout) -> serde_jso
 #[cfg(test)]
 mod system_menu_tests {
     use super::{
-        GuiLaunchResult, RecentSidebarTextClick, RenderBuffers, TerminalPasteFailure,
-        UNIX_GUI_LAUNCH_POLICY, UNIX_GUI_USAGE, UnixFocusSurface, compact_cwd_for_status,
-        gui_help_result, parse_gui_launch_target, scale_frame_nearest, scale_rect_to_frame,
-        shift_extend_anchor, terminal_paste_bytes, terminal_paste_target_is_current,
-        workspace_toolbar_snapshot_json,
+        GuiLaunchResult, RecentSidebarTextClick, RenderBuffers, ScreenshotTargetDecision,
+        TerminalPasteFailure, UNIX_GUI_LAUNCH_POLICY, UNIX_GUI_USAGE, UnixFocusSurface,
+        compact_cwd_for_status, gui_help_result, parse_gui_launch_target, scale_frame_nearest,
+        scale_rect_to_frame, screenshot_target_decision, shift_extend_anchor, terminal_paste_bytes,
+        terminal_paste_target_is_current, workspace_toolbar_snapshot_json,
     };
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     use super::{ToolbarHit, platform_toolbar_action_id};
@@ -7242,6 +7357,22 @@ mod system_menu_tests {
         assert_eq!(
             shift_extend_anchor(sel, click),
             TerminalPoint { row: 2, col: 2 }
+        );
+    }
+
+    #[test]
+    fn screenshot_target_must_be_the_resolved_active_tab() {
+        assert_eq!(
+            screenshot_target_decision(Some(2), Some(2)),
+            ScreenshotTargetDecision::Active(2)
+        );
+        assert_eq!(
+            screenshot_target_decision(Some(2), Some(1)),
+            ScreenshotTargetDecision::Inactive(2)
+        );
+        assert_eq!(
+            screenshot_target_decision(None, Some(1)),
+            ScreenshotTargetDecision::NotFound
         );
     }
 }
