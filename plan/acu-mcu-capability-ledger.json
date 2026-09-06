@@ -1101,7 +1101,7 @@
           "acu_shape": "current, SSH and VNC mutations accept one all-or-none request-id/session/session-lease envelope; remote identity travels only in a bounded versioned stdin envelope and is admitted by the effect-owning worker",
           "state": "platform-limited",
           "platforms": {"macos": "native-current", "linux": "native-current", "windows": "native-current", "ssh": "native-worker-wire-public-journey-pending", "vnc": "native-worker-wire-public-journey-pending", "rdp": "gap"},
-          "evidence": ["agenterm-cu request store reopen/conflict/uncertain/bounds suite", "agenterm-cu effect-worker process-boundary replay/scope-conflict test", "agenterm-cu SSH/VNC stdin-envelope projection tests"],
+          "evidence": ["cu.runtime-request-idempotency.current", "agenterm-cu effect-worker process-boundary replay/scope-conflict test", "agenterm-cu SSH/VNC stdin-envelope projection tests"],
           "next": "derive exact target locks for migrated consumer cohorts, then prove one non-destructive mutation and exact replay through public SSH and VNC courts on all applicable hosts"
         },
         {

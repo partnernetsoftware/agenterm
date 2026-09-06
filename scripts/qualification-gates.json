@@ -392,7 +392,10 @@
     },
     {
       "id": "cu-file-transaction-smoke",
-      "evidence": ["cu.file-copy-transaction"]
+      "evidence": [
+        "cu.file-copy-transaction",
+        "cu.runtime-request-idempotency.current"
+      ]
     },
     {
       "id": "cu-file-move-transaction-smoke",

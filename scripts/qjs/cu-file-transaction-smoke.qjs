@@ -3,7 +3,10 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.file-copy-transaction"];
+const declared_evidence = [
+  "cu.file-copy-transaction",
+  "cu.runtime-request-idempotency.current"
+];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -57,8 +60,10 @@ const context = harness.new_context(repo, "cu-file-transaction");
 const run_directory = context.run_directory;
 const source = rh.join(run_directory, "source.bin");
 const destination = rh.join(run_directory, "destination.bin");
+const replay_destination = rh.join(run_directory, "replay-destination.bin");
 let succeeded = 0;
 let failure = "";
+let request_session = null;
 
 try {
   rh.write_text(source, "first-source");
@@ -98,6 +103,35 @@ try {
   ensure(finalized.state === "finalized" && !rh.exists(replaced.backup), "cu_file_transaction_finalize_poststate");
   ensure(rh.read_text(destination) === "replacement", "cu_file_transaction_finalize_content");
 
+  print("STEP request identity replays a completed mutation without repeating it");
+  request_session = invoke(run_directory, executable, "actuate", [
+    "session-start", "--label", "file-copy-replay", "--ttl-seconds", "120"
+  ], "session-start");
+  const request_id = "file-copy-" + context.run_id;
+  const request_prefix = [
+    "--request-id", request_id,
+    "--session", request_session.session_id,
+    "--session-lease", request_session.lease
+  ];
+  const first_request = request_prefix.concat([
+    "file-copy", source, replay_destination, "--apply"
+  ]);
+  const first_result = invoke(run_directory, executable, "actuate", first_request, "file-copy");
+  ensure(first_result.state === "completed" && rh.read_text(replay_destination) === "replacement",
+    "cu_file_transaction_request_first_effect");
+  const replayed = invoke(run_directory, executable, "actuate", first_request, "file-copy");
+  ensure(replayed.effect === "not_repeated" && replayed.idempotent === true,
+    "cu_file_transaction_request_replay");
+  const conflict = request_prefix.concat([
+    "file-copy", source, destination, "--replace", "--apply"
+  ]);
+  invoke(run_directory, executable, "actuate", conflict, "file-copy", "request_id_conflict");
+  ensure(rh.read_text(destination) === "replacement", "cu_file_transaction_request_conflict_mutated");
+  invoke(run_directory, executable, "actuate", [
+    "session-end", request_session.session_id, "--lease", request_session.lease, "--confirm"
+  ], "session-end");
+  request_session = null;
+
   print("STEP changed post-state refuses rollback rather than deleting unknown bytes");
   rh.write_text(source, "third-source");
   const guarded = invoke(run_directory, executable, "actuate", [
@@ -113,11 +147,23 @@ try {
   failure = "" + error;
 }
 
+if (request_session !== null) {
+  try {
+    invoke(run_directory, executable, "actuate", [
+      "session-end", request_session.session_id, "--lease", request_session.lease, "--confirm"
+    ], "session-end");
+  } catch (cleanup_error) {
+    if (failure === "") { failure = "cu_file_transaction_session_cleanup:" + cleanup_error; }
+  }
+}
+
 let completion_failure = "";
 try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
-  harness.emit_evidence(context, declared_evidence, "cu.file-copy-transaction");
+  for (const id of declared_evidence) {
+    harness.emit_evidence(context, declared_evidence, id);
+  }
   harness.remove_run(context);
   print("PASS: agenterm-cu recoverable file-copy transaction");
 }

@@ -269,6 +269,7 @@
         "cu.terminal-viewport-image.macos",
         "cu.simulator-readonly",
         "cu.file-copy-transaction",
+        "cu.runtime-request-idempotency.current",
         "cu.file-move-transaction",
         "cu.managed-job-lifecycle",
         "cu.managed-job-resources",

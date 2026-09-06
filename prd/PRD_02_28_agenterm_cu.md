@@ -411,8 +411,12 @@ flowchart LR
   session, reserves before effect, audits and finalizes. The bearer lease never
   enters argv/environment, and target-to-current rewriting retains an opaque
   effect-scope digest so another endpoint conflicts instead of receiving a
-  false replay. Unit and process-boundary worker courts are green; public
-  SSH/VNC mutation journeys, exact target-lock derivation, three-host evidence,
+  false replay. The platform-neutral public qjswasm file-copy court now also
+  proves the current-target boundary: the first exact request publishes the
+  destination, an exact retry returns `effect=not_repeated`, and the same id
+  with a changed command is `request_id_conflict` without changing either
+  object. Unit and process-boundary worker courts are green; public SSH/VNC
+  mutation journeys, exact target-lock derivation, three-host evidence and
   remaining native courts stay open. `runtime-status` now truthfully reports
   that no global daemon is present or required: coordination is on demand and
   resident ownership belongs to the resource that needs it. Its snapshot reads

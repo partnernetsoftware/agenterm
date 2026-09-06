@@ -673,6 +673,9 @@ Q2b host/boot identity
 ├─ [ ] Linux + Windows native court reruns
 └─ [ ] terminal sleep/restart/shutdown plan/apply remain separate privilege leaves
 Q3 owned runtime facades
+├─ [~] request idempotency
+│  ├─ [x] public qjswasm current-target file-copy: exact replay no effect; changed command typed conflict
+│  └─ [ ] SSH/VNC public mutation journeys + exact target-lock derivation + three-host qualification
 ├─ [~] PTY/job/runtime/session/lock/audit/service
 │  ├─ [x] runtime-status: on-demand coordinator + per-resource owner topology, non-publishing snapshot
 │  ├─ [~] daemon status/caps route to ACU; macOS + Windows aarch64 qjswasm green; Linux + Windows x86 pending

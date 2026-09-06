@@ -3024,7 +3024,7 @@
     },
     {
       "id": "cu-file-transaction-smoke",
-      "description": "Prove plan-only default, exact apply/readback, durable status, rollback, retained-backup finalize, and changed-destination refusal through the public agenterm-cu CLI.",
+      "description": "Prove plan-only default, exact apply/readback, durable status, rollback, retained-backup finalize, changed-destination refusal and request-id replay/conflict through the public agenterm-cu CLI.",
       "entry": "scripts/qjs/cu-file-transaction-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -165,6 +165,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       只可 list/revoke、执行 fail-closed；macOS sealed current-session
 │     │                       provider + qjswasm operation/no-consumption/revoke court 已绿，
 │     │                       Windows 公开复跑与 Linux provider 仍是资格缺口
+│     │                       current-target request-id 已由公开 qjswasm file-copy court 证明：
+│     │                       exact retry 不重复 effect，改变 command 则 typed conflict；SSH/VNC 待证
 │     │                       owned browser profile 已从 gap 晋级 platform-limited：macOS qjswasm
 │     │                       已证 start/list/status/stop/restart/TTL/cleanup；Lnx/Win court 待跑
 │     │                       device claim/lease/I/O 已有 macOS + Linux 双 ISA qjswasm court，
