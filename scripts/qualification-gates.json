@@ -309,6 +309,10 @@
     {
       "id": "cu-network-interfaces-smoke",
       "evidence": ["cu.network-interfaces"]
+    },
+    {
+      "id": "cu-desktop-state-smoke",
+      "evidence": ["cu.desktop-state"]
     }
   ]
 }

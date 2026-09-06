@@ -1194,6 +1194,17 @@
       "network": [],
       "evidence": ["task.cu-network-interfaces-smoke"]
     },
+    "cu-desktop-state-smoke": {
+      "inputs": ["built-agenterm-cu", "desktop-session"],
+      "outputs": ["cu-desktop-state-evidence"],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": ["task.cu-desktop-state-smoke"]
+    },
     "cu-network-dns-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3446,6 +3457,17 @@
         ".",
         "target/debug/agenterm-cu"
       ],
+      "dependencies": [],
+      "platforms": ["windows", "linux", "macos"],
+      "side_effects": ["artifact_write", "process_spawn"]
+    },
+    {
+      "id": "cu-desktop-state-smoke",
+      "description": "Prove the screenshot-free desktop aggregate binds one exact window across bounded inventory, accessibility-tree and pointer observations.",
+      "entry": "scripts/qjs/cu-desktop-state-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [".", "target/debug/agenterm-cu"],
       "dependencies": [],
       "platforms": ["windows", "linux", "macos"],
       "side_effects": ["artifact_write", "process_spawn"]

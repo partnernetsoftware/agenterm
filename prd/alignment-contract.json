@@ -243,7 +243,8 @@
         "cu.audio-plan",
         "cu.service-plan",
         "cu.service-transaction",
-        "cu.network-interfaces"
+        "cu.network-interfaces",
+        "cu.desktop-state"
       ]
     },
     {

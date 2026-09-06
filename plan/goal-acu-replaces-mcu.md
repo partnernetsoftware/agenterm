@@ -696,6 +696,9 @@ Q3 owned runtime facades
    │  ├─ [x] macOS public qjswasm schema/count/identity court `cu.network-interfaces`
    │  ├─ [x] Windows x86_64 + arm64 compile/Clippy
    │  └─ [ ] Linux + Windows native public runtime courts
+   ├─ [~] desktop-state: screenshot-free bounded inventory + tree + pointer aggregate
+   │  ├─ [x] macOS public qjswasm journey `cu.desktop-state`
+   │  └─ [ ] Linux + Windows native desktop courts
    ├─ [~] network-routes: netlink/route-socket/IP-Helper bounded snapshot
    │  ├─ [x] ifindex/LUID identity + deterministic public ordering
    │  ├─ [x] interrupted/malformed snapshot fails typed; no shell

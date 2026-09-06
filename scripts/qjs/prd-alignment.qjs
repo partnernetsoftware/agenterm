@@ -259,6 +259,7 @@ const evidence_suites = {
   "cu-audio-smoke": true,
   "cu-service-smoke": true,
   "cu-network-interfaces-smoke": true,
+  "cu-desktop-state-smoke": true,
   "unix-frontend-linux-smoke": true,
   "unix-frontend-macos-smoke": true,
   "server-smoke": true,

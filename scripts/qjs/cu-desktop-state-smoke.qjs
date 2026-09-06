@@ -1,0 +1,108 @@
+// Platform-neutral public black-box journey for the screenshot-free desktop state.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.desktop-state"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const receipt_path = rh.join(run_directory, "cu-receipts.jsonl");
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: receipt_path
+    },
+    timeout_ms: 30000
+  });
+  ensure(output.success === expect_success, "cu_desktop_state_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_desktop_state_reply_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "", "cu_desktop_state_effect_receipt_created");
+  return reply;
+}
+
+function assert_payload(reply, max_nodes, selection) {
+  ensure(reply.command === "desktop-state" && reply.target === "current", "cu_desktop_state_identity");
+  const data = reply.data;
+  ensure(
+    data.snapshot_version === 1
+      && data.selection === selection
+      && data.addressing === "window-inventory+accessibility-tree+absolute-screen-coordinates"
+      && Array.isArray(data.windows)
+      && data.windows.length > 0
+      && typeof data.active_window.handle === "number"
+      && data.window.handle === data.active_window.handle
+      && data.tree.window === data.window.handle
+      && data.tree.returned === data.tree.nodes.length
+      && data.tree.returned <= max_nodes
+      && typeof data.complete.windows === "boolean"
+      && typeof data.complete.tree === "boolean"
+      && data.pointer.effect === "observed"
+      && Array.isArray(data.pointer.coords)
+      && data.pointer.coords.length === 2,
+    "cu_desktop_state_schema"
+  );
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_desktop_state_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-desktop-state");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP focused desktop state composes bounded inventory, tree and pointer observations");
+  const focused = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "desktop-state", "--depth", "2", "--max-nodes", "64"
+  ], true);
+  assert_payload(focused, 64, "focused");
+
+  print("STEP explicit handle remains bound to the same inventory identity");
+  const exact = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "desktop-state",
+    "--window", "" + focused.data.window.handle, "--depth", "1", "--max-nodes", "32"
+  ], true);
+  assert_payload(exact, 32, "explicit");
+  ensure(exact.data.window.handle === focused.data.window.handle, "cu_desktop_state_exact_window_drift");
+
+  print("STEP invalid node budget fails before desktop observation");
+  const invalid = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "desktop-state", "--max-nodes", "0"
+  ], false);
+  ensure(invalid.error.code === "invalid_input", "cu_desktop_state_invalid_budget_code");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.desktop-state");
+  harness.remove_run(context);
+  print("PASS: screenshot-free desktop state is identity-bound, bounded and mutation-free");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

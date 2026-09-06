@@ -1355,6 +1355,12 @@ flowchart LR
   socket slice is live through `process-sockets`; per-service DNS mutation and
   global/name-selected sockets remain MCU gaps.
 
+- [~] `desktop-state` has a public screenshot-free qjswasm journey on macOS.
+  It binds focused and explicit-handle reads across one bounded window
+  inventory, one accessibility tree and absolute pointer coordinates, and
+  asserts that no effect receipt is created. Linux and Windows desktop courts
+  remain required before three-host promotion.
+
   `network-probe` is implemented as an Observe
   facade: resolve once through the host resolver, deduplicate/freeze addresses,
   then report the exact bounded TCP attempts. The resolver lives in an
