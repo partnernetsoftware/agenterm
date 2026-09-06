@@ -101,13 +101,20 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-watch  device-list  storage-devices  resource-status  power-status  runtime-status  device-claims\n  device-claim  device-status  device-read  device-write  device-renew  device-release",
+            "  device-watch  device-list  storage-devices  resource-status  power-status  runtime-status  device-claims\n  device-claim  device-status  device-read  device-write  device-renew  device-release  login-session",
             1,
         );
     }
     if let Some(row) = text
         .lines()
         .find(|line| line.trim_start().starts_with("power-status "))
+        .map(str::to_owned)
+    {
+        text = text.replacen(&format!("{row}\n"), "", 1);
+    }
+    if let Some(row) = text
+        .lines()
+        .find(|line| line.trim_start().starts_with("login-session "))
         .map(str::to_owned)
     {
         text = text.replacen(&format!("{row}\n"), "", 1);

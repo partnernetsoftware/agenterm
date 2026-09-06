@@ -150,7 +150,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       interactive agent 在 180s/360s 均无 nonce，属基础设施阻塞、无产品判决
 │     │                       rich ps 已由有界过滤/采样/树详情 + qjswasm macOS court 从 gap 晋级 native
 │     │                       power status 已绑定安装伪身份 + 原生 boot instance；macOS qjswasm court 绿，
-│     │                       Linux/Windows 待原生复跑；过渡壳可达静态 STAY 从 5 降到 3
+│     │                       Linux/Windows 待原生复跑；过渡壳可达静态 STAY 从 5 降到 2
+│     │                       login-session 已有 macOS 原生有界 inventory、精确会话短时 plan、
+│     │                       持久化防重放与锁定回读；只读 qjswasm 绿，显式可见锁屏 court 待跑
 │     │                       external term observe + 显式前台 send 在 macOS/Windows ARM64/Linux x86_64
 │     │                       原生 court 全绿，term 过渡标记已移除；其余 ISA 归六格交付门
 │     │                       未过 typed-object、零 gap/STAY、六格与 MCU-absent 门前保持 partial

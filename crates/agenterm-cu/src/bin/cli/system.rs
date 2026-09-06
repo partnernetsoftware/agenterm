@@ -24,6 +24,65 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name == "login-session" {
+        let subcommand = args
+            .first()
+            .map(String::as_str)
+            .ok_or_else(|| "login-session requires status, plan lock or apply".to_owned())?;
+        match subcommand {
+            "status" => {
+                args.remove(0);
+                if !args.is_empty() {
+                    return Err(format!(
+                        "login-session status accepts no arguments; unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                return Ok(Command::LoginSessionStatus { target });
+            }
+            "plan" => {
+                args.remove(0);
+                if args.first().map(String::as_str) != Some("lock") {
+                    return Err("login-session plan currently supports only lock".to_owned());
+                }
+                args.remove(0);
+                let ttl_seconds = flag_parsed::<u64>(args, "--ttl-seconds")?.unwrap_or(120);
+                if !args.is_empty() {
+                    return Err(format!(
+                        "login-session plan lock accepts only --ttl-seconds N; unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                let command = Command::LoginSessionPlanLock {
+                    target,
+                    ttl_seconds,
+                };
+                command.validate().map_err(str::to_owned)?;
+                return Ok(command);
+            }
+            "apply" => {
+                args.remove(0);
+                let request = flag_text(args, "--request")?
+                    .ok_or_else(|| "login-session apply requires --request R".to_owned())?;
+                let approval = flag_text(args, "--approve")?
+                    .ok_or_else(|| "login-session apply requires --approve H".to_owned())?;
+                if !args.is_empty() {
+                    return Err(format!(
+                        "login-session apply accepts only --request R and --approve H; unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                let command = Command::LoginSessionApplyLock {
+                    target,
+                    request,
+                    approval,
+                };
+                command.validate().map_err(str::to_owned)?;
+                return Ok(command);
+            }
+            other => return Err(format!("unknown login-session subcommand {other:?}")),
+        }
+    }
     if spec.name == "setup" {
         let check = take_switch(args, "--check");
         let bin_dir = flag_text(args, "--bin-dir")?;
@@ -801,6 +860,40 @@ mod tests {
             }
         ));
         assert!(parse("daemon", &["status", "extra"]).is_err());
+    }
+
+    #[test]
+    fn login_session_status_plan_and_apply_are_closed() {
+        assert!(matches!(
+            parse("login-session", &["status"]).unwrap(),
+            Command::LoginSessionStatus {
+                target: TargetRef::Current
+            }
+        ));
+        assert!(matches!(
+            parse("login-session", &["plan", "lock", "--ttl-seconds", "60"]).unwrap(),
+            Command::LoginSessionPlanLock {
+                ttl_seconds: 60,
+                ..
+            }
+        ));
+        let request = "00";
+        let approval = "a".repeat(64);
+        assert!(matches!(
+            parse(
+                "login-session",
+                &["apply", "--request", request, "--approve", &approval]
+            )
+            .unwrap(),
+            Command::LoginSessionApplyLock {
+                request: encoded,
+                approval: digest,
+                ..
+            } if encoded == request && digest == approval
+        ));
+        assert!(parse("login-session", &["plan", "unlock"]).is_err());
+        assert!(parse("login-session", &["plan", "lock", "--ttl-seconds", "0"]).is_err());
+        assert!(parse("login-session", &["apply", "--request", request]).is_err());
     }
 
     #[test]

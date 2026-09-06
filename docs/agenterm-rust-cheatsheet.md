@@ -3859,6 +3859,23 @@ accessors are unstable. Never substitute a canonical path for object identity.
 When metadata crosses a JSON/JavaScript boundary, encode wide sizes, timestamps
 and native ids as decimal strings so binary64 cannot round them.
 
+Strict private-store tests must not assume `std::env::temp_dir()` has safe
+ancestry. On macOS it commonly resolves beneath `/var`, whose public spelling
+contains a system symlink; an `O_NOFOLLOW` component walk correctly rejects
+that path even though the final directory is private. Put such test stores in
+one unique repo-local `target/<test-lane>/` directory, exercise the same ancestry
+checks as production, and remove the lane after the owning test. Do not weaken
+production link rejection merely to accommodate the host temp-directory alias.
+
+For approval-bound at-most-once effects, separate request integrity from fresh
+admission. Recompute the canonical fingerprint first, then look up a surviving
+durable receipt before checking the short approval TTL or calling a live
+provider. A finalized or uncertain retry must remain queryable after approval
+expiry, session drift, or provider loss; only a request with no retained record
+continues through expiry, live precondition checks, reservation and delivery.
+The lookup itself is read-only, serialized, fingerprint-bound and retention-
+bounded—it must not create or refresh a record.
+
 ## Keep screen, event, and raw terminal cursors distinct
 
 A terminal screen snapshot, a UI event-journal cursor, and a raw PTY byte

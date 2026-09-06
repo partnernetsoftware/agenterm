@@ -231,7 +231,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "process",
     "resource",
     "power",
-    "login-session",
     "storage",
     "file",
     "network",
@@ -404,8 +403,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "power-status binds an installation-scoped host pseudonym to one native boot instance; terminal sleep/restart/shutdown plan/apply remain typed gaps",
         ),
         "login-session" => (
-            "unsupported",
-            "ACU migration gap: session-global login actions need an explicit typed facade",
+            "available",
+            "bounded exact-session status plus approval-bound at-most-once lock plan/apply are native on macOS; Linux and Windows return the truthful platform limit",
         ),
         "storage" => (
             "available",

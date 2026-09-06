@@ -553,6 +553,21 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "login-session".into(),
+            serde_json::json!({
+                "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "group": "login-session",
+                "grant": "mixed",
+                "grant_by_shape": {
+                    "status": "observe",
+                    "plan lock": "observe",
+                    "apply": "actuate",
+                },
+                "mode": "exact-console-session-plan-apply",
+                "unlock": "human-credential-boundary",
+            }),
+        );
+        verbs.insert(
             "file-copy".into(),
             serde_json::json!({
                 "status": "available",

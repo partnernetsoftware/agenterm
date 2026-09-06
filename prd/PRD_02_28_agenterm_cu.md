@@ -1586,18 +1586,26 @@ flowchart LR
   promise. MCU implements `login-session` only on macOS, so ACU must provide
   the exact macOS console-session status/lock contract while Linux and Windows
   return a truthful typed unsupported result for this version.
-  - [ ] `agenterm-platform` owns a bounded neutral inventory contract and a
+  - [x] `agenterm-platform` owns a bounded neutral inventory contract and a
     macOS IOKit/CoreFoundation adapter. Missing or changed `IOConsoleUsers` /
     `IOConsoleLocked` shapes fail typed; product code does not run `ioreg`,
     `plutil`, AppleScript or private SecurityAgent/SkyLight APIs.
-  - [ ] ACU binds the console-session generation, current user, 120-second
+  - [x] ACU binds the console-session generation, current user, 120-second
     expiry and intended lock effect into separate contract/approval digests.
     Its durable request store reserves before input delivery, consumes even a
-    pre-locked no-op, and never replays an uncertain post-effect outcome.
-  - [ ] the default public qjswasm court uses a hidden fixture provider and
-    proves tamper, drift, expiry, replay and crash behavior without locking the
-    developer's screen. A native court proves status and plan read-only; actual
-    lock delivery belongs to a separate explicit visible court.
+    pre-locked no-op, and never replays an uncertain post-effect outcome. A
+    finalized or uncertain receipt is looked up before approval expiry and
+    live-session revalidation, so replay remains explainable without touching
+    the provider while the bounded retention record exists. `plan` exposes the
+    canonical `approval_digest` plus an equal `approval` handoff alias, while
+    the temporary adapter remains only an argv/stdin/stdout/exit forwarder; it
+    does not recreate MCU's historical unwrapped JSON response shapes.
+  - [~] the Rust provider seam proves tamper, drift, expiry, completed replay,
+    uncertain replay and persistence-failure behavior without locking the
+    developer's screen. The public qjswasm court proves native status and plan
+    are bounded and mutation-free on macOS, plus typed unsupported behavior on
+    Linux/Windows. Actual lock delivery remains a separate explicit visible
+    court; there is no claim that the public read-only court exercised it.
 
   ```mermaid
   flowchart LR

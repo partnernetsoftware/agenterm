@@ -79,7 +79,25 @@ fn build_verb_catalog() {
         assert!(names.insert(name), "duplicate verb name {name:?}");
         assert!(spellings.insert(name), "duplicate verb spelling {name:?}");
         assert!(!command.is_empty());
-        assert!(matches!(grant, "observe" | "actuate" | "none"));
+        assert!(matches!(grant, "observe" | "actuate" | "mixed" | "none"));
+        if grant == "mixed" {
+            let by_shape = row["grant_by_shape"]
+                .as_object()
+                .expect("mixed grant verb must declare grant_by_shape");
+            assert!(!by_shape.is_empty(), "mixed grant map must not be empty");
+            for (shape, value) in by_shape {
+                assert!(!shape.is_empty(), "mixed grant shape must not be empty");
+                assert!(
+                    matches!(value.as_str(), Some("observe" | "actuate")),
+                    "mixed grant values must be observe or actuate"
+                );
+            }
+        } else {
+            assert!(
+                row.get("grant_by_shape").is_none(),
+                "only mixed grant verbs may declare grant_by_shape"
+            );
+        }
         assert!(matches!(
             family,
             "system"

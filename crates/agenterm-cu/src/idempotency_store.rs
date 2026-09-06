@@ -213,6 +213,46 @@ impl IdempotencyStore {
         &self.path
     }
 
+    /// Read an existing request outcome without creating, refreshing or
+    /// deleting any record. This is the first step for effect APIs whose
+    /// short-lived approval may expire before a caller asks for the durable
+    /// terminal receipt again.
+    pub fn lookup(
+        &self,
+        request_id: &str,
+        fingerprint_sha256: &str,
+        now_utc_ms: i64,
+    ) -> Result<Option<RequestStatus>, CuError> {
+        validate_request_id(request_id)?;
+        validate_digest(fingerprint_sha256, "request_fingerprint_invalid")?;
+        validate_now(now_utc_ms)?;
+
+        let lock_path = self.lock_path()?;
+        let _lock = PathLock::try_acquire(&lock_path).map_err(|error| {
+            let code = if error.kind() == LockErrorKind::Contended {
+                "request_store_lock_contended"
+            } else {
+                "request_store_unavailable"
+            };
+            CuError::new(code, "request idempotency store lock is unavailable")
+        })?;
+        let document = self.read_document()?.unwrap_or_default();
+        if now_utc_ms < document.last_now_utc_ms {
+            return Err(CuError::new(
+                "request_store_clock_rollback",
+                "request idempotency clock moved backward from persisted state",
+            ));
+        }
+        let Some(record) = document.records.get(request_id) else {
+            return Ok(None);
+        };
+        if record.expires_at_utc_ms <= now_utc_ms {
+            return Ok(None);
+        }
+        ensure_fingerprint(record, fingerprint_sha256)?;
+        Ok(Some(public_status(record)))
+    }
+
     /// Durably reserve a caller identity before its external side effect.
     ///
     /// `fingerprint_sha256` should come from [`fingerprint_canonical_request`].

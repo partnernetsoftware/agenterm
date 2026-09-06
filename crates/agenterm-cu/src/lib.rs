@@ -25,6 +25,7 @@ pub mod grant_management;
 pub mod host_actions;
 pub mod hotkeys;
 pub mod idempotency_store;
+pub mod login_session;
 #[cfg(target_os = "macos")]
 pub mod macos_focus;
 pub mod macos_spaces;

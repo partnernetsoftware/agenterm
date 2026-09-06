@@ -2506,6 +2506,47 @@
       "args": []
     },
     {
+      "name": "login-session",
+      "command": "login-session",
+      "aliases": [],
+      "grant": "mixed",
+      "grant_by_shape": {
+        "status": "observe",
+        "plan lock": "observe",
+        "apply": "actuate"
+      },
+      "family": "system",
+      "summary": "observe the exact console session or plan/apply one approval-bound lock",
+      "usage": "login-session status\nlogin-session plan lock [--ttl-seconds N]\nlogin-session apply --request R --approve H",
+      "args": [
+        {
+          "flag": "status",
+          "value": "",
+          "help": "bounded read-only console-session inventory and locked state"
+        },
+        {
+          "flag": "plan lock",
+          "value": "",
+          "help": "prepare an exact-session expiring lock request without mutation"
+        },
+        {
+          "flag": "--ttl-seconds",
+          "value": "N",
+          "help": "approval lifetime in 1..=600 seconds (default 120)"
+        },
+        {
+          "flag": "--request",
+          "value": "R",
+          "help": "bounded request returned by plan lock"
+        },
+        {
+          "flag": "--approve",
+          "value": "H",
+          "help": "exact 64-hex approval digest returned by plan lock"
+        }
+      ]
+    },
+    {
       "name": "storage-devices",
       "command": "storage-devices",
       "aliases": [
@@ -5332,6 +5373,10 @@
     {
       "name": "runtime-status",
       "text": "agenterm-cu runtime-status    (also: daemon status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  daemon status\n  runtime-status\n\nReports ACU's actual on-demand coordinator, active session/lock counts and\ndurable managed-job state counts. ACU has no global daemon: each long-lived\njob or browser session has its own bounded resident owner. This command is\nread-only and does not probe child liveness; use job-status for that exact\nowner check. daemon start/restart/stop are not aliases and must not become\nno-op successes.\n"
+    },
+    {
+      "name": "login-session",
+      "text": "agenterm-cu login-session\n  scope: observe for status/plan; actuate for apply    family: System & permissions\n\nusage:\n  login-session status\n  login-session plan lock [--ttl-seconds N]\n  login-session apply --request R --approve H\n\nStatus returns a bounded current console-session inventory and lock state. Plan\nre-reads one completed console session owned by the current user and returns an\nencoded request plus separate contract and approval digests without mutation;\nits approval alias is the exact value to pass to --approve. Apply checks an\nexisting durable receipt before expiry or live-provider checks, then validates\na fresh request's expiry, user and exact session identity, reserves before\ndelivery, and verifies the locked postcondition. A crash or uncertain delivery\nis durably closed and never automatically repeated. An already-locked session\nconsumes the approval as a verified no-op. Unlock remains a human credential or\nbiometric boundary and is never automated. Linux and Windows return\nlogin_session_unsupported rather than claiming macOS semantics.\n"
     },
     {
       "name": "storage-devices",

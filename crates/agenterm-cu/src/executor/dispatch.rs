@@ -35,6 +35,40 @@ impl Executor {
             },
             Command::Doctor { .. } => Ok(doctor_payload()),
             Command::RuntimeStatus { .. } => runtime_status_payload(),
+            Command::LoginSessionStatus { .. } => {
+                serde_json::to_value(crate::login_session::status()?).map_err(|_| {
+                    CuError::new(
+                        "login_session_serialization_failed",
+                        "login-session status could not be serialized",
+                    )
+                })
+            }
+            Command::LoginSessionPlanLock { ttl_seconds, .. } => {
+                let plan = crate::login_session::plan_lock_with_ttl(*ttl_seconds)?;
+                let request = crate::login_session::encode_lock_request(&plan)?;
+                let mut value = serde_json::to_value(&plan).map_err(|_| {
+                    CuError::new(
+                        "login_session_serialization_failed",
+                        "session lock plan could not be serialized",
+                    )
+                })?;
+                value["request"] = serde_json::Value::String(request);
+                value["approval"] = serde_json::Value::String(plan.approval_digest.clone());
+                Ok(value)
+            }
+            Command::LoginSessionApplyLock {
+                request, approval, ..
+            } => {
+                let plan = crate::login_session::decode_lock_request(request)?;
+                serde_json::to_value(crate::login_session::apply_lock(&plan, approval)?).map_err(
+                    |_| {
+                        CuError::new(
+                            "login_session_serialization_failed",
+                            "session lock receipt could not be serialized",
+                        )
+                    },
+                )
+            }
             Command::HostOpen {
                 value,
                 application,

@@ -286,6 +286,12 @@
       "evidence": [
         "cu.pty-background-interactive"
       ]
+    },
+    {
+      "id": "cu-login-session-smoke",
+      "evidence": [
+        "cu.login-session-plan"
+      ]
     }
   ]
 }

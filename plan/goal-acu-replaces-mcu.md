@@ -104,11 +104,13 @@ flowchart LR
   PTY --> MJ["managed job live on macOS + Linux x86_64<br/>resident owner · native IPC · exact replay"]
   NET --> NI["network interfaces live<br/>native ids · stable order · bounded snapshot"]
   DESK --> DS["desktop-state live<br/>bounded · exact target · drift refusal"]
+  RUN --> LS["login-session native macOS<br/>exact identity · short approval · at-most-once<br/>visible lock court pending"]
   TL --> Q
   SE --> Q
   MJ --> Q
   NI --> Q
   DS --> Q
+  LS --> Q
   PROC --> SIG["exact process signal live<br/>pidfd / audit token / HANDLE<br/>delivery ≠ application acknowledgement"]
   SIG --> Q
   Q --> H["three-host native court"]
@@ -215,8 +217,8 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **3 reachable top-level `STAY` spellings**: login-session,
-audio and service. Family routers
+`acu.ts` now has **2 reachable top-level `STAY` spellings**: audio and service.
+Family routers
 still report their argument-sensitive gaps dynamically; they are not hidden in
 the static count. Native
 `setup --check|apply` and its `path-install` alias removed launcher filesystem
@@ -625,9 +627,10 @@ Q3 owned runtime facades
 │  ├─ [ ] per-user login-service install/status/uninstall provider
 │  ├─ [~] login-session parity (MCU itself is macOS-only)
 │  │  ├─ [x] scope decision: macOS native; Linux/Windows truthful typed unsupported
-│  │  ├─ [ ] platform contract + bounded IOKit console inventory; no shell/private framework
-│  │  ├─ [ ] exact-session 120s plan + approval digest + durable at-most-once lock receipt
-│  │  └─ [ ] fixture qjs court, native read-only court, separate explicit visible lock court
+│  │  ├─ [x] platform contract + bounded IOKit console inventory; no shell/private framework
+│  │  ├─ [x] exact-session 120s plan + approval digest + durable at-most-once lock receipt
+│  │  ├─ [x] replay lookup precedes TTL/session/provider checks while its bounded receipt survives
+│  │  └─ [~] Rust fixture state machine + public qjswasm native read-only court green; separate explicit visible lock court pending
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
 │  ├─ [~] terminal lifecycle: macOS registered qjswasm journey green; Linux/Windows courts pending
 │  ├─ [x] terminal-snapshot/events: structured screen + loss-aware epoch/sequence cursor

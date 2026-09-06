@@ -933,6 +933,21 @@ pub enum Command {
     RuntimeStatus {
         target: TargetRef,
     },
+    /// Read the bounded current console-session inventory and lock state.
+    LoginSessionStatus {
+        target: TargetRef,
+    },
+    /// Prepare a short-lived, exact-session lock plan without performing it.
+    LoginSessionPlanLock {
+        target: TargetRef,
+        ttl_seconds: u64,
+    },
+    /// Apply one encoded exact-session lock plan with durable replay closure.
+    LoginSessionApplyLock {
+        target: TargetRef,
+        request: String,
+        approval: String,
+    },
     /// Ask the host's registered application dispatcher to open one path or
     /// URL. Native acceptance is not proof that a handler consumed it.
     HostOpen {
@@ -3192,6 +3207,9 @@ impl Command {
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
             Self::RuntimeStatus { .. } => "runtime-status".into(),
+            Self::LoginSessionStatus { .. }
+            | Self::LoginSessionPlanLock { .. }
+            | Self::LoginSessionApplyLock { .. } => "login-session".into(),
             Self::HostOpen { .. } => "host-open".into(),
             Self::HostNotify { .. } => "host-notify".into(),
             Self::AuditQuery { .. } => "audit-query".into(),
@@ -3373,6 +3391,9 @@ impl Command {
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
             | Self::RuntimeStatus { target, .. }
+            | Self::LoginSessionStatus { target }
+            | Self::LoginSessionPlanLock { target, .. }
+            | Self::LoginSessionApplyLock { target, .. }
             | Self::HostOpen { target, .. }
             | Self::HostNotify { target, .. }
             | Self::AuditQuery { target, .. }
@@ -3559,6 +3580,7 @@ impl Command {
             }
             | Self::HostOpen { .. }
             | Self::HostNotify { .. }
+            | Self::LoginSessionApplyLock { .. }
             | Self::PointerMove { .. }
             | Self::AuditCompact { apply: true, .. }
             | Self::SessionStart { .. }
@@ -3659,6 +3681,23 @@ impl Command {
                     path.is_empty() || path.len() > 8192 || path.as_bytes().contains(&0)
                 }) {
                     return Err("setup bin_dir must contain 1..=8192 non-NUL UTF-8 bytes");
+                }
+                Ok(())
+            }
+            Self::LoginSessionPlanLock { ttl_seconds, .. } => {
+                if !(1..=600).contains(ttl_seconds) {
+                    return Err("login-session plan lock ttl_seconds must be in 1..=600");
+                }
+                Ok(())
+            }
+            Self::LoginSessionApplyLock {
+                request, approval, ..
+            } => {
+                if request.is_empty() || request.len() > 32_768 {
+                    return Err("login-session apply request must be in 1..=32768 bytes");
+                }
+                if approval.len() != 64 || !approval.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    return Err("login-session apply approval must be a 64-hex digest");
                 }
                 Ok(())
             }
@@ -4519,6 +4558,39 @@ mod tests {
                 target: TargetRef::Ssh
             }
         ));
+    }
+
+    #[test]
+    fn login_session_shapes_keep_exact_targets_and_mixed_grants_on_the_wire() {
+        let status = Command::LoginSessionStatus {
+            target: TargetRef::Ssh,
+        };
+        let plan = Command::LoginSessionPlanLock {
+            target: TargetRef::Vnc,
+            ttl_seconds: 60,
+        };
+        let apply = Command::LoginSessionApplyLock {
+            target: TargetRef::Current,
+            request: "REQUEST".into(),
+            approval: "a".repeat(64),
+        };
+        assert_eq!(status.required_grant(), Grant::Observe);
+        assert_eq!(plan.required_grant(), Grant::Observe);
+        assert_eq!(apply.required_grant(), Grant::Actuate);
+        assert_eq!(status.target(), TargetRef::Ssh);
+        assert_eq!(plan.target(), TargetRef::Vnc);
+        assert_eq!(apply.target(), TargetRef::Current);
+        for (command, expected_wire_verb) in [
+            (status, "login-session-status"),
+            (plan, "login-session-plan-lock"),
+            (apply, "login-session-apply-lock"),
+        ] {
+            assert_eq!(command.verb(), "login-session");
+            let value = serde_json::to_value(&command).expect("serialize");
+            assert_eq!(value["verb"], expected_wire_verb);
+            let back: Command = serde_json::from_value(value).expect("deserialize");
+            assert_eq!(back.verb(), "login-session");
+        }
     }
 
     #[test]

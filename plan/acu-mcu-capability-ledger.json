@@ -1058,10 +1058,13 @@
         {
           "id": "login-session.inventory-lock",
           "mcu_shape": "login-session status|lock with console identity, short approval, anti-replay reservation and locked-state readback",
-          "acu_shape": null,
+          "acu_shape": "login-session status | plan lock [--ttl-seconds N] | apply --request R --approve H",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "provider-pending", "windows": "provider-pending"},
-          "next": "native console-session identity and lock-only mutation; unlocking remains human credential/biometric territory"
+          "platforms": {"macos": "native-read-only-qjswasm-and-effect-fixture", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "qualification": "macos-public-read-only-qjswasm-green-explicit-visible-lock-court-pending",
+          "evidence": ["cu.login-session-plan", "agenterm-cu login_session state-machine suite including expired provider-free replay"],
+          "next": "run the opt-in visible macOS lock court and verify the exact session becomes locked; unlocking remains human credential/biometric territory",
+          "note": "The platform facade reads a bounded IOKit console inventory and uses the standard lock-screen chord only after native input preflight. Product policy requires the current uid, binds the exact session identity, emits a short canonical plan with separate contract/approval digests, reserves before delivery and never repeats an uncertain effect. Routine qualification is observation/plan only and never locks the host."
         }
       ]
     },

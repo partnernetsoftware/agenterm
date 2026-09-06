@@ -255,6 +255,7 @@ const evidence_suites = {
   "cu-macos-external-terminal-send-smoke": true,
   "cu-macos-save-panel-smoke": true,
   "cu-pty-smoke": true,
+  "cu-login-session-smoke": true,
   "unix-frontend-linux-smoke": true,
   "unix-frontend-macos-smoke": true,
   "server-smoke": true,
