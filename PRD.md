@@ -143,16 +143,16 @@ AgenTerm — local agent & process fleet work OS
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 131 叶：
-│     │                       native 30 / delegated 31 / platform-limited 54 / gap 12 / retired 4
+│     │                       native 31 / delegated 31 / platform-limited 53 / gap 12 / retired 4
 │     │                       device claim/lease/I/O 已有 macOS + Linux 双 ISA qjswasm court，
 │     │                       Windows COM court 待证；network-dns 已从 gap 降为 platform-limited，
 │     │                       macOS + Linux 双 ISA + Windows ARM journey 绿；Win x86 court 的
 │     │                       interactive agent 在 180s/360s 均无 nonce，属基础设施阻塞、无产品判决
 │     │                       rich ps 已由有界过滤/采样/树详情 + qjswasm macOS court 从 gap 晋级 native
 │     │                       power status 已绑定安装伪身份 + 原生 boot instance；macOS qjswasm court 绿，
-│     │                       Linux/Windows 待原生复跑；过渡壳可达静态 STAY 从 5 降到 4
-│     │                       external term observe + 显式前台 send 在 macOS/Windows ARM64 原生 court 绿；
-│     │                       Linux observe/send 已写待 x86 desktop 原生跑，term 标记仍保留
+│     │                       Linux/Windows 待原生复跑；过渡壳可达静态 STAY 从 5 降到 3
+│     │                       external term observe + 显式前台 send 在 macOS/Windows ARM64/Linux x86_64
+│     │                       原生 court 全绿，term 过渡标记已移除；其余 ISA 归六格交付门
 │     │                       未过 typed-object、零 gap/STAY、六格与 MCU-absent 门前保持 partial
 │     ├─ 29 Command surface       抽象命令集、洋葱分层、结构化控件树、确定性等待
 │     ├─ 30 Targets & transports  current/ssh/rdp/vnc 目标族、transport、平台后端

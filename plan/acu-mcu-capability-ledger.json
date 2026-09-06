@@ -552,8 +552,8 @@
           "id": "terminal.desktop-adoption",
           "mcu_shape": "term read|send|wait <window-handle> for Terminal, iTerm or an editor terminal",
           "acu_shape": "term-read|term-wait observe one exact native window plus owner process generation and selected accessibility buffer; term-send is an explicit foreground-only activate/focus/inject/restore transaction with an independent newly-satisfied postcondition",
-          "state": "platform-limited",
-          "qualification": "macos-and-windows-arm64-public-observe-and-visible-send-green-linux-public-courts-scripted-pending-native-run",
+          "state": "native",
+          "qualification": "macos-arm64-windows-arm64-linux-x86_64-public-observe-and-visible-send-green",
           "declared_evidence": [
             "cu.macos-external-terminal-observe",
             "cu.macos-external-terminal-send",
@@ -562,7 +562,7 @@
             "cu.windows-external-terminal-observe",
             "cu.windows-external-terminal-send"
           ],
-          "next": "run the scripted Linux terminal-like observe and explicit visible-send courts in the native x86_64 desktop session; retain the MCU retirement marker until Linux proves the same-buffer postcondition",
+          "next": "retain the public three-host courts and extend the evidence to the remaining ISA cells as part of the independent six-cell delivery gate",
           "note": "AgenTerm scope/epoch/@tab identity is never substituted for a desktop window. No current host claims exact-window background literal delivery: default send refuses before effect; routine no-activate journeys prove that refusal. Dispatch uncertainty keeps the receipt reserved, and diagnostics store hashes and lengths rather than terminal text or input."
         },
         {

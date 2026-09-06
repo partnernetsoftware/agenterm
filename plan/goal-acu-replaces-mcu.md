@@ -589,8 +589,8 @@ Q2 fast delegated facades
 │     ├─ [x] macOS read/wait + background/no-activate refusal public qjswasm evidence
 │     ├─ [x] macOS explicit foreground send: same-buffer postcondition + focus restore visible court
 │     ├─ [x] Windows ARM64 observe + explicit foreground send public UTM courts green
-│     ├─ [~] Linux terminal-like observe + explicit foreground-send courts scripted
-│     └─ [ ] x86 desktop native run pending; retirement marker remains until three-host green
+│     ├─ [x] Linux x86_64 observe + explicit foreground send public UTM court green
+│     └─ [x] three-host gate complete; transitional MCU `term` STAY removed
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
    ├─ [~] rich ps: composable command/resource filters + sampled CPU + pid tree/file/socket detail

@@ -1552,10 +1552,11 @@ flowchart LR
   `AGENTERM_NO_ACTIVATE` refusal. Its separate explicit visible court also
   proves same-buffer token read-back and restoration of the prior foreground
   window. Windows ARM64 now proves the corresponding UIA document observation,
-  safe refusals and explicit visible send in its public UTM court. The Linux
-  terminal-like observe and explicit visible-send courts are scripted but
-  still need their native x86 desktop run. The transitional `term` retirement
-  marker therefore stays and this leaf is only platform-limited.
+  safe refusals and explicit visible send in its public UTM court. Linux x86_64
+  proves the same AT-SPI contract in a real XFCE desktop session, including the
+  newly satisfied same-buffer token and foreground-focus restoration. The
+  three-host gate is complete, the transitional MCU `term` marker is removed,
+  and remaining ISA cells belong to the independent six-cell delivery gate.
 
   ```mermaid
   flowchart LR
@@ -1569,7 +1570,8 @@ flowchart LR
     V -->|yes| C["completed receipt"]
     V -->|no / unreadable| U["reserved · outcome unknown"]
     C --> MW["macOS + Windows ARM64<br/>observe + visible send green"]
-    MW --> P["Linux native observe/send pending"]
+    MW --> L["Linux x86_64 observe + visible send green"]
+    L --> R["remove MCU term STAY"]
   ```
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm
