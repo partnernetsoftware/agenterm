@@ -280,6 +280,12 @@
         "cu.windows-browser-cdp-page-js",
         "cu.windows-browser-cleanup"
       ]
+    },
+    {
+      "id": "cu-pty-smoke",
+      "evidence": [
+        "cu.pty-background-interactive"
+      ]
     }
   ]
 }

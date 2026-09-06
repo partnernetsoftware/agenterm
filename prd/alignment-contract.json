@@ -237,7 +237,8 @@
         "cu.windows-network-probe",
         "cu.windows-terminal-control",
         "cu.windows-external-terminal-observe",
-        "cu.windows-external-terminal-send"
+        "cu.windows-external-terminal-send",
+        "cu.pty-background-interactive"
       ]
     },
     {

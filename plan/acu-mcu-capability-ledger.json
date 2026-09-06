@@ -527,6 +527,7 @@
           "acu_shape": "terminal-list over structured ui-bootstrap with server_scope_id + server_epoch + stable @tab id",
           "state": "native",
           "qualification": "macos-public-green-linux-step-green-suite-red-windows-infrastructure-blocked",
+          "evidence": ["cu.macos-terminal-control"],
           "next": "rerun the Linux suite after its older observe-window correction and repair the Windows interactive court before promotion",
           "note": "The shared control-client speaks the bounded native protocol directly; it neither parses list-panes text nor starts an agenterm CLI subprocess."
         },
@@ -536,6 +537,7 @@
           "acu_shape": "terminal-new over new-window plus terminal-close over kill-window; same-scope epoch inventory verifies exact @tab creation, parent binding and disappearance",
           "state": "native",
           "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
+          "evidence": ["cu.macos-terminal-control"],
           "next": "run the registered lifecycle step on Linux and Windows courts; keep arbitrary background PTY/job lifecycle as a separate gap",
           "note": "Both mutations reserve crash-persistent receipts before touching the product control plane. The receipt stores only command/title byte counts, not values. AgenTerm remains the sole tree/shutdown owner, so child promotion, remain-on-exit and the last-tab empty-window invariant are preserved instead of pretending tmux session parity."
         },
@@ -545,6 +547,7 @@
           "acu_shape": "terminal-read bounded screen snapshot; terminal-send literal bytes with two receipts; terminal-wait contains|exited|finalized",
           "state": "native",
           "qualification": "macos-public-green-linux-step-green-suite-red-windows-infrastructure-blocked",
+          "evidence": ["cu.macos-terminal-control"],
           "next": "promote only after three-host public qjswasm evidence; add retained output offsets separately if cursor parity is required",
           "note": "Generic desktop accessibility is not substituted. The first read is explicitly a current-screen snapshot and reports incremental_cursor=null because no loss-aware byte cursor exists yet."
         },
@@ -571,6 +574,7 @@
           "acu_shape": "terminal-snapshot returns one bounded structured screen plus server_scope_id + epoch + sequence; terminal-events continues the loss-aware ui-deltas journal for one stable @tab",
           "state": "native",
           "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
+          "evidence": ["cu.macos-terminal-control"],
           "next": "run the registered cursor assertions on Linux and Windows courts; keep wait-on-event as a separate gap",
           "note": "The cursor is an AgenTerm event-journal position, never a claimed raw PTY byte offset. terminal-events filters returned events and screen updates to the requested tab but advances through every scanned event, including other tabs, so a filtered reader cannot replay forever. Product-enforced 64-event and 1 MiB delta ceilings expose complete/truncated; restart, overwritten history and future cursors remain typed failures."
         },
@@ -580,6 +584,7 @@
           "acu_shape": "terminal-output reads the retained redacted PTY ring from earliest, current or an absolute next_cursor; base64 is lossless and valid UTF-8 is optional",
           "state": "native",
           "qualification": "macos-public-qjswasm-journey-green-linux-and-windows-pending",
+          "evidence": ["cu.macos-terminal-control"],
           "next": "run the registered continuation assertions on Linux and Windows courts",
           "note": "The product retention ring remains capped at 1 MiB and a page at 1 MiB. Overwritten and future cursors fail typed; continuation never silently skips bytes or decodes arbitrary bytes lossily. The macOS journey proves current bootstrap, output advance, exact continuation and an empty completed tail."
         },
@@ -607,6 +612,7 @@
           "acu_shape": "pty-list bounds and reconciles each deterministic job authority as running, stale or conflicted; pty-prune --expect stale serializes against start, re-proves staleness, permits only known state files and verifies exact removal",
           "state": "native",
           "qualification": "exact-source-a6a1c7b9-local-six-cell-public-qjswasm-journey-green-macos-x86-via-rosetta",
+          "evidence": ["cu.pty-background-interactive"],
           "next": "add reusable authority adoption with scope+epoch and process-tree safety",
           "note": "The list is complete or fails typed: malformed names, symlinks and more than 4096 entries are refused. A directory is never called running without a live authority and exact status. Prune requires an explicit stale postcondition, a durable receipt and directory-absence verification; a live/conflicted authority or unknown state entry is never deleted."
         },
@@ -616,6 +622,7 @@
           "acu_shape": "pty-read exposes the retained raw-output cursor; pty-send writes exact literal UTF-8; pty-wait scans exact UTF-8 across retained raw-output pages from an explicit cursor; pty-events continues the separate ordered structured-event cursor",
           "state": "native",
           "qualification": "local-six-cell-public-qjswasm-journey-green-macos-x86-via-rosetta",
+          "evidence": ["cu.pty-background-interactive"],
           "next": "add bounded regex parity without weakening exact byte continuation",
           "note": "No Enter is implicit. Wait preserves a boundary overlap so a needle split across pages still matches; overwritten/future cursors, timeout and finalized-without-match remain distinct typed failures. MCU regex wait remains on MCU until ACU has an equally bounded regex contract."
         },
@@ -625,6 +632,7 @@
           "acu_shape": "pty-snapshot persists the sole job tab's bounded structured screen with server scope + epoch + tab identity; pty-diff returns bounded changed rows and terminal metadata, optionally advancing atomically; pty-events continues the exact event epoch; pty-resize verifies the exact 1..=512 grid and lease cleanup",
           "state": "native",
           "qualification": "local-macos-public-qjswasm-journey-green-six-cell-pending",
+          "evidence": ["cu.pty-background-interactive"],
           "next": "rerun the enlarged snapshot/diff/events/resize journey in six cells before treating the compatibility route as release-qualified",
           "note": "Snapshot/diff/events/resize are native ACU capability, not an inference from raw bytes. Restart or epoch substitution fails typed. The private baseline store is globally bounded to 128 records at 2 MiB each and prunes stale temporary writes. Resize reserves its receipt before mutation, detaches its temporary UI lease, then independently reads the exact grid back."
         },
