@@ -160,10 +160,19 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measured 131 capabilities;
   after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger now measures 134 capabilities with 5 gaps, 58 platform-limited rows, zero static
+  ledger now measures 134 capabilities with 4 gaps, 59 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
+- [~] Runtime capability probing has left the hard-gap set. The shared
+  qjswasm core is live on macOS, Windows ARM64 and Linux ARM64; a same-source
+  Linux x86_64/X11 court additionally passed all 33 declared process,
+  terminal, file, network, AT-SPI, screenshot, window and cleanup evidence
+  lines. Windows still needs the full-scope same-source rerun, so the row is
+  deliberately `platform-limited`, not yet cross-platform native. Linux also
+  proved a reusable boundary rule: screen geometry may come from an
+  authenticated XWayland root even when Wayland client-window enumeration is
+  correctly unsupported.
 - [~] Readiness evidence accounting is fail-closed. An available capability
   must reference at least one `cu.*` identifier registered in the qualification
   or host-native evidence manifests; unit-test names, catalog presence and a

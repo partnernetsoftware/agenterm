@@ -879,7 +879,7 @@ focused and once with the whole browser behind an owned AgenTerm window. The
 executor couples extension read-back to a 500 ms native foreground settle and
 exact-handle restoration, so a delayed WindowServer focus change cannot be
 reported green. Linux and Windows executions remain qualification work; the
-retirement ledger is now 35 native / 31 delegated / 58 platform-limited / 5
+retirement ledger was then 35 native / 31 delegated / 58 platform-limited / 5
 gap / 5 retired.
 
 The runtime capability-probe frontier now has one shared qjswasm core with
@@ -890,11 +890,15 @@ UTM desktop are green at source `e0a2ab54`. Its second
 component covers owned-process inventory, identity, plaintext-free argv/env
 metadata, cwd, usage, fd/map/thread and socket attribution; a third owned Cocoa
 fixture proves the remaining window/tree/query/read/screenshot vocabulary
-without foreground change. Linux remains registered but unqualified; a written
-court is not evidence, so the cross-platform row remains `gap` and cannot
-authorize MCU removal. The separate Windows x86_64 court was stopped before
-product execution after QGA stayed unavailable for 600 seconds and is now
-marked non-ready in `utm-court`, preventing another false runtime attempt.
+without foreground change. Linux ARM64 then passed the shared core on a real
+Wayland desktop at source `d5548024`; the same-source Linux x86_64/X11 court
+passed all 33 evidence lines in the broader process, terminal, file, network,
+AT-SPI, screenshot, window and cleanup journey. This moves the row from `gap`
+to `platform-limited`: Windows still needs the full-scope same-source rerun.
+The ledger is now 35 native / 31 delegated / 59 platform-limited / 4 gap / 5
+retired. The separate Windows x86_64 court was stopped before product
+execution after QGA stayed unavailable for 600 seconds and is now marked
+non-ready in `utm-court`, preventing another false runtime attempt.
 
 Persisted desktop-delivery authority has moved from `gap` to
 `platform-limited`: schema 3 freezes explicit canonical operation ids in

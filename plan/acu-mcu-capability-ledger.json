@@ -1245,12 +1245,12 @@
           "id": "runtime.capability-probe",
           "mcu_shape": "caps performs bounded live probes for windows, accessibility tree/query/find and element reads; process inventory/identity/state/argv/environment/cwd/threads/maps/fds/sockets/usage; displays, clipboard, screenshot and shell execution",
           "acu_shape": "three focused macOS public qjswasm components over platform/display/clipboard metadata/shell, owned process inventory and inspection, and one owned no-activate desktop fixture",
-          "state": "gap",
-          "platforms": {"macos": "native-black-box", "linux": "native-court-pending", "windows": "native-court-pending"},
-          "qualification": "macos-full-scope-and-windows-arm64-shared-core-green-linux-native-court-pending",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-black-box", "linux": "native-black-box", "windows": "native-black-box"},
+          "qualification": "three-host-shared-core-green-macos-linux-full-scope-green-windows-full-scope-rerun-pending",
           "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-core.linux", "cu.runtime-capability-core.windows", "cu.runtime-capability-process.macos", "cu.runtime-capability-desktop.macos"],
-          "note": "One shared qjswasm core has thin macOS/Linux/Windows evidence entry points for exact host binding, live display geometry, clipboard metadata without payload bytes, and bounded shell-child cleanup. macOS is green locally and Windows is green on the real win-aarch64 UTM desktop at source e0a2ab54. The macOS process and owned-desktop components additionally cover the full MCU caps vocabulary without touching foreign processes or windows. Linux remains unqualified, so the row stays a gap rather than mistaking a written court for evidence. The emulated Windows x86_64 court separately failed before product execution because QGA did not become ready within 600 seconds; utm-court now marks that local court non-ready.",
-          "next": "run the registered shared core on a real Linux desktop, bind its receipt to the broader native process/desktop journey and same-source runtime/CU/ABI identity, then promote this row; repair the separate Windows x86_64 QGA image before six-cell rehearsal"
+          "note": "One shared qjswasm core has thin macOS/Linux/Windows evidence entry points for exact host binding, live display geometry, clipboard metadata without payload bytes, and bounded shell-child cleanup. macOS is green locally, Windows is green on the real win-aarch64 UTM desktop at source e0a2ab54, and Linux arm64 is green on a real Wayland desktop at source d5548024. The same-source Linux x86_64 X11 court then passed its 33-evidence full process, terminal, file, network, AT-SPI, screenshot, window and cleanup journey. The macOS process and owned-desktop components cover the same broad vocabulary without touching foreign processes or windows. Windows still needs the full-scope same-source rerun, so this is platform-limited rather than cross-platform native. The emulated Windows x86_64 court separately failed before product execution because QGA did not become ready within 600 seconds; utm-court now marks that local court non-ready.",
+          "next": "run the full-scope Windows journey against one sealed same-source runtime/CU/ABI bundle; repair the separate Windows x86_64 QGA image before six-cell rehearsal"
         }
       ]
     },
