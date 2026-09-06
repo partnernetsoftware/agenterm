@@ -767,6 +767,23 @@
         "task.cu-setup-runtime-refresh-smoke"
       ]
     },
+    "cu-doctor-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-doctor-desktop-baseline-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-doctor-smoke"
+      ]
+    },
     "cu-browser-bridge-contract-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2947,6 +2964,27 @@
       "id": "cu-setup-runtime-refresh-smoke",
       "description": "Prove setup refresh serializes with admission, defers without stopping or replacing one exact resident managed-job owner, and leaves cleanup to the owner's explicit lifecycle through the public agenterm-cu CLI.",
       "entry": "scripts/qjs/cu-setup-runtime-refresh-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-doctor-smoke",
+      "description": "Prove capabilities, permissions and doctor share one typed declaration; doctor derives ready/degraded from bounded live probes without setup or consent mutation; and setup --check remains zero-publish.",
+      "entry": "scripts/qjs/cu-doctor-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

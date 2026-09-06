@@ -393,6 +393,10 @@
       "evidence": ["cu.setup-runtime-refresh-owned-job"]
     },
     {
+      "id": "cu-doctor-smoke",
+      "evidence": ["cu.doctor-desktop-baseline", "cu.capabilities-declaration"]
+    },
+    {
       "id": "cu-power-status-smoke",
       "evidence": ["cu.power-host-status"]
     },

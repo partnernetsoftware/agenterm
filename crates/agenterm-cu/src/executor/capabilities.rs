@@ -880,12 +880,35 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     }
     attach_verb_grants(&mut payload);
     attach_invoke_actions(&mut payload);
+    attach_verb_status_counts(&mut payload);
     payload
 }
 
+/// Count the final merged public inventory, not the handwritten fragment.
+/// This makes the declaration internally auditable without turning
+/// `capabilities` into a live mechanism probe: every entry contributes exactly
+/// once, and an entry that forgot its status remains visible as `missing`.
+fn attach_verb_status_counts(payload: &mut serde_json::Value) {
+    let Some(verbs) = payload.get("verbs").and_then(serde_json::Value::as_object) else {
+        return;
+    };
+    let mut by_status = std::collections::BTreeMap::<String, usize>::new();
+    for declaration in verbs.values() {
+        let status = declaration
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("missing");
+        *by_status.entry(status.to_owned()).or_default() += 1;
+    }
+    payload["verb_status_counts"] = serde_json::json!({
+        "total": verbs.len(),
+        "by_status": by_status,
+    });
+}
+
 /// One place to look for "what am I not allowed to do, and how is that
-/// fixed". `setup` stays a typed gap; `doctor` and `permissions` provide
-/// read-only reporting. The reporting has to be complete, and until now the
+/// fixed". `setup` owns explicit inspection/publication; `doctor` and
+/// `permissions` provide read-only reporting. The reporting has to be complete, and until now the
 /// repair path was buried inside the `tree` verb while input injection
 /// depends on the very same grant. A caller should not have to know
 /// that to find it.
@@ -1416,6 +1439,17 @@ mod tests {
             !mapping.contains("RDP") && !mapping.to_lowercase().contains("rdp live"),
             "current mapping must not claim live RDP: {mapping}"
         );
+        let verbs = data["verbs"].as_object().expect("verb inventory");
+        let counts = data["verb_status_counts"]["by_status"]
+            .as_object()
+            .expect("status counts");
+        let counted = counts
+            .values()
+            .map(|value| value.as_u64().expect("count"))
+            .sum::<u64>();
+        assert_eq!(data["verb_status_counts"]["total"], verbs.len());
+        assert_eq!(counted, verbs.len() as u64);
+        assert!(!counts.contains_key("missing"));
     }
 
     #[test]

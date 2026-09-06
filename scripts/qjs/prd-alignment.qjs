@@ -278,6 +278,7 @@ const evidence_suites = {
   "cu-managed-job-smoke": true,
   "cu-setup-cli-smoke": true,
   "cu-setup-runtime-refresh-smoke": true,
+  "cu-doctor-smoke": true,
   "cu-power-status-smoke": true,
   "cu-host-open-smoke": true,
   "cu-permissions-open-smoke": true,

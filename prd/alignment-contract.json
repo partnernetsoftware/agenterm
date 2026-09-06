@@ -267,6 +267,8 @@
         "cu.target-lock-lifecycle",
         "cu.setup-cli-entrypoint",
         "cu.setup-runtime-refresh-owned-job",
+        "cu.doctor-desktop-baseline",
+        "cu.capabilities-declaration",
         "cu.power-host-status",
         "cu.host-open.macos",
         "cu.permissions-open.contract",

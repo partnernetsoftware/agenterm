@@ -158,8 +158,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   task registration, checks Candidate execution wiring, scans production
   automation for Bun/MCU dependencies, and consumes the temporary adapter's
   machine report. Report mode succeeds only as an audit and emits
-  `cu.retirement-readiness`; its first baseline measures 131 capabilities,
-  while the current ledger has 12 gaps, 53 platform-limited rows, zero static
+  `cu.retirement-readiness`; its first baseline measured 131 capabilities;
+  after splitting the old setup/doctor/caps aggregate by authority, the current
+  ledger measures 133 capabilities with 13 gaps, 53 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
@@ -830,9 +831,33 @@ flowchart LR
 - [~] `doctor` is now a first-class observe-only command. It performs bounded
   live window and display probes, embeds the exact canonical `permissions` and
   `capabilities` declarations, and reports `ready|degraded` without opening
-  settings, installing helpers or claiming consent. Unit and local public-CLI
-  evidence are green; Linux/Windows native-court parity plus runtime/service/
-  ABI/target-binding checks remain open.
+  settings, installing helpers or claiming consent. The public qjswasm evidence
+  `cu.doctor-desktop-baseline` is green on macOS and also proves that
+  `setup --check` does not publish its requested launcher. Linux/Windows native
+  courts remain open. Runtime/store, native service provider, ABI and exact
+  target-binding health are a separate `doctor.system-readiness` gap; they may
+  not be inferred from the green desktop baseline.
+- [~] `capabilities` now publishes deterministic `verb_status_counts` over the
+  final merged public inventory. The public `cu.capabilities-declaration`
+  journey proves every verb contributes exactly once and the count total equals
+  the inventory length. This is declaration integrity, not MCU's cross-mechanism
+  live probe: `runtime.capability-probe` remains a gap until a bounded journey
+  actually calls one read-only primitive from every claimed available family.
+- [x] The old MCU-shaped `setup/doctor/caps` aggregate ledger row is retired as
+  an authority error, not as removed user value. Setup publication and owner
+  preservation, desktop diagnosis, permission guidance, capability declaration,
+  system readiness and live probes each have a separate leaf and evidence owner.
+
+```mermaid
+flowchart LR
+  OLD["MCU aggregate<br/>setup + doctor + caps"] -->|retired shape| SET["setup authority<br/>publish + preserve owners"]
+  OLD --> BASE["doctor desktop baseline<br/>bounded live probes"]
+  OLD --> DECL["capability declaration<br/>deterministic counts"]
+  BASE --> SYS["system readiness<br/>runtime · service · ABI · target<br/>gap"]
+  DECL --> LIVE["cross-mechanism live probe<br/>gap"]
+  SET & BASE & DECL & SYS & LIVE --> RET["MCU-absent retirement court"]
+```
+
   The compatibility adapter now routes MCU-shaped `acu doctor` directly to
   this native command, reducing the MCU `STAY` inventory from 32 to 31; routing
   tests and a live macOS adapter invocation are green. Whole-window activation

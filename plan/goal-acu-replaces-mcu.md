@@ -614,7 +614,9 @@ Q2 fast delegated facades
 ├─ [~] caps/doctor/permissions/setup and app inventory
 │  ├─ [x] permissions: read-only platform state + gated verbs + repair guidance
 │  ├─ [~] permissions open-next: macOS exact pane + granted no-op; denied-pane and two native courts pending
-│  ├─ [~] doctor: bounded read-only health receipt; local CLI green, three-host pending
+│  ├─ [~] doctor desktop baseline: public qjswasm macOS green; Linux/Windows pending
+│  ├─ [ ] doctor system readiness: runtime/service/ABI/target-binding checks
+│  ├─ [~] capability declaration counts: local invariant green; cross-mechanism live probe pending
 │  ├─ [~] setup launcher: native zero-write check + atomic apply; macOS arm64 and Rosetta x86_64 qjswasm courts green; Candidate six-cell execution wired but not yet run
 │  └─ [~] setup runtime refresh: stable admission fence; exact managed-job owner survives locally; native device-claim inventory participates, fresh missing state is zero-write empty; six-cell execution pending
 ├─ [~] open/notify/state and terminal adoption
@@ -800,8 +802,8 @@ Q5 retirement
 ```
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
-decision while remaining a successful bounded audit: 131 ledger capabilities
-currently include 12 `gap` and 53 `platform-limited` rows. The compatibility
+decision while remaining a successful bounded audit: 133 ledger capabilities
+currently include 13 `gap` and 53 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was

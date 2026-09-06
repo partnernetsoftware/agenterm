@@ -1,0 +1,125 @@
+// Platform-neutral black-box journey for ACU health and capability diagnosis.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.doctor-desktop-baseline", "cu.capabilities-declaration"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+    AGENTERM_CU_DEVICE_LEASE_PATH: rh.join(run_directory, "cu-device-leases.json")
+  };
+}
+
+function invoke(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_doctor_invalid_reply:" + arguments[0]; }
+  ensure(output.success === true && reply.ok === true,
+         "cu_doctor_command_failed:" + arguments[0] + ":" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (let i = 0; i < declared_evidence.length; i = i + 1) { print(declared_evidence[i]); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_doctor_executable_missing");
+
+const context = harness.new_context(repo, "cu-doctor-health");
+const run_directory = context.run_directory;
+const bin_directory = rh.join(run_directory, "bin");
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP capability declaration is complete and permission truth is shared");
+  const capabilities = invoke(run_directory, executable, ["capabilities"]);
+  const permissions = invoke(run_directory, executable, ["permissions"]);
+  ensure(capabilities.target === "current", "cu_capabilities_target");
+  ensure(capabilities.verbs.capabilities.status === "available", "cu_capabilities_self_missing");
+  ensure(capabilities.verbs.doctor.status === "available", "cu_doctor_declaration_missing");
+  const status_names = Object.keys(capabilities.verb_status_counts.by_status);
+  let status_total = 0;
+  for (let i = 0; i < status_names.length; i = i + 1) {
+    status_total = status_total + capabilities.verb_status_counts.by_status[status_names[i]];
+  }
+  ensure(status_total === capabilities.verb_status_counts.total,
+         "cu_capability_status_count_mismatch");
+  ensure(status_total === Object.keys(capabilities.verbs).length,
+         "cu_capability_inventory_count_mismatch");
+  ensure(JSON.stringify(capabilities.permissions) === JSON.stringify(permissions.permissions),
+         "cu_permission_declaration_drift");
+
+  print("STEP doctor performs bounded live probes without setup or consent mutation");
+  const doctor = invoke(run_directory, executable, ["doctor"]);
+  ensure(doctor.schema === 1 && doctor.platform === permissions.platform, "cu_doctor_schema");
+  ensure(doctor.status === "ready" || doctor.status === "degraded", "cu_doctor_status");
+  ensure(doctor.checks.windows.status === "available"
+           || doctor.checks.windows.status === "failed", "cu_doctor_windows_check");
+  ensure(doctor.checks.displays.status === "available"
+           || doctor.checks.displays.status === "failed", "cu_doctor_displays_check");
+  ensure(doctor.action.performed === false, "cu_doctor_mutated");
+  ensure(JSON.stringify(doctor.permissions) === JSON.stringify(permissions.permissions),
+         "cu_doctor_permission_drift");
+  ensure(JSON.stringify(doctor.capabilities) === JSON.stringify(capabilities),
+         "cu_doctor_capability_drift");
+  const expected_status = doctor.checks.windows.status === "available"
+    && doctor.checks.displays.status === "available"
+    && !(doctor.permissions.accessibility !== undefined
+         && doctor.permissions.accessibility.grant.status !== "granted")
+    ? "ready" : "degraded";
+  ensure(doctor.status === expected_status, "cu_doctor_summary_not_derived");
+
+  print("STEP setup check diagnoses launcher state without publishing it");
+  const setup = invoke(run_directory, executable, ["setup", "--check", "--bin-dir", bin_directory]);
+  ensure(setup.mode === "check" && setup.action.performed === false && setup.effect === "none",
+         "cu_setup_check_contract");
+  ensure(!rh.exists(bin_directory), "cu_setup_check_published_launcher");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.doctor-desktop-baseline");
+  harness.remove_run(context);
+  print("PASS: agenterm-cu health and capability diagnosis");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

@@ -397,9 +397,9 @@
         {
           "id": "desktop.setup-doctor-caps",
           "mcu_shape": "setup/doctor/caps with active dependency and permission probes",
-          "acu_shape": "capabilities reports typed status and permission blockers; doctor composes bounded live probes with the same declarations; setup owns zero-write inspection, stable launcher publication and owner-preserving future-activation refresh",
-          "state": "gap",
-          "next": "prove doctor and setup on three hosts, then add the remaining runtime/service/ABI/target-binding health probes without moving mutations into capability discovery"
+          "acu_shape": null,
+          "state": "retired",
+          "note": "The MCU aggregate mixed three distinct authorities and is intentionally not reproduced. setup.cli-entrypoint and setup.runtime-refresh own publication; doctor.desktop-baseline and doctor.system-readiness own diagnosis; capabilities.declaration, runtime.capability-probe and permissions.* own discovery, live probes and consent guidance. Their separate evidence prevents a green declaration from masquerading as a successful live probe or mutation."
         },
         {
           "id": "desktop.session-lock-audit",
@@ -1110,13 +1110,20 @@
           "next": "extend the public owner-preservation court to an active device lease, then run the wired six-cell Candidate court"
         },
         {
-          "id": "doctor.health",
-          "mcu_shape": "doctor verifies runtime, helper, desktop bridges, permissions and repair actions",
+          "id": "doctor.desktop-baseline",
+          "mcu_shape": "doctor verifies bounded windows, displays and required desktop permissions",
           "acu_shape": "doctor returns one bounded read-only health receipt over live window/display probes plus the canonical permissions and capabilities declarations",
           "state": "native",
-          "qualification": "unit-local-cli-and-mcu-adapter-present-three-host-journey-pending",
-          "evidence": ["agenterm-cu doctor unit and local public CLI", "MCU-shaped acu doctor routing tests and live adapter invocation"],
-          "next": "add runtime/service/ABI/target-binding checks and prove the same typed ready/degraded contract in Linux and Windows courts"
+          "qualification": "public-qjswasm-macos-green-linux-windows-native-courts-pending",
+          "evidence": ["cu.doctor-desktop-baseline"],
+          "next": "prove the same typed ready/degraded desktop baseline in Linux and Windows courts"
+        },
+        {
+          "id": "doctor.system-readiness",
+          "mcu_shape": "doctor verifies runtime, helper/browser bridges, native service provider, ABI health and current target binding",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "compose bounded zero-mutation runtime/store, service-provider, ABI and target-binding checks; required degradation must keep the complete report and return nonzero"
         },
         {
           "id": "permissions.status-guidance",
@@ -1165,14 +1172,21 @@
           "next": "run native Linux and Windows courts; retain typed unsupported results for subtitle/sound where the provider cannot promise those semantics"
         },
         {
-          "id": "runtime.capability-probe",
-          "mcu_shape": "caps performs live probes and returns the full manifest plus state counts",
+          "id": "capabilities.declaration",
+          "mcu_shape": "caps declares the full capability manifest and status counts",
           "acu_shape": "capabilities returns the ACU verb/target/mechanism matrix",
           "state": "delegated",
-          "qualification": "live-depth-inventory-incomplete",
-          "evidence": ["MCU-shaped acu caps routing suite"],
+          "qualification": "public-qjswasm-macos-status-counts-green-three-host-selected-mechanism-evidence-present-linux-windows-count-courts-pending",
+          "evidence": ["cu.capabilities-declaration", "cu.macos-ax-capabilities", "cu.linux-atspi-capabilities", "cu.windows-uia-capabilities"],
           "note": "The compatibility spelling now projects to the replacement ACU truth table instead of keeping the retired MCU-private manifest alive.",
-          "next": "add bounded live probe evidence where declaration alone cannot establish mechanism health; keep unsupported distinct from unavailable"
+          "next": "run the same status-count invariant in Linux and Windows native courts and keep unsupported, denied and failed distinct"
+        },
+        {
+          "id": "runtime.capability-probe",
+          "mcu_shape": "caps performs bounded live probes across desktop, process, filesystem, network and capture mechanisms",
+          "acu_shape": null,
+          "state": "gap",
+          "next": "add a public bounded live-probe journey that samples every claimed available mechanism family; catalog presence is never evidence"
         }
       ]
     },

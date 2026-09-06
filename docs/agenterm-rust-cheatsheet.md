@@ -3733,6 +3733,15 @@ missing optional mechanism must not turn diagnostics themselves into an opaque
 command failure. Diagnosis is never authority to install, repair, open consent
 surfaces or mutate helper lifecycle.
 
+Keep declaration integrity and mechanism health as two separately named
+claims. A merged capability catalog should publish deterministic status counts
+whose sum equals the final public inventory; this catches missing or multiply
+counted declarations, but it proves no native mechanism ran. Evidence named
+`live-probe` or `health` must actually invoke the bounded provider operations it
+names. If one legacy command mixed setup mutation, static declarations and live
+diagnosis, retire that aggregate shape and give each authority its own ledger
+leaf instead of issuing one over-broad green token.
+
 ## Windows console trampolines must forward stdio explicitly
 
 `bInheritHandles=TRUE` does not by itself define a GUI-subsystem child's
