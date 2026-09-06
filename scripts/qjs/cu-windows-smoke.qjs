@@ -157,7 +157,8 @@ function process_present_via_cu(run_directory, executable, pid) {
   const reply = run_cu_reply(run_directory, executable, [
     "--target", "current", "--grant", "observe", "process-state", "--pid", "" + pid
   ]);
-  if (flag_at(reply, "ok")) { return 1; }
+  if (flag_at(reply, "ok") && text_at(reply, "data.state") === "live") { return 1; }
+  if (flag_at(reply, "ok") && text_at(reply, "data.state") === "dead") { return 0; }
   if (text_at(reply, "error.code") === "process_not_found") { return 0; }
   throw "cu_windows_smoke_process_probe:" + JSON.stringify(reply);
 }
