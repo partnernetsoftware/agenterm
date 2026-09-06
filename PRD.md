@@ -146,7 +146,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       native 28 / delegated 31 / platform-limited 54 / gap 14 / retired 4
 │     │                       device claim/lease/I/O 已有 macOS + Linux 双 ISA qjswasm court，
 │     │                       Windows COM court 待证；network-dns 已从 gap 降为 platform-limited，
-│     │                       macOS + Linux 双 ISA journey 与六格编译绿，Windows court 待证
+│     │                       macOS + Linux 双 ISA + Windows ARM journey 绿；Win x86 court 的
+│     │                       interactive agent 在 180s/360s 均无 nonce，属基础设施阻塞、无产品判决
 │     │                       未过 typed-object、零 gap/STAY、六格与 MCU-absent 门前保持 partial
 │     ├─ 29 Command surface       抽象命令集、洋葱分层、结构化控件树、确定性等待
 │     ├─ 30 Targets & transports  current/ssh/rdp/vnc 目标族、transport、平台后端

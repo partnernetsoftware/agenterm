@@ -647,8 +647,8 @@ Q3 owned runtime facades
    │  ├─ [x] macOS scoped system-effective provider + public qjswasm journey `cu.network-dns`
    │  ├─ [x] Linux systemd-resolved stub detection; stub-only is explicitly incomplete
    │  ├─ [x] Linux arm64 + x86_64 exact-source UTM public qjswasm courts
-   │  ├─ [x] Windows adapter/LUID provider; all six targets compile
-   │  └─ [ ] Windows native public runtime courts; per-service mutation remains separate
+   │  ├─ [x] Windows adapter/LUID provider; all six targets compile; arm64 UTM journey green
+   │  └─ [ ] Windows x86_64 runtime: interactive agent failed nonce at 180s and 360s; no product verdict
    ├─ [~] file-inspect: no-follow final entry + bounded metadata + stable identity
    │  ├─ [x] macOS public qjswasm journey: 41 STEP / 42 evidence + cleanup
    │  ├─ [x] Linux x86_64 focused native UTM court: exact-byte pair + file/link/missing

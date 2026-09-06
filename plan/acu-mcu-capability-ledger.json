@@ -99,7 +99,7 @@
             "macos": "retained-audit-token",
             "windows": "typed-unsupported"
           },
-          "qualification": "macos-and-linux-dual-isa-public-qjswasm-live-windows-courts-pending",
+          "qualification": "macos-linux-dual-isa-and-windows-arm64-public-qjswasm-live-windows-x86_64-court-blocked",
           "evidence": ["cu.process-set-state"],
           "note": "ACU signals through one retained native process object, verifies scheduler state and closes the effect receipt on every post-effect result. The MCU adapter routes the unprivileged shape after freezing start identity; --sudo/--broker remain with the privilege-provider gap."
         },
@@ -795,7 +795,7 @@
           "state": "platform-limited",
           "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
           "evidence": ["cu.network-dns"],
-          "note": "macOS uses scoped scutil state; Windows uses GetAdaptersAddresses; Linux detects a systemd-resolved stub and names stub-only coverage when its upstream file is unavailable. macOS plus Linux arm64/x86_64 have exact-source public qjswasm evidence; Windows runtime courts remain. No provider contacts a resolver or fabricates completeness."
+          "note": "macOS uses scoped scutil state; Windows uses GetAdaptersAddresses; Linux detects a systemd-resolved stub and names stub-only coverage when its upstream file is unavailable. macOS, Linux arm64/x86_64 and Windows arm64 have exact-source public qjswasm evidence. Windows x86_64 has no product verdict because its UTM interactive agent failed to claim a nonce at both 180s and 360s. No provider contacts a resolver or fabricates completeness."
         },
         {
           "id": "network.dns.services",

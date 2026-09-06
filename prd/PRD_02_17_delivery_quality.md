@@ -1161,3 +1161,12 @@ flowchart LR
   V -->|green| R["release VM + retain receipt"]
   V -->|red| F["fail closed + retain diagnostics"]
 ```
+
+- [~] The exact `cu.network-dns` journey is green on macOS, Linux arm64,
+  Linux x86_64 and Windows arm64. Windows x86_64 reached QGA but its desktop
+  job agent did not claim the nonce under either the original 180-second or a
+  decisive 360-second budget; a QGA diagnostic command also produced no
+  durable result file. This proves the blocker is not merely a short timeout.
+  The cell remains BLOCKED with no product verdict until the `utm-court` image
+  restores a verifiable interactive worker; the other four cells do not
+  substitute for it.

@@ -1263,8 +1263,12 @@ flowchart LR
   DNS configuration. No resolver is contacted. The public macOS qjswasm
   journey `cu.network-dns` is green and all six targets compile. The same
   journey ran from exact source `dbfed944` in native Linux arm64 and emulated
-  x86_64 UTM courts with byte-manifest verification and typed exit receipts;
-  Windows native courts remain, so this row moves from `gap` only to
+  x86_64 UTM courts with byte-manifest verification and typed exit receipts.
+  Windows arm64 then passed the same public journey after the court normalized
+  PowerShell UTF-16LE/CRLF evidence into canonical UTF-8/LF. Windows x86_64 has
+  no product verdict: its interactive job agent failed to claim a nonce under
+  both 180-second and 360-second budgets. That is a court-image/agent blocker,
+  not a DNS failure. This row therefore moves from `gap` only to
   `platform-limited`. The compatibility entry routes exactly
   `acu network interfaces|routes|dns [--max N]`. The identity-safe per-process
   socket slice is live through `process-sockets`; per-service DNS mutation and
