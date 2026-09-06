@@ -249,6 +249,7 @@
         "cu.windows-network-probe",
         "cu.windows-file-inspect",
         "cu.windows-terminal-control",
+        "cu.windows-external-terminal-observe",
         "cu.windows-uia-tree",
         "cu.windows-uia-query",
         "cu.windows-uia-invoke",

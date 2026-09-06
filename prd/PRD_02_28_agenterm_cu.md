@@ -1549,9 +1549,12 @@ flowchart LR
   input, terminal content and patterns are represented by lengths and digests
   in failure evidence. The macOS public qjswasm journey proves exact read,
   immediate wait, redacted invalid-pattern failure, background refusal and the
-  `AGENTERM_NO_ACTIVATE` refusal. Linux and Windows fixtures plus a separate
-  explicitly visible foreground-send court remain open, so the transitional
-  `term` retirement marker stays and this leaf is only platform-limited.
+  `AGENTERM_NO_ACTIVATE` refusal. Its separate explicit visible court also
+  proves same-buffer token read-back and restoration of the prior foreground
+  window. Linux and Windows terminal-like observe fixtures are scripted but
+  still need native desktop runs; their explicit visible-send courts remain
+  open. The transitional `term` retirement marker therefore stays and this
+  leaf is only platform-limited.
 
   ```mermaid
   flowchart LR
@@ -1564,8 +1567,8 @@ flowchart LR
     F --> V{"new postcondition<br/>same buffer?"}
     V -->|yes| C["completed receipt"]
     V -->|no / unreadable| U["reserved · outcome unknown"]
-    C --> M["macOS observe court green"]
-    M --> P["Linux + Windows + visible send pending"]
+    C --> M["macOS observe + visible send green"]
+    M --> P["Linux + Windows native observe/send pending"]
   ```
 - [ ] the differentiator is direction, not parity. General computer-use tools
   drive a screen through screenshot + OCR + coordinate guessing. AgenTerm

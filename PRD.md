@@ -151,8 +151,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       rich ps 已由有界过滤/采样/树详情 + qjswasm macOS court 从 gap 晋级 native
 │     │                       power status 已绑定安装伪身份 + 原生 boot instance；macOS qjswasm court 绿，
 │     │                       Linux/Windows 待原生复跑；过渡壳可达静态 STAY 从 5 降到 4
-│     │                       external term exact-window read/wait + 安全拒绝在 macOS qjswasm court 绿；
-│     │                       Linux/Windows 与显式前台 send 可见 court 未齐，term 退休标记仍保留
+│     │                       external term exact-window read/wait + 安全拒绝、macOS 显式前台 send court 绿；
+│     │                       Linux/Windows observe 已写待原生跑、两宿主 visible send 未齐，term 标记仍保留
 │     │                       未过 typed-object、零 gap/STAY、六格与 MCU-absent 门前保持 partial
 │     ├─ 29 Command surface       抽象命令集、洋葱分层、结构化控件树、确定性等待
 │     ├─ 30 Targets & transports  current/ssh/rdp/vnc 目标族、transport、平台后端

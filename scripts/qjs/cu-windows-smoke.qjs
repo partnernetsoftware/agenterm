@@ -23,12 +23,14 @@
 // off to the logged-on session first (the UTM court contract does that with
 // an invocation-owned one-shot scheduled task).
 //
-// The owned fixture is examples/csharp/agenterm_uia_fixture.cs. The .NET
-// Framework csc.exe already present on Windows compiles it, so no external C
-// toolchain or PowerShell source/runtime is needed. Its controls are real
-// Win32 controls with real UIA providers. It is spawned as a door handle;
-// only the pid this run spawned is ever signalled. Every agenterm-cu call is
-// `rh.command`, and the worker's JSON reply is parsed, never grepped.
+// The owned fixture is derived in the ignored run directory from
+// examples/csharp/agenterm_uia_fixture.cs. The court adds one stable
+// terminal-like UIA document buffer, then the .NET Framework csc.exe already
+// present on Windows compiles it, so no external C toolchain or PowerShell
+// source/runtime is needed. Its controls are real Win32 controls with real
+// UIA providers. It is spawned as a door handle; only the pid this run spawned
+// is ever signalled. Every agenterm-cu call is `rh.command`, and the worker's
+// JSON reply is parsed, never grepped.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -47,6 +49,7 @@ const declared_evidence = [
   "cu.windows-network-probe",
   "cu.windows-file-inspect",
   "cu.windows-terminal-control",
+  "cu.windows-external-terminal-observe",
   "cu.windows-uia-tree",
   "cu.windows-uia-query",
   "cu.windows-uia-invoke",
@@ -154,6 +157,31 @@ function run_cu_reply(run_directory, executable, arguments) {
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_windows_smoke_cli_empty_reply:" + output.stderr);
   return JSON.parse(trimmed);
+}
+
+function no_activate_env(run_directory) {
+  const environment = cu_env(run_directory);
+  environment.AGENTERM_NO_ACTIVATE = "1";
+  return environment;
+}
+
+function run_cu_reply_no_activate(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: no_activate_env(run_directory), timeout_ms: 30000 }
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_windows_smoke_cli_empty_no_activate_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu_json_no_activate(run_directory, executable, arguments) {
+  const document = run_cu_reply_no_activate(run_directory, executable, arguments);
+  ensure(
+    flag_at(document, "ok"),
+    "cu_windows_smoke_cli_no_activate_reply:" + JSON.stringify(document)
+  );
+  return document;
 }
 
 // Do not outsource a product cleanup assertion to `tasklist`: stripped and
@@ -397,13 +425,36 @@ try {
   assert_network_probe(unreachable, network_port, unreachable_attempts, false);
 
   print("STEP start the owned WinForms fixture and resolve its two windows by pid and exact title");
-  const fixture_source = csc_path(rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs"));
-  ensure(direct_file(fixture_source), "cu_windows_smoke_fixture_missing:" + fixture_source);
+  const fixture_template = rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs");
+  ensure(direct_file(fixture_template), "cu_windows_smoke_fixture_missing:" + fixture_template);
+  const fixture_source = rh.join(run_directory, "agenterm-uia-fixture.cs");
+  let fixture_text = rh.read_text(fixture_template);
+  const entry_anchor = "        var check = new CheckBox {";
+  const controls_anchor = "        main.Controls.Add(check);";
+  ensure(
+    fixture_text.indexOf(entry_anchor) >= 0 && fixture_text.indexOf(controls_anchor) >= 0,
+    "cu_windows_smoke_fixture_patch_anchor"
+  );
+  fixture_text = fixture_text.replaceAll(
+    entry_anchor,
+    "        var terminalBuffer = new RichTextBox {\n"
+      + "            Text = \"external-terminal-ready\\r\\nexternal-terminal-steady\",\n"
+      + "            AccessibleName = \"Fixture Terminal Buffer\",\n"
+      + "            AccessibleRole = AccessibleRole.Document, ReadOnly = true,\n"
+      + "            Multiline = true, Location = new Point(20, 195), Size = new Size(340, 45)\n"
+      + "        };\n"
+      + entry_anchor
+  );
+  fixture_text = fixture_text.replaceAll(
+    controls_anchor,
+    controls_anchor + "\n        main.Controls.Add(terminalBuffer);"
+  );
+  rh.write_text(fixture_source, fixture_text);
   const fixture_executable = csc_path(rh.join(run_directory, "agenterm-uia-fixture.exe"));
   const compile = rh.command(framework_csc(), [
     "/nologo", "/target:winexe", "/out:" + fixture_executable,
     "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
-    fixture_source
+    csc_path(fixture_source)
   ], { cwd: run_directory, timeout_ms: 60000 });
   ensure(
     compile.success === true && direct_file(fixture_executable),
@@ -433,6 +484,113 @@ try {
     "cu_windows_smoke_window_row:" + JSON.stringify(row)
   );
   const handle_text = "" + fixture_handle;
+
+  print("STEP external terminal observation binds one exact native window and reads then waits on its stable UIA document buffer without activation");
+  const external_marker = "external-terminal-ready";
+  const external_steady = "external-terminal-steady";
+  const external_focus_before = flag_at(row, "focused");
+  const external_read = run_cu_json_no_activate(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-read", handle_text,
+    "--raw", "--max-bytes", "65536"
+  ]);
+  ensure(
+    text_at(external_read, "data.addressing") === "exact-desktop-window"
+      && text_at(external_read, "data.mechanism") === "libagenterm-accessibility-text"
+      && text_at(external_read, "data.backend") === "uia"
+      && text_at(external_read, "data.role") === "document"
+      && int_at(external_read, "data.window_identity.handle") === fixture_handle
+      && int_at(external_read, "data.window_identity.pid") === fixture_pid
+      && text_at(external_read, "data.window_identity.start_identity") !== ""
+      && text_at(external_read, "data.text").indexOf(external_marker) >= 0
+      && text_at(external_read, "data.text").indexOf(external_steady) >= 0
+      && !flag_at(external_read, "data.truncated_head"),
+    "cu_windows_smoke_external_read:" + JSON.stringify(external_read.data)
+  );
+  const external_node = text_at(external_read, "data.node");
+  ensure(external_node !== "", "cu_windows_smoke_external_node_missing");
+  const external_wait = run_cu_json_no_activate(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-wait", handle_text,
+    external_marker, "--timeout-ms", "2000", "--interval-ms", "50", "--max-bytes", "256"
+  ]);
+  ensure(
+    text_at(external_wait, "data.addressing") === "exact-desktop-window"
+      && text_at(external_wait, "data.backend") === "uia"
+      && text_at(external_wait, "data.node") === external_node
+      && text_at(external_wait, "data.matched") === external_marker
+      && int_at(external_wait, "data.window_identity.handle") === fixture_handle
+      && int_at(external_wait, "data.window_identity.pid") === fixture_pid
+      && text_at(external_wait, "data.window_identity.start_identity")
+        === text_at(external_read, "data.window_identity.start_identity"),
+    "cu_windows_smoke_external_wait:" + JSON.stringify(external_wait.data)
+  );
+
+  print("STEP external terminal invalid patterns and both input modes fail typed before action, redact caller text, preserve focus and leave the exact buffer unchanged");
+  const invalid_pattern = "external-terminal-private-[";
+  const invalid_wait = run_cu_reply_no_activate(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-wait", handle_text,
+    invalid_pattern, "--timeout-ms", "2000"
+  ]);
+  ensure(
+    !flag_at(invalid_wait, "ok")
+      && text_at(invalid_wait, "error.code") === "terminal_pattern_invalid"
+      && int_at(invalid_wait, "error.detail.pattern_bytes") === invalid_pattern.length
+      && JSON.stringify(invalid_wait).indexOf(invalid_pattern) < 0,
+    "cu_windows_smoke_external_invalid_pattern"
+  );
+  const background_text = "external-terminal-background-private";
+  const background_refused = run_cu_reply_no_activate(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "term-send", handle_text,
+    "--enter", "false", "--", background_text
+  ]);
+  ensure(
+    !flag_at(background_refused, "ok")
+      && text_at(background_refused, "error.code") === "terminal_background_input_unavailable"
+      && JSON.stringify(background_refused).indexOf(background_text) < 0,
+    "cu_windows_smoke_external_background_refusal"
+  );
+  const foreground_text = "external-terminal-foreground-private";
+  const foreground_refused = run_cu_reply_no_activate(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "term-send", handle_text,
+    "--foreground", "--enter", "false", "--", foreground_text
+  ]);
+  ensure(
+    !flag_at(foreground_refused, "ok")
+      && text_at(foreground_refused, "error.code") === "terminal_foreground_forbidden"
+      && JSON.stringify(foreground_refused).indexOf(foreground_text) < 0,
+    "cu_windows_smoke_external_foreground_refusal"
+  );
+  const external_after = run_cu_json_no_activate(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-read", handle_text,
+    "--raw", "--max-bytes", "65536"
+  ]);
+  const external_focus_after = window_row(
+    run_directory, executable, fixture_pid, fixture_title
+  );
+  ensure(
+    text_at(external_after, "data.node") === external_node
+      && text_at(external_after, "data.text") === text_at(external_read, "data.text")
+      && int_at(external_after, "data.window_identity.handle") === fixture_handle
+      && int_at(external_after, "data.window_identity.pid") === fixture_pid
+      && text_at(external_after, "data.window_identity.start_identity")
+        === text_at(external_read, "data.window_identity.start_identity")
+      && text_at(external_after, "data.window_identity.app")
+        === text_at(external_read, "data.window_identity.app")
+      && external_focus_after !== null
+      && flag_at(external_focus_after, "focused") === external_focus_before,
+    "cu_windows_smoke_external_refusal_side_effect:" + JSON.stringify(external_after.data)
+  );
+  const external_audit = rh.read_text(rh.join(run_directory, "cu-audit.jsonl"));
+  const receipt_path = rh.join(run_directory, "cu-receipts/current.jsonl");
+  const external_receipts = rh.exists(receipt_path) ? rh.read_text(receipt_path) : "";
+  ensure(
+    external_audit.indexOf(invalid_pattern) < 0
+      && external_audit.indexOf(background_text) < 0
+      && external_audit.indexOf(foreground_text) < 0
+      && external_receipts.indexOf(background_text) < 0
+      && external_receipts.indexOf(foreground_text) < 0
+      && external_receipts.trim() === "",
+    "cu_windows_smoke_external_sensitive_text_leaked"
+  );
 
   print("STEP process-state binds the live owned fixture pid to a non-empty start identity");
   const process_state = run_cu_json(run_directory, executable, [
@@ -1066,6 +1224,7 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-process-lifecycle-
 harness.emit_evidence(context, declared_evidence, "cu.windows-network-probe");
 harness.emit_evidence(context, declared_evidence, "cu.windows-file-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.windows-terminal-control");
+harness.emit_evidence(context, declared_evidence, "cu.windows-external-terminal-observe");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-invoke");

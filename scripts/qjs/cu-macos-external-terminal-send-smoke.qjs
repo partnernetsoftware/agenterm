@@ -1,0 +1,45 @@
+// Explicit visible wrapper around the macOS CU journey's external-terminal
+// send mode. Routine host evidence remains AGENTERM_NO_ACTIVATE-only; this
+// separate court makes foreground activation and keyboard input discoverable
+// in the task manifest and emits only the evidence it owns.
+import * as rh from "lib/rh_compat";
+
+const EVIDENCE = "cu.macos-external-terminal-send";
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print(EVIDENCE);
+  return;
+}
+
+require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const cu = rh.absolute(args[1]);
+const agenterm = rh.join(rh.parent(cu), "agenterm");
+const journey = rh.join(repo, "scripts/qjs/cu-macos-smoke.qjs");
+const output = rh.command(
+  agenterm,
+  [
+    "cli", "script", "run", journey,
+    "--profile", "tool", "--cwd", repo, "--project-root", repo,
+    "--timeout-ms", "300000", "--max-operations", "1000000000",
+    "--", repo, cu, "--visible-external-terminal-send"
+  ],
+  { cwd: repo, timeout_ms: 320000 }
+);
+require(
+  output.success === true,
+  "cu_macos_external_terminal_send_child:" + output.stdout + output.stderr
+);
+let observed = false;
+for (const line of output.stdout.split("\n")) {
+  if (line.trim() === "EVIDENCE " + EVIDENCE) { observed = true; }
+}
+require(observed, "cu_macos_external_terminal_send_evidence_missing");
+print("EVIDENCE " + EVIDENCE);
+print("PASS: macOS exact-window external-terminal visible send verified one new same-buffer token and restored foreground focus");
+return;

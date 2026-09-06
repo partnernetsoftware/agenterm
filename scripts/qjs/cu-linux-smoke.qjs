@@ -45,6 +45,7 @@ const declared_evidence = [
   "cu.linux-network-probe",
   "cu.linux-file-inspect",
   "cu.linux-terminal-control",
+  "cu.linux-external-terminal-observe",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
   "cu.linux-atspi-invoke",
@@ -109,6 +110,71 @@ function remove_directory_bounded(path) {
     harness.sleep_ms(50);
   }
   return false;
+}
+
+// This source is generated inside the run directory instead of adding a
+// second permanent fixture.  Gtk.TextView supplies the real AT-SPI Text
+// interface; its accessible role is narrowed to TERMINAL so this journey
+// proves the external-window facade without teaching the product to mistake
+// every editor control for a terminal.  The trigger file lets term-wait begin
+// before the independently scheduled buffer append.
+function external_terminal_fixture_source() {
+  return `#!/usr/bin/env python3
+import os
+import signal
+import sys
+
+import gi
+
+gi.require_version("Atk", "1.0")
+gi.require_version("Gtk", "3.0")
+from gi.repository import Atk, GLib, Gtk
+
+pid = os.getpid()
+trigger = sys.argv[1]
+window = Gtk.Window(title="agenterm-linux-external-terminal-%d" % pid)
+window.set_default_size(440, 220)
+window.set_focus_on_map(False)
+window.set_accept_focus(False)
+
+view = Gtk.TextView()
+view.set_can_focus(False)
+view.set_editable(True)
+view.set_cursor_visible(False)
+buffer = view.get_buffer()
+buffer.set_text("DECOY\\nACU_EXTERNAL_TERMINAL_BASE_%d_TAIL\\n\\n" % pid)
+accessible = view.get_accessible()
+accessible.set_name("Owned External Terminal Buffer")
+accessible.set_role(Atk.Role.TERMINAL)
+
+scroll = Gtk.ScrolledWindow()
+scroll.add(view)
+window.add(scroll)
+window.show_all()
+
+armed = [False]
+
+def append_async():
+    buffer.insert(buffer.get_end_iter(), "ACU_EXTERNAL_TERMINAL_ASYNC_%d" % pid)
+    return False
+
+def poll_trigger():
+    if not armed[0] and os.path.isfile(trigger):
+        armed[0] = True
+        GLib.timeout_add(250, append_async)
+        return False
+    return True
+
+def terminate(_signal, _frame):
+    Gtk.main_quit()
+
+signal.signal(signal.SIGTERM, terminate)
+signal.signal(signal.SIGINT, terminate)
+GLib.timeout_add(25, poll_trigger)
+sys.stdout.write("ready %d\\n" % pid)
+sys.stdout.flush()
+Gtk.main()
+`;
 }
 
 let terminal_instance = "";
@@ -307,6 +373,9 @@ let environment_fixture_reaped = false;
 let terminal_server = -1;
 let terminal_server_reaped = false;
 let terminal_tab_id = "";
+let external_terminal_fixture = -1;
+let external_terminal_fixture_pid = 0;
+let external_terminal_fixture_reaped = false;
 let network_fixture = null;
 let network_fixture_reaped = false;
 
@@ -575,6 +644,198 @@ try {
   const terminal_server_output = harness.wait(terminal_server, 10000);
   terminal_server_reaped = true;
   ensure(terminal_server_output.success === true, "cu_linux_smoke_terminal_server_exit");
+
+  print("STEP external-terminal observe binds one owned GTK terminal buffer by exact native window and process-start identity; no-activate refuses both input routes before mutation");
+  const external_terminal_source = rh.join(run_directory, "external-terminal-fixture.py");
+  const external_terminal_trigger = rh.join(run_directory, "external-terminal-trigger");
+  rh.write_text(external_terminal_source, external_terminal_fixture_source());
+  rh.try_remove_file(external_terminal_trigger);
+  external_terminal_fixture = harness.start({
+    program: "python3",
+    args: [external_terminal_source, external_terminal_trigger],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000
+  });
+  external_terminal_fixture_pid = harness.spawned_pid(external_terminal_fixture);
+  const external_terminal_title =
+    "agenterm-linux-external-terminal-" + external_terminal_fixture_pid;
+  const external_terminal_window_wait = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "15000", "--window-title-contains", external_terminal_title
+  ]);
+  ensure(
+    flag_at(external_terminal_window_wait, "data.met"),
+    "cu_linux_external_terminal_window_wait"
+  );
+  const external_terminal_row = window_row(
+    run_directory,
+    executable,
+    external_terminal_fixture_pid,
+    external_terminal_title
+  );
+  ensure(external_terminal_row !== null, "cu_linux_external_terminal_window_identity");
+  const external_terminal_handle = int_at(external_terminal_row, "handle");
+  const external_terminal_handle_text = "" + external_terminal_handle;
+  const external_terminal_app = text_at(external_terminal_row, "app_name");
+  ensure(
+    external_terminal_handle > 0 && external_terminal_app !== "",
+    "cu_linux_external_terminal_window_row:" + JSON.stringify(external_terminal_row)
+  );
+  const external_terminal_process = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-state",
+    "--pid", "" + external_terminal_fixture_pid
+  ]);
+  const external_terminal_start_identity =
+    text_at(external_terminal_process, "data.start_identity");
+  ensure(
+    text_at(external_terminal_process, "data.state") === "live"
+      && flag_at(external_terminal_process, "data.verified")
+      && external_terminal_start_identity !== "",
+    "cu_linux_external_terminal_process_identity:"
+      + JSON.stringify(external_terminal_process.data)
+  );
+
+  const external_terminal_read = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-read",
+    external_terminal_handle_text, "--tail", "1", "--max-bytes", "5"
+  ]);
+  const external_terminal_node = text_at(external_terminal_read, "data.node");
+  ensure(
+    text_at(external_terminal_read, "data.addressing") === "exact-desktop-window"
+      && text_at(external_terminal_read, "data.backend") === "at-spi2"
+      && int_at(external_terminal_read, "data.window_identity.handle")
+        === external_terminal_handle
+      && int_at(external_terminal_read, "data.window_identity.pid")
+        === external_terminal_fixture_pid
+      && text_at(external_terminal_read, "data.window_identity.start_identity")
+        === external_terminal_start_identity
+      && text_at(external_terminal_read, "data.window_identity.app")
+        === external_terminal_app
+      && external_terminal_node !== ""
+      && text_at(external_terminal_read, "data.role") === "terminal"
+      && text_at(external_terminal_read, "data.text") === "_TAIL"
+      && flag_at(external_terminal_read, "data.truncated_head")
+      && !flag_at(external_terminal_read, "data.source_complete")
+      && text_at(external_terminal_read, "data.tail_scope") === "observed-prefix",
+    "cu_linux_external_terminal_read:" + JSON.stringify(external_terminal_read.data)
+  );
+
+  rh.write_text(external_terminal_trigger, "append");
+  const external_terminal_async = "ACU_EXTERNAL_TERMINAL_ASYNC_"
+    + external_terminal_fixture_pid;
+  const external_terminal_wait = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-wait",
+    external_terminal_handle_text, external_terminal_async,
+    "--timeout-ms", "3000", "--interval-ms", "20"
+  ]);
+  ensure(
+    text_at(external_terminal_wait, "data.matched") === external_terminal_async
+      && text_at(external_terminal_wait, "data.node") === external_terminal_node
+      && int_at(external_terminal_wait, "data.window_identity.handle")
+        === external_terminal_handle
+      && int_at(external_terminal_wait, "data.window_identity.pid")
+        === external_terminal_fixture_pid
+      && text_at(external_terminal_wait, "data.window_identity.start_identity")
+        === external_terminal_start_identity
+      && int_at(external_terminal_wait, "data.polls") > 1,
+    "cu_linux_external_terminal_wait:" + JSON.stringify(external_terminal_wait.data)
+  );
+
+  const private_invalid_pattern = "private-linux-external([";
+  const external_terminal_invalid = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-wait",
+    external_terminal_handle_text, private_invalid_pattern,
+    "--timeout-ms", "10", "--interval-ms", "10"
+  ]);
+  ensure(
+    !flag_at(external_terminal_invalid, "ok")
+      && text_at(external_terminal_invalid, "error.code")
+        === "terminal_pattern_invalid"
+      && !JSON.stringify(external_terminal_invalid).includes(private_invalid_pattern),
+    "cu_linux_external_terminal_pattern_redaction:"
+      + JSON.stringify(external_terminal_invalid)
+  );
+  const external_terminal_before_refusals = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-read",
+    external_terminal_handle_text, "--max-bytes", "4096"
+  ]);
+  const private_terminal_input = "private-linux-terminal-input";
+  const external_terminal_background = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "term-send",
+    external_terminal_handle_text, "--", private_terminal_input
+  ]);
+  ensure(
+    !flag_at(external_terminal_background, "ok")
+      && text_at(external_terminal_background, "error.code")
+        === "terminal_background_input_unavailable"
+      && !JSON.stringify(external_terminal_background).includes(private_terminal_input),
+    "cu_linux_external_terminal_background_refusal:"
+      + JSON.stringify(external_terminal_background)
+  );
+  const external_terminal_foreground = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "term-send",
+    external_terminal_handle_text, "--foreground", "--", private_terminal_input
+  ]);
+  ensure(
+    !flag_at(external_terminal_foreground, "ok")
+      && text_at(external_terminal_foreground, "error.code")
+        === "terminal_foreground_forbidden"
+      && !JSON.stringify(external_terminal_foreground).includes(private_terminal_input),
+    "cu_linux_external_terminal_foreground_refusal:"
+      + JSON.stringify(external_terminal_foreground)
+  );
+  const external_terminal_after_refusals = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "term-read",
+    external_terminal_handle_text, "--max-bytes", "4096"
+  ]);
+  ensure(
+    text_at(external_terminal_after_refusals, "data.text")
+        === text_at(external_terminal_before_refusals, "data.text")
+      && text_at(external_terminal_after_refusals, "data.node")
+        === external_terminal_node,
+    "cu_linux_external_terminal_refusal_mutated_buffer"
+  );
+  const external_terminal_receipts = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "receipts",
+    "--window", external_terminal_handle_text, "--max", "10"
+  ]);
+  ensure(
+    int_at(external_terminal_receipts, "data.total") === 0,
+    "cu_linux_external_terminal_refusal_wrote_receipt:"
+      + JSON.stringify(external_terminal_receipts.data)
+  );
+
+  rh.command(
+    "kill",
+    ["-TERM", "" + external_terminal_fixture_pid],
+    { cwd: run_directory, timeout_ms: 5000 }
+  );
+  const external_terminal_output = harness.wait(external_terminal_fixture, 3000);
+  external_terminal_fixture_reaped = true;
+  ensure(
+    external_terminal_output.success === true
+      && harness.process_present(external_terminal_fixture_pid) === 0,
+    "cu_linux_external_terminal_fixture_exit:"
+      + JSON.stringify(external_terminal_output)
+  );
+  let external_terminal_window_gone = 0;
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    if (window_row(
+      run_directory,
+      executable,
+      external_terminal_fixture_pid,
+      external_terminal_title
+    ) === null) {
+      external_terminal_window_gone = 1;
+      break;
+    }
+    harness.sleep_ms(50);
+  }
+  ensure(
+    external_terminal_window_gone === 1,
+    "cu_linux_external_terminal_window_lingers"
+  );
 
   print("STEP start the owned GTK fixture and resolve its two windows by pid and exact title");
   const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
@@ -1306,6 +1567,18 @@ if (fixture >= 0 && !fixture_reaped) {
   try { harness.wait(fixture, 3000); } catch (wait_error) { print("cleanup: " + wait_error); }
 }
 
+if (external_terminal_fixture >= 0 && !external_terminal_fixture_reaped) {
+  if (external_terminal_fixture_pid !== 0) {
+    rh.command(
+      "kill",
+      ["-TERM", "" + external_terminal_fixture_pid],
+      { timeout_ms: 5000 }
+    );
+  }
+  try { harness.wait(external_terminal_fixture, 3000); }
+  catch (wait_error) { print("cleanup: " + wait_error); }
+}
+
 if (environment_fixture >= 0 && !environment_fixture_reaped) {
   if (environment_fixture_pid !== 0) {
     rh.command("kill", ["-TERM", "" + environment_fixture_pid], { timeout_ms: 5000 });
@@ -1362,6 +1635,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-process-lifecycle-wa
 harness.emit_evidence(context, declared_evidence, "cu.linux-network-probe");
 harness.emit_evidence(context, declared_evidence, "cu.linux-file-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-terminal-control");
+harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-observe");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");

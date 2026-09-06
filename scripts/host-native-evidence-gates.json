@@ -119,6 +119,7 @@
         "cu.linux-network-probe",
         "cu.linux-file-inspect",
         "cu.linux-terminal-control",
+        "cu.linux-external-terminal-observe",
         "cu.linux-atspi-tree-geometry",
         "cu.linux-atspi-query",
         "cu.linux-atspi-invoke",
@@ -137,6 +138,13 @@
         "cu.linux-atspi-destructive-close",
         "cu.linux-atspi-refusal-reasons",
         "cu.linux-atspi-fixture-cleanup"
+      ]
+    },
+    {
+      "id": "cu-macos-external-terminal-send-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.macos-external-terminal-send"
       ]
     },
     {

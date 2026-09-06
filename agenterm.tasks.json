@@ -619,6 +619,27 @@
         "task.cu-macos-smoke"
       ]
     },
+    "cu-macos-external-terminal-send-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session",
+        "explicit-visible-input-court"
+      ],
+      "outputs": [
+        "cu-macos-external-terminal-send-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-external-terminal-send-smoke"
+      ]
+    },
     "cu-managed-job-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2650,6 +2671,26 @@
       "id": "cu-macos-smoke",
       "description": "Prove the macOS agenterm-cu loop on owned fixtures: identity-bound process argv/usage/wait/kill, network and file observation, terminal control, bounded tree/query, semantic writes, background input, geometry, screenshot, snapshot/diff, window lifecycle, receipts and owned cleanup.",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-external-terminal-send-smoke",
+      "description": "Explicit visible court for exact-window external-terminal send: activate and focus the owned AX buffer, inject one unique token, verify the newly satisfied same-buffer postcondition, and restore the previous foreground window.",
+      "entry": "scripts/qjs/cu-macos-external-terminal-send-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
