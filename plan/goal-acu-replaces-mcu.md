@@ -699,6 +699,10 @@ Q3 owned runtime facades
 │  │  ├─ [x] local macOS public qjswasm snapshot → resize/diff → output/diff → event continuation → restart refusal
 │  │  └─ [ ] enlarged journey six-cell rerun
 │  ├─ [x] lease-owned registry, streams and explicit session-end cleanup
+│  ├─ [~] PTY process control: exact owned-session cleanup + foreground signal semantics
+│  │  ├─ [x] architecture/court frozen in `design-pty-process-control-experiment.md`
+│  │  ├─ [ ] POSIX retained foreground group + complete owned-session cleanup
+│  │  └─ [ ] direct ConPTY C1 verdict; no Ctrl-C byte or whole-job false parity
 │  └─ [ ] adopt/prune, aggregate resources, policy/priority/state/signal and expiry-detach shape
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [~] host resource status: bounded CPU/memory/load/uptime/process snapshot
