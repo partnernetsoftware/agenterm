@@ -545,6 +545,11 @@ flowchart LR
   Chromium cannot acquire a DevTools TCP/pipe endpoint after its process has
   started, so ACU will not publish a fictitious attach verb or restart a user's
   authenticated browser. The near-term default is an owned `browser-session`:
+  its macOS public qjswasm court now proves start/list/status/stop, verified
+  removal, same-name restart and TTL-owned cleanup against an exact
+  caller-supplied headless browser without foreground activation. Linux and
+  Windows native courts and crash-recovery evidence remain open, so this is a
+  platform-limited replacement rather than a three-host completion.
   ACU starts a separate isolated profile with a random endpoint, records exact
   process identity, owns the complete process tree, and exposes typed
   start/list/status/stop/remove. Its pure foundation now validates one portable

@@ -368,6 +368,10 @@
       "evidence": ["cu.persisted-grant-operation-binding.macos"]
     },
     {
+      "id": "cu-browser-session-smoke",
+      "evidence": ["cu.browser-managed-profile.macos"]
+    },
+    {
       "id": "cu-simulator-readonly-smoke",
       "evidence": ["cu.simulator-readonly"]
     },

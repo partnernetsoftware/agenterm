@@ -480,8 +480,12 @@
           "id": "browser.managed-profile",
           "mcu_shape": "browser profile create/list/start/status/stop/remove with owner lease and TTL",
           "acu_shape": "browser-session-start/list/status/stop/remove over a private atomic registry, owner lease, generation/nonce and owner/browser start identities",
-          "state": "gap",
-          "next": "register a public qjswasm lifecycle court and prove executable discovery, TTL, restart recovery and exact owner/child cleanup on macOS, Linux and Windows"
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
+          "qualification": "macos-owned-headless-lifecycle-green-linux-windows-native-courts-pending",
+          "evidence": ["cu.browser-managed-profile.macos", "agenterm-cu browser session owner/store tests"],
+          "note": "The macOS public qjswasm court uses an isolated HOME and an exact caller-supplied browser executable. It proves ready owner/browser identities, list/status generation continuity, explicit stop, verified removal, same-name restart and TTL-owned process cleanup without foreground activation.",
+          "next": "run the same public qjswasm lifecycle court with native browser executables on Linux and Windows; add crash-recovery evidence before cross-platform promotion"
         },
         {
           "id": "browser.mv3-native-bridge",

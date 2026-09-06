@@ -259,6 +259,7 @@
         "cu.storage-devices",
         "cu.privilege-plan",
         "cu.persisted-grant-operation-binding.macos",
+        "cu.browser-managed-profile.macos",
         "cu.simulator-readonly",
         "cu.file-copy-transaction",
         "cu.file-move-transaction",

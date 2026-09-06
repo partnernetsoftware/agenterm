@@ -1,0 +1,147 @@
+// Public macOS black-box contract for one ACU-owned headless browser profile.
+// Args: REPO AGENTERM_CU_EXE; AGENTERM_CU_BROWSER_EXE names the browser.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.browser-managed-profile.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print(declared_evidence[0]);
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+const browser_input = rh.env_or("AGENTERM_CU_BROWSER_EXE", "");
+ensure(browser_input !== "", "cu_browser_session_browser_env_missing");
+const browser = rh.absolute(browser_input);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_browser_session_executable_missing");
+ensure(direct_file(browser), "cu_browser_session_browser_missing");
+
+const context = harness.new_context(repo, "cu-browser-session");
+const isolated_home = rh.join(context.run_directory, "home");
+rh.create_dir_all(isolated_home);
+const name = "qjswasm-owned-profile";
+
+function invoke(grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: context.run_directory,
+    env: {
+      HOME: isolated_home,
+      AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "cu-audit.jsonl"),
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 30000
+  });
+  const text = output.stdout.trim();
+  ensure(text !== "", "cu_browser_session_empty_reply");
+  return { output: output, reply: JSON.parse(text) };
+}
+
+function require_ok(result, label) {
+  ensure(result.output.success === true && result.reply.ok === true, label);
+  return result.reply;
+}
+
+function cleanup() {
+  const stopped = invoke("actuate", [
+    "browser-session-stop", name, "--expect", "stopped", "--timeout-ms", "15000"
+  ]);
+  if (stopped.reply.ok === true) {
+    invoke("actuate", ["browser-session-remove", name, "--expect", "stopped"]);
+  }
+}
+
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP start one isolated headless browser with exact owner identity");
+  const started = require_ok(invoke("actuate", [
+    "browser-session-start", name, "--browser", browser,
+    "--ready-timeout-ms", "15000", "--ttl-ms", "60000"
+  ]), "cu_browser_session_start_failed");
+  ensure(started.command === "browser-session-start", "cu_browser_session_start_command");
+  ensure(started.data.state === "ready" && started.data.owned === true, "cu_browser_session_start_state");
+  ensure(started.data.owner_observation === "live", "cu_browser_session_owner_not_live");
+  ensure(started.data.owner.pid > 0 && started.data.browser.pid > 0, "cu_browser_session_process_identity");
+  ensure(started.data.owner.pid !== started.data.browser.pid, "cu_browser_session_process_alias");
+  ensure(started.data.endpoint.port > 0, "cu_browser_session_endpoint");
+
+  print("STEP list and status preserve the exact generation and process identities");
+  const listed = require_ok(invoke("observe", ["browser-session-list"]), "cu_browser_session_list_failed");
+  ensure(listed.data.total === 1 && listed.data.sessions.length === 1, "cu_browser_session_list_count");
+  ensure(listed.data.sessions[0].generation === started.data.generation, "cu_browser_session_list_generation");
+  ensure(listed.data.sessions[0].owner.pid === started.data.owner.pid, "cu_browser_session_list_owner");
+  ensure(listed.data.sessions[0].browser.pid === started.data.browser.pid, "cu_browser_session_list_browser");
+  const status = require_ok(invoke("observe", ["browser-session-status", name]), "cu_browser_session_status_failed");
+  ensure(status.data.state === "ready" && status.data.owner_observation === "live", "cu_browser_session_status_state");
+
+  print("STEP explicit stop proves owner and browser cleanup before removal");
+  const stopped = require_ok(invoke("actuate", [
+    "browser-session-stop", name, "--expect", "stopped", "--timeout-ms", "15000"
+  ]), "cu_browser_session_stop_failed");
+  ensure(stopped.data.state === "stopped", "cu_browser_session_stop_state");
+  ensure(stopped.data.owner_observation === "dead", "cu_browser_session_owner_not_reaped");
+  const removed = require_ok(invoke("actuate", [
+    "browser-session-remove", name, "--expect", "stopped"
+  ]), "cu_browser_session_remove_failed");
+  ensure(removed.data.state === "removed" && removed.data.verified === true, "cu_browser_session_remove_state");
+  const empty = require_ok(invoke("observe", ["browser-session-list"]), "cu_browser_session_empty_list_failed");
+  ensure(empty.data.total === 0 && empty.data.sessions.length === 0, "cu_browser_session_not_empty");
+
+  print("STEP same name restarts cleanly and TTL owns bounded cleanup");
+  const restarted = require_ok(invoke("actuate", [
+    "browser-session-start", name, "--browser", browser,
+    "--ready-timeout-ms", "15000", "--ttl-ms", "1200"
+  ]), "cu_browser_session_restart_failed");
+  ensure(restarted.data.state === "ready", "cu_browser_session_restart_state");
+  const deadline = rh.now_ms() + 15000;
+  let expired = null;
+  while (rh.now_ms() < deadline) {
+    const observed = invoke("observe", ["browser-session-status", name]);
+    if (observed.reply.ok === true && observed.reply.data.state === "stopped") {
+      expired = observed.reply;
+      break;
+    }
+    rh.sleep_ms(100);
+  }
+  ensure(expired !== null, "cu_browser_session_ttl_timeout");
+  ensure(expired.data.owner_observation === "dead", "cu_browser_session_ttl_owner_not_reaped");
+  ensure(expired.data.last_error_code === "browser_ttl_expired", "cu_browser_session_ttl_reason");
+  const expired_removed = require_ok(invoke("actuate", [
+    "browser-session-remove", name, "--expect", "stopped"
+  ]), "cu_browser_session_ttl_remove_failed");
+  ensure(expired_removed.data.verified === true, "cu_browser_session_ttl_remove_unverified");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded === 0) {
+  try { cleanup(); } catch (_) {}
+}
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: owned browser profile start, inventory, stop, restart, TTL and cleanup are verified");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

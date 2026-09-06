@@ -143,7 +143,7 @@ AgenTerm — local agent & process fleet work OS
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 133 叶：
-│     │                       native 32 / delegated 31 / platform-limited 54 / gap 11 / retired 5
+│     │                       native 32 / delegated 31 / platform-limited 55 / gap 10 / retired 5
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
 │     │                       doctor desktop baseline、system readiness 与 capability counts 已有
 │     │                       公开 qjswasm 证据；跨机制 live probe 仍是明确 gap，不以 catalog 冒充
@@ -154,6 +154,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       只可 list/revoke、执行 fail-closed；macOS sealed current-session
 │     │                       provider + qjswasm operation/no-consumption/revoke court 已绿，
 │     │                       Windows 公开复跑与 Linux provider 仍是资格缺口
+│     │                       owned browser profile 已从 gap 晋级 platform-limited：macOS qjswasm
+│     │                       已证 start/list/status/stop/restart/TTL/cleanup；Lnx/Win court 待跑
 │     │                       device claim/lease/I/O 已有 macOS + Linux 双 ISA qjswasm court，
 │     │                       Windows COM court 待证；network-dns 已从 gap 降为 platform-limited，
 │     │                       macOS + Linux 双 ISA + Windows ARM journey 绿；Win x86 court 的

@@ -803,7 +803,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 133 ledger capabilities
-currently include 11 `gap` and 54 `platform-limited` rows. The compatibility
+currently include 10 `gap` and 55 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
@@ -818,6 +818,13 @@ host-native evidence manifests. Unit-test prose, catalog presence, a script
 path, or a merely nonempty array cannot satisfy retirement. Candidate and
 MCU-absent courts must still produce the registered receipts for the exact
 source identity.
+
+The owned browser-session row is no longer a capability gap. Its macOS public
+qjswasm court proves exact owner/browser identities, generation-preserving
+inventory and status, explicit stop, verified removal, same-name restart and
+TTL-owned cleanup in an isolated headless profile without foreground change.
+Linux and Windows native courts plus crash-recovery evidence remain required,
+so the row is `platform-limited`, not yet cross-platform native.
 
 The runtime capability-probe frontier now has one deliberately partial macOS
 component: native platform identity, live displays, payload-free clipboard
