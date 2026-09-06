@@ -1,0 +1,101 @@
+// Public black-box journey for bounded rich process inventory.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.process-inventory-rich"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, args, expected_error) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (let index = 0; index < args.length; index = index + 1) { argv.push(args[index]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_process_inventory_expected_failure");
+    ensure(reply.error.code === expected_error, "cu_process_inventory_wrong_error:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_process_inventory_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_process_inventory_executable_missing");
+
+const context = harness.new_context(repo, "cu-process-inventory");
+let succeeded = 0;
+let failure = "";
+try {
+  const pid = rh.pid();
+  print("STEP exact pid inventory remains a stable bounded page");
+  const exact = invoke(context.run_directory, executable, ["ps", "--pid", "" + pid, "--max", "4"]);
+  ensure(exact.processes.length === 1 && exact.processes[0].pid === pid, "cu_process_inventory_exact");
+  ensure(exact.visited >= exact.returned && exact.verified === true, "cu_process_inventory_exact_counts");
+
+  print("STEP command and resource filters disclose no command plaintext");
+  const rich = invoke(context.run_directory, executable, [
+    "ps", "--pid", "" + pid, "--command", "agenterm", "--memory-above-mb", "0",
+    "--sort", "memory", "--max-visited", "10000", "--max", "4"
+  ]);
+  ensure(rich.processes.length === 1 && rich.processes[0].pid === pid, "cu_process_inventory_rich_match");
+  ensure(typeof rich.processes[0].command_sha256 === "string" && rich.processes[0].command_sha256.length === 64, "cu_process_inventory_command_digest");
+  ensure(typeof rich.processes[0].command_bytes === "number" && rich.processes[0].command_bytes > 0, "cu_process_inventory_command_length");
+  ensure(rich.processes[0].command === undefined, "cu_process_inventory_command_plaintext");
+  ensure(typeof rich.processes[0].resident_bytes === "string", "cu_process_inventory_memory");
+  ensure(rich.coverage_complete === true && rich.detail_errors === 0, "cu_process_inventory_coverage");
+
+  print("STEP CPU sorting names its bounded sampling window");
+  const cpu = invoke(context.run_directory, executable, [
+    "ps", "--sort", "cpu", "--sample-ms", "25", "--max-visited", "10000", "--max", "8"
+  ]);
+  ensure(cpu.sample_ms === 25 && cpu.processes.length > 0, "cu_process_inventory_cpu_sample");
+  ensure(typeof cpu.processes[0].cpu_percent === "number", "cu_process_inventory_cpu_value");
+
+  print("STEP pid detail mode returns a bounded tree and typed file/socket attachments");
+  const tree = invoke(context.run_directory, executable, [
+    "ps", "--pid", "" + pid, "--depth", "1", "--files", "--ports",
+    "--max", "32", "--max-visited", "10000"
+  ]);
+  ensure(tree.mode === "tree-detail" && tree.root.pid === pid && tree.max_depth === 1, "cu_process_inventory_tree");
+  ensure(tree.files.status === "available" || tree.files.status === "unavailable", "cu_process_inventory_files_typed");
+  ensure(tree.ports.status === "available" || tree.ports.status === "unavailable", "cu_process_inventory_ports_typed");
+  if (!harness.host_is_windows()) {
+    ensure(tree.files.status === "available" && tree.ports.status === "available", "cu_process_inventory_unix_inspection");
+  }
+
+  print("STEP list and detail modes cannot be mixed silently");
+  invoke(context.run_directory, executable, ["ps", "--pid", "" + pid, "--depth", "1", "--name", "agenterm"], "usage");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.process-inventory-rich");
+  harness.remove_run(context);
+  print("PASS: rich process inventory is bounded, composable and plaintext-safe");
+}
+if (failure !== "") { throw failure; }
+return;

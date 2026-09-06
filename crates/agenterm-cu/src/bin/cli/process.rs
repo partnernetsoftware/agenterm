@@ -604,14 +604,73 @@ fn ps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let pid = flag_parsed::<u32>(args, "--pid")?;
     let parent = flag_parsed::<u32>(args, "--parent")?;
     let name = flag_text(args, "--name")?;
-    if name.as_deref().is_some_and(|value| value.trim().is_empty()) {
-        return Err("ps --name must not be empty".into());
+    let app = flag_text(args, "--app")?;
+    let command = flag_text(args, "--command")?;
+    for (flag, value) in [("--name", &name), ("--app", &app), ("--command", &command)] {
+        if let Some(value) = value.as_deref()
+            && (value.trim().is_empty() || value.len() > 256 || value.chars().any(char::is_control))
+        {
+            return Err(format!(
+                "ps {flag} must be 1..=256 bytes without control characters"
+            ));
+        }
+    }
+    let cpu_above_percent = flag_parsed::<f64>(args, "--cpu-above")?;
+    if cpu_above_percent
+        .is_some_and(|value| !value.is_finite() || !(0.0..=100_000.0).contains(&value))
+    {
+        return Err("ps --cpu-above must be in 0..=100000".into());
+    }
+    let memory_above_mb = flag_parsed::<f64>(args, "--memory-above-mb")?;
+    if memory_above_mb.is_some_and(|value| !value.is_finite() || value < 0.0) {
+        return Err("ps --memory-above-mb must be a finite non-negative number".into());
+    }
+    let sort = flag_text(args, "--sort")?;
+    if sort
+        .as_deref()
+        .is_some_and(|value| !matches!(value, "pid" | "cpu" | "mem" | "memory"))
+    {
+        return Err("ps --sort must be pid|cpu|mem|memory".into());
+    }
+    let sample_ms = flag_parsed::<u64>(args, "--sample-ms")?;
+    if sample_ms.is_some_and(|value| !(10..=10_000).contains(&value)) {
+        return Err("ps --sample-ms must be in 10..=10000".into());
+    }
+    if sample_ms.is_some() && cpu_above_percent.is_none() && sort.as_deref() != Some("cpu") {
+        return Err("ps --sample-ms requires --cpu-above or --sort cpu".into());
+    }
+    let max_visited = flag_parsed::<usize>(args, "--max-visited")?;
+    if max_visited.is_some_and(|value| !(1..=10_000).contains(&value)) {
+        return Err("ps --max-visited must be in 1..=10000".into());
     }
     let offset = flag_parsed::<usize>(args, "--offset")?;
     let max = flag_parsed::<usize>(args, "--max")?;
+    let depth = flag_parsed::<usize>(args, "--depth")?;
+    if depth.is_some_and(|value| value > 64) {
+        return Err("ps --depth must be in 0..=64".into());
+    }
+    let files = take_switch(args, "--files");
+    let ports = take_switch(args, "--ports");
+    let meta = take_switch(args, "--meta");
+    if (depth.is_some() || files || ports) && pid.is_none() {
+        return Err("ps --depth/--files/--ports require --pid N".into());
+    }
+    if (depth.is_some() || files || ports)
+        && (parent.is_some()
+            || name.is_some()
+            || app.is_some()
+            || command.is_some()
+            || cpu_above_percent.is_some()
+            || memory_above_mb.is_some()
+            || sort.is_some()
+            || sample_ms.is_some()
+            || offset.is_some())
+    {
+        return Err("ps --pid detail mode cannot be combined with list filters or --offset".into());
+    }
     if !args.is_empty() {
         return Err(format!(
-            "ps accepts only --pid N --parent N --name SUB --offset N --max N; unexpected {:?}",
+            "ps accepts only bounded process inventory flags; unexpected {:?}",
             args[0]
         ));
     }
@@ -620,6 +679,17 @@ fn ps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         pid,
         parent,
         name,
+        app,
+        command,
+        cpu_above_percent,
+        memory_above_mb,
+        sort,
+        sample_ms,
+        max_visited,
+        depth,
+        files,
+        ports,
+        meta,
         offset,
         max,
     })
@@ -670,6 +740,14 @@ mod tests {
             "7".into(),
             "--name".into(),
             "worker".into(),
+            "--command".into(),
+            "agenterm".into(),
+            "--memory-above-mb".into(),
+            "1".into(),
+            "--sort".into(),
+            "memory".into(),
+            "--max-visited".into(),
+            "100".into(),
             "--offset".into(),
             "3".into(),
             "--max".into(),
@@ -682,19 +760,48 @@ mod tests {
                 pid: Some(42),
                 parent: Some(7),
                 ref name,
+                ref command,
+                memory_above_mb: Some(1.0),
+                ref sort,
+                max_visited: Some(100),
                 offset: Some(3),
                 max: Some(9),
                 ..
             } if name.as_deref() == Some("worker")
+                && command.as_deref() == Some("agenterm")
+                && sort.as_deref() == Some("memory")
         ));
     }
 
     #[test]
-    fn ps_rejects_richer_mcu_flags_instead_of_ignoring_them() {
+    fn ps_accepts_rich_filters_and_rejects_mixed_detail_mode() {
         let spec = verbs::lookup("ps").expect("ps verb");
-        let mut args = vec!["--cpu-above".into(), "5".into()];
-        let error = parse(spec, spec.name, TargetRef::Current, &mut args).expect_err("typed usage");
-        assert!(error.contains("unexpected"), "{error}");
+        let mut args = vec![
+            "--cpu-above".into(),
+            "5".into(),
+            "--sort".into(),
+            "cpu".into(),
+            "--sample-ms".into(),
+            "50".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut args).expect("rich ps"),
+            Command::Ps {
+                cpu_above_percent: Some(5.0),
+                sample_ms: Some(50),
+                ..
+            }
+        ));
+        let mut mixed = vec![
+            "--pid".into(),
+            "42".into(),
+            "--depth".into(),
+            "1".into(),
+            "--name".into(),
+            "worker".into(),
+        ];
+        let error = parse(spec, spec.name, TargetRef::Current, &mut mixed).expect_err("mixed");
+        assert!(error.contains("cannot be combined"), "{error}");
     }
 
     #[test]

@@ -58,13 +58,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
 ## Current delivery truth
 
-- [x] On Windows, the product `Command`/`Executor` path consumes UIA tree,
+- [~] On Windows, the product `Command`/`Executor` path consumes UIA tree,
   process, file, network and terminal behavior through the 24-token public
   `cu-windows-smoke`. Exact source `91d55b69` passed all 24 identities on the
   native Windows ARM64 UTM court, with interactive nonce, exact bundle/log/
   manifest hashes, guest/host exit zero and owned cleanup recorded in
   [`evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json`](../evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json).
-- [x] Linux current-target process, terminal and AT-SPI desktop behavior runs
+- [~] Linux current-target process, terminal and AT-SPI desktop behavior runs
   through the public qjswasm journey. Its 32 evidence identities are registered
   in the host-native gate; exact source `7c489577` passed all 32 on a real
   Linux x86_64 X11 court and retained the matching compact receipt.
@@ -671,11 +671,33 @@ flowchart LR
   E -->|10 s deadline| D["cdp_timeout"]
   R --> F["active tab + front window unchanged"]
 ```
-- [~] Non-desktop facade tranche has started: `ps` now exposes a bounded
-  PID/parent/name inventory through `agenterm-platform::process::list`, shared
-  with qjswasm `process.list`, and is reachable on current/ssh/vnc through the
-  ordinary CU command schema. MCU's richer CPU/memory/argv/files/ports filters
-  remain typed migration gaps; no flag is silently ignored.
+- [~] Non-desktop facade tranche has started across process, network and
+  terminal owners; platform qualification remains independently explicit.
+- [~] `ps` now closes MCU's rich process-inventory shape through one bounded
+  typed facade. List mode composes exact/name/parent/command/resource filters,
+  stable PID/CPU/memory sorting and offset/max pagination; `--max-visited`
+  limits detail probes. CPU percentage is measured from two cumulative native
+  samples over the declared `--sample-ms` window rather than fabricated from
+  one counter. Command matching never returns command plaintext: only length
+  and SHA-256 leave the process boundary. PID detail mode owns bounded
+  ancestor/descendant traversal plus optional identity-bracketed file and
+  socket attachments; an unavailable native provider remains a typed embedded
+  result instead of erasing the valid tree. Public qjswasm evidence
+  `cu.process-inventory-rich` is green on macOS; Linux and Windows native reruns
+  remain before three-host promotion.
+
+```mermaid
+flowchart LR
+  Q["ps request"] --> M{"list or pid detail"}
+  M -->|list| B["base inventory<br/>pid/name/parent prefilter"]
+  B --> L["max-visited bound"] --> D["command digest + native metrics"]
+  D --> C{"CPU requested?"}
+  C -->|yes| S["two samples<br/>explicit sample-ms"]
+  C -->|no| F["stable filter + sort + page"]
+  S --> F --> R["counts + truncation + coverage"]
+  M -->|pid detail| T["cycle-safe bounded tree"]
+  T --> I["identity-bracketed files / sockets"] --> R
+```
 - [~] `process-argv` is the first process-image detail facade. It reads native
   argument boundaries between two matching process start-identity observations,
   caps a page at 4,096 rows and omits plaintext by default; every hidden row

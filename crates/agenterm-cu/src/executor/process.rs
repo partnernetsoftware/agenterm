@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -2467,15 +2468,187 @@ pub(super) fn process_watch_payload(
     }))
 }
 
-pub(super) fn process_list_payload(
-    pid: Option<u32>,
-    parent: Option<u32>,
-    name: Option<&str>,
-    offset: Option<usize>,
-    max: Option<usize>,
+#[derive(Default)]
+pub(super) struct ProcessInventoryOptions<'a> {
+    pub pid: Option<u32>,
+    pub parent: Option<u32>,
+    pub name: Option<&'a str>,
+    pub app: Option<&'a str>,
+    pub command: Option<&'a str>,
+    pub cpu_above_percent: Option<f64>,
+    pub memory_above_mb: Option<f64>,
+    pub sort: Option<&'a str>,
+    pub sample_ms: Option<u64>,
+    pub max_visited: Option<usize>,
+    pub offset: Option<usize>,
+    pub max: Option<usize>,
+}
+
+struct RichProcessRow {
+    base: agenterm_platform::contract::process::ProcessInfo,
+    command_sha256: Option<String>,
+    command_bytes: Option<usize>,
+    cpu_percent: Option<f64>,
+    resident_bytes: Option<u64>,
+}
+
+fn lower_contains(value: &str, needle: Option<&str>) -> bool {
+    needle.is_none_or(|needle| {
+        value
+            .to_ascii_lowercase()
+            .contains(&needle.to_ascii_lowercase())
+    })
+}
+
+fn process_row_json(
+    row: &agenterm_platform::contract::process::ProcessInfo,
+    depth: usize,
+    child_count: usize,
+) -> Value {
+    json!({
+        "pid": row.id,
+        "parent_pid": row.parent_id,
+        "executable_name": row.executable_name,
+        "depth": depth,
+        "child_count": child_count,
+    })
+}
+
+fn optional_inspection(result: Result<Value, CuError>) -> Value {
+    match result {
+        Ok(value) => json!({ "status": "available", "data": value }),
+        Err(error) => json!({
+            "status": "unavailable",
+            "error": {
+                "code": error.code,
+                "message": error.message,
+                "detail": error.detail,
+            }
+        }),
+    }
+}
+
+pub(super) fn process_tree_payload(
+    pid: u32,
+    max_depth: usize,
+    max_descendants: usize,
+    files: bool,
+    ports: bool,
+    max_visited: Option<usize>,
 ) -> Result<Value, CuError> {
-    let offset = offset.unwrap_or(0);
-    let max = max.unwrap_or(DEFAULT_MAX);
+    let max_visited = max_visited.unwrap_or(10_000);
+    if pid == 0
+        || max_depth > 64
+        || !(1..=MAX_RESULTS).contains(&max_descendants)
+        || !(1..=10_000).contains(&max_visited)
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "ps detail mode requires pid > 0, depth in 0..=64, max in 1..=5000 and max-visited in 1..=10000",
+        ));
+    }
+    let inventory = agenterm_platform::process::list().map_err(|error| {
+        CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
+            "kind": format!("{:?}", error.kind()),
+        }))
+    })?;
+    if inventory.len() > max_visited {
+        return Err(CuError::new(
+            "process_inventory_too_large",
+            format!(
+                "process inventory has {} rows, above --max-visited={max_visited}; raise the explicit bound",
+                inventory.len()
+            ),
+        ));
+    }
+    let by_pid = inventory
+        .iter()
+        .cloned()
+        .map(|row| (row.id, row))
+        .collect::<BTreeMap<_, _>>();
+    let root = by_pid
+        .get(&pid)
+        .ok_or_else(|| CuError::new("process_not_found", format!("process pid={pid} is absent")))?;
+    let mut children = BTreeMap::<u32, Vec<u32>>::new();
+    for row in &inventory {
+        children.entry(row.parent_id).or_default().push(row.id);
+    }
+    for ids in children.values_mut() {
+        ids.sort_unstable();
+    }
+
+    let mut ancestors = Vec::new();
+    let mut ancestor_seen = BTreeSet::from([pid]);
+    let mut parent = root.parent_id;
+    while parent != 0 && ancestor_seen.insert(parent) {
+        let Some(row) = by_pid.get(&parent) else {
+            break;
+        };
+        ancestors.push(process_row_json(
+            row,
+            ancestors.len() + 1,
+            children.get(&row.id).map_or(0, Vec::len),
+        ));
+        parent = row.parent_id;
+    }
+    ancestors.reverse();
+
+    let mut descendants = Vec::new();
+    let mut queue = VecDeque::new();
+    for child in children.get(&pid).into_iter().flatten() {
+        queue.push_back((*child, 1_usize));
+    }
+    let mut seen = BTreeSet::from([pid]);
+    let mut truncated = false;
+    while let Some((next, depth)) = queue.pop_front() {
+        if !seen.insert(next) {
+            continue;
+        }
+        if depth > max_depth {
+            truncated = true;
+            continue;
+        }
+        if descendants.len() == max_descendants {
+            truncated = true;
+            break;
+        }
+        let Some(row) = by_pid.get(&next) else {
+            continue;
+        };
+        descendants.push(process_row_json(
+            row,
+            depth,
+            children.get(&next).map_or(0, Vec::len),
+        ));
+        for child in children.get(&next).into_iter().flatten() {
+            queue.push_back((*child, depth + 1));
+        }
+    }
+
+    let inspection_limit = max_descendants.min(DEFAULT_INSPECTION_LIMIT);
+    Ok(json!({
+        "mode": "tree-detail",
+        "root": process_row_json(root, 0, children.get(&pid).map_or(0, Vec::len)),
+        "ancestors": ancestors,
+        "descendants": descendants,
+        "visited": inventory.len(),
+        "max_visited": max_visited,
+        "max_depth": max_depth,
+        "max_descendants": max_descendants,
+        "truncated": truncated,
+        "files": files.then(|| optional_inspection(process_fds_payload(
+            pid, None, None, None, Some(inspection_limit), Some(max_visited),
+        ))),
+        "ports": ports.then(|| optional_inspection(process_sockets_payload(
+            pid, None, None, None, None, None, Some(inspection_limit), Some(max_visited),
+        ))),
+        "verified": true,
+    }))
+}
+
+pub(super) fn process_list_payload(options: ProcessInventoryOptions<'_>) -> Result<Value, CuError> {
+    let offset = options.offset.unwrap_or(0);
+    let max = options.max.unwrap_or(DEFAULT_MAX);
     if max == 0 || max > MAX_RESULTS {
         return Err(CuError::new(
             "invalid_input",
@@ -2483,21 +2656,174 @@ pub(super) fn process_list_payload(
         ));
     }
 
-    let mut rows = agenterm_platform::process::list().map_err(|error| {
+    let max_visited = options.max_visited.unwrap_or(1_000);
+    if !(1..=10_000).contains(&max_visited) {
+        return Err(CuError::new(
+            "invalid_input",
+            "ps --max-visited must be in 1..=10000",
+        ));
+    }
+    let sample_ms = options.sample_ms.unwrap_or(100);
+    if !(10..=10_000).contains(&sample_ms) {
+        return Err(CuError::new(
+            "invalid_input",
+            "ps --sample-ms must be in 10..=10000",
+        ));
+    }
+    let sort = options.sort.unwrap_or("pid");
+    if !matches!(sort, "pid" | "cpu" | "mem" | "memory") {
+        return Err(CuError::new(
+            "invalid_input",
+            "ps --sort must be pid|cpu|mem|memory",
+        ));
+    }
+
+    let mut inventory = agenterm_platform::process::list().map_err(|error| {
         CuError::new("process_inventory_failed", error.to_string()).with_detail(json!({
             "kind": format!("{:?}", error.kind()),
         }))
     })?;
-    let visited = rows.len();
-    let name = name.map(str::to_ascii_lowercase);
-    rows.retain(|row| {
-        pid.is_none_or(|wanted| row.id == wanted)
-            && parent.is_none_or(|wanted| row.parent_id == wanted)
-            && name
-                .as_ref()
-                .is_none_or(|wanted| row.executable_name.to_ascii_lowercase().contains(wanted))
+    inventory.sort_by_key(|row| row.id);
+    let visited = inventory.len();
+    inventory.retain(|row| {
+        options.pid.is_none_or(|wanted| row.id == wanted)
+            && options.parent.is_none_or(|wanted| row.parent_id == wanted)
+            && lower_contains(&row.executable_name, options.name)
+            && options
+                .app
+                .is_none_or(|wanted| row.executable_name.eq_ignore_ascii_case(wanted))
     });
-    rows.sort_by_key(|row| row.id);
+    let prefiltered = inventory.len();
+    let truncated_scan = inventory.len() > max_visited;
+    inventory.truncate(max_visited);
+
+    let needs_metrics = options.cpu_above_percent.is_some()
+        || options.memory_above_mb.is_some()
+        || matches!(sort, "cpu" | "mem" | "memory");
+    let needs_cpu = options.cpu_above_percent.is_some() || sort == "cpu";
+    let first_cpu = if needs_cpu {
+        inventory
+            .iter()
+            .filter_map(|row| {
+                let identity = live_start_identity(row.id).ok()?;
+                agenterm_platform::process_metrics::metrics(row.id)
+                    .ok()
+                    .map(|sample| (row.id, (identity, sample.cpu_time.as_nanos())))
+            })
+            .collect::<BTreeMap<_, _>>()
+    } else {
+        BTreeMap::new()
+    };
+    if needs_cpu {
+        thread::sleep(Duration::from_millis(sample_ms));
+    }
+
+    let mut detail_errors = 0_usize;
+    let mut rows = inventory
+        .into_iter()
+        .filter_map(|base| {
+            let needs_detail = options.command.is_some() || needs_metrics;
+            let row_identity = if needs_detail {
+                if needs_cpu {
+                    match first_cpu.get(&base.id) {
+                        Some((identity, _)) => Some(identity.clone()),
+                        None => {
+                            detail_errors += 1;
+                            return None;
+                        }
+                    }
+                } else {
+                    match live_start_identity(base.id) {
+                        Ok(identity) => Some(identity),
+                        Err(_) => {
+                            detail_errors += 1;
+                            return None;
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+            let (command_sha256, command_bytes) = if options.command.is_some() {
+                match agenterm_platform::process::command_line(base.id) {
+                    Ok(value) if lower_contains(&value, options.command) => (
+                        Some(super::clipboard::clipboard_sha256_hex(value.as_bytes())),
+                        Some(value.len()),
+                    ),
+                    Ok(_) => return None,
+                    Err(_) => {
+                        detail_errors += 1;
+                        return None;
+                    }
+                }
+            } else {
+                (None, None)
+            };
+            let (cpu_percent, resident_bytes) = if needs_metrics {
+                match agenterm_platform::process_metrics::metrics(base.id) {
+                    Ok(sample) => {
+                        let cpu = first_cpu.get(&base.id).and_then(|(identity, before)| {
+                            debug_assert_eq!(Some(identity), row_identity.as_ref());
+                            sample
+                                .cpu_time
+                                .as_nanos()
+                                .checked_sub(*before)
+                                .map(|delta| {
+                                    delta as f64 / (sample_ms as f64 * 1_000_000.0) * 100.0
+                                })
+                        });
+                        if needs_cpu && cpu.is_none() {
+                            detail_errors += 1;
+                            return None;
+                        }
+                        (cpu, Some(sample.resident_bytes))
+                    }
+                    Err(_) => {
+                        detail_errors += 1;
+                        return None;
+                    }
+                }
+            } else {
+                (None, None)
+            };
+            if needs_detail && live_start_identity(base.id).ok().as_ref() != row_identity.as_ref() {
+                detail_errors += 1;
+                return None;
+            }
+            if options
+                .cpu_above_percent
+                .is_some_and(|threshold| cpu_percent.is_none_or(|value| value <= threshold))
+                || options.memory_above_mb.is_some_and(|threshold| {
+                    resident_bytes.is_none_or(|value| value as f64 <= threshold * 1024.0 * 1024.0)
+                })
+            {
+                return None;
+            }
+            Some(RichProcessRow {
+                base,
+                command_sha256,
+                command_bytes,
+                cpu_percent,
+                resident_bytes,
+            })
+        })
+        .collect::<Vec<_>>();
+    match sort {
+        "cpu" => rows.sort_by(|left, right| {
+            right
+                .cpu_percent
+                .partial_cmp(&left.cpu_percent)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.base.id.cmp(&right.base.id))
+        }),
+        "mem" | "memory" => rows.sort_by(|left, right| {
+            right
+                .resident_bytes
+                .cmp(&left.resident_bytes)
+                .then_with(|| left.base.id.cmp(&right.base.id))
+        }),
+        _ => rows.sort_by_key(|row| row.base.id),
+    }
     let matched = rows.len();
     let processes = rows
         .into_iter()
@@ -2505,9 +2831,13 @@ pub(super) fn process_list_payload(
         .take(max)
         .map(|row| {
             json!({
-                "pid": row.id,
-                "parent_pid": row.parent_id,
-                "executable_name": row.executable_name,
+                "pid": row.base.id,
+                "parent_pid": row.base.parent_id,
+                "executable_name": row.base.executable_name,
+                "command_sha256": row.command_sha256,
+                "command_bytes": row.command_bytes,
+                "cpu_percent": row.cpu_percent,
+                "resident_bytes": row.resident_bytes.map(|value| value.to_string()),
             })
         })
         .collect::<Vec<_>>();
@@ -2515,10 +2845,18 @@ pub(super) fn process_list_payload(
     Ok(json!({
         "processes": processes,
         "visited": visited,
+        "prefiltered": prefiltered,
         "matched": matched,
         "returned": returned,
         "offset": offset,
-        "truncated": offset.saturating_add(returned) < matched,
+        "max_visited": max_visited,
+        "sample_ms": needs_cpu.then_some(sample_ms),
+        "detail_errors": detail_errors,
+        "truncated_scan": truncated_scan,
+        "coverage_complete": !truncated_scan && detail_errors == 0,
+        "truncated": truncated_scan || offset.saturating_add(returned) < matched,
+        "next_offset": (offset.saturating_add(returned) < matched).then_some(offset.saturating_add(returned)),
+        "verified": true,
     }))
 }
 
@@ -2707,10 +3045,53 @@ mod tests {
     #[test]
     fn current_process_is_visible_by_exact_pid() {
         let pid = std::process::id();
-        let value = process_list_payload(Some(pid), None, None, None, Some(10)).expect("list");
+        let value = process_list_payload(ProcessInventoryOptions {
+            pid: Some(pid),
+            max: Some(10),
+            ..ProcessInventoryOptions::default()
+        })
+        .expect("list");
         assert_eq!(value["matched"], 1);
         assert_eq!(value["returned"], 1);
         assert_eq!(value["processes"][0]["pid"], pid);
+    }
+
+    #[test]
+    fn rich_inventory_filters_without_returning_command_plaintext() {
+        let pid = std::process::id();
+        let value = process_list_payload(ProcessInventoryOptions {
+            pid: Some(pid),
+            command: Some("agenterm"),
+            memory_above_mb: Some(0.0),
+            sort: Some("memory"),
+            max_visited: Some(10_000),
+            max: Some(4),
+            ..ProcessInventoryOptions::default()
+        })
+        .expect("rich list");
+        assert_eq!(value["matched"], 1);
+        assert_eq!(value["coverage_complete"], true);
+        assert_eq!(value["processes"][0]["pid"], pid);
+        assert_eq!(
+            value["processes"][0]["command_sha256"]
+                .as_str()
+                .map(str::len),
+            Some(64)
+        );
+        assert!(value["processes"][0].get("command").is_none());
+        assert!(value["processes"][0]["resident_bytes"].is_string());
+    }
+
+    #[test]
+    fn pid_detail_tree_is_bounded_and_cycle_safe() {
+        let pid = std::process::id();
+        let value =
+            process_tree_payload(pid, 1, 16, false, false, Some(10_000)).expect("process tree");
+        assert_eq!(value["mode"], "tree-detail");
+        assert_eq!(value["root"]["pid"], pid);
+        assert_eq!(value["max_depth"], 1);
+        assert_eq!(value["max_descendants"], 16);
+        assert_eq!(value["verified"], true);
     }
 
     #[test]
@@ -2976,10 +3357,17 @@ mod tests {
 
     #[test]
     fn result_budget_is_closed_before_inventory() {
-        let error = process_list_payload(None, None, None, None, Some(0)).expect_err("zero");
+        let error = process_list_payload(ProcessInventoryOptions {
+            max: Some(0),
+            ..ProcessInventoryOptions::default()
+        })
+        .expect_err("zero");
         assert_eq!(error.code, "invalid_input");
-        let error = process_list_payload(None, None, None, None, Some(MAX_RESULTS + 1))
-            .expect_err("too large");
+        let error = process_list_payload(ProcessInventoryOptions {
+            max: Some(MAX_RESULTS + 1),
+            ..ProcessInventoryOptions::default()
+        })
+        .expect_err("too large");
         assert_eq!(error.code, "invalid_input");
     }
 }

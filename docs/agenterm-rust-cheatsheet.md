@@ -4366,3 +4366,16 @@ Replace only a regular file carrying the exact product marker and schema.
 Foreign files, links and non-files are conflicts and must be preserved. Test
 missing, stale-owned, repeated, collision and exact forwarding behavior through
 the public CLI rather than accepting catalog or unit-test presence as delivery.
+### Process inventory: never relabel cumulative CPU as a percentage
+
+- A one-shot native CPU-time counter is not CPU percentage. Percentage needs
+  two samples, a monotonic elapsed interval, checked subtraction, and an
+  explicit sampling budget in the public receipt.
+- Bound the set of PIDs before per-process command/metrics/fd/socket probes.
+  Report probe errors and scan truncation separately; otherwise a filtered
+  page can look complete while inaccessible or unvisited processes were
+  silently excluded.
+- Command lines routinely contain credentials. A command substring may be an
+  explicit filter, but inventory output should return digest and byte length,
+  not echo the matching plaintext. Exact argv disclosure belongs to the
+  separate opt-in process-argv facade.

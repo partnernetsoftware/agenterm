@@ -611,8 +611,8 @@
       "aliases": [],
       "grant": "observe",
       "family": "process",
-      "summary": "bounded process inventory from the shared platform facade",
-      "usage": "ps [--pid N] [--parent N] [--name SUB] [--offset N] [--max N]",
+      "summary": "bounded process inventory, resource filtering, or one process tree with optional file/socket detail",
+      "usage": "ps [--pid N] [--parent N] [--app EXACT] [--name SUB] [--command SUB] [--cpu-above PCT] [--memory-above-mb MB] [--sort pid|cpu|memory] [--sample-ms N] [--max-visited N] [--offset N] [--max N]\nps --pid N --depth N [--files] [--ports] [--max N] [--max-visited N]",
       "args": [
         {
           "flag": "--pid",
@@ -628,6 +628,61 @@
           "flag": "--name",
           "value": "SUB",
           "help": "case-insensitive executable-name substring"
+        },
+        {
+          "flag": "--app",
+          "value": "EXACT",
+          "help": "case-insensitive exact executable name"
+        },
+        {
+          "flag": "--command",
+          "value": "SUB",
+          "help": "case-insensitive command-line filter; output keeps only its digest and byte length"
+        },
+        {
+          "flag": "--cpu-above",
+          "value": "PCT",
+          "help": "CPU percentage strictly above this finite threshold"
+        },
+        {
+          "flag": "--memory-above-mb",
+          "value": "MB",
+          "help": "resident memory strictly above this MiB threshold"
+        },
+        {
+          "flag": "--sort",
+          "value": "pid|cpu|memory",
+          "help": "stable result ordering; cpu and memory are descending with pid tie-break"
+        },
+        {
+          "flag": "--sample-ms",
+          "value": "N",
+          "help": "10..10000ms CPU sampling interval; only valid for CPU filter/sort"
+        },
+        {
+          "flag": "--max-visited",
+          "value": "N",
+          "help": "1..10000 native rows eligible for detail probes"
+        },
+        {
+          "flag": "--depth",
+          "value": "N",
+          "help": "0..64 descendant depth; requires --pid"
+        },
+        {
+          "flag": "--files",
+          "value": "",
+          "help": "attach a bounded identity-safe descriptor inventory; requires --pid detail mode"
+        },
+        {
+          "flag": "--ports",
+          "value": "",
+          "help": "attach a bounded identity-safe socket inventory; requires --pid detail mode"
+        },
+        {
+          "flag": "--meta",
+          "value": "",
+          "help": "compatibility switch; ACU structured replies always include scan and pagination metadata"
         },
         {
           "flag": "--offset",
@@ -4964,7 +5019,7 @@
     },
     {
       "name": "ps",
-      "text": "agenterm-cu ps\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  ps [--pid N] [--parent N] [--name SUB] [--offset N] [--max N]\n\narguments:\n  --pid N                       exact process id\n  --parent N                    exact parent process id\n  --name SUB                    case-insensitive executable-name substring\n  --offset N                    page start\n  --max N                       page size\n\nLists process id, parent id and executable name through the same\nagenterm-platform process facade used by qjswasm process.list. Results are\nsorted by pid and bounded before publication. MCU's --command, CPU, memory,\nfile and port filters remain typed migration gaps until their owning facades\nland; this command never silently ignores them.\n"
+      "text": "agenterm-cu ps\n  scope: observe    family: Processes\n\nusage (after global flags):\n  ps [--pid N] [--parent N] [--app EXACT] [--name SUB] [--command SUB]\n     [--cpu-above PCT] [--memory-above-mb MB] [--sort pid|cpu|memory]\n     [--sample-ms N] [--max-visited N] [--offset N] [--max N] [--meta]\n  ps --pid N --depth N [--files] [--ports] [--max N] [--max-visited N]\n\narguments:\n  --pid N                       exact process id\n  --parent N                    exact parent process id\n  --app EXACT                   case-insensitive exact executable name\n  --name SUB                    executable-name substring\n  --command SUB                 command filter; output is digest + byte length\n  --cpu-above PCT               sampled CPU percentage threshold\n  --memory-above-mb MB          resident-memory threshold\n  --sort pid|cpu|memory         stable result order\n  --sample-ms N                 CPU sampling interval, 10..=10000\n  --max-visited N               bounded detail-probe population, 1..=10000\n  --depth N                     descendant depth, 0..=64; requires --pid\n  --files                       attach bounded descriptor detail\n  --ports                       attach bounded socket detail\n  --meta                        compatibility flag; metadata is always present\n  --offset N                    page start\n  --max N                       page or descendant limit\n\nList mode composes bounded filters and stable pagination. CPU percentage comes\nfrom two identity-bound native samples over the stated interval. Command text\nis never returned. PID detail mode returns a cycle-safe bounded tree and typed\nfile/socket attachments; unavailable platform providers stay explicit.\n"
     },
     {
       "name": "process-state",

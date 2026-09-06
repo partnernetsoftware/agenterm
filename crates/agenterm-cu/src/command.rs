@@ -1183,10 +1183,9 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         all: bool,
     },
-    /// Bounded cross-platform process inventory. This first MCU replacement
-    /// slice intentionally exposes only facts the shared platform facade can
-    /// prove on every host; richer CPU/memory/argv filters remain declared
-    /// migration gaps until their typed facades land.
+    /// Bounded cross-platform process inventory. Rich filters are evaluated
+    /// only over the explicitly bounded native inventory; CPU percentage uses
+    /// a stated sampling interval instead of relabelling cumulative CPU time.
     Ps {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1195,6 +1194,28 @@ pub enum Command {
         parent: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cpu_above_percent: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        memory_above_mb: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sort: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sample_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_visited: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<usize>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        files: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        ports: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        meta: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         offset: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4402,6 +4423,17 @@ mod tests {
             pid: Some(42),
             parent: Some(7),
             name: Some("worker".into()),
+            app: None,
+            command: None,
+            cpu_above_percent: None,
+            memory_above_mb: None,
+            sort: None,
+            sample_ms: None,
+            max_visited: None,
+            depth: None,
+            files: false,
+            ports: false,
+            meta: false,
             offset: Some(3),
             max: Some(9),
         };

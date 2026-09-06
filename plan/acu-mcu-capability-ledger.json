@@ -61,9 +61,11 @@
         {
           "id": "process.inventory.rich",
           "mcu_shape": "ps --command/--files/--ports/--cpu-above/--memory-above-mb/--sort/--depth",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "typed bounded process-detail and filter facades"
+          "acu_shape": "ps list mode: --app/--name/--command/--parent/--cpu-above/--memory-above-mb/--sort/--sample-ms/--offset/--max/--max-visited; pid detail mode: --pid/--depth/--files/--ports/--max/--max-visited",
+          "state": "native",
+          "qualification": "macos-public-qjswasm-live-linux-windows-native-rerun-pending",
+          "evidence": ["cu.process-inventory-rich"],
+          "note": "CPU percentage is a bounded two-sample delta, not cumulative CPU time under a misleading label. Command filtering returns only digest and byte length. Detail probe failures are embedded as typed unavailable results; Windows parity is truthful because MCU also lacks arbitrary-process file/socket providers there."
         },
         {
           "id": "process.usage.watch",

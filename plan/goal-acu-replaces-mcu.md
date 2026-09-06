@@ -584,6 +584,10 @@ Q2 fast delegated facades
 │  └─ [x] state → bounded native desktop-state; terminal adoption remains separate
 └─ [~] process inventory/exec/signal through bounded qjswasm/AgenTerm contracts
    ├─ [x] basic ps: pid/parent/name + bounded page through shared platform process facade
+   ├─ [~] rich ps: composable command/resource filters + sampled CPU + pid tree/file/socket detail
+   │  ├─ [x] plaintext-safe command digest, explicit scan/sample/page bounds
+   │  ├─ [x] public qjswasm court `cu.process-inventory-rich` on macOS
+   │  └─ [ ] Linux + Windows native reruns
    ├─ [x] process-state: live/dead/unknown + stable start identity, observe-only
    ├─ [x] process-usage: one-shot or bounded identity-bound series, lossless counters
    ├─ [x] process-wait: prior identity + native exact-object reference + monotonic timeout
@@ -593,7 +597,7 @@ Q2 fast delegated facades
    │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
    ├─ [~] process sockets: native one-shot + public qjswasm macOS court ✓
    │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
-   └─ [ ] remaining rich filters and privileged mutation
+   └─ [ ] privileged mutation and inspection watch/diff remain
 Q3 owned runtime facades
 ├─ [~] PTY/job/runtime/session/lock/audit/service
 │  ├─ [x] runtime-status: on-demand coordinator + per-resource owner topology, non-publishing snapshot
