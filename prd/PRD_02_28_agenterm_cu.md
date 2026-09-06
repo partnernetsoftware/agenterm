@@ -1144,8 +1144,14 @@ flowchart LR
   journey proves stopped and resumed postconditions. Non-idempotent signals
   remain unavailable until request-id replay can prevent duplicate delivery;
   Windows returns a typed refusal rather than depending on MCU's undocumented
-  Job Object freeze information class. Resource policy, group priority, Linux
-  rerun and Windows refusal evidence remain in the owning gap. Stored job
+  Job Object freeze information class. `job-priority JOB_ID GENERATION NICE`
+  now binds the same owning session and durable group, reserves before a single
+  Unix process-group `setpriority` call, then requires the exact same bounded
+  member identities and every per-member nice value to read back. Any effect
+  ambiguity is non-retryable; Windows refuses before mutation because its
+  priority classes are not Unix nice values. The macOS public qjswasm journey
+  proves the write, readback and request-id replay contract. Resource policy,
+  Linux rerun and Windows refusal evidence remain in the owning gap. Stored job
   environment is a separate secret-bearing gap. `job-prune` now closes the
   retention part of the MCU shape without inheriting its daemon: the default
   operation is a zero-write plan over bounded terminal receipts, while

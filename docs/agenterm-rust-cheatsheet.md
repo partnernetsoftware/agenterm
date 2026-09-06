@@ -4172,6 +4172,15 @@ effect; termination is a separate explicit policy that requires force. A host
 without an exact existing-group authority must refuse before publication rather
 than substitute a bare PID or group signal.
 
+Group scheduler mutation needs the same containment identity discipline. On
+Unix, prefer one native process-group `setpriority` call over a caller-side
+per-PID loop, but bracket it with a stable bounded membership sweep and exact
+start identities, reserve the effect first, then verify the same member set and
+every resulting nice value. A failed group call or incomplete post-read may be
+partially effective, so it is `outcome_unknown` and never an automatic retry.
+Do not translate Windows priority classes to a plausible Unix nice integer;
+that host needs its own public semantic contract or a typed pre-effect refusal.
+
 When a public Script journey launches `target/debug/agenterm-cu`, rebuild that
 exact binary after source changes before interpreting behavior. Cargo source
 freshness and the bytes a black-box test executes are separate identities; bind

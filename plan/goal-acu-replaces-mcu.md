@@ -191,7 +191,9 @@ MCU retirement blockers
 │  │  ├─ [x] Unix STOP/CONT share the proven tree recovery journal and verified post-state
 │  │  ├─ [x] non-idempotent signals refuse until request-id replay prevents duplicate delivery
 │  │  ├─ [x] Windows refuses undocumented Job Object freeze and non-equivalent POSIX signals
-│  │  └─ [ ] policy/priority, Linux rerun and Windows typed-refusal public evidence
+│  │  ├─ [x] Unix group priority: write-ahead receipt + one native group effect + stable member/value readback
+│  │  ├─ [x] macOS qjswasm court proves priority effect and request replay; Windows code refuses before effect
+│  │  └─ [ ] resource policy, Linux rerun and Windows typed-refusal public evidence
 │  └─ [ ] Linux aarch64 and Windows journeys green
 ├─ [~] machine transactions
 │  ├─ [x] recoverable file copy: marker-owned no-replace publication + crash recovery
@@ -729,7 +731,7 @@ Q3 owned runtime facades
 │  │  ├─ [x] explicit stop freezes + rechecks exact membership; uncertain effect is never retried
 │  │  ├─ [x] macOS public qjswasm court `cu.managed-job-adopt` green
 │  │  └─ [ ] Linux native run + Windows exact typed-limitation evidence
-│  └─ [ ] aggregate resources, policy/priority, non-idempotent signals and expiry-detach shape
+│  └─ [ ] resource policy, non-idempotent signals and expiry-detach shape; group priority is implemented
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [~] host resource status: bounded CPU/memory/load/uptime/process snapshot
    │  ├─ [x] strict free memory stays distinct from reclaimable available memory

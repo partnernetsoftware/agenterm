@@ -18,12 +18,12 @@ use sha2::{Digest, Sha256};
 
 use crate::managed_job_owner::{
     ManagedJobOwnerError, OutputCursorError, RESOURCE_MEMBERS_MAX, ResidentJobOwner,
-    ResidentJobState, ResidentJobStatus, ResidentResourceSnapshot, StdinWriteError, now_utc_ms,
-    read_launch, start_owner_from_launch,
+    ResidentJobState, ResidentJobStatus, ResidentPriorityResult, ResidentResourceSnapshot,
+    StdinWriteError, now_utc_ms, read_launch, start_owner_from_launch,
 };
 use crate::managed_job_store::{ManagedJobHandle, ManagedJobStore};
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const FRAME_MAX_BYTES: usize = 128 * 1024;
 const REQUEST_ID_MAX_BYTES: usize = 128;
 const STDIN_BYTES_MAX: usize = 64 * 1024;
@@ -114,6 +114,9 @@ pub(crate) enum ManagedJobOperation {
     Status,
     Resources {
         max_members: usize,
+    },
+    Priority {
+        nice: i32,
     },
     Output {
         stream: OutputStream,
@@ -215,6 +218,9 @@ pub(crate) enum ManagedJobResult {
     },
     Resources {
         snapshot: ResidentResourceSnapshot,
+    },
+    Priority {
+        result: ResidentPriorityResult,
     },
     Output {
         stream: OutputStream,
@@ -330,6 +336,9 @@ fn validate_operation(operation: &ManagedJobOperation) -> Result<(), &'static st
         {
             return Err("managed_job_resource_member_limit");
         }
+        ManagedJobOperation::Priority { nice } if !(-20..=19).contains(nice) => {
+            return Err("managed_job_priority_invalid");
+        }
         ManagedJobOperation::Output { max_bytes, .. } => {
             if !(1..=OUTPUT_BYTES_MAX).contains(max_bytes) {
                 return Err("managed_job_output_limit");
@@ -357,6 +366,9 @@ fn dispatch(owner: &mut ResidentJobOwner, request: ManagedJobRequest) -> Managed
         ManagedJobOperation::Resources { max_members } => owner
             .resource_snapshot(max_members)
             .map(|snapshot| ManagedJobResult::Resources { snapshot }),
+        ManagedJobOperation::Priority { nice } => owner
+            .set_priority(nice)
+            .map(|result| ManagedJobResult::Priority { result }),
         ManagedJobOperation::Output {
             stream,
             cursor,
@@ -734,6 +746,11 @@ mod tests {
                 max_members: RESOURCE_MEMBERS_MAX
             })
             .is_ok()
+        );
+        assert_eq!(
+            validate_operation(&ManagedJobOperation::Priority { nice: 20 })
+                .expect_err("nice ceiling"),
+            "managed_job_priority_invalid"
         );
     }
 

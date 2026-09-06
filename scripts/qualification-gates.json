@@ -409,6 +409,7 @@
         "cu.managed-job-limits",
         "cu.managed-job-adopt",
         "cu.managed-job-state-signal",
+        "cu.managed-job-priority",
         "cu.managed-job-prune",
         "cu.audit-retention",
         "cu.target-lock-lifecycle"

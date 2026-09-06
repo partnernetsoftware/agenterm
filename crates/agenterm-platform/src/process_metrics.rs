@@ -1,4 +1,4 @@
-//! Lightweight resource observation without process inventory or ownership APIs.
+//! Lightweight resource and scheduler state for one process or owned process group.
 
 pub use crate::contract::process_metrics::{
     PageFaultCounters, ProcessBackgroundPolicy, ProcessMetrics, ProcessMetricsError,
@@ -17,6 +17,17 @@ pub fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
 /// than inventing a lossy mapping from priority classes.
 pub fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
     crate::selected::process_metrics::nice(pid)
+}
+
+/// Set the Unix nice value for every process in one existing process group.
+///
+/// The caller must already own and identity-bind the group. This facade does
+/// not discover groups, elevate privileges, or translate Windows priority
+/// classes into Unix nice values. A group-level native syscall avoids a
+/// caller-side per-PID mutation loop; the caller still owns before/after
+/// membership and value verification.
+pub fn set_group_nice(group_id: u32, value: i32) -> Result<(), ProcessMetricsError> {
+    crate::selected::process_metrics::set_group_nice(group_id, value)
 }
 
 /// Reports whether one process is stopped by the host scheduler. This is a
@@ -87,6 +98,22 @@ mod tests {
         assert_eq!(
             observed.expect_err("Windows has no Unix nice model").kind(),
             ProcessMetricsErrorKind::Unsupported
+        );
+    }
+
+    #[test]
+    fn group_priority_rejects_invalid_identity_and_value() {
+        assert_eq!(
+            set_group_nice(0, 0)
+                .expect_err("group zero is not mutable")
+                .kind(),
+            ProcessMetricsErrorKind::InvalidId
+        );
+        assert_eq!(
+            set_group_nice(1, 20)
+                .expect_err("nice value is bounded")
+                .kind(),
+            ProcessMetricsErrorKind::InvalidValue
         );
     }
 

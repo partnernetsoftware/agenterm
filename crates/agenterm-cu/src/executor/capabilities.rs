@@ -644,6 +644,11 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "observe",
                 "identity-bracketed-containment-resources",
             ),
+            (
+                "job-priority",
+                "actuate",
+                "identity-bound-containment-group-priority",
+            ),
             ("job-events", "observe", "loss-aware-dual-output-cursors"),
             ("job-output", "observe", "loss-aware-single-output-cursor"),
             ("job-write", "actuate", "bounded-atomic-stdin-write"),
@@ -654,16 +659,17 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             verbs.insert(
                 verb.into(),
                 serde_json::json!({
-                    "status": "available",
+                    "status": if verb == "job-priority" && cfg!(windows) { "unsupported" } else { "available" },
                     "group": "shell-pty-job",
                     "grant": grant,
                     "mode": mode,
                     "transport": "authenticated-native-ipc",
                     "owner": "independent-resident-process",
-                    "request_identity": matches!(verb, "job-spawn" | "job-write" | "job-stop" | "job-renew"),
-                    "scope": (verb == "job-resources").then_some("containment-group"),
-                    "membership_complete": (verb == "job-resources").then_some(true),
-                    "coherence": (verb == "job-resources").then_some("stable-membership-sweep"),
+                    "request_identity": matches!(verb, "job-spawn" | "job-priority" | "job-write" | "job-stop" | "job-renew"),
+                    "scope": matches!(verb, "job-resources" | "job-priority").then_some("containment-group"),
+                    "membership_complete": matches!(verb, "job-resources" | "job-priority").then_some(true),
+                    "coherence": matches!(verb, "job-resources" | "job-priority").then_some("stable-membership-sweep"),
+                    "reason": (verb == "job-priority" && cfg!(windows)).then_some("Windows priority classes are not Unix process-group nice values"),
                 }),
             );
         }
@@ -1520,6 +1526,16 @@ mod tests {
         assert_eq!(data["verbs"]["job-output"]["grant"], "observe");
         assert_eq!(data["verbs"]["job-resources"]["scope"], "containment-group");
         assert_eq!(data["verbs"]["job-resources"]["membership_complete"], true);
+        assert_eq!(data["verbs"]["job-priority"]["grant"], "actuate");
+        assert_eq!(data["verbs"]["job-priority"]["scope"], "containment-group");
+        assert_eq!(
+            data["verbs"]["job-priority"]["status"],
+            if cfg!(windows) {
+                "unsupported"
+            } else {
+                "available"
+            }
+        );
         assert!(!tsv.contains("still-gap"));
         assert_eq!(data["verbs"]["windows-watch"]["mode"], "poll-diff");
         assert_eq!(data["verbs"]["windows-watch"]["group"], "discover");

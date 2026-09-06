@@ -585,6 +585,7 @@ impl Executor {
             matches!(
                 error.code.as_str(),
                 "managed_job_outcome_unknown"
+                    | "managed_job_priority_outcome_unknown"
                     | "device_owner_outcome_unknown"
                     | "terminal_input_outcome_unknown"
                     | "terminal_input_unverified"

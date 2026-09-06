@@ -15,6 +15,7 @@ const declared_evidence = [
   "cu.managed-job-limits",
   "cu.managed-job-adopt",
   "cu.managed-job-state-signal",
+  "cu.managed-job-priority",
   "cu.managed-job-prune",
   "cu.audit-retention",
   "cu.target-lock-lifecycle"
@@ -132,6 +133,14 @@ function valid_resource_samples(samples) {
       || text_of(sample.cpu_time_ns) === "") {
       return false;
     }
+  }
+  return true;
+}
+
+function priority_members_are(members, nice) {
+  if (members.length < 1) { return false; }
+  for (const member of members) {
+    if (member.nice !== nice || text_of(member.start_identity) === "") { return false; }
   }
   return true;
 }
@@ -414,6 +423,36 @@ try {
   const second_spawned = invoke_cu(run_directory, executable, second_spawn_args, "job-spawn");
   second_job = { job_id: text_of(second_spawned.job_id), generation: second_spawned.generation };
   ensure(second_job.job_id !== "" && second_job.generation > 0, "cu_managed_job_second_identity");
+
+  print("STEP set one owned process group's priority with write-ahead identity and exact readback");
+  const priority_args = mutation_prefix(request_root + "-priority", session_id, session_lease);
+  append_all(priority_args, [
+    "job-priority", second_job.job_id, "" + second_job.generation, "19"
+  ]);
+  if (windows) {
+    invoke_cu_failure(
+      run_directory, executable, priority_args, "job-priority", "managed_job_priority_unsupported"
+    );
+  } else {
+    const priority = invoke_cu(run_directory, executable, priority_args, "job-priority");
+    ensure(
+      priority.job_id === second_job.job_id
+        && priority.generation === second_job.generation
+        && priority.requested_nice === 19
+        && priority.performed === true && priority.verified === true
+        && text_of(priority.membership_sha256).length === 64
+        && priority.before.length === priority.after.length
+        && priority_members_are(priority.after, 19),
+      "cu_managed_job_priority_contract"
+    );
+    const priority_replay = invoke_cu(
+      run_directory, executable, priority_args, "job-priority"
+    );
+    ensure(
+      priority_replay.effect === "not_repeated" && priority_replay.idempotent === true,
+      "cu_managed_job_priority_replay_contract"
+    );
+  }
 
   print("STEP control the complete owned job tree through exact, crash-recoverable state and signal verbs");
   const state_args = mutation_prefix(request_root + "-state-stop", session_id, session_lease);
@@ -791,6 +830,7 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-limits");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-adopt");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-state-signal");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-priority");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-prune");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
   harness.emit_evidence(context, declared_evidence, "cu.target-lock-lifecycle");

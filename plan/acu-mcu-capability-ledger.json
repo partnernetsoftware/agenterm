@@ -747,12 +747,12 @@
         {
           "id": "job.policy-priority-state",
           "mcu_shape": "job policy|priority|set-state|signal",
-          "acu_shape": "job-set-state and retry-safe job-signal STOP|CONT bind the owning session, generation and durable root identity, then reuse the crash-recoverable exact-process tree transaction on Unix; policy, priority, non-idempotent signals and documented Windows group control remain absent",
+          "acu_shape": "job-priority binds the owning session, generation and one stable native containment group, reserves before a Unix group-level setpriority effect and verifies every member nice value; job-set-state and retry-safe job-signal STOP|CONT reuse the crash-recoverable exact-process tree transaction; resource policy, non-idempotent signals and distinct Windows priority-class/group-control meanings remain absent",
           "state": "gap",
           "qualification": "macos-public-qjswasm-live-linux-and-windows-typed-refusal-reruns-pending",
-          "evidence": ["cu.managed-job-state-signal"],
-          "next": "add resident resource policy and group priority with durable intent/readback, then bind non-idempotent signals to request-id replay; keep Windows group suspend typed until a documented exact containment mechanism exists",
-          "note": "The state subset no longer uses MCU or a mutable bare PID. STOP/CONT freeze a bounded stable tree under retained pidfd/audit-token references, write ahead every temporary freeze, verify every member and recover interrupted transitions. Non-idempotent signals fail before effect until their replay ledger exists. Windows refuses unsupported state meanings rather than copying MCU's undocumented JobObjectFreezeInformation class."
+          "evidence": ["cu.managed-job-state-signal", "cu.managed-job-priority"],
+          "next": "add resident resource policy, then bind non-idempotent signals to request-id replay; run the enlarged public court on Linux and prove Windows priority/state typed refusals",
+          "note": "The priority subset uses one native process-group syscall rather than a racy caller-side PID loop. The resident owner brackets stable exact membership before and after, reads every nice value, and treats any write/readback ambiguity as non-retryable outcome_unknown. Windows refuses before mutation because priority classes are not Unix nice values. STOP/CONT likewise no longer use MCU or a mutable bare PID: retained pidfd/audit-token references, write-ahead temporary freezes, exact readback and recovery own the effect. Non-idempotent signals still fail before effect until their replay ledger exists."
         },
         {
           "id": "job.lease-wait-stop",

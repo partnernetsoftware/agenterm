@@ -78,6 +78,25 @@ pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
     ))
 }
 
+pub(crate) fn set_group_nice(group_id: u32, value: i32) -> Result<(), ProcessMetricsError> {
+    if group_id == 0 {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidId,
+            "process group ID zero is not an exact target",
+        ));
+    }
+    if !(-20..=19).contains(&value) {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidValue,
+            "nice value must be in -20..=19",
+        ));
+    }
+    Err(ProcessMetricsError::new(
+        ProcessMetricsErrorKind::Unsupported,
+        "Windows priority classes do not provide the Unix process-group nice model",
+    ))
+}
+
 pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
     if pid == 0 {
         return Err(ProcessMetricsError::new(

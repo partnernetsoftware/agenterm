@@ -264,6 +264,16 @@
       "args": []
     },
     {
+      "name": "job-priority",
+      "command": "job-priority",
+      "aliases": ["job priority"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "set and verify one owned Unix managed-job process group's nice value",
+      "usage": "job-priority JOB_ID GENERATION NICE\njob priority JOB_ID GENERATION NICE",
+      "args": []
+    },
+    {
       "name": "job-output",
       "command": "job-output",
       "aliases": ["job output"],
@@ -5316,6 +5326,10 @@
     {
       "name": "job-output",
       "text": "agenterm-cu job-output    (also: job output)\n  scope: observe    family: Managed jobs\n\nusage: job-output JOB_ID GENERATION [--stream stdout|stderr] [--cursor N] [--max-bytes N]\n\nReads exactly one bounded output stream without splitting its byte budget with the peer stream. Data remains binary-safe base64; cursors are canonical decimal byte positions and truncation stays explicit.\n"
+    },
+    {
+      "name": "job-priority",
+      "text": "agenterm-cu job-priority    (also: job priority)\n  scope: actuate    family: Managed jobs\n\nusage: job-priority JOB_ID GENERATION NICE\n\nRequires global request and owning session identity. Unix binds one exact native process group, writes a receipt before the group-level setpriority effect, and verifies the same bounded member identities plus every resulting nice value. An uncertain write or changed membership is never retryable. Windows refuses before mutation because priority classes are not Unix nice semantics.\n"
     },
     {
       "name": "job-write",

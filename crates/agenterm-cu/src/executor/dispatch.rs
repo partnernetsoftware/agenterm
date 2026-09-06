@@ -313,6 +313,21 @@ impl Executor {
                 watch_ms,
                 ..
             } => job_resources_payload(job_id, *generation, *watch_ms),
+            Command::JobPriority {
+                job_id,
+                generation,
+                nice,
+                ..
+            } => {
+                let request = require_job_request(job_request, "job-priority")?;
+                job_priority_payload(
+                    job_id,
+                    *generation,
+                    *nice,
+                    request.session_id,
+                    &mut self.open_receipts(command.target())?,
+                )
+            }
             Command::JobEvents {
                 job_id,
                 generation,

@@ -153,6 +153,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       target 指令前由 POSIX rlimit / Windows suspended Job 原生安装，
 │     │                       macOS 不可用的有限 RLIMIT_AS 明确拒绝；identity-bound adopt
 │     │                       已在 macOS qjswasm 黑盒通过，Linux/Windows 资格仍待补
+│     │                       Unix managed-job priority 已有进程组级原生 effect、写前 receipt、
+│     │                       稳定成员/逐成员 nice 回读与 request replay 的 macOS qjswasm 证据；
+│     │                       Windows 非等价 priority-class 在 mutation 前 typed refusal
 │     │                       浏览器 exact MV3 connection 已有 profile-scoped windows 与 guarded
 │     │                       window-state；macOS owned Profile 活体连接/host EOF cleanup 已绿，
 │     │                       同一公开 qjswasm court 已证后台 CDP 读写、指针/对话框/文件、

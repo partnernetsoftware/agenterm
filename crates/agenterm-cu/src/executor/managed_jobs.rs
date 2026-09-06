@@ -132,10 +132,10 @@ pub(super) fn job_adopt_payload(
     #[cfg(not(unix))]
     {
         let _ = (pid, start_identity, ttl_seconds, stop_on_expiry, request);
-        return Err(CuError::new(
+        Err(CuError::new(
             "managed_job_adopt_unsupported",
             "this host cannot retain an existing process group safely",
-        ));
+        ))
     }
     #[cfg(unix)]
     {
@@ -603,6 +603,7 @@ fn resource_point_payload(
                     "soft": member.page_faults_soft,
                     "hard": member.page_faults_hard,
                 },
+                "nice": member.nice,
                 "verified": true,
             }))
         })
@@ -633,6 +634,23 @@ fn resource_point_payload(
 }
 
 fn membership_digest(members: &[crate::managed_job_owner::ResidentResourceMember]) -> String {
+    let mut digest = Sha256::new();
+    for member in members {
+        digest.update(member.pid.to_be_bytes());
+        digest.update((member.start_identity.len() as u64).to_be_bytes());
+        digest.update(member.start_identity.as_bytes());
+    }
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+#[cfg(unix)]
+fn priority_membership_digest(
+    members: &[crate::managed_job_owner::ResidentPriorityMember],
+) -> String {
     let mut digest = Sha256::new();
     for member in members {
         digest.update(member.pid.to_be_bytes());
@@ -786,6 +804,136 @@ pub(super) fn job_set_state_payload(
     object.insert("generation".into(), json!(generation));
     object.insert("requested_state".into(), json!(state.as_str()));
     Ok(payload)
+}
+
+pub(super) fn job_priority_payload(
+    job_id: &str,
+    generation: u64,
+    nice: i32,
+    session_id: &str,
+    receipts: &mut crate::receipt::ReceiptLog,
+) -> Result<Value, CuError> {
+    #[cfg(windows)]
+    {
+        let _ = (job_id, generation, nice, session_id, receipts);
+        Err(CuError::new(
+            "managed_job_priority_unsupported",
+            "Windows priority classes do not provide the Unix process-group nice model",
+        ))
+    }
+    #[cfg(unix)]
+    {
+        let record = checked_owned_record(job_id, generation, session_id)?;
+        let process = record.process.as_ref().ok_or_else(|| {
+            CuError::new(
+                "managed_job_process_identity_missing",
+                "managed-job durable record has no exact process identity",
+            )
+        })?;
+        let before_snapshot = resource_point_payload(&record, process)?;
+        let before_members = before_snapshot["members"]
+            .as_array()
+            .ok_or_else(response_kind_error)?;
+        let ticket = receipts.reserve(
+            "job-priority",
+            0,
+            json!({
+                "job_id": job_id,
+                "generation": generation,
+                "nice": nice,
+                "process": process,
+                "before": {
+                    "membership_sha256": before_snapshot["membership_sha256"],
+                    "member_count": before_members.len(),
+                },
+            }),
+        )?;
+        let result = match client_request(&record.handle(), ManagedJobOperation::Priority { nice })
+        {
+            Ok(ManagedJobResult::Priority { result }) => result,
+            Ok(_) => {
+                let error = response_kind_error();
+                receipts.complete(
+                    &ticket,
+                    "job-priority",
+                    0,
+                    false,
+                    json!({"effect": "unknown", "retry_safe": false, "error": error.code}),
+                )?;
+                return Err(error.with_detail(json!({
+                    "effect": "unknown",
+                    "retry_safe": false,
+                    "receipt": ticket.json(),
+                })));
+            }
+            Err(source) => {
+                let error = client_error(source);
+                let unknown = error.code == "managed_job_priority_outcome_unknown";
+                receipts.complete(
+                    &ticket,
+                    "job-priority",
+                    0,
+                    false,
+                    json!({
+                        "effect": if unknown { "unknown" } else { "not_performed" },
+                        "retry_safe": false,
+                        "error": error.code,
+                    }),
+                )?;
+                return Err(error.with_detail(json!({
+                    "effect": if unknown { "unknown" } else { "not_performed" },
+                    "retry_safe": false,
+                    "receipt": ticket.json(),
+                })));
+            }
+        };
+        let membership_sha256 = priority_membership_digest(&result.after);
+        let verified = !result.after.is_empty()
+            && result.before.len() == result.after.len()
+            && result
+                .before
+                .iter()
+                .zip(&result.after)
+                .all(|(before, after)| {
+                    before.pid == after.pid
+                        && before.start_identity == after.start_identity
+                        && after.nice == nice
+                });
+        receipts.complete(
+            &ticket,
+            "job-priority",
+            0,
+            verified,
+            json!({
+                "effect": "performed",
+                "after": {"membership_sha256": membership_sha256, "nice": nice},
+                "verification": "stable-native-containment-membership-and-per-member-nice",
+            }),
+        )?;
+        if !verified {
+            return Err(CuError::new(
+                "managed_job_priority_outcome_unknown",
+                "managed-job priority write could not be attributed to one stable member set",
+            )
+            .with_detail(json!({
+                "effect": "unknown",
+                "retry_safe": false,
+                "receipt": ticket.json(),
+            })));
+        }
+        Ok(json!({
+            "job_id": job_id,
+            "generation": generation,
+            "provider": result.provider,
+            "requested_nice": nice,
+            "membership_sha256": membership_sha256,
+            "before": result.before,
+            "after": result.after,
+            "performed": true,
+            "verified": true,
+            "receipt": ticket.json(),
+        }))
+    }
 }
 
 pub(super) fn job_signal_payload(

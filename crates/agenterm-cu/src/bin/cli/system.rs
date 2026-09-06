@@ -786,6 +786,16 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
                 .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
             watch_ms: flag_parsed(args, "--watch-ms")?,
         },
+        "job-priority" => Command::JobPriority {
+            target,
+            job_id: positional(args, "JOB_ID")?,
+            generation: positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
+            nice: positional(args, "NICE")?
+                .parse()
+                .map_err(|_| "NICE must be an integer in -20..=19".to_owned())?,
+        },
         "job-events" => Command::JobEvents {
             target,
             job_id: positional(args, "JOB_ID")?,
@@ -1763,6 +1773,15 @@ mod tests {
         assert_eq!(watch_ms, Some(25));
         assert!(parse("job-resources", &[id, "1", "--watch-ms", "0"]).is_err());
         assert!(parse("job-resources", &[id, "1", "--watch-ms", "300001"]).is_err());
+        assert!(matches!(
+            parse("job", &["priority", id, "2", "7"]).unwrap(),
+            Command::JobPriority {
+                generation: 2,
+                nice: 7,
+                ..
+            }
+        ));
+        assert!(parse("job-priority", &[id, "1", "20"]).is_err());
         assert!(matches!(
             parse("job", &["set-state", id, "2", "stopped"]).unwrap(),
             Command::JobSetState {

@@ -160,6 +160,7 @@ pub(crate) struct ResidentResourceMember {
     pub page_faults_total: String,
     pub page_faults_soft: Option<String>,
     pub page_faults_hard: Option<String>,
+    pub nice: Option<i32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -174,6 +175,22 @@ pub(crate) struct ResidentResourceSnapshot {
     pub page_faults_total: String,
     pub page_faults_soft: Option<String>,
     pub page_faults_hard: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResidentPriorityMember {
+    pub pid: u32,
+    pub start_identity: String,
+    pub nice: i32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResidentPriorityResult {
+    pub provider: String,
+    pub before: Vec<ResidentPriorityMember>,
+    pub after: Vec<ResidentPriorityMember>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -396,6 +413,83 @@ impl ResidentJobOwner {
                     before.breakaway_prevented,
                     members,
                 );
+            }
+        }
+        Err(ManagedJobOwnerError::new("managed_job_membership_unstable"))
+    }
+
+    pub(crate) fn set_priority(
+        &mut self,
+        value: i32,
+    ) -> Result<ResidentPriorityResult, ManagedJobOwnerError> {
+        if !(-20..=19).contains(&value) {
+            return Err(ManagedJobOwnerError::new("managed_job_priority_invalid"));
+        }
+        if cfg!(windows) {
+            return Err(ManagedJobOwnerError::new(
+                "managed_job_priority_unsupported",
+            ));
+        }
+        self.poll_lifecycle()?;
+        if self.finished {
+            return Err(ManagedJobOwnerError::new("managed_job_priority_terminal"));
+        }
+        let (provider, before) = self.stable_priority_members()?;
+        agenterm_platform::process_metrics::set_group_nice(self.process.pid, value)
+            .map_err(|_| ManagedJobOwnerError::new("managed_job_priority_outcome_unknown"))?;
+        let (after_provider, after) = self
+            .stable_priority_members()
+            .map_err(|_| ManagedJobOwnerError::new("managed_job_priority_outcome_unknown"))?;
+        if provider != after_provider
+            || before.len() != after.len()
+            || before.iter().zip(&after).any(|(left, right)| {
+                left.pid != right.pid || left.start_identity != right.start_identity
+            })
+            || after.iter().any(|member| member.nice != value)
+        {
+            return Err(ManagedJobOwnerError::new(
+                "managed_job_priority_outcome_unknown",
+            ));
+        }
+        Ok(ResidentPriorityResult {
+            provider,
+            before,
+            after,
+        })
+    }
+
+    fn stable_priority_members(
+        &self,
+    ) -> Result<(String, Vec<ResidentPriorityMember>), ManagedJobOwnerError> {
+        for _ in 0..RESOURCE_STABILITY_ATTEMPTS {
+            let before = self.resource_member_identities(RESOURCE_MEMBERS_MAX)?;
+            let mut members = Vec::with_capacity(before.identities.len());
+            let mut changed = false;
+            for expected in &before.identities {
+                if start_identity(expected.pid).ok().as_deref() != Some(&expected.start_identity) {
+                    changed = true;
+                    break;
+                }
+                let nice =
+                    agenterm_platform::process_metrics::nice(expected.pid).map_err(|_| {
+                        ManagedJobOwnerError::new("managed_job_priority_observation_failed")
+                    })?;
+                if start_identity(expected.pid).ok().as_deref() != Some(&expected.start_identity) {
+                    changed = true;
+                    break;
+                }
+                members.push(ResidentPriorityMember {
+                    pid: expected.pid,
+                    start_identity: expected.start_identity.clone(),
+                    nice,
+                });
+            }
+            if changed {
+                continue;
+            }
+            let after = self.resource_member_identities(RESOURCE_MEMBERS_MAX)?;
+            if before.provider == after.provider && before.identities == after.identities {
+                return Ok((before.provider, members));
             }
         }
         Err(ManagedJobOwnerError::new("managed_job_membership_unstable"))
@@ -791,6 +885,7 @@ fn sample_resource_members(
             page_faults_total: metrics.page_faults.total.to_string(),
             page_faults_soft: metrics.page_faults.soft.map(|value| value.to_string()),
             page_faults_hard: metrics.page_faults.hard.map(|value| value.to_string()),
+            nice: agenterm_platform::process_metrics::nice(expected.pid).ok(),
         });
     }
     Ok(Some(members))
@@ -1068,7 +1163,7 @@ fn start_adopted_owner(
     #[cfg(not(unix))]
     {
         let _ = (store, handle, owner, adoption, lease_ttl_ms);
-        return Err(ManagedJobOwnerError::new("managed_job_adopt_unsupported"));
+        Err(ManagedJobOwnerError::new("managed_job_adopt_unsupported"))
     }
     #[cfg(unix)]
     {
@@ -1523,6 +1618,7 @@ mod tests {
                     page_faults_total: "3".into(),
                     page_faults_soft: Some("2".into()),
                     page_faults_hard: Some("1".into()),
+                    nice: Some(0),
                 },
                 ResidentResourceMember {
                     pid: 3,
@@ -1532,6 +1628,7 @@ mod tests {
                     page_faults_total: "5".into(),
                     page_faults_soft: None,
                     page_faults_hard: Some("4".into()),
+                    nice: Some(1),
                 },
             ],
         )

@@ -1394,6 +1394,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         watch_ms: Option<u64>,
     },
+    JobPriority {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        nice: i32,
+    },
     JobEvents {
         target: TargetRef,
         job_id: String,
@@ -3633,6 +3640,7 @@ impl Command {
             Self::JobStatus { .. } => "job-status".into(),
             Self::JobPrune { .. } => "job-prune".into(),
             Self::JobResources { .. } => "job-resources".into(),
+            Self::JobPriority { .. } => "job-priority".into(),
             Self::JobEvents { .. } => "job-events".into(),
             Self::JobOutput { .. } => "job-output".into(),
             Self::JobWrite { .. } => "job-write".into(),
@@ -4004,6 +4012,7 @@ impl Command {
             | Self::JobStatus { target, .. }
             | Self::JobPrune { target, .. }
             | Self::JobResources { target, .. }
+            | Self::JobPriority { target, .. }
             | Self::JobEvents { target, .. }
             | Self::JobOutput { target, .. }
             | Self::JobWrite { target, .. }
@@ -4207,6 +4216,7 @@ impl Command {
             | Self::JobSpawn { .. }
             | Self::JobAdopt { .. }
             | Self::JobWrite { .. }
+            | Self::JobPriority { .. }
             | Self::JobSetState { .. }
             | Self::JobSignal { .. }
             | Self::JobStop { .. }
@@ -4515,6 +4525,19 @@ impl Command {
                 if watch_ms.is_some_and(|value| !(1..=JOB_RESOURCES_WATCH_MS_MAX).contains(&value))
                 {
                     return Err("managed-job resources watch_ms must be in 1..=300000");
+                }
+                Ok(())
+            }
+            Self::JobPriority {
+                job_id,
+                generation,
+                nice,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                if !(-20..=19).contains(nice) {
+                    return Err("managed-job priority nice must be in -20..=19");
                 }
                 Ok(())
             }
@@ -5148,6 +5171,31 @@ mod tests {
         }))
         .expect("structurally valid resources");
         assert!(invalid_resources.validate().is_err());
+
+        let priority = serde_json::json!({
+            "verb": "job-priority",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "nice": 7
+        });
+        let priority_command: Command = serde_json::from_value(priority.clone()).expect("priority");
+        assert_eq!(priority_command.verb(), "job-priority");
+        assert_eq!(priority_command.required_grant(), Grant::Actuate);
+        priority_command.validate().expect("valid priority");
+        assert_eq!(
+            serde_json::to_value(priority_command).expect("serialize priority"),
+            priority
+        );
+        let invalid_priority: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-priority",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "nice": 20
+        }))
+        .expect("structurally valid priority");
+        assert!(invalid_priority.validate().is_err());
 
         let write: Command = serde_json::from_value(serde_json::json!({
             "verb": "job-write",

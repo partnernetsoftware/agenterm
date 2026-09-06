@@ -97,6 +97,40 @@ pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
     Ok(nice)
 }
 
+pub(crate) fn set_group_nice(group_id: u32, value: i32) -> Result<(), ProcessMetricsError> {
+    validate_group_nice(group_id, value)?;
+    let result = unsafe { libc::setpriority(libc::PRIO_PGRP, group_id, value) };
+    if result == 0 {
+        Ok(())
+    } else {
+        let source = std::io::Error::last_os_error();
+        Err(error(
+            if source.raw_os_error() == Some(libc::ESRCH) {
+                ProcessMetricsErrorKind::NotFound
+            } else {
+                ProcessMetricsErrorKind::Open
+            },
+            source.to_string(),
+        ))
+    }
+}
+
+fn validate_group_nice(group_id: u32, value: i32) -> Result<(), ProcessMetricsError> {
+    if group_id == 0 {
+        return Err(error(
+            ProcessMetricsErrorKind::InvalidId,
+            "process group ID zero means the caller's group and is not an exact target",
+        ));
+    }
+    if !(-20..=19).contains(&value) {
+        return Err(error(
+            ProcessMetricsErrorKind::InvalidValue,
+            "nice value must be in -20..=19",
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
     let stat = read_stat(pid)?;
     let close = stat.rfind(')').ok_or_else(|| {
