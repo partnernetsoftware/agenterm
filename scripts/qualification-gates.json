@@ -313,6 +313,18 @@
     {
       "id": "cu-desktop-state-smoke",
       "evidence": ["cu.desktop-state"]
+    },
+    {
+      "id": "cu-process-inventory-smoke",
+      "evidence": ["cu.process-inventory-rich"]
+    },
+    {
+      "id": "cu-process-inspection-smoke",
+      "evidence": ["cu.process-inspection"]
+    },
+    {
+      "id": "cu-process-sockets-smoke",
+      "evidence": ["cu.process-sockets"]
     }
   ]
 }
