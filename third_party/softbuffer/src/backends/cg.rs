@@ -1,7 +1,7 @@
 //! Softbuffer implementation using CoreGraphics.
 use crate::backend_interface::*;
 use crate::error::InitError;
-use crate::{util, Rect, SoftBufferError};
+use crate::{Rect, SoftBufferError};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool};
 use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass, MainThreadMarker, Message};
@@ -22,8 +22,8 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::num::NonZeroU32;
-use std::ops::Deref;
-use std::ptr::{self, slice_from_raw_parts_mut, NonNull};
+use std::ops::{Deref, DerefMut};
+use std::ptr::{self, NonNull};
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -228,9 +228,8 @@ impl<D: HasDisplayHandle, W: HasWindowHandle> SurfaceInterface<D, W> for CGImpl<
         // Initialize color space here, to reduce work later on. Tag frames
         // with the display's own color space so Core Animation can blit them
         // without a per-frame vImage conversion pass.
-        let color_space = objc2_core_graphics::CGDisplayCopyColorSpace(
-            objc2_core_graphics::CGMainDisplayID(),
-        );
+        let color_space =
+            objc2_core_graphics::CGDisplayCopyColorSpace(objc2_core_graphics::CGMainDisplayID());
 
         // Grab initial width and height from the layer (whose properties have just been initialized
         // by the observer using `NSKeyValueObservingOptionInitial`).
@@ -264,16 +263,98 @@ impl<D: HasDisplayHandle, W: HasWindowHandle> SurfaceInterface<D, W> for CGImpl<
 
     fn buffer_mut(&mut self) -> Result<BufferImpl<'_, D, W>, SoftBufferError> {
         Ok(BufferImpl {
-            buffer: util::PixelBuffer(vec![0; self.width * self.height]),
+            buffer: MappedPixels::new(self.width, self.height)?,
             imp: self,
         })
+    }
+}
+
+// Frames can be several MiB on Retina displays. Anonymous VM gives each
+// presented image exact ownership and returns its pages on release, instead
+// of leaving recently freed full frames in malloc's large-allocation cache.
+#[derive(Debug)]
+struct MappedPixels(memmap2::MmapMut);
+
+impl MappedPixels {
+    fn new(width: usize, height: usize) -> Result<Self, SoftBufferError> {
+        let bytes = width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(size_of::<u32>()))
+            .filter(|bytes| *bytes > 0 && *bytes <= isize::MAX as usize)
+            .ok_or_else(|| {
+                SoftBufferError::PlatformError(Some("pixel mapping size overflow".into()), None)
+            })?;
+        memmap2::MmapMut::map_anon(bytes)
+            .map(Self)
+            .map_err(|error| {
+                SoftBufferError::PlatformError(
+                    Some(format!("allocate pixel mapping: {error}")),
+                    None,
+                )
+            })
+    }
+
+    fn into_data_provider(self) -> Result<CFRetained<CGDataProvider>, SoftBufferError> {
+        unsafe extern "C-unwind" fn release(
+            info: *mut c_void,
+            _data: NonNull<c_void>,
+            _size: usize,
+        ) {
+            // SAFETY: `info` was transferred from Box<Mmap> exactly once below;
+            // CoreGraphics releases it only after its final reader is done.
+            drop(unsafe { Box::from_raw(info.cast::<memmap2::Mmap>()) });
+        }
+
+        let mapping = self.0.make_read_only().map_err(|error| {
+            SoftBufferError::PlatformError(Some(format!("freeze pixel mapping: {error}")), None)
+        })?;
+        let len = mapping.len();
+        let data_ptr = mapping.as_ptr().cast();
+        let owner = Box::into_raw(Box::new(mapping));
+        // SAFETY: The immutable anonymous mapping owns initialized bytes; its
+        // boxed owner stays alive until the data provider invokes `release`.
+        let data_provider =
+            unsafe { CGDataProvider::with_data(owner.cast(), data_ptr, len, Some(release)) };
+        let Some(data_provider) = data_provider else {
+            // Provider creation failed without taking ownership.
+            drop(unsafe { Box::from_raw(owner) });
+            return Err(SoftBufferError::PlatformError(
+                Some("pixel data provider failed".into()),
+                None,
+            ));
+        };
+
+        Ok(data_provider)
+    }
+}
+
+impl Deref for MappedPixels {
+    type Target = [u32];
+    fn deref(&self) -> &[u32] {
+        // SAFETY: anonymous maps are page aligned and zero initialized, and
+        // `new` checks byte length is a multiple of u32 and at most isize::MAX.
+        unsafe {
+            std::slice::from_raw_parts(self.0.as_ptr().cast(), self.0.len() / size_of::<u32>())
+        }
+    }
+}
+
+impl DerefMut for MappedPixels {
+    fn deref_mut(&mut self) -> &mut [u32] {
+        // SAFETY: as above, with exclusive ownership until present consumes it.
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.0.as_mut_ptr().cast(),
+                self.0.len() / size_of::<u32>(),
+            )
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct BufferImpl<'a, D, W> {
     imp: &'a mut CGImpl<D, W>,
-    buffer: util::PixelBuffer,
+    buffer: MappedPixels,
 }
 
 impl<D: HasDisplayHandle, W: HasWindowHandle> BufferInterface for BufferImpl<'_, D, W> {
@@ -300,29 +381,7 @@ impl<D: HasDisplayHandle, W: HasWindowHandle> BufferInterface for BufferImpl<'_,
     }
 
     fn present(self) -> Result<(), SoftBufferError> {
-        unsafe extern "C-unwind" fn release(
-            _info: *mut c_void,
-            data: NonNull<c_void>,
-            size: usize,
-        ) {
-            let data = data.cast::<u32>();
-            let slice = slice_from_raw_parts_mut(data.as_ptr(), size / size_of::<u32>());
-            // SAFETY: This is the same slice that we passed to `Box::into_raw` below.
-            drop(unsafe { Box::from_raw(slice) })
-        }
-
-        let data_provider = {
-            let len = self.buffer.len() * size_of::<u32>();
-            let buffer: *mut [u32] = Box::into_raw(self.buffer.0.into_boxed_slice());
-            // Convert slice pointer to thin pointer.
-            let data_ptr = buffer.cast::<c_void>();
-
-            // SAFETY: The data pointer and length are valid.
-            // The info pointer can safely be NULL, we don't use it in the `release` callback.
-            unsafe {
-                CGDataProvider::with_data(ptr::null_mut(), data_ptr, len, Some(release)).unwrap()
-            }
-        };
+        let data_provider = self.buffer.into_data_provider()?;
 
         // `CGBitmapInfo` consists of a combination of `CGImageAlphaInfo`, `CGImageComponentInfo`
         // `CGImageByteOrderInfo` and `CGImagePixelFormatInfo` (see e.g. `CGBitmapInfoMake`).
@@ -388,5 +447,39 @@ impl Deref for SendCALayer {
     type Target = CALayer;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+#[cfg(test)]
+mod mapped_pixel_tests {
+    use super::*;
+
+    #[test]
+    fn mapping_checks_dimensions_and_starts_zeroed() {
+        assert!(MappedPixels::new(0, 2).is_err());
+        assert!(MappedPixels::new(usize::MAX, 2).is_err());
+        let mut pixels = MappedPixels::new(3, 2).unwrap();
+        assert_eq!(&*pixels, &[0; 6]);
+        pixels[5] = 0x00123456;
+        assert_eq!(pixels[5], 0x00123456);
+    }
+
+    #[test]
+    fn core_graphics_retains_exact_pixels_after_frame_owner_moves() {
+        for width in [1, 3, 1025] {
+            let mut pixels = MappedPixels::new(width, 2).unwrap();
+            for (index, pixel) in pixels.iter_mut().enumerate() {
+                *pixel = (index as u32).wrapping_mul(0x12345) & 0x00ffffff;
+            }
+            let expected: Vec<u8> = pixels.iter().flat_map(|p| p.to_ne_bytes()).collect();
+            let provider = pixels.into_data_provider().unwrap();
+            let retained = provider.clone();
+            drop(provider);
+            let copied = CGDataProvider::data(Some(&retained)).unwrap();
+            // SAFETY: this immutable CFData is owned locally and never mutated.
+            assert_eq!(unsafe { copied.as_bytes_unchecked() }, expected);
+            drop(retained); // final release owns unmapping the original pixels
+            assert_eq!(unsafe { copied.as_bytes_unchecked() }, expected);
+        }
     }
 }

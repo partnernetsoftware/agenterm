@@ -282,3 +282,9 @@ features = [
     "CATransaction",
 ]
 default-features = false
+
+[target.'cfg(target_vendor = "apple")'.dependencies.memmap2]
+version = "0.9"
+
+# Keep vendored backend tests opt-in instead of product workspace members.
+[workspace]

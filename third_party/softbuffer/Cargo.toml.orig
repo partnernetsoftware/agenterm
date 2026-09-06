@@ -81,6 +81,7 @@ features = [
 ]
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
+memmap2 = "0.9"
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = [
     "std",
     "objc2",
@@ -181,3 +182,6 @@ targets = [
     "x86_64-unknown-linux-gnu",
     "wasm32-unknown-unknown",
 ]
+
+# Keep vendored backend tests opt-in instead of product workspace members.
+[workspace]
