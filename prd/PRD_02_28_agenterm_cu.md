@@ -1362,6 +1362,10 @@ flowchart LR
   inventory, one accessibility tree and absolute pointer coordinates, and
   asserts that no effect receipt is created. Linux and Windows desktop courts
   remain required before three-host promotion.
+- [~] Display/space accounting has registered macOS host-native evidence
+  `cu.macos-ax-stacking`: it binds display and space identities and joins the
+  window stack without treating catalog presence as proof. Linux and Windows
+  display courts remain; spaces are explicitly macOS-only.
 
   `network-probe` is implemented as an Observe
   facade: resolve once through the host resolver, deduplicate/freeze addresses,

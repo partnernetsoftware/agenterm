@@ -373,9 +373,9 @@
           "mcu_shape": "displays and spaces",
           "acu_shape": "displays and spaces",
           "state": "delegated",
-          "qualification": "pending-native-public-journey",
-          "evidence": [],
-          "note": "Spaces are a truthful macOS-only surface; displays are cross-platform."
+          "qualification": "macos-host-native-stacking-journey-green-linux-windows-display-courts-pending-spaces-not-applicable-off-macos",
+          "evidence": ["cu.macos-ax-stacking"],
+          "note": "The registered macOS host-native journey reads display and space identity and joins windows to spaces. Spaces remain a truthful macOS-only surface; cross-platform display inventory still needs Linux and Windows runtime courts."
         },
         {
           "id": "desktop.state",

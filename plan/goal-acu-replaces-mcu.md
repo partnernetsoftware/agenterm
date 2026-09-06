@@ -699,6 +699,9 @@ Q3 owned runtime facades
    ├─ [~] desktop-state: screenshot-free bounded inventory + tree + pointer aggregate
    │  ├─ [x] macOS public qjswasm journey `cu.desktop-state`
    │  └─ [ ] Linux + Windows native desktop courts
+   ├─ [~] displays/spaces
+   │  ├─ [x] registered macOS host-native stacking journey `cu.macos-ax-stacking`
+   │  └─ [ ] Linux + Windows display courts; spaces remain macOS-only
    ├─ [~] network-routes: netlink/route-socket/IP-Helper bounded snapshot
    │  ├─ [x] ifindex/LUID identity + deterministic public ordering
    │  ├─ [x] interrupted/malformed snapshot fails typed; no shell
