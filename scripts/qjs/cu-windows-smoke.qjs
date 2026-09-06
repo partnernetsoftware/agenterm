@@ -968,18 +968,16 @@ try {
 }
 
 if (fixture >= 0 && !fixture_reaped) {
-  // Only the pid this run spawned; never a name pattern.
-  if (fixture_pid !== 0) {
-    rh.command("taskkill", ["/PID", "" + fixture_pid, "/F"], { timeout_ms: 10000 });
-  }
-  try { harness.wait(fixture, 5000); } catch (wait_error) { print("cleanup: " + wait_error); }
+  try { harness.kill(fixture); } catch (kill_error) { print("cleanup: " + kill_error); }
+  try {
+    harness.wait(fixture, 5000);
+    fixture_reaped = true;
+  } catch (wait_error) { print("cleanup: " + wait_error); }
 }
 if (short_child >= 0 && !short_reaped) {
   // Reaping closes the final Windows process handle, which is also required
   // before the run directory can be removed after a failed assertion.
-  if (short_pid !== 0) {
-    rh.command("taskkill", ["/PID", "" + short_pid, "/F"], { timeout_ms: 10000 });
-  }
+  try { harness.kill(short_child); } catch (kill_error) { print("cleanup: " + kill_error); }
   try {
     harness.wait(short_child, 5000);
     short_reaped = true;
@@ -988,17 +986,15 @@ if (short_child >= 0 && !short_reaped) {
   }
 }
 if (terminal_gui >= 0 && !terminal_gui_reaped) {
-  // Kill only this run's GUI process tree. Its terminal child has already
-  // exited on success; /T also bounds cleanup if an earlier assertion failed.
-  if (terminal_gui_pid !== 0) {
-    const terminated = rh.command(
-      "taskkill", ["/PID", "" + terminal_gui_pid, "/T", "/F"],
-      { timeout_ms: 10000 }
-    );
-    if (terminated.success !== true && process_present_via_cu(run_directory, executable, terminal_gui_pid) !== 0) {
-      succeeded = 0;
-      failure = failure + ":cu_windows_smoke_terminal_cleanup_kill";
-    }
+  // Terminate the exact process object owned by the qjswasm door. A normal
+  // path already asked AgenTerm to shut down its terminal child; failure paths
+  // must not depend on an optional system `taskkill` executable.
+  try {
+    harness.kill(terminal_gui);
+  } catch (kill_error) {
+    print("cleanup: " + kill_error);
+    succeeded = 0;
+    failure = failure + ":cu_windows_smoke_terminal_cleanup_kill";
   }
   try {
     harness.wait(terminal_gui, 5000);

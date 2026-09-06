@@ -206,6 +206,13 @@ export function wait(handle, timeout_ms) {
   return JSON.parse(door(process_wait(handle, timeout_ms), "process_wait"));
 }
 
+// Terminate the exact process object returned by `start`. This is the
+// cross-platform cleanup primitive; journeys must not assume `taskkill` or
+// `kill` command-line utilities exist in a qualified image.
+export function kill(handle) {
+  door(process_kill(handle), "process_kill");
+}
+
 export function sleep_ms(ms) {
   time_sleep_ms(ms);
 }
