@@ -128,6 +128,14 @@ agenterm-cu (28)
 - [ ] sheet / system-dialog roles refuse with `failed`.
 - [ ] application min/max size is honored; the pipeline may undershoot the
   ideal rect but must not report success with a fabricated frame.
+- [x] Linux X11 evidence compares the reply with a second independent window
+  inventory, not blindly with the requested rectangle. XFCE demonstrated a
+  legitimate client/frame-decoration quantization: the committed dimensions
+  can be smaller than the requested outer frame while `quantized=true`. The
+  court accepts only the pipeline's bounded 85–100% size and centered offset,
+  rejects unexplained/clamped drift, and requires all four independently read
+  bounds to equal the receipt. This preserves effect verification without
+  encoding one window manager's decoration width as a cross-platform law.
 
 The typed preflight is now wired through `agenterm-platform`, libagenterm ABI
 1.10 (`agt_window_placement_query`), and CU before the first native write.

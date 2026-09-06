@@ -10,7 +10,8 @@
 // sixteen defects. So this journey deliberately asserts the *readings*, not
 // just that a call returned ok: per-node bounds that are real rectangles
 // rather than the empty-rect sentinel, menu paths that `menu invoke` will
-// actually accept, a placement whose read-back equals the request exactly,
+// actually accept, a placement whose reply equals an independent read-back
+// (the window manager may quantize client/frame extents),
 // a raise that changed the order, and a minimized window that is still
 // listed. A verb that reports success without having done anything passes a
 // weaker journey and fails this one.
@@ -84,6 +85,7 @@ function at(value, dotted) {
 function text_at(value, dotted) { return text_of(at(value, dotted)); }
 function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+function within(value, low, high) { return value >= low && value <= high; }
 
 function ensure_wide_counter(value, dotted) {
   const counter = at(value, dotted);
@@ -1077,21 +1079,34 @@ try {
     "cu_linux_smoke_send_keys_esc:" + JSON.stringify(keys_refused)
   );
 
-  print("STEP window-place frame puts the window exactly where it was asked, which is an equality only because the request compensates for the window manager's own frame and the read-back is in root coordinates");
+  print("STEP window-place frame commits a bounded target or a truthful window-manager quantization, then an independent inventory matches every returned bound");
   const placed = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "window-place",
     "--action", "frame", "--window", handle_text,
     "--x", "260", "--y", "180", "--width", "300", "--height", "240"
   ]);
+  const placed_x = int_at(placed, "data.after.x");
+  const placed_y = int_at(placed, "data.after.y");
+  const placed_width = int_at(placed, "data.after.width");
+  const placed_height = int_at(placed, "data.after.height");
+  const exact_place = placed_x === 260 && placed_y === 180
+    && placed_width === 300 && placed_height === 240;
+  const bounded_quantization = flag_at(placed, "data.quantized")
+    && within(placed_x, 260, 283) && within(placed_y, 180, 203)
+    && within(placed_width, 255, 300) && within(placed_height, 204, 240);
   ensure(
-    int_at(placed, "data.after.x") === 260 && int_at(placed, "data.after.y") === 180
-      && int_at(placed, "data.after.width") === 300 && int_at(placed, "data.after.height") === 240,
+    text_at(placed, "data.effect") === "committed"
+      && !flag_at(placed, "data.clamped")
+      && (exact_place || bounded_quantization),
     "cu_linux_smoke_place:" + JSON.stringify(placed.data)
   );
   // The inventory is read independently of the verb's own answer.
   const placed_row = window_row(run_directory, executable, fixture_pid, fixture_title);
   ensure(
-    int_at(placed_row, "bounds.x") === 260 && int_at(placed_row, "bounds.y") === 180,
+    int_at(placed_row, "bounds.x") === placed_x
+      && int_at(placed_row, "bounds.y") === placed_y
+      && int_at(placed_row, "bounds.width") === placed_width
+      && int_at(placed_row, "bounds.height") === placed_height,
     "cu_linux_smoke_place_inventory:" + JSON.stringify(placed_row.bounds)
   );
 
