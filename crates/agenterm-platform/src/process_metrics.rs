@@ -30,6 +30,14 @@ pub fn set_group_nice(group_id: u32, value: i32) -> Result<(), ProcessMetricsErr
     crate::selected::process_metrics::set_group_nice(group_id, value)
 }
 
+/// Suspends or resumes one exact Unix process group with a single native
+/// group signal. The caller must already own and identity-bind the group, then
+/// verify stable membership and every member's scheduler state. Windows
+/// refuses because a Job Object has no documented equivalent freeze contract.
+pub fn set_group_suspended(group_id: u32, suspended: bool) -> Result<(), ProcessMetricsError> {
+    crate::selected::process_metrics::set_group_suspended(group_id, suspended)
+}
+
 /// Reports whether one process is stopped by the host scheduler. This is a
 /// point observation used to verify suspend/resume; it is not process identity.
 pub fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {

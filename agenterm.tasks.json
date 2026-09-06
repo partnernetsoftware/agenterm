@@ -3041,7 +3041,7 @@
     },
     {
       "id": "cu-managed-job-smoke",
-      "description": "Prove public managed jobs: session ownership, exact spawn/adopt replay, pre-exec limits, privacy-safe status, identity-bracketed resources, write-ahead Unix group priority with Windows typed refusal, default POSIX adopted-group detach, crash-recoverable STOP/CONT, stdin and dual-stream cursors, wait/renew/stop, plan-first pruning, session cleanup, and bounded audit retention.",
+      "description": "Prove public managed jobs: session ownership, exact spawn/adopt replay, pre-exec limits, privacy-safe status, identity-bracketed resources, resident resource enforcement, write-ahead Unix group priority with Windows typed refusal, default POSIX adopted-group detach, crash-recoverable STOP/CONT, stdin and dual-stream cursors, wait/renew/stop, plan-first pruning, session cleanup, and bounded audit retention.",
       "entry": "scripts/qjs/cu-managed-job-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

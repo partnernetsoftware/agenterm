@@ -283,6 +283,61 @@ pub struct JobProcessLimits {
     pub processes: Option<u32>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum JobPolicyAction {
+    Status,
+    Set,
+    Clear,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JobPolicyEnforcement {
+    Stop,
+    Terminate,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobResourcePolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rss_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_cpu_pct: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_processes: Option<u32>,
+    pub interval_ms: u64,
+    pub consecutive_samples: u8,
+    pub action: JobPolicyEnforcement,
+}
+
+impl JobResourcePolicy {
+    pub(crate) fn validate(self) -> Result<(), &'static str> {
+        if self.max_rss_bytes.is_none()
+            && self.max_cpu_pct.is_none()
+            && self.max_processes.is_none()
+        {
+            return Err("managed-job policy must contain at least one resource threshold");
+        }
+        if self
+            .max_rss_bytes
+            .is_some_and(|value| !(1024 * 1024..=1024_u64.pow(4)).contains(&value))
+            || self
+                .max_cpu_pct
+                .is_some_and(|value| !(1..=100_000).contains(&value))
+            || self
+                .max_processes
+                .is_some_and(|value| !(1..=4096).contains(&value))
+            || !(250..=60_000).contains(&self.interval_ms)
+            || !(1..=20).contains(&self.consecutive_samples)
+        {
+            return Err("managed-job policy fields are outside their closed bounds");
+        }
+        Ok(())
+    }
+}
+
 impl JobProcessLimits {
     fn validate(self) -> Result<(), &'static str> {
         if self.cpu_seconds.is_none()
@@ -1400,6 +1455,17 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_job_generation")]
         generation: u64,
         nice: i32,
+    },
+    JobPolicy {
+        target: TargetRef,
+        job_id: String,
+        #[serde(deserialize_with = "deserialize_job_generation")]
+        generation: u64,
+        action: JobPolicyAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        policy: Option<JobResourcePolicy>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        force: bool,
     },
     JobEvents {
         target: TargetRef,
@@ -3650,6 +3716,7 @@ impl Command {
             Self::JobPrune { .. } => "job-prune".into(),
             Self::JobResources { .. } => "job-resources".into(),
             Self::JobPriority { .. } => "job-priority".into(),
+            Self::JobPolicy { .. } => "job-policy".into(),
             Self::JobEvents { .. } => "job-events".into(),
             Self::JobOutput { .. } => "job-output".into(),
             Self::JobWrite { .. } => "job-write".into(),
@@ -4023,6 +4090,7 @@ impl Command {
             | Self::JobPrune { target, .. }
             | Self::JobResources { target, .. }
             | Self::JobPriority { target, .. }
+            | Self::JobPolicy { target, .. }
             | Self::JobEvents { target, .. }
             | Self::JobOutput { target, .. }
             | Self::JobWrite { target, .. }
@@ -4197,6 +4265,9 @@ impl Command {
             Self::ProcessPolicy {
                 action: ProcessPolicyAction::Status,
                 ..
+            } | Self::JobPolicy {
+                action: JobPolicyAction::Status,
+                ..
             }
         ) {
             return crate::auth::Grant::Observe;
@@ -4228,6 +4299,7 @@ impl Command {
             | Self::JobAdopt { .. }
             | Self::JobWrite { .. }
             | Self::JobPriority { .. }
+            | Self::JobPolicy { .. }
             | Self::JobSetState { .. }
             | Self::JobSignal { .. }
             | Self::JobStop { .. }
@@ -4552,6 +4624,28 @@ impl Command {
                     return Err("managed-job priority nice must be in -20..=19");
                 }
                 Ok(())
+            }
+            Self::JobPolicy {
+                job_id,
+                generation,
+                action,
+                policy,
+                force,
+                ..
+            } => {
+                validate_job_id(job_id)?;
+                validate_job_generation(*generation)?;
+                match (action, policy) {
+                    (JobPolicyAction::Status | JobPolicyAction::Clear, None) if !force => Ok(()),
+                    (JobPolicyAction::Set, Some(policy)) => {
+                        policy.validate()?;
+                        if (policy.action == JobPolicyEnforcement::Terminate) != *force {
+                            return Err("managed-job terminate policy requires --force exactly");
+                        }
+                        Ok(())
+                    }
+                    _ => Err("managed-job policy action, thresholds and --force disagree"),
+                }
             }
             Self::JobEvents {
                 job_id,

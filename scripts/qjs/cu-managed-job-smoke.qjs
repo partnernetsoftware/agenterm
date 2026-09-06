@@ -16,6 +16,7 @@ const declared_evidence = [
   "cu.managed-job-adopt",
   "cu.managed-job-state-signal",
   "cu.managed-job-priority",
+  "cu.managed-job-policy",
   "cu.managed-job-prune",
   "cu.audit-retention",
   "cu.target-lock-lifecycle"
@@ -416,7 +417,7 @@ try {
   print("STEP stop a second long-running job by exact identity and observe owned owner cleanup");
   const long_command = windows
     ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"]
-    : ["/bin/sh", "-c", "trap 'printf signal-usr1\\n' USR1; printf 'signal-ready\\n'; while :; do sleep 1; done"];
+    : ["/bin/sh", "-c", "trap 'printf signal-usr1\\n' USR1; printf 'signal-ready\\n'; while :; do :; done"];
   const second_spawn_args = mutation_prefix(request_root + "-spawn-stop", session_id, session_lease);
   append_all(second_spawn_args, ["job-spawn", "--ttl-seconds", "2", "--"]);
   append_all(second_spawn_args, long_command);
@@ -451,6 +452,88 @@ try {
     ensure(
       priority_replay.effect === "not_repeated" && priority_replay.idempotent === true,
       "cu_managed_job_priority_replay_contract"
+    );
+  }
+
+  print("STEP install resident resource enforcement and observe its exact postcondition");
+  const policy_set_args = mutation_prefix(request_root + "-policy-set", session_id, session_lease);
+  append_all(policy_set_args, [
+    "job-policy", second_job.job_id, "" + second_job.generation, "set",
+    "--max-rss-bytes", "1048576", "--interval-ms", "250", "--samples", "1",
+    "--action", "stop"
+  ]);
+  if (windows) {
+    invoke_cu_failure(
+      run_directory, executable, policy_set_args, "job-policy",
+      "managed_job_policy_stop_unsupported"
+    );
+    const policy_absent = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "job-policy", second_job.job_id, "" + second_job.generation, "status"
+    ], "job-policy");
+    ensure(
+      policy_absent.policy === null && policy_absent.status.state === "inactive",
+      "cu_managed_job_policy_windows_refusal_contract"
+    );
+  } else {
+    const installed_policy = invoke_cu(
+      run_directory, executable, policy_set_args, "job-policy"
+    );
+    ensure(
+      installed_policy.changed === true && installed_policy.resident_enforcement === true
+        && installed_policy.status.state === "armed",
+      "cu_managed_job_policy_install_contract"
+    );
+    let policy_status = null;
+    for (let policy_attempt = 0; policy_attempt < 20; policy_attempt += 1) {
+      policy_status = invoke_cu(run_directory, executable, [
+        "--target", "current", "--grant", "observe",
+        "job-policy", second_job.job_id, "" + second_job.generation, "status"
+      ], "job-policy");
+      if (policy_status.status.state === "enforced") { break; }
+      harness.sleep_ms(50);
+    }
+    ensure(
+      policy_status !== null && policy_status.status.state === "enforced"
+        && policy_status.status.consecutive_violations === 1
+        && policy_status.status.violations[0] === "max_rss_bytes"
+        && text_of(policy_status.status.last_metrics.rss_bytes) !== "",
+      "cu_managed_job_policy_enforcement_contract"
+    );
+    const policy_replay = invoke_cu(
+      run_directory, executable, policy_set_args, "job-policy"
+    );
+    ensure(
+      policy_replay.effect === "not_repeated" && policy_replay.idempotent === true,
+      "cu_managed_job_policy_request_replay_contract"
+    );
+    const policy_clear_args = mutation_prefix(
+      request_root + "-policy-clear", session_id, session_lease
+    );
+    append_all(policy_clear_args, [
+      "job-policy", second_job.job_id, "" + second_job.generation, "clear"
+    ]);
+    const cleared_policy = invoke_cu(
+      run_directory, executable, policy_clear_args, "job-policy"
+    );
+    ensure(
+      cleared_policy.changed === true && cleared_policy.policy === null
+        && cleared_policy.status.state === "inactive",
+      "cu_managed_job_policy_clear_contract"
+    );
+    const policy_resume_args = mutation_prefix(
+      request_root + "-policy-resume", session_id, session_lease
+    );
+    append_all(policy_resume_args, [
+      "job-set-state", second_job.job_id, "" + second_job.generation,
+      "running", "--timeout-ms", "5000"
+    ]);
+    const policy_resumed = invoke_cu(
+      run_directory, executable, policy_resume_args, "job-set-state"
+    );
+    ensure(
+      policy_resumed.verified === true && members_have_state(policy_resumed.members, "running"),
+      "cu_managed_job_policy_clear_does_not_resume_contract"
     );
   }
 
@@ -870,6 +953,7 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-adopt");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-state-signal");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-priority");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-policy");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-prune");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
   harness.emit_evidence(context, declared_evidence, "cu.target-lock-lifecycle");

@@ -6,8 +6,9 @@ use agenterm_cu::{
         DEVICE_INVENTORY_MAX, DEVICE_IO_BYTES_MAX, DEVICE_WATCH_DURATION_MS_MAX,
         DEVICE_WATCH_EVENTS_MAX, DEVICE_WATCH_INTERVAL_MS_MAX, DEVICE_WATCH_INTERVAL_MS_MIN,
         DeviceDataEncoding, DeviceSerialConfiguration, DeviceSerialFlow, DeviceSerialParity,
-        JobEnvironment, JobOutputCursor, JobOutputStream, JobProcessLimits, JobStateFilter,
-        ProcessRunState, ProcessSignalKind, STORAGE_DEVICES_MAX,
+        JobEnvironment, JobOutputCursor, JobOutputStream, JobPolicyAction, JobPolicyEnforcement,
+        JobProcessLimits, JobResourcePolicy, JobStateFilter, ProcessRunState, ProcessSignalKind,
+        STORAGE_DEVICES_MAX,
     },
     service_control::{ServiceOperation, ServiceScope},
 };
@@ -796,6 +797,51 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
                 .parse()
                 .map_err(|_| "NICE must be an integer in -20..=19".to_owned())?,
         },
+        "job-policy" => {
+            let job_id = positional(args, "JOB_ID")?;
+            let generation = positional(args, "GENERATION")?
+                .parse()
+                .map_err(|_| "GENERATION must be a positive integer".to_owned())?;
+            let action = match positional(args, "status|set|clear")?.as_str() {
+                "status" => JobPolicyAction::Status,
+                "set" => JobPolicyAction::Set,
+                "clear" => JobPolicyAction::Clear,
+                value => {
+                    return Err(format!(
+                        "job policy action must be status, set or clear, got {value:?}"
+                    ));
+                }
+            };
+            let force = take_switch(args, "--force");
+            let policy = if action == JobPolicyAction::Set {
+                Some(JobResourcePolicy {
+                    max_rss_bytes: flag_parsed(args, "--max-rss-bytes")?,
+                    max_cpu_pct: flag_parsed(args, "--max-cpu-pct")?,
+                    max_processes: flag_parsed(args, "--max-processes")?,
+                    interval_ms: flag_parsed(args, "--interval-ms")?.unwrap_or(1_000),
+                    consecutive_samples: flag_parsed(args, "--samples")?.unwrap_or(3),
+                    action: match flag_text(args, "--action")?.as_deref().unwrap_or("stop") {
+                        "stop" => JobPolicyEnforcement::Stop,
+                        "terminate" => JobPolicyEnforcement::Terminate,
+                        value => {
+                            return Err(format!(
+                                "job policy --action must be stop or terminate, got {value:?}"
+                            ));
+                        }
+                    },
+                })
+            } else {
+                None
+            };
+            Command::JobPolicy {
+                target,
+                job_id,
+                generation,
+                action,
+                policy,
+                force,
+            }
+        }
         "job-events" => Command::JobEvents {
             target,
             job_id: positional(args, "JOB_ID")?,
@@ -1783,6 +1829,71 @@ mod tests {
             }
         ));
         assert!(parse("job-priority", &[id, "1", "20"]).is_err());
+        assert!(matches!(
+            parse("job-policy", &[id, "2", "status"]).unwrap(),
+            Command::JobPolicy {
+                action: JobPolicyAction::Status,
+                policy: None,
+                force: false,
+                ..
+            }
+        ));
+        let Command::JobPolicy {
+            action,
+            policy: Some(policy),
+            force,
+            ..
+        } = parse(
+            "job",
+            &[
+                "policy",
+                id,
+                "2",
+                "set",
+                "--max-rss-bytes",
+                "1048576",
+                "--max-cpu-pct",
+                "250",
+                "--max-processes",
+                "8",
+                "--interval-ms",
+                "250",
+                "--samples",
+                "2",
+                "--action",
+                "terminate",
+                "--force",
+            ],
+        )
+        .unwrap()
+        else {
+            panic!("job-policy command")
+        };
+        assert_eq!(action, JobPolicyAction::Set);
+        assert_eq!(policy.max_rss_bytes, Some(1_048_576));
+        assert_eq!(policy.max_cpu_pct, Some(250));
+        assert_eq!(policy.max_processes, Some(8));
+        assert_eq!(policy.interval_ms, 250);
+        assert_eq!(policy.consecutive_samples, 2);
+        assert_eq!(policy.action, JobPolicyEnforcement::Terminate);
+        assert!(force);
+        assert!(parse("job-policy", &[id, "2", "set"]).is_err());
+        assert!(
+            parse(
+                "job-policy",
+                &[
+                    id,
+                    "2",
+                    "set",
+                    "--max-processes",
+                    "1",
+                    "--action",
+                    "terminate",
+                ],
+            )
+            .is_err()
+        );
+        assert!(parse("job-policy", &[id, "2", "status", "--force"]).is_err());
         assert!(matches!(
             parse("job", &["set-state", id, "2", "stopped"]).unwrap(),
             Command::JobSetState {

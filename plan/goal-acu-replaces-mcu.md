@@ -895,8 +895,12 @@ Wayland desktop at source `d5548024`; the same-source Linux x86_64/X11 court
 passed all 33 evidence lines in the broader process, terminal, file, network,
 AT-SPI, screenshot, window and cleanup journey. This moves the row from `gap`
 to `platform-limited`: Windows still needs the full-scope same-source rerun.
-The ledger is now 35 native / 31 delegated / 59 platform-limited / 4 gap / 5
-retired. The separate Windows x86_64 court was stopped before product
+The ledger is now 35 native / 31 delegated / 60 platform-limited / 3 gap / 5
+retired. Resident managed-job policy has left the hard-gap set: the owner
+samples bounded RSS, monotonic CPU-rate deltas and process count, then applies
+verified Unix group-stop or force-gated containment termination without caller
+polling. macOS public qjswasm evidence is green; Linux and Windows still need
+the same-source qualification. The separate Windows x86_64 court was stopped before product
 execution after QGA stayed unavailable for 600 seconds and is now marked
 non-ready in `utm-court`, preventing another false runtime attempt.
 

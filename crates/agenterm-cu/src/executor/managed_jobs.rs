@@ -13,7 +13,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    command::{JobEnvironment, JobOutputCursor, JobOutputStream, JobProcessLimits, JobStateFilter},
+    command::{
+        JobEnvironment, JobOutputCursor, JobOutputStream, JobPolicyAction, JobProcessLimits,
+        JobResourcePolicy, JobStateFilter,
+    },
     idempotency_store::FinalReplay,
     managed_job_ipc::{
         JobState, ManagedJobOperation, ManagedJobProtocolError, ManagedJobResult, OutputStream,
@@ -554,6 +557,52 @@ pub(super) fn job_resources_payload(
         "member_count": latest["member_count"],
         "members": latest["members"],
         "samples": samples,
+        "verified": true,
+    }))
+}
+
+pub(super) fn job_policy_payload(
+    job_id: &str,
+    generation: u64,
+    action: JobPolicyAction,
+    policy: Option<JobResourcePolicy>,
+    session_id: Option<&str>,
+) -> Result<Value, CuError> {
+    let record = match action {
+        JobPolicyAction::Status => checked_record(job_id, generation)?,
+        JobPolicyAction::Set | JobPolicyAction::Clear => checked_owned_record(
+            job_id,
+            generation,
+            session_id.ok_or_else(|| {
+                CuError::new(
+                    "managed_job_request_identity_required",
+                    "job-policy set/clear requires request-id, session and session-lease",
+                )
+            })?,
+        )?,
+    };
+    let operation = match (action, policy) {
+        (JobPolicyAction::Status, None) => ManagedJobOperation::ResourcePolicyStatus,
+        (JobPolicyAction::Set, Some(policy)) => ManagedJobOperation::ResourcePolicySet { policy },
+        (JobPolicyAction::Clear, None) => ManagedJobOperation::ResourcePolicyClear,
+        _ => {
+            return Err(CuError::new(
+                "managed_job_policy_invalid",
+                "managed-job policy action and threshold payload disagree",
+            ));
+        }
+    };
+    let result = client_request(&record.handle(), operation).map_err(client_error)?;
+    let ManagedJobResult::ResourcePolicy { result } = result else {
+        return Err(response_kind_error());
+    };
+    Ok(json!({
+        "job_id": job_id,
+        "generation": generation,
+        "policy": result.policy,
+        "status": result.status,
+        "changed": result.changed,
+        "resident_enforcement": true,
         "verified": true,
     }))
 }

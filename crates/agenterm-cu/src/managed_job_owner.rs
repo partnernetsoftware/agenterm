@@ -24,6 +24,7 @@ use agenterm_platform::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::command::{JobPolicyEnforcement, JobResourcePolicy};
 use crate::managed_job_store::{
     ExactProcessIdentity, ManagedJobHandle, ManagedJobStore, ResidentOwnerIdentity,
 };
@@ -43,6 +44,7 @@ const WAIT_POLL: Duration = Duration::from_millis(10);
 const DRAIN_SETTLE_WAIT: Duration = Duration::from_secs(1);
 const CLEANUP_WAIT: Duration = Duration::from_secs(5);
 pub(crate) const RESOURCE_MEMBERS_MAX: usize = 256;
+const POLICY_MEMBERS_MAX: usize = 4096;
 const RESOURCE_STABILITY_ATTEMPTS: usize = 6;
 
 /// One same-host launch document sent over a private inherited byte stream.
@@ -175,6 +177,78 @@ pub(crate) struct ResidentResourceSnapshot {
     pub page_faults_total: String,
     pub page_faults_soft: Option<String>,
     pub page_faults_hard: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ResidentResourcePolicyState {
+    Inactive,
+    Armed,
+    Violating,
+    Enforced,
+    Error,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ResidentResourcePolicyViolation {
+    #[serde(rename = "max_rss_bytes")]
+    RssBytes,
+    #[serde(rename = "max_cpu_pct")]
+    CpuPercentage,
+    #[serde(rename = "max_processes")]
+    ProcessCount,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResidentResourcePolicyMetrics {
+    pub rss_bytes: String,
+    /// Thousandths of one percent. `None` means the first cumulative-CPU
+    /// sample has established a baseline but cannot yet form a rate.
+    pub cpu_pct_milli: Option<String>,
+    pub processes: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResidentResourcePolicyStatus {
+    pub state: ResidentResourcePolicyState,
+    pub samples: u64,
+    pub consecutive_violations: u8,
+    pub last_sample_utc_ms: Option<i64>,
+    pub last_metrics: Option<ResidentResourcePolicyMetrics>,
+    pub violations: Vec<ResidentResourcePolicyViolation>,
+    pub last_error: Option<String>,
+}
+
+impl ResidentResourcePolicyStatus {
+    fn inactive() -> Self {
+        Self {
+            state: ResidentResourcePolicyState::Inactive,
+            samples: 0,
+            consecutive_violations: 0,
+            last_sample_utc_ms: None,
+            last_metrics: None,
+            violations: Vec::new(),
+            last_error: None,
+        }
+    }
+
+    fn armed() -> Self {
+        Self {
+            state: ResidentResourcePolicyState::Armed,
+            ..Self::inactive()
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResidentResourcePolicyReply {
+    pub policy: Option<JobResourcePolicy>,
+    pub status: ResidentResourcePolicyStatus,
+    pub changed: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -355,6 +429,10 @@ pub(crate) struct ResidentJobOwner {
     finished: bool,
     terminal_report: Option<ManagedJobRunReport>,
     lease_deadline: Instant,
+    resource_policy: Option<JobResourcePolicy>,
+    resource_policy_status: ResidentResourcePolicyStatus,
+    next_resource_policy_sample: Option<Instant>,
+    previous_resource_policy_cpu: Option<(u128, Instant)>,
 }
 
 impl ResidentJobOwner {
@@ -398,6 +476,13 @@ impl ResidentJobOwner {
         if self.finished {
             return Err(ManagedJobOwnerError::new("managed_job_resources_terminal"));
         }
+        self.resource_snapshot_now(max_members)
+    }
+
+    fn resource_snapshot_now(
+        &self,
+        max_members: usize,
+    ) -> Result<ResidentResourceSnapshot, ManagedJobOwnerError> {
         for _ in 0..RESOURCE_STABILITY_ATTEMPTS {
             let before = self.resource_member_identities(max_members)?;
             let Some(members) = sample_resource_members(&before.identities)? else {
@@ -416,6 +501,66 @@ impl ResidentJobOwner {
             }
         }
         Err(ManagedJobOwnerError::new("managed_job_membership_unstable"))
+    }
+
+    pub(crate) fn resource_policy_status(
+        &mut self,
+    ) -> Result<ResidentResourcePolicyReply, ManagedJobOwnerError> {
+        self.poll_lifecycle()?;
+        Ok(ResidentResourcePolicyReply {
+            policy: self.resource_policy,
+            status: self.resource_policy_status.clone(),
+            changed: false,
+        })
+    }
+
+    pub(crate) fn set_resource_policy(
+        &mut self,
+        policy: JobResourcePolicy,
+    ) -> Result<ResidentResourcePolicyReply, ManagedJobOwnerError> {
+        policy
+            .validate()
+            .map_err(|_| ManagedJobOwnerError::new("managed_job_policy_invalid"))?;
+        if cfg!(windows) && policy.action == JobPolicyEnforcement::Stop {
+            return Err(ManagedJobOwnerError::new(
+                "managed_job_policy_stop_unsupported",
+            ));
+        }
+        self.poll_process_lifecycle()?;
+        if self.finished {
+            return Err(ManagedJobOwnerError::new("managed_job_policy_terminal"));
+        }
+        let changed = self.resource_policy != Some(policy)
+            || matches!(
+                self.resource_policy_status.state,
+                ResidentResourcePolicyState::Enforced | ResidentResourcePolicyState::Error
+            );
+        if changed {
+            self.resource_policy = Some(policy);
+            self.resource_policy_status = ResidentResourcePolicyStatus::armed();
+            self.next_resource_policy_sample = Some(Instant::now());
+            self.previous_resource_policy_cpu = None;
+        }
+        Ok(ResidentResourcePolicyReply {
+            policy: self.resource_policy,
+            status: self.resource_policy_status.clone(),
+            changed,
+        })
+    }
+
+    pub(crate) fn clear_resource_policy(
+        &mut self,
+    ) -> Result<ResidentResourcePolicyReply, ManagedJobOwnerError> {
+        self.poll_process_lifecycle()?;
+        let changed = self.resource_policy.take().is_some();
+        self.resource_policy_status = ResidentResourcePolicyStatus::inactive();
+        self.next_resource_policy_sample = None;
+        self.previous_resource_policy_cpu = None;
+        Ok(ResidentResourcePolicyReply {
+            policy: None,
+            status: self.resource_policy_status.clone(),
+            changed,
+        })
     }
 
     pub(crate) fn set_priority(
@@ -808,6 +953,14 @@ impl ResidentJobOwner {
     }
 
     fn poll_lifecycle(&mut self) -> Result<(), ManagedJobOwnerError> {
+        self.poll_process_lifecycle()?;
+        if !self.finished {
+            self.poll_resource_policy();
+        }
+        Ok(())
+    }
+
+    fn poll_process_lifecycle(&mut self) -> Result<(), ManagedJobOwnerError> {
         if self.finished {
             return Ok(());
         }
@@ -820,6 +973,146 @@ impl ResidentJobOwner {
         } else {
             self.try_finish().map(|_| ())
         }
+    }
+
+    fn poll_resource_policy(&mut self) {
+        let Some(policy) = self.resource_policy else {
+            return;
+        };
+        if matches!(
+            self.resource_policy_status.state,
+            ResidentResourcePolicyState::Enforced | ResidentResourcePolicyState::Error
+        ) || self
+            .next_resource_policy_sample
+            .is_some_and(|deadline| Instant::now() < deadline)
+        {
+            return;
+        }
+        let sampled_at = Instant::now();
+        self.next_resource_policy_sample =
+            sampled_at.checked_add(Duration::from_millis(policy.interval_ms));
+        let result = self
+            .resource_snapshot_now(POLICY_MEMBERS_MAX)
+            .and_then(|snapshot| {
+                let cpu_time_ns = snapshot.cpu_time_ns.parse::<u128>().map_err(|_| {
+                    ManagedJobOwnerError::new("managed_job_resource_counter_invalid")
+                })?;
+                let rss_bytes = snapshot.rss_bytes.parse::<u128>().map_err(|_| {
+                    ManagedJobOwnerError::new("managed_job_resource_counter_invalid")
+                })?;
+                let cpu_pct_milli = self.previous_resource_policy_cpu.and_then(|(before, at)| {
+                    cpu_percentage_milli(
+                        before,
+                        cpu_time_ns,
+                        sampled_at.saturating_duration_since(at).as_nanos(),
+                    )
+                });
+                self.previous_resource_policy_cpu = Some((cpu_time_ns, sampled_at));
+                let processes = u32::try_from(snapshot.members.len())
+                    .map_err(|_| ManagedJobOwnerError::new("managed_job_policy_member_limit"))?;
+                let metrics = ResidentResourcePolicyMetrics {
+                    rss_bytes: rss_bytes.to_string(),
+                    cpu_pct_milli: cpu_pct_milli.map(|value| value.to_string()),
+                    processes,
+                };
+                let mut violations = Vec::new();
+                if policy
+                    .max_rss_bytes
+                    .is_some_and(|limit| rss_bytes > u128::from(limit))
+                {
+                    violations.push(ResidentResourcePolicyViolation::RssBytes);
+                }
+                if policy.max_cpu_pct.is_some_and(|limit| {
+                    cpu_pct_milli.is_some_and(|value| value > u128::from(limit) * 1_000)
+                }) {
+                    violations.push(ResidentResourcePolicyViolation::CpuPercentage);
+                }
+                if policy.max_processes.is_some_and(|limit| processes > limit) {
+                    violations.push(ResidentResourcePolicyViolation::ProcessCount);
+                }
+                Ok((metrics, violations))
+            });
+        match result {
+            Ok((metrics, violations)) => {
+                let consecutive = if violations.is_empty() {
+                    0
+                } else {
+                    self.resource_policy_status
+                        .consecutive_violations
+                        .saturating_add(1)
+                };
+                self.resource_policy_status = ResidentResourcePolicyStatus {
+                    state: if violations.is_empty() {
+                        ResidentResourcePolicyState::Armed
+                    } else {
+                        ResidentResourcePolicyState::Violating
+                    },
+                    samples: self.resource_policy_status.samples.saturating_add(1),
+                    consecutive_violations: consecutive,
+                    last_sample_utc_ms: now_utc_ms().ok(),
+                    last_metrics: Some(metrics),
+                    violations,
+                    last_error: None,
+                };
+                if consecutive >= policy.consecutive_samples {
+                    self.resource_policy_status.state = ResidentResourcePolicyState::Enforced;
+                    let enforced = match policy.action {
+                        JobPolicyEnforcement::Stop => self.enforce_resource_policy_stop(),
+                        JobPolicyEnforcement::Terminate => self.stop().map(|_| ()),
+                    };
+                    if let Err(error) = enforced {
+                        self.resource_policy_status.state = ResidentResourcePolicyState::Error;
+                        self.resource_policy_status.last_error = Some(error.code.to_owned());
+                    }
+                }
+            }
+            Err(error) => {
+                self.resource_policy_status.state = ResidentResourcePolicyState::Error;
+                self.resource_policy_status.last_error = Some(error.code.to_owned());
+            }
+        }
+    }
+
+    fn enforce_resource_policy_stop(&self) -> Result<(), ManagedJobOwnerError> {
+        if cfg!(windows) {
+            return Err(ManagedJobOwnerError::new(
+                "managed_job_policy_stop_unsupported",
+            ));
+        }
+        agenterm_platform::process_metrics::set_group_suspended(self.process.pid, true)
+            .map_err(|_| ManagedJobOwnerError::new("managed_job_policy_stop_outcome_unknown"))?;
+        for _ in 0..RESOURCE_STABILITY_ATTEMPTS {
+            let before = self.resource_member_identities(POLICY_MEMBERS_MAX)?;
+            let mut all_stopped = true;
+            for member in &before.identities {
+                if start_identity(member.pid).ok().as_deref() != Some(&member.start_identity) {
+                    all_stopped = false;
+                    break;
+                }
+                let stopped =
+                    agenterm_platform::process_metrics::is_stopped(member.pid).map_err(|_| {
+                        ManagedJobOwnerError::new("managed_job_policy_stop_outcome_unknown")
+                    })?;
+                if !stopped
+                    || start_identity(member.pid).ok().as_deref() != Some(&member.start_identity)
+                {
+                    all_stopped = false;
+                    break;
+                }
+            }
+            let after = self.resource_member_identities(POLICY_MEMBERS_MAX)?;
+            if all_stopped && before.identities == after.identities {
+                return Ok(());
+            }
+            agenterm_platform::process_metrics::set_group_suspended(self.process.pid, true)
+                .map_err(|_| {
+                    ManagedJobOwnerError::new("managed_job_policy_stop_outcome_unknown")
+                })?;
+            thread::sleep(WAIT_POLL);
+        }
+        Err(ManagedJobOwnerError::new(
+            "managed_job_policy_stop_outcome_unknown",
+        ))
     }
 
     fn join_drains(&mut self) {
@@ -844,6 +1137,11 @@ impl ResidentJobOwner {
     fn drains_finalized(&self) -> bool {
         lock_ring(&self.stdout).finalized && lock_ring(&self.stderr).finalized
     }
+}
+
+fn cpu_percentage_milli(before_ns: u128, after_ns: u128, elapsed_ns: u128) -> Option<u128> {
+    (elapsed_ns > 0 && after_ns >= before_ns)
+        .then(|| after_ns.saturating_sub(before_ns).saturating_mul(100_000) / elapsed_ns)
 }
 
 struct ResourceMemberIdentities {
@@ -1150,6 +1448,10 @@ pub(crate) fn start_owner_from_launch(
         lease_deadline: Instant::now()
             .checked_add(Duration::from_millis(launch.lease_ttl_ms))
             .ok_or_else(|| ManagedJobOwnerError::new("managed_job_lease_invalid"))?,
+        resource_policy: None,
+        resource_policy_status: ResidentResourcePolicyStatus::inactive(),
+        next_resource_policy_sample: None,
+        previous_resource_policy_cpu: None,
     })
 }
 
@@ -1222,6 +1524,10 @@ fn start_adopted_owner(
             lease_deadline: Instant::now()
                 .checked_add(Duration::from_millis(lease_ttl_ms))
                 .ok_or_else(|| ManagedJobOwnerError::new("managed_job_lease_invalid"))?,
+            resource_policy: None,
+            resource_policy_status: ResidentResourcePolicyStatus::inactive(),
+            next_resource_policy_sample: None,
+            previous_resource_policy_cpu: None,
         })
     }
 }
@@ -1498,6 +1804,15 @@ mod tests {
             .expect("write stderr marker");
     }
 
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "spawned by the resident resource-policy test"]
+    fn resident_policy_probe() {
+        let allocation = vec![0x5a_u8; 4 * 1024 * 1024];
+        std::hint::black_box(&allocation);
+        thread::sleep(Duration::from_secs(30));
+    }
+
     #[test]
     fn cursor_ring_reports_retention_and_future_gaps() {
         let mut ring = CursorRing::new(4);
@@ -1605,6 +1920,17 @@ mod tests {
     }
 
     #[test]
+    fn cpu_policy_rate_has_an_explicit_warmup_and_exact_milli_percent_units() {
+        assert_eq!(cpu_percentage_milli(1, 2, 0), None);
+        assert_eq!(cpu_percentage_milli(2, 1, 1), None);
+        assert_eq!(
+            cpu_percentage_milli(0, 1_000_000_000, 1_000_000_000),
+            Some(100_000)
+        );
+        assert_eq!(cpu_percentage_milli(10, 510, 1_000), Some(50_000));
+    }
+
+    #[test]
     fn resource_aggregation_is_lossless_and_preserves_unavailable_subcounters() {
         let snapshot = aggregate_resource_members(
             "test-containment".into(),
@@ -1640,5 +1966,57 @@ mod tests {
         assert_eq!(snapshot.page_faults_hard.as_deref(), Some("5"));
         assert!(snapshot.membership_complete);
         assert!(!snapshot.breakaway_prevented);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resident_policy_enforces_stop_and_clear_does_not_invent_resume() {
+        let directory = test_directory("resource-policy");
+        let state_path = directory.join("jobs.json");
+        let store = ManagedJobStore::open_at(&state_path).expect("open store");
+        let record = store
+            .reserve_start(None, now_utc_ms().expect("clock"))
+            .expect("reserve");
+        let mut launch = launch_fixture(state_path, record.handle());
+        launch.arguments = vec![
+            "--exact".into(),
+            "managed_job_owner::tests::resident_policy_probe".into(),
+            "--ignored".into(),
+            "--nocapture".into(),
+        ];
+        let mut owner = start_owner_from_launch(launch).expect("start owner");
+        let policy = JobResourcePolicy {
+            max_rss_bytes: Some(1024 * 1024),
+            max_cpu_pct: None,
+            max_processes: None,
+            interval_ms: 250,
+            consecutive_samples: 1,
+            action: JobPolicyEnforcement::Stop,
+        };
+        let installed = owner.set_resource_policy(policy).expect("install policy");
+        assert!(installed.changed);
+        assert_eq!(installed.status.state, ResidentResourcePolicyState::Armed);
+        let enforced = owner.resource_policy_status().expect("sample policy");
+        assert_eq!(enforced.status.state, ResidentResourcePolicyState::Enforced);
+        assert_eq!(
+            enforced.status.violations,
+            vec![ResidentResourcePolicyViolation::RssBytes]
+        );
+        assert!(
+            agenterm_platform::process_metrics::is_stopped(owner.process.pid)
+                .expect("observe stopped root")
+        );
+        let cleared = owner.clear_resource_policy().expect("clear policy");
+        assert!(cleared.changed);
+        assert_eq!(cleared.status.state, ResidentResourcePolicyState::Inactive);
+        assert!(
+            agenterm_platform::process_metrics::is_stopped(owner.process.pid)
+                .expect("clear does not resume root")
+        );
+        agenterm_platform::process_metrics::set_group_suspended(owner.process.pid, false)
+            .expect("resume group for cleanup");
+        owner.stop().expect("stop fixture");
+        drop(owner);
+        fs::remove_dir_all(directory).expect("remove test directory");
     }
 }

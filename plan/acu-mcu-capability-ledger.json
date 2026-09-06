@@ -748,12 +748,12 @@
         {
           "id": "job.policy-priority-state",
           "mcu_shape": "job policy|priority|set-state|signal",
-          "acu_shape": "job-priority binds the owning session, generation and one stable native containment group, reserves before a Unix group-level setpriority effect and verifies every member nice value; job-set-state and job-signal reuse the crash-recoverable exact-process tree transaction; every signal is caller-request-idempotent, while resource policy and distinct Windows priority-class/group-control meanings remain absent",
-          "state": "gap",
+          "acu_shape": "job-policy installs a bounded lease-scoped resident RSS, CPU-rate or process-count policy with consecutive sampling and stop|terminate enforcement; job-priority binds the owning session, generation and one stable native containment group; job-set-state and job-signal reuse the crash-recoverable exact-process tree transaction; every mutation is caller-request-idempotent",
+          "state": "platform-limited",
           "qualification": "macos-public-qjswasm-live-linux-and-windows-typed-refusal-reruns-pending",
-          "evidence": ["cu.managed-job-state-signal", "cu.managed-job-priority"],
-          "next": "add resident resource policy; run the enlarged public court on Linux and prove Windows priority/state/signal typed refusals",
-          "note": "The priority subset uses one native process-group syscall rather than a racy caller-side PID loop. The resident owner brackets stable exact membership before and after, reads every nice value, and treats any write/readback ambiguity as non-retryable outcome_unknown. Windows refuses before mutation because priority classes are not Unix nice values. Signals no longer use MCU or a mutable bare PID: retained pidfd/audit-token references, write-ahead temporary freezes, exact readback and recovery own the effect. STOP/CONT/TERM/KILL have observable postconditions; HUP/INT/USR1/USR2 report accepted delivery without inventing process-specific meaning. The caller request fingerprint and durable final outcome make replay return without a second delivery; the public qjswasm court proves SIGUSR1 output once plus no-repeat replay."
+          "evidence": ["cu.managed-job-state-signal", "cu.managed-job-priority", "cu.managed-job-policy"],
+          "next": "run the enlarged public court on Linux and prove Windows policy-stop, priority, state and signal typed refusals; retain distinct native Windows policy meanings as a platform-qualified contract",
+          "note": "The resident owner samples independently of callers. CPU percentage is derived only from monotonic cumulative-counter deltas after an explicit warm-up; thresholds, interval and consecutive-sample count are bounded. Unix stop uses one native process-group effect plus stable exact-member readback; terminate closes native containment on every host and requires force. Clearing prevents future enforcement but never silently resumes or resurrects an effect already performed. Policy memory has the same lifetime as the resident owner; owner death already reconciles the job as uncertain rather than pretending the policy survived. Priority uses one native process-group syscall, write-ahead receipt and stable per-member nice readback. Windows refuses Unix nice, signal and group-freeze meanings before mutation rather than fabricating equivalence. Exact request replay never repeats policy installation or signal delivery."
         },
         {
           "id": "job.lease-wait-stop",

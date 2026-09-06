@@ -97,6 +97,22 @@ pub(crate) fn set_group_nice(group_id: u32, value: i32) -> Result<(), ProcessMet
     ))
 }
 
+pub(crate) fn set_group_suspended(
+    group_id: u32,
+    _suspended: bool,
+) -> Result<(), ProcessMetricsError> {
+    if group_id == 0 {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidId,
+            "process group ID zero is not an exact target",
+        ));
+    }
+    Err(ProcessMetricsError::new(
+        ProcessMetricsErrorKind::Unsupported,
+        "Windows Job Objects expose no documented group freeze operation",
+    ))
+}
+
 pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
     if pid == 0 {
         return Err(ProcessMetricsError::new(

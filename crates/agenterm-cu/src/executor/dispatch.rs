@@ -328,6 +328,20 @@ impl Executor {
                     &mut self.open_receipts(command.target())?,
                 )
             }
+            Command::JobPolicy {
+                job_id,
+                generation,
+                action,
+                policy,
+                ..
+            } => {
+                let session_id = if *action == JobPolicyAction::Status {
+                    None
+                } else {
+                    Some(require_job_request(job_request, "job-policy")?.session_id)
+                };
+                job_policy_payload(job_id, *generation, *action, *policy, session_id)
+            }
             Command::JobEvents {
                 job_id,
                 generation,

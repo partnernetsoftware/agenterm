@@ -160,10 +160,19 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measured 131 capabilities;
   after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger now measures 134 capabilities with 4 gaps, 59 platform-limited rows, zero static
+  ledger now measures 134 capabilities with 3 gaps, 60 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
+- [~] Managed-job policy is no longer a missing MCU-only mechanism. The
+  resident owner now samples bounded RSS, monotonic CPU-rate deltas and process
+  count without caller polling, requires consecutive violations, and enforces
+  either verified Unix group-stop or force-gated native containment
+  termination. The first CPU sample is explicitly warm-up; clearing a policy
+  never invents reversal of an already performed effect. The public macOS
+  qjswasm journey proves enforcement, status, exact request replay, clear and
+  explicit resume. Linux and Windows qualification remains open, so the ledger
+  row is `platform-limited`, not cross-platform complete.
 - [~] Runtime capability probing has left the hard-gap set. The shared
   qjswasm core is live on macOS, Windows ARM64 and Linux ARM64; a same-source
   Linux x86_64/X11 court additionally passed all 33 declared process,
@@ -1413,7 +1422,9 @@ flowchart LR
   Foreground signaling has now passed its decisive architecture court. Public
   `pty-signal NAME --signal ... --expect ...` binds the same job, scope, epoch
   and stable tab, then derives the target group only from the retained POSIX
-  PTY master. STOP/CONT require scheduler-state read-back, TERM requires exact
+  PTY master. Its product-side control command is
+  `agenterm cli signal-terminal-foreground`; CU does not recreate PTY authority
+  or signal policy. STOP/CONT require scheduler-state read-back, TERM requires exact
   member exit, and INT proves native delivery without fabricating application
   acknowledgement. The macOS qjswasm journey proves STOP and TERM preserve a
   separate same-session background job and an unrelated sibling while leaving

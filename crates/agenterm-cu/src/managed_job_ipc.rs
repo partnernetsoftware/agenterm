@@ -16,14 +16,15 @@ use agenterm_platform::{entropy::secure_random_array, ipc::NativeStream};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::command::JobResourcePolicy;
 use crate::managed_job_owner::{
     ManagedJobOwnerError, OutputCursorError, RESOURCE_MEMBERS_MAX, ResidentJobOwner,
-    ResidentJobState, ResidentJobStatus, ResidentPriorityResult, ResidentResourceSnapshot,
-    StdinWriteError, now_utc_ms, read_launch, start_owner_from_launch,
+    ResidentJobState, ResidentJobStatus, ResidentPriorityResult, ResidentResourcePolicyReply,
+    ResidentResourceSnapshot, StdinWriteError, now_utc_ms, read_launch, start_owner_from_launch,
 };
 use crate::managed_job_store::{ManagedJobHandle, ManagedJobStore};
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 const FRAME_MAX_BYTES: usize = 128 * 1024;
 const REQUEST_ID_MAX_BYTES: usize = 128;
 const STDIN_BYTES_MAX: usize = 64 * 1024;
@@ -118,6 +119,11 @@ pub(crate) enum ManagedJobOperation {
     Priority {
         nice: i32,
     },
+    ResourcePolicyStatus,
+    ResourcePolicySet {
+        policy: JobResourcePolicy,
+    },
+    ResourcePolicyClear,
     Output {
         stream: OutputStream,
         cursor: u64,
@@ -221,6 +227,9 @@ pub(crate) enum ManagedJobResult {
     },
     Priority {
         result: ResidentPriorityResult,
+    },
+    ResourcePolicy {
+        result: ResidentResourcePolicyReply,
     },
     Output {
         stream: OutputStream,
@@ -339,6 +348,9 @@ fn validate_operation(operation: &ManagedJobOperation) -> Result<(), &'static st
         ManagedJobOperation::Priority { nice } if !(-20..=19).contains(nice) => {
             return Err("managed_job_priority_invalid");
         }
+        ManagedJobOperation::ResourcePolicySet { policy } => policy
+            .validate()
+            .map_err(|_| "managed_job_policy_invalid")?,
         ManagedJobOperation::Output { max_bytes, .. } => {
             if !(1..=OUTPUT_BYTES_MAX).contains(max_bytes) {
                 return Err("managed_job_output_limit");
@@ -369,6 +381,15 @@ fn dispatch(owner: &mut ResidentJobOwner, request: ManagedJobRequest) -> Managed
         ManagedJobOperation::Priority { nice } => owner
             .set_priority(nice)
             .map(|result| ManagedJobResult::Priority { result }),
+        ManagedJobOperation::ResourcePolicyStatus => owner
+            .resource_policy_status()
+            .map(|result| ManagedJobResult::ResourcePolicy { result }),
+        ManagedJobOperation::ResourcePolicySet { policy } => owner
+            .set_resource_policy(policy)
+            .map(|result| ManagedJobResult::ResourcePolicy { result }),
+        ManagedJobOperation::ResourcePolicyClear => owner
+            .clear_resource_policy()
+            .map(|result| ManagedJobResult::ResourcePolicy { result }),
         ManagedJobOperation::Output {
             stream,
             cursor,

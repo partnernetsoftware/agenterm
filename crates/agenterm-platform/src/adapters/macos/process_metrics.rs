@@ -69,6 +69,42 @@ pub(crate) fn set_group_nice(group_id: u32, value: i32) -> Result<(), ProcessMet
     }
 }
 
+pub(crate) fn set_group_suspended(
+    group_id: u32,
+    suspended: bool,
+) -> Result<(), ProcessMetricsError> {
+    let group = libc::pid_t::try_from(group_id).map_err(|_| {
+        ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidId,
+            "process group ID exceeds pid_t",
+        )
+    })?;
+    if group <= 1 {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidId,
+            "process group ID must identify an owned non-system group",
+        ));
+    }
+    let signal = if suspended {
+        libc::SIGSTOP
+    } else {
+        libc::SIGCONT
+    };
+    if unsafe { libc::kill(-group, signal) } == 0 {
+        Ok(())
+    } else {
+        let source = std::io::Error::last_os_error();
+        Err(ProcessMetricsError::new(
+            if source.raw_os_error() == Some(libc::ESRCH) {
+                ProcessMetricsErrorKind::NotFound
+            } else {
+                ProcessMetricsErrorKind::Open
+            },
+            source.to_string(),
+        ))
+    }
+}
+
 fn validate_group_nice(group_id: u32, value: i32) -> Result<(), ProcessMetricsError> {
     if group_id == 0 {
         return Err(ProcessMetricsError::new(

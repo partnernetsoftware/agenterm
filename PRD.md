@@ -143,7 +143,7 @@ AgenTerm — local agent & process fleet work OS
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 134 叶：
-│     │                       native 35 / delegated 31 / platform-limited 59 / gap 4 / retired 5
+│     │                       native 35 / delegated 31 / platform-limited 60 / gap 3 / retired 5
 │     │                       exact @tab 视口滚动与渲染 PNG 已走同一 control plane；
 │     │                       macOS qjswasm 黑盒已绿，Linux/Windows GUI court 待补
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
@@ -193,6 +193,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       managed job 的 Unix STOP/CONT 已绑定 owning session + generation + durable root，
 │     │                       复用 crash-recoverable exact-tree 日志并逐成员读回；非幂等 signal 在 request-id
 │     │                       replay 落地前拒绝，Windows 不采用未公开 Job Object freeze class
+│     │                       resident job policy 已原生驻留 owner：有界 RSS/CPU-rate/process-count 连续采样，
+│     │                       Unix group-stop 与全平台 containment terminate 均有明确后置条件；macOS qjswasm 绿，
+│     │                       Linux/Windows 同源资格待补，故从 gap 晋级 platform-limited 而非宣称六格完成
 │     │                       login-session 已有 macOS 原生有界 inventory、精确会话短时 plan、
 │     │                       持久化防重放与锁定回读；只读 qjswasm 绿，显式可见锁屏 court 待跑
 │     │                       external term observe + 显式前台 send 在 macOS/Windows ARM64/Linux x86_64

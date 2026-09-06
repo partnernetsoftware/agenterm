@@ -3860,6 +3860,17 @@ process-count limits. A live child that reports the installed limit is stronger
 evidence than a parser test; cross-compilation proves only that the platform
 adapter still builds.
 
+A runtime resource policy is different from a pre-exec hard limit. Put its
+clock and enforcement loop inside the resident containment owner so callers do
+not become the policy scheduler. Derive CPU rate from two monotonic cumulative
+CPU counters and a monotonic elapsed interval; the first sample is an explicit
+warm-up, never zero percent. Bound member count, interval and consecutive
+violations. Apply a group effect once, then require stable identity-bound
+membership and native readback. Clearing future policy must not silently undo
+an already performed stop or termination; reversal is a separate explicit
+command. If the resident owner dies, preserve the existing uncertain-owner
+reconciliation instead of claiming that an in-memory policy survived.
+
 Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
 private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
 never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second

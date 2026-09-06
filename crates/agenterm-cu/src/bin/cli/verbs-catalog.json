@@ -274,6 +274,16 @@
       "args": []
     },
     {
+      "name": "job-policy",
+      "command": "job-policy",
+      "aliases": ["job policy"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "manage resident containment resource enforcement",
+      "usage": "job-policy JOB_ID GENERATION status|set|clear [--max-rss-bytes N] [--max-cpu-pct N] [--max-processes N] [--interval-ms N] [--samples N] [--action stop|terminate] [--force]\njob policy ...",
+      "args": []
+    },
+    {
       "name": "job-output",
       "command": "job-output",
       "aliases": ["job output"],
@@ -5356,6 +5366,10 @@
     {
       "name": "job-priority",
       "text": "agenterm-cu job-priority    (also: job priority)\n  scope: actuate    family: Managed jobs\n\nusage: job-priority JOB_ID GENERATION NICE\n\nRequires global request and owning session identity. Unix binds one exact native process group, writes a receipt before the group-level setpriority effect, and verifies the same bounded member identities plus every resulting nice value. An uncertain write or changed membership is never retryable. Windows refuses before mutation because priority classes are not Unix nice semantics.\n"
+    },
+    {
+      "name": "job-policy",
+      "text": "agenterm-cu job-policy    (also: job policy)\n  scope: status=observe; set|clear=actuate    family: Managed jobs\n\nusage: job-policy JOB_ID GENERATION status|set|clear [thresholds]\n\nSet installs one lease-scoped resident policy with at least one of --max-rss-bytes, --max-cpu-pct or --max-processes. Sampling is bounded by --interval-ms 250..60000 and --samples 1..20. CPU uses monotonic cumulative-counter deltas; the first sample is an explicit warm-up. After consecutive violations, stop freezes the exact Unix process group and verifies every stable member, while terminate closes the native containment on every host and requires --force. Status exposes armed, violating, enforced or error without caller polling as the enforcement mechanism. Clear removes future enforcement but never silently reverses an already performed stop or termination. Windows refuses stop before installation because Job Objects have no documented group-freeze operation.\n"
     },
     {
       "name": "job-write",
