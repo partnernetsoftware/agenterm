@@ -401,6 +401,22 @@
     {
       "id": "cu-host-notify-smoke",
       "evidence": ["cu.host-notify.macos"]
+    },
+    {
+      "id": "cu-runtime-status-smoke",
+      "evidence": ["cu.runtime-status"]
+    },
+    {
+      "id": "cu-device-inventory-smoke",
+      "evidence": ["cu.device-inventory"]
+    },
+    {
+      "id": "cu-device-watch-smoke",
+      "evidence": ["cu.device-watch"]
+    },
+    {
+      "id": "cu-device-lease-smoke",
+      "evidence": ["cu.device-lease"]
     }
   ]
 }
