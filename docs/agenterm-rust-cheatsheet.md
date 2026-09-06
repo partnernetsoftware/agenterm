@@ -1320,6 +1320,15 @@ constructor made the entire `core::net::parser` family unreachable and reduced
 the staged PE by 6,656 bytes without removing TCP support from the workbench.
 This is mechanism-specific linkage, not an authorization profile.
 
+## Windows service environments do not promise interactive PATH
+
+- A Scheduled Task or service session can have an empty/reduced `PATH` even
+  while Windows inbox tools exist. A cross-image court must resolve required
+  system executables through the platform/system-directory source, verify the
+  final file, and spawn that absolute result. Never treat successful bare-name
+  lookup in an interactive developer terminal as delivery evidence; never
+  install a tool merely to repair an inherited-environment assumption.
+
 ## Windows temporary paths through the platform facade
 
 Do not call `std::env::temp_dir` from a Windows-only adapter merely for a debug

@@ -127,6 +127,12 @@ function framework_csc() {
   throw "cu_windows_smoke_framework_csc_missing";
 }
 
+function windows_inbox(name) {
+  const candidate = rh.join(rh.env_or("WINDIR", "C:/Windows"), "System32/" + name);
+  ensure(direct_file(candidate), "cu_windows_smoke_inbox_missing:" + name);
+  return candidate;
+}
+
 function run_cu_json(run_directory, executable, arguments) {
   const output = rh.command(
     executable, arguments,
@@ -547,8 +553,8 @@ try {
   // longer than the watch deadline. Use the Windows inbox native wait path so
   // this proves process lifecycle rather than PowerShell startup latency.
   short_child = harness.start({
-    program: "cmd.exe",
-    args: ["/d", "/c", "ping.exe", "-n", "2", "127.0.0.1"],
+    program: windows_inbox("cmd.exe"),
+    args: ["/d", "/c", windows_inbox("ping.exe"), "-n", "2", "127.0.0.1"],
     current_dir: run_directory,
     timeout_ms: 5000
   });
