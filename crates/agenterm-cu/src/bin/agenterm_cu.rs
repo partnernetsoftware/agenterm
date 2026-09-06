@@ -526,6 +526,29 @@ mod tests {
     }
 
     #[test]
+    fn clipboard_metadata_rejects_every_payload_option_before_native_dispatch() {
+        for tail in [
+            vec!["--metadata-only", "--type", "string"],
+            vec!["--metadata-only", "--max-bytes", "1"],
+            vec!["--metadata-only", "--out", "probe.bin"],
+            vec!["--metadata-only", "--replace"],
+        ] {
+            let mut args = vec![
+                "--target".to_owned(),
+                "current".to_owned(),
+                "--grant".to_owned(),
+                "observe".to_owned(),
+                "clipboard-read".to_owned(),
+            ];
+            args.extend(tail.into_iter().map(str::to_owned));
+            let reply = dispatch(args);
+            assert!(!reply.ok);
+            assert_eq!(reply.command, "usage");
+            assert_eq!(reply.error.expect("typed usage error").code, "usage");
+        }
+    }
+
+    #[test]
     fn malformed_grant_is_typed_without_echoing_its_value() {
         let reply = dispatch(vec![
             "--target".into(),

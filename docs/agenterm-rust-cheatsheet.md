@@ -1910,6 +1910,16 @@ with no `--text` rewrites SRC through the same WebKit eval-helper
 set-value path as named `send-text`, and `wait --text-equals SRC` must
 see independent GetText == SRC (not copy/paste/send `matched.text`).
 
+A live capability probe must not read clipboard payload merely to prove that
+the provider exists. `clipboard-read --metadata-only` calls only the native
+format inventory and returns `payload_read=false`; it must not include `text`,
+`value`, a digest of either, or an output path. An empty `types` array is a
+valid empty clipboard when `types_available=true`. Keep ordinary
+`clipboard-read` as the explicit content-reading operation. The same live
+probe must bind its caller-supplied platform label to the native
+`capabilities.platform` field (`std::env::consts::OS`); a matrix cell name is
+not evidence of the binary that actually ran.
+
 `copy --window HANDLE` without `--name` copies that same GetText path
 on the showing focused node — the same innermost `Text.GetText`
 candidate `get-text --window` reads — onto native CLIPBOARD

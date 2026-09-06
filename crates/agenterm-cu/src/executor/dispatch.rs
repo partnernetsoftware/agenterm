@@ -1577,13 +1577,16 @@ impl Executor {
                 &mut self.open_receipts(command.target())?,
             ),
             Command::ClipboardRead {
+                metadata_only,
                 type_name,
                 max_bytes,
                 out,
                 replace,
                 ..
             } => {
-                if let Some(type_name) = type_name {
+                if *metadata_only {
+                    clipboard_metadata()
+                } else if let Some(type_name) = type_name {
                     clipboard_read_type(type_name, *max_bytes, out.as_deref(), *replace)
                 } else {
                     clipboard_read()

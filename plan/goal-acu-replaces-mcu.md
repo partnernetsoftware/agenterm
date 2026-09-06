@@ -819,6 +819,12 @@ path, or a merely nonempty array cannot satisfy retirement. Candidate and
 MCU-absent courts must still produce the registered receipts for the exact
 source identity.
 
+The runtime capability-probe frontier now has one deliberately partial macOS
+component: native platform identity, live displays, payload-free clipboard
+metadata and bounded shell cleanup are public qjswasm evidence. Process and
+owned-desktop probes plus Linux/Windows same-source receipts remain mandatory;
+this component does not change the row from `gap` or authorize MCU removal.
+
 `moltbaby/skills/mcu/acu.ts` is only the transition router. Its `stay` result
 means “ACU cannot yet express this exact public shape; use MCU temporarily,”
 not “this capability belongs to MCU forever.” A same-named command also stays

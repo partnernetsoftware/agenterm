@@ -35,6 +35,7 @@ pub fn parse(
             }
             Ok(Command::ClipboardRead {
                 target,
+                metadata_only: false,
                 type_name: None,
                 max_bytes: None,
                 out: None,
@@ -120,6 +121,7 @@ fn positional(args: &mut Vec<String>) -> Option<String> {
 }
 
 fn read(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let metadata_only = take_switch(args, "--metadata-only");
     let type_name = flag_text(args, "--type")?;
     let type_name = type_name.or_else(|| positional(args));
     let max_bytes = flag_parsed::<usize>(args, "--max-bytes")?;
@@ -127,15 +129,19 @@ fn read(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let replace = take_switch(args, "--replace");
     if !args.is_empty() {
         return Err(format!(
-            "clipboard-read accepts only --type T --max-bytes N --out PATH [--replace]; unexpected {:?}",
+            "clipboard-read accepts only --metadata-only or --type T --max-bytes N --out PATH [--replace]; unexpected {:?}",
             args[0]
         ));
+    }
+    if metadata_only && (type_name.is_some() || max_bytes.is_some() || out.is_some() || replace) {
+        return Err("clipboard-read --metadata-only cannot be combined with --type/--max-bytes/--out/--replace".into());
     }
     if type_name.is_none() && (max_bytes.is_some() || out.is_some() || replace) {
         return Err("clipboard-read --max-bytes/--out/--replace require --type".into());
     }
     Ok(Command::ClipboardRead {
         target,
+        metadata_only,
         type_name,
         max_bytes,
         out,

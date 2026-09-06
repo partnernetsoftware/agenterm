@@ -42,6 +42,32 @@ pub(super) fn clipboard_read() -> Result<serde_json::Value, CuError> {
     Ok(payload)
 }
 
+/// Inspect the native clipboard provider without copying any clipboard
+/// payload into this process. This is the safe capability/doctor probe: an
+/// empty type list is a valid empty clipboard, while an unavailable type
+/// inventory remains an explicit provider result.
+pub(super) fn clipboard_metadata() -> Result<serde_json::Value, CuError> {
+    let (types, types_available, types_reason) = match mechanism::clipboard::available_types() {
+        Ok(names) => (names, true, None),
+        Err(mechanism::MechanismError::Unsupported { reason }) => (Vec::new(), false, Some(reason)),
+        Err(mechanism::MechanismError::Failed { code, message }) => {
+            (Vec::new(), false, Some(format!("{code}: {message}")))
+        }
+    };
+    let mut payload = serde_json::json!({
+        "payload_read": false,
+        "mechanism": "libagenterm",
+        "types": types,
+        "types_available": types_available,
+    });
+    if let Some(reason) = types_reason
+        && let Some(object) = payload.as_object_mut()
+    {
+        object.insert("types_reason".into(), serde_json::json!(reason));
+    }
+    Ok(payload)
+}
+
 pub(super) const DEFAULT_CLIPBOARD_TYPE_BYTES: usize = 1024 * 1024;
 
 pub(super) const MAX_CLIPBOARD_TYPE_BYTES: usize = 16 * 1024 * 1024;

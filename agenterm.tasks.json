@@ -785,6 +785,24 @@
         "task.cu-doctor-smoke"
       ]
     },
+    "cu-runtime-capability-core-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-runtime-capability-core-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-runtime-capability-core-smoke"
+      ]
+    },
     "cu-browser-bridge-contract-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2996,6 +3014,26 @@
       "platforms": [
         "windows",
         "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-runtime-capability-core-smoke",
+      "description": "Prove on macOS that the public current-host capability core binds its native platform, inventories a live display, reports clipboard provider metadata without reading payload bytes, and reaps one bounded shell child.",
+      "entry": "scripts/qjs/cu-runtime-capability-core-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu",
+        "macos"
+      ],
+      "dependencies": [],
+      "platforms": [
         "macos"
       ],
       "side_effects": [

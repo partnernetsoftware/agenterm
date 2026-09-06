@@ -842,8 +842,14 @@ flowchart LR
   final merged public inventory. The public `cu.capabilities-declaration`
   journey proves every verb contributes exactly once and the count total equals
   the inventory length. This is declaration integrity, not MCU's cross-mechanism
-  live probe: `runtime.capability-probe` remains a gap until a bounded journey
-  actually calls one read-only primitive from every claimed available family.
+  live probe. The first macOS core component now binds the native platform from
+  the executable reply, inventories live display geometry, queries clipboard
+  provider/type metadata without reading clipboard payload bytes, and proves a
+  bounded shell child was reaped. `runtime.capability-probe` remains a gap: the
+  MCU scope also includes process inventory/details, accessibility and element
+  reads, windows and screenshot, while Linux and Windows same-source courts are
+  still absent. Catalog presence and a caller-supplied cell label are never
+  evidence.
 - [x] The old MCU-shaped `setup/doctor/caps` aggregate ledger row is retired as
   an authority error, not as removed user value. Setup publication and owner
   preservation, desktop diagnosis, permission guidance, capability declaration,
@@ -855,7 +861,7 @@ flowchart LR
   OLD --> BASE["doctor desktop baseline<br/>bounded live probes"]
   OLD --> DECL["capability declaration<br/>deterministic counts"]
   BASE --> SYS["system readiness<br/>runtime · service · ABI · target<br/>native · macOS qjswasm green"]
-  DECL --> LIVE["cross-mechanism live probe<br/>gap"]
+  DECL --> LIVE["cross-mechanism live probe<br/>macOS core green<br/>full scope + Linux/Windows pending"]
   SET & BASE & DECL & SYS & LIVE --> RET["MCU-absent retirement court"]
 ```
 

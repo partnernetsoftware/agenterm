@@ -720,6 +720,7 @@ mod tests {
     fn clipboard_read_observe_survives_target_rewrite() {
         let command = CuCommand::ClipboardRead {
             target: TargetRef::Ssh,
+            metadata_only: true,
             type_name: None,
             max_bytes: None,
             out: None,
@@ -728,7 +729,13 @@ mod tests {
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert_eq!(remote.verb(), "clipboard-read");
         assert_eq!(remote.target(), TargetRef::Current);
-        assert!(matches!(remote, CuCommand::ClipboardRead { .. }));
+        assert!(matches!(
+            remote,
+            CuCommand::ClipboardRead {
+                metadata_only: true,
+                ..
+            }
+        ));
     }
 
     #[test]

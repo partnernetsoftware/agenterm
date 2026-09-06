@@ -270,6 +270,7 @@
         "cu.doctor-desktop-baseline",
         "cu.doctor-system-readiness",
         "cu.capabilities-declaration",
+        "cu.runtime-capability-core.macos",
         "cu.power-host-status",
         "cu.host-open.macos",
         "cu.permissions-open.contract",

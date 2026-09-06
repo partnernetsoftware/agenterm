@@ -878,6 +878,10 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     if let Some(verbs) = payload.get("verbs").cloned() {
         payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);
     }
+    // Keep host identity outside the already-near-limit declaration macro.
+    // A live court must compare this native build fact with its requested
+    // platform instead of trusting a caller-supplied label.
+    payload["platform"] = serde_json::json!(std::env::consts::OS);
     attach_verb_grants(&mut payload);
     attach_invoke_actions(&mut payload);
     attach_verb_status_counts(&mut payload);
@@ -1486,6 +1490,7 @@ mod tests {
         assert_eq!(reply.command, "capabilities");
         let data = reply.data.as_ref().expect("data");
         assert_eq!(data["target"], "current");
+        assert_eq!(data["platform"], std::env::consts::OS);
         assert_eq!(data["transport"]["status"], "in_process");
         assert_eq!(data["transport"]["available"], true);
         assert_eq!(data["verbs"]["capabilities"]["status"], "available");

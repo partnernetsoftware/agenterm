@@ -2191,6 +2191,9 @@ pub enum Command {
     /// native type as bounded bytes (MCU `clipboard read`).
     ClipboardRead {
         target: TargetRef,
+        /// Inspect native clipboard formats without reading their payloads.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        metadata_only: bool,
         #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
         type_name: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5427,6 +5430,7 @@ mod tests {
     fn clipboard_read_is_target_neutral_observation() {
         let command = Command::ClipboardRead {
             target: TargetRef::Vnc,
+            metadata_only: false,
             type_name: None,
             max_bytes: None,
             out: None,
@@ -5438,6 +5442,27 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&command).expect("serialize"),
             serde_json::json!({ "verb": "clipboard-read", "target": "vnc" })
+        );
+    }
+
+    #[test]
+    fn clipboard_metadata_is_an_observation_and_serializes_without_payload_fields() {
+        let command = Command::ClipboardRead {
+            target: TargetRef::Current,
+            metadata_only: true,
+            type_name: None,
+            max_bytes: None,
+            out: None,
+            replace: false,
+        };
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "clipboard-read",
+                "target": "current",
+                "metadata_only": true
+            })
         );
     }
 
