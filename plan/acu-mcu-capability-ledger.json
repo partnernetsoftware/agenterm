@@ -985,7 +985,8 @@
           "acu_shape": "service system-list|system-status; system mutation returns service_requires_privilege",
           "state": "platform-limited",
           "platforms": {"macos": "native-read-only", "linux": "native-read-only", "windows": "typed-unsupported"},
-          "evidence": ["cu.service-plan", "agenterm-cu system service privilege-refusal suite"],
+          "qualification": "macos-public-qjswasm-read-only-green-linux-rerun-pending-windows-typed-refusal-court-pending-system-mutation-privilege-provider-gap",
+          "evidence": ["cu.service-system-observe", "agenterm-cu system service privilege-refusal suite"],
           "next": "carry the complete provider identity and before snapshot through the privileged provider, then verify the exact post-state"
         },
         {

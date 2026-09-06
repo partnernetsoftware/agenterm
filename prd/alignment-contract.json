@@ -243,6 +243,7 @@
         "cu.audio-plan",
         "cu.service-plan",
         "cu.service-transaction",
+        "cu.service-system-observe",
         "cu.network-interfaces",
         "cu.desktop-state",
         "cu.process-inventory-rich",

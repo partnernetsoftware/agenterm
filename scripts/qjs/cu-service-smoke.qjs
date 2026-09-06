@@ -3,7 +3,7 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.service-plan", "cu.service-transaction"];
+const declared_evidence = ["cu.service-plan", "cu.service-transaction", "cu.service-system-observe"];
 
 function ensure(condition, message) { if (!condition) { throw message; } }
 function direct_file(path) {
@@ -114,6 +114,32 @@ try {
     ensure(after.reply.ok === true && JSON.stringify(after.reply.data) === JSON.stringify(before), "cu_service_plan_changed_state");
   }
 
+  print("STEP system service inventory and exact status are read-only and platform-honest");
+  const system_inventory = invoke(executable, context.run_directory, audit_path, "observe", [
+    "system-list", "--max", "8"
+  ]);
+  if (system_inventory.reply.ok !== true) {
+    ensure(harness.host_is_windows(), "cu_service_system_inventory_failed:" + system_inventory.stdout);
+    ensure(system_inventory.output.success !== true, "cu_service_system_unsupported_false_success");
+    ensure(system_inventory.reply.error.code === "service_unsupported", "cu_service_system_unsupported_code");
+  } else {
+    ensure(system_inventory.output.success === true, "cu_service_system_inventory_exit");
+    const system_data = system_inventory.reply.data;
+    ensure(system_data.scope === "system", "cu_service_system_inventory_scope");
+    ensure(Array.isArray(system_data.services) && system_data.services.length > 0, "cu_service_system_inventory_empty");
+    ensure(system_data.services.length <= 8 && system_data.visited >= system_data.services.length,
+      "cu_service_system_inventory_bound");
+    const system_name = system_data.services[0].identity.name;
+    const system_status = invoke(executable, context.run_directory, audit_path, "observe", [
+      "system-status", system_name
+    ]);
+    ensure(system_status.output.success === true && system_status.reply.ok === true,
+      "cu_service_system_status:" + system_status.stdout);
+    ensure(system_status.reply.data.identity.name === system_name
+        && system_status.reply.data.identity.scope === "system",
+      "cu_service_system_status_identity");
+  }
+
   print("STEP one-call lifecycle requires identity, locks its exact target and closes replay without effect");
   const session = invoke_cu(executable, context.run_directory, audit_path, [
     "--target", "current", "--grant", "actuate",
@@ -151,8 +177,9 @@ try {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, "cu.service-plan");
   harness.emit_evidence(context, declared_evidence, "cu.service-transaction");
+  harness.emit_evidence(context, declared_evidence, "cu.service-system-observe");
   harness.remove_run(context);
-  print("PASS: service observation, planning and request-bound no-effect lifecycle replay are closed and platform-honest");
+  print("PASS: user and system service observation, planning and request-bound no-effect lifecycle replay are closed and platform-honest");
 }
 if (failure !== "") { throw failure; }
 return;

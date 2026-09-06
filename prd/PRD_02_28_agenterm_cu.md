@@ -431,7 +431,10 @@ flowchart LR
   additionally binds a current-user-owned plist's canonical path, declared
   Label, byte length and digest. Approval is short-lived, reservation precedes
   effect, and uncertain outcomes never reopen automatic replay. The
-  mutation-free qjswasm evidence is `cu.service-plan` on macOS. The old
+  mutation-free qjswasm evidence is `cu.service-plan` on macOS; the same court
+  separately proves bounded system inventory and exact system status as
+  `cu.service-system-observe`. It does not claim privileged system mutation.
+  The old
   one-call shape is now a Rust transaction requiring request/session identity;
   it acquires the exact service target lock before entering the same plan/apply
   state machine. `cu.service-transaction` proves no-effect failure, closed

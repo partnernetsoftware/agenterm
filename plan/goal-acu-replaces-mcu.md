@@ -554,6 +554,10 @@ shapes fail typed instead of being ignored.
   foreground/capture shapes are separately classified. An empty
   `remaining_families` means there is no hidden command family; it does not
   turn any gap into an implementation.
+- System-service evidence is split from user lifecycle evidence:
+  `cu.service-system-observe` proves bounded read-only system inventory/status
+  on macOS, while Linux rerun, Windows typed refusal and the privilege-backed
+  system mutation provider remain open.
 - The compatibility adapter now states the complete replacement goal and
   labels every `stay` as a migration gap. The flat set is still transitional;
   R0 replaces it with the machine-readable state ledger.
