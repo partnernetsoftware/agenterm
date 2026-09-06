@@ -389,6 +389,18 @@
     {
       "id": "cu-power-status-smoke",
       "evidence": ["cu.power-host-status"]
+    },
+    {
+      "id": "cu-host-open-smoke",
+      "evidence": ["cu.host-open.macos"]
+    },
+    {
+      "id": "cu-permissions-open-smoke",
+      "evidence": ["cu.permissions-open.contract"]
+    },
+    {
+      "id": "cu-host-notify-smoke",
+      "evidence": ["cu.host-notify.macos"]
     }
   ]
 }

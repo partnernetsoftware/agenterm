@@ -1117,7 +1117,7 @@
           "acu_shape": "permissions returns the current platform permission model, gated verbs and repair guidance; capabilities embeds the identical declaration",
           "state": "delegated",
           "qualification": "direct-cli-contract-present-host-journeys-partial",
-          "evidence": ["agenterm-cu permissions unit and local public CLI"],
+          "evidence": ["cu.permissions-open.contract", "agenterm-cu permissions unit and local public CLI"],
           "next": "prove every affected verb and required/optional classification on macOS, Linux and Windows"
         },
         {

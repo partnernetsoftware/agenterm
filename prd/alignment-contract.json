@@ -264,7 +264,10 @@
         "cu.audit-retention",
         "cu.setup-cli-entrypoint",
         "cu.setup-runtime-refresh-owned-job",
-        "cu.power-host-status"
+        "cu.power-host-status",
+        "cu.host-open.macos",
+        "cu.permissions-open.contract",
+        "cu.host-notify.macos"
       ]
     },
     {
