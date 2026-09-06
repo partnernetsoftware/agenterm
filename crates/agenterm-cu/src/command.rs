@@ -3163,6 +3163,20 @@ pub enum Command {
         target: TargetRef,
         connection_id: ConnectionId,
     },
+    /// Return bounded Chromium window state for one exact live bridge
+    /// connection without changing browser focus or activation.
+    BrowserBridgeWindows {
+        target: TargetRef,
+        connection_id: ConnectionId,
+    },
+    /// Change one exact Chromium window state through its exact extension
+    /// connection. The bridge verifies state and browser focus postconditions.
+    BrowserBridgeWindowState {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        window_id: u32,
+        state: crate::browser_bridge::BrowserWindowState,
+    },
     BrowserBridgeDebugRead {
         target: TargetRef,
         connection_id: ConnectionId,
@@ -3635,6 +3649,8 @@ impl Command {
             Self::BrowserBridgeConnections { .. } => "browser-bridge-connections".into(),
             Self::BrowserBridgeStatus { .. } => "browser-bridge-status".into(),
             Self::BrowserBridgeTabs { .. } => "browser-bridge-tabs".into(),
+            Self::BrowserBridgeWindows { .. } => "browser-bridge-windows".into(),
+            Self::BrowserBridgeWindowState { .. } => "browser-bridge-window-state".into(),
             Self::BrowserBridgeDebugRead { .. } => "browser-bridge-debug-read".into(),
             Self::Unlock { .. } => "unlock".into(),
             Self::Activate { .. } => "activate".into(),
@@ -3997,6 +4013,8 @@ impl Command {
             | Self::BrowserBridgeConnections { target, .. }
             | Self::BrowserBridgeStatus { target, .. }
             | Self::BrowserBridgeTabs { target, .. }
+            | Self::BrowserBridgeWindows { target, .. }
+            | Self::BrowserBridgeWindowState { target, .. }
             | Self::BrowserBridgeDebugRead { target, .. }
             | Self::Unlock { target, .. }
             | Self::Activate { target, .. }
@@ -4102,6 +4120,7 @@ impl Command {
             | Self::BrowserSessionStop { .. }
             | Self::BrowserSessionRemove { .. }
             | Self::BrowserBridgeSetup { .. }
+            | Self::BrowserBridgeWindowState { .. }
             | Self::SimulatorBoot { .. }
             | Self::SimulatorLaunch { .. }
             | Self::SimulatorTerminate { .. }
@@ -6983,9 +7002,22 @@ mod tests {
                 target: TargetRef::Current,
                 connection_id: connection_id.clone(),
             },
+            Command::BrowserBridgeWindows {
+                target: TargetRef::Current,
+                connection_id: connection_id.clone(),
+            },
         ] {
             assert_eq!(observe.required_grant(), Grant::Observe);
         }
+
+        let state = Command::BrowserBridgeWindowState {
+            target: TargetRef::Current,
+            connection_id: connection_id.clone(),
+            window_id: 9,
+            state: crate::browser_bridge::BrowserWindowState::Minimized,
+        };
+        assert_eq!(state.required_grant(), Grant::Actuate);
+        assert_eq!(state.verb(), "browser-bridge-window-state");
 
         let debug = Command::BrowserBridgeDebugRead {
             target: TargetRef::Ssh,

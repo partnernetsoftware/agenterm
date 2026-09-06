@@ -1642,6 +1642,18 @@ the result: detach failure makes the read fail even when data was obtained.
 Bound tab inventory separately so a browser with many tabs cannot bypass the
 native-message response budget.
 
+Treat one exact Native Messaging connection as the authenticated Profile
+capability handle. Browser window ids are stable only inside that connection;
+return state, focus, bounds, tab count and active-tab identity together, and do
+not join them to desktop windows by title alone. An MV3 window-state mutation
+must use a closed state vocabulary and verify both the requested state and
+presentation invariants. In particular, when no browser window owned focus
+before the action, the extension has no authority to restore an unrelated
+foreground application. Refuse that case or compose an exact native focus
+provider; never claim that `chrome.windows.update` preserved foreground merely
+because it returned successfully. A failed postcondition must roll back or
+report rollback uncertainty, not return a plausible success receipt.
+
 For an owned Chromium session, request `--remote-debugging-port=0` and read the
 bounded `DevToolsActivePort` file from that session's private profile. Require a
 nonzero decimal port and a `/devtools/browser/` websocket path; reject extra

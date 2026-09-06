@@ -63,6 +63,30 @@ try {
   ensure(missing.ok === false, "cu_browser_bridge_missing_reply");
   ensure(missing.error.code === "browser_bridge_connection_not_found", "cu_browser_bridge_missing_code");
 
+  print("STEP window inventory and state mutation stay bound to the exact connection");
+  const windows_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant", "observe", "browser-bridge-windows", missing_id
+  ]);
+  ensure(windows_output.success !== true, "cu_browser_bridge_windows_missing_false_success");
+  const windows = JSON.parse(windows_output.stdout.trim());
+  ensure(windows.error.code === "browser_bridge_connection_not_found", "cu_browser_bridge_windows_missing_code");
+  const state_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant", "observe,actuate", "browser-bridge-window-state", missing_id,
+    "--window-id", "9", "--state", "minimized"
+  ]);
+  ensure(state_output.success !== true, "cu_browser_bridge_window_state_missing_false_success");
+  const state = JSON.parse(state_output.stdout.trim());
+  ensure(state.error.code === "browser_bridge_connection_not_found", "cu_browser_bridge_window_state_missing_code");
+
+  print("STEP browser window-state rejects an open state vocabulary before bridge I/O");
+  const state_usage_output = run(executable, context.run_directory, [
+    "--target", "current", "--grant", "observe,actuate", "browser-bridge-window-state", missing_id,
+    "--window-id", "9", "--state", "fullscreen"
+  ]);
+  ensure(state_usage_output.success !== true, "cu_browser_bridge_window_state_usage_false_success");
+  const state_usage = JSON.parse(state_usage_output.stdout.trim());
+  ensure(state_usage.error.code === "usage", "cu_browser_bridge_window_state_usage_code");
+
   print("STEP malformed identities and missing actuation fail before setup effects");
   const malformed_output = run(executable, context.run_directory, [
     "--target", "current", "--grant", "observe", "browser-bridge-status", "ABC"

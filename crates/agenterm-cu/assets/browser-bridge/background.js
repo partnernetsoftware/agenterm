@@ -4,6 +4,7 @@ const HOST = "software.partnernet.agenterm_acu.browser_bridge";
 const PROTOCOL = 1;
 const LIMITS = Object.freeze({ frames: 64, depth: 20, scan: 5000, results: 1000 });
 const TAB_LIMITS = Object.freeze({ results: 512, titleCharacters: 1024, urlCharacters: 2048 });
+const WINDOW_LIMITS = Object.freeze({ results: 256 });
 let port = null;
 
 function hasControl(value) {
@@ -14,16 +15,20 @@ function boundedInteger(value, maximum) {
   return Number.isInteger(value) && value >= 1 && value <= maximum;
 }
 
+function signedInteger(value) {
+  return Number.isInteger(value) && value >= -0x80000000 && value <= 0x7fffffff;
+}
+
 function validateRequest(request) {
   if (!request || request.protocol !== PROTOCOL || typeof request.id !== "string" ||
       !/^[A-Za-z0-9._:-]{1,96}$/u.test(request.id) ||
       !request.args || Array.isArray(request.args) || typeof request.args !== "object") {
     throw new Error("browser_bridge_request_invalid");
   }
-  if (!["status", "tabs", "debug-read"].includes(request.command)) {
+  if (!["status", "tabs", "windows", "window-state", "debug-read"].includes(request.command)) {
     throw new Error("browser_bridge_command_unknown");
   }
-  if (request.command !== "debug-read" && Object.keys(request.args).length !== 0) {
+  if (!["debug-read", "window-state"].includes(request.command) && Object.keys(request.args).length !== 0) {
     throw new Error("browser_bridge_args_invalid");
   }
 }
@@ -163,10 +168,109 @@ async function debugRead(args) {
   return { ...result, detach };
 }
 
+function projectWindow(window) {
+  if (!window || !Number.isSafeInteger(window.id) || window.id < 1 || window.id > 0xffffffff ||
+      !signedInteger(window.left) || !signedInteger(window.top) ||
+      !boundedInteger(window.width, 0xffffffff) || !boundedInteger(window.height, 0xffffffff) ||
+      !["normal", "minimized", "maximized", "fullscreen", "locked-fullscreen"].includes(window.state)) {
+    return null;
+  }
+  const tabs = Array.isArray(window.tabs) ? window.tabs : [];
+  if (tabs.length > 0xffffffff) return null;
+  const activeTabs = tabs.filter(tab => tab && tab.active === true &&
+    Number.isSafeInteger(tab.id) && tab.id >= 1 && tab.id <= 0xffffffff);
+  if (tabs.length > 0 && activeTabs.length !== 1) return null;
+  const active = activeTabs[0];
+  const title = boundedText(active && active.title, TAB_LIMITS.titleCharacters);
+  return {
+    row: {
+      window_id: window.id,
+      state: window.state,
+      focused: window.focused === true,
+      bounds: { left: window.left, top: window.top, width: window.width, height: window.height },
+      tab_count: tabs.length,
+      active_tab_id: active ? active.id : undefined,
+      active_tab_title: title.text
+    },
+    truncated: title.truncated
+  };
+}
+
+async function windowSnapshot(windowId) {
+  const projected = projectWindow(await chrome.windows.get(windowId, { populate: true }));
+  if (!projected) throw new Error("browser_bridge_window_snapshot_invalid");
+  return projected.row;
+}
+
+async function waitWindowState(windowId, state) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await windowSnapshot(windowId);
+    if (current.state === state) return current;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error("browser_bridge_window_state_timeout");
+}
+
+async function updateWindowState(args) {
+  const keys = Object.keys(args).sort().join(",");
+  if (keys !== "state,window_id" || !boundedInteger(args.window_id, 0xffffffff) ||
+      !["normal", "minimized", "maximized"].includes(args.state)) {
+    throw new Error("browser_bridge_window_state_args_invalid");
+  }
+  const before = await windowSnapshot(args.window_id);
+  if (before.state === args.state) {
+    return { window_id: args.window_id, requested_state: args.state, performed: false,
+      verified: true, focus_preserved: true, before, after: before };
+  }
+  if (before.focused) throw new Error("browser_bridge_window_state_foreground_refused");
+
+  const focusBefore = (await chrome.windows.getAll()).filter(window => window.focused === true);
+  if (focusBefore.length !== 1 || !boundedInteger(focusBefore[0].id, 0xffffffff)) {
+    throw new Error("browser_bridge_window_state_focus_authority_unavailable");
+  }
+  const focusId = focusBefore[0].id;
+  let changed = false;
+  try {
+    await chrome.windows.update(args.window_id, { state: args.state });
+    changed = true;
+    await waitWindowState(args.window_id, args.state);
+    const focusAfterEffect = (await chrome.windows.getAll()).filter(window => window.focused === true);
+    if (focusAfterEffect.length !== 1 || focusAfterEffect[0].id !== focusId) {
+      await chrome.windows.update(focusId, { focused: true });
+    }
+    const after = await windowSnapshot(args.window_id);
+    const focusAfter = (await chrome.windows.getAll()).filter(window => window.focused === true);
+    if (after.state !== args.state || after.focused !== before.focused ||
+        after.tab_count !== before.tab_count || after.active_tab_id !== before.active_tab_id ||
+        focusAfter.length !== 1 || focusAfter[0].id !== focusId) {
+      throw new Error("browser_bridge_window_state_postcondition_failed");
+    }
+    return { window_id: args.window_id, requested_state: args.state, performed: true,
+      verified: true, focus_preserved: true, before, after };
+  } catch (error) {
+    try {
+      if (changed) {
+        await chrome.windows.update(args.window_id, { state: before.state });
+        await waitWindowState(args.window_id, before.state);
+      }
+      await chrome.windows.update(focusId, { focused: true });
+      const rolledBack = await windowSnapshot(args.window_id);
+      const focusRolledBack = (await chrome.windows.getAll()).filter(window => window.focused === true);
+      if (rolledBack.state !== before.state || focusRolledBack.length !== 1 ||
+          focusRolledBack[0].id !== focusId) {
+        throw new Error("browser_bridge_window_state_rollback_failed");
+      }
+    } catch (_) {
+      throw new Error("browser_bridge_window_state_rollback_failed");
+    }
+    throw error;
+  }
+}
+
 async function dispatch(request) {
   validateRequest(request);
   if (request.command === "status") {
-    return { protocol: PROTOCOL, extension_id: chrome.runtime.id, commands: ["status", "tabs", "debug-read"] };
+    return { protocol: PROTOCOL, extension_id: chrome.runtime.id, commands: ["status", "tabs", "windows", "window-state", "debug-read"] };
   }
   if (request.command === "tabs") {
     const tabs = await chrome.tabs.query({});
@@ -187,6 +291,23 @@ async function dispatch(request) {
     }
     return { tabs: bounded, truncated };
   }
+  if (request.command === "windows") {
+    const windows = await chrome.windows.getAll({ populate: true });
+    let truncated = windows.length > WINDOW_LIMITS.results;
+    const bounded = [];
+    for (const window of windows) {
+      if (bounded.length >= WINDOW_LIMITS.results) break;
+      const projected = projectWindow(window);
+      if (!projected) {
+        truncated = true;
+        continue;
+      }
+      truncated ||= projected.truncated;
+      bounded.push(projected.row);
+    }
+    return { windows: bounded, truncated };
+  }
+  if (request.command === "window-state") return updateWindowState(request.args);
   return debugRead(request.args);
 }
 

@@ -4532,6 +4532,48 @@
       ]
     },
     {
+      "name": "browser-bridge-windows",
+      "command": "browser-bridge-windows",
+      "aliases": [],
+      "grant": "observe",
+      "family": "browser",
+      "summary": "read bounded windows from one exact bridge connection",
+      "usage": "browser-bridge-windows CONNECTION_ID\nbrowser bridge windows CONNECTION_ID",
+      "args": [
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact 64-character lowercase hexadecimal id from browser-bridge-connections"
+        }
+      ]
+    },
+    {
+      "name": "browser-bridge-window-state",
+      "command": "browser-bridge-window-state",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "set one exact background Chromium window state with read-back",
+      "usage": "browser-bridge-window-state CONNECTION_ID --window-id N --state normal|minimized|maximized\nbrowser bridge window-state ...",
+      "args": [
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact 64-character lowercase hexadecimal id from browser-bridge-connections"
+        },
+        {
+          "flag": "--window-id",
+          "value": "N",
+          "help": "exact positive Chromium window id from browser-bridge-windows"
+        },
+        {
+          "flag": "--state",
+          "value": "STATE",
+          "help": "closed state vocabulary: normal, minimized or maximized"
+        }
+      ]
+    },
+    {
       "name": "browser-bridge-debug-read",
       "command": "browser-bridge-debug-read",
       "aliases": [],
@@ -5765,6 +5807,14 @@
     {
       "name": "browser-bridge-tabs",
       "text": "agenterm-cu browser-bridge-tabs\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-tabs CONNECTION_ID\n  browser bridge tabs CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nReturns the extension's independently bounded tab inventory for one exact live connection. It does not select, activate or focus a tab or window.\n"
+    },
+    {
+      "name": "browser-bridge-windows",
+      "text": "agenterm-cu browser-bridge-windows\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-windows CONNECTION_ID\n  browser bridge windows CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nReturns a bounded window inventory for the exact extension connection: stable Chromium window id, closed state vocabulary, focus flag, bounds, tab count and active-tab identity/title. It never activates, focuses, moves or resizes a window.\n"
+    },
+    {
+      "name": "browser-bridge-window-state",
+      "text": "agenterm-cu browser-bridge-window-state\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-window-state CONNECTION_ID --window-id N --state normal|minimized|maximized\n  browser bridge window-state ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --window-id N                 exact positive Chromium window id from browser-bridge-windows\n  --state STATE                 normal, minimized or maximized\n\nChanges only one exact background Chromium window through the exact MV3 connection. A foreground target is refused. Mutation also requires exactly one other focused browser window so focus can be restored and verified; when the browser itself is background, the bridge refuses because it has no authority to restore another application's focus. Success proves requested state, unchanged focus ownership, tab count and active-tab identity. Failed postconditions trigger bounded rollback; uncertain or failed rollback is returned as a typed failure.\n"
     },
     {
       "name": "browser-bridge-debug-read",

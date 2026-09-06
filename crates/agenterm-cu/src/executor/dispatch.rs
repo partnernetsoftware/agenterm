@@ -1396,6 +1396,22 @@ impl Executor {
             Command::BrowserBridgeTabs { connection_id, .. } => {
                 browser_bridge_request_payload(connection_id, "tabs", serde_json::Map::new())
             }
+            Command::BrowserBridgeWindows { connection_id, .. } => {
+                browser_bridge_request_payload(connection_id, "windows", serde_json::Map::new())
+            }
+            Command::BrowserBridgeWindowState {
+                connection_id,
+                window_id,
+                state,
+                ..
+            } => {
+                let args = serde_json::from_value(serde_json::json!({
+                    "window_id": window_id,
+                    "state": state,
+                }))
+                .expect("window-state args are an object");
+                browser_bridge_request_payload(connection_id, "window-state", args)
+            }
             Command::BrowserBridgeDebugRead {
                 connection_id,
                 tab_id,

@@ -306,6 +306,8 @@ fn append_missing_top_level_rows(text: &mut String) {
         "browser-bridge-connections",
         "browser-bridge-status",
         "browser-bridge-tabs",
+        "browser-bridge-windows",
+        "browser-bridge-window-state",
         "browser-bridge-debug-read",
         "browser-session-start",
         "browser-session-list",
@@ -386,7 +388,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-debug-read  browser-session-start\n  browser-session-list  browser-session-status  browser-session-stop  browser-session-remove"
+            "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-windows  browser-bridge-window-state\n  browser-bridge-debug-read  browser-session-start  browser-session-list\n  browser-session-status  browser-session-stop  browser-session-remove"
                 .to_owned(),
         );
     }

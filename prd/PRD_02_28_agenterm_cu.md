@@ -604,7 +604,7 @@ flowchart LR
   retain AX/tab-strip control. The authenticated-profile route is a separately
   installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v1 core
   now has bounded little-endian framing, split/combined-frame decoding, a
-  closed `status|tabs|debug-read` catalog, bounded request ids and typed
+  closed `status|tabs|windows|window-state|debug-read` catalog, bounded request ids and typed
   malformed/oversize refusal. A fixed new ACU extension identity, embedded MV3
   assets, same-binary native-host manifest plan and current-user/exact-process
   connection registry are present. The same `agenterm-cu` executable now
@@ -612,13 +612,22 @@ flowchart LR
   so Native Messaging stdout contains frames only; a foreign or malformed
   host invocation fails without stdout. Public typed commands install the
   current-user bundle, list bounded exact-process connections, and route
-  `status`, `tabs`, or `debug-read` only through an exact 256-bit connection
+  `status`, `tabs`, `windows`, `window-state`, or `debug-read` only through an exact 256-bit connection
   id. Setup truthfully reports `extension_loaded=false` and
   `manual_activation_required=true`; it never claims Chromium loaded the
   unpacked extension. `debug-read` walks a
   bounded cross-frame AX tree without exporting form values, proves tab/window
   presentation did not change, and treats debugger detach failure as failure;
-  tab inventory is independently bounded. Unit, CLI, both Windows-ISA compile,
+  tab inventory is independently bounded. The same connection now exposes a
+  bounded profile-scoped Chromium window inventory and a closed
+  `normal|minimized|maximized` state mutation. The latter refuses a foreground
+  target and also refuses when no exact browser focus owner exists: an MV3
+  extension cannot restore an unrelated foreground application. Success
+  requires exact state, tab identity and final browser focus read-back; a failed
+  postcondition attempts rollback and never becomes success. This is useful
+  implementation depth, not promotion evidence: an exact loaded-extension
+  controlled-Profile court and the native background-browser focus bridge are
+  still pending. Unit, CLI, both Windows-ISA compile,
   foreign-origin stdout, and empty exact-connection inventory evidence are
   green. A loaded-extension real-profile closed-shadow journey is still the
   promotion boundary; setup/catalog presence alone does not promote the route.
@@ -635,7 +644,8 @@ flowchart LR
   E --> W["Win ARM64 managed-Job Edge lifecycle ✓<br/>caller-job-fallback is explicit"]
   W --> P["pending: Linux lifecycle<br/>descendant cleanup courts"]
   X --> R["versioned request + at-most-once receipt"]
-  R --> Y["exact-connection public CLI ✓<br/>loaded-extension court pending"]
+  R --> Y["exact-connection CLI ✓<br/>windows + guarded window-state ✓"]
+  Y --> Z["loaded-extension court + native focus bridge pending"]
 ```
 - [~] Browser download ownership is now a native `page-download` vertical
   slice rather than a successful `page-js` / `page-click` acknowledgement.

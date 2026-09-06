@@ -50,6 +50,8 @@ pub fn parse(
             "browser-bridge-connections" => browser_bridge(target, Some("connections"), args),
             "browser-bridge-status" => browser_bridge(target, Some("status"), args),
             "browser-bridge-tabs" => browser_bridge(target, Some("tabs"), args),
+            "browser-bridge-windows" => browser_bridge(target, Some("windows"), args),
+            "browser-bridge-window-state" => browser_bridge(target, Some("window-state"), args),
             "browser-bridge-debug-read" => browser_bridge(target, Some("debug-read"), args),
             other => Err(format!("unknown command '{other}'")),
         },
@@ -970,7 +972,8 @@ fn browser_bridge(
     let action = match action {
         Some(action) => action,
         None => args.first().map(String::as_str).ok_or_else(|| {
-            "browser bridge requires setup | connections | status | tabs | debug-read".to_owned()
+            "browser bridge requires setup | connections | status | tabs | windows | window-state | debug-read"
+                .to_owned()
         })?,
     }
     .to_owned();
@@ -978,10 +981,12 @@ fn browser_bridge(
         && action != "connections"
         && action != "status"
         && action != "tabs"
+        && action != "windows"
+        && action != "window-state"
         && action != "debug-read"
     {
         return Err(format!(
-            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | debug-read"
+            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | windows | window-state | debug-read"
         ));
     }
     if action.is_empty() {
@@ -1007,6 +1012,37 @@ fn browser_bridge(
             target,
             connection_id: exact_connection_id("browser bridge tabs", args)?,
         }),
+        "windows" => Ok(Command::BrowserBridgeWindows {
+            target,
+            connection_id: exact_connection_id("browser bridge windows", args)?,
+        }),
+        "window-state" => {
+            let window_id = flag_parsed::<u32>(args, "--window-id")?
+                .ok_or_else(|| "browser bridge window-state requires --window-id N".to_owned())?;
+            if window_id == 0 {
+                return Err("browser bridge window-state --window-id must be positive".into());
+            }
+            let state = flag_text(args, "--state")?.ok_or_else(|| {
+                "browser bridge window-state requires --state normal|minimized|maximized".to_owned()
+            })?;
+            let state = match state.as_str() {
+                "normal" => agenterm_cu::browser_bridge::BrowserWindowState::Normal,
+                "minimized" => agenterm_cu::browser_bridge::BrowserWindowState::Minimized,
+                "maximized" => agenterm_cu::browser_bridge::BrowserWindowState::Maximized,
+                _ => {
+                    return Err(
+                        "browser bridge window-state --state must be normal|minimized|maximized"
+                            .into(),
+                    );
+                }
+            };
+            Ok(Command::BrowserBridgeWindowState {
+                target,
+                connection_id: exact_connection_id("browser bridge window-state", args)?,
+                window_id,
+                state,
+            })
+        }
         "debug-read" => {
             let tab_id = flag_parsed::<u32>(args, "--tab-id")?
                 .ok_or_else(|| "browser bridge debug-read requires --tab-id N".to_owned())?;
@@ -1305,6 +1341,23 @@ mod tests {
             browser(TargetRef::Current, None, &mut grouped),
             Ok(Command::BrowserBridgeStatus { connection_id, .. })
                 if connection_id.as_str() == id
+        ));
+
+        let mut windows = words(&[&id]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("windows"), &mut windows),
+            Ok(Command::BrowserBridgeWindows { connection_id, .. })
+                if connection_id.as_str() == id
+        ));
+
+        let mut state = words(&[&id, "--window-id", "9", "--state", "minimized"]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("window-state"), &mut state),
+            Ok(Command::BrowserBridgeWindowState {
+                window_id: 9,
+                state: agenterm_cu::browser_bridge::BrowserWindowState::Minimized,
+                ..
+            })
         ));
 
         let mut debug = words(&[

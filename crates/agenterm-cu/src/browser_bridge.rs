@@ -39,12 +39,13 @@ pub const DEBUG_READ_MAX_DEPTH: u8 = 20;
 pub const DEBUG_READ_MAX_SCAN: u32 = 5_000;
 pub const DEBUG_READ_MAX_RESULTS: u16 = 1_000;
 pub const TAB_MAX_RESULTS: usize = 512;
+pub const WINDOW_MAX_RESULTS: usize = 256;
 pub const TAB_TITLE_MAX_BYTES: usize = 4 * 1024;
 pub const TAB_URL_MAX_BYTES: usize = 8 * 1024;
 /// One browser-created host retains at most this many terminal replies for
 /// exact replay. With the one-MiB frame ceiling this also bounds replay memory.
 pub const REQUEST_LEDGER_MAX_ENTRIES: usize = 32;
-const COMMANDS: &[&str] = &["status", "tabs", "debug-read"];
+const COMMANDS: &[&str] = &["status", "tabs", "windows", "window-state", "debug-read"];
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -87,16 +88,28 @@ impl BridgeRequest {
             ));
         }
         match self.command.as_str() {
-            "status" | "tabs" if !self.args.is_empty() => Err(BridgeProtocolError::new(
-                "browser_bridge_args_invalid",
-                "this command takes an empty args object",
-            )),
+            "status" | "tabs" | "windows" if !self.args.is_empty() => {
+                Err(BridgeProtocolError::new(
+                    "browser_bridge_args_invalid",
+                    "this command takes an empty args object",
+                ))
+            }
             "debug-read" => {
                 let req: DebugReadRequest =
                     serde_json::from_value(Value::Object(self.args.clone())).map_err(|e| {
                         BridgeProtocolError::new(
                             "browser_bridge_args_invalid",
                             format!("debug-read args are invalid: {e}"),
+                        )
+                    })?;
+                req.validate()
+            }
+            "window-state" => {
+                let req: WindowStateRequest =
+                    serde_json::from_value(Value::Object(self.args.clone())).map_err(|e| {
+                        BridgeProtocolError::new(
+                            "browser_bridge_args_invalid",
+                            format!("window-state args are invalid: {e}"),
                         )
                     })?;
                 req.validate()
@@ -198,6 +211,166 @@ impl TabsResult {
                 "browser_bridge_control_value",
                 "tab URL",
             )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserWindowBounds {
+    pub left: i32,
+    pub top: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BrowserWindowState {
+    Normal,
+    Minimized,
+    Maximized,
+    Fullscreen,
+    LockedFullscreen,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowStateRequest {
+    pub window_id: u32,
+    pub state: BrowserWindowState,
+}
+
+impl WindowStateRequest {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        if self.window_id == 0 {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_window_identity_invalid",
+                "window-state requires an exact positive Chromium window id",
+            ));
+        }
+        if matches!(
+            self.state,
+            BrowserWindowState::Fullscreen | BrowserWindowState::LockedFullscreen
+        ) {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_window_state_unsupported",
+                "window-state accepts only normal, minimized or maximized",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserWindow {
+    pub window_id: u32,
+    pub state: BrowserWindowState,
+    pub focused: bool,
+    pub bounds: BrowserWindowBounds,
+    pub tab_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_tab_id: Option<u32>,
+    pub active_tab_title: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowsResult {
+    pub windows: Vec<BrowserWindow>,
+    pub truncated: bool,
+}
+
+impl WindowsResult {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        if self.windows.len() > WINDOW_MAX_RESULTS {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_windows_result_overflow",
+                "window inventory exceeds its fixed result bound",
+            ));
+        }
+        let mut identities = std::collections::BTreeSet::new();
+        for window in &self.windows {
+            if window.window_id == 0 || !identities.insert(window.window_id) {
+                return Err(BridgeProtocolError::new(
+                    "browser_bridge_window_identity_invalid",
+                    "window inventory contains a missing or duplicate identity",
+                ));
+            }
+            if window.bounds.width == 0 || window.bounds.height == 0 {
+                return Err(BridgeProtocolError::new(
+                    "browser_bridge_window_bounds_invalid",
+                    "window bounds require positive width and height",
+                ));
+            }
+            if window.tab_count == 0 && window.active_tab_id.is_some()
+                || window.tab_count > 0 && window.active_tab_id.is_none()
+            {
+                return Err(BridgeProtocolError::new(
+                    "browser_bridge_window_active_tab_invalid",
+                    "window active-tab identity does not agree with its tab count",
+                ));
+            }
+            validate_text(
+                &window.active_tab_title,
+                TAB_TITLE_MAX_BYTES,
+                true,
+                "browser_bridge_control_value",
+                "active tab title",
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowStateResult {
+    pub window_id: u32,
+    pub requested_state: BrowserWindowState,
+    pub performed: bool,
+    pub verified: bool,
+    pub focus_preserved: bool,
+    pub before: BrowserWindow,
+    pub after: BrowserWindow,
+}
+
+impl WindowStateResult {
+    pub fn validate_for(&self, req: &WindowStateRequest) -> Result<(), BridgeProtocolError> {
+        req.validate()?;
+        if self.window_id != req.window_id
+            || self.before.window_id != req.window_id
+            || self.after.window_id != req.window_id
+            || self.requested_state != req.state
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_window_state_target_mismatch",
+                "window-state result does not belong to the exact requested window",
+            ));
+        }
+        for window in [&self.before, &self.after] {
+            WindowsResult {
+                windows: vec![window.clone()],
+                truncated: false,
+            }
+            .validate()?;
+        }
+        let changed = self.before.state != req.state;
+        if self.performed != changed
+            || changed && self.before.focused
+            || self.after.state != req.state
+            || !self.verified
+            || !self.focus_preserved
+            || self.before.focused != self.after.focused
+            || self.before.tab_count != self.after.tab_count
+            || self.before.active_tab_id != self.after.active_tab_id
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_window_state_postcondition_invalid",
+                "window-state result does not prove the requested state and preserved presentation",
+            ));
         }
         Ok(())
     }
@@ -474,7 +647,8 @@ mod tests {
     fn only_truthful_commands_and_shapes_validate() {
         req("status").validate().unwrap();
         req("tabs").validate().unwrap();
-        for command in ["windows", "read", "debug-invoke", "click", "type", "nav"] {
+        req("windows").validate().unwrap();
+        for command in ["read", "debug-invoke", "click", "type", "nav"] {
             assert_eq!(
                 req(command).validate().unwrap_err().code,
                 "browser_bridge_command_unknown"
@@ -720,6 +894,117 @@ mod tests {
             .unwrap_err()
             .code,
             "browser_bridge_tabs_result_overflow"
+        );
+    }
+
+    #[test]
+    fn windows_are_exact_bounded_and_internally_consistent() {
+        let valid = BrowserWindow {
+            window_id: 9,
+            state: BrowserWindowState::Normal,
+            focused: false,
+            bounds: BrowserWindowBounds {
+                left: -20,
+                top: 10,
+                width: 800,
+                height: 600,
+            },
+            tab_count: 1,
+            active_tab_id: Some(4),
+            active_tab_title: "Documentation".into(),
+        };
+        WindowsResult {
+            windows: vec![valid.clone()],
+            truncated: false,
+        }
+        .validate()
+        .unwrap();
+
+        for invalid in [
+            BrowserWindow {
+                window_id: 0,
+                ..valid.clone()
+            },
+            BrowserWindow {
+                tab_count: 0,
+                ..valid.clone()
+            },
+            BrowserWindow {
+                bounds: BrowserWindowBounds {
+                    width: 0,
+                    ..valid.bounds.clone()
+                },
+                ..valid.clone()
+            },
+        ] {
+            assert!(
+                WindowsResult {
+                    windows: vec![invalid],
+                    truncated: false
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        assert_eq!(
+            WindowsResult {
+                windows: vec![valid; WINDOW_MAX_RESULTS + 1],
+                truncated: true,
+            }
+            .validate()
+            .unwrap_err()
+            .code,
+            "browser_bridge_windows_result_overflow"
+        );
+    }
+
+    #[test]
+    fn window_state_requires_exact_background_target_and_proven_postcondition() {
+        let request = WindowStateRequest {
+            window_id: 9,
+            state: BrowserWindowState::Minimized,
+        };
+        request.validate().unwrap();
+        let before = BrowserWindow {
+            window_id: 9,
+            state: BrowserWindowState::Normal,
+            focused: false,
+            bounds: BrowserWindowBounds {
+                left: 20,
+                top: 10,
+                width: 800,
+                height: 600,
+            },
+            tab_count: 1,
+            active_tab_id: Some(4),
+            active_tab_title: "Documentation".into(),
+        };
+        let mut result = WindowStateResult {
+            window_id: 9,
+            requested_state: BrowserWindowState::Minimized,
+            performed: true,
+            verified: true,
+            focus_preserved: true,
+            before: before.clone(),
+            after: BrowserWindow {
+                state: BrowserWindowState::Minimized,
+                ..before.clone()
+            },
+        };
+        result.validate_for(&request).unwrap();
+        result.after.active_tab_id = Some(8);
+        assert_eq!(
+            result.validate_for(&request).unwrap_err().code,
+            "browser_bridge_window_state_postcondition_invalid"
+        );
+
+        let invalid = WindowStateRequest {
+            window_id: 9,
+            state: BrowserWindowState::Fullscreen,
+        };
+        assert_eq!(
+            invalid.validate().unwrap_err().code,
+            "browser_bridge_window_state_unsupported"
         );
     }
 }
