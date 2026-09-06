@@ -127,9 +127,8 @@ BUNDLE_SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
 "$COURT_CLI" lease "$COURT" --disposable >/dev/null
 LEASED=1
 "$COURT_CLI" wait-ready "$COURT" 180 >/dev/null
-if [ "$GUEST_OS" = linux ]; then
-  "$COURT_CLI" interactive-ready "$COURT" 180 >/dev/null
-fi
+SESSION_RECEIPT="$SCRATCH/interactive-ready.json"
+"$COURT_CLI" interactive-ready "$COURT" 180 >"$SESSION_RECEIPT"
 
 RUN_ID="${SOURCE_SHA:0:12}-$COURT-$$-$RANDOM"
 LOCAL_LOG="$SCRATCH/run.log"
@@ -174,7 +173,6 @@ if [ "$GUEST_OS" = linux ]; then
   "$COURT_CLI" interactive-exec "$COURT" -- /bin/bash -lc \
     "rm -rf '$GUEST_ROOT'; mkdir -p '$GUEST_ROOT'; tar -xzf '$GUEST_ARCHIVE' -C '$GUEST_ROOT'; cd '$GUEST_ROOT'; sha256sum -c MANIFEST.sha256 >'$GUEST_LOG' 2>&1; rc=\$?; if [ \$rc -eq 0 ]; then target/debug/agenterm cli script task run '$TASK' --manifest agenterm.tasks.json >>'$GUEST_LOG' 2>&1; rc=\$?; fi; printf '%s' \"\$rc\" >'$GUEST_EXIT.tmp'; mv -f '$GUEST_EXIT.tmp' '$GUEST_EXIT'"
 else
-  "$COURT_CLI" interactive-ready "$COURT" 180 >/dev/null
   GUEST_BASE="$WINDOWS_ROOT"
   GUEST_ARCHIVE="$GUEST_BASE\\agenterm-$RUN_ID.zip"
   GUEST_ROOT="$GUEST_BASE\\agenterm-$RUN_ID"
@@ -281,10 +279,18 @@ mkdir -p "$EVIDENCE_DIR"
 cp "$LOCAL_LOG" "$EVIDENCE_DIR/run.log"
 cp "$LOCAL_EXIT" "$EVIDENCE_DIR/run.exit"
 cp "$PAYLOAD/MANIFEST.sha256" "$EVIDENCE_DIR/MANIFEST.sha256"
-python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" "$FINAL_RC" "$RUN_RC" "$OUTCOME" "$EVIDENCE" <<'PY'
+cp "$SESSION_RECEIPT" "$EVIDENCE_DIR/interactive-ready.json"
+LOG_SHA="$(shasum -a 256 "$LOCAL_LOG" | awk '{print $1}')"
+MANIFEST_SHA="$(shasum -a 256 "$PAYLOAD/MANIFEST.sha256" | awk '{print $1}')"
+python3 - "$EVIDENCE_DIR/receipt.json" "$SOURCE_SHA" "$COURT" "$BUNDLE_SHA" "$FINAL_RC" "$RUN_RC" "$OUTCOME" "$EVIDENCE" "$LOG_SHA" "$MANIFEST_SHA" "$SESSION_RECEIPT" "$LOCAL_LOG" "$PASS_LINE" <<'PY'
 import datetime, json, sys
+with open(sys.argv[11], encoding="utf-8") as stream:
+    interactive_session = json.load(stream)
+with open(sys.argv[12], encoding="utf-8") as stream:
+    lines = [line.rstrip("\n") for line in stream]
+evidence_lines = [line.removeprefix("EVIDENCE ") for line in lines if line.startswith("EVIDENCE ")]
 receipt = {
-    "schema": 1,
+    "schema": 2,
     "source_sha": sys.argv[2],
     "court": sys.argv[3],
     "bundle_sha256": sys.argv[4],
@@ -292,6 +298,11 @@ receipt = {
     "guest_exit_code": int(sys.argv[6]),
     "outcome": sys.argv[7],
     "evidence": sys.argv[8],
+    "run_log_sha256": sys.argv[9],
+    "manifest_sha256": sys.argv[10],
+    "interactive_session": interactive_session,
+    "evidence_lines": evidence_lines,
+    "pass_line": sys.argv[13],
     "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
 }
 with open(sys.argv[1] + ".tmp", "w", encoding="utf-8") as stream:
@@ -300,5 +311,16 @@ with open(sys.argv[1] + ".tmp", "w", encoding="utf-8") as stream:
 import os
 os.replace(sys.argv[1] + ".tmp", sys.argv[1])
 PY
+
+if [ -n "${AGENTERM_UTM_PERSIST_RECEIPT:-}" ]; then
+  case "$AGENTERM_UTM_PERSIST_RECEIPT" in
+    evidence/*.json)
+      PERSIST_PATH="$REPO_ROOT/$AGENTERM_UTM_PERSIST_RECEIPT"
+      mkdir -p "$(dirname "$PERSIST_PATH")"
+      cp "$EVIDENCE_DIR/receipt.json" "$PERSIST_PATH"
+      ;;
+    *) echo "persistent receipt path must be evidence/*.json" >&2; exit 2 ;;
+  esac
+fi
 
 [ "$FINAL_RC" -eq 0 ] || exit "$FINAL_RC"

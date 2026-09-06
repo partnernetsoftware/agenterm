@@ -1153,6 +1153,14 @@ costs a full candidate cycle:
   journey fixture and exact current PASS line. This leaf remains partial until
   the X11 Linux x86_64 court returns a real full-journey receipt; Linux arm64
   GNOME/Wayland is a separate parity verdict and may not borrow the X11 result.
+- [x] A successful local court can persist a compact, redacted schema-2 receipt
+  under `evidence/` instead of leaving the only proof under ignored `target/`.
+  It binds source and bundle hashes, manifest/transcript hashes, the exact PASS
+  line, every emitted evidence id, guest/host exits and the interactive-session
+  nonce/uid/connectivity proof; it does not copy screenshots, payloads, host
+  paths or transcript contents into Git. Persistence is explicit through
+  `AGENTERM_UTM_PERSIST_RECEIPT=evidence/<name>.json`, so ordinary development
+  runs do not dirty the repository.
 - [x] Windows guest logs are an encoding boundary. Windows PowerShell 5 may
   redirect native output as UTF-16LE while Linux and newer shells emit UTF-8;
   the host normalizes the pulled text copy to UTF-8 with LF endings before
