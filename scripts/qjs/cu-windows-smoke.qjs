@@ -725,10 +725,19 @@ try {
     terminal_shutdown.success === true,
     "cu_windows_smoke_terminal_shutdown:" + terminal_shutdown.stdout + terminal_shutdown.stderr
   );
+  // `shutdown` stops the authority server; remain-on-exit deliberately keeps
+  // the disconnected GUI window alive. The court owns that fixture process,
+  // so reclaim its exact door handle after the graceful server shutdown.
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    if (harness.state(terminal_gui) === "exited") { break; }
+    harness.sleep_ms(50);
+  }
+  if (harness.state(terminal_gui) === "running") { harness.kill(terminal_gui); }
   const terminal_gui_output = harness.wait(terminal_gui, 10000);
   terminal_gui_reaped = true;
   ensure(
-    terminal_gui_output.success === true && terminal_gui_output.exit_code === 0,
+    terminal_gui_output.timed_out !== true
+      && process_present_via_cu(run_directory, executable, terminal_gui_pid) === 0,
     "cu_windows_smoke_terminal_gui_exit:" + JSON.stringify(terminal_gui_output)
   );
 
