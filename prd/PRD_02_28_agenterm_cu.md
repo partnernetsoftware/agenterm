@@ -1580,6 +1580,37 @@ flowchart LR
   computer-use client. Both directions belong to this subtree, and the target
   direction must not be dropped in favor of the easier client direction.
 
+### Login-session adoption frontier
+
+- [~] retire the next reachable MCU fallback without broadening its platform
+  promise. MCU implements `login-session` only on macOS, so ACU must provide
+  the exact macOS console-session status/lock contract while Linux and Windows
+  return a truthful typed unsupported result for this version.
+  - [ ] `agenterm-platform` owns a bounded neutral inventory contract and a
+    macOS IOKit/CoreFoundation adapter. Missing or changed `IOConsoleUsers` /
+    `IOConsoleLocked` shapes fail typed; product code does not run `ioreg`,
+    `plutil`, AppleScript or private SecurityAgent/SkyLight APIs.
+  - [ ] ACU binds the console-session generation, current user, 120-second
+    expiry and intended lock effect into separate contract/approval digests.
+    Its durable request store reserves before input delivery, consumes even a
+    pre-locked no-op, and never replays an uncertain post-effect outcome.
+  - [ ] the default public qjswasm court uses a hidden fixture provider and
+    proves tamper, drift, expiry, replay and crash behavior without locking the
+    developer's screen. A native court proves status and plan read-only; actual
+    lock delivery belongs to a separate explicit visible court.
+
+  ```mermaid
+  flowchart LR
+    I["bounded console inventory"] --> P["exact-session lock plan"]
+    P --> A{"approval + TTL + same user"}
+    A -->|invalid| X["typed refusal · no effect"]
+    A -->|valid| R["durable reserve"]
+    R --> K["native Ctrl-Cmd-Q delivery"]
+    K --> V{"same session reports locked?"}
+    V -->|yes| C["completed · at most once"]
+    V -->|unknown| U["outcome unknown · never replay"]
+  ```
+
 ## Naming
 
 - [x] `agenterm-cu` is the accepted product name. It supersedes the

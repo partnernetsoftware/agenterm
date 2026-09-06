@@ -215,8 +215,8 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **4 reachable top-level `STAY` spellings**: login-session,
-audio, service and external-terminal adoption. Family routers
+`acu.ts` now has **3 reachable top-level `STAY` spellings**: login-session,
+audio and service. Family routers
 still report their argument-sensitive gaps dynamically; they are not hidden in
 the static count. Native
 `setup --check|apply` and its `path-install` alias removed launcher filesystem
@@ -623,6 +623,11 @@ Q3 owned runtime facades
 │  ├─ [~] daemon status/caps route to ACU; macOS + Windows aarch64 qjswasm green; Linux + Windows x86 pending
 │  ├─ [x] daemon start/restart/stop typed retirement; no MCU fallback and no false no-op
 │  ├─ [ ] per-user login-service install/status/uninstall provider
+│  ├─ [~] login-session parity (MCU itself is macOS-only)
+│  │  ├─ [x] scope decision: macOS native; Linux/Windows truthful typed unsupported
+│  │  ├─ [ ] platform contract + bounded IOKit console inventory; no shell/private framework
+│  │  ├─ [ ] exact-session 120s plan + approval digest + durable at-most-once lock receipt
+│  │  └─ [ ] fixture qjs court, native read-only court, separate explicit visible lock court
 │  ├─ [x] typed ACU terminal-new/close/list/read/send/wait facade over stable scope+epoch+tab identity
 │  ├─ [~] terminal lifecycle: macOS registered qjswasm journey green; Linux/Windows courts pending
 │  ├─ [x] terminal-snapshot/events: structured screen + loss-aware epoch/sequence cursor
