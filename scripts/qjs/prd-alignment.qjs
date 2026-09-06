@@ -248,6 +248,7 @@ const evidence_suites = {
   "control-center-macos-smoke": true,
   "cu-linux-smoke": true,
   "cu-windows-smoke": true,
+  "cu-windows-external-terminal-send-smoke": true,
   "cu-windows-browser-smoke": true,
   "cu-macos-smoke": true,
   "cu-macos-external-terminal-send-smoke": true,

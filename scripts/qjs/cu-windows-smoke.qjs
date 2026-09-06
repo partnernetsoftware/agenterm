@@ -273,9 +273,16 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
   return;
 }
-harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(
+  args.length === 2 || (args.length === 3 && args[2] === "--visible-external-terminal-send"),
+  "expected: REPO AGENTERM_CU_EXE [--visible-external-terminal-send]"
+);
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+const visible_external_terminal_send = args.length === 3;
+if (visible_external_terminal_send) {
+  declared_evidence.push("cu.windows-external-terminal-send");
+}
 ensure(direct_file(executable), "cu_windows_smoke_executable_missing:" + executable);
 ensure(
   direct_file(rh.join(rh.parent(executable), "agenterm.dll")),
@@ -440,7 +447,7 @@ try {
     "        var terminalBuffer = new RichTextBox {\n"
       + "            Text = \"external-terminal-ready\\r\\nexternal-terminal-steady\",\n"
       + "            AccessibleName = \"Fixture Terminal Buffer\",\n"
-      + "            AccessibleRole = AccessibleRole.Document, ReadOnly = true,\n"
+      + "            AccessibleRole = AccessibleRole.Document, ReadOnly = false,\n"
       + "            Multiline = true, Location = new Point(20, 195), Size = new Size(340, 45)\n"
       + "        };\n"
       + entry_anchor
@@ -1109,6 +1116,24 @@ try {
   ]);
   ensure(receipts.data.receipts.length > 0, "cu_windows_smoke_receipts");
 
+  if (visible_external_terminal_send) {
+    print("STEP explicit visible external-terminal send focuses the exact owned UIA document, verifies a new token and restores foreground focus");
+    const visible_token = "VISIBLE_WINDOWS_TERM_" + context.run_id;
+    const visible_send = run_cu_json(run_directory, executable, [
+      "--target", "current", "--grant", "observe,actuate", "term-send", handle_text,
+      "--foreground", "--enter", "false", "--expect", visible_token, "--", visible_token
+    ]);
+    ensure(
+      flag_at(visible_send, "data.performed")
+        && flag_at(visible_send, "data.verified")
+        && flag_at(visible_send, "data.focus_restored")
+        && flag_at(visible_send, "data.buffer_changed")
+        && int_at(visible_send, "data.window_identity.handle") === fixture_handle
+        && text_at(visible_send, "data.node") === external_node,
+      "cu_windows_external_terminal_visible_send:" + JSON.stringify(visible_send.data)
+    );
+  }
+
   print("STEP process-kill terminates the retained Windows HANDLE, verifies exit, and leaves no window");
   const process_kill = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "process-kill",
@@ -1225,6 +1250,9 @@ harness.emit_evidence(context, declared_evidence, "cu.windows-network-probe");
 harness.emit_evidence(context, declared_evidence, "cu.windows-file-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.windows-terminal-control");
 harness.emit_evidence(context, declared_evidence, "cu.windows-external-terminal-observe");
+if (visible_external_terminal_send) {
+  harness.emit_evidence(context, declared_evidence, "cu.windows-external-terminal-send");
+}
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-tree");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-query");
 harness.emit_evidence(context, declared_evidence, "cu.windows-uia-invoke");

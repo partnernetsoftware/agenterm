@@ -640,6 +640,27 @@
         "task.cu-macos-external-terminal-send-smoke"
       ]
     },
+    "cu-windows-external-terminal-send-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session",
+        "explicit-visible-input-court"
+      ],
+      "outputs": [
+        "cu-windows-external-terminal-send-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-windows-external-terminal-send-smoke"
+      ]
+    },
     "cu-managed-job-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3316,6 +3337,26 @@
       "id": "cu-windows-smoke",
       "description": "Prove agenterm-cu on a real Windows UIA desktop: typed capabilities, identity-bound process argv/usage/wait/kill, network/file observation, terminal control, owned WinForms fixture, tree/menu/query/invoke, focus, placement, screenshot, destructive close and orphan-free cleanup.",
       "entry": "scripts/qjs/cu-windows-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-windows-external-terminal-send-smoke",
+      "description": "Explicit visible Windows court for exact-window external-terminal send: focus the owned UIA document, inject one unique token, verify the same-buffer postcondition, and restore the prior foreground window.",
+      "entry": "scripts/qjs/cu-windows-external-terminal-send-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

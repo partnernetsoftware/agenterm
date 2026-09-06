@@ -263,6 +263,12 @@
       ]
     },
     {
+      "id": "cu-windows-external-terminal-send-smoke",
+      "evidence": [
+        "cu.windows-external-terminal-send"
+      ]
+    },
+    {
       "id": "cu-windows-browser-smoke",
       "evidence": [
         "cu.windows-browser-window",

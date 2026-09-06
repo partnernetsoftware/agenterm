@@ -235,7 +235,8 @@
         "cu.linux-external-terminal-observe",
         "cu.windows-network-probe",
         "cu.windows-terminal-control",
-        "cu.windows-external-terminal-observe"
+        "cu.windows-external-terminal-observe",
+        "cu.windows-external-terminal-send"
       ]
     },
     {
