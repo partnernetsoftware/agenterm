@@ -701,7 +701,10 @@ Q3 owned runtime facades
 │  ├─ [x] lease-owned registry, streams and explicit session-end cleanup
 │  ├─ [~] PTY process control: exact owned-session cleanup + foreground signal semantics
 │  │  ├─ [x] architecture/court frozen in `design-pty-process-control-experiment.md`
-│  │  ├─ [ ] POSIX retained foreground group + complete owned-session cleanup
+│  │  ├─ [x] POSIX bounded session freeze/kill/empty + Windows Job accounting contract
+│  │  ├─ [x] public qjswasm resistant-child cleanup + unrelated-sibling isolation on macOS
+│  │  ├─ [ ] Linux/Windows runtime rerun of the strengthened cleanup court
+│  │  ├─ [ ] POSIX retained foreground group signal + exact post-state
 │  │  └─ [ ] direct ConPTY C1 verdict; no Ctrl-C byte or whole-job false parity
 │  └─ [ ] adopt/prune, aggregate resources, policy/priority/state/signal and expiry-detach shape
 └─ [~] file/network/storage/device/audio/resource/power/privilege

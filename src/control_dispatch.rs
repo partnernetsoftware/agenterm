@@ -1028,8 +1028,11 @@ pub(crate) trait ControlHost {
     /// Select tab at position (after resolve). Host does UI sync.
     fn select_tab_at(&mut self, position: usize) -> Result<(), String>;
 
-    /// Close tab by id. Ok(true)=workers finished; Ok(false)=incomplete shutdown.
-    fn close_tab_id(&mut self, id: u64) -> Result<bool, String>;
+    /// Close a tab and return native containment plus worker-shutdown evidence.
+    fn close_tab_id(
+        &mut self,
+        id: u64,
+    ) -> Result<crate::terminal_runtime::TerminalShutdownReceipt, String>;
 
     /// Adjacent tab position for select-window -n/-p. Default: None.
     fn adjacent_tab_position(&self, direction: i32) -> Option<usize> {
@@ -2332,9 +2335,11 @@ pub(crate) fn dispatch_shared_command(
             };
             let id = host.tabs()[position].id;
             match host.close_tab_id(id) {
-                Ok(true) => Some(IpcResponse::success("")),
-                Ok(false) => Some(IpcResponse::typed_failure(
-                    "terminal was removed, but its workers did not finish bounded shutdown",
+                Ok(receipt) if receipt.verified() => {
+                    Some(IpcResponse::success(receipt.json().to_string()))
+                }
+                Ok(_) => Some(IpcResponse::typed_failure(
+                    "terminal was removed without complete native-containment and worker-shutdown evidence",
                     "terminal_shutdown_incomplete",
                     "internal",
                     false,
@@ -2395,7 +2400,7 @@ pub(crate) fn dispatch_shared_command(
             host.before_destructive_ui();
             let mut terminal_shutdown_complete = true;
             for tab in host.tabs_mut() {
-                terminal_shutdown_complete &= tab.close_process();
+                terminal_shutdown_complete &= tab.close_process().verified();
             }
             host.tabs_mut().clear();
             host.set_active_id(None);

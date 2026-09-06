@@ -278,7 +278,10 @@ mod tests {
         let _ = child.wait().expect("reap terminated child");
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(all(
+        feature = "process-metrics",
+        any(target_os = "linux", target_os = "macos")
+    ))]
     #[test]
     fn control_reference_suspends_and_resumes_the_exact_child_object() {
         let mut child = Command::new(std::env::current_exe().expect("test executable"))

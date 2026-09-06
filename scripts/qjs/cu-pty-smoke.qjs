@@ -55,6 +55,20 @@ function find_job(inventory, name) {
   return null;
 }
 
+function require_native_stop(stop, label) {
+  const shutdown = stop.closed.native_shutdown;
+  ensure(
+    stop.state === "stopped" && stop.verified === true
+      && stop.closed.verified === true
+      && stop.closed.verification === "native-containment-empty+workers-complete+same-scope-epoch-inventory-absence"
+      && shutdown.verified === true && shutdown.workers_complete === true
+      && shutdown.native_cleanup.verified_empty === true
+      && shutdown.native_cleanup.members_observed >= 0
+      && shutdown.native_cleanup.members_terminated >= 0,
+    label + ":" + JSON.stringify(stop)
+  );
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -87,6 +101,9 @@ const job = "qjs-pty-" + rh.pid() + "-" + rh.now_ms();
 const windows = harness.host_is_windows();
 let started = 0;
 let stopped = 0;
+let tree_started = 0;
+let tree_stopped = 0;
+const owned_children = [];
 let succeeded = 0;
 let failure = "";
 
@@ -275,7 +292,7 @@ try {
     "--target", "current", "--grant", "actuate", "pty-stop", job,
     "--expect", "stopped"
   ]), "pty-stop");
-  ensure(stop.state === "stopped" && stop.verified === true, "cu_pty_stop_contract");
+  require_native_stop(stop, "cu_pty_stop_contract");
   stopped = 1;
   const final_inventory = require_ok(invoke_cu(run_directory, product, executable, [
     "--target", "current", "--grant", "observe", "pty-list"
@@ -326,13 +343,94 @@ try {
     "--target", "current", "--grant", "actuate", "pty-stop", job,
     "--expect", "stopped"
   ]), "pty-stop");
-  ensure(restop.state === "stopped" && restop.verified === true, "cu_pty_restop_contract");
+  require_native_stop(restop, "cu_pty_restop_contract");
   stopped = 1;
   const reprune = require_ok(invoke_cu(run_directory, product, executable, [
     "--target", "current", "--grant", "actuate", "pty-prune", job,
     "--expect", "stale"
   ]), "pty-prune");
   ensure(reprune.verified === true, "cu_pty_reprune_contract");
+
+  print("STEP stop one resistant owned process session while preserving an unrelated sibling");
+  const tree_job = job + "-tree";
+  const identity_path = rh.join(run_directory, "pty-tree-identities.txt");
+  let tree_arguments = [
+    "--target", "current", "--grant", "actuate", "pty-start", tree_job, "--"
+  ];
+  if (windows) {
+    const escaped_path = identity_path.replaceAll("'", "''");
+    const child_body = "while ($true) { Start-Sleep -Seconds 60 }";
+    const body = "$a=Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-Command','" + child_body + "') -PassThru; "
+      + "$b=Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-Command','" + child_body + "') -PassThru; "
+      + "[IO.File]::WriteAllText('" + escaped_path + "',\"$PID $($a.Id) $($b.Id)\"); Wait-Process -Id $b.Id";
+    tree_arguments.push("powershell.exe");
+    tree_arguments.push("-NoProfile");
+    tree_arguments.push("-Command");
+    tree_arguments.push(body);
+    owned_children.push(harness.start_child(context, {
+      program: "powershell.exe",
+      args: ["-NoProfile", "-Command", child_body],
+      timeout_ms: 30000
+    }, "pty-unrelated-sibling"));
+  } else {
+    const body = "trap '' HUP TERM INT; /bin/sh -c 'trap \\\"\\\" HUP TERM INT; while :; do sleep 60; done' & a=$!; "
+      + "/bin/sh -c 'trap \\\"\\\" HUP TERM INT; while :; do sleep 60; done' & b=$!; "
+      + "printf '%s %s %s\\n' \"$$\" \"$a\" \"$b\" > \"$1\"; wait \"$b\"";
+    tree_arguments.push("/bin/sh");
+    tree_arguments.push("-c");
+    tree_arguments.push(body);
+    tree_arguments.push("pty-owned-tree");
+    tree_arguments.push(identity_path);
+    owned_children.push(harness.start_child(context, {
+      program: "/bin/sh",
+      args: ["-c", "trap '' HUP TERM INT; while :; do sleep 60; done"],
+      timeout_ms: 30000
+    }, "pty-unrelated-sibling"));
+  }
+  require_ok(invoke_cu(run_directory, product, executable, tree_arguments), "pty-start");
+  tree_started = 1;
+  const identity_deadline = rh.now_ms() + 5000;
+  while (!rh.exists(identity_path) && rh.now_ms() < identity_deadline) { rh.sleep_ms(10); }
+  ensure(rh.exists(identity_path), "cu_pty_tree_identity_timeout");
+  const identity_parts = rh.read_text(identity_path).trim().split(" ");
+  ensure(identity_parts.length === 3, "cu_pty_tree_identity_shape:" + JSON.stringify(identity_parts));
+  const tree_pids = [];
+  for (const part of identity_parts) {
+    const pid = Number(part);
+    ensure(pid > 0 && rh.process_alive(pid), "cu_pty_tree_identity_not_live:" + part);
+    tree_pids.push(pid);
+  }
+  ensure(
+    harness.child_state(owned_children[0]) === "running",
+    "cu_pty_unrelated_fixture_not_running"
+  );
+  const tree_stop = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-stop", tree_job,
+    "--expect", "stopped"
+  ]), "pty-stop");
+  require_native_stop(tree_stop, "cu_pty_tree_stop_contract");
+  ensure(
+    tree_stop.closed.native_shutdown.native_cleanup.members_observed >= 3,
+    "cu_pty_tree_member_count:" + JSON.stringify(tree_stop)
+  );
+  tree_stopped = 1;
+  const absence_deadline = rh.now_ms() + 2000;
+  let tree_live = true;
+  while (tree_live && rh.now_ms() < absence_deadline) {
+    tree_live = false;
+    for (const pid of tree_pids) { if (rh.process_alive(pid)) { tree_live = true; } }
+    if (tree_live) { rh.sleep_ms(10); }
+  }
+  ensure(!tree_live, "cu_pty_owned_session_survivor");
+  ensure(
+    harness.child_state(owned_children[0]) === "running",
+    "cu_pty_cleanup_crossed_into_unrelated_process"
+  );
+  const tree_prune = require_ok(invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "actuate", "pty-prune", tree_job,
+    "--expect", "stale"
+  ]), "pty-prune");
+  ensure(tree_prune.verified === true, "cu_pty_tree_prune_contract");
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -350,14 +448,31 @@ if (started !== 0 && stopped === 0) {
     failure = failure + ";cu_pty_cleanup_failed:" + cleanup_error;
   }
 }
+if (tree_started !== 0 && tree_stopped === 0) {
+  try {
+    const cleanup = invoke_cu(run_directory, product, executable, [
+      "--target", "current", "--grant", "actuate", "pty-stop", job + "-tree",
+      "--expect", "stopped"
+    ]);
+    if (cleanup.ok === true && cleanup.data.verified === true) { tree_stopped = 1; }
+    else { failure = failure + ";cu_pty_tree_cleanup_unverified:" + JSON.stringify(cleanup); }
+  } catch (cleanup_error) {
+    failure = failure + ";cu_pty_tree_cleanup_failed:" + cleanup_error;
+  }
+}
 
 let completion_failure = "";
 try {
-  harness.complete_children(context, [], succeeded !== 0 && stopped !== 0, failure);
+  harness.complete_children(
+    context,
+    owned_children,
+    succeeded !== 0 && stopped !== 0 && tree_stopped !== 0,
+    failure
+  );
 } catch (error) {
   completion_failure = "" + error;
 }
-if (succeeded !== 0 && stopped !== 0 && completion_failure === "") {
+if (succeeded !== 0 && stopped !== 0 && tree_stopped !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.pty-background-interactive");
   harness.remove_run(context);
   print("PASS: qjswasm orchestrated ACU PTY inventory, structured snapshot/diff/events, verified resize, input, loss-aware wait, exact exit, restart refusal and cleanup");

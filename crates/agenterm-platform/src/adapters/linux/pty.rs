@@ -8,13 +8,16 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use libc::{self, c_int, pid_t};
 
 use crate::contract::pty::{
-    NativeInputOwnership, NativeTerminalKey, ProcessId, PtyError, PtyResult, TerminalSize,
+    NativeInputOwnership, NativeTerminalKey, ProcessId, PtyCleanupReceipt, PtyError, PtyResult,
+    TerminalSize,
 };
+use crate::process_control::TerminationMode;
+use crate::process_reference::{ProcessReference, ProcessWait};
 
 /// Return the native login-shell argument for a bare supported POSIX shell.
 pub fn login_shell_argument(
@@ -37,6 +40,10 @@ pub fn login_shell_argument(
 }
 
 const PTY_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const PTY_EXEC_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
+const PTY_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+const PTY_SESSION_MEMBER_LIMIT: usize = 4096;
+const PTY_SESSION_FREEZE_ROUNDS: usize = 16;
 
 /// A command configuration for spawning a process inside a newly allocated PTY.
 #[derive(Clone, Debug)]
@@ -156,9 +163,21 @@ impl PtyMaster {
 }
 
 /// A handle for signaling and reaping a PTY-backed child process.
-#[derive(Debug)]
 pub struct PtyChild {
     pid: ProcessId,
+    session_id: u32,
+    root_reference: Option<ProcessReference>,
+}
+
+impl std::fmt::Debug for PtyChild {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PtyChild")
+            .field("pid", &self.pid)
+            .field("session_id", &self.session_id)
+            .field("owns_cleanup_authority", &self.root_reference.is_some())
+            .finish()
+    }
 }
 
 impl PtyChild {
@@ -185,21 +204,24 @@ impl PtyChild {
     }
 
     pub fn try_clone_for_wait(&self) -> PtyResult<Self> {
-        Ok(Self { pid: self.pid })
+        Ok(Self {
+            pid: self.pid,
+            session_id: self.session_id,
+            root_reference: None,
+        })
     }
 
     pub fn close_pseudoconsole(&self) {}
 
-    pub fn terminate_forcefully(&self) -> PtyResult<()> {
-        let result = unsafe { libc::kill(self.pid.as_u32() as pid_t, libc::SIGKILL) };
-        if result == -1 {
-            return Err(PtyError::failed(
-                "terminate",
-                "pty_terminate_failed",
-                io::Error::last_os_error(),
-            ));
-        }
-        Ok(())
+    pub fn terminate_forcefully(&self) -> PtyResult<PtyCleanupReceipt> {
+        let root = self.root_reference.as_ref().ok_or_else(|| {
+            PtyError::failed(
+                "terminate owned session",
+                "pty_terminate_without_authority",
+                "the wait-only PTY child clone has no cleanup authority",
+            )
+        })?;
+        terminate_owned_session(root, self.session_id)
     }
 
     pub fn send_native_key(&self, _key: NativeTerminalKey, _repeat_count: u16) -> PtyResult<()> {
@@ -315,6 +337,7 @@ fn spawn_child(command: ChildCommand) -> io::Result<SpawnedPty> {
     // child needs (argv, envp, cwd) must already exist before fork() runs.
     let argv_ptrs = build_ptr_array(&args);
     let envp_ptrs = build_ptr_array(&env_pairs);
+    let (exec_status_read, exec_status_write) = cloexec_pipe()?;
 
     let child_pid = unsafe { libc::fork() };
     if child_pid == -1 {
@@ -322,6 +345,7 @@ fn spawn_child(command: ChildCommand) -> io::Result<SpawnedPty> {
     }
 
     if child_pid == 0 {
+        drop(exec_status_read);
         let master_raw = master.io.fd.as_raw_fd();
         if let Err(error) = child_setup(
             master_raw,
@@ -331,13 +355,20 @@ fn spawn_child(command: ChildCommand) -> io::Result<SpawnedPty> {
             &argv_ptrs,
             &envp_ptrs,
         ) {
-            let message = CString::new(format!("pty child setup failed: {error}"))
-                .unwrap_or_else(|_| CString::new("pty child setup failed").expect("static"));
+            let native_error = error.raw_os_error().unwrap_or(libc::EIO);
+            unsafe {
+                libc::write(
+                    exec_status_write.as_raw_fd(),
+                    std::ptr::from_ref(&native_error).cast(),
+                    std::mem::size_of::<c_int>(),
+                );
+            }
+            let message = b"pty child setup failed\n";
             unsafe {
                 libc::write(
                     libc::STDERR_FILENO,
                     message.as_ptr() as *const libc::c_void,
-                    message.as_bytes().len(),
+                    message.len(),
                 );
             }
             unsafe {
@@ -347,6 +378,7 @@ fn spawn_child(command: ChildCommand) -> io::Result<SpawnedPty> {
         unreachable!("exec replaces the child process image");
     }
 
+    drop(exec_status_write);
     drop(slave_fd);
 
     let pid = ProcessId::new(child_pid as u32).map_err(|error| {
@@ -356,10 +388,123 @@ fn spawn_child(command: ChildCommand) -> io::Result<SpawnedPty> {
         )
     })?;
 
+    if let Err(error) = await_exec_handshake(&exec_status_read) {
+        unsafe {
+            libc::kill(child_pid, libc::SIGKILL);
+            libc::waitpid(child_pid, std::ptr::null_mut(), 0);
+        }
+        return Err(error);
+    }
+
+    let root_reference = match ProcessReference::open(pid.as_u32()) {
+        Ok(reference) => reference,
+        Err(error) => {
+            unsafe {
+                libc::kill(-(pid.as_u32() as pid_t), libc::SIGKILL);
+                libc::kill(pid.as_u32() as pid_t, libc::SIGKILL);
+            }
+            loop {
+                let waited =
+                    unsafe { libc::waitpid(pid.as_u32() as pid_t, std::ptr::null_mut(), 0) };
+                if waited >= 0 {
+                    break;
+                }
+                let wait_error = io::Error::last_os_error();
+                if wait_error.kind() != io::ErrorKind::Interrupted {
+                    break;
+                }
+            }
+            return Err(io::Error::new(
+                error.kind(),
+                format!("retain PTY cleanup authority: {error}"),
+            ));
+        }
+    };
+
     Ok(SpawnedPty {
         master,
-        child: PtyChild { pid },
+        child: PtyChild {
+            pid,
+            session_id: pid.as_u32(),
+            root_reference: Some(root_reference),
+        },
     })
+}
+
+fn cloexec_pipe() -> io::Result<(OwnedFd, OwnedFd)> {
+    let mut raw = [-1; 2];
+    if unsafe { libc::pipe(raw.as_mut_ptr()) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    let read = unsafe { OwnedFd::from_raw_fd(raw[0]) };
+    let write = unsafe { OwnedFd::from_raw_fd(raw[1]) };
+    for descriptor in [&read, &write] {
+        let flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
+        if flags == -1
+            || unsafe {
+                libc::fcntl(
+                    descriptor.as_raw_fd(),
+                    libc::F_SETFD,
+                    flags | libc::FD_CLOEXEC,
+                )
+            } == -1
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok((read, write))
+}
+
+fn await_exec_handshake(status: &OwnedFd) -> io::Result<()> {
+    let mut poll = libc::pollfd {
+        fd: status.as_raw_fd(),
+        events: libc::POLLIN | libc::POLLHUP,
+        revents: 0,
+    };
+    let deadline = Instant::now() + PTY_EXEC_HANDSHAKE_TIMEOUT;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "PTY child did not complete exec handshake",
+            ));
+        }
+        let timeout = i32::try_from(remaining.as_millis().max(1)).unwrap_or(i32::MAX);
+        let ready = unsafe { libc::poll(&raw mut poll, 1, timeout) };
+        if ready == -1 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        if ready == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "PTY child did not complete exec handshake",
+            ));
+        }
+        let mut native_error = 0_i32;
+        let count = unsafe {
+            libc::read(
+                status.as_raw_fd(),
+                std::ptr::from_mut(&mut native_error).cast(),
+                std::mem::size_of::<c_int>(),
+            )
+        };
+        return match count {
+            0 => Ok(()),
+            value if value == std::mem::size_of::<c_int>() as isize => {
+                Err(io::Error::from_raw_os_error(native_error))
+            }
+            -1 => Err(io::Error::last_os_error()),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PTY child returned a truncated exec failure",
+            )),
+        };
+    }
 }
 
 /// Runs between `fork()` and `execve()`. Every argument is pre-built by the
@@ -421,6 +566,306 @@ fn child_setup(
         }
     }
     Ok(())
+}
+
+struct FrozenMember {
+    reference: ProcessReference,
+}
+
+fn terminate_owned_session(
+    root: &ProcessReference,
+    session_id: u32,
+) -> PtyResult<PtyCleanupReceipt> {
+    let deadline = Instant::now() + PTY_CLEANUP_TIMEOUT;
+    let mut members = Vec::<FrozenMember>::new();
+    let mut known = std::collections::BTreeSet::<u32>::new();
+    let mut observed = 0_u32;
+    let mut stabilized = false;
+
+    for _ in 0..PTY_SESSION_FREEZE_ROUNDS {
+        let ids = session_process_ids(session_id).map_err(|error| {
+            resume_frozen(&members);
+            PtyError::failed(
+                "enumerate owned session",
+                "pty_session_enumeration_failed",
+                error,
+            )
+        })?;
+        observed = observed.max(ids.len().try_into().unwrap_or(u32::MAX));
+        let mut added = false;
+        for pid in ids {
+            if !known.insert(pid) {
+                continue;
+            }
+            if pid == root.id() && !root.is_alive().unwrap_or(false) {
+                continue;
+            }
+            let Some(reference) =
+                retain_and_freeze_member(pid, session_id, deadline).map_err(|error| {
+                    resume_frozen(&members);
+                    PtyError::failed(
+                        "freeze owned session member",
+                        "pty_session_freeze_failed",
+                        error,
+                    )
+                })?
+            else {
+                continue;
+            };
+            if pid == root.id() && !root.is_alive().unwrap_or(false) {
+                let _ = reference.set_suspended(false);
+                continue;
+            }
+            members.push(FrozenMember { reference });
+            added = true;
+        }
+        if !added {
+            stabilized = true;
+            break;
+        }
+        if Instant::now() >= deadline {
+            resume_frozen(&members);
+            return Err(PtyError::failed(
+                "freeze owned session",
+                "pty_session_freeze_timeout",
+                "session membership did not stabilize before the cleanup deadline",
+            ));
+        }
+    }
+    if !stabilized {
+        resume_frozen(&members);
+        return Err(PtyError::failed(
+            "freeze owned session",
+            "pty_session_membership_unstable",
+            "session membership kept changing through the bounded freeze rounds",
+        ));
+    }
+
+    // A POSIX session leader exiting can orphan stopped process groups, which
+    // makes the kernel deliver SIGHUP/SIGCONT. Keep it frozen and kill it last
+    // so descendants cannot resume and exec between identity validation and
+    // their terminal signal.
+    members.sort_by_key(|member| member.reference.id() == root.id());
+    let mut terminated = 0_u32;
+    for member in &mut members {
+        match terminate_frozen_member(member, session_id, deadline) {
+            Ok(true) => terminated = terminated.saturating_add(1),
+            Ok(false) => {}
+            Err(error) => {
+                resume_frozen(&members);
+                return Err(PtyError::failed(
+                    "terminate owned session member",
+                    "pty_session_terminate_failed",
+                    error,
+                ));
+            }
+        }
+    }
+    loop {
+        let mut live = false;
+        for member in &members {
+            let member_live = member
+                .reference
+                .wait_for_exit(Some(Duration::ZERO))
+                .map_err(|error| {
+                    resume_frozen(&members);
+                    PtyError::failed(
+                        "verify owned session cleanup",
+                        "pty_session_verify_failed",
+                        error,
+                    )
+                })?
+                == ProcessWait::TimedOut;
+            live |= member_live;
+        }
+        if !live {
+            return Ok(PtyCleanupReceipt {
+                containment: "posix-session",
+                members_observed: observed,
+                members_terminated: terminated,
+                verified_empty: true,
+            });
+        }
+        if Instant::now() >= deadline {
+            resume_frozen(&members);
+            return Err(PtyError::failed(
+                "verify owned session cleanup",
+                "pty_session_cleanup_incomplete",
+                "one or more exact session members remained live at the cleanup deadline",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn terminate_frozen_member(
+    member: &mut FrozenMember,
+    session_id: u32,
+    deadline: Instant,
+) -> io::Result<bool> {
+    loop {
+        if !member.reference.is_alive()? {
+            return Ok(false);
+        }
+        match member.reference.terminate(TerminationMode::Forceful) {
+            Ok(()) => return Ok(true),
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+                if !member.reference.is_alive()? {
+                    return Ok(false);
+                }
+                if Instant::now() >= deadline {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "exact process identity kept changing before termination",
+                    ));
+                }
+                let Some(replacement) =
+                    retain_and_freeze_member(member.reference.id(), session_id, deadline)?
+                else {
+                    return Ok(false);
+                };
+                member.reference = replacement;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn retain_and_freeze_member(
+    pid: u32,
+    session_id: u32,
+    deadline: Instant,
+) -> io::Result<Option<ProcessReference>> {
+    let mut reference = match ProcessReference::open_for_termination(pid) {
+        Ok(reference) => reference,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    loop {
+        match native_session_id(pid)? {
+            Some(actual) if actual == session_id => {}
+            None | Some(_) => return Ok(None),
+        }
+        match reference.set_suspended(true) {
+            Ok(()) => return Ok(Some(reference)),
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+                if !reference.is_alive()? {
+                    return Ok(None);
+                }
+                if Instant::now() >= deadline {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "exact process identity kept changing before session freeze",
+                    ));
+                }
+                let replacement = ProcessReference::open_for_termination(pid)?;
+                if !reference.is_alive()? {
+                    return Ok(None);
+                }
+                reference = replacement;
+                std::thread::yield_now();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn resume_frozen(members: &[FrozenMember]) {
+    for member in members {
+        let _ = member.reference.set_suspended(false);
+    }
+}
+
+fn native_session_id(pid: u32) -> io::Result<Option<u32>> {
+    let result = unsafe { libc::getsid(pid as pid_t) };
+    if result >= 0 {
+        return Ok(Some(result as u32));
+    }
+    let error = io::Error::last_os_error();
+    if error.kind() == io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH) {
+        Ok(None)
+    } else {
+        Err(error)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn session_process_ids(session_id: u32) -> io::Result<Vec<u32>> {
+    let mut ids = Vec::new();
+    for entry in std::fs::read_dir("/proc")? {
+        let entry = entry?;
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse().ok())
+        else {
+            continue;
+        };
+        if native_session_id(pid)? == Some(session_id) {
+            ids.push(pid);
+            if ids.len() > PTY_SESSION_MEMBER_LIMIT {
+                return Err(io::Error::other("PTY session member limit exceeded"));
+            }
+        }
+    }
+    ids.sort_unstable();
+    Ok(ids)
+}
+
+#[cfg(target_os = "macos")]
+fn session_process_ids(session_id: u32) -> io::Result<Vec<u32>> {
+    const PROC_ALL_PIDS: u32 = 1;
+    unsafe extern "C" {
+        fn proc_listpids(
+            kind: u32,
+            typeinfo: u32,
+            buffer: *mut libc::c_void,
+            buffersize: i32,
+        ) -> i32;
+    }
+    let required = unsafe { proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
+    if required < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    const PROCESS_INVENTORY_LIMIT: usize = 131_072;
+    let mut capacity = (required as usize / std::mem::size_of::<i32>())
+        .saturating_add(64)
+        .min(PROCESS_INVENTORY_LIMIT);
+    let (raw, written) = loop {
+        let mut raw = vec![0_i32; capacity];
+        let bytes = i32::try_from(raw.len().saturating_mul(std::mem::size_of::<i32>()))
+            .map_err(|_| io::Error::other("process list buffer exceeds i32"))?;
+        let written = unsafe { proc_listpids(PROC_ALL_PIDS, 0, raw.as_mut_ptr().cast(), bytes) };
+        if written < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if written < bytes {
+            break (raw, written);
+        }
+        if capacity >= PROCESS_INVENTORY_LIMIT {
+            return Err(io::Error::other(
+                "system process inventory exceeded its bound",
+            ));
+        }
+        capacity = capacity.saturating_mul(2).min(PROCESS_INVENTORY_LIMIT);
+    };
+    let mut ids = Vec::new();
+    for pid in raw
+        .into_iter()
+        .take(written as usize / std::mem::size_of::<i32>())
+    {
+        let Ok(pid) = u32::try_from(pid) else {
+            continue;
+        };
+        if native_session_id(pid)? == Some(session_id) {
+            ids.push(pid);
+            if ids.len() > PTY_SESSION_MEMBER_LIMIT {
+                return Err(io::Error::other("PTY session member limit exceeded"));
+            }
+        }
+    }
+    ids.sort_unstable();
+    Ok(ids)
 }
 
 /// Builds a null-terminated argv/envp-style pointer array. Must be called
@@ -685,6 +1130,39 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    struct FixtureCleanup(u32);
+
+    impl Drop for FixtureCleanup {
+        fn drop(&mut self) {
+            unsafe {
+                libc::kill(-(self.0 as pid_t), libc::SIGKILL);
+                libc::kill(self.0 as pid_t, libc::SIGKILL);
+            }
+        }
+    }
+
+    fn read_until(reader: &PtyMaster, needle: &[u8]) -> Vec<u8> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut output = Vec::new();
+        let mut buffer = [0_u8; 512];
+        while !output.windows(needle.len()).any(|window| window == needle) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out reading PTY output: {:?}",
+                String::from_utf8_lossy(&output)
+            );
+            match reader.io().read(&mut buffer) {
+                Ok(0) => break,
+                Ok(size) => output.extend_from_slice(&buffer[..size]),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("PTY read failed: {error}"),
+            }
+        }
+        output
+    }
+
     #[test]
     fn openpty_spawn_write_read_round_trip() {
         let spawned = ChildCommand::new("/bin/sh")
@@ -726,9 +1204,65 @@ mod tests {
     }
 
     #[test]
+    fn forced_cleanup_empties_the_owned_session_with_resistant_children() {
+        let spawned = ChildCommand::new("/bin/sh")
+            .arg("-c")
+            .arg(
+                r#"trap '' HUP TERM INT
+/bin/sh -c 'trap "" HUP TERM INT; while :; do sleep 60; done' & a=$!
+/bin/sh -c 'trap "" HUP TERM INT; while :; do sleep 60; done' & b=$!
+printf 'READY %s %s %s\n' "$$" "$a" "$b"
+wait "$b""#,
+            )
+            .spawn()
+            .expect("spawn resistant PTY fixture");
+        let (master, mut child) = spawned.into_parts();
+        let cleanup = FixtureCleanup(child.pid().as_u32());
+        let output = read_until(&master, b"READY ");
+        let line = String::from_utf8_lossy(&output)
+            .lines()
+            .find(|line| line.contains("READY "))
+            .expect("fixture identity line")
+            .trim_end_matches('\r')
+            .to_owned();
+        let ids = line
+            .split_whitespace()
+            .skip_while(|part| *part != "READY")
+            .skip(1)
+            .take(3)
+            .map(|part| part.parse::<u32>().expect("numeric fixture PID"))
+            .collect::<Vec<_>>();
+        assert_eq!(ids.len(), 3, "fixture emitted root and two child PIDs");
+        let children = ids[1..]
+            .iter()
+            .map(|pid| ProcessReference::open(*pid).expect("retain child observation"))
+            .collect::<Vec<_>>();
+
+        let receipt = child
+            .terminate_forcefully()
+            .expect("empty exact owned PTY session");
+
+        assert_eq!(receipt.containment, "posix-session");
+        assert!(receipt.verified_empty);
+        assert!(receipt.members_observed >= 3);
+        for child in children {
+            assert_eq!(
+                child
+                    .wait_for_exit(Some(Duration::from_secs(2)))
+                    .expect("observe child exit"),
+                ProcessWait::Exited
+            );
+        }
+        child.wait().expect("reap terminated PTY root");
+        drop(cleanup);
+    }
+
+    #[test]
     fn native_console_key_injection_is_explicitly_unsupported() {
         let child = PtyChild {
             pid: ProcessId::new(1).expect("valid fixture pid"),
+            session_id: 1,
+            root_reference: None,
         };
 
         let error = child
@@ -743,6 +1277,8 @@ mod tests {
     fn native_input_ownership_is_explicitly_unsupported() {
         let child = PtyChild {
             pid: ProcessId::new(1).expect("valid fixture pid"),
+            session_id: 1,
+            root_reference: None,
         };
 
         let error = child

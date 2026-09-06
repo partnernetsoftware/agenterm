@@ -52,6 +52,19 @@ impl std::error::Error for PtyError {}
 
 pub type PtyResult<T> = Result<T, PtyError>;
 
+/// Evidence returned only after the native PTY containment owner has stopped
+/// every process it can still identify and has observed that containment empty.
+///
+/// The counts intentionally omit process identifiers: callers need proof of
+/// bounded cleanup, not a new source of mutable PID authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PtyCleanupReceipt {
+    pub containment: &'static str,
+    pub members_observed: u32,
+    pub members_terminated: u32,
+    pub verified_empty: bool,
+}
+
 /// A platform-neutral terminal key whose native console semantics cannot
 /// always be represented faithfully as bytes written to a PTY stream.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

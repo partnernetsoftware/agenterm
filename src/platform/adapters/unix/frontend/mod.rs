@@ -6075,7 +6075,10 @@ impl ControlHost for UnixApp {
         Ok(())
     }
 
-    fn close_tab_id(&mut self, id: u64) -> Result<bool, String> {
+    fn close_tab_id(
+        &mut self,
+        id: u64,
+    ) -> Result<crate::terminal_runtime::TerminalShutdownReceipt, String> {
         let Some(position) = self.tabs.iter().position(|tab| tab.id == id) else {
             return Err(format!("can't find window: @{id}"));
         };
@@ -6096,7 +6099,7 @@ impl ControlHost for UnixApp {
             }
         }
 
-        let terminal_shutdown_complete = self.tabs[position].close_process();
+        let terminal_shutdown = self.tabs[position].close_process();
         self.tabs.remove(position);
 
         if self.active == Some(id) {
@@ -6124,11 +6127,12 @@ impl ControlHost for UnixApp {
                 "exit_code": exit_code,
                 "promoted_children": promoted_children,
                 "active_id": active_id,
-                "terminal_shutdown_complete": terminal_shutdown_complete,
+                "terminal_shutdown_complete": terminal_shutdown.verified(),
+                "terminal_shutdown": terminal_shutdown.json(),
             }),
         );
 
-        Ok(terminal_shutdown_complete)
+        Ok(terminal_shutdown)
     }
 }
 

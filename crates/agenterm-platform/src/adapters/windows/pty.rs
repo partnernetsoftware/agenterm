@@ -34,8 +34,9 @@ use windows_sys::Win32::System::Console::{
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject, TerminateJobObject,
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
+    QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Pipes::{
     CreateNamedPipeW, CreatePipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
@@ -52,7 +53,8 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::contract::pty::{
-    NativeInputOwnership, NativeTerminalKey, ProcessId, PtyError, PtyResult, TerminalSize,
+    NativeInputOwnership, NativeTerminalKey, ProcessId, PtyCleanupReceipt, PtyError, PtyResult,
+    TerminalSize,
 };
 
 use super::console_agent;
@@ -467,7 +469,7 @@ impl PtyChild {
         self.session.close();
     }
 
-    pub fn terminate_forcefully(&self) -> PtyResult<()> {
+    pub fn terminate_forcefully(&self) -> PtyResult<PtyCleanupReceipt> {
         let Some(job) = &self.job else {
             return Err(PtyError::failed(
                 "terminate",
@@ -475,6 +477,9 @@ impl PtyChild {
                 "Windows child has no Job Object cleanup owner",
             ));
         };
+        let observed = job
+            .member_count()
+            .map_err(|error| pty_error("inspect containment", "pty_job_query_failed", error))?;
         job.terminate(1)
             .map_err(|error| pty_error("terminate", "pty_terminate_failed", error))?;
         match wait_process_state(&self.process) {
@@ -492,7 +497,28 @@ impl PtyChild {
             }
         }
         self.session.close();
-        Ok(())
+        let deadline = Instant::now() + Duration::from_millis(750);
+        loop {
+            let remaining = job
+                .member_count()
+                .map_err(|error| pty_error("verify containment", "pty_job_query_failed", error))?;
+            if remaining == 0 {
+                return Ok(PtyCleanupReceipt {
+                    containment: "windows-job-object",
+                    members_observed: observed,
+                    members_terminated: observed,
+                    verified_empty: true,
+                });
+            }
+            if Instant::now() >= deadline {
+                return Err(PtyError::failed(
+                    "verify containment",
+                    "pty_job_cleanup_incomplete",
+                    format!("Windows Job Object still owns {remaining} process(es)"),
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     /// Injects a native console key event into the child console.
@@ -1883,6 +1909,23 @@ impl JobObjectGuard {
             return Err(last_os_error());
         }
         Ok(())
+    }
+
+    fn member_count(&self) -> io::Result<u32> {
+        let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        let ok = unsafe {
+            QueryInformationJobObject(
+                self.handle.as_raw_handle() as HANDLE,
+                JobObjectBasicAccountingInformation,
+                std::ptr::from_mut(&mut info).cast(),
+                size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(last_os_error());
+        }
+        Ok(info.ActiveProcesses)
     }
 }
 

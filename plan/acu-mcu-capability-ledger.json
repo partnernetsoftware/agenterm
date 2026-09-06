@@ -666,9 +666,11 @@
         {
           "id": "pty.background.process-control",
           "mcu_shape": "pty --provider native|tmux signal|wait-exit|stop",
-          "acu_shape": "pty-wait-exit and pty-stop are native, and standalone process-signal has exact-object semantics; no PTY foreground-process-group authority composes them",
+          "acu_shape": "pty-wait-exit is native; pty-stop freezes and empties the bounded POSIX session or Windows Job Object, then requires worker and endpoint cleanup; standalone process-signal has exact-object semantics but no PTY foreground authority composes it",
           "state": "gap",
-          "next": "identity-bound foreground process-group operations with signal delivery receipt, post-state and bounded forced cleanup"
+          "evidence": ["cu.pty-background-interactive"],
+          "next": "finish the decisive court for identity-bound foreground signaling; keep direct ConPTY typed platform-limited unless it yields a retained exact foreground authority",
+          "note": "The pre-fix public stop returned verified while HUP/TERM/INT-resistant session children survived. The platform now retains native containment authority, publishes containment/member/empty receipts, and the qjswasm court proves resistant descendants are gone while an unrelated sibling survives. This closes forced cleanup only; signal delivery remains the capability gap."
         },
         {
           "id": "pty.tmux.multi-pane",

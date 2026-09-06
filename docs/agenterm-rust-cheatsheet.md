@@ -755,6 +755,32 @@ the native pseudoconsole and drops both halves. Never call potentially blocking
 duplicated master fd prevents a mere product-master drop from delivering HUP
 and can otherwise strand both reader and waiter.
 
+A PTY root PID is not its containment. POSIX shells can create several process
+groups inside one PTY session, and descendants may ignore HUP, TERM and INT.
+Retain an exact observer for the session leader, enumerate the bounded session,
+open and recheck exact process references, freeze all members until a second
+scan is stable, then terminate and observe every retained reference exited.
+Windows must terminate its retained Job Object and query
+`ActiveProcesses == 0`. A missing tab, closed endpoint, or exited root is not a
+cleanup receipt. Publish containment kind, member counts, empty postcondition
+and worker completion through the public control response.
+
+On macOS, a termination audit token captured between `fork` and `exec` becomes
+stale when the child image changes. A close-on-exec status pipe proves exec
+success, but does not make a pre-exec mutation token durable. Retain an
+observe-only kqueue reference across the transition; when cleanup begins, open
+the mutation reference while that exact observer brackets the numeric PID as
+still live, then recheck session membership before signaling. Never hide this
+identity race with a fixed sleep.
+
+Kill a frozen POSIX session leader last. If it exits first, the kernel can mark
+a stopped child process group orphaned and deliver `SIGHUP` plus `SIGCONT`;
+that child may resume and `exec`, preserving its PID while invalidating the
+retained Darwin audit-token pidversion. When an exact signal reports `ESRCH`
+but the retained observer says the same process object is still alive, reopen
+the mutation reference, recheck the session, freeze again and retry within the
+original deadline. Do not reinterpret that disagreement as proof of exit.
+
 Do not create one teardown thread per closed PTY. Transfer sessions to one
 platform reaper with bounded queueing and per-item panic containment; use an
 isolated overflow teardown only when that queue cannot accept ownership. This

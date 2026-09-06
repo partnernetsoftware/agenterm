@@ -1294,7 +1294,18 @@ flowchart LR
   exact status 7, restart refusal and cleanup. A current-source x86_64 rerun
   remains an evidence-identity leaf because its TCG guest had not recovered
   interactive-agent liveness; the two Windows passes are not combined into an
-  exact-source six-cell claim. Reuse and orphan process-tree control remain open.
+  exact-source six-cell claim. Reuse and foreground-signal control remain open.
+  The forced-cleanup floor is now stronger: the POSIX adapter freezes every
+  exact member of the bounded PTY session until membership stabilizes, then
+  force-terminates and observes all retained references exited; Windows
+  terminates its retained Job Object and queries `ActiveProcesses == 0`.
+  `kill-window` publishes containment kind, observed/terminated counts, empty
+  post-state and worker completion. `agenterm-cu` rejects a missing or partial
+  native receipt even when the tab endpoint disappeared. The strengthened
+  qjswasm journey proves a root and two HUP/TERM/INT-resistant children are
+  absent after stop while a separately owned sibling remains alive. macOS arm64
+  is green; Linux and Windows runtime reruns remain required, and foreground
+  signaling remains governed by the separate decisive court.
   The frozen court and kill criterion are
   [`plan/experiment-headless-pty-owner.md`](../plan/experiment-headless-pty-owner.md).
 

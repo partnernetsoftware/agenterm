@@ -100,6 +100,7 @@ pub(crate) struct TerminalTab {
     reader_worker_complete: bool,
     wait_worker_complete: bool,
     shutdown_complete: bool,
+    native_cleanup_receipt: Option<crate::platform::services::pty::PtyCleanupReceipt>,
     pub(super) master: PtyMaster,
     pub(super) child: PtyChild,
     pub(crate) exited: Option<u32>,
@@ -112,6 +113,36 @@ pub(crate) struct TerminalTab {
     pub(super) lifecycle: TerminalLifecycle,
     pub(crate) output_bytes: usize,
     pub(crate) raw_output: BoundedByteRing,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TerminalShutdownReceipt {
+    pub(crate) native_cleanup: Option<crate::platform::services::pty::PtyCleanupReceipt>,
+    pub(crate) workers_complete: bool,
+}
+
+impl TerminalShutdownReceipt {
+    pub(crate) fn verified(self) -> bool {
+        self.native_cleanup
+            .is_some_and(|receipt| receipt.verified_empty)
+            && self.workers_complete
+    }
+
+    pub(crate) fn json(self) -> serde_json::Value {
+        let native = self.native_cleanup.map(|receipt| {
+            serde_json::json!({
+                "containment": receipt.containment,
+                "members_observed": receipt.members_observed,
+                "members_terminated": receipt.members_terminated,
+                "verified_empty": receipt.verified_empty,
+            })
+        });
+        serde_json::json!({
+            "native_cleanup": native,
+            "workers_complete": self.workers_complete,
+            "verified": self.verified(),
+        })
+    }
 }
 
 pub(crate) struct TerminalLaunch {
@@ -438,6 +469,7 @@ impl TerminalTab {
             reader_worker_complete: false,
             wait_worker_complete: false,
             shutdown_complete: false,
+            native_cleanup_receipt: None,
             master,
             child,
             exited: None,
@@ -623,15 +655,21 @@ impl TerminalTab {
         }
     }
 
-    pub(crate) fn close_process(&mut self) -> bool {
+    pub(crate) fn close_process(&mut self) -> TerminalShutdownReceipt {
         if self.shutdown_complete {
-            return true;
+            return TerminalShutdownReceipt {
+                native_cleanup: self.native_cleanup_receipt,
+                workers_complete: true,
+            };
         }
-        if self.exited.is_none()
-            && let Err(error) = self.child.terminate_forcefully()
-        {
-            self.error
-                .get_or_insert_with(|| format!("terminal termination failed: {error}"));
+        if self.native_cleanup_receipt.is_none() {
+            match self.child.terminate_forcefully() {
+                Ok(receipt) => self.native_cleanup_receipt = Some(receipt),
+                Err(error) => {
+                    self.error
+                        .get_or_insert_with(|| format!("terminal termination failed: {error}"));
+                }
+            }
         }
         self.child.close_pseudoconsole();
 
@@ -658,13 +696,17 @@ impl TerminalTab {
         {
             self.wait_worker_complete = handle.join().is_ok();
         }
-        self.shutdown_complete = self.reader_worker_complete && self.wait_worker_complete;
+        let receipt = TerminalShutdownReceipt {
+            native_cleanup: self.native_cleanup_receipt,
+            workers_complete: self.reader_worker_complete && self.wait_worker_complete,
+        };
+        self.shutdown_complete = receipt.verified();
         if !self.shutdown_complete {
             self.error.get_or_insert_with(|| {
                 "terminal worker shutdown did not complete within 750 ms".to_owned()
             });
         }
-        self.shutdown_complete
+        receipt
     }
 }
 

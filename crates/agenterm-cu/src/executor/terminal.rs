@@ -94,6 +94,25 @@ fn validate_tab(tab: &str) -> Result<(), CuError> {
     Ok(())
 }
 
+fn parse_native_shutdown_receipt(output: &str) -> (Option<Value>, bool) {
+    let value = serde_json::from_str::<Value>(output).ok();
+    let valid = value.as_ref().is_some_and(|value| {
+        let native = &value["native_cleanup"];
+        let observed = native["members_observed"].as_u64();
+        let terminated = native["members_terminated"].as_u64();
+        value["verified"].as_bool() == Some(true)
+            && value["workers_complete"].as_bool() == Some(true)
+            && native["verified_empty"].as_bool() == Some(true)
+            && native["containment"]
+                .as_str()
+                .is_some_and(|name| !name.is_empty())
+            && observed.is_some()
+            && terminated.is_some()
+            && terminated <= observed
+    });
+    (value, valid)
+}
+
 pub(super) fn terminal_list_payload() -> Result<Value, CuError> {
     let client = client()?;
     terminal_inventory_with_client(&client)
@@ -351,48 +370,37 @@ pub(super) fn terminal_close_with_client(
             && !inventory_contains(snapshot, tab)
     });
     match result {
-        Ok(response) if post_verified => {
+        Ok(response) => {
+            let (native_shutdown, native_verified) =
+                parse_native_shutdown_receipt(&response.output);
+            if !(post_verified && native_verified) {
+                let evidence = json!({
+                    "tab_id": tab,
+                    "performed": true,
+                    "verified": false,
+                    "native_shutdown": native_shutdown,
+                    "native_receipt_valid": native_verified,
+                    "control_receipt": response.receipt,
+                    "postcheck_error": post.err().map(|error| json!({ "code": error.code, "message": error.message })),
+                    "receipt": ticket.json(),
+                });
+                receipts.complete(&ticket, "terminal-close", 0, false, evidence.clone())?;
+                return Err(CuError::new(
+                    "terminal_close_unverified",
+                    "AgenTerm removed the tab without complete native-containment and worker-shutdown evidence",
+                )
+                .with_detail(evidence));
+            }
             let post = post.expect("checked above");
             let evidence = json!({
                 "tab_id": tab,
                 "performed": true,
                 "verified": true,
-                "verification": "same-scope-epoch-inventory-absence",
+                "verification": "native-containment-empty+workers-complete+same-scope-epoch-inventory-absence",
                 "server_scope_id": post["server_scope_id"],
                 "server_epoch": post["server_epoch"],
+                "native_shutdown": native_shutdown,
                 "control_receipt": response.receipt,
-                "receipt": ticket.json(),
-            });
-            receipts.complete(&ticket, "terminal-close", 0, true, evidence.clone())?;
-            Ok(evidence)
-        }
-        Ok(response) => {
-            let evidence = json!({
-                "tab_id": tab,
-                "performed": true,
-                "verified": false,
-                "control_receipt": response.receipt,
-                "postcheck_error": post.err().map(|error| json!({ "code": error.code, "message": error.message })),
-                "receipt": ticket.json(),
-            });
-            receipts.complete(&ticket, "terminal-close", 0, false, evidence.clone())?;
-            Err(CuError::new(
-                "terminal_close_unverified",
-                "AgenTerm accepted terminal close but exact tab disappearance was not verified",
-            )
-            .with_detail(evidence))
-        }
-        Err(error) if post_verified => {
-            let post = post.expect("verified post-state is readable");
-            let evidence = json!({
-                "tab_id": tab,
-                "performed": true,
-                "verified": true,
-                "verification": "same-scope-epoch-inventory-absence",
-                "server_scope_id": post["server_scope_id"],
-                "server_epoch": post["server_epoch"],
-                "control_acknowledged": false,
-                "control_error": { "code": error.code, "message": error.message },
                 "receipt": ticket.json(),
             });
             receipts.complete(&ticket, "terminal-close", 0, true, evidence.clone())?;
@@ -1459,5 +1467,52 @@ mod tests {
             expected_scroll_offset(TerminalScrollAction::Bottom, None, 100, 100, 24),
             0
         );
+    }
+
+    #[test]
+    fn native_shutdown_receipt_requires_complete_consistent_evidence() {
+        let complete = json!({
+            "native_cleanup": {
+                "containment": "posix-session",
+                "members_observed": 3,
+                "members_terminated": 3,
+                "verified_empty": true
+            },
+            "workers_complete": true,
+            "verified": true
+        });
+        let (_, valid) = parse_native_shutdown_receipt(&complete.to_string());
+        assert!(valid);
+
+        for invalid in [
+            json!({
+                "native_cleanup": {
+                    "containment": "posix-session",
+                    "members_observed": 3,
+                    "members_terminated": 3,
+                    "verified_empty": true
+                },
+                "workers_complete": false,
+                "verified": true
+            }),
+            json!({
+                "native_cleanup": {
+                    "containment": "posix-session",
+                    "members_observed": 2,
+                    "members_terminated": 3,
+                    "verified_empty": true
+                },
+                "workers_complete": true,
+                "verified": true
+            }),
+            json!({
+                "workers_complete": true,
+                "verified": true
+            }),
+        ] {
+            let (_, valid) = parse_native_shutdown_receipt(&invalid.to_string());
+            assert!(!valid);
+        }
+        assert!(!parse_native_shutdown_receipt("not-json").1);
     }
 }
