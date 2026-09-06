@@ -554,7 +554,7 @@
           "acu_shape": "term-read|term-wait observe one exact native window plus owner process generation and selected accessibility buffer; term-send is an explicit foreground-only activate/focus/inject/restore transaction with an independent newly-satisfied postcondition",
           "state": "native",
           "qualification": "macos-arm64-windows-arm64-linux-x86_64-public-observe-and-visible-send-green",
-          "declared_evidence": [
+          "evidence": [
             "cu.macos-external-terminal-observe",
             "cu.macos-external-terminal-send",
             "cu.linux-external-terminal-observe",
