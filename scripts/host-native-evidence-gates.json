@@ -116,6 +116,13 @@
       ]
     },
     {
+      "id": "cu-runtime-capability-desktop-macos-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.runtime-capability-desktop.macos"
+      ]
+    },
+    {
       "id": "cu-linux-smoke",
       "platform": "linux",
       "evidence": [

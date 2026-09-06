@@ -1,0 +1,167 @@
+// Focused owned-desktop component of the MCU `caps` replacement on macOS.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+//
+// The fixture is an invocation-owned LSUIElement Cocoa process. Observation
+// must not activate it; cleanup targets only the exact child pid.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.runtime-capability-desktop.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 30000
+  });
+  ensure(
+    output.success === true,
+    "cu_runtime_desktop_exit:" + arguments[0] + ":" + output.exit_code + ":" + output.stdout.trim()
+  );
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_runtime_desktop_reply:" + JSON.stringify(reply.error));
+  ensure(reply.target === "current", "cu_runtime_desktop_target");
+  return reply;
+}
+
+function compile_fixture(run_directory, repo) {
+  const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
+  ensure(direct_file(source), "cu_runtime_desktop_fixture_source_missing");
+  const output = rh.join(run_directory, "agenterm_ax_fixture");
+  const compiled = rh.command("clang", [
+    "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
+    source, "-o", output
+  ], { cwd: repo, timeout_ms: 60000 });
+  ensure(compiled.success === true && direct_file(output), "cu_runtime_desktop_fixture_compile:" + compiled.stderr);
+  return output;
+}
+
+function focused_handle(run_directory, executable) {
+  const reply = invoke(run_directory, executable, ["windows", "--focused", "true", "--max", "1"]);
+  if (reply.data.returned !== 1) { return 0; }
+  return reply.data.windows[0].handle;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print(declared_evidence[0]);
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_runtime_desktop_executable_missing");
+
+const context = harness.new_context(repo, "cu-runtime-capability-desktop-macos");
+let fixture = -1;
+let fixture_pid = 0;
+let fixture_reaped = 0;
+let succeeded = 0;
+let failure = "";
+try {
+  const fixture_executable = compile_fixture(context.run_directory, repo);
+  const foreground_before = focused_handle(context.run_directory, executable);
+  fixture = harness.start({
+    program: fixture_executable,
+    args: [],
+    current_dir: context.run_directory,
+    env: {},
+    timeout_ms: 30000
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const title = "agenterm-ax-fixture-" + fixture_pid;
+
+  print("STEP exact owned window becomes observable without foreground activation");
+  let row = null;
+  for (let poll = 0; poll < 250; poll = poll + 1) {
+    const inventory = invoke(context.run_directory, executable, [
+      "windows", "--pid", "" + fixture_pid, "--title", title, "--max", "2"
+    ]);
+    if (inventory.data.returned === 1) { row = inventory.data.windows[0]; break; }
+    harness.sleep_ms(20);
+  }
+  ensure(row !== null, "cu_runtime_desktop_window_missing");
+  ensure(row.process_id === fixture_pid && row.title === title, "cu_runtime_desktop_window_identity");
+  ensure(row.handle > 0 && row.bounds.width > 0 && row.bounds.height > 0, "cu_runtime_desktop_window_geometry");
+  const handle = "" + row.handle;
+  ensure(focused_handle(context.run_directory, executable) === foreground_before, "cu_runtime_desktop_launch_activated");
+
+  print("STEP bounded tree exposes the exact owned accessibility hierarchy");
+  const tree = invoke(context.run_directory, executable, [
+    "tree", "--window", handle, "--depth", "8", "--max-nodes", "256", "--flat"
+  ]);
+  ensure(tree.command === "tree" && tree.data.backend === "ax", "cu_runtime_desktop_tree_backend");
+  ensure(tree.data.nodes.length > 3 && tree.data.truncated === false, "cu_runtime_desktop_tree_bounds");
+
+  print("STEP query/find/read aliases resolve one exact text element");
+  const query = invoke(context.run_directory, executable, [
+    "query", "--window", handle, "--identifier", "fixture-text", "--max-nodes", "256"
+  ]);
+  ensure(query.data.matched === 1 && query.data.returned === 1, "cu_runtime_desktop_query_exact");
+  ensure(query.data.nodes[0].identifier === "fixture-text", "cu_runtime_desktop_query_identity");
+  const find = invoke(context.run_directory, executable, [
+    "find", "--window", handle, "345AXTREE", "--max-nodes", "256"
+  ]);
+  ensure(find.data.matched === 1 && find.data.nodes[0].id === query.data.nodes[0].id, "cu_runtime_desktop_find_alias");
+  const read = invoke(context.run_directory, executable, [
+    "read", "--window", handle, "AXScrollArea[0] / AXTextArea[0]", "--max-nodes", "256"
+  ]);
+  ensure(read.data.matched === 1 && read.data.nodes[0].text === "345AXTREE", "cu_runtime_desktop_read_alias");
+  const text = invoke(context.run_directory, executable, [
+    "get-text", "--window", handle, "--name", "fixture-text"
+  ]);
+  ensure(text.data.text === "345AXTREE", "cu_runtime_desktop_element_read");
+
+  print("STEP window capture writes a nonempty PNG without changing foreground");
+  const output_path = rh.join(context.run_directory, "owned-window.png");
+  const screenshot = invoke(context.run_directory, executable, [
+    "screenshot", "--window", handle, "--out", output_path
+  ]);
+  ensure(screenshot.command === "screenshot" && direct_file(output_path), "cu_runtime_desktop_screenshot_missing");
+  ensure(rh.metadata(output_path).len > 5000, "cu_runtime_desktop_screenshot_empty");
+  ensure(screenshot.data.output_width > 0 && screenshot.data.output_height > 0, "cu_runtime_desktop_screenshot_geometry");
+  ensure(focused_handle(context.run_directory, executable) === foreground_before, "cu_runtime_desktop_observation_activated");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture >= 0 && fixture_reaped === 0) {
+  if (fixture_pid > 0) { rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 }); }
+  try {
+    const output = harness.wait(fixture, 3000);
+    if (output !== null) { fixture_reaped = 1; }
+  } catch (wait_error) {
+    fixture_reaped = 0;
+  }
+  if (fixture_reaped === 0 && fixture_pid > 0) {
+    rh.command("kill", ["-KILL", "" + fixture_pid], { timeout_ms: 5000 });
+    try { harness.wait(fixture, 3000); fixture_reaped = 1; }
+    catch (kill_error) { failure = failure + ":cu_runtime_desktop_fixture_unreaped"; }
+  }
+}
+
+if (succeeded !== 0 && failure === "" && fixture_reaped !== 0) {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("COMPONENT runtime-capability-desktop-macos PASS");
+}
+if (failure !== "") { throw failure; }
+ensure(fixture_reaped !== 0, "cu_runtime_desktop_fixture_cleanup");
+return;

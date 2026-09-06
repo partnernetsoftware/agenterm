@@ -849,9 +849,12 @@ flowchart LR
   qjswasm worker and one owned listener while proving process inventory, stable
   identity, argv/environment metadata without plaintext, cwd, usage,
   descriptors, mappings, threads and socket attribution. The row remains a
-  gap: accessibility and element reads, windows and screenshot plus Linux and
-  Windows same-source courts are still absent. Catalog presence and a
-  caller-supplied cell label are never evidence.
+  gap. A third owned no-activate Cocoa fixture now closes the macOS vocabulary
+  with exact windows, bounded tree, query/find/read aliases, element text and a
+  nonempty PNG while proving foreground preservation and exact-child cleanup.
+  Linux and Windows same-source courts remain absent, so macOS completeness
+  cannot promote the cross-platform row. Catalog presence and a caller-supplied
+  cell label are never evidence.
 - [x] The old MCU-shaped `setup/doctor/caps` aggregate ledger row is retired as
   an authority error, not as removed user value. Setup publication and owner
   preservation, desktop diagnosis, permission guidance, capability declaration,
@@ -863,7 +866,7 @@ flowchart LR
   OLD --> BASE["doctor desktop baseline<br/>bounded live probes"]
   OLD --> DECL["capability declaration<br/>deterministic counts"]
   BASE --> SYS["system readiness<br/>runtime · service · ABI · target<br/>native · macOS qjswasm green"]
-  DECL --> LIVE["cross-mechanism live probe<br/>macOS core + owned process green<br/>desktop + Linux/Windows pending"]
+  DECL --> LIVE["cross-mechanism live probe<br/>macOS full vocabulary green<br/>Linux/Windows pending"]
   SET & BASE & DECL & SYS & LIVE --> RET["MCU-absent retirement court"]
 ```
 

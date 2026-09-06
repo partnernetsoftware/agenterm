@@ -823,9 +823,11 @@ The runtime capability-probe frontier now has one deliberately partial macOS
 component: native platform identity, live displays, payload-free clipboard
 metadata and bounded shell cleanup are public qjswasm evidence. A second
 component covers owned-process inventory, identity, plaintext-free argv/env
-metadata, cwd, usage, fd/map/thread and socket attribution. Owned-desktop probes
-plus Linux/Windows same-source receipts remain mandatory; these components do
-not change the row from `gap` or authorize MCU removal.
+metadata, cwd, usage, fd/map/thread and socket attribution. A third owned Cocoa
+fixture proves the remaining macOS window/tree/query/read/screenshot vocabulary
+without foreground change. Linux/Windows same-source receipts remain mandatory;
+macOS completeness does not change the cross-platform row from `gap` or
+authorize MCU removal.
 
 `moltbaby/skills/mcu/acu.ts` is only the transition router. Its `stay` result
 means “ACU cannot yet express this exact public shape; use MCU temporarily,”

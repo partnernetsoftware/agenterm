@@ -820,6 +820,24 @@
         "task.cu-runtime-capability-process-smoke"
       ]
     },
+    "cu-runtime-capability-desktop-macos-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-runtime-capability-desktop-macos-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-runtime-capability-desktop-macos-smoke"
+      ]
+    },
     "cu-browser-bridge-contract-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3075,6 +3093,26 @@
       "side_effects": [
         "artifact_write",
         "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-runtime-capability-desktop-macos-smoke",
+      "description": "Prove the remaining macOS MCU caps surface on one invocation-owned no-activate Cocoa fixture: exact window inventory, bounded tree, query/find/read aliases, element text and nonempty window PNG with foreground preservation.",
+      "entry": "scripts/qjs/cu-runtime-capability-desktop-macos-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
       ]
     },
     {

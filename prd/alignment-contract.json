@@ -272,6 +272,7 @@
         "cu.capabilities-declaration",
         "cu.runtime-capability-core.macos",
         "cu.runtime-capability-process.macos",
+        "cu.runtime-capability-desktop.macos",
         "cu.power-host-status",
         "cu.host-open.macos",
         "cu.permissions-open.contract",

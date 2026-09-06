@@ -148,8 +148,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       doctor desktop baseline、system readiness 与 capability counts 已有
 │     │                       公开 qjswasm 证据；跨机制 live probe 仍是明确 gap，不以 catalog 冒充
 │     │                       macOS core 已证平台身份/显示/不读内容的剪贴板元数据/有界 shell 回收；
-│     │                       owned-process 也已证；desktop 与 Linux/Windows 同源回执未齐，
-│     │                       故不改变 gap 判决
+│     │                       owned-process + owned-desktop 也已证，macOS vocabulary 完整；
+│     │                       Linux/Windows 同源回执未齐，故不改变跨平台 gap 判决
 │     │                       device claim/lease/I/O 已有 macOS + Linux 双 ISA qjswasm court，
 │     │                       Windows COM court 待证；network-dns 已从 gap 降为 platform-limited，
 │     │                       macOS + Linux 双 ISA + Windows ARM journey 绿；Win x86 court 的

@@ -479,23 +479,24 @@
         {
           "id": "browser.managed-profile",
           "mcu_shape": "browser profile create/list/start/status/stop/remove with owner lease and TTL",
-          "acu_shape": null,
+          "acu_shape": "browser-session-start/list/status/stop/remove over a private atomic registry, owner lease, generation/nonce and owner/browser start identities",
           "state": "gap",
-          "next": "portable launch, private atomic registry and the Unix internal resident owner now bind stop to generation/nonce plus owner and browser start identities and retain typed cleanup uncertainty; Windows fails before spawn until atomic Job-contained spawn exists; still required: public lifecycle, executable discovery and live three-host cleanup"
+          "next": "register a public qjswasm lifecycle court and prove executable discovery, TTL, restart recovery and exact owner/child cleanup on macOS, Linux and Windows"
         },
         {
           "id": "browser.mv3-native-bridge",
           "mcu_shape": "browser bridge setup/status/reload plus attached-profile session and target locks",
           "acu_shape": "browser-bridge-setup plus bounded exact-connection inventory/status/tabs/debug-read over the fixed-identity embedded MV3 asset, same-binary Native Messaging host and current-user installer",
           "state": "gap",
-          "next": "load the exact materialized extension in a controlled authenticated-profile court and prove background closed-shadow traversal, focus preservation, detach cleanup and host EOF cleanup"
+          "note": "The existing contract court proves only fixed asset identity, empty inventory and typed refusal; it deliberately does not install or load the extension and therefore is not availability evidence.",
+          "next": "add reload/attached-session semantics, load the exact materialized extension in a controlled profile court and prove connection identity, focus preservation, target-lock release, detach cleanup and host EOF cleanup"
         },
         {
           "id": "browser.closed-tree",
           "mcu_shape": "browser debug-read/debug-type/debug-invoke/debug-files across frames and closed shadow DOM",
           "acu_shape": "browser-bridge-debug-read exact-connection route for exact-tab bounded cross-frame Accessibility.getFullAXTree projection with no form values, presentation invariance and mandatory detach evidence",
           "state": "gap",
-          "next": "connect the library contract to the Native Messaging host and prove exact tab/frame/node identity, closed-shadow traversal, detach cleanup and secret-free receipts in a public black-box"
+          "next": "implement debug-type/debug-invoke/debug-files, then prove exact tab/frame/node identity, cross-frame closed-shadow read/write/invoke/file behavior, detach cleanup and secret-free receipts through a live Native Messaging court"
         },
         {
           "id": "browser.window-lifecycle",
@@ -597,7 +598,7 @@
         {
           "id": "terminal.agenterm.viewport-image",
           "mcu_shape": "pty resize plus screen observation",
-          "acu_shape": "future facade over AgenTerm ui resize, scroll-pane and screenshot-pane",
+          "acu_shape": "pty-resize plus pty-snapshot/diff/events are native; viewport scroll and rendered per-tab PNG remain absent",
           "state": "gap",
           "next": "separate PTY dimensions, viewport scroll and rendered screenshot instead of collapsing them into one resize claim"
         },
@@ -645,14 +646,14 @@
         {
           "id": "pty.background.process-control",
           "mcu_shape": "pty --provider native|tmux signal|wait-exit|stop",
-          "acu_shape": null,
+          "acu_shape": "pty-wait-exit and pty-stop are native, and standalone process-signal has exact-object semantics; no PTY foreground-process-group authority composes them",
           "state": "gap",
           "next": "identity-bound foreground process-group operations with signal delivery receipt, post-state and bounded forced cleanup"
         },
         {
           "id": "pty.tmux.multi-pane",
           "mcu_shape": "pty --provider tmux panes|split|kill-pane",
-          "acu_shape": null,
+          "acu_shape": "standalone process-set-state, process-signal and identity-bound priority planning exist but are not authorized by one managed-job lease/generation/membership snapshot",
           "state": "platform-limited",
           "platforms": {"linux": "gap", "macos": "gap", "windows": "provider-dependent"},
           "next": "keep tmux as an optional delegated provider after the generic PTY contract exists",
@@ -1054,9 +1055,9 @@
         {
           "id": "runtime.desktop-delivery",
           "mcu_shape": "runtime-issued bounded desktop delivery capability tied to session, target, operation, expiry and max use",
-          "acu_shape": "grant store binds authorization to the current session target",
+          "acu_shape": "persisted grant schema 2 binds target, desktop session, scopes, not-before/expiry and max/consumed uses but not a canonical operation",
           "state": "gap",
-          "next": "audit whether the ACU grant store covers every delivery invariant; add only the missing target/operation/use binding, not a parallel token system"
+          "next": "add a canonical frozen operation set before consumption; migrate schema 2 records to non-executable operation-unbound state rather than expanding their authority"
         },
         {
           "id": "runtime.audit-query-retention",
@@ -1186,13 +1187,13 @@
         {
           "id": "runtime.capability-probe",
           "mcu_shape": "caps performs bounded live probes for windows, accessibility tree/query/find and element reads; process inventory/identity/state/argv/environment/cwd/threads/maps/fds/sockets/usage; displays, clipboard, screenshot and shell execution",
-          "acu_shape": null,
+          "acu_shape": "three focused macOS public qjswasm components over platform/display/clipboard metadata/shell, owned process inventory and inspection, and one owned no-activate desktop fixture",
           "state": "gap",
-          "platforms": {"macos": "core-partial", "linux": "native-court-pending", "windows": "native-court-pending"},
-          "qualification": "macos-core-and-owned-process-components-green-owned-desktop-and-linux-windows-native-courts-pending",
-          "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-process.macos"],
-          "note": "Two macOS public qjswasm components now bind the executable-reported host platform; inventory live display geometry; query clipboard provider/type metadata without reading clipboard payload bytes; prove bounded shell-child cleanup; and observe only the qjswasm worker plus one invocation-owned listener for process inventory, stable identity, argv/environment metadata, cwd, usage, descriptors, mappings, threads and socket attribution. They do not claim accessibility, element, screenshot, Linux or Windows coverage.",
-          "next": "add the focused owned-desktop component, preserve exact typed platform limitations, then bind same-source Linux and Windows receipts before promoting this row"
+          "platforms": {"macos": "native-black-box", "linux": "native-court-pending", "windows": "native-court-pending"},
+          "qualification": "macos-full-mcu-caps-probe-scope-green-linux-windows-native-courts-pending",
+          "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-process.macos", "cu.runtime-capability-desktop.macos"],
+          "note": "Three macOS public qjswasm components now bind the executable-reported host platform; inventory live display geometry; query clipboard provider/type metadata without reading payload bytes; prove bounded shell-child cleanup; observe only the qjswasm worker plus one invocation-owned listener for all process facets; and use one owned LSUIElement fixture for exact windows, tree/query/find/read, element text and PNG capture without foreground change. This covers the current MCU caps probe vocabulary on macOS without touching foreign processes or windows.",
+          "next": "port the same focused contract to Linux and Windows with exact typed not-applicable rows, then bind same-source runtime/CU/ABI receipts before promoting this row"
         }
       ]
     },

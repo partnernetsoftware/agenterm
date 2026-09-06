@@ -256,7 +256,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   dispatch, and writes the outcome with the same opaque decision ID. Denials
   are recorded without consuming uses; a failed downstream command does not
   refund a reserved use. Session identity/key material is absent from the
-  audit. The public Windows smoke now owns an isolated one-shot observe grant:
+  audit. One retirement-blocking authority gap remains explicit: schema 2 binds
+  target, session, scopes, time and use count, but not the canonical operation.
+  Schema 3 must freeze an operation set at issuance and reject a wrong operation
+  without consuming a use. A schema 2 record cannot be safely expanded to
+  today's operation catalog; migration must retain list/revoke while making it
+  typed `operation_unbound` for execution. The public Windows smoke now owns an
+  isolated one-shot observe grant:
   its first `capabilities` command succeeds, the second is refused as
   exhausted, and a separately revoked grant is refused before dispatch. Four
   JSONL records prove that the authorized attempt/outcome share one decision
