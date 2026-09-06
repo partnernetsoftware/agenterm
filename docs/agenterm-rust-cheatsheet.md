@@ -1515,6 +1515,17 @@ and missing values. Keep live service discovery best-effort in the adapter and
 prove actual desktop integration only in a matching-host smoke environment that
 explicitly owns that service.
 
+## Linux screen geometry is not Wayland client enumeration
+
+Keep **screen geometry** separate from **top-level client-window enumeration**.
+EWMH client lists are X11-only and must remain typed unsupported on Wayland,
+but a Wayland session with an authenticated `DISPLAY` has an XWayland root
+whose geometry is valid session-screen evidence. Rejecting all X11 access
+merely because `XDG_SESSION_TYPE=wayland` turns a live desktop into a false
+“no screens” report. Open the exact `DISPLAY` for screen geometry; do not
+promote that success into a claim that Wayland client-window enumeration
+exists.
+
 ## An active cheap gate must own Candidate's static workflow contracts
 
 Do not let an expensive release Candidate be the first place that parses its

@@ -43,6 +43,10 @@ fn session_kind() -> SessionKind {
     )
 }
 
+fn x11_screen_available(display: Option<&str>) -> bool {
+    display.is_some_and(|value| !value.is_empty())
+}
+
 struct Atoms {
     client_list: Atom,
     client_list_stacking: Atom,
@@ -73,6 +77,18 @@ fn atom(connection: &RustConnection, name: &[u8]) -> Result<Atom, WindowEnumerat
         .map_err(|_| failed("an X11 atom request failed"))
 }
 
+fn open_x11_root() -> Result<(RustConnection, Window), WindowEnumerateError> {
+    let (connection, screen) = x11rb::connect(None)
+        .map_err(|error| failed(format!("X11 display could not be opened: {error}")))?;
+    let root = connection
+        .setup()
+        .roots
+        .get(screen)
+        .ok_or_else(|| failed("configured X11 screen does not exist"))?
+        .root;
+    Ok((connection, root))
+}
+
 fn connect() -> Result<Context, WindowEnumerateError> {
     match session_kind() {
         SessionKind::X11 => {}
@@ -87,14 +103,7 @@ fn connect() -> Result<Context, WindowEnumerateError> {
             });
         }
     }
-    let (connection, screen) = x11rb::connect(None)
-        .map_err(|error| failed(format!("X11 display could not be opened: {error}")))?;
-    let root = connection
-        .setup()
-        .roots
-        .get(screen)
-        .ok_or_else(|| failed("configured X11 screen does not exist"))?
-        .root;
+    let (connection, root) = open_x11_root()?;
     let atoms = Atoms {
         client_list: atom(&connection, b"_NET_CLIENT_LIST")?,
         client_list_stacking: atom(&connection, b"_NET_CLIENT_LIST_STACKING")?,
@@ -385,10 +394,20 @@ pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateEr
 
 pub(crate) fn list_screens()
 -> Result<Vec<crate::contract::window_enumerate::ScreenInfo>, WindowEnumerateError> {
-    let context = connect()?;
-    let geom = context
-        .connection
-        .get_geometry(context.root)
+    // Screen geometry and EWMH client-window enumeration are different
+    // capabilities. A Wayland session cannot expose its native client list
+    // through X11, but when it publishes DISPLAY its XWayland root still owns
+    // the session's usable pixel extent. Refusing before opening that exact
+    // display incorrectly reported a live desktop as having no screens.
+    let display = env::var("DISPLAY").ok();
+    if !x11_screen_available(display.as_deref()) {
+        return Err(WindowEnumerateError::Unsupported {
+            reason: "screen enumeration requires DISPLAY (X11 or XWayland)".into(),
+        });
+    }
+    let (connection, root) = open_x11_root()?;
+    let geom = connection
+        .get_geometry(root)
         .map_err(|_| failed("root geometry request failed"))?
         .reply()
         .map_err(|_| failed("root geometry reply failed"))?;
@@ -419,5 +438,16 @@ mod tests {
             classify_session(Some("x11"), None, Some(":0")),
             SessionKind::X11
         );
+    }
+
+    #[test]
+    fn screen_inventory_remains_distinct_from_wayland_client_enumeration() {
+        assert_eq!(
+            classify_session(Some("wayland"), Some("wayland-0"), Some(":0")),
+            SessionKind::Wayland
+        );
+        assert!(x11_screen_available(Some(":0")));
+        assert!(!x11_screen_available(Some("")));
+        assert!(!x11_screen_available(None));
     }
 }
