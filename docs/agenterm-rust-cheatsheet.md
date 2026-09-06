@@ -4462,6 +4462,13 @@ store so a fresh installation is not misdiagnosed as corrupt or unsafe.
 - Process groups, Windows Job Objects and Linux cgroups are not semantic
   substitutes. A Linux-only cgroup contract must return typed not-applicable on
   other hosts instead of projecting superficially similar fields.
+- Identity reads around a native command do not turn a bare-PID mutation into
+  exact-object authority. They can detect some reuse, but the target may exit
+  and its PID may be reused inside the effect call. Keep the mutation typed
+  unavailable until the effect primitive itself consumes a retained pidfd,
+  audit-token-bound object, process handle, or an equivalently atomic identity.
+  A privilege broker changes who may perform an effect; it does not repair a
+  racy target selector.
 
 ## Service lifecycle: bind the native authority domain and admit uncertainty
 

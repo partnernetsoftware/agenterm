@@ -721,6 +721,17 @@ flowchart LR
   `process_cgroup_not_applicable` result. Linux x86_64/aarch64 native courts and
   the Windows typed-not-applicable court remain before this leaf is complete.
 
+- [ ] `process policy ... background|normal` remains a provider gap after
+  review rather than receiving a weaker PID-racy port. The existing macOS
+  `taskpolicy -p PID` route ultimately addresses a bare PID; reading start
+  identity before and after the command detects some races but does not bind
+  the effect to the retained process object. Linux per-thread scheduling or
+  I/O priority and Windows current-process background mode are not equivalent
+  contracts. A read-only status and canonical plan may land independently,
+  but the capability cannot leave `gap` until a retained-object macOS effect
+  primitive is proved; privilege transport alone does not repair target
+  identity.
+
 ```mermaid
 flowchart LR
   P["pid + optional start identity"] --> R["retain exact process object"]

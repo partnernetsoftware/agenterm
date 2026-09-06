@@ -233,7 +233,8 @@
           "mcu_shape": "process policy PID status|background|normal",
           "acu_shape": null,
           "state": "gap",
-          "next": "platform-limited policy adapter plus explicit privilege broker"
+          "note": "Status and a canonical plan may be observed without mutation, but macOS taskpolicy targets a bare PID and identity reads before/after do not make that effect exact-object. Linux per-thread scheduling/ioprio and Windows current-process background mode are not semantic substitutes.",
+          "next": "prove a retained-object macOS background-policy primitive before adding the effect owner; keep mutation typed unavailable until then, independently of the privilege broker"
         },
         {
           "id": "process.cgroup",
