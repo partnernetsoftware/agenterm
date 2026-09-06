@@ -3366,6 +3366,30 @@ pub enum Command {
         target: TargetRef,
         connection_id: ConnectionId,
     },
+    /// Bind one exact Chromium tab in one stable extension profile instance to
+    /// an existing ACU runtime session. The returned target lock is released by
+    /// explicit lock release, session end or lease expiry.
+    BrowserBridgeAttach {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        tab_id: u32,
+        session_id: String,
+        lease: String,
+        ttl_seconds: u64,
+        timeout_ms: u64,
+    },
+    /// Reload the fixed bridge's Native Messaging connection in the
+    /// background, then prove that a unique new host connection belongs to the
+    /// same profile instance and still exposes the exact attached tab.
+    BrowserBridgeReload {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        tab_id: u32,
+        session_id: String,
+        lease: String,
+        ttl_seconds: u64,
+        timeout_ms: u64,
+    },
     /// Return bounded Chromium window state for one exact live bridge
     /// connection without changing browser focus or activation.
     BrowserBridgeWindows {
@@ -3867,6 +3891,8 @@ impl Command {
             Self::BrowserBridgeConnections { .. } => "browser-bridge-connections".into(),
             Self::BrowserBridgeStatus { .. } => "browser-bridge-status".into(),
             Self::BrowserBridgeTabs { .. } => "browser-bridge-tabs".into(),
+            Self::BrowserBridgeAttach { .. } => "browser-bridge-attach".into(),
+            Self::BrowserBridgeReload { .. } => "browser-bridge-reload".into(),
             Self::BrowserBridgeWindows { .. } => "browser-bridge-windows".into(),
             Self::BrowserBridgeWindowOpen { .. } => "browser-bridge-window-open".into(),
             Self::BrowserBridgeWindowState { .. } => "browser-bridge-window-state".into(),
@@ -4241,6 +4267,8 @@ impl Command {
             | Self::BrowserBridgeConnections { target, .. }
             | Self::BrowserBridgeStatus { target, .. }
             | Self::BrowserBridgeTabs { target, .. }
+            | Self::BrowserBridgeAttach { target, .. }
+            | Self::BrowserBridgeReload { target, .. }
             | Self::BrowserBridgeWindows { target, .. }
             | Self::BrowserBridgeWindowOpen { target, .. }
             | Self::BrowserBridgeWindowState { target, .. }
@@ -4358,6 +4386,8 @@ impl Command {
             | Self::BrowserSessionStop { .. }
             | Self::BrowserSessionRemove { .. }
             | Self::BrowserBridgeSetup { .. }
+            | Self::BrowserBridgeAttach { .. }
+            | Self::BrowserBridgeReload { .. }
             | Self::BrowserBridgeWindowOpen { .. }
             | Self::BrowserBridgeWindowState { .. }
             | Self::SimulatorBoot { .. }
@@ -4404,6 +4434,45 @@ impl Command {
             Self::LoginSessionPlanLock { ttl_seconds, .. } => {
                 if !(1..=600).contains(ttl_seconds) {
                     return Err("login-session plan lock ttl_seconds must be in 1..=600");
+                }
+                Ok(())
+            }
+            Self::BrowserBridgeAttach {
+                tab_id,
+                session_id,
+                lease,
+                ttl_seconds,
+                timeout_ms,
+                ..
+            }
+            | Self::BrowserBridgeReload {
+                tab_id,
+                session_id,
+                lease,
+                ttl_seconds,
+                timeout_ms,
+                ..
+            } => {
+                if *tab_id == 0 {
+                    return Err("browser bridge tab_id must be positive");
+                }
+                if session_id.is_empty() || session_id.len() > 128 || session_id.contains('\0') {
+                    return Err("browser bridge session_id must be in 1..=128 non-NUL bytes");
+                }
+                if lease.is_empty() || lease.len() > 128 || lease.contains('\0') {
+                    return Err("browser bridge lease must be in 1..=128 non-NUL bytes");
+                }
+                if !(1..=600).contains(ttl_seconds) {
+                    return Err("browser bridge lock ttl_seconds must be in 1..=600");
+                }
+                if !(500..=60_000).contains(timeout_ms) {
+                    return Err("browser bridge operation timeout_ms must be in 500..=60000");
+                }
+                let minimum_lock_ms = timeout_ms.saturating_add(5_000);
+                if ttl_seconds.saturating_mul(1_000) < minimum_lock_ms {
+                    return Err(
+                        "browser bridge lock ttl_seconds must cover timeout_ms plus 5000ms",
+                    );
                 }
                 Ok(())
             }
@@ -7569,6 +7638,31 @@ mod tests {
         };
         assert_eq!(open.required_grant(), Grant::Actuate);
         assert_eq!(open.verb(), "browser-bridge-window-open");
+
+        let attach = Command::BrowserBridgeAttach {
+            target: TargetRef::Current,
+            connection_id: connection_id.clone(),
+            tab_id: 7,
+            session_id: "session-id".into(),
+            lease: "lease-token".into(),
+            ttl_seconds: 60,
+            timeout_ms: 15_000,
+        };
+        assert_eq!(attach.required_grant(), Grant::Actuate);
+        assert_eq!(attach.verb(), "browser-bridge-attach");
+        attach.validate().unwrap();
+        let reload = Command::BrowserBridgeReload {
+            target: TargetRef::Current,
+            connection_id: connection_id.clone(),
+            tab_id: 7,
+            session_id: "session-id".into(),
+            lease: "lease-token".into(),
+            ttl_seconds: 60,
+            timeout_ms: 15_000,
+        };
+        assert_eq!(reload.required_grant(), Grant::Actuate);
+        assert_eq!(reload.verb(), "browser-bridge-reload");
+        reload.validate().unwrap();
 
         let debug = Command::BrowserBridgeDebugRead {
             target: TargetRef::Ssh,

@@ -8,7 +8,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use agenterm_platform::{
@@ -23,17 +23,18 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{
-    ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME, BridgeProtocolError, BridgeRequest, ConnectionEndpoint,
-    ConnectionEntry, ConnectionId, DebugReadFailure, DebugReadRequest, DebugReadResult,
-    NATIVE_MESSAGE_MAX_BYTES, PROTOCOL_VERSION, ProcessIdentity, REQUEST_LEDGER_MAX_ENTRIES,
-    TabsResult, WindowOpenRequest, WindowOpenResult, WindowStateRequest, WindowStateResult,
-    WindowsResult, decode_request, encode_native_message,
+    ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME, BRIDGE_EXTENSION_VERSION, BridgeProtocolError,
+    BridgeRequest, ConnectionEndpoint, ConnectionEntry, ConnectionId, DebugReadFailure,
+    DebugReadRequest, DebugReadResult, NATIVE_MESSAGE_MAX_BYTES, PROTOCOL_VERSION, ProcessIdentity,
+    REQUEST_LEDGER_MAX_ENTRIES, ReloadResult, TabsResult, WindowOpenRequest, WindowOpenResult,
+    WindowStateRequest, WindowStateResult, WindowsResult, decode_request, encode_native_message,
 };
 
 const CONNECTION_SCHEMA: u32 = 1;
 const CONNECTION_RECORD_MAX_BYTES: usize = 16 * 1024;
 const CONNECTION_SCAN_MAX: usize = 128;
 const IPC_TIMEOUT: Duration = Duration::from_secs(35);
+const IPC_TIMEOUT_MIN: Duration = Duration::from_millis(1);
 const ACCEPT_TICK: Duration = Duration::from_millis(250);
 const BROWSER_INPUT_QUEUE: usize = 2;
 
@@ -42,6 +43,8 @@ const BROWSER_INPUT_QUEUE: usize = 2;
 pub struct BridgeStatus {
     pub protocol: u32,
     pub extension_id: String,
+    pub extension_version: String,
+    pub profile_instance_id: super::ProfileInstanceId,
     pub commands: Vec<String>,
 }
 
@@ -88,6 +91,7 @@ impl BridgeResponse {
                     .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?;
                 if status.protocol != PROTOCOL_VERSION
                     || status.extension_id != ACU_EXTENSION_ID
+                    || status.extension_version != BRIDGE_EXTENSION_VERSION
                     || status.commands
                         != [
                             "status",
@@ -96,6 +100,7 @@ impl BridgeResponse {
                             "window-open",
                             "window-state",
                             "debug-read",
+                            "reload",
                         ]
                 {
                     return Err(BridgeHostError::new(
@@ -137,6 +142,13 @@ impl BridgeResponse {
                     .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
                     .validate_for(&args)
                     .map_err(BridgeHostError::protocol)?;
+            }
+            "reload" => {
+                let result: ReloadResult = serde_json::from_value(result)
+                    .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?;
+                if !result.accepted || result.reload_scope != "native-connection" {
+                    return Err(BridgeHostError::new("browser_bridge_reload_not_accepted"));
+                }
             }
             _ => return Err(BridgeHostError::new("browser_bridge_command_unknown")),
         }
@@ -530,25 +542,199 @@ pub fn send_to_connection(
     connection_id: &ConnectionId,
     request: &BridgeRequest,
 ) -> Result<BridgeResponse, BridgeHostError> {
+    send_to_connection_with_timeout(connection_id, request, IPC_TIMEOUT)
+}
+
+/// Sends one request under a single caller-selected deadline shared by
+/// connect, every write, and every read. The timeout is bounded by the native
+/// host's default ceiling so a caller cannot accidentally create an unbounded
+/// local IPC wait.
+pub fn send_to_connection_with_timeout(
+    connection_id: &ConnectionId,
+    request: &BridgeRequest,
+    timeout: Duration,
+) -> Result<BridgeResponse, BridgeHostError> {
+    send_to_connection_at(&connection_root()?, connection_id, request, timeout)
+}
+
+fn send_to_connection_at(
+    root: &std::path::Path,
+    connection_id: &ConnectionId,
+    request: &BridgeRequest,
+    timeout: Duration,
+) -> Result<BridgeResponse, BridgeHostError> {
+    if !(IPC_TIMEOUT_MIN..=IPC_TIMEOUT).contains(&timeout) {
+        return Err(BridgeHostError::new(
+            "browser_bridge_request_timeout_invalid",
+        ));
+    }
     request.validate().map_err(BridgeHostError::protocol)?;
-    let record = load_live_record(connection_id)?;
+    let record = load_live_record_at(root, connection_id)?;
     let endpoint = endpoint_for(&record.entry.connection_id);
-    let mut stream = NativeStream::connect(&endpoint, Duration::from_secs(2))
-        .map_err(|_| BridgeHostError::new("browser_bridge_host_unavailable"))?;
-    stream
-        .set_io_timeout(IPC_TIMEOUT)
-        .map_err(|_| BridgeHostError::new("browser_bridge_protocol_io"))?;
     let value = serde_json::to_value(request)
         .map_err(|_| BridgeHostError::new("browser_bridge_request_invalid"))?;
-    write_frame(&mut stream, &value)?;
-    let response: BridgeResponse = serde_json::from_value(read_frame(&mut stream)?)
-        .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?;
+    let frame = encode_native_message(&value).map_err(BridgeHostError::protocol)?;
+    let deadline = Instant::now() + timeout;
+    let mut stream = NativeStream::connect(&endpoint, remaining(deadline)?).map_err(|error| {
+        if error.code == IpcTransportErrorCode::ConnectTimeout
+            || error.io_kind() == io::ErrorKind::TimedOut
+        {
+            BridgeHostError::new("browser_bridge_request_timeout")
+        } else {
+            BridgeHostError::new("browser_bridge_host_unavailable")
+        }
+    })?;
+    #[cfg(unix)]
+    stream
+        .set_nonblocking(true)
+        .map_err(|_| BridgeHostError::new("browser_bridge_deadline_setup_failed"))?;
+    write_all_with_deadline(&mut stream, &frame, deadline)?;
+    flush_with_deadline(&mut stream, deadline)?;
+    let response: BridgeResponse =
+        serde_json::from_value(read_frame_with_deadline(&mut stream, deadline)?)
+            .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?;
     response.validate_for(request)?;
     Ok(response)
 }
 
-fn load_live_record(id: &ConnectionId) -> Result<ConnectionRecord, BridgeHostError> {
-    load_live_record_at(&connection_root()?, id)
+fn remaining(deadline: Instant) -> Result<Duration, BridgeHostError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        Err(BridgeHostError::new("browser_bridge_request_timeout"))
+    } else {
+        Ok(remaining)
+    }
+}
+
+fn set_remaining_timeout(
+    stream: &mut NativeStream,
+    deadline: Instant,
+) -> Result<(), BridgeHostError> {
+    let timeout = remaining(deadline)?;
+    #[cfg(windows)]
+    {
+        stream
+            .set_io_timeout(timeout)
+            .map_err(|_| BridgeHostError::new("browser_bridge_timeout_configuration_failed"))
+    }
+    #[cfg(unix)]
+    {
+        let _ = (stream, timeout);
+        Ok(())
+    }
+}
+
+fn wait_readable(stream: &mut NativeStream, deadline: Instant) -> Result<(), BridgeHostError> {
+    set_remaining_timeout(stream, deadline)?;
+    #[cfg(unix)]
+    if !stream
+        .wait_readable(remaining(deadline)?)
+        .map_err(|_| BridgeHostError::new("browser_bridge_protocol_io"))?
+    {
+        return Err(BridgeHostError::new("browser_bridge_request_timeout"));
+    }
+    Ok(())
+}
+
+fn wait_writable(stream: &mut NativeStream, deadline: Instant) -> Result<(), BridgeHostError> {
+    set_remaining_timeout(stream, deadline)?;
+    #[cfg(unix)]
+    if !stream
+        .wait_writable(remaining(deadline)?)
+        .map_err(|_| BridgeHostError::new("browser_bridge_protocol_io"))?
+    {
+        return Err(BridgeHostError::new("browser_bridge_request_timeout"));
+    }
+    Ok(())
+}
+
+fn map_deadline_io(error: io::Error, fallback: &'static str) -> BridgeHostError {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+    ) {
+        BridgeHostError::new("browser_bridge_request_timeout")
+    } else {
+        BridgeHostError::new(fallback)
+    }
+}
+
+fn write_all_with_deadline(
+    stream: &mut NativeStream,
+    mut bytes: &[u8],
+    deadline: Instant,
+) -> Result<(), BridgeHostError> {
+    while !bytes.is_empty() {
+        wait_writable(stream, deadline)?;
+        match stream.write(bytes) {
+            Ok(0) => return Err(BridgeHostError::new("browser_bridge_request_write_failed")),
+            Ok(written) => bytes = &bytes[written..],
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+            Err(error) => {
+                return Err(map_deadline_io(
+                    error,
+                    "browser_bridge_request_write_failed",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn flush_with_deadline(
+    stream: &mut NativeStream,
+    deadline: Instant,
+) -> Result<(), BridgeHostError> {
+    wait_writable(stream, deadline)?;
+    stream
+        .flush()
+        .map_err(|error| map_deadline_io(error, "browser_bridge_request_flush_failed"))
+}
+
+fn read_exact_with_deadline(
+    stream: &mut NativeStream,
+    mut bytes: &mut [u8],
+    deadline: Instant,
+    eof_code: &'static str,
+) -> Result<(), BridgeHostError> {
+    while !bytes.is_empty() {
+        wait_readable(stream, deadline)?;
+        match stream.read(bytes) {
+            Ok(0) => return Err(BridgeHostError::new(eof_code)),
+            Ok(read) => bytes = &mut bytes[read..],
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+            Err(error) => return Err(map_deadline_io(error, eof_code)),
+        }
+    }
+    Ok(())
+}
+
+fn read_frame_with_deadline(
+    stream: &mut NativeStream,
+    deadline: Instant,
+) -> Result<Value, BridgeHostError> {
+    let mut header = [0_u8; 4];
+    read_exact_with_deadline(
+        stream,
+        &mut header,
+        deadline,
+        "browser_bridge_message_missing",
+    )?;
+    let size = u32::from_le_bytes(header) as usize;
+    if size > NATIVE_MESSAGE_MAX_BYTES {
+        return Err(BridgeHostError::new("browser_bridge_message_too_large"));
+    }
+    let mut body = vec![0; size];
+    read_exact_with_deadline(
+        stream,
+        &mut body,
+        deadline,
+        "browser_bridge_message_truncated",
+    )?;
+    serde_json::from_slice(&body)
+        .map_err(|_| BridgeHostError::new("browser_bridge_message_invalid"))
 }
 
 fn load_live_record_at(
@@ -705,7 +891,7 @@ mod tests {
 
     fn request(command: &str) -> BridgeRequest {
         BridgeRequest {
-            protocol: 1,
+            protocol: PROTOCOL_VERSION,
             id: "request-1".into(),
             command: command.into(),
             args: Map::new(),
@@ -713,14 +899,26 @@ mod tests {
     }
 
     fn response(request: &BridgeRequest, result: Value) -> Vec<u8> {
-        encode_native_message(&json!({"protocol":1,"id":request.id,"ok":true,"result":result}))
-            .unwrap()
+        encode_native_message(
+            &json!({"protocol":PROTOCOL_VERSION,"id":request.id,"ok":true,"result":result}),
+        )
+        .unwrap()
+    }
+
+    fn status_value() -> Value {
+        json!({
+            "protocol": PROTOCOL_VERSION,
+            "extension_id": ACU_EXTENSION_ID,
+            "extension_version": BRIDGE_EXTENSION_VERSION,
+            "profile_instance_id": "1234567890abcdef1234567890abcdef",
+            "commands": ["status","tabs","windows","window-open","window-state","debug-read","reload"]
+        })
     }
 
     #[test]
     fn exact_retry_replays_without_second_browser_effect_and_conflict_fails() {
         let request = request("status");
-        let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-open","window-state","debug-read"]});
+        let status = status_value();
         let response_bytes = response(&request, status);
         let mut browser_in = response_bytes.as_slice();
         let mut browser_out = Vec::new();
@@ -824,7 +1022,7 @@ mod tests {
         for index in 0..REQUEST_LEDGER_MAX_ENTRIES {
             let mut request = request("status");
             request.id = format!("request-{index}");
-            let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-open","window-state","debug-read"]});
+            let status = status_value();
             let response_bytes = response(&request, status);
             exchange_one(
                 &mut ledger,
@@ -1011,7 +1209,7 @@ mod tests {
     #[test]
     fn sole_browser_reader_preserves_split_frames_during_exchange() {
         let request = request("status");
-        let status = json!({"protocol":1,"extension_id":ACU_EXTENSION_ID,"commands":["status","tabs","windows","window-open","window-state","debug-read"]});
+        let status = status_value();
         let input = BrowserInput::spawn(OneByteReader(io::Cursor::new(response(&request, status))));
         let mut output = Vec::new();
         exchange_from_browser_input(
@@ -1025,5 +1223,99 @@ mod tests {
             NativeMessageDecoder::default().push(&output).unwrap(),
             vec![serde_json::to_value(request).unwrap()]
         );
+    }
+
+    #[test]
+    fn reload_response_rejects_a_scope_the_host_did_not_request() {
+        let mut request = request("reload");
+        request.args.insert("tab_id".into(), json!(7));
+        let bytes = response(
+            &request,
+            json!({
+                "accepted": true,
+                "reload_scope": "extension-code",
+                "profile_instance_id": "1234567890abcdef1234567890abcdef"
+            }),
+        );
+        let mut input = bytes.as_slice();
+        let mut output = Vec::new();
+        let error = exchange_one(
+            &mut RequestLedger::default(),
+            &mut input,
+            &mut output,
+            request,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "browser_bridge_reload_not_accepted");
+    }
+
+    #[test]
+    fn reload_response_rejects_an_unaccepted_effect() {
+        let mut request = request("reload");
+        request.args.insert("tab_id".into(), json!(7));
+        let bytes = response(
+            &request,
+            json!({
+                "accepted": false,
+                "reload_scope": "native-connection",
+                "profile_instance_id": "1234567890abcdef1234567890abcdef"
+            }),
+        );
+        assert_eq!(
+            exchange_one(
+                &mut RequestLedger::default(),
+                &mut bytes.as_slice(),
+                &mut Vec::new(),
+                request,
+            )
+            .unwrap_err()
+            .code,
+            "browser_bridge_reload_not_accepted"
+        );
+    }
+
+    #[test]
+    fn caller_deadline_bounds_a_connection_that_never_replies() {
+        let root = std::env::temp_dir().join(format!(
+            "agenterm-cu-browser-deadline-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let (record, mut listener, published) = publish_connection_at(&root).unwrap();
+        let server = std::thread::spawn(move || {
+            let mut stream = listener.accept(Duration::from_secs(2)).unwrap();
+            stream.set_io_timeout(Duration::from_secs(2)).unwrap();
+            read_frame(&mut stream).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+        });
+        let started = Instant::now();
+        let error = send_to_connection_at(
+            &root,
+            &record.entry.connection_id,
+            &request("status"),
+            Duration::from_millis(10),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "browser_bridge_request_timeout");
+        assert!(started.elapsed() < Duration::from_millis(500));
+        server.join().unwrap();
+        drop(published);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn caller_deadline_rejects_zero_and_above_native_ceiling() {
+        let id = ConnectionId::from_random([0x42; 32]).unwrap();
+        let request = request("status");
+        for timeout in [Duration::ZERO, IPC_TIMEOUT + Duration::from_millis(1)] {
+            assert_eq!(
+                send_to_connection_at(std::path::Path::new("unused"), &id, &request, timeout)
+                    .unwrap_err()
+                    .code,
+                "browser_bridge_request_timeout_invalid"
+            );
+        }
     }
 }

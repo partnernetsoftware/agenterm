@@ -1488,6 +1488,38 @@ impl Executor {
             Command::BrowserBridgeTabs { connection_id, .. } => {
                 browser_bridge_request_payload(connection_id, "tabs", serde_json::Map::new())
             }
+            Command::BrowserBridgeAttach {
+                connection_id,
+                tab_id,
+                session_id,
+                lease,
+                ttl_seconds,
+                timeout_ms,
+                ..
+            } => browser_bridge_attach_payload(
+                connection_id,
+                *tab_id,
+                session_id,
+                lease,
+                *ttl_seconds,
+                *timeout_ms,
+            ),
+            Command::BrowserBridgeReload {
+                connection_id,
+                tab_id,
+                session_id,
+                lease,
+                ttl_seconds,
+                timeout_ms,
+                ..
+            } => browser_bridge_reload_payload(
+                connection_id,
+                *tab_id,
+                session_id,
+                lease,
+                *ttl_seconds,
+                *timeout_ms,
+            ),
             Command::BrowserBridgeWindows { connection_id, .. } => {
                 browser_bridge_request_payload(connection_id, "windows", serde_json::Map::new())
             }

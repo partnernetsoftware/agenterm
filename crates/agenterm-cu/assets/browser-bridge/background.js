@@ -1,11 +1,44 @@
 "use strict";
 
 const HOST = "software.partnernet.agenterm_acu.browser_bridge";
-const PROTOCOL = 1;
+const PROTOCOL = 2;
+const PROFILE_INSTANCE_KEY = "acuProfileInstanceId";
 const LIMITS = Object.freeze({ frames: 64, depth: 20, scan: 5000, results: 1000 });
 const TAB_LIMITS = Object.freeze({ results: 512, titleCharacters: 1024, urlCharacters: 2048 });
 const WINDOW_LIMITS = Object.freeze({ results: 256 });
 let port = null;
+let profileInstancePromise = null;
+let connectPromise = null;
+
+function randomProfileInstanceId() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  if (bytes.every(byte => byte === 0)) bytes[0] = 1;
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function validProfileInstanceId(value) {
+  return typeof value === "string" && /^[0-9a-f]{32}$/u.test(value) && !/^0+$/u.test(value);
+}
+
+async function profileInstanceId() {
+  if (!profileInstancePromise) {
+    profileInstancePromise = (async () => {
+      const stored = await chrome.storage.local.get(PROFILE_INSTANCE_KEY);
+      const existing = stored && stored[PROFILE_INSTANCE_KEY];
+      if (validProfileInstanceId(existing)) return existing;
+      const created = randomProfileInstanceId();
+      await chrome.storage.local.set({ [PROFILE_INSTANCE_KEY]: created });
+      const verified = (await chrome.storage.local.get(PROFILE_INSTANCE_KEY))[PROFILE_INSTANCE_KEY];
+      if (verified !== created) throw new Error("browser_bridge_profile_identity_publish_failed");
+      return created;
+    })().catch(error => {
+      profileInstancePromise = null;
+      throw error;
+    });
+  }
+  return profileInstancePromise;
+}
 
 function hasControl(value) {
   return typeof value === "string" && /[\u0000-\u001f\u007f-\u009f]/u.test(value);
@@ -25,10 +58,10 @@ function validateRequest(request) {
       !request.args || Array.isArray(request.args) || typeof request.args !== "object") {
     throw new Error("browser_bridge_request_invalid");
   }
-  if (!["status", "tabs", "windows", "window-open", "window-state", "debug-read"].includes(request.command)) {
+  if (!["status", "tabs", "windows", "window-open", "window-state", "debug-read", "reload"].includes(request.command)) {
     throw new Error("browser_bridge_command_unknown");
   }
-  if (!["debug-read", "window-open", "window-state"].includes(request.command) && Object.keys(request.args).length !== 0) {
+  if (!["debug-read", "window-open", "window-state", "reload"].includes(request.command) && Object.keys(request.args).length !== 0) {
     throw new Error("browser_bridge_args_invalid");
   }
 }
@@ -334,10 +367,28 @@ async function updateWindowState(args) {
   }
 }
 
+async function reloadBridge(args) {
+  const keys = Object.keys(args).sort().join(",");
+  if (keys !== "tab_id" || !boundedInteger(args.tab_id, 0x7fffffff)) {
+    throw new Error("browser_bridge_reload_args_invalid");
+  }
+  const identity = await profileInstanceId();
+  const before = await tabPresentation(args.tab_id);
+  await chrome.tabs.get(args.tab_id);
+  const after = await tabPresentation(args.tab_id);
+  if (before.active !== after.active || before.focused !== after.focused) {
+    throw new Error("browser_bridge_reload_presentation_changed");
+  }
+  return { accepted: true, reload_scope: "native-connection", profile_instance_id: identity };
+}
+
 async function dispatch(request) {
   validateRequest(request);
   if (request.command === "status") {
-    return { protocol: PROTOCOL, extension_id: chrome.runtime.id, commands: ["status", "tabs", "windows", "window-open", "window-state", "debug-read"] };
+    return { protocol: PROTOCOL, extension_id: chrome.runtime.id,
+      extension_version: chrome.runtime.getManifest().version,
+      profile_instance_id: await profileInstanceId(),
+      commands: ["status", "tabs", "windows", "window-open", "window-state", "debug-read", "reload"] };
   }
   if (request.command === "tabs") {
     const tabs = await chrome.tabs.query({});
@@ -376,31 +427,48 @@ async function dispatch(request) {
   }
   if (request.command === "window-open") return openWindow(request.args);
   if (request.command === "window-state") return updateWindowState(request.args);
+  if (request.command === "reload") return reloadBridge(request.args);
   return debugRead(request.args);
 }
 
 function connect() {
-  if (port) return;
-  port = chrome.runtime.connectNative(HOST);
-  port.onMessage.addListener(async request => {
-    try {
-      const result = await dispatch(request);
-      if (request.command === "debug-read" && result && result.code && result.detach) {
-        port.postMessage({ protocol: PROTOCOL, id: request.id, ok: false,
-          error: { code: result.code, tab_id: result.tab_id, detach: result.detach } });
-      } else {
-        port.postMessage({ protocol: PROTOCOL, id: request.id, ok: true, result });
+  if (port) return Promise.resolve();
+  if (connectPromise) return connectPromise;
+  connectPromise = (async () => {
+    await profileInstanceId();
+    if (port) return;
+    const opened = chrome.runtime.connectNative(HOST);
+    port = opened;
+    opened.onMessage.addListener(async request => {
+      try {
+        const result = await dispatch(request);
+        if (request.command === "debug-read" && result && result.code && result.detach) {
+          opened.postMessage({ protocol: PROTOCOL, id: request.id, ok: false,
+            error: { code: result.code, tab_id: result.tab_id, detach: result.detach } });
+        } else {
+          opened.postMessage({ protocol: PROTOCOL, id: request.id, ok: true, result });
+        }
+        if (request.command === "reload") {
+          setTimeout(() => {
+            if (port === opened) port = null;
+            opened.disconnect();
+            setTimeout(() => { connect().catch(() => {}); }, 50);
+          }, 50);
+        }
+      } catch (error) {
+        const code = String(error && error.message || "browser_bridge_failed")
+          .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").slice(0, 96);
+        opened.postMessage({ protocol: PROTOCOL, id: request && request.id,
+          ok: false, error: { code: code || "browser_bridge_failed" } });
       }
-    } catch (error) {
-      const code = String(error && error.message || "browser_bridge_failed")
-        .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").slice(0, 96);
-      port.postMessage({ protocol: PROTOCOL, id: request && request.id,
-        ok: false, error: { code: code || "browser_bridge_failed" } });
-    }
-  });
-  port.onDisconnect.addListener(() => { port = null; });
+    });
+    opened.onDisconnect.addListener(() => {
+      if (port === opened) port = null;
+    });
+  })().finally(() => { connectPromise = null; });
+  return connectPromise;
 }
 
-connect();
-chrome.runtime.onStartup.addListener(connect);
-chrome.runtime.onInstalled.addListener(connect);
+connect().catch(() => {});
+chrome.runtime.onStartup.addListener(() => { connect().catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => { connect().catch(() => {}); });

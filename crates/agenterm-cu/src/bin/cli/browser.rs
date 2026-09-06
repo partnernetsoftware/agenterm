@@ -50,6 +50,8 @@ pub fn parse(
             "browser-bridge-connections" => browser_bridge(target, Some("connections"), args),
             "browser-bridge-status" => browser_bridge(target, Some("status"), args),
             "browser-bridge-tabs" => browser_bridge(target, Some("tabs"), args),
+            "browser-bridge-attach" => browser_bridge(target, Some("attach"), args),
+            "browser-bridge-reload" => browser_bridge(target, Some("reload"), args),
             "browser-bridge-windows" => browser_bridge(target, Some("windows"), args),
             "browser-bridge-window-open" => browser_bridge(target, Some("window-open"), args),
             "browser-bridge-window-state" => browser_bridge(target, Some("window-state"), args),
@@ -975,7 +977,7 @@ fn browser_bridge(
     let action = match action {
         Some(action) => action,
         None => args.first().map(String::as_str).ok_or_else(|| {
-            "browser bridge requires setup | connections | status | tabs | windows | window-open | window-state | debug-read"
+            "browser bridge requires setup | connections | status | tabs | attach | reload | windows | window-open | window-state | debug-read"
                 .to_owned()
         })?,
     }
@@ -984,13 +986,15 @@ fn browser_bridge(
         && action != "connections"
         && action != "status"
         && action != "tabs"
+        && action != "attach"
+        && action != "reload"
         && action != "windows"
         && action != "window-open"
         && action != "window-state"
         && action != "debug-read"
     {
         return Err(format!(
-            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | windows | window-open | window-state | debug-read"
+            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | attach | reload | windows | window-open | window-state | debug-read"
         ));
     }
     if action.is_empty() {
@@ -1016,6 +1020,61 @@ fn browser_bridge(
             target,
             connection_id: exact_connection_id("browser bridge tabs", args)?,
         }),
+        "attach" | "reload" => {
+            let tab_id = flag_parsed::<u32>(args, "--tab-id")?
+                .filter(|value| *value > 0)
+                .ok_or_else(|| format!("browser bridge {action} requires --tab-id N"))?;
+            let session_id = flag_text(args, "--session")?
+                .ok_or_else(|| format!("browser bridge {action} requires --session ID"))?;
+            let lease = flag_text(args, "--lease")?
+                .ok_or_else(|| format!("browser bridge {action} requires --lease TOKEN"))?;
+            let ttl_seconds = flag_parsed::<u64>(args, "--ttl-seconds")?.unwrap_or(60);
+            let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(15_000);
+            if !(1..=600).contains(&ttl_seconds) {
+                return Err(format!(
+                    "browser bridge {action} --ttl-seconds must be in 1..=600"
+                ));
+            }
+            if !(500..=60_000).contains(&timeout_ms) {
+                return Err(format!(
+                    "browser bridge {action} --timeout-ms must be in 500..=60000"
+                ));
+            }
+            if ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(5_000) {
+                return Err(format!(
+                    "browser bridge {action} --ttl-seconds must cover --timeout-ms plus 5000ms"
+                ));
+            }
+            let connection_id = exact_connection_id(
+                if action == "attach" {
+                    "browser bridge attach"
+                } else {
+                    "browser bridge reload"
+                },
+                args,
+            )?;
+            if action == "attach" {
+                Ok(Command::BrowserBridgeAttach {
+                    target,
+                    connection_id,
+                    tab_id,
+                    session_id,
+                    lease,
+                    ttl_seconds,
+                    timeout_ms,
+                })
+            } else {
+                Ok(Command::BrowserBridgeReload {
+                    target,
+                    connection_id,
+                    tab_id,
+                    session_id,
+                    lease,
+                    ttl_seconds,
+                    timeout_ms,
+                })
+            }
+        }
         "windows" => Ok(Command::BrowserBridgeWindows {
             target,
             connection_id: exact_connection_id("browser bridge windows", args)?,
@@ -1426,6 +1485,50 @@ mod tests {
                 ..
             })
         ));
+
+        let mut attach = words(&[
+            &id,
+            "--tab-id",
+            "7",
+            "--session",
+            "session-id",
+            "--lease",
+            "lease-token",
+            "--ttl-seconds",
+            "45",
+        ]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("attach"), &mut attach),
+            Ok(Command::BrowserBridgeAttach {
+                tab_id: 7,
+                ttl_seconds: 45,
+                timeout_ms: 15_000,
+                ref session_id,
+                ref lease,
+                ..
+            }) if session_id == "session-id" && lease == "lease-token"
+        ));
+
+        let mut reload = words(&[
+            &id,
+            "--tab-id",
+            "7",
+            "--session",
+            "session-id",
+            "--lease",
+            "lease-token",
+            "--timeout-ms",
+            "9000",
+        ]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("reload"), &mut reload),
+            Ok(Command::BrowserBridgeReload {
+                tab_id: 7,
+                ttl_seconds: 60,
+                timeout_ms: 9000,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1446,5 +1549,17 @@ mod tests {
         );
         let mut setup_extra = words(&["unexpected"]);
         assert!(browser_bridge(TargetRef::Current, Some("setup"), &mut setup_extra).is_err());
+        let mut invalid_reload = words(&[
+            valid.as_str(),
+            "--tab-id",
+            "1",
+            "--session",
+            "s",
+            "--lease",
+            "l",
+            "--timeout-ms",
+            "499",
+        ]);
+        assert!(browser_bridge(TargetRef::Current, Some("reload"), &mut invalid_reload).is_err());
     }
 }

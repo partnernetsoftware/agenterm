@@ -500,11 +500,13 @@
         {
           "id": "browser.mv3-native-bridge",
           "mcu_shape": "browser bridge setup/status/reload plus attached-profile session and target locks",
-          "acu_shape": "browser-bridge-setup plus bounded exact-connection inventory/status/tabs/windows/window-state/debug-read over the fixed-identity embedded MV3 asset, same-binary Native Messaging host and current-user installer",
-          "state": "gap",
-          "evidence": ["cu.browser-bridge-owned-profile.macos"],
-          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact fixed extension, proves the live connection/status/tab/window wire, then proves stop and TTL reap the Native Messaging host. This is real activation evidence, but reload/attached-session target locks and Linux/Windows courts are still absent.",
-          "next": "add reload/attached-session semantics and prove Linux/Windows owned-Profile activation, focus preservation, target-lock release and detach cleanup"
+          "acu_shape": "browser-bridge-setup plus bounded exact-connection inventory/status/tabs/windows/window-state/debug-read over the fixed-identity embedded MV3 asset, persistent profile instance identity, attached-session exact-tab locks, native-connection reload, same-binary Native Messaging host and current-user installer",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
+          "qualification": "macos-owned-profile-identity-lock-reconnect-green-linux-windows-native-courts-pending",
+          "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos"],
+          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact fixed extension, proves its persistent profile instance identity, leases one exact tab to an ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. Session end proves exact lock release and browser stop reaps the host. The receipt names reload_scope=native-connection: it does not claim Chromium hot-loaded new extension code.",
+          "next": "prove the same owned-Profile identity, target-lock, reconnect, focus and cleanup contract with native Chromium-family executables on Linux and Windows; keep extension-code update activation as a separate setup boundary"
         },
         {
           "id": "browser.closed-tree",

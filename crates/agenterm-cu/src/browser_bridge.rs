@@ -15,6 +15,7 @@ pub use assets::{
 pub use host::{
     BridgeHostError, BridgeResponse, BridgeStatus, BridgeWireError, ConnectionInventory,
     RequestLedger, list_live_connections, run_native_host, send_to_connection,
+    send_to_connection_with_timeout,
 };
 pub use installer::{
     BrowserBridgeInstall, BrowserBridgeInstallError, BrowserBridgeInstallPaths,
@@ -29,7 +30,8 @@ pub use registry::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
+pub const BRIDGE_EXTENSION_VERSION: &str = "1.1.0";
 pub const REQUEST_MAX_BYTES: usize = 1024 * 1024;
 pub const NATIVE_MESSAGE_MAX_BYTES: usize = REQUEST_MAX_BYTES;
 pub const ACU_NATIVE_HOST_NAME: &str = "software.partnernet.agenterm_acu.browser_bridge";
@@ -52,7 +54,43 @@ const COMMANDS: &[&str] = &[
     "window-open",
     "window-state",
     "debug-read",
+    "reload",
 ];
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct ProfileInstanceId(String);
+
+impl ProfileInstanceId {
+    pub fn parse(encoded: &str) -> Result<Self, BridgeProtocolError> {
+        if encoded.len() != 32
+            || encoded
+                .bytes()
+                .any(|byte| !byte.is_ascii_digit() && !(b'a'..=b'f').contains(&byte))
+            || encoded.bytes().all(|byte| byte == b'0')
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_profile_identity_invalid",
+                "profile instance id must be 32 lowercase hexadecimal characters and nonzero",
+            ));
+        }
+        Ok(Self(encoded.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for ProfileInstanceId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let encoded = String::deserialize(deserializer)?;
+        Self::parse(&encoded).map_err(|error| serde::de::Error::custom(error.message))
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -111,6 +149,16 @@ impl BridgeRequest {
                     })?;
                 req.validate()
             }
+            "reload" => {
+                let req: ReloadRequest = serde_json::from_value(Value::Object(self.args.clone()))
+                    .map_err(|e| {
+                    BridgeProtocolError::new(
+                        "browser_bridge_args_invalid",
+                        format!("reload args are invalid: {e}"),
+                    )
+                })?;
+                req.validate()
+            }
             "window-state" => {
                 let req: WindowStateRequest =
                     serde_json::from_value(Value::Object(self.args.clone())).map_err(|e| {
@@ -133,6 +181,47 @@ impl BridgeRequest {
             }
             _ => Ok(()),
         }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReloadRequest {
+    pub tab_id: u32,
+}
+
+impl ReloadRequest {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        if self.tab_id == 0 {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_reload_args_invalid",
+                "reload tab_id must be positive",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReloadResult {
+    pub accepted: bool,
+    pub reload_scope: String,
+    pub profile_instance_id: ProfileInstanceId,
+}
+
+impl ReloadResult {
+    pub fn validate_for(&self, expected: &ProfileInstanceId) -> Result<(), BridgeProtocolError> {
+        if !self.accepted
+            || self.reload_scope != "native-connection"
+            || &self.profile_instance_id != expected
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_reload_identity_mismatch",
+                "reload acknowledgement did not preserve the exact profile instance identity",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -710,7 +799,7 @@ mod tests {
 
     fn req(command: &str) -> BridgeRequest {
         BridgeRequest {
-            protocol: 1,
+            protocol: PROTOCOL_VERSION,
             id: "acu:42.1".into(),
             command: command.into(),
             args: Map::new(),
@@ -731,6 +820,9 @@ mod tests {
         req("status").validate().unwrap();
         req("tabs").validate().unwrap();
         req("windows").validate().unwrap();
+        let mut reload = req("reload");
+        reload.args.insert("tab_id".into(), json!(7));
+        reload.validate().unwrap();
         for command in ["read", "debug-invoke", "click", "type", "nav"] {
             assert_eq!(
                 req(command).validate().unwrap_err().code,
@@ -744,13 +836,52 @@ mod tests {
             "browser_bridge_args_invalid"
         );
         for value in [
-            json!({"protocol":1,"id":"x","command":"status","args":[]}),
-            json!({"protocol":1,"id":"x","command":"status","args":{},"extra":true}),
+            json!({"protocol":PROTOCOL_VERSION,"id":"x","command":"status","args":[]}),
+            json!({"protocol":PROTOCOL_VERSION,"id":"x","command":"status","args":{},"extra":true}),
         ] {
             assert_eq!(
                 decode_request(value).unwrap_err().code,
                 "browser_bridge_request_invalid"
             );
+        }
+    }
+
+    #[test]
+    fn profile_identity_and_reload_receipt_are_closed() {
+        let identity = ProfileInstanceId::parse("1234567890abcdef1234567890abcdef").unwrap();
+        assert_eq!(identity.as_str(), "1234567890abcdef1234567890abcdef");
+        for invalid in [
+            "",
+            "0",
+            "00000000000000000000000000000000",
+            "ABCDEF1234567890ABCDEF1234567890",
+        ] {
+            assert!(ProfileInstanceId::parse(invalid).is_err());
+        }
+        ReloadResult {
+            accepted: true,
+            reload_scope: "native-connection".into(),
+            profile_instance_id: identity.clone(),
+        }
+        .validate_for(&identity)
+        .unwrap();
+        assert_eq!(
+            ReloadResult {
+                accepted: true,
+                reload_scope: "native-connection".into(),
+                profile_instance_id: ProfileInstanceId::parse("abcdef1234567890abcdef1234567890")
+                    .unwrap(),
+            }
+            .validate_for(&identity)
+            .unwrap_err()
+            .code,
+            "browser_bridge_reload_identity_mismatch"
+        );
+        for value in [
+            json!({"value":"1234567890abcdef1234567890abcdef"}),
+            json!({"profile_instance_id":"1234567890abcdef1234567890abcdef","extra":true}),
+        ] {
+            assert!(serde_json::from_value::<ProfileInstanceId>(value).is_err());
         }
     }
 

@@ -167,8 +167,9 @@ mod tests {
         assert_eq!(manifest["manifest_version"], 3);
         assert_eq!(
             manifest["permissions"],
-            serde_json::json!(["nativeMessaging", "tabs", "debugger"])
+            serde_json::json!(["nativeMessaging", "tabs", "debugger", "storage"])
         );
+        assert_eq!(manifest["version"], super::super::BRIDGE_EXTENSION_VERSION);
         assert_eq!(manifest["background"]["service_worker"], "background.js");
         let source = std::str::from_utf8(ASSETS[1].bytes).unwrap();
         assert!(source.contains(ACU_NATIVE_HOST_NAME));
@@ -179,6 +180,7 @@ mod tests {
             "window-open",
             "window-state",
             "debug-read",
+            "reload",
         ] {
             assert!(source.contains(command));
         }

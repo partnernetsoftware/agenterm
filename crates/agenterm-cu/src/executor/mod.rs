@@ -912,6 +912,11 @@ impl Executor {
                     })
                 })
                 })
+        } else if matches!(
+            command,
+            Command::BrowserBridgeAttach { .. } | Command::BrowserBridgeReload { .. }
+        ) {
+            Some(browser_bridge_lock_audit_detail(reply))
         } else {
             reply.data.clone().or_else(|| {
                 reply.error.as_ref().map(|error| {
@@ -930,6 +935,30 @@ impl Executor {
             Err(error) => CuReply::err(command, error),
         }
     }
+}
+
+fn browser_bridge_lock_audit_detail(reply: &CuReply) -> serde_json::Value {
+    let source = reply
+        .data
+        .as_ref()
+        .or_else(|| reply.error.as_ref().and_then(|error| error.detail.as_ref()));
+    serde_json::json!({
+        "code": reply.error.as_ref().map(|error| error.code.as_str()),
+        "tab_id": source.and_then(|value| value.get("tab")).and_then(|tab| tab.get("tab_id")),
+        "window_id": source.and_then(|value| value.get("tab")).and_then(|tab| tab.get("window_id")),
+        "reload_scope": source.and_then(|value| value.get("reload_scope")),
+        "effect": source.and_then(|value| value.get("effect")),
+        "old_connection_gone": source.and_then(|value| value.get("old_connection_gone")),
+        "unique_reconnect": source.and_then(|value| value.get("unique_reconnect")),
+        "focus_changed": source.and_then(|value| value.get("focus_changed")),
+        "focus_restored": source.and_then(|value| value.get("focus_restored")),
+        "verified": source.and_then(|value| value.get("verified")),
+        "profile_identity_redacted": true,
+        "connection_identity_redacted": true,
+        "lock_target_redacted": true,
+        "tab_content_redacted": true,
+        "lease_redacted": true,
+    })
 }
 
 fn device_operation_audit_detail(command: &Command, reply: &CuReply) -> serde_json::Value {
@@ -1248,6 +1277,55 @@ mod tests {
         assert_eq!(record["detail"]["output_redacted"], true);
         assert_eq!(record["detail"]["stdout_bytes"], 23);
         assert_eq!(record["detail"]["stderr_bytes"], 23);
+        remove_audit_scratch(&path);
+    }
+
+    #[test]
+    fn browser_bridge_lock_audit_never_persists_profile_tab_content_or_lease() {
+        let path = audit_scratch("browser-bridge-lock-redaction");
+        let mut audit = AuditLog::open_at(&path).expect("open isolated audit");
+        let command = Command::BrowserBridgeAttach {
+            target: TargetRef::Current,
+            connection_id: crate::browser_bridge::ConnectionId::parse(&"ab".repeat(32))
+                .expect("connection id"),
+            tab_id: 7,
+            session_id: "session-id".into(),
+            lease: "private-session-lease".into(),
+            ttl_seconds: 60,
+            timeout_ms: 15_000,
+        };
+        let reply = CuReply::ok(
+            &command,
+            serde_json::json!({
+                "connection_id": "private-connection-id",
+                "profile_instance_id": "private-profile-instance",
+                "tab": {
+                    "tab_id": 7,
+                    "window_id": 11,
+                    "active": false,
+                    "title": "private-title",
+                    "url": "https://example.invalid/?token=private-query"
+                },
+                "lock": {"lock": {"target": "private-profile-instance"}},
+                "verified": true
+            }),
+        );
+        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        let text = std::fs::read_to_string(&path).expect("read audit");
+        for private in [
+            "private-session-lease",
+            "private-connection-id",
+            "private-profile-instance",
+            "private-title",
+            "private-query",
+        ] {
+            assert!(!text.contains(private), "audit leaked {private}");
+        }
+        let record: serde_json::Value = serde_json::from_str(text.trim()).expect("audit JSON");
+        assert_eq!(record["detail"]["tab_id"], 7);
+        assert_eq!(record["detail"]["window_id"], 11);
+        assert_eq!(record["detail"]["tab_content_redacted"], true);
+        assert_eq!(record["detail"]["lease_redacted"], true);
         remove_audit_scratch(&path);
     }
 

@@ -4592,6 +4592,40 @@
       ]
     },
     {
+      "name": "browser-bridge-attach",
+      "command": "browser-bridge-attach",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "lease one exact bridge tab to an ACU runtime session",
+      "usage": "browser-bridge-attach CONNECTION_ID --tab-id N --session ID --lease TOKEN [--ttl-seconds N] [--timeout-ms N]\nbrowser bridge attach ...",
+      "args": [
+        { "flag": "CONNECTION_ID", "value": "ID", "help": "exact live bridge connection id" },
+        { "flag": "--tab-id", "value": "N", "help": "exact positive Chromium tab id" },
+        { "flag": "--session", "value": "ID", "help": "active ACU runtime session id" },
+        { "flag": "--lease", "value": "TOKEN", "help": "secret lease returned once by session-start" },
+        { "flag": "--ttl-seconds", "value": "N", "help": "tab-lock lifetime, 1..=600, no longer than the session and at least timeout plus 5 seconds (default 60)" },
+        { "flag": "--timeout-ms", "value": "N", "help": "overall identity, lock and focus proof deadline, 500..=60000 (default 15000)" }
+      ]
+    },
+    {
+      "name": "browser-bridge-reload",
+      "command": "browser-bridge-reload",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "reload a background native connection and prove same-profile reconnection",
+      "usage": "browser-bridge-reload CONNECTION_ID --tab-id N --session ID --lease TOKEN [--ttl-seconds N] [--timeout-ms N]\nbrowser bridge reload ...",
+      "args": [
+        { "flag": "CONNECTION_ID", "value": "ID", "help": "exact old bridge connection id" },
+        { "flag": "--tab-id", "value": "N", "help": "exact attached Chromium tab id" },
+        { "flag": "--session", "value": "ID", "help": "session that owns or acquires the exact tab lock" },
+        { "flag": "--lease", "value": "TOKEN", "help": "secret lease returned once by session-start" },
+        { "flag": "--ttl-seconds", "value": "N", "help": "tab-lock lifetime, 1..=600 and at least timeout plus 5 seconds (default 60)" },
+        { "flag": "--timeout-ms", "value": "N", "help": "overall identity, lock, reconnect and focus proof deadline, 500..=60000 (default 15000)" }
+      ]
+    },
+    {
       "name": "browser-bridge-windows",
       "command": "browser-bridge-windows",
       "aliases": [],
@@ -5917,11 +5951,19 @@
     },
     {
       "name": "browser-bridge-status",
-      "text": "agenterm-cu browser-bridge-status\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-status CONNECTION_ID\n  browser bridge status CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nRoutes the closed protocol-v1 status request only to that exact current-user and process-identity-bound connection. A missing, stale, foreign or malformed identity fails typed.\n"
+      "text": "agenterm-cu browser-bridge-status\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-status CONNECTION_ID\n  browser bridge status CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nRoutes the closed protocol-v2 status request only to that exact current-user and process-identity-bound connection. It returns the fixed extension version and persistent profile instance identity. A missing, stale, foreign or malformed identity fails typed.\n"
     },
     {
       "name": "browser-bridge-tabs",
       "text": "agenterm-cu browser-bridge-tabs\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-tabs CONNECTION_ID\n  browser bridge tabs CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nReturns the extension's independently bounded tab inventory for one exact live connection. It does not select, activate or focus a tab or window.\n"
+    },
+    {
+      "name": "browser-bridge-attach",
+      "text": "agenterm-cu browser-bridge-attach    (also: browser bridge attach)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-attach CONNECTION_ID --tab-id N --session ID --lease TOKEN [--ttl-seconds N] [--timeout-ms N]\n  browser bridge attach ...\n\nResolves the bridge's persistent profile instance identity, proves its connection inventory is complete and unique, verifies the exact tab before and after publishing the canonical profile+tab target lock, and proves desktop focus stayed unchanged. A newly acquired lock is rolled back if post-lock verification fails. The lease is never returned. TTL must cover the entire deadline plus five seconds; another session receives runtime_lock_conflict. Session end, explicit lock release, or expiry releases ownership.\n"
+    },
+    {
+      "name": "browser-bridge-reload",
+      "text": "agenterm-cu browser-bridge-reload    (also: browser bridge reload)\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-reload CONNECTION_ID --tab-id N --session ID --lease TOKEN [--ttl-seconds N] [--timeout-ms N]\n  browser bridge reload ...\n\nAcquires or renews the same canonical tab lock under a TTL that outlives the whole deadline, requires a complete unique Profile inventory, asks the fixed MV3 worker to replace its Native Messaging connection, and waits for the old process-bound host to disappear and exactly one new host with the same persistent Profile instance identity to appear. The receipt says reload_scope=native-connection: this is reliable control-channel recovery, not a claim that Chromium hot-loaded new extension code. Success proves exact tab identity/presentation and desktop focus stayed unchanged; it never hides focus theft by restoring it. Truncation, zero or multiple replacements, identity drift, tab drift, lost session authority, and deadline expiry fail typed. A post-ack failure reports the performed connection effect and replacement identity so callers cannot retry as if no effect occurred.\n"
     },
     {
       "name": "browser-bridge-windows",

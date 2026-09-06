@@ -143,7 +143,7 @@ AgenTerm — local agent & process fleet work OS
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 134 叶：
-│     │                       native 35 / delegated 31 / platform-limited 60 / gap 3 / retired 5
+│     │                       native 35 / delegated 31 / platform-limited 61 / gap 2 / retired 5
 │     │                       exact @tab 视口滚动与渲染 PNG 已走同一 control plane；
 │     │                       macOS qjswasm 黑盒已绿，Linux/Windows GUI court 待补
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
@@ -156,13 +156,14 @@ AgenTerm — local agent & process fleet work OS
 │     │                       Unix managed-job priority 已有进程组级原生 effect、写前 receipt、
 │     │                       稳定成员/逐成员 nice 回读与 request replay 的 macOS qjswasm 证据；
 │     │                       Windows 非等价 priority-class 在 mutation 前 typed refusal
-│     │                       浏览器 exact MV3 connection 已有 profile-scoped windows 与 guarded
-│     │                       window-state；macOS owned Profile 活体连接/host EOF cleanup 已绿，
+│     │                       浏览器 exact MV3 connection 已有持久 profile identity、session-owned
+│     │                       exact-tab lock 与 native-connection reload；macOS owned Profile 已证
+│     │                       old connection 消失、唯一同 profile/tab 重连、focus 不变与锁回收，
 │     │                       同一公开 qjswasm court 已证后台 CDP 读写、指针/对话框/文件、
 │     │                       PNG 与 stat-only download；Lnx/Win 同源证据仍待补
 │     │                       window lifecycle 已由 typed MV3 window-open + exact state/read-back +
-│     │                       native focus settle/restore 在 macOS qjswasm court 晋级 native；closed-shadow、
-│     │                       reload/attached-session 与 Linux/Windows 资格仍继续推进
+│     │                       native focus settle/restore 在 macOS qjswasm court 晋级 native；closed-shadow
+│     │                       写入/调用/文件与 Linux/Windows 资格仍继续推进
 │     │                       macOS core 已证平台身份/显示/不读内容的剪贴板元数据/有界 shell 回收；
 │     │                       owned-process + owned-desktop 也已证，macOS vocabulary 完整；
 │     │                       Linux/Windows 同源回执未齐，故不改变跨平台 gap 判决
@@ -247,6 +248,7 @@ flowchart LR
   ACTS["temporary acu.ts<br/>argv mapping · binary discovery<br/>no product effects"]
   ACUOBJ["agenterm:acu object<br/>one schema · Executor · receipts"]
   ACUQJS["temporary acu.qjs<br/>Bun-free legacy mapping"]
+  BRIDGE["stable MV3 profile<br/>exact-tab lock · unique reconnect"]
   REFRESH["owner-preserving refresh<br/>stable admission fence · no daemon restart"]
   PLATFORM["agenterm-platform<br/>Win · macOS · Linux mechanisms"]
   CC["Control Center<br/>typed consumer"]
@@ -258,6 +260,7 @@ flowchart LR
   PLATFORM --> TERM & CU
   ACTS -. shrink every STAY .-> CU
   CU --> REFRESH
+  CU --> BRIDGE --> EVIDENCE
   FLEET --> SCRIPT & CU & CC
   SCRIPT --> CU & CC
   CU & SCRIPT --> ACUOBJ

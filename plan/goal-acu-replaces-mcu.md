@@ -819,7 +819,7 @@ Q4 browser and platform depth
 │  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
 ├─ [~] browser control without a pre-opened CDP port
 │  ├─ [~] owned browser-session: public lifecycle + macOS live cleanup ✓; Windows exact-Job first instruction win-x86/ARM64 ✓; Win ARM64 managed-Job Edge ready→status→stopped→removed ✓; Linux + descendant-kill courts pending
-│  ├─ [~] MV3/Native Messaging: fixed ACU extension assets + bounded secret-free protocol/registry core + same-binary host/current-user installer + exact-connection public CLI; macOS owned-Profile load/host EOF cleanup is public-qjswasm green; real-window state, native focus bridge, closed-shadow and Linux/Windows courts pending
+│  ├─ [~] MV3/Native Messaging: fixed assets + persistent Profile identity + session-owned exact-tab lock + unique native-connection reload; macOS public-qjswasm proves old-host exit, same Profile/tab, unchanged focus and lock cleanup; closed-shadow mutation and Linux/Windows courts pending
 │  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
 ├─ [~] Simulator facade: public bounded device/app inventory + exact boot/launch/terminate routes
 │  ├─ [x] macOS qjswasm read-only court `cu.simulator-readonly`; app paths never leave the provider
@@ -840,7 +840,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 134 ledger capabilities
-currently include 5 `gap` and 58 `platform-limited` rows. The compatibility
+currently include 2 `gap` and 61 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
@@ -895,8 +895,9 @@ Wayland desktop at source `d5548024`; the same-source Linux x86_64/X11 court
 passed all 33 evidence lines in the broader process, terminal, file, network,
 AT-SPI, screenshot, window and cleanup journey. This moves the row from `gap`
 to `platform-limited`: Windows still needs the full-scope same-source rerun.
-The ledger is now 35 native / 31 delegated / 60 platform-limited / 3 gap / 5
-retired. Resident managed-job policy has left the hard-gap set: the owner
+At that checkpoint the ledger was 35 native / 31 delegated / 60
+platform-limited / 3 gap / 5 retired. Resident managed-job policy then left the
+hard-gap set: the owner
 samples bounded RSS, monotonic CPU-rate deltas and process count, then applies
 verified Unix group-stop or force-gated containment termination without caller
 polling. macOS public qjswasm evidence is green; Linux and Windows still need

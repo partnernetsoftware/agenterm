@@ -3514,7 +3514,7 @@
     },
     {
       "id": "cu-browser-session-smoke",
-      "description": "Prove one ACU-owned isolated browser profile, fixed MV3 bridge, explicit window creation and background state lifecycle with exact native focus restoration, background CDP actuation, stat-only download, stop, host EOF and TTL cleanup.",
+      "description": "Prove one ACU-owned isolated browser profile, persistent MV3 profile identity, session-owned exact-tab lock, unique background Native Messaging reconnection, explicit window lifecycle with exact native focus restoration, background CDP actuation, stat-only download, stop, host EOF and TTL cleanup.",
       "entry": "scripts/qjs/cu-browser-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

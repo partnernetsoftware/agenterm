@@ -334,6 +334,48 @@ impl NativeStream {
             .map_err(|error| transport_io(&self.1, error))
     }
 
+    pub(crate) fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        self.0.set_nonblocking(nonblocking)
+    }
+
+    pub(crate) fn wait_readable(&self, timeout: Duration) -> io::Result<bool> {
+        self.wait_ready(libc::POLLIN, timeout)
+    }
+
+    pub(crate) fn wait_writable(&self, timeout: Duration) -> io::Result<bool> {
+        self.wait_ready(libc::POLLOUT, timeout)
+    }
+
+    fn wait_ready(&self, events: libc::c_short, timeout: Duration) -> io::Result<bool> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(false);
+            }
+            let timeout_ms = remaining
+                .as_millis()
+                .saturating_add(1)
+                .clamp(1, i32::MAX as u128) as i32;
+            let mut descriptor = libc::pollfd {
+                fd: self.0.as_raw_fd(),
+                events,
+                revents: 0,
+            };
+            let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
+            if ready > 0 {
+                return Ok(true);
+            }
+            if ready == 0 {
+                return Ok(false);
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
     pub(crate) fn finish_server_response(&mut self) -> io::Result<()> {
         Ok(())
     }

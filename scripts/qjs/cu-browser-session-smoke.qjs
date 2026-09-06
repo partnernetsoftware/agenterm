@@ -6,6 +6,7 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.browser-managed-profile.macos",
   "cu.browser-bridge-owned-profile.macos",
+  "cu.browser-bridge-reload.macos",
   "cu.browser-window-lifecycle.macos",
   "cu.browser-cdp-actuate.macos",
   "cu.browser-cdp-screenshot.macos",
@@ -42,9 +43,11 @@ ensure(direct_file(executable), "cu_browser_session_executable_missing");
 ensure(direct_file(browser), "cu_browser_session_browser_missing");
 
 const context = harness.new_context(repo, "cu-browser-session");
+const audit_path = rh.join(context.run_directory, "cu-audit.jsonl");
 const name = "qjswasm-owned-profile";
 let controlled_focus_handle = null;
 let focus_fixture = null;
+let runtime_session = null;
 const children = [];
 
 function invoke(grant, arguments) {
@@ -53,7 +56,8 @@ function invoke(grant, arguments) {
   const output = rh.command(executable, argv, {
     cwd: context.run_directory,
     env: {
-      AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_AUDIT_PATH: audit_path,
+      AGENTERM_CU_RUNTIME_PATH: rh.join(context.run_directory, "cu-runtime.json"),
       AGENTERM_NO_ACTIVATE: "1"
     },
     timeout_ms: 30000
@@ -96,6 +100,12 @@ function center(box) {
 }
 
 function cleanup() {
+  if (runtime_session !== null) {
+    invoke("actuate", [
+      "session-end", runtime_session.session_id, "--lease", runtime_session.lease, "--confirm"
+    ]);
+    runtime_session = null;
+  }
   const stopped = invoke("actuate", [
     "browser-session-stop", name, "--expect", "stopped", "--timeout-ms", "15000"
   ]);
@@ -180,7 +190,7 @@ try {
   const started = require_ok(invoke("actuate", [
     "browser-session-start", name, "--browser", browser,
     "--bridge",
-    "--ready-timeout-ms", "15000", "--ttl-ms", "60000"
+    "--ready-timeout-ms", "15000", "--ttl-ms", "120000"
   ]), "cu_browser_session_start_failed");
   ensure(started.command === "browser-session-start", "cu_browser_session_start_command");
   ensure(started.data.state === "ready" && started.data.owned === true, "cu_browser_session_start_state");
@@ -193,15 +203,20 @@ try {
   const connection = one_new_bridge_connection(rh.now_ms() + 15000, baseline_connections);
   ensure(connection.process.pid > 0, "cu_browser_bridge_process_identity");
   ensure(connection.endpoint.extension_id === "knofdkmmpkbnjhdkcjddbakbpmgpmjpe", "cu_browser_bridge_extension_identity");
-  const bridge_id = connection.connection_id;
+  let bridge_id = connection.connection_id;
   const bridge_status = require_ok(invoke("observe", [
     "browser-bridge-status", bridge_id
   ]), "cu_browser_bridge_status_failed");
-  ensure(bridge_status.data.result.protocol === 1, "cu_browser_bridge_protocol");
+  ensure(bridge_status.data.result.protocol === 2, "cu_browser_bridge_protocol");
+  ensure(bridge_status.data.result.extension_version === "1.1.0",
+    "cu_browser_bridge_extension_version");
+  ensure(bridge_status.data.result.profile_instance_id.length === 32,
+    "cu_browser_bridge_profile_identity");
+  const profile_instance_id = bridge_status.data.result.profile_instance_id;
   const commands = bridge_status.data.result.commands;
-  ensure(commands.length === 6 && commands[0] === "status" && commands[1] === "tabs" &&
+  ensure(commands.length === 7 && commands[0] === "status" && commands[1] === "tabs" &&
     commands[2] === "windows" && commands[3] === "window-open" &&
-    commands[4] === "window-state" && commands[5] === "debug-read",
+    commands[4] === "window-state" && commands[5] === "debug-read" && commands[6] === "reload",
     "cu_browser_bridge_commands");
   const bridge_tabs = require_ok(invoke("observe", [
     "browser-bridge-tabs", bridge_id
@@ -233,6 +248,44 @@ try {
     second_window.data.result.window.focused === false,
     "cu_browser_bridge_background_window_focus_changed");
   const second_window_id = second_window.data.result.window.window_id;
+  const attached_tab_id = second_window.data.result.window.active_tab_id;
+
+  print("STEP stable profile identity owns one exact tab across a background bridge reload");
+  runtime_session = require_ok(invoke("actuate", [
+    "session-start", "--label", "browser-bridge-court", "--ttl-seconds", "120"
+  ]), "cu_browser_bridge_runtime_session_failed").data;
+  const attached = require_ok(invoke("actuate", [
+    "browser-bridge-attach", bridge_id,
+    "--tab-id", "" + attached_tab_id,
+    "--session", runtime_session.session_id,
+    "--lease", runtime_session.lease,
+    "--ttl-seconds", "90"
+  ]), "cu_browser_bridge_attach_failed");
+  ensure(attached.data.profile_instance_id === profile_instance_id &&
+    attached.data.tab.tab_id === attached_tab_id &&
+    attached.data.focus_changed === false && attached.data.verified === true,
+    "cu_browser_bridge_attach_unverified");
+  const reloaded = require_ok(invoke("actuate", [
+    "browser-bridge-reload", bridge_id,
+    "--tab-id", "" + attached_tab_id,
+    "--session", runtime_session.session_id,
+    "--lease", runtime_session.lease,
+    "--ttl-seconds", "90", "--timeout-ms", "15000"
+  ]), "cu_browser_bridge_reload_failed");
+  ensure(reloaded.data.old_connection_id === bridge_id &&
+    reloaded.data.connection_id !== bridge_id &&
+    reloaded.data.profile_instance_id === profile_instance_id &&
+    reloaded.data.reload_scope === "native-connection" &&
+    reloaded.data.tab.tab_id === attached_tab_id &&
+    reloaded.data.old_connection_gone === true &&
+    reloaded.data.unique_reconnect === true &&
+    reloaded.data.focus_changed === false && reloaded.data.verified === true,
+    "cu_browser_bridge_reload_unverified");
+  const bridge_audit = rh.read_text(audit_path);
+  ensure(!bridge_audit.includes(profile_instance_id) &&
+    !bridge_audit.includes(runtime_session.lease),
+    "cu_browser_bridge_audit_leaked_identity_or_lease");
+  bridge_id = reloaded.data.connection_id;
   const live_windows = require_ok(invoke("observe", [
     "browser-bridge-windows", bridge_id
   ]), "cu_browser_bridge_live_windows_failed");
@@ -417,6 +470,12 @@ try {
   ensure(downloaded.data.final_path.startsWith(download_directory + "/"), "cu_browser_session_download_escape");
 
   print("STEP explicit stop proves owner and browser cleanup before removal");
+  const ended_runtime = require_ok(invoke("actuate", [
+    "session-end", runtime_session.session_id, "--lease", runtime_session.lease, "--confirm"
+  ]), "cu_browser_bridge_runtime_session_end_failed");
+  ensure(ended_runtime.data.released_locks === 1,
+    "cu_browser_bridge_runtime_lock_not_released");
+  runtime_session = null;
   const stopped = require_ok(invoke("actuate", [
     "browser-session-stop", name, "--expect", "stopped", "--timeout-ms", "15000"
   ]), "cu_browser_session_stop_failed");

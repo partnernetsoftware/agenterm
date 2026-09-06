@@ -55,6 +55,21 @@ impl NativeStream {
         self.0.set_io_timeout(timeout)
     }
 
+    #[cfg(unix)]
+    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        self.0.set_nonblocking(nonblocking)
+    }
+
+    #[cfg(unix)]
+    pub fn wait_readable(&self, timeout: Duration) -> io::Result<bool> {
+        self.0.wait_readable(timeout)
+    }
+
+    #[cfg(unix)]
+    pub fn wait_writable(&self, timeout: Duration) -> io::Result<bool> {
+        self.0.wait_writable(timeout)
+    }
+
     /// Completes a server reply before its native connection is released.
     ///
     /// Windows named pipes may discard buffered reply bytes when the server

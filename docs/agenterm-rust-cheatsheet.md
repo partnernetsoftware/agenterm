@@ -1648,6 +1648,16 @@ closed command catalog and object-shaped arguments before routing. Keep this
 pure protocol core independent from the extension installer and browser host so
 all three platform installers share the same truth.
 
+One caller deadline must cover connect, every partial write and every partial
+read. On Darwin, resetting `SO_RCVTIMEO` / `SO_SNDTIMEO` through
+`UnixStream::set_*_timeout` on an already connected Native Messaging control
+socket can return `EINVAL` even though the initial connect-time timeout was
+accepted. The Unix platform facade therefore exposes nonblocking readiness
+waits backed by `poll`; recompute the remaining absolute deadline before every
+read/write fragment. Windows named pipes keep the equivalent remaining budget
+in their overlapped-I/O timeout. Never multiply a nominal timeout by the number
+of frame fragments or candidate connections.
+
 The same executable may be both the ordinary JSON CLI and the Native Messaging
 host, but the entry boundary must recognize Chromium's exact extension-origin
 argv before version, help, logging, or normal dispatch can write to stdout.
@@ -1706,6 +1716,20 @@ also show that this connection disappears after the contained browser tree is
 reaped. `--load-extension` in argv, an installed manifest, or an empty window
 inventory is supporting mechanism evidence; only the live connection closes
 the activation claim.
+
+Native Messaging connection identity is deliberately short-lived; it binds one
+host process, not the durable browser Profile. Persist a separate random Profile
+instance identity in extension-local storage, validate it as a closed protocol
+field, and key session-owned tab locks by fixed extension + Profile instance +
+exact tab. A reconnect succeeds only after the old process-bound connection is
+gone and exactly one new connection presents the same Profile identity and tab
+without changing desktop focus. Do not use `chrome.runtime.reload()` as a
+reconnect guarantee: an MV3 worker is event-driven and may not wake merely
+because its code was reloaded. For deterministic channel recovery, acknowledge
+the request, disconnect the exact Native Messaging port, reconnect explicitly,
+and label the receipt `reload_scope=native-connection`. Loading updated
+extension code is a distinct setup/activation boundary and must never be
+implied by that receipt.
 
 For an owned Chromium session, request `--remote-debugging-port=0` and read the
 bounded `DevToolsActivePort` file from that session's private profile. Require a
