@@ -10,6 +10,25 @@ use std::{
 
 pub use crate::contract::process_spawn::ProcessExit;
 
+/// Native limits installed before the first user instruction of an owned
+/// child. Every field is inherited by descendants inside the containment.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ContainedProcessLimits {
+    pub cpu_seconds: Option<u64>,
+    pub memory_bytes: Option<u64>,
+    pub file_size_bytes: Option<u64>,
+    pub open_files: Option<u64>,
+    pub active_processes: Option<u32>,
+}
+
+impl ContainedProcessLimits {
+    /// Validates the closed bounds and current-platform support without
+    /// creating a process or native containment object.
+    pub fn validate(self) -> io::Result<()> {
+        validate_limits(self)
+    }
+}
+
 /// A command whose standard streams are discarded and whose complete process
 /// tree remains owned by the returned child.
 ///
@@ -25,6 +44,7 @@ pub struct ContainedHeadlessCommand {
     pub(crate) stdin: ContainedInput,
     pub(crate) stdout: ContainedOutput,
     pub(crate) stderr: ContainedOutput,
+    pub(crate) limits: ContainedProcessLimits,
 }
 
 pub(crate) enum ContainedOutput {
@@ -49,6 +69,7 @@ impl ContainedHeadlessCommand {
             stdin: ContainedInput::Null,
             stdout: ContainedOutput::Null,
             stderr: ContainedOutput::Null,
+            limits: ContainedProcessLimits::default(),
         }
     }
 
@@ -118,6 +139,12 @@ impl ContainedHeadlessCommand {
     /// Redirects stderr to an already-open file instead of capturing it.
     pub fn stderr_file(&mut self, file: File) -> &mut Self {
         self.stderr = ContainedOutput::File(file);
+        self
+    }
+
+    /// Installs hard native resource limits before the target program begins.
+    pub fn limits(&mut self, limits: ContainedProcessLimits) -> &mut Self {
+        self.limits = limits;
         self
     }
 
@@ -261,6 +288,46 @@ fn validate(command: &ContainedHeadlessCommand) -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "contained process environment key is empty, contains '=' or NUL, or value contains NUL",
+        ));
+    }
+    validate_limits(command.limits)?;
+    Ok(())
+}
+
+fn validate_limits(limits: ContainedProcessLimits) -> io::Result<()> {
+    let invalid = limits
+        .cpu_seconds
+        .is_some_and(|value| !(1..=86_400).contains(&value))
+        || limits
+            .memory_bytes
+            .is_some_and(|value| !(1024 * 1024..=1024_u64.pow(4)).contains(&value))
+        || limits
+            .file_size_bytes
+            .is_some_and(|value| !(1..=1024_u64.pow(4)).contains(&value))
+        || limits
+            .open_files
+            .is_some_and(|value| !(16..=1_048_576).contains(&value))
+        || limits
+            .active_processes
+            .is_some_and(|value| !(1..=1_048_576).contains(&value));
+    if invalid {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "contained process limits are outside their closed bounds",
+        ));
+    }
+    #[cfg(windows)]
+    if limits.file_size_bytes.is_some() || limits.open_files.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Windows Job Objects do not provide file-size or open-file limits",
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    if limits.memory_bytes.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "macOS cannot impose a useful RLIMIT_AS below the process-wide dyld mapping",
         ));
     }
     Ok(())
@@ -534,5 +601,132 @@ mod tests {
                 .kind(),
             io::ErrorKind::InvalidInput
         );
+    }
+
+    #[test]
+    fn process_limit_bounds_fail_before_spawn() {
+        for limits in [
+            ContainedProcessLimits {
+                cpu_seconds: Some(0),
+                ..ContainedProcessLimits::default()
+            },
+            ContainedProcessLimits {
+                memory_bytes: Some(1024),
+                ..ContainedProcessLimits::default()
+            },
+            ContainedProcessLimits {
+                open_files: Some(15),
+                ..ContainedProcessLimits::default()
+            },
+        ] {
+            let mut command = ContainedHeadlessCommand::new("unused");
+            command.limits(limits);
+            assert_eq!(
+                command
+                    .spawn()
+                    .err()
+                    .expect("invalid limits must fail")
+                    .kind(),
+                io::ErrorKind::InvalidInput
+            );
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn unix_limits_are_installed_before_the_first_user_instruction() {
+        if std::env::var_os("AGENTERM_CONTAINED_LIMIT_PROBE").is_some() {
+            println!(
+                "{} {} {} {} {}",
+                current_limit(libc::RLIMIT_CPU),
+                current_limit(libc::RLIMIT_AS),
+                current_limit(libc::RLIMIT_FSIZE),
+                current_limit(libc::RLIMIT_NOFILE),
+                current_limit(libc::RLIMIT_NPROC),
+            );
+            return;
+        }
+
+        let limits = ContainedProcessLimits {
+            cpu_seconds: Some(120),
+            #[cfg(target_os = "linux")]
+            memory_bytes: Some(64 * 1024 * 1024 * 1024),
+            #[cfg(target_os = "macos")]
+            memory_bytes: None,
+            file_size_bytes: Some(64 * 1024 * 1024),
+            open_files: Some(4096),
+            active_processes: Some(1024),
+        };
+        let mut command = ContainedHeadlessCommand::new(
+            std::env::current_exe().expect("resolve contained limit test executable"),
+        );
+        command.args([
+            "--exact",
+            "contained_process::tests::unix_limits_are_installed_before_the_first_user_instruction",
+            "--nocapture",
+        ]);
+        command
+            .env("AGENTERM_CONTAINED_LIMIT_PROBE", "1")
+            .limits(limits)
+            .capture_output();
+        let mut child = command.spawn().expect("spawn contained limit probe");
+        let mut stdout = child.take_stdout().expect("capture limit stdout");
+        let mut stderr = child.take_stderr().expect("capture limit stderr");
+        let stdout_drain = thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stdout.read_to_end(&mut bytes).expect("drain limit stdout");
+            bytes
+        });
+        let stderr_drain = thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stderr.read_to_end(&mut bytes).expect("drain limit stderr");
+            bytes
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let exit = loop {
+            match child.try_wait().expect("wait limit probe") {
+                Some(exit) => break exit,
+                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                None => panic!("contained limit probe timed out"),
+            }
+        };
+        let stderr = String::from_utf8(stderr_drain.join().expect("join limit stderr"))
+            .expect("limit stderr is UTF-8");
+        assert_eq!(exit, ProcessExit::Code(0), "{stderr}");
+        let stdout = String::from_utf8(stdout_drain.join().expect("join limit stdout"))
+            .expect("limit stdout is UTF-8");
+        let values = stdout
+            .lines()
+            .find_map(|line| {
+                let values = line
+                    .split_ascii_whitespace()
+                    .map(str::parse::<u64>)
+                    .collect::<Result<Vec<_>, _>>()
+                    .ok()?;
+                (values.len() == 5).then_some(values)
+            })
+            .unwrap_or_else(|| panic!("missing limit probe line: {stdout:?}"));
+        assert_eq!(values[0], limits.cpu_seconds.unwrap());
+        if let Some(memory_bytes) = limits.memory_bytes {
+            assert_eq!(values[1], memory_bytes);
+        }
+        assert_eq!(values[2], limits.file_size_bytes.unwrap());
+        assert_eq!(values[3], limits.open_files.unwrap());
+        assert_eq!(values[4], u64::from(limits.active_processes.unwrap()));
+    }
+
+    #[cfg(target_os = "linux")]
+    type TestRlimitResource = libc::__rlimit_resource_t;
+    #[cfg(target_os = "macos")]
+    type TestRlimitResource = libc::c_int;
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn current_limit(resource: TestRlimitResource) -> u64 {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        assert_eq!(unsafe { libc::getrlimit(resource, &raw mut limit) }, 0);
+        limit.rlim_cur
     }
 }

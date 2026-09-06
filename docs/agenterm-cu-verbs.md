@@ -475,7 +475,7 @@ Releases one lock by lock id after verifying its owning session lease.
 ### `job-spawn`
 
 ```text
-job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N] -- PROGRAM [ARG...]
+job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N] [--cpu-seconds N] [--memory-bytes N] [--file-size-bytes N] [--max-open-files N] [--max-processes N] -- PROGRAM [ARG...]
 job spawn ...
 ```
 
@@ -483,9 +483,11 @@ job spawn ...
 agenterm-cu job-spawn    (also: job spawn)
   scope: actuate    family: Managed jobs
 
-usage: job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N] -- PROGRAM [ARG...]
+usage: job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N]
+                 [--cpu-seconds N] [--memory-bytes N] [--file-size-bytes N]
+                 [--max-open-files N] [--max-processes N] -- PROGRAM [ARG...]
 
-Starts one contained child under an independent resident owner. Requires the global --request-id, --session and --session-lease identity. Exact replay returns the same job_id and generation without spawning twice. Command, environment and private owner nonce are never returned by list/status.
+Starts one contained child under an independent resident owner. Optional CPU-time, address-space, file-size, open-file and process-count hard limits are installed before the first user instruction. Windows Job Objects support CPU-time, job-memory and active-process limits; file-size/open-file requests fail typed before spawn. macOS supports CPU-time, file-size, open-file and process-count limits; address-space memory requests fail typed because finite RLIMIT_AS is not useful below dyld's process-wide mapping. Requires global request/session identity. Exact replay returns the same job_id and generation without spawning twice. Command, environment and private owner nonce are never returned by list/status.
 ```
 
 ### `job-list`

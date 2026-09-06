@@ -8,7 +8,7 @@ use windows_sys::Win32::{
         JobObjects::{
             AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_CPU_RATE_CONTROL_ENABLE,
             JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
-            JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_JOB_MEMORY,
+            JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_JOB_TIME,
             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_BASIC_LIMIT_INFORMATION,
             JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION,
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicProcessIdList,
@@ -200,6 +200,20 @@ impl ProcessContainment {
         if let Some(limit) = options.limits.active_processes {
             basic.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
             basic.ActiveProcessLimit = limit;
+        }
+        if let Some(seconds) = options.limits.cpu_time_seconds {
+            basic.LimitFlags |= JOB_OBJECT_LIMIT_JOB_TIME;
+            basic.PerJobUserTimeLimit = seconds
+                .checked_mul(10_000_000)
+                .and_then(|ticks| i64::try_from(ticks).ok())
+                .ok_or_else(|| {
+                    ProcessContainmentError::new(
+                        ProcessContainmentErrorKind::InvalidInput,
+                        "configure-process-containment",
+                        None,
+                        "CPU time exceeds native 100ns tick width",
+                    )
+                })?;
         }
         let mut extended: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
         extended.BasicLimitInformation = basic;

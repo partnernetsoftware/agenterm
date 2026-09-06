@@ -269,6 +269,61 @@ pub struct JobEnvironment {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobProcessLimits {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_size_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_files: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub processes: Option<u32>,
+}
+
+impl JobProcessLimits {
+    fn validate(self) -> Result<(), &'static str> {
+        if self.cpu_seconds.is_none()
+            && self.memory_bytes.is_none()
+            && self.file_size_bytes.is_none()
+            && self.open_files.is_none()
+            && self.processes.is_none()
+        {
+            return Err("managed-job limits must contain at least one limit");
+        }
+        if self
+            .cpu_seconds
+            .is_some_and(|value| !(1..=86_400).contains(&value))
+            || self
+                .memory_bytes
+                .is_some_and(|value| !(1024 * 1024..=1024_u64.pow(4)).contains(&value))
+            || self
+                .file_size_bytes
+                .is_some_and(|value| !(1..=1024_u64.pow(4)).contains(&value))
+            || self
+                .open_files
+                .is_some_and(|value| !(16..=1_048_576).contains(&value))
+            || self
+                .processes
+                .is_some_and(|value| !(1..=1_048_576).contains(&value))
+        {
+            return Err("managed-job limits are outside their closed bounds");
+        }
+        #[cfg(windows)]
+        if self.file_size_bytes.is_some() || self.open_files.is_some() {
+            return Err("Windows managed jobs do not support file-size or open-file limits");
+        }
+        #[cfg(target_os = "macos")]
+        if self.memory_bytes.is_some() {
+            return Err("macOS managed jobs do not support a useful address-space memory limit");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum JobStateFilter {
     StartIntent,
@@ -443,6 +498,19 @@ where
         return Err(serde::de::Error::custom("managed-job cwd exceeds 8 KiB"));
     }
     Ok(cwd)
+}
+
+fn deserialize_job_process_limits<'de, D>(
+    deserializer: D,
+) -> Result<Option<JobProcessLimits>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let limits = Option::<JobProcessLimits>::deserialize(deserializer)?;
+    if let Some(limits) = limits {
+        limits.validate().map_err(serde::de::Error::custom)?;
+    }
+    Ok(limits)
 }
 
 fn deserialize_job_ttl<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -1274,6 +1342,12 @@ pub enum Command {
             deserialize_with = "deserialize_job_cwd"
         )]
         cwd: Option<String>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_job_process_limits"
+        )]
+        limits: Option<JobProcessLimits>,
         #[serde(deserialize_with = "deserialize_job_ttl")]
         ttl_seconds: u64,
     },
@@ -4347,6 +4421,7 @@ impl Command {
                 command,
                 environment,
                 cwd,
+                limits,
                 ttl_seconds,
                 ..
             } => {
@@ -4360,6 +4435,9 @@ impl Command {
                 }
                 if !(1..=JOB_TTL_SECONDS_MAX).contains(ttl_seconds) {
                     return Err("managed-job ttl_seconds must be in 1..=86400");
+                }
+                if let Some(limits) = limits {
+                    limits.validate()?;
                 }
                 Ok(())
             }
@@ -5097,6 +5175,29 @@ mod tests {
         reject(serde_json::json!({
             "verb": "job-spawn", "target": "current", "command": ["x"], "ttl_seconds": 0
         }));
+        reject(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": ["x"], "ttl_seconds": 1,
+            "limits": {}
+        }));
+        reject(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": ["x"], "ttl_seconds": 1,
+            "limits": {"memory_bytes": 1048575}
+        }));
+        let limited: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": ["x"], "ttl_seconds": 1,
+            "limits": {
+                "cpu_seconds": 60,
+                "processes": 32
+            }
+        }))
+        .expect("bounded launch limits");
+        assert!(matches!(
+            limited,
+            Command::JobSpawn {
+                limits: Some(_),
+                ..
+            }
+        ));
         reject(serde_json::json!({
             "verb": "job-list", "target": "current", "max": 1025
         }));

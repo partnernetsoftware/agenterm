@@ -200,7 +200,7 @@
       "grant": "actuate",
       "family": "system",
       "summary": "start one durable detached process under a resident owner",
-      "usage": "job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N] -- PROGRAM [ARG...]\njob spawn ...",
+      "usage": "job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N] [--cpu-seconds N] [--memory-bytes N] [--file-size-bytes N] [--max-open-files N] [--max-processes N] -- PROGRAM [ARG...]\njob spawn ...",
       "args": []
     },
     {
@@ -5277,7 +5277,7 @@
     },
     {
       "name": "job-spawn",
-      "text": "agenterm-cu job-spawn    (also: job spawn)\n  scope: actuate    family: Managed jobs\n\nusage: job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N] -- PROGRAM [ARG...]\n\nStarts one contained child under an independent resident owner. Requires the global --request-id, --session and --session-lease identity. Exact replay returns the same job_id and generation without spawning twice. Command, environment and private owner nonce are never returned by list/status.\n"
+      "text": "agenterm-cu job-spawn    (also: job spawn)\n  scope: actuate    family: Managed jobs\n\nusage: job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N]\n                 [--cpu-seconds N] [--memory-bytes N] [--file-size-bytes N]\n                 [--max-open-files N] [--max-processes N] -- PROGRAM [ARG...]\n\nStarts one contained child under an independent resident owner. Optional CPU-time, address-space, file-size, open-file and process-count hard limits are installed before the first user instruction. Windows Job Objects support CPU-time, job-memory and active-process limits; file-size/open-file requests fail typed before spawn. macOS supports CPU-time, file-size, open-file and process-count limits; address-space memory requests fail typed because finite RLIMIT_AS is not useful below dyld's process-wide mapping. Requires global request/session identity. Exact replay returns the same job_id and generation without spawning twice. Command, environment and private owner nonce are never returned by list/status.\n"
     },
     {
       "name": "job-list",

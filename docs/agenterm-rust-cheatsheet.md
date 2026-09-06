@@ -3802,6 +3802,20 @@ live authority; detached records may still describe external live work; and
 orphaned-uncertain records are recovery evidence. Never delete any of those as
 "stale", even when their timestamps exceed the retention cutoff.
 
+Managed-job resource limits belong before the target's first instruction, not
+in a later monitoring loop. Seal the exact limits in the private owner launch
+document. On POSIX install supported `setrlimit` values in `pre_exec`; on
+Windows create the root suspended, configure and assign its Job Object, and
+only then resume the primary thread. Validate platform support before
+publishing durable start intent whenever possible, and never silently omit one
+requested field. Windows Job Objects do not supply file-size or open-file
+limits. macOS accepts several rlimits but a useful finite `RLIMIT_AS` below
+dyld's process-wide mapping fails even before exec, so expose that pair as a
+typed platform limitation while retaining CPU, file-size, open-file and
+process-count limits. A live child that reports the installed limit is stronger
+evidence than a parser test; cross-compilation proves only that the platform
+adapter still builds.
+
 Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
 private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
 never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second

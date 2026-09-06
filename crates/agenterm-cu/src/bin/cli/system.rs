@@ -6,8 +6,8 @@ use agenterm_cu::{
         DEVICE_INVENTORY_MAX, DEVICE_IO_BYTES_MAX, DEVICE_WATCH_DURATION_MS_MAX,
         DEVICE_WATCH_EVENTS_MAX, DEVICE_WATCH_INTERVAL_MS_MAX, DEVICE_WATCH_INTERVAL_MS_MIN,
         DeviceDataEncoding, DeviceSerialConfiguration, DeviceSerialFlow, DeviceSerialParity,
-        JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter, ProcessRunState,
-        ProcessSignalKind, STORAGE_DEVICES_MAX,
+        JobEnvironment, JobOutputCursor, JobOutputStream, JobProcessLimits, JobStateFilter,
+        ProcessRunState, ProcessSignalKind, STORAGE_DEVICES_MAX,
     },
     service_control::{ServiceOperation, ServiceScope},
 };
@@ -894,6 +894,27 @@ fn parse_job_spawn(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
     }
     let cwd = flag_text(args, "--cwd")?;
     let ttl_seconds = ttl_flag(args, DEFAULT_JOB_TTL_SECONDS)?;
+    let cpu_seconds = flag_parsed(args, "--cpu-seconds")?;
+    let memory_bytes = flag_parsed(args, "--memory-bytes")?;
+    let file_size_bytes = flag_parsed(args, "--file-size-bytes")?;
+    let open_files = flag_parsed(args, "--max-open-files")?;
+    let processes = flag_parsed(args, "--max-processes")?;
+    let limits = if cpu_seconds.is_some()
+        || memory_bytes.is_some()
+        || file_size_bytes.is_some()
+        || open_files.is_some()
+        || processes.is_some()
+    {
+        Some(JobProcessLimits {
+            cpu_seconds,
+            memory_bytes,
+            file_size_bytes,
+            open_files,
+            processes,
+        })
+    } else {
+        None
+    };
     if !args.is_empty() {
         return Err(format!(
             "job-spawn received unexpected option {:?} before `--`",
@@ -905,6 +926,7 @@ fn parse_job_spawn(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
         command,
         environment,
         cwd,
+        limits,
         ttl_seconds,
     };
     command.validate().map_err(str::to_owned)?;
@@ -1521,6 +1543,7 @@ mod tests {
             command,
             environment,
             cwd,
+            limits,
             ttl_seconds,
             ..
         } = parse(
@@ -1535,6 +1558,10 @@ mod tests {
                 ".",
                 "--ttl",
                 "12",
+                "--cpu-seconds",
+                "60",
+                "--max-processes",
+                "32",
                 "--",
                 "program",
                 "--env",
@@ -1561,6 +1588,16 @@ mod tests {
         );
         assert_eq!(cwd.as_deref(), Some("."));
         assert_eq!(ttl_seconds, 12);
+        assert_eq!(
+            limits,
+            Some(JobProcessLimits {
+                cpu_seconds: Some(60),
+                memory_bytes: None,
+                file_size_bytes: None,
+                open_files: None,
+                processes: Some(32),
+            })
+        );
         assert!(parse("job-spawn", &["program"]).is_err());
     }
 

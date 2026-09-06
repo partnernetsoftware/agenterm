@@ -13,13 +13,15 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    command::{JobEnvironment, JobOutputCursor, JobOutputStream, JobStateFilter},
+    command::{JobEnvironment, JobOutputCursor, JobOutputStream, JobProcessLimits, JobStateFilter},
     idempotency_store::FinalReplay,
     managed_job_ipc::{
         JobState, ManagedJobOperation, ManagedJobProtocolError, ManagedJobResult, OutputStream,
         base64_decode, base64_encode, client_request,
     },
-    managed_job_owner::{LAUNCH_SCHEMA_VERSION, ManagedJobEnvironment, ManagedJobLaunch},
+    managed_job_owner::{
+        LAUNCH_SCHEMA_VERSION, ManagedJobEnvironment, ManagedJobLaunch, ManagedJobProcessLimits,
+    },
     managed_job_store::{
         ManagedJobRecord, ManagedJobState, ManagedJobStore, OwnerLiveness, ResidentOwnerIdentity,
     },
@@ -79,19 +81,30 @@ pub(super) fn job_spawn_payload(
     command: &[String],
     environment: &[JobEnvironment],
     cwd: Option<&str>,
+    limits: Option<JobProcessLimits>,
     ttl_seconds: u64,
-    session_id: &str,
-    session_lease: &str,
-    runtime: &RuntimeCoordinator,
+    request: &JobRequestContext<'_>,
 ) -> Result<Value, CuError> {
-    let _refresh_fence = runtime.acquire_refresh_fence()?;
-    let _session_gate = runtime.acquire_session_gate(session_id)?;
+    let _refresh_fence = request.runtime.acquire_refresh_fence()?;
+    let _session_gate = request.runtime.acquire_session_gate(request.session_id)?;
     let admission_now = now_utc_ms().ok_or_else(clock_error)?;
-    runtime.session_verify(session_id, session_lease, admission_now / 1_000)?;
+    request.runtime.session_verify(
+        request.session_id,
+        request.session_lease,
+        admission_now / 1_000,
+    )?;
     let store = ManagedJobStore::open()?;
     let now = admission_now;
-    let record = store.reserve_start(Some(session_id), now)?;
-    let launch = match build_launch(&store, &record, command, environment, cwd, ttl_seconds) {
+    let record = store.reserve_start(Some(request.session_id), now)?;
+    let launch = match build_launch(
+        &store,
+        &record,
+        command,
+        environment,
+        cwd,
+        limits,
+        ttl_seconds,
+    ) {
         Ok(launch) => launch,
         Err(error) => {
             let _ = store.mark_unclaimed_start_failed(
@@ -1088,6 +1101,7 @@ fn build_launch(
     command: &[String],
     environment: &[JobEnvironment],
     cwd: Option<&str>,
+    limits: Option<JobProcessLimits>,
     ttl_seconds: u64,
 ) -> Result<ManagedJobLaunch, CuError> {
     let current_directory = resolve_directory(cwd)?;
@@ -1112,6 +1126,13 @@ fn build_launch(
                 value: entry.value.clone(),
             })
             .collect(),
+        limits: limits.map(|limits| ManagedJobProcessLimits {
+            cpu_seconds: limits.cpu_seconds,
+            memory_bytes: limits.memory_bytes,
+            file_size_bytes: limits.file_size_bytes,
+            open_files: limits.open_files,
+            processes: limits.processes,
+        }),
         output_capacity_bytes: OUTPUT_CAPACITY_BYTES,
         lease_ttl_ms,
     })

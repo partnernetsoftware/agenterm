@@ -258,6 +258,7 @@ impl Executor {
                 command,
                 environment,
                 cwd,
+                limits,
                 ttl_seconds,
                 ..
             } => {
@@ -271,10 +272,9 @@ impl Executor {
                     command,
                     environment,
                     cwd.as_deref(),
+                    *limits,
                     *ttl_seconds,
-                    request.session_id,
-                    request.session_lease,
-                    request.runtime,
+                    request,
                 )
             }
             Command::JobList {

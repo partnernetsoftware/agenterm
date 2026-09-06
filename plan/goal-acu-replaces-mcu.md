@@ -717,10 +717,13 @@ Q3 owned runtime facades
 │  │  ├─ [x] macOS public qjswasm foreground/background/unrelated isolation court
 │  │  ├─ [x] direct ConPTY + console-agent C1 verdict: typed limit before mutation
 │  │  └─ [ ] Linux/Windows runtime rerun of the enlarged signal + cleanup court
-│  ├─ [~] managed-job terminal receipt prune: zero-write plan + identity-bound apply + locked reselection
+│  ├─ [~] managed-job prune + pre-exec limits: durable retention and kernel-enforced child budgets
 │  │  ├─ [x] live/detached/orphaned-uncertain records are never candidates
-│  │  ├─ [~] macOS public qjswasm court wired; Linux/Windows rerun pending
-│  │  └─ [ ] adopt + native pre-exec limits still keep the combined ledger leaf at gap
+│  │  ├─ [x] CPU/file-size/open-file/process-count enter macOS/Linux before exec; Linux also has RLIMIT_AS
+│  │  ├─ [x] Windows child is suspended until configured Job CPU/memory/process limits own it
+│  │  ├─ [x] unsupported host/limit pairs fail before target spawn; macOS finite RLIMIT_AS is explicit
+│  │  ├─ [~] macOS public qjswasm court green; Linux/Windows rerun pending
+│  │  └─ [ ] identity-bound adopt still keeps the combined ledger leaf at gap
 │  └─ [ ] aggregate resources, policy/priority, non-idempotent signals and expiry-detach shape
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [~] host resource status: bounded CPU/memory/load/uptime/process snapshot

@@ -1140,9 +1140,17 @@ flowchart LR
   under the store publication lock. Only start-failed, exited and signaled
   receipts older than the cutoff and outside `keep_newest` may be removed;
   running, starting, detached and orphaned-uncertain ownership is preserved.
-  `cu.managed-job-prune` owns the public qjswasm behavior. Process-group adopt
-  and native pre-exec limits remain absent, so the combined ledger leaf stays
-  a gap until those independent branches and three-host evidence close.
+  `cu.managed-job-prune` owns the public qjswasm behavior. `job-spawn` now also
+  seals CPU, memory, file-size, open-file and process-count budgets into the
+  private owner launch document and installs each supported limit before the
+  target's first instruction. POSIX uses native `setrlimit` in `pre_exec`;
+  Windows creates the root suspended, assigns it to a configured Job Object,
+  and resumes only after assignment. Unsupported pairs fail before target
+  spawn: Windows has no file-size/open-file Job limit, and macOS cannot impose
+  a useful finite `RLIMIT_AS` below dyld's process-wide mapping. The macOS
+  public qjswasm journey `cu.managed-job-limits` proves the supported path;
+  Linux/Windows reruns and process-group adopt remain, so the combined ledger
+  leaf stays a gap until those independent branches close.
 
 - [~] Privilege is now split at the real authority boundary. The public
   `privilege plan process.set-priority` command is read-only on macOS/Linux:

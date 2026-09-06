@@ -12,6 +12,7 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.managed-job-lifecycle",
   "cu.managed-job-resources",
+  "cu.managed-job-limits",
   "cu.managed-job-state-signal",
   "cu.managed-job-prune",
   "cu.audit-retention",
@@ -181,6 +182,7 @@ const context = harness.new_context(repo, "cu-managed-job");
 const run_directory = context.run_directory;
 const audit_path = rh.join(run_directory, "cu-audit.jsonl");
 const windows = harness.host_is_windows();
+const macos = !windows && rh.exists("/System/Library/CoreServices/SystemVersion.plist");
 const request_root = "managed-job-" + context.run_id;
 let session_id = "";
 let session_lease = "";
@@ -221,8 +223,20 @@ try {
   append_all(spawn_args, [
     "job-spawn", "--cwd", run_directory,
     "--env", "AGENTERM_JOB_SMOKE_PRIVATE=not-for-logs",
-    "--ttl-seconds", "10", "--"
+    "--ttl-seconds", "10",
+    "--cpu-seconds", "60",
+    "--max-processes", "32"
   ]);
+  if (windows || !macos) {
+    append_all(spawn_args, ["--memory-bytes", "536870912"]);
+  }
+  if (!windows) {
+    append_all(spawn_args, [
+      "--file-size-bytes", "67108864",
+      "--max-open-files", "256"
+    ]);
+  }
+  spawn_args.push("--");
   append_all(spawn_args, interactive_command);
 
   print("STEP spawn once and replay the exact request identity without creating a second job");
@@ -659,6 +673,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-lifecycle");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-resources");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-limits");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-state-signal");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-prune");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");

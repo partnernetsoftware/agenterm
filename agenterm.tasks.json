@@ -3003,7 +3003,7 @@
     },
     {
       "id": "cu-managed-job-smoke",
-      "description": "Prove the public managed-job lifecycle and bounded retention: session ownership, exact spawn replay, privacy-safe list/status, identity-bracketed native containment-group resource point/watch views, crash-recoverable exact-tree STOP/CONT with verified member state (and typed Windows refusal), stdin write/close, dual-stream cursors, exit wait, renewal, exact stop, plan-first terminal receipt pruning, session-end cleanup and retry, then audit retention plan/apply/readback.",
+      "description": "Prove the public managed-job lifecycle, pre-exec resource limits and bounded retention: session ownership, exact spawn replay, privacy-safe list/status, identity-bracketed native containment-group resource point/watch views, crash-recoverable exact-tree STOP/CONT with verified member state (and typed Windows refusal), stdin write/close, dual-stream cursors, exit wait, renewal, exact stop, plan-first terminal receipt pruning, session-end cleanup and retry, then audit retention plan/apply/readback.",
       "entry": "scripts/qjs/cu-managed-job-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

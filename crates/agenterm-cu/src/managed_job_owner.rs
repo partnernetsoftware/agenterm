@@ -18,6 +18,7 @@ use std::{
 use agenterm_platform::{
     contained_process::{
         ContainedChild, ContainedChildInput, ContainedChildOutput, ContainedHeadlessCommand,
+        ContainedProcessLimits,
     },
     process::{ProcessExit, start_identity},
 };
@@ -27,7 +28,7 @@ use crate::managed_job_store::{
     ExactProcessIdentity, ManagedJobHandle, ManagedJobStore, ResidentOwnerIdentity,
 };
 
-pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 1;
+pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 2;
 const LAUNCH_MAX_BYTES: usize = 64 * 1024;
 const COMMAND_PARTS_MAX: usize = 256;
 const ENVIRONMENT_ENTRIES_MAX: usize = 256;
@@ -58,10 +59,33 @@ pub(crate) struct ManagedJobLaunch {
     pub arguments: Vec<String>,
     pub current_directory: Option<PathBuf>,
     pub environment: Vec<ManagedJobEnvironment>,
+    pub limits: Option<ManagedJobProcessLimits>,
     /// Aggregate retained bytes across stdout and stderr.
     pub output_capacity_bytes: usize,
     /// Resident control lease. It is held only in memory and is never persisted.
     pub lease_ttl_ms: u64,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ManagedJobProcessLimits {
+    pub cpu_seconds: Option<u64>,
+    pub memory_bytes: Option<u64>,
+    pub file_size_bytes: Option<u64>,
+    pub open_files: Option<u64>,
+    pub processes: Option<u32>,
+}
+
+impl ManagedJobProcessLimits {
+    fn native(self) -> ContainedProcessLimits {
+        ContainedProcessLimits {
+            cpu_seconds: self.cpu_seconds,
+            memory_bytes: self.memory_bytes,
+            file_size_bytes: self.file_size_bytes,
+            open_files: self.open_files,
+            active_processes: self.processes,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -937,6 +961,9 @@ fn validate_launch(launch: &ManagedJobLaunch) -> Result<(), ManagedJobOwnerError
         || !(OUTPUT_CAPACITY_MIN..=OUTPUT_CAPACITY_MAX).contains(&launch.output_capacity_bytes)
         || validate_lease_ttl(launch.lease_ttl_ms).is_err()
         || launch
+            .limits
+            .is_some_and(|limits| limits.native().validate().is_err())
+        || launch
             .current_directory
             .as_ref()
             .is_some_and(|path| !path.is_absolute())
@@ -991,6 +1018,9 @@ fn build_contained_command(launch: &ManagedJobLaunch) -> ContainedHeadlessComman
                 command.env_remove(&entry.name);
             }
         }
+    }
+    if let Some(limits) = launch.limits {
+        command.limits(limits.native());
     }
     command
 }
@@ -1127,6 +1157,7 @@ mod tests {
             ],
             current_directory: None,
             environment: Vec::new(),
+            limits: None,
             output_capacity_bytes: 16 * 1024,
             lease_ttl_ms: 60_000,
         }

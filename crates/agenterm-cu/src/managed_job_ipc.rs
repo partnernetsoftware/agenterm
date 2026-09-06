@@ -627,7 +627,8 @@ mod tests {
 
     use crate::{
         managed_job_owner::{
-            ManagedJobEnvironment, ManagedJobLaunch, ManagedJobTerminal, start_owner_from_reader,
+            LAUNCH_SCHEMA_VERSION, ManagedJobEnvironment, ManagedJobLaunch, ManagedJobTerminal,
+            start_owner_from_reader,
         },
         managed_job_store::ManagedJobStore,
     };
@@ -666,7 +667,7 @@ mod tests {
         .expect("clock range");
         let record = store.reserve_start(None, now).expect("reserve");
         let launch = ManagedJobLaunch {
-            schema_version: 1,
+            schema_version: LAUNCH_SCHEMA_VERSION,
             state_path,
             handle: record.handle(),
             program: std::env::current_exe().expect("test executable"),
@@ -678,6 +679,7 @@ mod tests {
             ],
             current_directory: None,
             environment: Vec::<ManagedJobEnvironment>::new(),
+            limits: None,
             output_capacity_bytes: 32 * 1024,
             lease_ttl_ms: 60_000,
         };

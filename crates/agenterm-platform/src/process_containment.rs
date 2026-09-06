@@ -8,6 +8,8 @@ use crate::process_reference::ProcessReference;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProcessContainmentLimits {
     pub memory_bytes: Option<u64>,
+    /// Aggregate user-mode CPU time in seconds for the complete Job.
+    pub cpu_time_seconds: Option<u64>,
     /// CPU hard cap in hundredths of one percent (`1..=10_000`).
     pub cpu_rate_hundredths: Option<u32>,
     pub active_processes: Option<u32>,
@@ -155,6 +157,16 @@ fn validate_options(options: ProcessContainmentOptions) -> Result<(), ProcessCon
     }
     if options
         .limits
+        .cpu_time_seconds
+        .is_some_and(|seconds| !(1..=86_400).contains(&seconds))
+    {
+        return Err(invalid(
+            "validate-containment-limits",
+            "CPU time must be between 1 and 86400 seconds",
+        ));
+    }
+    if options
+        .limits
         .cpu_rate_hundredths
         .is_some_and(|rate| !(1..=10_000).contains(&rate))
     {
@@ -197,6 +209,10 @@ mod tests {
             },
             ProcessContainmentLimits {
                 cpu_rate_hundredths: Some(10_001),
+                ..ProcessContainmentLimits::default()
+            },
+            ProcessContainmentLimits {
+                cpu_time_seconds: Some(86_401),
                 ..ProcessContainmentLimits::default()
             },
             ProcessContainmentLimits {

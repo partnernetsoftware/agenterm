@@ -668,6 +668,7 @@ mod tests {
                 value: Some("court".into()),
             }],
             cwd: Some("court".into()),
+            limits: None,
             ttl_seconds: 37,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
@@ -679,6 +680,7 @@ mod tests {
                 ref environment,
                 ref cwd,
                 ttl_seconds: 37,
+                limits: None,
             } if command == &["tool", "--child-flag"]
                 && environment[0].name == "MODE"
                 && environment[0].value.as_deref() == Some("court")

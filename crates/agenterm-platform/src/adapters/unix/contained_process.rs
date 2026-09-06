@@ -6,7 +6,9 @@ use std::{
 };
 
 use crate::{
-    contained_process::{ContainedHeadlessCommand, ContainedInput, ContainedOutput},
+    contained_process::{
+        ContainedHeadlessCommand, ContainedInput, ContainedOutput, ContainedProcessLimits,
+    },
     contract::process_spawn::ProcessExit,
     process::{ProcessTreeGuard, configure_owned_command},
 };
@@ -65,6 +67,7 @@ pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChil
         }
     }
     configure_owned_command(&mut command).map_err(io::Error::other)?;
+    install_limits(&mut command, spec.limits);
     let mut child = command.spawn()?;
     let tree = match ProcessTreeGuard::attach(&child) {
         Ok(tree) => tree,
@@ -88,6 +91,59 @@ pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChil
         ContainedInput::Null => None,
     };
     Ok(ContainedChild { child, tree, stdin })
+}
+
+fn install_limits(command: &mut Command, limits: ContainedProcessLimits) {
+    use std::os::unix::process::CommandExt as _;
+    unsafe {
+        command.pre_exec(move || apply_limits(limits));
+    }
+}
+
+fn apply_limits(limits: ContainedProcessLimits) -> io::Result<()> {
+    if let Some(value) = limits.cpu_seconds {
+        set_limit("cpu_seconds", libc::RLIMIT_CPU, value)?;
+    }
+    if let Some(value) = limits.memory_bytes {
+        set_limit("memory_bytes", libc::RLIMIT_AS, value)?;
+    }
+    if let Some(value) = limits.file_size_bytes {
+        set_limit("file_size_bytes", libc::RLIMIT_FSIZE, value)?;
+    }
+    if let Some(value) = limits.open_files {
+        set_limit("open_files", libc::RLIMIT_NOFILE, value)?;
+    }
+    if let Some(value) = limits.active_processes {
+        set_limit("active_processes", libc::RLIMIT_NPROC, u64::from(value))?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+type RlimitResource = libc::__rlimit_resource_t;
+#[cfg(target_os = "macos")]
+type RlimitResource = libc::c_int;
+
+fn set_limit(name: &'static str, resource: RlimitResource, value: u64) -> io::Result<()> {
+    let value = libc::rlim_t::try_from(value).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "contained resource limit exceeds the native rlim_t width",
+        )
+    })?;
+    let limit = libc::rlimit {
+        rlim_cur: value,
+        rlim_max: value,
+    };
+    if unsafe { libc::setrlimit(resource, &raw const limit) } == 0 {
+        Ok(())
+    } else {
+        let source = io::Error::last_os_error();
+        Err(io::Error::new(
+            source.kind(),
+            format!("could not install contained {name} limit: {source}"),
+        ))
+    }
 }
 
 fn output_stdio(output: &ContainedOutput) -> io::Result<Stdio> {

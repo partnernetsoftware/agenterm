@@ -27,7 +27,9 @@ use windows_sys::Win32::{
 use crate::{
     contained_process::{ContainedHeadlessCommand, ContainedInput, ContainedOutput},
     contract::process_spawn::ProcessExit,
-    process_containment::{ProcessContainment, ProcessContainmentOptions},
+    process_containment::{
+        ProcessContainment, ProcessContainmentLimits, ProcessContainmentOptions,
+    },
     process_reference::{ProcessReference, ProcessWait},
 };
 
@@ -61,10 +63,17 @@ impl Read for ContainedChildOutput {
 }
 
 pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChild> {
+    let limits = ProcessContainmentLimits {
+        memory_bytes: spec.limits.memory_bytes,
+        cpu_time_seconds: spec.limits.cpu_seconds,
+        active_processes: spec.limits.active_processes,
+        ..ProcessContainmentLimits::default()
+    };
     let containment = ProcessContainment::create(
         None,
         ProcessContainmentOptions {
             terminate_on_last_close: true,
+            limits,
             ..ProcessContainmentOptions::default()
         },
     )
@@ -79,6 +88,7 @@ pub(crate) fn spawn(spec: &ContainedHeadlessCommand) -> io::Result<ContainedChil
                 None,
                 ProcessContainmentOptions {
                     terminate_on_last_close: true,
+                    limits,
                     ..ProcessContainmentOptions::default()
                 },
             )
