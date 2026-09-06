@@ -224,7 +224,7 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **1 reachable top-level `STAY` spelling**: service.
+`acu.ts` now has **zero reachable top-level `STAY` spellings**.
 Family routers
 still report their argument-sensitive gaps dynamically; they are not hidden in
 the static count. Native
@@ -257,10 +257,13 @@ apply. Plans bind the complete before snapshot, native incarnation and (for
 launchd bootstrap) a current-user-owned plist's canonical path, declared Label,
 size and digest; apply reserves durably before effect and closes success,
 verified rollback or uncertainty without automatic replay. The public qjswasm
-`cu.service-plan` court is green on macOS and performs no mutation. Static
-`service` stays intentionally nonzero until the old one-call lifecycle shape is
-identity-bound, system mutation reaches the privilege provider, and Linux,
-Windows-refusal plus explicit mutation/rollback courts are green.
+`cu.service-plan` and `cu.service-transaction` courts are green on macOS. The
+old one-call lifecycle now requires caller request/session identity, acquires
+the exact service target lock and enters the same plan/apply state machine, so
+an interrupted request cannot be automatically repeated. This clears the final
+static STAY without claiming retirement: system mutation still needs the
+privilege provider, dynamic argument-shape gaps remain, and Linux,
+Windows-refusal plus explicit mutation/rollback courts are not yet green.
 
 ACU now owns `job-resources JOB_ID GENERATION [--watch-ms N]` as an exact,
 identity-bracketed observation of every current native containment-group

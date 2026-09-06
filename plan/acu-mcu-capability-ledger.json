@@ -967,13 +967,13 @@
         {
           "id": "service.user.lifecycle",
           "mcu_shape": "service user list|status|bootstrap|start|restart|stop|bootout",
-          "acu_shape": "service list|status; service plan start|stop|restart|bootstrap|bootout NAME; service apply --request R --approve H",
+          "acu_shape": "service list|status; service plan/apply; request/session-bound service bootstrap PLIST|start|restart|stop NAME|bootout NAME --force",
           "state": "platform-limited",
           "platforms": {"macos": "native-plan-court-green", "linux": "native-implementation-unqualified", "windows": "typed-unsupported"},
           "qualification": "mutation-free-public-plan-court-green-explicit-mutation-and-cross-platform-courts-pending",
-          "evidence": ["cu.service-plan", "agenterm-cu service transaction state-machine suite", "agenterm-platform service adapter suite"],
-          "note": "Provider-qualified inventory and status plus user-domain plan/apply are native. Plans bind complete state and incarnation; launchd bootstrap also binds the canonical current-user-owned plist, declared Label, size and digest. Durable reservation precedes effect and uncertainty never replays. The MCU one-call compatibility shape remains a static STAY until it has an identity-bound transaction and mutation evidence.",
-          "next": "close the identity-bound one-call compatibility transaction, then run explicit apply/readback/rollback on macOS and Linux plus Windows typed-refusal courts"
+          "evidence": ["cu.service-plan", "cu.service-transaction", "agenterm-cu service transaction state-machine suite", "agenterm-platform service adapter suite"],
+          "note": "Provider-qualified inventory and status plus user-domain plan/apply are native. Plans bind complete state and incarnation; launchd bootstrap also binds the canonical current-user-owned plist, declared Label, size and digest. The one-call compatibility transaction requires caller request/session identity, holds the exact service target lock and is closed by the outer replay ledger before entering plan/apply. Public qjswasm proves no-effect failure, exact retry refusal and lock release; it deliberately does not mutate a real service.",
+          "next": "run explicit apply/readback/rollback on macOS and Linux plus Windows typed-refusal courts"
         },
         {
           "id": "service.system.lifecycle",

@@ -115,6 +115,26 @@ impl Executor {
                     },
                 )
             }
+            Command::ServiceTransact {
+                scope,
+                operation,
+                name,
+                definition,
+                ttl_seconds,
+                ..
+            } => service_transaction_payload(
+                job_request.ok_or_else(|| {
+                    CuError::new(
+                        "service_request_identity_required",
+                        "service lifecycle requires request-id, session and session-lease",
+                    )
+                })?,
+                *scope,
+                *operation,
+                name.as_deref(),
+                definition.as_deref(),
+                *ttl_seconds,
+            ),
             Command::LoginSessionStatus { .. } => {
                 serde_json::to_value(crate::login_session::status()?).map_err(|_| {
                     CuError::new(
@@ -1781,6 +1801,63 @@ fn service_plan_payload(
     value["request"] = serde_json::Value::String(request);
     value["approval"] = serde_json::Value::String(plan.approval_digest.clone());
     Ok(value)
+}
+
+fn service_transaction_payload(
+    request: &JobRequestContext<'_>,
+    scope: crate::service_control::ServiceScope,
+    operation: crate::service_control::ServiceOperation,
+    name: Option<&str>,
+    definition: Option<&str>,
+    ttl_seconds: u64,
+) -> Result<serde_json::Value, CuError> {
+    use crate::service_control::{self, ServiceOperation};
+
+    let (name, definition) = if operation == ServiceOperation::Bootstrap {
+        let path = std::path::PathBuf::from(definition.ok_or_else(|| {
+            CuError::new(
+                "service_definition_required",
+                "service bootstrap requires a definition",
+            )
+        })?);
+        let binding = service_control::definition_binding(&path)?;
+        (binding.declared_name, Some(path))
+    } else {
+        (
+            name.ok_or_else(|| {
+                CuError::new(
+                    "service_name_required",
+                    "service lifecycle requires a service name",
+                )
+            })?
+            .to_owned(),
+            None,
+        )
+    };
+    let identity = service_control::identity(scope, &name)?;
+    let lock_target = format!(
+        "service:{}:{}/{}",
+        identity.provider, identity.provider_scope, identity.name
+    );
+    let now_s = now_utc_ms()
+        .ok_or_else(|| CuError::new("service_clock_invalid", "system clock is unavailable"))?
+        / 1_000;
+    request.runtime.lock_acquire(
+        request.session_id,
+        request.session_lease,
+        &lock_target,
+        ttl_seconds,
+        now_s,
+    )?;
+    let plan = service_control::plan(&identity, operation, definition, ttl_seconds)?;
+    let receipt = service_control::apply(&plan, &plan.approval_digest)?;
+    Ok(serde_json::json!({
+        "operation": operation,
+        "identity": identity,
+        "before": plan.before,
+        "receipt": receipt,
+        "target_lock": lock_target,
+    }))
 }
 
 fn require_job_request<'a>(

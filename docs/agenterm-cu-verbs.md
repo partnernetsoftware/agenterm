@@ -743,25 +743,32 @@ service list|system-list [--match S] [--max N]
 service status|system-status NAME
 service plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]
 service apply --request R --approve H
+service bootstrap PLIST | start|restart|stop NAME | bootout NAME --force [--ttl-seconds N] (global request identity required)
 ```
 
 ```text
 agenterm-cu service
-  scope: observe for inventory/status/plan; actuate for apply    family: System & permissions
+  scope: observe for inventory/status/plan; actuate for apply/direct lifecycle    family: System & permissions
 
 usage:
   service list|system-list [--match S] [--max N]
   service status|system-status NAME
   service plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]
   service apply --request R --approve H
+  service bootstrap PLIST
+  service start|restart|stop NAME
+  service bootout NAME --force
 
-List and status resolve the current native authority domain and retain provider
-and instance identity. Plan performs no mutation and binds the complete before
-snapshot plus a bounded definition digest. Apply checks durable replay before
-fresh admission, revalidates all bound facts, reserves before effect, and never
-repeats an uncertain outcome. System services are observable; system mutation
-returns service_requires_privilege. Linux uses systemd D-Bus, macOS uses the
-fixed /bin/launchctl path, and Windows returns service_unsupported.
+Direct lifecycle is the identity-bound compatibility transaction and requires
+the global --request-id, --session and --session-lease triple. It acquires the
+exact service target lock, then uses the same typed plan/apply state machine;
+outer replay therefore never repeats an uncertain native effect. Bootstrap
+derives and binds the launchd Label from a current-user-owned plist; bootout
+requires --force. List and status resolve the current native authority domain.
+Plan performs no mutation and binds the complete before snapshot plus a bounded
+definition digest. System services are observable; system mutation returns
+service_requires_privilege. Linux uses systemd D-Bus, macOS uses the fixed
+/bin/launchctl path, and Windows returns service_unsupported.
 ```
 
 ### `login-session`

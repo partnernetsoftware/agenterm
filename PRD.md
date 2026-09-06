@@ -153,7 +153,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       Linux/Windows 待原生复跑；audio 状态/计划已由 macOS CoreAudio 原生承接，
 │     │                       Linux/Windows typed unsupported，真实声音变更 court 待跑；service 已有
 │     │                       macOS/Linux 原生 inventory/status + user plan/apply、防重放与 qjswasm 只读 court，
-│     │                       旧 one-call 兼容、system privilege provider 和跨平台 mutation court 未收口，故静态 STAY 仍为 1
+│     │                       one-call 已绑定 request/session + target lock，静态 STAY 清零；system privilege provider、
+│     │                       动态 gap、跨平台 mutation court 与 MCU-absent 总门仍未收口，故 MCU 继续保留
 │     │                       login-session 已有 macOS 原生有界 inventory、精确会话短时 plan、
 │     │                       持久化防重放与锁定回读；只读 qjswasm 绿，显式可见锁屏 court 待跑
 │     │                       external term observe + 显式前台 send 在 macOS/Windows ARM64/Linux x86_64

@@ -3198,7 +3198,7 @@
     },
     {
       "id": "cu-service-smoke",
-      "description": "Prove bounded native service inventory, exact provider-domain status and mutation-free lifecycle planning on macOS/Linux, with truthful no-effect refusal on Windows.",
+      "description": "Prove bounded native service observation/planning plus request-bound, target-locked one-call no-effect replay on macOS/Linux, with truthful provider refusal on Windows.",
       "entry": "scripts/qjs/cu-service-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

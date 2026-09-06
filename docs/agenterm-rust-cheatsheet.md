@@ -4455,6 +4455,13 @@ the public CLI rather than accepting catalog or unit-test presence as delivery.
 - Restart and stop-then-start can create a new incarnation. State equality is
   not instance equality; never report rollback as verified unless the complete
   original snapshot, including the provider instance identity, is restored.
+- A one-call lifecycle compatibility command cannot infer whether a second
+  restart is a retry or new intent. Require caller request/session identity,
+  reserve that request before dispatch, and hold a session-owned lock keyed by
+  provider + authority domain + service name. It may internally reuse the
+  public plan/apply transaction, but outer replay must close a crash between
+  native effect and reply instead of constructing a fresh approval and
+  repeating the effect.
 - Keep system-service mutation behind the privilege provider. Read-only system
   inventory may remain public, but an unprivileged facade must return a typed
   `requires_privilege` result rather than silently invoking elevation.

@@ -2539,11 +2539,12 @@
         "status": "observe",
         "system-status": "observe",
         "plan": "observe",
-        "apply": "actuate"
+        "apply": "actuate",
+        "bootstrap|start|restart|stop|bootout": "actuate"
       },
       "family": "system",
       "summary": "observe native services or approval-bind one exact user-service lifecycle transaction",
-      "usage": "service list|system-list [--match S] [--max N]\nservice status|system-status NAME\nservice plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]\nservice apply --request R --approve H",
+      "usage": "service list|system-list [--match S] [--max N]\nservice status|system-status NAME\nservice plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]\nservice apply --request R --approve H\nservice bootstrap PLIST | start|restart|stop NAME | bootout NAME --force [--ttl-seconds N] (global request identity required)",
       "args": [
         { "flag": "--match", "value": "S", "help": "case-insensitive name filter applied before truncation" },
         { "flag": "--max", "value": "N", "help": "result bound in 1..=5000 (default 500)" },
@@ -5428,7 +5429,7 @@
     },
     {
       "name": "service",
-      "text": "agenterm-cu service\n  scope: observe for inventory/status/plan; actuate for apply    family: System & permissions\n\nusage:\n  service list|system-list [--match S] [--max N]\n  service status|system-status NAME\n  service plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]\n  service apply --request R --approve H\n\nList and status resolve the current native authority domain and retain provider\nand instance identity. Plan performs no mutation and binds the complete before\nsnapshot plus a bounded definition digest. Apply checks durable replay before\nfresh admission, revalidates all bound facts, reserves before effect, and never\nrepeats an uncertain outcome. System services are observable; system mutation\nreturns service_requires_privilege. Linux uses systemd D-Bus, macOS uses the\nfixed /bin/launchctl path, and Windows returns service_unsupported.\n"
+      "text": "agenterm-cu service\n  scope: observe for inventory/status/plan; actuate for apply/direct lifecycle    family: System & permissions\n\nusage:\n  service list|system-list [--match S] [--max N]\n  service status|system-status NAME\n  service plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]\n  service apply --request R --approve H\n  service bootstrap PLIST\n  service start|restart|stop NAME\n  service bootout NAME --force\n\nDirect lifecycle is the identity-bound compatibility transaction and requires\nthe global --request-id, --session and --session-lease triple. It acquires the\nexact service target lock, then uses the same typed plan/apply state machine;\nouter replay therefore never repeats an uncertain native effect. Bootstrap\nderives and binds the launchd Label from a current-user-owned plist; bootout\nrequires --force. List and status resolve the current native authority domain.\nPlan performs no mutation and binds the complete before snapshot plus a bounded\ndefinition digest. System services are observable; system mutation returns\nservice_requires_privilege. Linux uses systemd D-Bus, macOS uses the fixed\n/bin/launchctl path, and Windows returns service_unsupported.\n"
     },
     {
       "name": "login-session",

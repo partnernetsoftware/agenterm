@@ -302,7 +302,8 @@
     {
       "id": "cu-service-smoke",
       "evidence": [
-        "cu.service-plan"
+        "cu.service-plan",
+        "cu.service-transaction"
       ]
     }
   ]

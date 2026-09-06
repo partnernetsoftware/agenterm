@@ -989,6 +989,19 @@ pub enum Command {
         request: String,
         approval: String,
     },
+    /// Execute the legacy one-call lifecycle shape under caller-supplied
+    /// request/session identity. The executor still uses the same typed plan,
+    /// approval and durable service transaction internally.
+    ServiceTransact {
+        target: TargetRef,
+        scope: ServiceScope,
+        operation: ServiceOperation,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definition: Option<String>,
+        ttl_seconds: u64,
+    },
     /// Read the bounded current console-session inventory and lock state.
     LoginSessionStatus {
         target: TargetRef,
@@ -3270,7 +3283,8 @@ impl Command {
             Self::ServiceList { .. }
             | Self::ServiceStatus { .. }
             | Self::ServicePlan { .. }
-            | Self::ServiceApply { .. } => "service".into(),
+            | Self::ServiceApply { .. }
+            | Self::ServiceTransact { .. } => "service".into(),
             Self::LoginSessionStatus { .. }
             | Self::LoginSessionPlanLock { .. }
             | Self::LoginSessionApplyLock { .. } => "login-session".into(),
@@ -3463,6 +3477,7 @@ impl Command {
             | Self::ServiceStatus { target, .. }
             | Self::ServicePlan { target, .. }
             | Self::ServiceApply { target, .. }
+            | Self::ServiceTransact { target, .. }
             | Self::LoginSessionStatus { target }
             | Self::LoginSessionPlanLock { target, .. }
             | Self::LoginSessionApplyLock { target, .. }
@@ -3654,6 +3669,7 @@ impl Command {
             | Self::HostNotify { .. }
             | Self::AudioApply { .. }
             | Self::ServiceApply { .. }
+            | Self::ServiceTransact { .. }
             | Self::LoginSessionApplyLock { .. }
             | Self::PointerMove { .. }
             | Self::AuditCompact { apply: true, .. }
@@ -3841,6 +3857,33 @@ impl Command {
                 }
                 if approval.len() != 64 || !approval.bytes().all(|byte| byte.is_ascii_hexdigit()) {
                     return Err("service apply approval must be a 64-hex digest");
+                }
+                Ok(())
+            }
+            Self::ServiceTransact {
+                operation,
+                name,
+                definition,
+                ttl_seconds,
+                ..
+            } => {
+                if !(1..=600).contains(ttl_seconds) {
+                    return Err("service transaction ttl_seconds must be in 1..=600");
+                }
+                if *operation == ServiceOperation::Bootstrap {
+                    if name.is_some() || definition.is_none() {
+                        return Err("service bootstrap transaction requires only a definition");
+                    }
+                } else if name.is_none() || definition.is_some() {
+                    return Err("service lifecycle transaction requires only a service name");
+                }
+                if let Some(name) = name {
+                    validate_service_name(name)?;
+                }
+                if definition.as_ref().is_some_and(|path| {
+                    path.is_empty() || path.len() > 8_192 || path.as_bytes().contains(&0)
+                }) {
+                    return Err("service definition must be in 1..=8192 non-NUL bytes");
                 }
                 Ok(())
             }
@@ -4792,15 +4835,25 @@ mod tests {
             request: "REQUEST".into(),
             approval: "a".repeat(64),
         };
+        let transact = Command::ServiceTransact {
+            target: TargetRef::Current,
+            scope: ServiceScope::User,
+            operation: ServiceOperation::Restart,
+            name: Some("example.service".into()),
+            definition: None,
+            ttl_seconds: 60,
+        };
         assert_eq!(list.required_grant(), Grant::Observe);
         assert_eq!(status.required_grant(), Grant::Observe);
         assert_eq!(plan.required_grant(), Grant::Observe);
         assert_eq!(apply.required_grant(), Grant::Actuate);
+        assert_eq!(transact.required_grant(), Grant::Actuate);
         for (command, expected_wire_verb) in [
             (list, "service-list"),
             (status, "service-status"),
             (plan, "service-plan"),
             (apply, "service-apply"),
+            (transact, "service-transact"),
         ] {
             assert_eq!(command.verb(), "service");
             assert_eq!(command.validate(), Ok(()));

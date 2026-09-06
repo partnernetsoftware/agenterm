@@ -98,6 +98,37 @@ pub fn parse(
                 approval: flag_text(args, "--approve")?
                     .ok_or_else(|| "service apply requires --approve H".to_owned())?,
             },
+            "bootstrap" | "start" | "restart" | "stop" | "bootout" => {
+                let operation = match subcommand.as_str() {
+                    "bootstrap" => ServiceOperation::Bootstrap,
+                    "start" => ServiceOperation::Start,
+                    "restart" => ServiceOperation::Restart,
+                    "stop" => ServiceOperation::Stop,
+                    "bootout" => ServiceOperation::Bootout,
+                    _ => unreachable!(),
+                };
+                let operand = args
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| format!("service {subcommand} requires a name or plist"))?;
+                args.remove(0);
+                if subcommand == "bootout" && !take_switch(args, "--force") {
+                    return Err("service bootout requires --force".to_owned());
+                }
+                let scope = match flag_text(args, "--scope")?.as_deref() {
+                    None | Some("user") => ServiceScope::User,
+                    Some("system") => ServiceScope::System,
+                    Some(_) => return Err("service --scope must be user or system".to_owned()),
+                };
+                Command::ServiceTransact {
+                    target,
+                    scope,
+                    operation,
+                    name: (subcommand != "bootstrap").then_some(operand.clone()),
+                    definition: (subcommand == "bootstrap").then_some(operand),
+                    ttl_seconds: flag_parsed::<u64>(args, "--ttl-seconds")?.unwrap_or(120),
+                }
+            }
             other => return Err(format!("unknown service subcommand {other:?}")),
         };
         if !args.is_empty() {
@@ -1152,6 +1183,35 @@ mod tests {
             )
             .unwrap(),
             Command::ServiceApply { .. }
+        ));
+        assert!(matches!(
+            parse("service", &["restart", "example.service", "--ttl-seconds", "30"])
+                .unwrap(),
+            Command::ServiceTransact {
+                operation: ServiceOperation::Restart,
+                name: Some(name),
+                definition: None,
+                ttl_seconds: 30,
+                ..
+            } if name == "example.service"
+        ));
+        assert!(matches!(
+            parse("service", &["bootstrap", "fixture.plist"]).unwrap(),
+            Command::ServiceTransact {
+                operation: ServiceOperation::Bootstrap,
+                name: None,
+                definition: Some(path),
+                ..
+            } if path == "fixture.plist"
+        ));
+        assert!(parse("service", &["bootout", "example.service"]).is_err());
+        assert!(matches!(
+            parse("service", &["bootout", "example.service", "--force"]).unwrap(),
+            Command::ServiceTransact {
+                operation: ServiceOperation::Bootout,
+                name: Some(name),
+                ..
+            } if name == "example.service"
         ));
         assert!(parse("service", &["list", "--max", "5001"]).is_err());
         assert!(parse("service", &["plan", "bootstrap", "example.service"]).is_err());

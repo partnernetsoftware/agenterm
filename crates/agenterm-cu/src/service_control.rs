@@ -358,6 +358,13 @@ pub fn status_named(scope: ServiceScope, name: &str) -> Result<ServiceSnapshot, 
     status_with_provider(&mut provider, &identity)
 }
 
+/// Read the bounded native identity declared by one service definition without
+/// exposing its contents or performing a lifecycle effect.
+pub fn definition_binding(path: &Path) -> Result<ServiceDefinitionBinding, CuError> {
+    let mut provider = NativeServiceProvider;
+    provider.definition_identity(path)
+}
+
 pub fn status_with_provider(
     provider: &mut impl ServiceProvider,
     identity: &ServiceIdentity,
@@ -404,6 +411,12 @@ pub fn plan_with_provider(
         return Err(CuError::new(
             "service_already_loaded",
             "bootstrap refuses a service that is already loaded",
+        ));
+    }
+    if operation != ServiceOperation::Bootstrap && before.state == ServiceState::Missing {
+        return Err(CuError::new(
+            "service_not_loaded",
+            "service lifecycle refuses a service that is not loaded",
         ));
     }
     let definition_path = definition;
@@ -600,7 +613,7 @@ pub fn apply_with_provider(
         Ok(evidence)
             if evidence.before == plan.before
                 && evidence.verified
-                && postcondition(plan.operation, &evidence.after) =>
+                && postcondition(plan.operation, &plan.before, &evidence.after) =>
         {
             finalize(
                 store,
@@ -1018,9 +1031,18 @@ fn operation_already_satisfied(operation: ServiceOperation, state: &ServiceSnaps
         ) && state.state == ServiceState::Missing
 }
 
-fn postcondition(operation: ServiceOperation, state: &ServiceSnapshot) -> bool {
+fn postcondition(
+    operation: ServiceOperation,
+    before: &ServiceSnapshot,
+    state: &ServiceSnapshot,
+) -> bool {
     match operation {
-        ServiceOperation::Start | ServiceOperation::Restart => state.state == ServiceState::Running,
+        ServiceOperation::Start => state.state == ServiceState::Running,
+        ServiceOperation::Restart => {
+            state.state == ServiceState::Running
+                && state.instance.is_some()
+                && state.instance != before.instance
+        }
         ServiceOperation::Stop => !matches!(
             state.state,
             ServiceState::Running | ServiceState::Activating | ServiceState::Deactivating

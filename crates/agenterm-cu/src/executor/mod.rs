@@ -1022,6 +1022,65 @@ mod tests {
         remove_audit_scratch(&audit_path);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn service_transaction_requires_request_identity_and_holds_exact_target_lock() {
+        let command = Command::ServiceTransact {
+            target: TargetRef::Current,
+            scope: crate::service_control::ServiceScope::User,
+            operation: crate::service_control::ServiceOperation::Start,
+            name: Some("com.example.agenterm.missing-fixture".into()),
+            definition: None,
+            ttl_seconds: 30,
+        };
+        let audit_path = audit_scratch("service-request-identity");
+        let without_identity = actuate_executor()
+            .with_audit_path(audit_path.clone())
+            .execute(&command);
+        assert_eq!(
+            without_identity.error.as_ref().unwrap().code,
+            "service_request_identity_required"
+        );
+
+        let root = audit_path.parent().expect("scratch root");
+        let runtime_path = root.join("runtime.json");
+        let request_path = root.join("requests.json");
+        let now_ms = now_utc_ms().expect("test clock");
+        let session = RuntimeCoordinator::open_at(&runtime_path)
+            .unwrap()
+            .session_start(Some("service fixture"), 60, now_ms / 1_000)
+            .unwrap();
+        let identity = RequestIdentity {
+            request_id: "fixture.service-request-1".into(),
+            session_id: session.session_id.clone(),
+            session_lease: session.lease.clone(),
+        };
+        let executor = actuate_executor()
+            .with_audit_path(audit_path.clone())
+            .with_request_state_paths(request_path, runtime_path.clone())
+            .with_request_identity(identity);
+        let first = executor.execute(&command);
+        assert_eq!(first.error.as_ref().unwrap().code, "service_not_loaded");
+        let locks = RuntimeCoordinator::open_at(&runtime_path)
+            .unwrap()
+            .lock_list(now_utc_ms().expect("test clock after request") / 1_000)
+            .unwrap();
+        assert_eq!(locks.len(), 1);
+        assert!(locks[0].target.starts_with("service:launchd:gui/"));
+        assert!(
+            locks[0]
+                .target
+                .ends_with("/com.example.agenterm.missing-fixture")
+        );
+
+        let replay = executor.execute(&command);
+        assert_eq!(
+            replay.error.as_ref().unwrap().code,
+            "request_previously_failed"
+        );
+        remove_audit_scratch(&audit_path);
+    }
+
     #[test]
     fn request_identity_conflicts_when_transport_effect_scope_changes() {
         let audit_path = audit_scratch("request-effect-scope");

@@ -140,7 +140,7 @@ pub fn mutate(request: &ServiceMutationRequest) -> Result<ServiceMutationReceipt
             }
         };
         match native::status(&before.identity, status_budget) {
-            Ok(snapshot) if postcondition(request.operation, &snapshot) => break snapshot,
+            Ok(snapshot) if postcondition(request.operation, &before, &snapshot) => break snapshot,
             Ok(snapshot) if Instant::now() >= operation_deadline => {
                 let error = ServiceError::new(
                     ServiceErrorKind::VerificationFailed,
@@ -314,9 +314,18 @@ fn operation_already_satisfied(operation: ServiceOperation, state: &ServiceSnaps
         || matches!(operation, ServiceOperation::Bootstrap) && state.state != ServiceState::Missing
 }
 
-fn postcondition(operation: ServiceOperation, state: &ServiceSnapshot) -> bool {
+fn postcondition(
+    operation: ServiceOperation,
+    before: &ServiceSnapshot,
+    state: &ServiceSnapshot,
+) -> bool {
     match operation {
-        ServiceOperation::Start | ServiceOperation::Restart => state.state == ServiceState::Running,
+        ServiceOperation::Start => state.state == ServiceState::Running,
+        ServiceOperation::Restart => {
+            state.state == ServiceState::Running
+                && state.instance.is_some()
+                && state.instance != before.instance
+        }
         ServiceOperation::Stop => !matches!(
             state.state,
             ServiceState::Running | ServiceState::Activating | ServiceState::Deactivating

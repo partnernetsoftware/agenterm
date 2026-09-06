@@ -3,7 +3,7 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.service-plan"];
+const declared_evidence = ["cu.service-plan", "cu.service-transaction"];
 
 function ensure(condition, message) { if (!condition) { throw message; } }
 function direct_file(path) {
@@ -32,6 +32,20 @@ function invoke(executable, directory, audit_path, grant, args) {
   });
   const stdout = output.stdout.trim();
   ensure(stdout !== "", "cu_service_empty:" + output.stderr);
+  return { output: output, stdout: stdout, reply: JSON.parse(stdout) };
+}
+function invoke_cu(executable, directory, audit_path, args) {
+  const output = rh.command(executable, args, {
+    cwd: directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: audit_path,
+      AGENTERM_CU_RUNTIME_PATH: rh.join(directory, "runtime.json"),
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(directory, "requests.json")
+    },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_service_transaction_empty:" + output.stderr);
   return { output: output, stdout: stdout, reply: JSON.parse(stdout) };
 }
 
@@ -99,6 +113,36 @@ try {
     const after = invoke(executable, context.run_directory, audit_path, "observe", ["status", name]);
     ensure(after.reply.ok === true && JSON.stringify(after.reply.data) === JSON.stringify(before), "cu_service_plan_changed_state");
   }
+
+  print("STEP one-call lifecycle requires identity, locks its exact target and closes replay without effect");
+  const session = invoke_cu(executable, context.run_directory, audit_path, [
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", "service-court", "--ttl-seconds", "120"
+  ]);
+  ensure(session.output.success === true && session.reply.ok === true, "cu_service_session_start");
+  const session_id = session.reply.data.session_id;
+  const session_lease = session.reply.data.lease;
+  const request_id = "service-no-effect-request";
+  const lifecycle_args = [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", request_id, "--session", session_id, "--session-lease", session_lease,
+    "service", "start", "com.example.agenterm.missing-court", "--ttl-seconds", "60"
+  ];
+  const first = invoke_cu(executable, context.run_directory, audit_path, lifecycle_args);
+  ensure(first.output.success !== true && first.reply.ok === false, "cu_service_no_effect_false_success");
+  ensure(
+    first.reply.error.code === "service_not_loaded" || first.reply.error.code === "service_unsupported",
+    "cu_service_no_effect_code:" + first.stdout
+  );
+  const replay = invoke_cu(executable, context.run_directory, audit_path, lifecycle_args);
+  ensure(replay.output.success !== true && replay.reply.ok === false, "cu_service_replay_false_success");
+  ensure(replay.reply.error.code === "request_previously_failed", "cu_service_replay_code:" + replay.stdout);
+  const ended = invoke_cu(executable, context.run_directory, audit_path, [
+    "--target", "current", "--grant", "actuate",
+    "session-end", session_id, "--lease", session_lease, "--confirm"
+  ]);
+  ensure(ended.output.success === true && ended.reply.ok === true, "cu_service_session_end:" + ended.stdout);
+  ensure(ended.reply.data.released_locks === 1, "cu_service_target_lock_release");
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -106,8 +150,9 @@ try {
 
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, "cu.service-plan");
+  harness.emit_evidence(context, declared_evidence, "cu.service-transaction");
   harness.remove_run(context);
-  print("PASS: service inventory, exact status and lifecycle planning are bounded, mutation-free and platform-honest");
+  print("PASS: service observation, planning and request-bound no-effect lifecycle replay are closed and platform-honest");
 }
 if (failure !== "") { throw failure; }
 return;

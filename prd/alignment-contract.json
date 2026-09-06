@@ -241,7 +241,8 @@
         "cu.pty-background-interactive",
         "cu.login-session-plan",
         "cu.audio-plan",
-        "cu.service-plan"
+        "cu.service-plan",
+        "cu.service-transaction"
       ]
     },
     {

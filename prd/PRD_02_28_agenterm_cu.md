@@ -428,9 +428,14 @@ flowchart LR
   additionally binds a current-user-owned plist's canonical path, declared
   Label, byte length and digest. Approval is short-lived, reservation precedes
   effect, and uncertain outcomes never reopen automatic replay. The
-  mutation-free qjswasm evidence is `cu.service-plan` on macOS. This does not
-  yet retire MCU: the legacy one-call shape, system privilege provider and
-  Linux/Windows plus explicit mutation/rollback courts remain open.
+  mutation-free qjswasm evidence is `cu.service-plan` on macOS. The old
+  one-call shape is now a Rust transaction requiring request/session identity;
+  it acquires the exact service target lock before entering the same plan/apply
+  state machine. `cu.service-transaction` proves no-effect failure, closed
+  replay and lock release without touching a real service. This clears the
+  final static STAY but does not retire MCU: system privilege provider, dynamic
+  argument-shape gaps, Linux/Windows and explicit mutation/rollback courts
+  remain open.
 - [~] The compatibility spelling `acu caps` now returns the replacement ACU
   per-target capability matrix. It does not preserve MCU's private manifest as
   a second source of truth; declared, live, unavailable and unsupported states

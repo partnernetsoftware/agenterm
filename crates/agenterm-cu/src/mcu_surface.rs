@@ -431,7 +431,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             } else {
                 "unsupported"
             },
-            "bounded user/system inventory and status plus exact user-service plan/apply are native on macOS/Linux; direct legacy lifecycle, launchd plist-label admission, system privilege apply and daemon login-service remain typed migration gaps",
+            "bounded user/system inventory and status, exact plan/apply, launchd plist-label admission and request/session-bound one-call user lifecycle are native on macOS/Linux; system privilege apply and daemon login-service remain typed migration gaps",
         ),
         "privilege" => (
             "available",
