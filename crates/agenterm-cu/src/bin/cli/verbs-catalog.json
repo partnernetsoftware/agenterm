@@ -319,8 +319,8 @@
       "aliases": ["job signal"],
       "grant": "actuate",
       "family": "system",
-      "summary": "deliver retry-safe STOP or CONT to the complete exact managed-job tree",
-      "usage": "job-signal JOB_ID GENERATION STOP|CONT [--timeout-ms N]",
+      "summary": "deliver one request-bound signal to the complete exact managed-job tree",
+      "usage": "job-signal JOB_ID GENERATION HUP|INT|TERM|KILL|STOP|CONT|USR1|USR2 [--timeout-ms N] [--force]",
       "args": []
     },
     {
@@ -5371,7 +5371,7 @@
     },
     {
       "name": "job-signal",
-      "text": "agenterm-cu job-signal    (also: job signal)\n  scope: actuate    family: Managed jobs\n\nusage: job-signal JOB_ID GENERATION STOP|CONT [--timeout-ms N]\n\nRequires global request and owning session identity. Only read-back-verifiable, retry-safe STOP and CONT are accepted in this slice. The complete bounded Unix tree is stabilized under exact process references with a durable recovery transaction. Other signals remain unavailable until their request-id replay ledger lands; Windows refuses because no documented exact Job Object freeze API is available.\n"
+      "text": "agenterm-cu job-signal    (also: job signal)\n  scope: actuate    family: Managed jobs\n\nusage: job-signal JOB_ID GENERATION HUP|INT|TERM|KILL|STOP|CONT|USR1|USR2 [--timeout-ms N] [--force]\n\nRequires global request and owning session identity. The complete bounded Unix tree is stabilized under exact process references with a durable recovery transaction before delivery. STOP/CONT/TERM/KILL have observable postconditions; HUP/INT/USR1/USR2 report accepted delivery without inventing a process-specific effect. Reusing the same request id returns the sealed prior outcome without a second signal. --force is required exactly for SIGKILL. Windows refuses because no documented exact Job Object signal surface is available.\n"
     },
     {
       "name": "job-stop",

@@ -1531,6 +1531,17 @@ the screen operation and translate its own typed result; it must not preflight
 a coarser window-enumeration capability flag. Such a preflight rejects a valid
 XWayland screen probe before the Linux adapter is ever called.
 
+## Non-idempotent native effects need caller-request replay, not a smaller API
+
+Do not permanently reduce a public native operation to the subset whose
+postcondition is easy to read back. For effects such as `SIGHUP` or `SIGUSR1`,
+bind the exact owned target and effect arguments into the durable caller
+request fingerprint, reserve before delivery, and finalize one typed outcome.
+Replaying that request returns the sealed outcome without delivering the
+signal again. The result must distinguish accepted delivery from a verified
+process-specific effect rather than claiming that an arbitrary signal had the
+intended application meaning.
+
 ## An active cheap gate must own Candidate's static workflow contracts
 
 Do not let an expensive release Candidate be the first place that parses its

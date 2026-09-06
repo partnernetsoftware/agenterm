@@ -416,7 +416,7 @@ try {
   print("STEP stop a second long-running job by exact identity and observe owned owner cleanup");
   const long_command = windows
     ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"]
-    : ["/bin/sh", "-c", "sleep 30"];
+    : ["/bin/sh", "-c", "trap 'printf signal-usr1\\n' USR1; printf 'signal-ready\\n'; while :; do sleep 1; done"];
   const second_spawn_args = mutation_prefix(request_root + "-spawn-stop", session_id, session_lease);
   append_all(second_spawn_args, ["job-spawn", "--ttl-seconds", "2", "--"]);
   append_all(second_spawn_args, long_command);
@@ -486,6 +486,45 @@ try {
         && continued.signal === "SIGCONT" && continued.verified === true
         && members_have_state(continued.members, "running"),
       "cu_managed_job_signal_continue_contract"
+    );
+
+    print("STEP deliver one non-idempotent signal exactly once through durable request replay");
+    const before_signal = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "job-output", second_job.job_id, "" + second_job.generation,
+      "--stream", "stdout", "--cursor", "0", "--max-bytes", "4096"
+    ], "job-output");
+    const signal_usr1_args = mutation_prefix(
+      request_root + "-signal-usr1", session_id, session_lease
+    );
+    append_all(signal_usr1_args, [
+      "job-signal", second_job.job_id, "" + second_job.generation,
+      "USR1", "--timeout-ms", "5000"
+    ]);
+    const user_signal = invoke_cu(
+      run_directory, executable, signal_usr1_args, "job-signal"
+    );
+    ensure(
+      user_signal.job_id === second_job.job_id
+        && user_signal.generation === second_job.generation
+        && user_signal.signal === "SIGUSR1"
+        && user_signal.delivered === true && user_signal.verified === null,
+      "cu_managed_job_user_signal_contract"
+    );
+    const signal_output = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "job-events", second_job.job_id, "" + second_job.generation,
+      "--stdout-cursor", text_of(before_signal.output.next_cursor),
+      "--stderr-cursor", "0", "--timeout-ms", "5000", "--max-bytes", "4096"
+    ], "job-events");
+    ensure(signal_output.stdout.bytes > 0, "cu_managed_job_user_signal_observed");
+    const user_signal_replay = invoke_cu(
+      run_directory, executable, signal_usr1_args, "job-signal"
+    );
+    ensure(
+      user_signal_replay.effect === "not_repeated"
+        && user_signal_replay.idempotent === true,
+      "cu_managed_job_user_signal_replay_contract"
     );
   }
   const stopped = stop_owned_job(

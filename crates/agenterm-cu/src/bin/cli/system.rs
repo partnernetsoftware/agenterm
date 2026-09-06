@@ -871,8 +871,9 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
             generation: positional(args, "GENERATION")?
                 .parse()
                 .map_err(|_| "GENERATION must be a positive integer".to_owned())?,
-            signal: ProcessSignalKind::parse(&positional(args, "SIGNAL")?)
-                .ok_or_else(|| "SIGNAL must be STOP or CONT".to_owned())?,
+            signal: ProcessSignalKind::parse(&positional(args, "SIGNAL")?).ok_or_else(|| {
+                "SIGNAL must be HUP, INT, TERM, KILL, STOP, CONT, USR1 or USR2".to_owned()
+            })?,
             timeout_ms: flag_parsed(args, "--timeout-ms")?.unwrap_or(5_000),
             force: take_switch(args, "--force"),
         },
@@ -1799,7 +1800,22 @@ mod tests {
             }
         ));
         assert!(parse("job-signal", &[id, "2", "KILL"]).is_err());
-        assert!(parse("job-signal", &[id, "2", "USR1"]).is_err());
+        assert!(matches!(
+            parse("job-signal", &[id, "2", "KILL", "--force"]).unwrap(),
+            Command::JobSignal {
+                signal: ProcessSignalKind::Kill,
+                force: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("job-signal", &[id, "2", "USR1"]).unwrap(),
+            Command::JobSignal {
+                signal: ProcessSignalKind::User1,
+                force: false,
+                ..
+            }
+        ));
         assert!(parse("job-signal", &[id, "2", "CONT", "--force"]).is_err());
         assert!(parse("job-output", &[id, "1", "--stream", "merged"]).is_err());
         assert!(parse("job-events", &[id, "0"]).is_err());

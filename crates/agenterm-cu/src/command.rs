@@ -4638,14 +4638,8 @@ impl Command {
                 if !(1..=60_000).contains(timeout_ms) {
                     return Err("managed-job signal timeout_ms must be in 1..=60000");
                 }
-                if !matches!(
-                    signal,
-                    ProcessSignalKind::Stop | ProcessSignalKind::Continue
-                ) || *force
-                {
-                    return Err(
-                        "managed-job signal currently accepts only retry-safe SIGSTOP or SIGCONT without --force",
-                    );
+                if (*signal == ProcessSignalKind::Kill) != *force {
+                    return Err("managed-job signal requires --force exactly for SIGKILL");
                 }
                 Ok(())
             }
@@ -5264,6 +5258,39 @@ mod tests {
             serde_json::to_value(signal_command).expect("serialize signal"),
             signal
         );
+        let user_signal: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-signal",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "signal": "SIGUSR1",
+            "timeout_ms": 5_000
+        }))
+        .expect("user signal");
+        user_signal
+            .validate()
+            .expect("generic signal is request-bound");
+        let kill_without_force: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-signal",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "signal": "SIGKILL",
+            "timeout_ms": 5_000
+        }))
+        .expect("kill without force");
+        assert!(kill_without_force.validate().is_err());
+        let kill_with_force: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-signal",
+            "target": "current",
+            "job_id": TEST_JOB_ID,
+            "generation": 7,
+            "signal": "SIGKILL",
+            "timeout_ms": 5_000,
+            "force": true
+        }))
+        .expect("kill with force");
+        kill_with_force.validate().expect("confirmed kill");
 
         let stop: Command = serde_json::from_value(serde_json::json!({
             "verb": "job-stop",
@@ -5370,7 +5397,15 @@ mod tests {
             "generation": 1, "signal": "SIGUSR1", "timeout_ms": 5000
         }))
         .expect("closed signal enum");
-        assert!(non_idempotent_signal.validate().is_err());
+        non_idempotent_signal
+            .validate()
+            .expect("caller-request replay makes generic signal delivery idempotent");
+        let forced_non_kill: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-signal", "target": "current", "job_id": TEST_JOB_ID,
+            "generation": 1, "signal": "SIGUSR1", "timeout_ms": 5000, "force": true
+        }))
+        .expect("forced non-kill signal");
+        assert!(forced_non_kill.validate().is_err());
         reject(serde_json::json!({
             "verb": "job-stop", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
             "grace_ms": 60001, "expect_stopped": true

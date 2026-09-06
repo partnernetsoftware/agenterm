@@ -221,6 +221,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   previously admitted request, while uncertain or non-idempotent effects stay
   closed. Classifying this leaf as retired reduces the current required gap
   count from 19 to 18 without removing any shipped MCU behavior.
+- [~] Managed-job signaling now exposes the complete closed Unix signal set
+  rather than only STOP/CONT. Exact tree membership and crash recovery own the
+  native effect; STOP/CONT/TERM/KILL carry observable postconditions, while
+  HUP/INT/USR1/USR2 truthfully report accepted delivery. The caller request
+  fingerprint seals every signal, so replay returns the prior outcome without
+  delivering it twice. The public qjswasm journey proves one SIGUSR1 effect
+  followed by a no-repeat replay. Resident resource policy remains the last
+  implementation gap in this combined job leaf.
 
 ```mermaid
 flowchart LR
