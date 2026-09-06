@@ -43,6 +43,8 @@ pub mod input_inject;
 #[cfg(feature = "ipc")]
 pub mod ipc_transport;
 pub mod local_clock;
+#[cfg(feature = "login-session")]
+pub mod login_session;
 pub mod native_virtualization;
 #[cfg(feature = "network-dns")]
 pub mod network_dns;

@@ -55,6 +55,7 @@ clipboard, IPC, or screenshot modules.
 | `entropy` | fail-closed host CSPRNG byte filling | target `libc` / minimal `windows-sys` |
 | `console-interrupt` | RAII Ctrl-C/SIGINT observation or temporary ignore with typed failures | target `libc` / minimal `windows-sys` |
 | `user-identity` | current Windows SID or POSIX real/effective uid/gid facts | target `libc` / minimal `windows-sys` |
+| `login-session` | bounded console-session inventory and shell-free lock-chord delivery; caller owns policy and read-back | macOS IOKit/CoreFoundation/CoreGraphics; typed unsupported elsewhere |
 | `app-container-profile` | public owned AppContainer profile/SID/capability primitives; non-Windows hosts return typed unsupported and lifecycle policy stays with the caller | minimal `windows-sys` |
 | `app-container-process` | fail-closed suspended AppContainer process creation with explicit environment/HANDLE allowlists and exact process ownership | profile + minimal process mechanisms |
 | `process-conventions` | pure Windows CRT command-line and sorted Unicode environment-block encoding with typed malformed-input policy; does not spawn a process | none |
@@ -105,6 +106,7 @@ clipboard, IPC, or screenshot modules.
 | storage | volume capacity + cluster geometry | `statvfs` | `statvfs` |
 | entropy | BCrypt system-preferred RNG | `getrandom(2)` | `arc4random_buf` |
 | console interrupt | Ctrl-C-only console handler + atomic notification | SIGINT `sigaction` + self-pipe | SIGINT `sigaction` + self-pipe |
+| login session | typed Unsupported | typed Unsupported | bounded IORegistry inventory + permission-preflighted lock chord |
 | process conventions | encode Windows argv/environment inputs without native access | same portable encoder | same portable encoder |
 | process control | forceful termination; graceful Unsupported | SIGTERM/SIGKILL | SIGTERM/SIGKILL |
 | process image | queried full image path | `/proc/<pid>/exe` | `proc_pidpath` |

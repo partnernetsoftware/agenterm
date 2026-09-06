@@ -129,6 +129,7 @@ pub enum Capability {
     DesktopHost,
     HostOpen,
     HostNotification,
+    LoginSession,
     PermissionSettings,
 }
 
@@ -216,6 +217,10 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         ),
         Capability::HostOpen => (cfg!(feature = "host-open"), true),
         Capability::HostNotification => (cfg!(feature = "host-notification"), true),
+        Capability::LoginSession => (
+            cfg!(feature = "login-session"),
+            crate::selected::login_session_supported(),
+        ),
         Capability::PermissionSettings => (cfg!(feature = "permission-settings"), true),
     };
     if enabled && implemented {
@@ -445,6 +450,9 @@ pub mod host_open;
 
 #[cfg(feature = "host-notification")]
 pub mod host_notification;
+
+#[cfg(feature = "login-session")]
+pub mod login_session;
 
 #[cfg(feature = "permission-settings")]
 pub mod permission_settings;

@@ -51,6 +51,18 @@ pub(crate) mod host_open;
 #[path = "adapters/windows/host_notification.rs"]
 pub(crate) mod host_notification;
 
+#[cfg(all(feature = "login-session", target_os = "macos"))]
+#[path = "adapters/macos/login_session.rs"]
+pub(crate) mod login_session;
+
+#[cfg(all(feature = "login-session", not(target_os = "macos")))]
+#[path = "adapters/unsupported_login_session.rs"]
+pub(crate) mod login_session;
+
+pub(crate) const fn login_session_supported() -> bool {
+    cfg!(target_os = "macos")
+}
+
 #[cfg(all(feature = "host-notification", target_os = "macos"))]
 #[path = "adapters/macos/host_notification.rs"]
 pub(crate) mod host_notification;
