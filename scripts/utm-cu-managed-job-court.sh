@@ -90,6 +90,11 @@ cp "$REPO_ROOT/agenterm.tasks.json" "$PAYLOAD/"
 cp "$REPO_ROOT/scripts/qjs/$TASK.qjs" "$PAYLOAD/scripts/qjs/"
 cp "$REPO_ROOT/scripts/qjs/lib/rh_compat.qjs" "$PAYLOAD/scripts/qjs/lib/"
 cp "$REPO_ROOT/scripts/qjs/lib/test_harness.qjs" "$PAYLOAD/scripts/qjs/lib/"
+case "$TASK" in
+  cu-runtime-capability-core-*-smoke)
+    cp "$REPO_ROOT/scripts/qjs/lib/cu_runtime_capability_core.qjs" "$PAYLOAD/scripts/qjs/lib/"
+    ;;
+esac
 if [ "$TASK" = cu-linux-smoke ] || [ "$TASK" = cu-linux-external-terminal-send-smoke ]; then
   mkdir -p "$PAYLOAD/examples/python"
   cp "$REPO_ROOT/examples/python/agenterm_atspi_fixture.py" "$PAYLOAD/examples/python/"
