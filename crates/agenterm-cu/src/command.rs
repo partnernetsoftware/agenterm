@@ -933,6 +933,28 @@ pub enum Command {
     RuntimeStatus {
         target: TargetRef,
     },
+    /// Read the exact current default-output device, volume and mute state.
+    AudioStatus {
+        target: TargetRef,
+    },
+    /// Prepare a short-lived default-output volume plan without mutation.
+    AudioPlanVolume {
+        target: TargetRef,
+        volume: u8,
+        ttl_seconds: u64,
+    },
+    /// Prepare a short-lived default-output mute plan without mutation.
+    AudioPlanMuted {
+        target: TargetRef,
+        muted: bool,
+        ttl_seconds: u64,
+    },
+    /// Apply one encoded exact-device audio plan with durable replay closure.
+    AudioApply {
+        target: TargetRef,
+        request: String,
+        approval: String,
+    },
     /// Read the bounded current console-session inventory and lock state.
     LoginSessionStatus {
         target: TargetRef,
@@ -3207,6 +3229,10 @@ impl Command {
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
             Self::RuntimeStatus { .. } => "runtime-status".into(),
+            Self::AudioStatus { .. }
+            | Self::AudioPlanVolume { .. }
+            | Self::AudioPlanMuted { .. }
+            | Self::AudioApply { .. } => "audio".into(),
             Self::LoginSessionStatus { .. }
             | Self::LoginSessionPlanLock { .. }
             | Self::LoginSessionApplyLock { .. } => "login-session".into(),
@@ -3391,6 +3417,10 @@ impl Command {
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
             | Self::RuntimeStatus { target, .. }
+            | Self::AudioStatus { target }
+            | Self::AudioPlanVolume { target, .. }
+            | Self::AudioPlanMuted { target, .. }
+            | Self::AudioApply { target, .. }
             | Self::LoginSessionStatus { target }
             | Self::LoginSessionPlanLock { target, .. }
             | Self::LoginSessionApplyLock { target, .. }
@@ -3580,6 +3610,7 @@ impl Command {
             }
             | Self::HostOpen { .. }
             | Self::HostNotify { .. }
+            | Self::AudioApply { .. }
             | Self::LoginSessionApplyLock { .. }
             | Self::PointerMove { .. }
             | Self::AuditCompact { apply: true, .. }
@@ -3687,6 +3718,36 @@ impl Command {
             Self::LoginSessionPlanLock { ttl_seconds, .. } => {
                 if !(1..=600).contains(ttl_seconds) {
                     return Err("login-session plan lock ttl_seconds must be in 1..=600");
+                }
+                Ok(())
+            }
+            Self::AudioPlanVolume {
+                volume,
+                ttl_seconds,
+                ..
+            } => {
+                if *volume > 100 {
+                    return Err("audio plan volume must be in 0..=100");
+                }
+                if !(1..=600).contains(ttl_seconds) {
+                    return Err("audio plan ttl_seconds must be in 1..=600");
+                }
+                Ok(())
+            }
+            Self::AudioPlanMuted { ttl_seconds, .. } => {
+                if !(1..=600).contains(ttl_seconds) {
+                    return Err("audio plan ttl_seconds must be in 1..=600");
+                }
+                Ok(())
+            }
+            Self::AudioApply {
+                request, approval, ..
+            } => {
+                if request.is_empty() || request.len() > 32_768 {
+                    return Err("audio apply request must be in 1..=32768 bytes");
+                }
+                if approval.len() != 64 || !approval.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    return Err("audio apply approval must be a 64-hex digest");
                 }
                 Ok(())
             }
@@ -4558,6 +4619,46 @@ mod tests {
                 target: TargetRef::Ssh
             }
         ));
+    }
+
+    #[test]
+    fn audio_shapes_keep_exact_targets_and_mixed_grants_on_the_wire() {
+        let status = Command::AudioStatus {
+            target: TargetRef::Ssh,
+        };
+        let plan_volume = Command::AudioPlanVolume {
+            target: TargetRef::Vnc,
+            volume: 37,
+            ttl_seconds: 60,
+        };
+        let plan_muted = Command::AudioPlanMuted {
+            target: TargetRef::Current,
+            muted: true,
+            ttl_seconds: 30,
+        };
+        let apply = Command::AudioApply {
+            target: TargetRef::Current,
+            request: "REQUEST".into(),
+            approval: "a".repeat(64),
+        };
+        assert_eq!(status.required_grant(), Grant::Observe);
+        assert_eq!(plan_volume.required_grant(), Grant::Observe);
+        assert_eq!(plan_muted.required_grant(), Grant::Observe);
+        assert_eq!(apply.required_grant(), Grant::Actuate);
+        assert_eq!(status.target(), TargetRef::Ssh);
+        assert_eq!(plan_volume.target(), TargetRef::Vnc);
+        for (command, expected_wire_verb) in [
+            (status, "audio-status"),
+            (plan_volume, "audio-plan-volume"),
+            (plan_muted, "audio-plan-muted"),
+            (apply, "audio-apply"),
+        ] {
+            assert_eq!(command.verb(), "audio");
+            let value = serde_json::to_value(&command).expect("serialize");
+            assert_eq!(value["verb"], expected_wire_verb);
+            let back: Command = serde_json::from_value(value).expect("deserialize");
+            assert_eq!(back.verb(), "audio");
+        }
     }
 
     #[test]

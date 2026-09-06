@@ -3,6 +3,7 @@
 //! Orchestrator agents should drive desktops through structured observation and
 //! actuation, not screenshot/OCR coordinate guessing. See `README.md`.
 
+pub mod audio_control;
 pub mod audit;
 pub mod auth;
 pub mod auth_store;

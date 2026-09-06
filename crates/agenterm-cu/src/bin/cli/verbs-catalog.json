@@ -2506,6 +2506,29 @@
       "args": []
     },
     {
+      "name": "audio",
+      "command": "audio",
+      "aliases": [],
+      "grant": "mixed",
+      "grant_by_shape": {
+        "status": "observe",
+        "plan volume": "observe",
+        "plan muted": "observe",
+        "apply": "actuate"
+      },
+      "family": "system",
+      "summary": "observe or approval-bind one exact default-output volume or mute transaction",
+      "usage": "audio status\naudio plan volume 0..100 [--ttl-seconds N]\naudio plan muted true|false [--ttl-seconds N]\naudio apply --request R --approve H",
+      "args": [
+        { "flag": "status", "value": "", "help": "read exact default-output device, volume and mute state" },
+        { "flag": "plan volume", "value": "0..100", "help": "prepare a mutation-free exact-device volume plan" },
+        { "flag": "plan muted", "value": "true|false", "help": "prepare a mutation-free exact-device mute plan" },
+        { "flag": "--ttl-seconds", "value": "N", "help": "approval lifetime in 1..=600 seconds (default 120)" },
+        { "flag": "--request", "value": "R", "help": "bounded request returned by plan" },
+        { "flag": "--approve", "value": "H", "help": "exact 64-hex approval returned by plan" }
+      ]
+    },
+    {
       "name": "login-session",
       "command": "login-session",
       "aliases": [],
@@ -5373,6 +5396,10 @@
     {
       "name": "runtime-status",
       "text": "agenterm-cu runtime-status    (also: daemon status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  daemon status\n  runtime-status\n\nReports ACU's actual on-demand coordinator, active session/lock counts and\ndurable managed-job state counts. ACU has no global daemon: each long-lived\njob or browser session has its own bounded resident owner. This command is\nread-only and does not probe child liveness; use job-status for that exact\nowner check. daemon start/restart/stop are not aliases and must not become\nno-op successes.\n"
+    },
+    {
+      "name": "audio",
+      "text": "agenterm-cu audio\n  scope: observe for status/plan; actuate for apply    family: System & permissions\n\nusage:\n  audio status\n  audio plan volume 0..100 [--ttl-seconds N]\n  audio plan muted true|false [--ttl-seconds N]\n  audio apply --request R --approve H\n\nStatus reads the exact current default-output device, integer volume and mute\nstate without opening an application. Plan binds that complete state and a\nshort expiry, performs no mutation, and returns request/approval plus a sealed\nreverse plan. Apply checks durable replay before fresh admission, reserves before\nCoreAudio mutation, and requires exact read-back. A failed read-back rolls back\nonly while the same device remains current; verified rollback is terminal while\nan uncertain effect is never replayed. Linux and Windows return audio_unsupported.\n"
     },
     {
       "name": "login-session",

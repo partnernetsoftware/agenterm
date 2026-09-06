@@ -1398,6 +1398,17 @@ flowchart LR
   output state. Device paths are locators rather than durable identity;
   mutations require a live lease or plan, target revalidation, bounded I/O and
   independently read-back post-state. Backend gaps remain platform-limited.
+- [~] `audio status|plan|apply` now owns the default
+  output slice instead of falling back through MCU. macOS uses the native
+  CoreAudio adapter; Linux and Windows fail with typed `audio_unsupported`.
+  The registered `cu.audio-plan` qjswasm court proves exact-device status,
+  expiring approval-bound plan/reverse-plan shape and unchanged before/after
+  state; it intentionally performs no mutation. Apply reserves durably before
+  effect, is at-most-once on replay, revalidates the same output device, reads
+  back the result and permits rollback only against that device and expected
+  state. A separate explicit audible apply/readback/rollback court remains
+  pending, so both ledger leaves stay `platform-limited` rather than fully
+  qualified.
 - [~] `device-list` / `device list` now owns the bounded native peripheral
   inventory leaf for USB, Bluetooth, audio, camera and GPU. It is not a raw
   system-profiler dump: native serials, addresses, provider instance ids and

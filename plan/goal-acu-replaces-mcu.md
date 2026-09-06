@@ -50,6 +50,11 @@ ACU replaces MCU
 │  ├─ [x] preserve partial-write lower bound, delivery uncertainty and retry safety independently
 │  ├─ [x] Linux aarch64 + x86_64 native public qjswasm courts
 │  └─ [ ] Windows native COM/virtual-COM court
+├─ active audio frontier
+│  ├─ [x] macOS CoreAudio exact default-output status + mutation-free plan court
+│  ├─ [x] Linux/Windows typed unsupported; no fabricated backend or receipt
+│  ├─ [x] durable at-most-once apply + exact-device readback + guarded rollback mechanism
+│  └─ [ ] explicit audible apply/readback/rollback court; keep platform-limited
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
@@ -105,12 +110,14 @@ flowchart LR
   NET --> NI["network interfaces live<br/>native ids · stable order · bounded snapshot"]
   DESK --> DS["desktop-state live<br/>bounded · exact target · drift refusal"]
   RUN --> LS["login-session native macOS<br/>exact identity · short approval · at-most-once<br/>visible lock court pending"]
+  DEV --> AU["default-output audio<br/>macOS status + plan court green<br/>audible mutation court pending"]
   TL --> Q
   SE --> Q
   MJ --> Q
   NI --> Q
   DS --> Q
   LS --> Q
+  AU --> Q
   PROC --> SIG["exact process signal live<br/>pidfd / audit token / HANDLE<br/>delivery ≠ application acknowledgement"]
   SIG --> Q
   Q --> H["three-host native court"]
@@ -217,7 +224,7 @@ MCU retirement blockers
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
 
-`acu.ts` now has **2 reachable top-level `STAY` spellings**: audio and service.
+`acu.ts` now has **1 reachable top-level `STAY` spelling**: service.
 Family routers
 still report their argument-sensitive gaps dynamically; they are not hidden in
 the static count. Native
@@ -503,8 +510,12 @@ shapes fail typed instead of being ignored.
   and watch/diff remain open rather than reusing a naked PID.
 - Device/audio accounting is complete across peripheral inventory and events,
   exclusive device leases, byte I/O, serial configuration and default-output
-  state. A path alone is never durable device identity, and audio backends stay
-  explicitly platform-limited until each native court proves them.
+  state. A path alone is never durable device identity. Audio status and
+  mutation-free planning now route to ACU: macOS uses CoreAudio, while Linux
+  and Windows return typed `audio_unsupported`. Apply is exact-device,
+  approval-expiring, durably at-most-once and guarded by post-state readback
+  plus same-device rollback, but it stays `platform-limited` until a separate
+  explicit audible mutation court proves the effect and restoration.
 - `device.inventory` has left the pure gap state. Public `device-list` now
   returns bounded USB/Bluetooth/audio/camera/GPU rows through platform-owned
   providers; low-entropy native identifiers remain private and become
@@ -680,6 +691,11 @@ Q3 owned runtime facades
    │  ├─ [x] Linux arm64 + x86_64 exact-source UTM public qjswasm courts
    │  ├─ [x] Windows adapter/LUID provider; all six targets compile; arm64 UTM journey green
    │  └─ [ ] Windows x86_64 runtime: interactive agent failed nonce at 180s and 360s; no product verdict
+   ├─ [~] default-output audio: exact observation + approval-bound transaction
+   │  ├─ [x] macOS CoreAudio status and mutation-free plan public qjswasm journey `cu.audio-plan`
+   │  ├─ [x] Linux/Windows return typed unsupported without durable effect state
+   │  ├─ [x] apply reserves before effect, revalidates exact device, reads back and guards rollback
+   │  └─ [ ] explicit macOS audible apply/readback/rollback court; remains platform-limited
    ├─ [~] file-inspect: no-follow final entry + bounded metadata + stable identity
    │  ├─ [x] macOS public qjswasm journey: 41 STEP / 42 evidence + cleanup
    │  ├─ [x] Linux x86_64 focused native UTM court: exact-byte pair + file/link/missing

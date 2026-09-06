@@ -568,6 +568,22 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "audio".into(),
+            serde_json::json!({
+                "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "group": "audio",
+                "grant": "mixed",
+                "grant_by_shape": {
+                    "status": "observe",
+                    "plan volume": "observe",
+                    "plan muted": "observe",
+                    "apply": "actuate",
+                },
+                "mode": "exact-default-output-plan-apply",
+                "rollback": "exact-device-readback",
+            }),
+        );
+        verbs.insert(
             "file-copy".into(),
             serde_json::json!({
                 "status": "available",

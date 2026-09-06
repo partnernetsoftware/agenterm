@@ -24,6 +24,88 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name == "audio" {
+        let subcommand = args
+            .first()
+            .map(String::as_str)
+            .ok_or_else(|| "audio requires status, plan volume|muted or apply".to_owned())?;
+        match subcommand {
+            "status" => {
+                args.remove(0);
+                if !args.is_empty() {
+                    return Err(format!(
+                        "audio status accepts no arguments; unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                return Ok(Command::AudioStatus { target });
+            }
+            "plan" => {
+                args.remove(0);
+                let property = args
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| "audio plan requires volume or muted".to_owned())?;
+                args.remove(0);
+                let value = args
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| format!("audio plan {property} requires a value"))?;
+                args.remove(0);
+                let ttl_seconds = flag_parsed::<u64>(args, "--ttl-seconds")?.unwrap_or(120);
+                if !args.is_empty() {
+                    return Err(format!(
+                        "audio plan accepts only --ttl-seconds N; unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                let command = match property.as_str() {
+                    "volume" => Command::AudioPlanVolume {
+                        target,
+                        volume: value
+                            .parse::<u8>()
+                            .map_err(|_| "audio volume must be an integer in 0..=100".to_owned())?,
+                        ttl_seconds,
+                    },
+                    "muted" => Command::AudioPlanMuted {
+                        target,
+                        muted: match value.as_str() {
+                            "true" => true,
+                            "false" => false,
+                            _ => return Err("audio muted must be true or false".to_owned()),
+                        },
+                        ttl_seconds,
+                    },
+                    _ => {
+                        return Err("audio plan currently supports only volume or muted".to_owned());
+                    }
+                };
+                command.validate().map_err(str::to_owned)?;
+                return Ok(command);
+            }
+            "apply" => {
+                args.remove(0);
+                let request = flag_text(args, "--request")?
+                    .ok_or_else(|| "audio apply requires --request R".to_owned())?;
+                let approval = flag_text(args, "--approve")?
+                    .ok_or_else(|| "audio apply requires --approve H".to_owned())?;
+                if !args.is_empty() {
+                    return Err(format!(
+                        "audio apply accepts only --request R and --approve H; unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                let command = Command::AudioApply {
+                    target,
+                    request,
+                    approval,
+                };
+                command.validate().map_err(str::to_owned)?;
+                return Ok(command);
+            }
+            other => return Err(format!("unknown audio subcommand {other:?}")),
+        }
+    }
     if spec.name == "login-session" {
         let subcommand = args
             .first()
@@ -894,6 +976,43 @@ mod tests {
         assert!(parse("login-session", &["plan", "unlock"]).is_err());
         assert!(parse("login-session", &["plan", "lock", "--ttl-seconds", "0"]).is_err());
         assert!(parse("login-session", &["apply", "--request", request]).is_err());
+    }
+
+    #[test]
+    fn audio_status_plan_and_apply_are_closed() {
+        assert!(matches!(
+            parse("audio", &["status"]).unwrap(),
+            Command::AudioStatus { .. }
+        ));
+        assert!(matches!(
+            parse("audio", &["plan", "volume", "60", "--ttl-seconds", "30"]).unwrap(),
+            Command::AudioPlanVolume {
+                volume: 60,
+                ttl_seconds: 30,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("audio", &["plan", "muted", "true"]).unwrap(),
+            Command::AudioPlanMuted { muted: true, .. }
+        ));
+        assert!(matches!(
+            parse(
+                "audio",
+                &[
+                    "apply",
+                    "--request",
+                    "REQUEST",
+                    "--approve",
+                    &"a".repeat(64)
+                ]
+            )
+            .unwrap(),
+            Command::AudioApply { .. }
+        ));
+        assert!(parse("audio", &["plan", "volume", "101"]).is_err());
+        assert!(parse("audio", &["plan", "muted", "yes"]).is_err());
+        assert!(parse("audio", &["apply", "--request", "REQUEST"]).is_err());
     }
 
     #[test]

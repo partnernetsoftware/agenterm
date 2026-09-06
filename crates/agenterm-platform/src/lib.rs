@@ -129,6 +129,7 @@ pub enum Capability {
     DesktopHost,
     HostOpen,
     HostNotification,
+    Audio,
     LoginSession,
     PermissionSettings,
 }
@@ -217,6 +218,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         ),
         Capability::HostOpen => (cfg!(feature = "host-open"), true),
         Capability::HostNotification => (cfg!(feature = "host-notification"), true),
+        Capability::Audio => (cfg!(feature = "audio"), cfg!(target_os = "macos")),
         Capability::LoginSession => (
             cfg!(feature = "login-session"),
             crate::selected::login_session_supported(),
@@ -450,6 +452,9 @@ pub mod host_open;
 
 #[cfg(feature = "host-notification")]
 pub mod host_notification;
+
+#[cfg(feature = "audio")]
+pub mod audio;
 
 #[cfg(feature = "login-session")]
 pub mod login_session;

@@ -35,6 +35,32 @@ impl Executor {
             },
             Command::Doctor { .. } => Ok(doctor_payload()),
             Command::RuntimeStatus { .. } => runtime_status_payload(),
+            Command::AudioStatus { .. } => serde_json::to_value(crate::audio_control::status()?)
+                .map_err(|_| {
+                    CuError::new(
+                        "audio_serialization_failed",
+                        "audio status could not be serialized",
+                    )
+                }),
+            Command::AudioPlanVolume {
+                volume,
+                ttl_seconds,
+                ..
+            } => audio_plan_payload(crate::audio_control::plan_volume(*volume, *ttl_seconds)?),
+            Command::AudioPlanMuted {
+                muted, ttl_seconds, ..
+            } => audio_plan_payload(crate::audio_control::plan_muted(*muted, *ttl_seconds)?),
+            Command::AudioApply {
+                request, approval, ..
+            } => {
+                let plan = crate::audio_control::decode_request(request)?;
+                serde_json::to_value(crate::audio_control::apply(&plan, approval)?).map_err(|_| {
+                    CuError::new(
+                        "audio_serialization_failed",
+                        "audio receipt could not be serialized",
+                    )
+                })
+            }
             Command::LoginSessionStatus { .. } => {
                 serde_json::to_value(crate::login_session::status()?).map_err(|_| {
                     CuError::new(
@@ -1666,6 +1692,26 @@ impl Executor {
             }
         }
     }
+}
+
+fn audio_plan_payload(plan: crate::audio_control::AudioPlan) -> Result<serde_json::Value, CuError> {
+    let request = crate::audio_control::encode_request(&plan)?;
+    let reverse = crate::audio_control::reverse_plan(&plan)?;
+    let rollback_request = crate::audio_control::encode_request(&reverse)?;
+    let mut value = serde_json::to_value(&plan).map_err(|_| {
+        CuError::new(
+            "audio_serialization_failed",
+            "audio plan could not be serialized",
+        )
+    })?;
+    value["request"] = serde_json::Value::String(request);
+    value["approval"] = serde_json::Value::String(plan.approval_digest.clone());
+    value["rollback_request"] = serde_json::json!({
+        "request": rollback_request,
+        "approval": reverse.approval_digest,
+        "plan": reverse,
+    });
+    Ok(value)
 }
 
 fn require_job_request<'a>(

@@ -239,7 +239,8 @@
         "cu.windows-external-terminal-observe",
         "cu.windows-external-terminal-send",
         "cu.pty-background-interactive",
-        "cu.login-session-plan"
+        "cu.login-session-plan",
+        "cu.audio-plan"
       ]
     },
     {

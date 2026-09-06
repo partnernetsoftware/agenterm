@@ -235,7 +235,6 @@ pub const ALIGN_VERBS: &[&str] = &[
     "file",
     "network",
     "device",
-    "audio",
     "privilege",
     "daemon",
     "desktop-helper",
@@ -420,7 +419,11 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "device" => (
             "unsupported",
-            "ACU migration gap: typed device/audio lease facade pending",
+            "ACU migration gap: remaining typed device lease facade pending",
+        ),
+        "audio" => (
+            "available",
+            "exact default-output status plus approval-bound at-most-once volume/mute plan/apply are native on macOS; Linux and Windows return the truthful platform limit",
         ),
         "privilege" => (
             "available",

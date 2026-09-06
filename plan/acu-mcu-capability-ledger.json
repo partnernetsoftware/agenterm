@@ -939,18 +939,24 @@
         {
           "id": "audio.default-output.observe",
           "mcu_shape": "audio status with default output identity, volume and muted state",
-          "acu_shape": null,
+          "acu_shape": "agenterm-cu audio status",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "backend-dependent", "windows": "gap"},
-          "next": "typed default-output facade with truthful backend availability and stable device identity"
+          "platforms": {"macos": "native-coreaudio-public-qjswasm-plan-court", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "qualification": "macos-status-and-plan-public-qjswasm-green-linux-windows-typed-refusal-real-audible-mutation-court-pending",
+          "evidence": ["cu.audio-plan"],
+          "note": "The public court observes the exact default-output device and settings without mutation. macOS uses the native CoreAudio adapter; Linux and Windows return audio_unsupported instead of claiming a backend.",
+          "next": "retain the platform-limited state until the separate explicit audible mutation court proves apply and guarded rollback on macOS"
         },
         {
           "id": "audio.default-output.mutate",
           "mcu_shape": "audio plan volume|muted then apply request+digest, exact before/after readback and rollback request",
-          "acu_shape": null,
+          "acu_shape": "agenterm-cu audio plan volume|muted [--ttl-seconds N]; audio apply --request R --approve H",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "backend-dependent", "windows": "gap"},
-          "next": "plan/apply transaction over the platform audio facade with target revalidation, post-state and rollback receipt"
+          "platforms": {"macos": "native-coreaudio-mechanism-fixture-tested", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "qualification": "mutation-free-public-plan-court-green-real-audible-mutation-and-rollback-court-pending",
+          "evidence": ["cu.audio-plan", "agenterm-cu audio transaction state-machine suite"],
+          "note": "Plan binds the exact default-output identity, before state, requested state and approval TTL. Apply reserves durably before effect, is at-most-once across replay, revalidates the same device, reads back the post-state and emits a same-device guarded rollback request. The public qjswasm court deliberately never applies it.",
+          "next": "run an explicit macOS audible mutation court that verifies apply, readback and rollback on the same device; do not promote from platform-limited on mechanism tests alone"
         }
       ]
     },

@@ -292,6 +292,12 @@
       "evidence": [
         "cu.login-session-plan"
       ]
+    },
+    {
+      "id": "cu-audio-smoke",
+      "evidence": [
+        "cu.audio-plan"
+      ]
     }
   ]
 }

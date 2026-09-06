@@ -1,0 +1,109 @@
+// Public, mutation-free contract for exact default-output observation and
+// approval-bound planning. Actual volume/mute mutation is an opt-in court.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.audio-plan"];
+
+function ensure(condition, message) { if (!condition) { throw message; } }
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+function hex64(value) {
+  if (typeof value !== "string" || value.length !== 64) { return false; }
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (!((code >= 48 && code <= 57) || (code >= 97 && code <= 102))) { return false; }
+  }
+  return true;
+}
+function invoke(executable, directory, audit_path, args) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe", "audio"
+  ].concat(args), {
+    cwd: directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: audit_path,
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(directory, "requests.json")
+    },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_audio_empty:" + output.stderr);
+  return { output: output, stdout: stdout, reply: JSON.parse(stdout) };
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_audio_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-audio");
+let succeeded = 0;
+let failure = "";
+try {
+  const audit_path = rh.join(context.run_directory, "audit.jsonl");
+  print("STEP audio status is exact or truthfully platform-limited");
+  const status = invoke(executable, context.run_directory, audit_path, ["status"]);
+  if (status.reply.ok !== true) {
+    ensure(status.output.success !== true, "cu_audio_unsupported_false_success");
+    ensure(status.reply.error.code === "audio_unsupported", "cu_audio_unsupported_code:" + status.stdout);
+    const plan = invoke(executable, context.run_directory, audit_path, ["plan", "volume", "50"]);
+    ensure(plan.output.success !== true && plan.reply.ok === false, "cu_audio_plan_false_success");
+    ensure(plan.reply.error.code === "audio_unsupported", "cu_audio_plan_code");
+    ensure(!rh.exists(rh.join(context.run_directory, "requests.json")), "cu_audio_unsupported_receipt");
+  } else {
+    const before = status.reply.data.state;
+    ensure(status.output.success === true, "cu_audio_status_exit");
+    ensure(status.reply.data.provider === "macos-coreaudio", "cu_audio_provider");
+    ensure(hex64(before.device.identity), "cu_audio_identity");
+    ensure(typeof before.device.uid === "string" && before.device.uid.length > 0, "cu_audio_uid");
+    ensure(Number.isInteger(before.settings.volume) && before.settings.volume >= 0 && before.settings.volume <= 100, "cu_audio_volume");
+    ensure(typeof before.settings.muted === "boolean", "cu_audio_muted");
+
+    print("STEP audio plan and reverse are sealed without mutation");
+    const wanted = before.settings.volume === 100 ? 99 : before.settings.volume + 1;
+    const planned = invoke(executable, context.run_directory, audit_path, [
+      "plan", "volume", "" + wanted, "--ttl-seconds", "60"
+    ]);
+    const plan = planned.reply.data;
+    ensure(planned.output.success === true && planned.reply.ok === true, "cu_audio_plan:" + planned.stdout);
+    ensure(plan.operation === "audio.set-default-output" && plan.schema_version === 1, "cu_audio_plan_shape");
+    ensure(plan.target.identity === before.device.identity, "cu_audio_plan_identity");
+    ensure(plan.before.volume === before.settings.volume && plan.after.volume === wanted, "cu_audio_plan_volume");
+    ensure(plan.before.muted === plan.after.muted, "cu_audio_plan_mute");
+    ensure(plan.mutation_performed === false, "cu_audio_plan_mutated");
+    ensure(plan.expires_at_utc_ms - plan.issued_at_utc_ms === 60000, "cu_audio_plan_expiry");
+    ensure(hex64(plan.contract_digest) && plan.approval === plan.approval_digest, "cu_audio_plan_digest");
+    ensure(typeof plan.request === "string" && plan.request.length > 0, "cu_audio_request");
+    ensure(plan.rollback_request.plan.before.volume === wanted, "cu_audio_reverse_before");
+    ensure(plan.rollback_request.plan.after.volume === before.settings.volume, "cu_audio_reverse_after");
+    ensure(plan.rollback_request.approval === plan.rollback_request.plan.approval_digest, "cu_audio_reverse_approval");
+    ensure(!rh.exists(rh.join(context.run_directory, "requests.json")), "cu_audio_plan_reserved");
+
+    const after = invoke(executable, context.run_directory, audit_path, ["status"]);
+    ensure(after.output.success === true && after.reply.ok === true, "cu_audio_after_status");
+    ensure(after.reply.data.state.device.identity === before.device.identity, "cu_audio_plan_changed_device");
+    ensure(after.reply.data.state.settings.volume === before.settings.volume, "cu_audio_plan_changed_volume");
+    ensure(after.reply.data.state.settings.muted === before.settings.muted, "cu_audio_plan_changed_mute");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.audio-plan");
+  harness.remove_run(context);
+  print("PASS: default-output observation and exact-device audio planning are bounded, mutation-free and platform-honest");
+}
+if (failure !== "") { throw failure; }
+return;
