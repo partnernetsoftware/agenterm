@@ -1,7 +1,8 @@
 //! Lightweight resource observation without process inventory or ownership APIs.
 
 pub use crate::contract::process_metrics::{
-    PageFaultCounters, ProcessMetrics, ProcessMetricsError, ProcessMetricsErrorKind,
+    PageFaultCounters, ProcessBackgroundPolicy, ProcessMetrics, ProcessMetricsError,
+    ProcessMetricsErrorKind,
 };
 
 /// Read cumulative CPU time, resident memory and page faults for one host process.
@@ -22,6 +23,13 @@ pub fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
 /// point observation used to verify suspend/resume; it is not process identity.
 pub fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
     crate::selected::process_metrics::is_stopped(pid)
+}
+
+/// Read the native process-background policy when the host exposes the exact
+/// Darwin flag model. No mutation or cross-platform semantic substitution is
+/// performed.
+pub fn background_policy(pid: u32) -> Result<ProcessBackgroundPolicy, ProcessMetricsError> {
+    crate::selected::process_metrics::background_policy(pid)
 }
 
 #[cfg(test)]
@@ -91,6 +99,26 @@ mod tests {
         assert_eq!(
             observed
                 .expect_err("Windows state model is not implemented")
+                .kind(),
+            ProcessMetricsErrorKind::Unsupported
+        );
+    }
+
+    #[test]
+    fn current_background_policy_is_native_or_typed_not_applicable() {
+        let observed = background_policy(std::process::id());
+        #[cfg(target_os = "macos")]
+        {
+            let policy = observed.expect("observe current Darwin background policy");
+            assert_eq!(
+                policy.background(),
+                policy.darwin_background || policy.external_background
+            );
+        }
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            observed
+                .expect_err("non-Darwin hosts have no Darwin policy model")
                 .kind(),
             ProcessMetricsErrorKind::Unsupported
         );

@@ -638,6 +638,46 @@ pub enum ProcessRunState {
     Stopped,
 }
 
+/// Exact Darwin process-background policy operation.
+///
+/// `Status` is observation-only. Mutating actions are represented so callers
+/// receive one stable typed contract even when the host cannot acquire the
+/// exact native object authority required to perform them safely.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProcessPolicyAction {
+    Status,
+    Background,
+    Normal,
+}
+
+impl ProcessPolicyAction {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "status" => Some(Self::Status),
+            "background" => Some(Self::Background),
+            "normal" => Some(Self::Normal),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Status => "status",
+            Self::Background => "background",
+            Self::Normal => "normal",
+        }
+    }
+
+    pub const fn requested_background(self) -> Option<bool> {
+        match self {
+            Self::Status => None,
+            Self::Background => Some(true),
+            Self::Normal => Some(false),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ProcessSignalKind {
     #[serde(rename = "SIGHUP")]
@@ -1557,6 +1597,16 @@ pub enum Command {
         start_identity: String,
         state: ProcessRunState,
         timeout_ms: u64,
+    },
+    /// Observe the exact Darwin background flags or request an identity-bound
+    /// mutation. Mutation remains fail-closed unless the executor owns an
+    /// exact native task object; it never falls back to a reusable PID.
+    ProcessPolicy {
+        target: TargetRef,
+        pid: u32,
+        action: ProcessPolicyAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_identity: Option<String>,
     },
     /// Deliver one closed signal through a retained native process object.
     /// An optional prior start identity tightens caller intent; the executor
@@ -3460,6 +3510,7 @@ impl Command {
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
             Self::ProcessSetState { .. } => "process-set-state".into(),
+            Self::ProcessPolicy { .. } => "process-policy".into(),
             Self::ProcessSignal { .. } => "process-signal".into(),
             Self::PrivilegePlanProcessPriority { .. } => "privilege-plan".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
@@ -3674,6 +3725,11 @@ impl Command {
                     ProcessRunState::Stopped => "stopped",
                 }
             ),
+            Self::ProcessPolicy { action, .. } => match action {
+                ProcessPolicyAction::Status => return None,
+                ProcessPolicyAction::Background => "process-policy.background".to_owned(),
+                ProcessPolicyAction::Normal => "process-policy.normal".to_owned(),
+            },
             Self::ProcessSignal {
                 signal,
                 force,
@@ -3816,6 +3872,7 @@ impl Command {
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }
             | Self::ProcessSetState { target, .. }
+            | Self::ProcessPolicy { target, .. }
             | Self::ProcessSignal { target, .. }
             | Self::PrivilegePlanProcessPriority { target, .. }
             | Self::ProcessWatch { target, .. }
@@ -3956,6 +4013,15 @@ impl Command {
     }
 
     pub fn required_grant(&self) -> crate::auth::Grant {
+        if matches!(
+            self,
+            Self::ProcessPolicy {
+                action: ProcessPolicyAction::Status,
+                ..
+            }
+        ) {
+            return crate::auth::Grant::Observe;
+        }
         match self {
             Self::Setup {
                 action: SetupAction::Apply,
@@ -3989,6 +4055,7 @@ impl Command {
             | Self::DeviceRelease { .. }
             | Self::ProcessKill { .. }
             | Self::ProcessSetState { .. }
+            | Self::ProcessPolicy { .. }
             | Self::ProcessSignal { .. }
             | Self::ShellExec { .. }
             | Self::FileCopy { apply: true, .. }
@@ -5460,6 +5527,41 @@ mod tests {
                 "start_identity": "boot:123",
                 "state": "stopped",
                 "timeout_ms": 250,
+            })
+        );
+    }
+
+    #[test]
+    fn process_policy_separates_observation_from_identity_bound_intent() {
+        let status = Command::ProcessPolicy {
+            target: TargetRef::Current,
+            pid: 42,
+            action: ProcessPolicyAction::Status,
+            start_identity: None,
+        };
+        assert_eq!(status.verb(), "process-policy");
+        assert_eq!(status.required_grant(), Grant::Observe);
+        assert_eq!(status.authorization_operation(), None);
+
+        let background = Command::ProcessPolicy {
+            target: TargetRef::Ssh,
+            pid: 42,
+            action: ProcessPolicyAction::Background,
+            start_identity: Some("boot:123".into()),
+        };
+        assert_eq!(background.required_grant(), Grant::Actuate);
+        assert_eq!(
+            background.authorization_operation().as_deref(),
+            Some("process-policy.background")
+        );
+        assert_eq!(
+            serde_json::to_value(&background).expect("serialize"),
+            serde_json::json!({
+                "verb": "process-policy",
+                "target": "ssh",
+                "pid": 42,
+                "action": "background",
+                "start_identity": "boot:123",
             })
         );
     }

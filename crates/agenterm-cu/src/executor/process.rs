@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::{
     CuError,
-    command::{ProcessKillMode, ProcessRunState, ProcessSignalKind},
+    command::{ProcessKillMode, ProcessPolicyAction, ProcessRunState, ProcessSignalKind},
     receipt::ReceiptLog,
 };
 
@@ -1472,6 +1472,93 @@ pub(super) fn process_set_state_payload(
         }
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+pub(super) fn process_policy_payload(
+    pid: u32,
+    action: ProcessPolicyAction,
+    expected_identity: Option<&str>,
+) -> Result<Value, CuError> {
+    if pid == 0 || expected_identity.is_some_and(str::is_empty) {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-policy requires a positive pid and any supplied start identity must be non-empty",
+        ));
+    }
+    if action.requested_background().is_some() && expected_identity.is_none() {
+        return Err(CuError::new(
+            "invalid_input",
+            "process-policy background|normal requires a start identity from process-state",
+        ));
+    }
+
+    let before_identity = live_start_identity(pid)?;
+    if expected_identity.is_some_and(|expected| expected != before_identity) {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity does not match the prior observation",
+        )
+        .with_detail(json!({ "effect": "not_performed" })));
+    }
+    let policy = agenterm_platform::process_metrics::background_policy(pid)
+        .map_err(process_policy_observation_error)?;
+    let after_identity = live_start_identity(pid)?;
+    if after_identity != before_identity {
+        return Err(CuError::new(
+            "process_identity_changed",
+            "process start identity changed while its background policy was observed",
+        )
+        .with_detail(json!({ "effect": "not_performed" })));
+    }
+
+    if action == ProcessPolicyAction::Status {
+        return Ok(json!({
+            "pid": pid,
+            "start_identity": before_identity,
+            "provider": "macos-proc-pidinfo-darwin-background",
+            "raw_flags": policy.raw_flags,
+            "darwin_background": policy.darwin_background,
+            "external_background": policy.external_background,
+            "background": policy.background(),
+            "verified": true,
+            "mutation_performed": false,
+        }));
+    }
+
+    Err(CuError::new(
+        "process_policy_exact_authority_unavailable",
+        "normal application processes cannot acquire the exact macOS task object required for a race-free policy mutation",
+    )
+    .with_detail(json!({
+        "pid": pid,
+        "start_identity": before_identity,
+        "requested_state": action.as_str(),
+        "requested_background": action.requested_background(),
+        "before": {
+            "raw_flags": policy.raw_flags,
+            "darwin_background": policy.darwin_background,
+            "external_background": policy.external_background,
+            "background": policy.background(),
+        },
+        "identity_verified": true,
+        "authority": "mach-task-port-required",
+        "effect": "not_performed",
+        "experiment": "research/process-policy-authority/RESULTS.md",
+    })))
+}
+
+fn process_policy_observation_error(
+    error: agenterm_platform::process_metrics::ProcessMetricsError,
+) -> CuError {
+    use agenterm_platform::process_metrics::ProcessMetricsErrorKind as Kind;
+
+    let code = match error.kind() {
+        Kind::Unsupported => "process_policy_not_applicable",
+        Kind::InvalidId | Kind::InvalidValue => "invalid_input",
+        Kind::NotFound => "process_not_found",
+        _ => "process_policy_unavailable",
+    };
+    CuError::new(code, error.to_string()).with_detail(json!({ "effect": "not_performed" }))
 }
 
 pub(super) fn process_signal_payload(
@@ -3402,6 +3489,36 @@ mod tests {
             assert!(value[path].as_str().is_some_and(|value| !value.is_empty()));
         }
         assert!(value["page_faults"]["total"].as_str().is_some());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn process_policy_observes_exact_flags_and_refuses_pid_only_mutation() {
+        let pid = std::process::id();
+        let status =
+            process_policy_payload(pid, ProcessPolicyAction::Status, None).expect("observe policy");
+        assert_eq!(status["pid"], pid);
+        assert_eq!(status["verified"], true);
+        assert_eq!(status["mutation_performed"], false);
+        assert!(status["raw_flags"].as_u64().is_some());
+        let identity = status["start_identity"].as_str().expect("identity");
+
+        let error = process_policy_payload(pid, ProcessPolicyAction::Background, Some(identity))
+            .expect_err("normal process has no exact task port");
+        assert_eq!(error.code, "process_policy_exact_authority_unavailable");
+        let detail = error.detail.expect("typed detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["identity_verified"], true);
+        assert_eq!(detail["before"]["raw_flags"], status["raw_flags"]);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn process_policy_refuses_cross_platform_semantic_substitution() {
+        let error = process_policy_payload(std::process::id(), ProcessPolicyAction::Status, None)
+            .expect_err("Darwin policy is not portable");
+        assert_eq!(error.code, "process_policy_not_applicable");
+        assert_eq!(error.detail.expect("detail")["effect"], "not_performed");
     }
 
     #[test]

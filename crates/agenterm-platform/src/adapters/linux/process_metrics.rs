@@ -3,7 +3,8 @@
 use std::time::Duration;
 
 use crate::contract::process_metrics::{
-    ProcessMetrics, ProcessMetricsError, ProcessMetricsErrorKind, checked_page_faults,
+    ProcessBackgroundPolicy, ProcessMetrics, ProcessMetricsError, ProcessMetricsErrorKind,
+    checked_page_faults,
 };
 
 pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
@@ -109,6 +110,19 @@ pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
         .next()
         .ok_or_else(|| error(ProcessMetricsErrorKind::Parse, "missing process state"))?;
     Ok(matches!(state, "T" | "t"))
+}
+
+pub(crate) fn background_policy(pid: u32) -> Result<ProcessBackgroundPolicy, ProcessMetricsError> {
+    if pid == 0 {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidId,
+            "process ID zero does not identify one process",
+        ));
+    }
+    Err(ProcessMetricsError::new(
+        ProcessMetricsErrorKind::Unsupported,
+        "Linux has no Darwin process-background flag model",
+    ))
 }
 
 fn read_stat(pid: u32) -> Result<String, ProcessMetricsError> {

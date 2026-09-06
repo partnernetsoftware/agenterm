@@ -336,6 +336,10 @@
       "evidence": ["cu.process-set-state"]
     },
     {
+      "id": "cu-process-policy-smoke",
+      "evidence": ["cu.process-policy"]
+    },
+    {
       "id": "cu-process-signal-smoke",
       "evidence": ["cu.process-signal"]
     },

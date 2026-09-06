@@ -1,0 +1,135 @@
+// Public black-box contract for exact process-policy observation and refusal.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.process-policy"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_process_policy_executable_missing");
+
+const context = harness.new_context(repo, "cu-process-policy");
+const run_directory = context.run_directory;
+const audit_path = rh.join(run_directory, "cu-audit.jsonl");
+
+function invoke(grant, verb_args) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let index = 0; index < verb_args.length; index = index + 1) {
+    argv.push(verb_args[index]);
+  }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: audit_path },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_process_policy_empty:" + output.stderr);
+  return { output: output, reply: JSON.parse(stdout), stdout: stdout };
+}
+
+function expect_error(result, code) {
+  ensure(result.output.success !== true && result.reply.ok !== true,
+    "cu_process_policy_expected_failure:" + result.stdout);
+  ensure(result.reply.error.code === code,
+    "cu_process_policy_wrong_error:" + result.stdout);
+  ensure(result.reply.error.detail.effect === "not_performed",
+    "cu_process_policy_effect_not_closed:" + result.stdout);
+  return result.reply.error;
+}
+
+let succeeded = 0;
+let failure = "";
+try {
+  const pid = "" + rh.pid();
+  print("STEP status identifies exact Darwin support without guessing the host");
+  const status = invoke("observe", ["process-policy", "--pid", pid, "status"]);
+  if (status.output.success === true && status.reply.ok === true) {
+    print("STEP status returns exact Darwin flags bracketed by one process identity");
+    ensure(status.output.success === true && status.reply.ok === true,
+      "cu_process_policy_status:" + status.stdout);
+    const before = status.reply.data;
+    ensure(before.provider === "macos-proc-pidinfo-darwin-background",
+      "cu_process_policy_provider");
+    ensure(before.pid === rh.pid() && before.start_identity.length > 0,
+      "cu_process_policy_identity");
+    ensure(typeof before.raw_flags === "number"
+      && typeof before.darwin_background === "boolean"
+      && typeof before.external_background === "boolean"
+      && typeof before.background === "boolean",
+      "cu_process_policy_flags:" + status.stdout);
+    ensure(before.background === (before.darwin_background || before.external_background),
+      "cu_process_policy_derived_flag");
+    ensure(before.verified === true && before.mutation_performed === false,
+      "cu_process_policy_status_contract");
+
+    print("STEP stale intent is rejected before the exact-authority decision");
+    const stale = invoke("actuate", [
+      "process", "policy", pid, "background",
+      "--start-identity", before.start_identity + "-stale"
+    ]);
+    const stale_error = expect_error(stale, "process_identity_changed");
+    ensure(stale_error.detail === undefined || stale_error.detail.effect === "not_performed",
+      "cu_process_policy_stale_effect");
+
+    print("STEP exact intent fails closed because no retained Mach task port exists");
+    const mutation = invoke("actuate", [
+      "process-policy", "--pid", pid, "--start-identity", before.start_identity,
+      before.background ? "normal" : "background"
+    ]);
+    const denied = expect_error(mutation, "process_policy_exact_authority_unavailable");
+    ensure(denied.detail.identity_verified === true
+      && denied.detail.authority === "mach-task-port-required",
+      "cu_process_policy_authority:" + mutation.stdout);
+
+    print("STEP refusal leaves the exact observed policy unchanged");
+    const after_status = invoke("observe", ["process", "policy", pid, "status"]);
+    ensure(after_status.output.success === true && after_status.reply.ok === true,
+      "cu_process_policy_after:" + after_status.stdout);
+    const after = after_status.reply.data;
+    ensure(after.start_identity === before.start_identity
+      && after.raw_flags === before.raw_flags
+      && after.background === before.background,
+      "cu_process_policy_changed:" + after_status.stdout);
+  } else {
+    print("STEP non-Darwin hosts reject semantic substitution before any effect");
+    expect_error(status, "process_policy_not_applicable");
+
+    const identity_result = invoke("observe", ["process-state", "--pid", pid]);
+    ensure(identity_result.output.success === true && identity_result.reply.ok === true,
+      "cu_process_policy_identity_probe:" + identity_result.stdout);
+    const mutation = invoke("actuate", [
+      "process-policy", "--pid", pid, "--start-identity",
+      identity_result.reply.data.start_identity, "background"
+    ]);
+    expect_error(mutation, "process_policy_not_applicable");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.process-policy");
+  harness.remove_run(context);
+  print("PASS: process policy is exact on observation and fail-closed on unavailable effects");
+}
+if (failure !== "") { throw failure; }
+return;

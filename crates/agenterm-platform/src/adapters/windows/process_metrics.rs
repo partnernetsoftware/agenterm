@@ -3,7 +3,8 @@
 use std::time::Duration;
 
 use crate::contract::process_metrics::{
-    ProcessMetrics, ProcessMetricsError, ProcessMetricsErrorKind, checked_page_faults,
+    ProcessBackgroundPolicy, ProcessMetrics, ProcessMetricsError, ProcessMetricsErrorKind,
+    checked_page_faults,
 };
 
 pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
@@ -87,6 +88,19 @@ pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
     Err(ProcessMetricsError::new(
         ProcessMetricsErrorKind::Unsupported,
         "Windows has no stable public generic stopped-process state",
+    ))
+}
+
+pub(crate) fn background_policy(pid: u32) -> Result<ProcessBackgroundPolicy, ProcessMetricsError> {
+    if pid == 0 {
+        return Err(ProcessMetricsError::new(
+            ProcessMetricsErrorKind::InvalidId,
+            "process ID zero does not identify one process",
+        ));
+    }
+    Err(ProcessMetricsError::new(
+        ProcessMetricsErrorKind::Unsupported,
+        "Windows power throttling and priority classes are not Darwin process-background flags",
     ))
 }
 

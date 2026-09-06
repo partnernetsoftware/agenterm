@@ -647,10 +647,12 @@ Q2 fast delegated facades
    │  ├─ [x] pid/start identity + membership bytes + opened directory identity are bracketed
    │  ├─ [x] public qjswasm macOS typed-not-applicable court; no false process-group equivalence
    │  └─ [ ] Linux x86_64/aarch64 native courts + Windows typed-not-applicable court
-   ├─ [ ] process policy remains an exact-object provider gap
+   ├─ [~] process policy is an exact observation + fail-closed platform contract
    │  ├─ [x] rejected bare-PID `taskpolicy` plus before/after identity as mutation authority
    │  ├─ [x] rejected Linux per-thread scheduling and Windows current-process mode as false parity
-   │  └─ [ ] retained-object macOS effect provider; status/plan alone cannot promote the leaf
+   │  ├─ [x] decisive probe: ordinary macOS process cannot obtain a Mach task port even for its owned child
+   │  ├─ [x] public command observes exact Darwin flags; mutation verifies identity then refuses before effect
+   │  └─ [ ] Linux + Windows public typed-not-applicable reruns; owned-child pre-exec policy is a separate future shape
    └─ [ ] privileged mutation and inspection watch/diff remain
 Q2b host/boot identity
 ├─ [x] `power status` / `power-status` uses one typed observe-only ACU facade
@@ -815,7 +817,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 134 ledger capabilities
-currently include 8 `gap` and 56 `platform-limited` rows. The compatibility
+currently include 7 `gap` and 57 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was

@@ -251,6 +251,7 @@
         "cu.process-sockets",
         "cu.process-cgroup",
         "cu.process-set-state",
+        "cu.process-policy",
         "cu.process-signal",
         "cu.network-routes",
         "cu.network-dns",

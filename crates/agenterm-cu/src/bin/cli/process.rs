@@ -2,7 +2,7 @@
 
 use agenterm_cu::{
     Command, TargetRef,
-    command::{ProcessKillMode, ProcessRunState, ProcessSignalKind},
+    command::{ProcessKillMode, ProcessPolicyAction, ProcessRunState, ProcessSignalKind},
 };
 
 use super::verbs::VerbSpec;
@@ -46,6 +46,7 @@ pub fn parse(
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
         "process-set-state" => process_set_state(target, args),
+        "process-policy" => process_policy(target, args),
         "process-signal" => process_signal(target, args),
         "process-watch" => process_watch(target, args),
         "shell-exec" => shell_exec(target, args),
@@ -332,6 +333,31 @@ fn process_set_state(target: TargetRef, args: &mut Vec<String>) -> Result<Comman
         start_identity,
         state,
         timeout_ms,
+    })
+}
+
+fn process_policy(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = inspection_pid(args, "process-policy")?;
+    let start_identity = flag_text(args, "--start-identity")?.filter(|value| !value.is_empty());
+    let action = args
+        .first()
+        .and_then(|value| ProcessPolicyAction::parse(value))
+        .ok_or_else(|| "process-policy requires status|background|normal".to_owned())?;
+    args.remove(0);
+    if action.requested_background().is_some() && start_identity.is_none() {
+        return Err(
+            "process-policy background|normal requires --start-identity ID from process-state"
+                .into(),
+        );
+    }
+    if !args.is_empty() {
+        return Err(format!("process-policy received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessPolicy {
+        target,
+        pid,
+        action,
+        start_identity,
     })
 }
 
@@ -1202,6 +1228,45 @@ mod tests {
         ));
 
         let mut missing_identity = vec!["--pid".into(), "42".into(), "stopped".into()];
+        assert!(
+            parse(spec, spec.name, TargetRef::Current, &mut missing_identity)
+                .expect_err("identity")
+                .contains("--start-identity")
+        );
+    }
+
+    #[test]
+    fn process_policy_parses_observation_and_identity_bound_intent() {
+        let spec = verbs::lookup("process-policy").expect("process-policy verb");
+        let mut status = vec!["--pid".into(), "42".into(), "status".into()];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut status).expect("status"),
+            Command::ProcessPolicy {
+                pid: 42,
+                action: ProcessPolicyAction::Status,
+                start_identity: None,
+                ..
+            }
+        ));
+
+        let mut alias = vec![
+            "policy".into(),
+            "42".into(),
+            "background".into(),
+            "--start-identity".into(),
+            "boot:123".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "process", TargetRef::Ssh, &mut alias).expect("alias"),
+            Command::ProcessPolicy {
+                target: TargetRef::Ssh,
+                pid: 42,
+                action: ProcessPolicyAction::Background,
+                start_identity: Some(ref identity),
+            } if identity == "boot:123"
+        ));
+
+        let mut missing_identity = vec!["42".into(), "normal".into()];
         assert!(
             parse(spec, spec.name, TargetRef::Current, &mut missing_identity)
                 .expect_err("identity")

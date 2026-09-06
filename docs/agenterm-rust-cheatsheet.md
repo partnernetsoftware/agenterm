@@ -4554,6 +4554,13 @@ store so a fresh installation is not misdiagnosed as corrupt or unsafe.
   audit-token-bound object, process handle, or an equivalently atomic identity.
   A privilege broker changes who may perform an effect; it does not repair a
   racy target selector.
+- On macOS, do not assume parenthood grants Mach task authority. A normal,
+  ad-hoc-signed arm64 process was unable to `task_for_pid` its own direct child
+  in the repository's precommitted policy probe. Public `proc_pidinfo` flags
+  remain suitable for identity-bracketed observation, but `task_policy_set`
+  requires a task port the caller actually owns. Preserve the no-effect typed
+  refusal unless a distinct owned-child/pre-exec design can prove that retained
+  authority without root, debugger attachment or private entitlements.
 
 ## Service lifecycle: bind the native authority domain and admit uncertainty
 

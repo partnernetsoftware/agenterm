@@ -160,7 +160,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measured 131 capabilities;
   after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger now measures 134 capabilities with 9 gaps, 55 platform-limited rows, zero static
+  ledger now measures 134 capabilities with 7 gaps, 57 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
@@ -727,16 +727,27 @@ flowchart LR
   `process_cgroup_not_applicable` result. Linux x86_64/aarch64 native courts and
   the Windows typed-not-applicable court remain before this leaf is complete.
 
-- [ ] `process policy ... background|normal` remains a provider gap after
-  review rather than receiving a weaker PID-racy port. The existing macOS
-  `taskpolicy -p PID` route ultimately addresses a bare PID; reading start
-  identity before and after the command detects some races but does not bind
-  the effect to the retained process object. Linux per-thread scheduling or
-  I/O priority and Windows current-process background mode are not equivalent
-  contracts. A read-only status and canonical plan may land independently,
-  but the capability cannot leave `gap` until a retained-object macOS effect
-  primitive is proved; privilege transport alone does not repair target
-  identity.
+- [~] `process policy ... status|background|normal` is now one explicit
+  platform-limited contract rather than a weaker PID-racy port. Status brackets
+  one public macOS `proc_pidinfo` flag read with equal start identities. A
+  precommitted native experiment then proved that a normal macOS process cannot
+  obtain the Mach task port required for an exact effect, even for its direct
+  child. Therefore `background|normal` verify caller intent and return
+  `process_policy_exact_authority_unavailable` with `effect=not_performed`;
+  they never invoke `taskpolicy -p PID`. Linux and Windows return typed
+  not-applicable results instead of translating unrelated scheduling, priority
+  or power semantics. The public qjswasm court is registered; Linux and Windows
+  native reruns remain.
+
+```mermaid
+flowchart LR
+  I["pid + optional frozen start identity"] --> B["read start identity"]
+  B --> F["macOS public background flags"] --> A["re-read same identity"]
+  A -->|status| O["verified exact observation"]
+  A -->|background / normal| P{"retained Mach task authority?"}
+  P -->|ordinary app: no| X["typed refusal<br/>effect not performed"]
+  P -. future owned-child pre-exec shape .-> E["separate decisive experiment"]
+```
 
 ```mermaid
 flowchart LR

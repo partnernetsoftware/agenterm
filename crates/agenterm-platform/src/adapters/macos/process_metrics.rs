@@ -3,7 +3,8 @@
 use std::time::Duration;
 
 use crate::contract::process_metrics::{
-    ProcessMetrics, ProcessMetricsError, ProcessMetricsErrorKind, checked_page_faults,
+    ProcessBackgroundPolicy, ProcessMetrics, ProcessMetricsError, ProcessMetricsErrorKind,
+    checked_page_faults,
 };
 
 pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
@@ -52,6 +53,19 @@ pub(crate) fn nice(pid: u32) -> Result<i32, ProcessMetricsError> {
 
 pub(crate) fn is_stopped(pid: u32) -> Result<bool, ProcessMetricsError> {
     Ok(read_bsd_info(pid)?.pbi_status == libc::SSTOP)
+}
+
+pub(crate) fn background_policy(pid: u32) -> Result<ProcessBackgroundPolicy, ProcessMetricsError> {
+    // Public macOS SDK values from <mach/task_policy.h>. libc does not expose
+    // these two process flags, so keep the values beside the one native read.
+    const PROC_FLAG_DARWINBG: u32 = 0x8000;
+    const PROC_FLAG_EXT_DARWINBG: u32 = 0x10000;
+    let flags = read_bsd_info(pid)?.pbi_flags;
+    Ok(ProcessBackgroundPolicy {
+        raw_flags: flags,
+        darwin_background: flags & PROC_FLAG_DARWINBG != 0,
+        external_background: flags & PROC_FLAG_EXT_DARWINBG != 0,
+    })
 }
 
 fn read_bsd_info(pid: u32) -> Result<libc::proc_bsdinfo, ProcessMetricsError> {

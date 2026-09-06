@@ -654,6 +654,12 @@ impl Executor {
                 *timeout_ms,
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::ProcessPolicy {
+                pid,
+                action,
+                start_identity,
+                ..
+            } => process_policy_payload(*pid, *action, start_identity.as_deref()),
             Command::ProcessSignal {
                 pid,
                 start_identity,

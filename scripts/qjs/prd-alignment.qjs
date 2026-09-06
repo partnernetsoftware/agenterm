@@ -265,6 +265,7 @@ const evidence_suites = {
   "cu-process-sockets-smoke": true,
   "cu-process-cgroup-smoke": true,
   "cu-process-set-state-smoke": true,
+  "cu-process-policy-smoke": true,
   "cu-process-signal-smoke": true,
   "cu-network-routes-smoke": true,
   "cu-network-dns-smoke": true,

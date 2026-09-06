@@ -1148,6 +1148,23 @@
         "task.cu-process-set-state-smoke"
       ]
     },
+    "cu-process-policy-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-process-policy-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-process-policy-smoke"
+      ]
+    },
     "cu-process-signal-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3524,6 +3541,27 @@
       "id": "cu-process-set-state-smoke",
       "description": "Prove exact-object stop/resume with start-identity binding and scheduler read-back on macOS/Linux, typed unsupported refusal on Windows, no-op behavior, and stale-identity refusal through the public CLI.",
       "entry": "scripts/qjs/cu-process-set-state-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-process-policy-smoke",
+      "description": "Prove exact Darwin background-policy observation, identity drift refusal, no-effect exact-authority refusal on macOS, and typed non-applicability on Linux/Windows through the public CLI.",
+      "entry": "scripts/qjs/cu-process-policy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

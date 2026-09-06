@@ -1054,6 +1054,34 @@
       ]
     },
     {
+      "name": "process-policy",
+      "command": "process-policy",
+      "aliases": [
+        "process policy"
+      ],
+      "grant": "actuate",
+      "family": "process",
+      "summary": "observe exact Darwin background flags and fail closed without exact mutation authority",
+      "usage": "process-policy --pid N status\nprocess-policy --pid N --start-identity ID background|normal\nprocess policy PID status\nprocess policy PID background|normal --start-identity ID",
+      "args": [
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID in the process policy alias)"
+        },
+        {
+          "flag": "status|background|normal",
+          "value": "",
+          "help": "observe flags, or request one exact identity-bound policy state"
+        },
+        {
+          "flag": "--start-identity",
+          "value": "ID",
+          "help": "required for background|normal; exact value returned by process-state"
+        }
+      ]
+    },
+    {
       "name": "process-signal",
       "command": "process-signal",
       "aliases": [
@@ -5845,6 +5873,10 @@
     {
       "name": "process-set-state",
       "text": "agenterm-cu process-set-state    (also: process set-state)\n  scope: actuate    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  process-set-state --pid N --start-identity ID running|stopped [--timeout-ms N]\n  process set-state PID running|stopped --start-identity ID [--timeout-ms N]\n\nOpens one native process object, revalidates the supplied start identity, sends\nSIGSTOP/SIGCONT through Linux pidfd or the macOS audit token, then reads the\nscheduler state back before returning verified=true. It never reopens the PID as\neffect authority. Windows returns process_state_unsupported rather than using\nundocumented thread suspension. A no-op requested state is verified and reports\nchanged=false without reserving an effect receipt.\n"
+    },
+    {
+      "name": "process-policy",
+      "text": "agenterm-cu process-policy    (also: process policy)\n  scope: status=observe; background|normal=actuate    family: Processes\n\nusage:\n  process-policy --pid N status\n  process-policy --pid N --start-identity ID background|normal\n  process policy PID status\n  process policy PID background|normal --start-identity ID\n\narguments:\n  --pid N                       positive process id\n  status|background|normal      observation or requested policy state\n  --start-identity ID           required for background|normal\n\nStatus brackets one public macOS proc_pidinfo read with matching process-start\nidentities and returns the exact Darwin background flags. Linux and Windows\nreturn process_policy_not_applicable rather than translating unrelated priority\nor power concepts. background/normal verify the supplied identity, then return\nprocess_policy_exact_authority_unavailable before mutation: the qualification\nprobe proved a normal macOS process cannot acquire the retained Mach task object\nneeded to eliminate PID reuse. ACU never falls back to taskpolicy -p PID.\n"
     },
     {
       "name": "process-environment",

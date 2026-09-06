@@ -29,6 +29,24 @@ pub struct ProcessMetrics {
     pub page_faults: PageFaultCounters,
 }
 
+/// Point observation of the host's process-background policy vocabulary.
+///
+/// Only macOS exposes both flags. Other hosts return a typed unsupported
+/// result instead of mapping unrelated scheduling/priority concepts here.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProcessBackgroundPolicy {
+    pub raw_flags: u32,
+    pub darwin_background: bool,
+    pub external_background: bool,
+}
+
+impl ProcessBackgroundPolicy {
+    #[must_use]
+    pub const fn background(self) -> bool {
+        self.darwin_background || self.external_background
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ProcessMetricsErrorKind {
