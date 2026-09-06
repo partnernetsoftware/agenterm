@@ -1173,6 +1173,15 @@ costs a full candidate cycle:
   `91d55b69` subsequently passed the full 24-token Windows ARM64 journey and
   released the VM; the compact receipt is
   [`evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json`](../evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json).
+- [~] The full Linux x86_64 managed-job journey is green at exact source
+  `d9252a07`, including containment resources, session/lock cleanup and audit
+  retention; its compact receipt is
+  [`evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json`](../evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json).
+  The same Windows ARM64 run reached product code and refused because its
+  Scheduled Task parent Job denies breakaway. `utm-court` must provide a login
+  user bridge outside that Task Job before Windows managed-job evidence can be
+  claimed; ACU may not downgrade a resident owner to caller lifetime for a
+  convenient green result.
 - [x] Windows guest logs are an encoding boundary. Windows PowerShell 5 may
   redirect native output as UTF-16LE while Linux and newer shells emit UTF-8;
   the host normalizes the pulled text copy to UTF-8 with LF endings before

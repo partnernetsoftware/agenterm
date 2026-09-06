@@ -1,0 +1,32 @@
+{
+  "bundle_sha256": "3483366f7fac2c0a76ae486dd072f72fc2ba6ed5fa9436b272e13ec6e255d7db",
+  "completed_at": "2026-09-06T04:37:11.981080+00:00",
+  "court": "lnx-x86_64-desktop",
+  "evidence": "cu.managed-job-lifecycle",
+  "evidence_lines": [
+    "cu.managed-job-lifecycle",
+    "cu.managed-job-resources",
+    "cu.audit-retention"
+  ],
+  "exit_code": 0,
+  "guest_exit_code": 0,
+  "interactive_session": {
+    "a11y_connected": true,
+    "adapter": "linux-graphical-session",
+    "cell": "lnx-x86_64",
+    "court": "lnx-x86_64-desktop",
+    "dbus_connected": true,
+    "display_connected": true,
+    "nonce": "court-lnx-x86_64-desktop-32527-2694",
+    "session_id": "c1",
+    "session_type": "x11",
+    "status": "ready",
+    "uid": 1000
+  },
+  "manifest_sha256": "131bcda3defdf648833f61de8bbb397d3adc1b414531b5afc2cdcef5942dc534",
+  "outcome": "passed",
+  "pass_line": "PASS: agenterm-cu managed-job lifecycle, containment resources and bounded audit retention",
+  "run_log_sha256": "bfa3f744e88d7a2c22bc39a46b9bb3c56159f81ad16eb2731a78b01df8636ad0",
+  "schema": 2,
+  "source_sha": "d9252a073cc1ca180d29a9a985d8c21b80eba4b7"
+}

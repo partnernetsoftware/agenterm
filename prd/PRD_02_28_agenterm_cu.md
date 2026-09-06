@@ -74,6 +74,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 - [~] The expanded macOS public journey declares process, file and advanced AX evidence
   as 45 exact identities. Its host-native gate now covers the full declared
   set rather than the older 22-token subset.
+- [x] The Linux x86_64 managed-job court now proves the resident owner,
+  replay-safe spawn, private list/status, containment resources, lease renewal,
+  dual cursors, wait/stop, session-owned job and lock cleanup, idempotent
+  session end, expiry sweep and bounded audit retention. Exact source
+  `d9252a07` emitted all three declared identities and is retained in
+  [`evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json`](../evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json).
+  Windows ARM64 correctly refused `managed_job_detach_unavailable` because the
+  current Scheduled Task court forbids Job breakaway; that is a court/session
+  provider gap, not authority to weaken the independent-owner contract.
 
 - [x] `agenterm-cu` is the only product executable. CLI and desktop-host modes
   share that binary; an executable named `cu` is not a compatibility surface.
