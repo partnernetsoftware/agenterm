@@ -88,7 +88,7 @@ fn processor_model() -> Result<String, HostResourceSnapshotError> {
     if status == ERROR_FILE_NOT_FOUND {
         return Ok("unknown".to_owned());
     }
-    if status != ERROR_SUCCESS || bytes < 2 || bytes > 8192 || bytes % 2 != 0 {
+    if status != ERROR_SUCCESS || !(2..=8192).contains(&bytes) || !bytes.is_multiple_of(2) {
         return Err(registry_error(status, "query ProcessorNameString size"));
     }
     let mut buffer = vec![0_u16; bytes as usize / 2];

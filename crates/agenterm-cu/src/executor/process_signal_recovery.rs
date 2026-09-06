@@ -946,7 +946,7 @@ fn terminal_outcome(transaction: &Transaction) -> Result<Value, CuError> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 fn live_identity(pid: u32) -> Result<String, CuError> {
     match agenterm_platform::process_observation::observe(pid) {
         agenterm_platform::process_observation::ProcessObservation::Live {

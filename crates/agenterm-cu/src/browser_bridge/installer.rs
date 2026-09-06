@@ -324,6 +324,7 @@ fn prepare_extension(staging: &Path) -> Result<(), BrowserBridgeInstallError> {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(all(test, windows), allow(dead_code))]
 enum HostKind {
     #[cfg(any(test, target_os = "macos"))]
     Macos,

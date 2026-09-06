@@ -352,9 +352,12 @@ fn provider_key(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use super::*;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use crate::privilege_plan::process_priority_plan;
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]

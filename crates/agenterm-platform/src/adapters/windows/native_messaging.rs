@@ -117,8 +117,7 @@ fn read_default_value(key: &OwnedKey) -> Result<Option<PathBuf>, NativeMessaging
         ));
     }
     if value_type != REG_SZ
-        || byte_len < 2
-        || byte_len > MAX_REGISTRY_VALUE_BYTES
+        || !(2..=MAX_REGISTRY_VALUE_BYTES).contains(&byte_len)
         || byte_len % 2 != 0
     {
         return Err(NativeMessagingRegistryError::new(
