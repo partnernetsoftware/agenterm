@@ -377,6 +377,18 @@
         "cu.managed-job-resources",
         "cu.audit-retention"
       ]
+    },
+    {
+      "id": "cu-setup-cli-smoke",
+      "evidence": ["cu.setup-cli-entrypoint"]
+    },
+    {
+      "id": "cu-setup-runtime-refresh-smoke",
+      "evidence": ["cu.setup-runtime-refresh-owned-job"]
+    },
+    {
+      "id": "cu-power-status-smoke",
+      "evidence": ["cu.power-host-status"]
     }
   ]
 }
