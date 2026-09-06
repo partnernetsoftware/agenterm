@@ -44,6 +44,7 @@ const JOB_EVENTS_BYTES_MAX: usize = 1024 * 1024;
 const JOB_WRITE_DECODED_BYTES_MAX: usize = 64 * 1024;
 const JOB_WAIT_TIMEOUT_MS_MAX: u64 = 86_400_000;
 const JOB_STOP_GRACE_MS_MAX: u64 = 60_000;
+const JOB_PRUNE_MAX_AGE_SECONDS_MAX: u64 = 10 * 365 * 24 * 60 * 60;
 pub const SIMULATOR_RESULTS_MAX: usize = 200;
 pub const SIMULATOR_TIMEOUT_MS_MAX: u64 = 600_000;
 pub const STORAGE_DEVICES_MAX: usize = 5_000;
@@ -1292,6 +1293,13 @@ pub enum Command {
     JobStatus {
         target: TargetRef,
         job_id: String,
+    },
+    JobPrune {
+        target: TargetRef,
+        max_age_seconds: u64,
+        keep_newest: usize,
+        #[serde(default, skip_serializing_if = "is_false")]
+        apply: bool,
     },
     JobResources {
         target: TargetRef,
@@ -3537,6 +3545,7 @@ impl Command {
             Self::JobSpawn { .. } => "job-spawn".into(),
             Self::JobList { .. } => "job-list".into(),
             Self::JobStatus { .. } => "job-status".into(),
+            Self::JobPrune { .. } => "job-prune".into(),
             Self::JobResources { .. } => "job-resources".into(),
             Self::JobEvents { .. } => "job-events".into(),
             Self::JobOutput { .. } => "job-output".into(),
@@ -3751,6 +3760,9 @@ impl Command {
             Self::AuditCompact { apply, .. } => {
                 format!("audit-compact.{}", if *apply { "apply" } else { "plan" })
             }
+            Self::JobPrune { apply, .. } => {
+                format!("job-prune.{}", if *apply { "apply" } else { "plan" })
+            }
             Self::FileCopy { apply, .. } => {
                 format!("file-copy.{}", if *apply { "apply" } else { "plan" })
             }
@@ -3903,6 +3915,7 @@ impl Command {
             | Self::JobSpawn { target, .. }
             | Self::JobList { target, .. }
             | Self::JobStatus { target, .. }
+            | Self::JobPrune { target, .. }
             | Self::JobResources { target, .. }
             | Self::JobEvents { target, .. }
             | Self::JobOutput { target, .. }
@@ -4098,6 +4111,7 @@ impl Command {
             | Self::LoginSessionApplyLock { .. }
             | Self::PointerMove { .. }
             | Self::AuditCompact { apply: true, .. }
+            | Self::JobPrune { apply: true, .. }
             | Self::SessionStart { .. }
             | Self::SessionRenew { .. }
             | Self::SessionEnd { .. }
@@ -4356,6 +4370,19 @@ impl Command {
                 Ok(())
             }
             Self::JobStatus { job_id, .. } => validate_job_id(job_id),
+            Self::JobPrune {
+                max_age_seconds,
+                keep_newest,
+                ..
+            } => {
+                if *max_age_seconds > JOB_PRUNE_MAX_AGE_SECONDS_MAX {
+                    return Err("managed-job prune max_age_seconds must be at most 315360000");
+                }
+                if *keep_newest > JOB_LIST_MAX {
+                    return Err("managed-job prune keep_newest must be at most 1024");
+                }
+                Ok(())
+            }
             Self::JobResources {
                 job_id,
                 generation,
@@ -4886,6 +4913,27 @@ mod tests {
         .expect("list");
         assert_eq!(list.verb(), "job-list");
         assert_eq!(list.required_grant(), Grant::Observe);
+
+        let prune_plan: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-prune", "target": "current", "max_age_seconds": 86400,
+            "keep_newest": 128
+        }))
+        .expect("prune plan");
+        assert_eq!(
+            prune_plan.authorization_operation().as_deref(),
+            Some("job-prune.plan")
+        );
+        assert_eq!(prune_plan.required_grant(), Grant::Observe);
+        let prune_apply: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-prune", "target": "current", "max_age_seconds": 0,
+            "keep_newest": 0, "apply": true
+        }))
+        .expect("prune apply");
+        assert_eq!(
+            prune_apply.authorization_operation().as_deref(),
+            Some("job-prune.apply")
+        );
+        assert_eq!(prune_apply.required_grant(), Grant::Actuate);
 
         let events = serde_json::json!({
             "verb": "job-events",

@@ -749,6 +749,12 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
             target,
             job_id: positional(args, "JOB_ID")?,
         },
+        "job-prune" => Command::JobPrune {
+            target,
+            max_age_seconds: flag_parsed(args, "--max-age-seconds")?.unwrap_or(86_400),
+            keep_newest: flag_parsed(args, "--keep-newest")?.unwrap_or(128),
+            apply: take_switch(args, "--apply"),
+        },
         "job-resources" => Command::JobResources {
             target,
             job_id: positional(args, "JOB_ID")?,
@@ -1564,6 +1570,26 @@ mod tests {
         assert!(matches!(
             parse("job", &["status", id]).unwrap(),
             Command::JobStatus { .. }
+        ));
+        assert!(matches!(
+            parse(
+                "job",
+                &[
+                    "prune",
+                    "--max-age-seconds",
+                    "0",
+                    "--keep-newest",
+                    "7",
+                    "--apply",
+                ],
+            )
+            .unwrap(),
+            Command::JobPrune {
+                max_age_seconds: 0,
+                keep_newest: 7,
+                apply: true,
+                ..
+            }
         ));
         let Command::JobEvents {
             stdout_cursor,

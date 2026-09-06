@@ -61,6 +61,10 @@ pub fn top_level_text() -> String {
         "  setup  mixed  launcher check/apply;  permissions  mixed  status/open exact settings pane",
     );
     text = text.replace(
+        "  --grant observe,actuate   strict authorization scopes; CLI wins over\n                            AGENTERM_CU_GRANT and sources never union",
+        "  --grant observe,actuate   strict scopes; CLI wins and authorization sources never union",
+    );
+    text = text.replace(
         "MCU-aligned verbs with no mechanism here (pty, simulator, drag, ...) answer typed\nunsupported, never unknown; `capabilities` lists them per target.\n",
         "Unmapped MCU groups answer typed unsupported; `capabilities` lists them per target.\n",
     );
@@ -338,6 +342,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "job-spawn",
         "job-list",
         "job-status",
+        "job-prune",
         "job-resources",
         "job-events",
         "job-output",
@@ -399,7 +404,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  simulator-devices  simulator-apps  simulator-boot\n  simulator-launch  simulator-terminate"
+            "  simulator-devices  simulator-apps  simulator-boot  simulator-launch  simulator-terminate"
                 .to_owned(),
         );
     }
@@ -408,7 +413,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  host-open  host-notify  audit-query  audit-compact  session-start  session-list\n  session-status  session-renew  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-resources  job-events  job-output  job-write\n  job-wait  job-set-state  job-signal  job-stop  job-renew  file-copy  file-move\n  file-transaction  privilege-plan"
+            "  host-open  host-notify  audit-query  audit-compact  session-start  session-list\n  session-status  session-renew  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-prune  job-resources  job-events  job-output\n  job-write  job-wait  job-set-state  job-signal  job-stop  job-renew  file-copy\n  file-move  file-transaction  privilege-plan"
                 .to_owned(),
         );
     }

@@ -149,6 +149,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
 │     │                       doctor desktop baseline、system readiness 与 capability counts 已有
 │     │                       公开 qjswasm 证据；跨机制 live probe 仍是明确 gap，不以 catalog 冒充
+│     │                       managed-job prune 已有零写 plan 与锁内 apply；adopt/limits 未完成，
+│     │                       因此组合叶仍保持 gap，不用局部完成冒充 MCU 已可下架
 │     │                       浏览器 exact MV3 connection 已有 profile-scoped windows 与 guarded
 │     │                       window-state；macOS owned Profile 活体连接/host EOF cleanup 已绿，
 │     │                       real-window/closed-shadow、Linux/Windows 与 native focus bridge 未过，仍记 gap

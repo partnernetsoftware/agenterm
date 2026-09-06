@@ -281,6 +281,17 @@ impl Executor {
                 state, offset, max, ..
             } => job_list_payload(*state, *offset, *max),
             Command::JobStatus { job_id, .. } => job_status_payload(job_id),
+            Command::JobPrune {
+                max_age_seconds,
+                keep_newest,
+                apply,
+                ..
+            } => {
+                if *apply {
+                    require_job_request(job_request, "job-prune")?;
+                }
+                job_prune_payload(*max_age_seconds, *keep_newest, *apply)
+            }
             Command::JobResources {
                 job_id,
                 generation,

@@ -224,6 +224,16 @@
       "args": []
     },
     {
+      "name": "job-prune",
+      "command": "job-prune",
+      "aliases": ["job prune"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "plan or apply bounded terminal managed-job receipt retention",
+      "usage": "job-prune [--max-age-seconds N] [--keep-newest N] [--apply]\njob prune ...",
+      "args": []
+    },
+    {
       "name": "job-events",
       "command": "job-events",
       "aliases": ["job events"],
@@ -5276,6 +5286,10 @@
     {
       "name": "job-status",
       "text": "agenterm-cu job-status    (also: job status)\n  scope: observe    family: Managed jobs\n\nusage: job-status JOB_ID\n\nReads durable state and, while the resident owner is reachable, its identity-bound live child status. Owner nonce, command and environment remain private.\n"
+    },
+    {
+      "name": "job-prune",
+      "text": "agenterm-cu job-prune    (also: job prune)\n  scope: actuate for --apply; observe for plan    family: Managed jobs\n\nusage: job-prune [--max-age-seconds N] [--keep-newest N] [--apply]\n\nWithout --apply, returns the exact bounded candidate ids without mutation. Apply requires global request/session identity and recomputes under the store lock. Only start-failed, exited and signaled receipts older than the age boundary and outside the newest-retention set can be removed; live, detached and orphaned-uncertain records are never candidates.\n"
     },
     {
       "name": "job-events",

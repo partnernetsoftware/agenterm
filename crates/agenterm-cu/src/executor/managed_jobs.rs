@@ -645,6 +645,25 @@ pub(super) fn job_wait_payload(
     }
 }
 
+pub(super) fn job_prune_payload(
+    max_age_seconds: u64,
+    keep_newest: usize,
+    apply: bool,
+) -> Result<Value, CuError> {
+    let max_age_ms = max_age_seconds
+        .checked_mul(1_000)
+        .and_then(|value| i64::try_from(value).ok())
+        .ok_or_else(|| {
+            CuError::new(
+                "managed_job_prune_invalid",
+                "managed-job prune age overflows milliseconds",
+            )
+        })?;
+    let now = now_utc_ms().ok_or_else(clock_error)?;
+    let report = ManagedJobStore::open()?.prune(max_age_ms, keep_newest, apply, now)?;
+    serde_json::to_value(report).map_err(|_| response_kind_error())
+}
+
 pub(super) fn job_set_state_payload(
     job_id: &str,
     generation: u64,

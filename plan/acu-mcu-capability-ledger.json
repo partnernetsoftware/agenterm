@@ -704,13 +704,18 @@
           "next": "run the registered lifecycle journey on Linux and Windows, then route the lossless MCU argument subset through acu.ts",
           "note": "The registry seals start intent/generation/owner/exact child identity without command, environment or lease plaintext. A same request identity replays the exact public job id and generation without a second spawn; other uncertainty is typed and never retried. MCU adopt, prune and launch limits remain separate gaps."
         },
-        {
-          "id": "job.adopt-prune-limits",
-          "mcu_shape": "job adopt|prune and spawn process limits",
-          "acu_shape": null,
-          "state": "gap",
-          "next": "add identity-bound process-group adoption, bounded terminal receipt pruning and native pre-exec resource limits without weakening current ownership"
-        },
+      {
+        "id": "job.adopt-prune-limits",
+        "mcu_shape": "job adopt|prune and spawn process limits",
+        "acu_shape": "job-prune [--max-age-seconds N] [--keep-newest N] [--apply] plans or applies bounded terminal-receipt retention; adopt and native pre-exec resource limits remain absent",
+        "state": "gap",
+        "qualification": "local-macos-public-qjswasm-prune-green-linux-windows-rerun-pending",
+        "evidence": [
+          "cu.managed-job-prune"
+        ],
+        "next": "add identity-bound process-group adoption and native pre-exec resource limits without weakening current ownership",
+        "note": "Prune is zero-write by default. Apply requires request/session identity, recomputes candidates under the publication lock and removes only start-failed, exited or signaled receipts outside the newest-retention set; live, detached and orphaned-uncertain records are never candidates. This partial delivery does not clear the combined leaf."
+      },
         {
           "id": "job.output-events-input",
           "mcu_shape": "job output|events|write with independent stdout/stderr cursors and bounded long poll",

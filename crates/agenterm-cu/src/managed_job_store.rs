@@ -40,6 +40,21 @@ pub(crate) struct ManagedJobRefreshBlockers {
     pub orphaned_uncertain: usize,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct ManagedJobPruneReport {
+    pub apply: bool,
+    pub total: usize,
+    pub active: usize,
+    pub detached: usize,
+    pub uncertain: usize,
+    pub terminal: usize,
+    pub eligible: usize,
+    pub retained_newest: usize,
+    pub removed: usize,
+    pub remaining: usize,
+    pub candidate_ids: Vec<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ManagedJobHandle {
@@ -432,6 +447,46 @@ impl ManagedJobStore {
         self.inspect(|document| Ok(document.jobs.values().cloned().collect()))
     }
 
+    /// Plan or apply bounded terminal-receipt retention. Live, detached and
+    /// uncertain records are never candidates. Apply recomputes the complete
+    /// selection while holding the same store lock that publishes removal.
+    pub(crate) fn prune(
+        &self,
+        max_age_ms: i64,
+        keep_newest: usize,
+        apply: bool,
+        now_utc_ms: i64,
+    ) -> Result<ManagedJobPruneReport, CuError> {
+        if max_age_ms < 0 || keep_newest > MAX_JOBS {
+            return Err(CuError::new(
+                "managed_job_prune_invalid",
+                "managed-job prune bounds are invalid",
+            ));
+        }
+        if apply {
+            self.mutate(now_utc_ms, |document| {
+                let mut selection = prune_selection(document, max_age_ms, keep_newest, now_utc_ms)?;
+                for job_id in &selection.candidate_ids {
+                    document.jobs.remove(job_id);
+                }
+                selection.report.apply = true;
+                selection.report.removed = selection.candidate_ids.len();
+                selection.report.remaining = document.jobs.len();
+                Ok(selection.report)
+            })
+        } else {
+            self.inspect(|document| {
+                if now_utc_ms < document.last_now_utc_ms {
+                    return Err(CuError::new(
+                        "managed_job_clock_rollback",
+                        "managed-job prune clock moved backward",
+                    ));
+                }
+                Ok(prune_selection(document, max_age_ms, keep_newest, now_utc_ms)?.report)
+            })
+        }
+    }
+
     /// Count resident resources that make a runtime refresh defer. This path
     /// takes the durable store lock and is used under the coordinator refresh
     /// fence for apply admission.
@@ -627,6 +682,72 @@ fn summarize_refresh_blockers(document: &Document) -> ManagedJobRefreshBlockers 
     summary.blocking =
         summary.start_intent + summary.starting + summary.running + summary.orphaned_uncertain;
     summary
+}
+
+struct ManagedJobPruneSelection {
+    report: ManagedJobPruneReport,
+    candidate_ids: Vec<String>,
+}
+
+fn prune_selection(
+    document: &Document,
+    max_age_ms: i64,
+    keep_newest: usize,
+    now_utc_ms: i64,
+) -> Result<ManagedJobPruneSelection, CuError> {
+    let cutoff = now_utc_ms.checked_sub(max_age_ms).ok_or_else(|| {
+        CuError::new(
+            "managed_job_prune_invalid",
+            "managed-job prune cutoff underflows UTC milliseconds",
+        )
+    })?;
+    let mut active = 0;
+    let mut detached = 0;
+    let mut uncertain = 0;
+    let mut terminal = Vec::new();
+    for record in document.jobs.values() {
+        match record.state {
+            ManagedJobState::StartIntent | ManagedJobState::Starting | ManagedJobState::Running => {
+                active += 1;
+            }
+            ManagedJobState::Detached => detached += 1,
+            ManagedJobState::OrphanedUncertain => uncertain += 1,
+            ManagedJobState::StartFailed { .. }
+            | ManagedJobState::Exited { .. }
+            | ManagedJobState::Signaled { .. } => {
+                let terminal_at = record.terminal_at_utc_ms.ok_or_else(|| {
+                    corrupt("terminal managed-job record has no terminal timestamp")
+                })?;
+                terminal.push((terminal_at, record.job_id.clone()));
+            }
+        }
+    }
+    terminal.sort_by(|left, right| right.cmp(left));
+    let retained_newest = keep_newest.min(terminal.len());
+    let mut candidate_ids = terminal
+        .iter()
+        .skip(retained_newest)
+        .filter(|(terminal_at, _)| *terminal_at <= cutoff)
+        .map(|(_, job_id)| job_id.clone())
+        .collect::<Vec<_>>();
+    candidate_ids.sort();
+    let report = ManagedJobPruneReport {
+        apply: false,
+        total: document.jobs.len(),
+        active,
+        detached,
+        uncertain,
+        terminal: terminal.len(),
+        eligible: candidate_ids.len(),
+        retained_newest,
+        removed: 0,
+        remaining: document.jobs.len(),
+        candidate_ids: candidate_ids.clone(),
+    };
+    Ok(ManagedJobPruneSelection {
+        report,
+        candidate_ids,
+    })
 }
 
 fn checked_record_mut<'a>(
@@ -1076,6 +1197,84 @@ mod tests {
             store.refresh_blockers().unwrap(),
             ManagedJobRefreshBlockers::default()
         );
+    }
+
+    #[test]
+    fn prune_is_plan_first_bounded_and_never_removes_live_or_detached() {
+        let scratch = Scratch::new("prune");
+        let store = scratch.store();
+        let mut terminal_ids = Vec::new();
+        let mut now = 1;
+        for pid in [501, 502, 503] {
+            let intent = store.reserve_start(None, now).unwrap();
+            now += 1;
+            let resident = owner(pid);
+            let child = process(pid + 100);
+            store
+                .claim_starting(&intent.handle(), resident.clone(), now)
+                .unwrap();
+            now += 1;
+            store
+                .mark_running(&intent.handle(), &resident, child.clone(), now)
+                .unwrap();
+            now += 1;
+            store
+                .mark_exited(&intent.handle(), &resident, &child, 0, now)
+                .unwrap();
+            terminal_ids.push(intent.job_id);
+            now += 1;
+        }
+        let live = store.reserve_start(None, now).unwrap();
+        now += 1;
+        let detached = store.reserve_start(None, now).unwrap();
+        now += 1;
+        let detached_owner = owner(701);
+        let detached_child = process(702);
+        store
+            .claim_starting(&detached.handle(), detached_owner.clone(), now)
+            .unwrap();
+        now += 1;
+        store
+            .mark_running(
+                &detached.handle(),
+                &detached_owner,
+                detached_child.clone(),
+                now,
+            )
+            .unwrap();
+        now += 1;
+        store
+            .mark_detached(&detached.handle(), &detached_owner, &detached_child, now)
+            .unwrap();
+
+        let before_plan = fs::read(&scratch.path).unwrap();
+        let plan = store.prune(0, 1, false, now + 1).unwrap();
+        assert!(!plan.apply);
+        assert_eq!(plan.total, 5);
+        assert_eq!(plan.active, 1);
+        assert_eq!(plan.detached, 1);
+        assert_eq!(plan.uncertain, 0);
+        assert_eq!(plan.terminal, 3);
+        assert_eq!(plan.eligible, 2);
+        assert_eq!(plan.retained_newest, 1);
+        assert_eq!(plan.removed, 0);
+        assert_eq!(store.list().unwrap().len(), 5);
+        assert_eq!(fs::read(&scratch.path).unwrap(), before_plan);
+
+        let applied = store.prune(0, 1, true, now + 2).unwrap();
+        assert!(applied.apply);
+        assert_eq!(applied.candidate_ids, plan.candidate_ids);
+        assert_eq!(applied.removed, 2);
+        assert_eq!(applied.remaining, 3);
+        assert!(store.get(&live.job_id).unwrap().is_some());
+        assert!(store.get(&detached.job_id).unwrap().is_some());
+        assert!(store.get(&terminal_ids[2]).unwrap().is_some());
+        assert!(store.get(&terminal_ids[0]).unwrap().is_none());
+        assert!(store.get(&terminal_ids[1]).unwrap().is_none());
+
+        let replay = store.prune(0, 1, true, now + 3).unwrap();
+        assert_eq!(replay.removed, 0);
+        assert_eq!(replay.remaining, 3);
     }
 
     #[test]

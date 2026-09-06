@@ -13,6 +13,7 @@ const declared_evidence = [
   "cu.managed-job-lifecycle",
   "cu.managed-job-resources",
   "cu.managed-job-state-signal",
+  "cu.managed-job-prune",
   "cu.audit-retention",
   "cu.target-lock-lifecycle"
 ];
@@ -441,6 +442,36 @@ try {
   second_owner_absent = wait_owner_absent(run_directory, executable, second_job);
   ensure(second_owner_absent, "cu_managed_job_second_owner_cleanup");
 
+  print("STEP plan and apply bounded terminal receipt retention without touching live or uncertain jobs");
+  const prune_plan = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-prune", "--max-age-seconds", "0", "--keep-newest", "0"
+  ], "job-prune");
+  ensure(
+    prune_plan.apply === false && prune_plan.eligible >= 2
+      && prune_plan.removed === 0 && prune_plan.remaining === prune_plan.total
+      && prune_plan.active === 0 && prune_plan.detached === 0 && prune_plan.uncertain === 0,
+    "cu_managed_job_prune_plan_contract"
+  );
+  const prune_args = mutation_prefix(request_root + "-prune", session_id, session_lease);
+  append_all(prune_args, [
+    "job-prune", "--max-age-seconds", "0", "--keep-newest", "0", "--apply"
+  ]);
+  const prune_apply = invoke_cu(run_directory, executable, prune_args, "job-prune");
+  ensure(
+    prune_apply.apply === true && prune_apply.removed === prune_plan.eligible
+      && prune_apply.remaining === 0
+      && JSON.stringify(prune_apply.candidate_ids) === JSON.stringify(prune_plan.candidate_ids),
+    "cu_managed_job_prune_apply_contract"
+  );
+  const pruned_jobs = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "job-list"
+  ], "job-list");
+  ensure(
+    pruned_jobs.matched === 0 && pruned_jobs.returned === 0 && pruned_jobs.jobs.length === 0,
+    "cu_managed_job_prune_readback"
+  );
+
   print("STEP bind one running job and target lock to the session before terminal cleanup");
   const bound_spawn_args = mutation_prefix(request_root + "-spawn-session-bound", session_id, session_lease);
   append_all(bound_spawn_args, ["job-spawn", "--ttl-seconds", "30", "--"]);
@@ -629,6 +660,7 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-lifecycle");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-resources");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-state-signal");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-prune");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");
   harness.emit_evidence(context, declared_evidence, "cu.target-lock-lifecycle");
   harness.remove_run(context);

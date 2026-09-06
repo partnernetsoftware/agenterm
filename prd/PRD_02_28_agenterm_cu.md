@@ -1133,7 +1133,16 @@ flowchart LR
   Windows returns a typed refusal rather than depending on MCU's undocumented
   Job Object freeze information class. Resource policy, group priority, Linux
   rerun and Windows refusal evidence remain in the owning gap. Stored job
-  environment is a separate secret-bearing gap.
+  environment is a separate secret-bearing gap. `job-prune` now closes the
+  retention part of the MCU shape without inheriting its daemon: the default
+  operation is a zero-write plan over bounded terminal receipts, while
+  `--apply` requires request/session identity and recomputes the same selection
+  under the store publication lock. Only start-failed, exited and signaled
+  receipts older than the cutoff and outside `keep_newest` may be removed;
+  running, starting, detached and orphaned-uncertain ownership is preserved.
+  `cu.managed-job-prune` owns the public qjswasm behavior. Process-group adopt
+  and native pre-exec limits remain absent, so the combined ledger leaf stays
+  a gap until those independent branches and three-host evidence close.
 
 - [~] Privilege is now split at the real authority boundary. The public
   `privilege plan process.set-priority` command is read-only on macOS/Linux:

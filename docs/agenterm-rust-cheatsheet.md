@@ -3793,6 +3793,15 @@ claim Rust `Drop` as crash recovery: destructors do not run after SIGKILL, so
 any temporary group freeze needs the write-ahead recovery record even when a
 resident owner normally holds a tree guard.
 
+Managed-job retention is receipt garbage collection, not process cleanup.
+Make plan mode byte-for-byte zero-write, and on apply recompute the complete
+candidate set while holding the same store lock that publishes removal. Only
+durable terminal states with known terminal timestamps may age out, after a
+separate newest-retention set is protected. Running/start-intent records are
+live authority; detached records may still describe external live work; and
+orphaned-uncertain records are recovery evidence. Never delete any of those as
+"stale", even when their timestamps exceed the retention cutoff.
+
 Cargo auto-discovers every `src/bin/*.rs` as its own binary, so a binary's
 private modules must live under `src/bin/<name>/` as `mod.rs` plus siblings,
 never as extra `src/bin/*.rs` files; a stray `main.rs` there creates a second
