@@ -369,6 +369,14 @@
     {
       "id": "cu-file-move-transaction-smoke",
       "evidence": ["cu.file-move-transaction"]
+    },
+    {
+      "id": "cu-managed-job-smoke",
+      "evidence": [
+        "cu.managed-job-lifecycle",
+        "cu.managed-job-resources",
+        "cu.audit-retention"
+      ]
     }
   ]
 }

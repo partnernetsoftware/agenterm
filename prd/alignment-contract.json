@@ -258,7 +258,10 @@
         "cu.privilege-plan",
         "cu.simulator-readonly",
         "cu.file-copy-transaction",
-        "cu.file-move-transaction"
+        "cu.file-move-transaction",
+        "cu.managed-job-lifecycle",
+        "cu.managed-job-resources",
+        "cu.audit-retention"
       ]
     },
     {

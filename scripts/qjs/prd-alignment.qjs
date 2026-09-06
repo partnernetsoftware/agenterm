@@ -274,6 +274,7 @@ const evidence_suites = {
   "cu-simulator-readonly-smoke": true,
   "cu-file-transaction-smoke": true,
   "cu-file-move-transaction-smoke": true,
+  "cu-managed-job-smoke": true,
   "unix-frontend-linux-smoke": true,
   "unix-frontend-macos-smoke": true,
   "server-smoke": true,
