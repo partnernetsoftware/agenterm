@@ -345,6 +345,22 @@
     {
       "id": "cu-network-probe-smoke",
       "evidence": ["cu.network-probe"]
+    },
+    {
+      "id": "cu-resource-status-smoke",
+      "evidence": ["cu.resource-status"]
+    },
+    {
+      "id": "cu-storage-devices-smoke",
+      "evidence": ["cu.storage-devices"]
+    },
+    {
+      "id": "cu-privilege-plan-smoke",
+      "evidence": ["cu.privilege-plan"]
+    },
+    {
+      "id": "cu-simulator-readonly-smoke",
+      "evidence": ["cu.simulator-readonly"]
     }
   ]
 }
