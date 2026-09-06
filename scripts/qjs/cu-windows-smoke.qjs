@@ -150,6 +150,18 @@ function run_cu_reply(run_directory, executable, arguments) {
   return JSON.parse(trimmed);
 }
 
+// Do not outsource a product cleanup assertion to `tasklist`: stripped and
+// ARM Windows images need not ship that utility. The public identity-aware
+// process facade is the capability this journey is qualifying.
+function process_present_via_cu(run_directory, executable, pid) {
+  const reply = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "process-state", "--pid", "" + pid
+  ]);
+  if (flag_at(reply, "ok")) { return 1; }
+  if (text_at(reply, "error.code") === "process_not_found") { return 0; }
+  throw "cu_windows_smoke_process_probe:" + JSON.stringify(reply);
+}
+
 function window_row(run_directory, executable, pid, title) {
   const reply = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "windows", "--pid", "" + pid
@@ -366,7 +378,7 @@ try {
     "cu_windows_smoke_network_fixture_exit:" + JSON.stringify(network_fixture_output)
   );
   ensure(
-    harness.process_present(network_fixture_pid) === 0,
+    process_present_via_cu(run_directory, executable, network_fixture_pid) === 0,
     "cu_windows_smoke_network_fixture_orphan"
   );
   const unreachable_attempts = 2;
@@ -913,7 +925,7 @@ try {
   ensure(closed_gone === 1, "cu_windows_smoke_close_window_lingers");
   // Closing a window is not killing the process: the main window is still
   // there and the fixture is still running.
-  ensure(harness.process_present(fixture_pid) !== 0, "cu_windows_smoke_close_killed_the_process");
+  ensure(process_present_via_cu(run_directory, executable, fixture_pid) !== 0, "cu_windows_smoke_close_killed_the_process");
   ensure(
     window_row(run_directory, executable, fixture_pid, fixture_title) !== null,
     "cu_windows_smoke_close_took_the_wrong_window"
@@ -944,7 +956,7 @@ try {
   ensure(fixture_exited !== 0, "cu_windows_smoke_fixture_exit_timeout");
   harness.wait(fixture, 5000);
   fixture_reaped = true;
-  ensure(harness.process_present(fixture_pid) === 0, "cu_windows_smoke_fixture_orphan");
+  ensure(process_present_via_cu(run_directory, executable, fixture_pid) === 0, "cu_windows_smoke_fixture_orphan");
   const gone = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "windows", "--pid", "" + fixture_pid
   ]);
@@ -982,7 +994,7 @@ if (terminal_gui >= 0 && !terminal_gui_reaped) {
       "taskkill", ["/PID", "" + terminal_gui_pid, "/T", "/F"],
       { timeout_ms: 10000 }
     );
-    if (terminated.success !== true && harness.process_present(terminal_gui_pid) !== 0) {
+    if (terminated.success !== true && process_present_via_cu(run_directory, executable, terminal_gui_pid) !== 0) {
       succeeded = 0;
       failure = failure + ":cu_windows_smoke_terminal_cleanup_kill";
     }
@@ -995,7 +1007,7 @@ if (terminal_gui >= 0 && !terminal_gui_reaped) {
     succeeded = 0;
     failure = failure + ":cu_windows_smoke_terminal_cleanup_wait";
   }
-  if (terminal_gui_pid !== 0 && harness.process_present(terminal_gui_pid) !== 0) {
+  if (terminal_gui_pid !== 0 && process_present_via_cu(run_directory, executable, terminal_gui_pid) !== 0) {
     succeeded = 0;
     failure = failure + ":cu_windows_smoke_terminal_cleanup_orphan";
   }
@@ -1012,7 +1024,7 @@ if (network_fixture !== null && !network_fixture_reaped) {
     succeeded = 0;
     failure = failure + ":cu_windows_smoke_network_cleanup_wait";
   }
-  if (network_fixture_pid !== 0 && harness.process_present(network_fixture_pid) !== 0) {
+  if (network_fixture_pid !== 0 && process_present_via_cu(run_directory, executable, network_fixture_pid) !== 0) {
     succeeded = 0;
     failure = failure + ":cu_windows_smoke_network_cleanup_orphan";
   }
