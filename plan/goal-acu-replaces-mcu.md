@@ -601,6 +601,16 @@ Q2 fast delegated facades
    ├─ [~] process sockets: native one-shot + public qjswasm macOS court ✓
    │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
    └─ [ ] privileged mutation and inspection watch/diff remain
+Q2b host/boot identity
+├─ [x] `power status` / `power-status` uses one typed observe-only ACU facade
+├─ [x] host identity is an enrolled installation pseudonym; observation never enrolls
+├─ [x] boot identity composes that pseudonym with a platform-owned native boot instance
+│  ├─ [x] macOS `kern.boottime`
+│  ├─ [x] Linux kernel boot UUID
+│  └─ [x] Windows SystemBootEnvironmentInformation GUID (x86_64 target compile green)
+├─ [x] public qjswasm court `cu.power-host-status` green on macOS
+├─ [ ] Linux + Windows native court reruns
+└─ [ ] terminal sleep/restart/shutdown plan/apply remain separate privilege leaves
 Q3 owned runtime facades
 ├─ [~] PTY/job/runtime/session/lock/audit/service
 │  ├─ [x] runtime-status: on-demand coordinator + per-resource owner topology, non-publishing snapshot
@@ -726,7 +736,7 @@ Q5 retirement
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 131 ledger capabilities
 currently include 13 `gap` and 54 `platform-limited` rows. The compatibility
-adapter reports only the five top-level spellings that can actually reach the
+adapter reports only the four top-level spellings that can actually reach the
 MCU fallback; its argument-sensitive corpus
 is still incomplete. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was

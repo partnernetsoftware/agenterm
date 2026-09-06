@@ -1866,6 +1866,9 @@ pub enum Command {
     ResourceStatus {
         target: TargetRef,
     },
+    PowerStatus {
+        target: TargetRef,
+    },
     StorageDevices {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_storage_devices_max")]
@@ -3210,6 +3213,7 @@ impl Command {
             Self::Screenshot { .. } => "screenshot".into(),
             Self::DeviceScreenshot { .. } => "device-screenshot".into(),
             Self::ResourceStatus { .. } => "resource-status".into(),
+            Self::PowerStatus { .. } => "power-status".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::DeviceList { .. } => "device-list".into(),
             Self::DeviceWatch { .. } => "device-watch".into(),
@@ -3387,6 +3391,7 @@ impl Command {
             | Self::Screenshot { target, .. }
             | Self::DeviceScreenshot { target, .. }
             | Self::ResourceStatus { target }
+            | Self::PowerStatus { target }
             | Self::StorageDevices { target, .. }
             | Self::DeviceList { target, .. }
             | Self::DeviceWatch { target, .. }

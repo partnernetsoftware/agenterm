@@ -398,8 +398,8 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             "resource-status is a native bounded host snapshot with explicit free/available and load semantics; pressure/top/disk/volumes/priority/affinity/limits/scope remain typed gaps",
         ),
         "power" => (
-            "unsupported",
-            "ACU migration gap: terminal power actions need an explicit typed facade",
+            "available",
+            "power-status binds an installation-scoped host pseudonym to one native boot instance; terminal sleep/restart/shutdown plan/apply remain typed gaps",
         ),
         "login-session" => (
             "unsupported",

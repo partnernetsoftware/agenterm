@@ -807,6 +807,23 @@
         "task.cu-storage-devices-smoke"
       ]
     },
+    "cu-power-status-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-power-status-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-power-status-smoke"
+      ]
+    },
     "cu-device-inventory-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2883,6 +2900,27 @@
       "id": "cu-device-inventory-smoke",
       "description": "Prove native peripheral inventory is bounded, read-only, provider-explicit and uses stable installation-scoped opaque identities without disclosing serials, addresses or native paths.",
       "entry": "scripts/qjs/cu-device-inventory-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-power-status-smoke",
+      "description": "Prove host and boot identities are stable installation-scoped pseudonyms, observation never enrolls state and no hardware or native process identity leaks.",
+      "entry": "scripts/qjs/cu-power-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

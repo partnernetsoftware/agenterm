@@ -57,6 +57,18 @@ pub fn parse(
         }
         return Ok(Command::ResourceStatus { target });
     }
+    if spec.name == "power-status" {
+        if args.first().is_some_and(|arg| arg == "status") {
+            args.remove(0);
+        }
+        if !args.is_empty() {
+            return Err(format!(
+                "power-status accepts no arguments; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::PowerStatus { target });
+    }
     if spec.name == "runtime-status" {
         if args.first().is_some_and(|arg| arg == "status") {
             args.remove(0);
@@ -869,6 +881,20 @@ mod tests {
         ));
         assert!(parse("resource-status", &["extra"]).is_err());
         assert!(parse("resource", &["status", "extra"]).is_err());
+    }
+
+    #[test]
+    fn power_status_flat_and_grouped_shapes_are_closed() {
+        assert!(matches!(
+            parse("power-status", &[]).unwrap(),
+            Command::PowerStatus { .. }
+        ));
+        assert!(matches!(
+            parse("power", &["status"]).unwrap(),
+            Command::PowerStatus { .. }
+        ));
+        assert!(parse("power-status", &["extra"]).is_err());
+        assert!(parse("power", &["status", "extra"]).is_err());
     }
 
     #[test]

@@ -1183,10 +1183,11 @@
         {
           "id": "power.host-status",
           "mcu_shape": "power status returns stable host identity, boot identity and uptime",
-          "acu_shape": null,
-          "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
-          "next": "product-neutral host and boot identity facade; do not expose hardware serials or treat wall-clock uptime as boot identity"
+          "acu_shape": "power status|power-status returns installation-scoped opaque host and boot ids plus monotonic uptime; observation never enrolls state",
+          "state": "native",
+          "platforms": {"macos": "native-black-box", "linux": "native-unqualified", "windows": "native-cross-compiled"},
+          "evidence": ["cu.power-host-status", "agenterm-platform host_boot_identity target compile"],
+          "next": "run the same public court on Linux and Windows; keep native boot material and installation keys out of replies"
         },
         {
           "id": "power.action-plan",

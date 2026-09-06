@@ -157,6 +157,14 @@ impl CurrentIdentityProvider {
     pub fn private_state_dir(&self) -> &Path {
         &self.private_state_dir
     }
+
+    /// Loads the already-enrolled installation identity without requiring a
+    /// desktop session and without creating or rotating product state.
+    pub(crate) fn load_installation_identity(&self) -> Result<String, TargetBindingError> {
+        platform_binding::load_provider_identity(&self.private_state_dir)
+            .map(|identity| encode_opaque("agt-cu-host-v1-", identity.as_bytes()))
+            .map_err(|error| TargetBindingError::new(map_platform_error(error), TargetRef::Current))
+    }
 }
 
 impl sealed::Sealed for CurrentIdentityProvider {}

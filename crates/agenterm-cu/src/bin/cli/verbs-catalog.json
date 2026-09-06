@@ -2434,6 +2434,18 @@
       "args": []
     },
     {
+      "name": "power-status",
+      "command": "power-status",
+      "aliases": [
+        "power status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read installation-scoped host and boot identity plus uptime",
+      "usage": "power status\npower-status",
+      "args": []
+    },
+    {
       "name": "runtime-status",
       "command": "runtime-status",
       "aliases": [
@@ -5252,6 +5264,10 @@
     {
       "name": "resource-status",
       "text": "agenterm-cu resource-status    (also: resource status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  resource status\n  resource-status\n\nReturns one bounded current-host snapshot with platform, architecture, host\nidentity, uptime, native load semantics, CPU identity, strict free memory,\nreclaimable available memory and the complete native process count. The\nqueries are sequential and atomicSnapshot is always false. Windows explicitly\nreports loadAverageSemantics=windows-not-available instead of fabricating a\nnative load measurement.\n"
+    },
+    {
+      "name": "power-status",
+      "text": "agenterm-cu power-status    (also: power status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  power status\n  power-status\n\nReturns an installation-scoped opaque host identity, an opaque identity for\nthis exact operating-system boot and monotonic uptime. Observation never\ncreates or rotates installation state: run setup once if the identity is not\nenrolled. No hardware serial, native process-start identity or private key is\nreturned. The boot anchor is sampled before and after uptime; any identity\nchange fails typed instead of producing a mixed receipt.\n"
     },
     {
       "name": "runtime-status",

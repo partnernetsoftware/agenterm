@@ -1,0 +1,98 @@
+// Public black-box court for installation-scoped host and boot identity.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.power-host-status"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function isolated_env(run_directory, prefix) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, prefix + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, prefix + "-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
+  };
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: isolated_env(run_directory, "power"),
+    timeout_ms: 30000
+  });
+  ensure(output.success === expect_success, "cu_power_status_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_power_status_reply_state");
+  return reply;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_power_status_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-power-status");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP observation refuses to invent an unenrolled host identity");
+  const missing = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "observe", "power", "status"], false);
+  ensure(missing.error.code === "host_identity_unavailable", "cu_power_status_missing_identity");
+
+  print("STEP explicit setup enrolls the private installation identity");
+  const setup = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "actuate", "setup", "--bin-dir",
+     rh.join(context.run_directory, "bin")], true);
+  ensure(setup.command === "setup" && setup.data.installation_identity.status === "ready",
+         "cu_power_status_setup_identity");
+
+  print("STEP repeated observations preserve host and boot identities without native identity leakage");
+  const first = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "observe", "power", "status"], true);
+  const second = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "observe", "power-status"], true);
+  ensure(first.command === "power-status" && first.target === "current", "cu_power_status_command");
+  ensure(first.data.host_identity.startsWith("agt-cu-host-v1-"), "cu_power_status_host_identity");
+  ensure(first.data.boot_identity.startsWith("agt-cu-boot-v1-"), "cu_power_status_boot_identity");
+  ensure(first.data.host_identity === second.data.host_identity, "cu_power_status_host_stability");
+  ensure(first.data.boot_identity === second.data.boot_identity, "cu_power_status_boot_stability");
+  ensure(first.data.uptime_milliseconds >= 0 && second.data.uptime_milliseconds >= first.data.uptime_milliseconds,
+         "cu_power_status_uptime");
+  ensure(first.data.host_uuid === undefined && first.data.start_identity === undefined,
+         "cu_power_status_native_identity_leak");
+  ensure(first.data.verified === true && first.data.atomic_snapshot === false,
+         "cu_power_status_truth_fields");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.power-host-status");
+  harness.remove_run(context);
+  print("PASS: power host status binds one installation to one verified boot without hardware identity leakage");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

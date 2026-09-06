@@ -4379,3 +4379,20 @@ the public CLI rather than accepting catalog or unit-test presence as delivery.
   explicit filter, but inventory output should return digest and byte length,
   not echo the matching plaintext. Exact argv disclosure belongs to the
   separate opt-in process-argv facade.
+
+## Bind host actions to a boot instance without exposing hardware identity
+
+- Hardware serials and platform UUIDs are not a product identity. Reduce the
+  OS-owned boot-instance source inside `agenterm-platform`, then combine that
+  opaque value with an explicitly enrolled installation pseudonym at the CU
+  layer. Never return the native boot material or private installation key.
+- Uptime is not a boot identity: it changes on every read, and subtracting it
+  from wall time introduces rounding and clock-adjustment ambiguity. Prefer an
+  exact native boot source such as macOS `kern.boottime`, Linux boot UUID or
+  Windows SystemBootEnvironmentInformation.
+- Bracket any separately queried uptime/resource snapshot with equal boot
+  identities. If the boot changes or either identity query fails, reject the
+  combined reply rather than publishing facts from two boot instances.
+- Observation must load only. Missing installation identity is a typed setup
+  prerequisite; only an explicit setup/mutation command may enroll or rotate
+  it.

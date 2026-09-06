@@ -686,6 +686,28 @@ flowchart LR
   `cu.process-inventory-rich` is green on macOS; Linux and Windows native reruns
   remain before three-host promotion.
 
+- [~] `power status` now has a native, observe-only ACU facade rather than a
+  Bun/MCU host probe. `agenterm-platform` reduces each OS boot source to an
+  opaque digest (macOS `kern.boottime`, Linux kernel boot UUID, Windows boot
+  environment GUID); CU binds it to the explicitly enrolled installation
+  pseudonym. The reply exposes neither a hardware UUID, raw native boot value,
+  private installation key nor system-process identity. Observation refuses a
+  missing enrollment instead of silently creating state. The public qjswasm
+  court `cu.power-host-status` is green on macOS and the Windows x86_64 target
+  compiles; Linux and Windows native executions remain before three-host
+  promotion. Power mutations remain separate privilege-plan/apply leaves.
+
+```mermaid
+flowchart LR
+  S["explicit setup"] --> K["private installation key"]
+  O["power status"] --> H["load opaque host pseudonym"]
+  O --> B["native boot instance<br/>sample before + after uptime"]
+  K --> H
+  H & B --> D["domain-separated boot pseudonym"]
+  D --> R["host id + boot id + uptime<br/>no hardware/native identity"]
+  B -->|changes or unavailable| X["typed failure · no mixed receipt"]
+```
+
 ```mermaid
 flowchart LR
   Q["ps request"] --> M{"list or pid detail"}

@@ -79,6 +79,7 @@ pub enum Capability {
     ProcessorAffinity,
     HostMemory,
     HostResourceSnapshot,
+    HostBootIdentity,
     Storage,
     StorageDeviceInventory,
     DeviceInventory,
@@ -153,6 +154,7 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         Capability::ProcessorAffinity => (cfg!(feature = "processor-affinity"), true),
         Capability::HostMemory => (cfg!(feature = "host-memory"), true),
         Capability::HostResourceSnapshot => (cfg!(feature = "host-resource-snapshot"), true),
+        Capability::HostBootIdentity => (cfg!(feature = "host-boot-identity"), true),
         Capability::Storage => (cfg!(feature = "storage"), true),
         Capability::StorageDeviceInventory => (cfg!(feature = "storage-device-inventory"), true),
         Capability::DeviceInventory => (cfg!(feature = "device-inventory"), true),
@@ -278,6 +280,9 @@ pub mod host_memory;
 
 #[cfg(feature = "host-resource-snapshot")]
 pub mod host_resource_snapshot;
+
+#[cfg(feature = "host-boot-identity")]
+pub mod host_boot_identity;
 
 #[cfg(feature = "storage")]
 pub mod storage;

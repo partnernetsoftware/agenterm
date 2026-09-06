@@ -94,9 +94,16 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-watch  device-list  storage-devices  resource-status  runtime-status  device-claims  device-status\n  device-claim  device-read  device-write  device-renew  device-release",
+            "  device-watch  device-list  storage-devices  resource-status  power-status  runtime-status  device-claims\n  device-claim  device-status  device-read  device-write  device-renew  device-release",
             1,
         );
+    }
+    if let Some(row) = text
+        .lines()
+        .find(|line| line.trim_start().starts_with("power-status "))
+        .map(str::to_owned)
+    {
+        text = text.replacen(&format!("{row}\n"), "", 1);
     }
     text = text.replace(
         "Unmapped MCU groups answer typed unsupported; `capabilities` lists them per target.\n",
