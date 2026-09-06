@@ -549,12 +549,12 @@ try {
   );
 
   print("STEP process lifecycle watch reports the exact identity of an owned child that exits");
-  // A cold PowerShell startup under an emulated x86_64 court can itself take
-  // longer than the watch deadline. Use the Windows inbox native wait path so
-  // this proves process lifecycle rather than PowerShell startup latency.
+  // A cold PowerShell/cmd wrapper can either outlive the watch budget or exit
+  // before its child is inventoried. Spawn the inbox executable itself so the
+  // observed pid is the exact native process object this journey owns.
   short_child = harness.start({
-    program: windows_inbox("cmd.exe"),
-    args: ["/d", "/c", windows_inbox("ping.exe"), "-n", "2", "127.0.0.1"],
+    program: windows_inbox("ping.exe"),
+    args: ["-n", "3", "127.0.0.1"],
     current_dir: run_directory,
     timeout_ms: 5000
   });
