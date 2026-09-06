@@ -1,0 +1,130 @@
+// Public black-box journey for Linux cgroup v2 process membership.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.process-cgroup"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke_reply(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push(argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_process_cgroup_empty_reply");
+  let reply = null;
+  try { reply = JSON.parse(stdout); }
+  catch (error) { throw "cu_process_cgroup_invalid_reply"; }
+  ensure((output.success === true) === (reply.ok === true), "cu_process_cgroup_exit_reply_disagree");
+  return reply;
+}
+
+function decimal(value) {
+  if (typeof value !== "string" || value.length === 0) { return false; }
+  for (let index = 0; index < value.length; index = index + 1) {
+    const character = value.substring(index, index + 1);
+    if (character < "0" || character > "9") { return false; }
+  }
+  return true;
+}
+
+function sorted_unique(values) {
+  for (let index = 0; index < values.length; index = index + 1) {
+    if (index > 0 && values[index - 1] >= values[index]) { return false; }
+  }
+  return true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_process_cgroup_executable_missing");
+
+const context = harness.new_context(repo, "cu-process-cgroup");
+let succeeded = 0;
+let failure = "";
+try {
+  const pid = rh.pid();
+  const state_reply = invoke_reply(context.run_directory, executable, [
+    "process-state", "--pid", "" + pid
+  ]);
+  ensure(state_reply.ok === true, "cu_process_cgroup_state_failed");
+  const identity = state_reply.data.start_identity;
+  ensure(typeof identity === "string" && identity.length > 0, "cu_process_cgroup_identity_missing");
+
+  print("STEP exact process identity selects one bounded cgroup v2 point snapshot or a typed non-Linux result");
+  const canonical = invoke_reply(context.run_directory, executable, [
+    "process-cgroup", "--pid", "" + pid, "--start-identity", identity
+  ]);
+  if (canonical.ok !== true) {
+    ensure(canonical.error.code === "process_cgroup_not_applicable", "cu_process_cgroup_wrong_platform_error");
+    const grouped = invoke_reply(context.run_directory, executable, [
+      "process", "cgroup", "" + pid, "--start-identity", identity
+    ]);
+    ensure(grouped.ok !== true && grouped.error.code === "process_cgroup_not_applicable",
+      "cu_process_cgroup_grouped_wrong_platform_error");
+  } else {
+    const data = canonical.data;
+    ensure(data.schema === 1 && data.provider === "linux-cgroup-v2", "cu_process_cgroup_schema");
+    ensure(data.process.pid === pid && data.process.start_identity === identity
+      && data.process.verified === true, "cu_process_cgroup_process_identity");
+    ensure(typeof data.membership.path === "string" && data.membership.path.indexOf("/") === 0,
+      "cu_process_cgroup_membership_path");
+    ensure(decimal(data.membership.directory_device) && decimal(data.membership.directory_inode),
+      "cu_process_cgroup_directory_identity");
+    ensure(Array.isArray(data.controllers.available)
+      && Array.isArray(data.controllers.enabled_for_children)
+      && sorted_unique(data.controllers.available)
+      && sorted_unique(data.controllers.enabled_for_children), "cu_process_cgroup_controllers");
+    ensure(data.consistency === "exact-process-and-membership-bracketed-point-reads",
+      "cu_process_cgroup_consistency");
+    ensure(Array.isArray(data.unavailable), "cu_process_cgroup_unavailable_shape");
+
+    print("STEP grouped compatibility spelling returns the same membership and directory identity");
+    const grouped = invoke_reply(context.run_directory, executable, [
+      "process", "cgroup", "" + pid, "--start-identity", identity
+    ]);
+    ensure(grouped.ok === true
+      && grouped.data.membership.path === data.membership.path
+      && grouped.data.membership.directory_device === data.membership.directory_device
+      && grouped.data.membership.directory_inode === data.membership.directory_inode,
+      "cu_process_cgroup_grouped_identity");
+
+    print("STEP a caller-supplied stale process identity is refused before observation is accepted");
+    const stale = invoke_reply(context.run_directory, executable, [
+      "process-cgroup", "--pid", "" + pid, "--start-identity", identity + "-stale"
+    ]);
+    ensure(stale.ok !== true && stale.error.code === "process_identity_changed",
+      "cu_process_cgroup_stale_identity_not_refused");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.process-cgroup");
+  harness.remove_run(context);
+  print("PASS: process cgroup observation is identity-bound, membership-bracketed and platform-truthful");
+}
+if (failure !== "") { throw failure; }
+return;

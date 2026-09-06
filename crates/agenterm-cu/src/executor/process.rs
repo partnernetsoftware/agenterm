@@ -722,6 +722,149 @@ pub(super) fn process_sockets_payload(
     }))
 }
 
+pub(super) fn process_cgroup_payload(
+    pid: u32,
+    expected_start_identity: Option<&str>,
+) -> Result<Value, CuError> {
+    use agenterm_platform::process::{
+        ProcessCgroupCounter, ProcessCgroupLimit, ProcessCgroupUnavailableKind,
+    };
+
+    fn limit(value: &ProcessCgroupLimit) -> Value {
+        match value {
+            ProcessCgroupLimit::Max => json!("max"),
+            ProcessCgroupLimit::Value(value) => json!(value.to_string()),
+        }
+    }
+
+    fn optional_limit(value: &Option<ProcessCgroupLimit>) -> Value {
+        value.as_ref().map_or(Value::Null, limit)
+    }
+
+    fn optional_counter(value: Option<u64>) -> Value {
+        value.map_or(Value::Null, |value| json!(value.to_string()))
+    }
+
+    fn counters(values: &[ProcessCgroupCounter]) -> Value {
+        Value::Object(
+            values
+                .iter()
+                .map(|counter| (counter.name.clone(), json!(counter.value.to_string())))
+                .collect(),
+        )
+    }
+
+    let snapshot = agenterm_platform::process::cgroup_v2(pid, expected_start_identity)
+        .map_err(process_cgroup_error)?;
+    let mut membership = serde_json::Map::from_iter([
+        ("path".to_owned(), Value::Null),
+        (
+            "directory_device".to_owned(),
+            json!(snapshot.directory_device.to_string()),
+        ),
+        (
+            "directory_inode".to_owned(),
+            json!(snapshot.directory_inode.to_string()),
+        ),
+    ]);
+    insert_raw_text(&mut membership, "path", &snapshot.path, true);
+    let io = snapshot
+        .io
+        .iter()
+        .map(|device| {
+            json!({
+                "major": device.major,
+                "minor": device.minor,
+                "counters": counters(&device.counters),
+            })
+        })
+        .collect::<Vec<_>>();
+    let unavailable = snapshot
+        .unavailable
+        .iter()
+        .map(|field| {
+            json!({
+                "field": field.field,
+                "kind": match field.kind {
+                    ProcessCgroupUnavailableKind::NotPresent => "not-present",
+                    ProcessCgroupUnavailableKind::PermissionDenied => "permission-denied",
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(json!({
+        "schema": 1,
+        "provider": snapshot.provider,
+        "process": {
+            "pid": snapshot.process_id,
+            "start_identity": snapshot.start_identity,
+            "verified": true,
+        },
+        "membership": Value::Object(membership),
+        "controllers": {
+            "available": snapshot.controllers,
+            "enabled_for_children": snapshot.subtree_control,
+        },
+        "state": {
+            "populated": snapshot.populated,
+            "frozen": snapshot.frozen,
+        },
+        "limits": {
+            "cpu": {
+                "quota_usec": snapshot.cpu_max.as_ref().map_or(Value::Null, |value| limit(&value.quota)),
+                "period_usec": snapshot.cpu_max.as_ref().map_or(Value::Null, |value| json!(value.period_microseconds.to_string())),
+                "weight": optional_counter(snapshot.cpu_weight),
+            },
+            "memory": {
+                "high_bytes": optional_limit(&snapshot.memory_high_bytes),
+                "max_bytes": optional_limit(&snapshot.memory_max_bytes),
+                "swap_max_bytes": optional_limit(&snapshot.memory_swap_max_bytes),
+            },
+            "pids": {
+                "max": optional_limit(&snapshot.pids_max),
+            },
+        },
+        "usage": {
+            "cpu": counters(&snapshot.cpu_stat),
+            "memory": {
+                "current_bytes": optional_counter(snapshot.memory_current_bytes),
+                "swap_current_bytes": optional_counter(snapshot.memory_swap_current_bytes),
+                "events": counters(&snapshot.memory_events),
+            },
+            "pids": {
+                "current": optional_counter(snapshot.pids_current),
+                "events": counters(&snapshot.pids_events),
+            },
+            "io": io,
+        },
+        "unavailable": unavailable,
+        "consistency": "exact-process-and-membership-bracketed-point-reads",
+    }))
+}
+
+fn process_cgroup_error(error: agenterm_platform::process::ProcessCgroupError) -> CuError {
+    use agenterm_platform::process::ProcessCgroupErrorKind;
+
+    let code = match error.kind() {
+        ProcessCgroupErrorKind::IdOutOfRange => "invalid_input",
+        ProcessCgroupErrorKind::NotFound => "process_not_found",
+        ProcessCgroupErrorKind::PermissionDenied => "process_cgroup_permission_denied",
+        ProcessCgroupErrorKind::NotApplicable => "process_cgroup_not_applicable",
+        ProcessCgroupErrorKind::V2Unavailable => "process_cgroup_v2_unavailable",
+        ProcessCgroupErrorKind::InventoryTooLarge => "process_cgroup_too_large",
+        ProcessCgroupErrorKind::InvalidData => "process_cgroup_invalid_data",
+        ProcessCgroupErrorKind::IdentityChanged => "process_identity_changed",
+        ProcessCgroupErrorKind::MembershipChanged => "process_cgroup_membership_changed",
+        ProcessCgroupErrorKind::DirectoryChanged => "process_cgroup_directory_changed",
+        ProcessCgroupErrorKind::Inspect => "process_cgroup_failed",
+        _ => "process_cgroup_failed",
+    };
+    CuError::new(code, error.to_string()).with_detail(json!({
+        "kind": format!("{:?}", error.kind()),
+    }))
+}
+
 fn process_inspection_provider(subject: &str) -> String {
     let host = if cfg!(target_os = "macos") {
         "darwin-libproc"

@@ -4445,6 +4445,24 @@ store so a fresh installation is not misdiagnosed as corrupt or unsafe.
   prerequisite; only an explicit setup/mutation command may enroll or rotate
   it.
 
+## Linux cgroup snapshots: bind process, membership and directory
+
+- A PID plus `/proc/<pid>/cgroup` text is not a stable cgroup identity. Retain
+  the exact process reference, read membership before and after observation,
+  and reject a changed start identity or membership rather than combining two
+  process/cgroup generations.
+- Open the resolved cgroup v2 directory once with no-follow semantics, retain
+  its device/inode identity, and read controller leaves relative to that held
+  directory descriptor. Recheck the pathname against the held identity before
+  publishing so a rename or mount replacement cannot create a mixed snapshot.
+- Bound each kernel pseudo-file separately and preserve three outcomes:
+  present value, optional leaf absent/inaccessible, and malformed or oversized
+  provider data. Encode counters as decimal strings across JSON so large kernel
+  counters are never rounded by JavaScript.
+- Process groups, Windows Job Objects and Linux cgroups are not semantic
+  substitutes. A Linux-only cgroup contract must return typed not-applicable on
+  other hosts instead of projecting superficially similar fields.
+
 ## Service lifecycle: bind the native authority domain and admit uncertainty
 
 - A service name alone is not an identity. Bind it to the native provider and

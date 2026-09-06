@@ -273,6 +273,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "process-fds",
         "process-maps",
         "process-sockets",
+        "process-cgroup",
         "process-threads",
         "process-set-state",
     ];
@@ -372,7 +373,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-events  terminal-output  pty-start  pty-list  pty-prune  pty-read  pty-events\n  pty-resize  pty-send  pty-wait  pty-stop  terminal-new  process-argv  process-cwd\n  process-environment  process-fds  process-maps  process-sockets  process-threads  process-set-state"
+            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-events  terminal-output  pty-start  pty-list  pty-prune  pty-read  pty-events\n  pty-resize  pty-send  pty-wait  pty-stop  terminal-new  process-argv  process-cwd\n  process-environment  process-fds  process-maps  process-sockets  process-cgroup\n  process-threads  process-set-state"
                 .to_owned(),
         );
     }
@@ -381,7 +382,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-debug-read\n  browser-session-start  browser-session-list  browser-session-status\n  browser-session-stop  browser-session-remove"
+            "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-debug-read  browser-session-start\n  browser-session-list  browser-session-status  browser-session-stop  browser-session-remove"
                 .to_owned(),
         );
     }
@@ -399,7 +400,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  host-open  host-notify  audit-query  audit-compact\n  session-start  session-list  session-status  session-renew\n  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-resources  job-events  job-output\n  job-write  job-wait  job-stop  job-renew  file-copy  file-move  file-transaction  privilege-plan"
+            "  host-open  host-notify  audit-query  audit-compact  session-start  session-list\n  session-status  session-renew  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-list  job-status  job-resources  job-events  job-output  job-write\n  job-wait  job-stop  job-renew  file-copy  file-move  file-transaction  privilege-plan"
                 .to_owned(),
         );
     }

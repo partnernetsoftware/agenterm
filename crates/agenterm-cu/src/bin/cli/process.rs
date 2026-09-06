@@ -41,6 +41,7 @@ pub fn parse(
         "process-maps" => process_maps(target, args),
         "process-threads" => process_threads(target, args),
         "process-sockets" => process_sockets(target, args),
+        "process-cgroup" => process_cgroup(target, args),
         "process-usage" => process_usage(target, args),
         "process-wait" => process_wait(target, args),
         "process-kill" => process_kill(target, args),
@@ -218,6 +219,23 @@ fn process_sockets(target: TargetRef, args: &mut Vec<String>) -> Result<Command,
         offset,
         limit,
         max_visited,
+    })
+}
+
+fn process_cgroup(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let pid = inspection_pid(args, "process-cgroup")?;
+    let start_identity = bounded_filter(
+        flag_text(args, "--start-identity")?,
+        "process-cgroup --start-identity",
+        1024,
+    )?;
+    if !args.is_empty() {
+        return Err(format!("process-cgroup received unexpected {:?}", args[0]));
+    }
+    Ok(Command::ProcessCgroup {
+        target,
+        pid,
+        start_identity,
     })
 }
 
@@ -1056,6 +1074,35 @@ mod tests {
                 pid: 42,
                 limit: Some(1),
                 ..
+            }
+        ));
+    }
+
+    #[test]
+    fn process_cgroup_accepts_native_and_grouped_identity_bound_shapes() {
+        let spec = verbs::lookup("process-cgroup").expect("process-cgroup verb");
+        let mut native = vec![
+            "--pid".into(),
+            "42".into(),
+            "--start-identity".into(),
+            "boot:123".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut native).expect("native"),
+            Command::ProcessCgroup {
+                pid: 42,
+                ref start_identity,
+                ..
+            } if start_identity.as_deref() == Some("boot:123")
+        ));
+
+        let mut grouped = vec!["cgroup".into(), "42".into()];
+        assert!(matches!(
+            parse(spec, "process", TargetRef::Ssh, &mut grouped).expect("grouped"),
+            Command::ProcessCgroup {
+                target: TargetRef::Ssh,
+                pid: 42,
+                start_identity: None,
             }
         ));
     }

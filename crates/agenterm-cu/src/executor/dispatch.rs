@@ -603,6 +603,11 @@ impl Executor {
                 *limit,
                 *max_visited,
             ),
+            Command::ProcessCgroup {
+                pid,
+                start_identity,
+                ..
+            } => process_cgroup_payload(*pid, start_identity.as_deref()),
             Command::ProcessUsage {
                 pid,
                 watch_ms,

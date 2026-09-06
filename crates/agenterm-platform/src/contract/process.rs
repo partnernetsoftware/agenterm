@@ -5,6 +5,133 @@ pub use super::process_observation::ProcessObservation;
 /// Maximum native source bytes accepted for one initial-environment snapshot.
 pub const PROCESS_ENVIRONMENT_MAX_BYTES: usize = 4 * 1024 * 1024;
 
+/// Maximum bytes accepted from one process cgroup membership file.
+pub const PROCESS_CGROUP_MEMBERSHIP_MAX_BYTES: usize = 64 * 1024;
+/// Maximum bytes accepted from one cgroup v2 control or accounting file.
+pub const PROCESS_CGROUP_FIELD_MAX_BYTES: usize = 1024 * 1024;
+/// Maximum controller or counter names accepted from one cgroup snapshot.
+pub const PROCESS_CGROUP_MAX_COUNTERS: usize = 256;
+/// Maximum device rows accepted from `io.stat`.
+pub const PROCESS_CGROUP_MAX_IO_DEVICES: usize = 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessCgroupLimit {
+    Max,
+    Value(u64),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessCgroupCounter {
+    pub name: String,
+    pub value: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessCgroupCpuMax {
+    pub quota: ProcessCgroupLimit,
+    pub period_microseconds: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessCgroupIoDevice {
+    pub major: u32,
+    pub minor: u32,
+    pub counters: Vec<ProcessCgroupCounter>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessCgroupUnavailableKind {
+    NotPresent,
+    PermissionDenied,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessCgroupUnavailableField {
+    pub field: &'static str,
+    pub kind: ProcessCgroupUnavailableKind,
+}
+
+/// One identity-bound, bounded Linux cgroup v2 point-in-time observation.
+///
+/// `path` preserves the native membership bytes. `directory_device` and
+/// `directory_inode` identify the opened cgroup directory used for every
+/// point read; they are revalidated before publication.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessCgroupV2Snapshot {
+    pub provider: &'static str,
+    pub process_id: u32,
+    pub start_identity: String,
+    pub path: Vec<u8>,
+    pub directory_device: u64,
+    pub directory_inode: u64,
+    pub controllers: Vec<String>,
+    pub subtree_control: Vec<String>,
+    pub cpu_max: Option<ProcessCgroupCpuMax>,
+    pub cpu_weight: Option<u64>,
+    pub cpu_stat: Vec<ProcessCgroupCounter>,
+    pub memory_current_bytes: Option<u64>,
+    pub memory_high_bytes: Option<ProcessCgroupLimit>,
+    pub memory_max_bytes: Option<ProcessCgroupLimit>,
+    pub memory_swap_current_bytes: Option<u64>,
+    pub memory_swap_max_bytes: Option<ProcessCgroupLimit>,
+    pub memory_events: Vec<ProcessCgroupCounter>,
+    pub pids_current: Option<u64>,
+    pub pids_max: Option<ProcessCgroupLimit>,
+    pub pids_events: Vec<ProcessCgroupCounter>,
+    pub cgroup_events: Vec<ProcessCgroupCounter>,
+    pub populated: Option<bool>,
+    pub frozen: Option<bool>,
+    pub io: Vec<ProcessCgroupIoDevice>,
+    pub unavailable: Vec<ProcessCgroupUnavailableField>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ProcessCgroupErrorKind {
+    IdOutOfRange,
+    NotFound,
+    PermissionDenied,
+    NotApplicable,
+    V2Unavailable,
+    InventoryTooLarge,
+    InvalidData,
+    IdentityChanged,
+    MembershipChanged,
+    DirectoryChanged,
+    Inspect,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessCgroupError {
+    kind: ProcessCgroupErrorKind,
+    detail: String,
+}
+
+impl ProcessCgroupError {
+    pub(crate) fn new(kind: ProcessCgroupErrorKind, detail: impl Into<String>) -> Self {
+        Self {
+            kind,
+            detail: detail.into(),
+        }
+    }
+
+    pub const fn kind(&self) -> ProcessCgroupErrorKind {
+        self.kind
+    }
+
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+impl std::fmt::Display for ProcessCgroupError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "process cgroup {:?}: {}", self.kind, self.detail)
+    }
+}
+
+impl std::error::Error for ProcessCgroupError {}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessInfo {
     pub id: u32,
@@ -232,6 +359,16 @@ mod tests {
         let error = ProcessError::new(ProcessErrorKind::Unsupported, "adapter unavailable");
         assert_eq!(error.kind, ProcessErrorKind::Unsupported);
         assert_eq!(error.detail, "adapter unavailable");
+    }
+
+    #[test]
+    fn process_cgroup_error_preserves_typed_kind_and_diagnostic() {
+        let error = ProcessCgroupError::new(
+            ProcessCgroupErrorKind::MembershipChanged,
+            "membership changed",
+        );
+        assert_eq!(error.kind(), ProcessCgroupErrorKind::MembershipChanged);
+        assert_eq!(error.detail(), "membership changed");
     }
 
     #[test]

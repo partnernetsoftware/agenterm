@@ -4,6 +4,7 @@ use std::process::{Child, ChildStderr, ChildStdout, Command};
 
 use crate::contract::process::{PipeProbeError, PipeProbeToken};
 use crate::contract::process::{
+    ProcessCgroupError, ProcessCgroupErrorKind, ProcessCgroupV2Snapshot,
     ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind, ProcessFileDescriptor, ProcessInfo,
     ProcessInspection, ProcessMemoryRegion, ProcessSocketInfo, ProcessThreadInfo,
 };
@@ -200,6 +201,16 @@ pub(crate) fn current_directory(_pid: u32) -> Result<std::path::PathBuf, Process
     Err(ProcessError::new(
         ProcessErrorKind::Unsupported,
         "arbitrary-process current-directory inspection is unsupported on Windows",
+    ))
+}
+
+pub(crate) fn cgroup_v2(
+    _pid: u32,
+    _expected_start_identity: Option<&str>,
+) -> Result<ProcessCgroupV2Snapshot, ProcessCgroupError> {
+    Err(ProcessCgroupError::new(
+        ProcessCgroupErrorKind::NotApplicable,
+        "Linux cgroup v2 process observation does not apply to Windows",
     ))
 }
 

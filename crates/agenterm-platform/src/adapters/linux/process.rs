@@ -3,7 +3,11 @@
 use std::process::{Child, ChildStderr, ChildStdout, Command};
 
 use crate::contract::process::{
-    PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
+    PROCESS_CGROUP_FIELD_MAX_BYTES, PROCESS_CGROUP_MAX_COUNTERS, PROCESS_CGROUP_MAX_IO_DEVICES,
+    PROCESS_CGROUP_MEMBERSHIP_MAX_BYTES, PROCESS_ENVIRONMENT_MAX_BYTES, ProcessCgroupCounter,
+    ProcessCgroupCpuMax, ProcessCgroupError, ProcessCgroupErrorKind, ProcessCgroupIoDevice,
+    ProcessCgroupLimit, ProcessCgroupUnavailableField, ProcessCgroupUnavailableKind,
+    ProcessCgroupV2Snapshot, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
     ProcessFileDescriptor, ProcessInfo, ProcessInspection, ProcessMemoryRegion, ProcessObservation,
     ProcessSocketInfo, ProcessThreadInfo,
 };
@@ -788,6 +792,675 @@ pub(crate) fn current_directory(pid: u32) -> Result<std::path::PathBuf, ProcessE
     })
 }
 
+pub(crate) fn cgroup_v2(
+    pid: u32,
+    expected_start_identity: Option<&str>,
+) -> Result<ProcessCgroupV2Snapshot, ProcessCgroupError> {
+    let reference =
+        crate::process_reference::ProcessReference::open(pid).map_err(cgroup_reference_error)?;
+    let start_identity = cgroup_process_identity(pid, false)?;
+    if expected_start_identity.is_some_and(|expected| expected != start_identity) {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::IdentityChanged,
+            "process start identity does not match the requested identity",
+        ));
+    }
+
+    let membership = read_cgroup_membership(pid)?;
+    let root = open_cgroup_root()?;
+    let directory = open_cgroup_directory(&root, &membership)?;
+    let opened_directory_identity = directory_identity(&directory)?;
+    let mut unavailable = Vec::new();
+
+    let controllers =
+        optional_words(&directory, "cgroup.controllers", &mut unavailable)?.unwrap_or_default();
+    let subtree_control =
+        optional_words(&directory, "cgroup.subtree_control", &mut unavailable)?.unwrap_or_default();
+    let cpu_max = optional_cpu_max(&directory, "cpu.max", &mut unavailable)?;
+    let cpu_weight = optional_u64(&directory, "cpu.weight", &mut unavailable)?;
+    let cpu_stat = optional_counters(&directory, "cpu.stat", &mut unavailable)?.unwrap_or_default();
+    let memory_current_bytes = optional_u64(&directory, "memory.current", &mut unavailable)?;
+    let memory_high_bytes = optional_limit(&directory, "memory.high", &mut unavailable)?;
+    let memory_max_bytes = optional_limit(&directory, "memory.max", &mut unavailable)?;
+    let memory_swap_current_bytes =
+        optional_u64(&directory, "memory.swap.current", &mut unavailable)?;
+    let memory_swap_max_bytes = optional_limit(&directory, "memory.swap.max", &mut unavailable)?;
+    let memory_events =
+        optional_counters(&directory, "memory.events", &mut unavailable)?.unwrap_or_default();
+    let pids_current = optional_u64(&directory, "pids.current", &mut unavailable)?;
+    let pids_max = optional_limit(&directory, "pids.max", &mut unavailable)?;
+    let pids_events =
+        optional_counters(&directory, "pids.events", &mut unavailable)?.unwrap_or_default();
+    let cgroup_events =
+        optional_counters(&directory, "cgroup.events", &mut unavailable)?.unwrap_or_default();
+    let populated = counter_bool(&cgroup_events, "populated")?;
+    let frozen = counter_bool(&cgroup_events, "frozen")?;
+    let io = optional_io_stat(&directory, "io.stat", &mut unavailable)?.unwrap_or_default();
+
+    let final_membership = read_cgroup_membership(pid)?;
+    if final_membership != membership {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::MembershipChanged,
+            "process cgroup membership changed during observation",
+        ));
+    }
+    let final_root = open_cgroup_root().map_err(cgroup_directory_recheck_error)?;
+    let reopened =
+        open_cgroup_directory(&final_root, &membership).map_err(cgroup_directory_recheck_error)?;
+    if directory_identity(&reopened)? != opened_directory_identity {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::DirectoryChanged,
+            "process cgroup directory changed during observation",
+        ));
+    }
+    let final_identity = cgroup_process_identity(pid, true)?;
+    if final_identity != start_identity {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::IdentityChanged,
+            "process start identity changed during cgroup observation",
+        ));
+    }
+    if !reference.is_alive().map_err(cgroup_reference_error)? {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::IdentityChanged,
+            "process exited during cgroup observation",
+        ));
+    }
+
+    unavailable.sort_unstable_by_key(|field| field.field);
+    Ok(ProcessCgroupV2Snapshot {
+        provider: "linux-cgroup-v2",
+        process_id: pid,
+        start_identity,
+        path: membership,
+        directory_device: opened_directory_identity.0,
+        directory_inode: opened_directory_identity.1,
+        controllers,
+        subtree_control,
+        cpu_max,
+        cpu_weight,
+        cpu_stat,
+        memory_current_bytes,
+        memory_high_bytes,
+        memory_max_bytes,
+        memory_swap_current_bytes,
+        memory_swap_max_bytes,
+        memory_events,
+        pids_current,
+        pids_max,
+        pids_events,
+        cgroup_events,
+        populated,
+        frozen,
+        io,
+        unavailable,
+    })
+}
+
+fn cgroup_reference_error(error: std::io::Error) -> ProcessCgroupError {
+    let kind = match error.kind() {
+        std::io::ErrorKind::NotFound => ProcessCgroupErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => ProcessCgroupErrorKind::PermissionDenied,
+        std::io::ErrorKind::Unsupported => ProcessCgroupErrorKind::V2Unavailable,
+        _ if error.raw_os_error() == Some(libc::ESRCH) => ProcessCgroupErrorKind::NotFound,
+        _ if error.raw_os_error() == Some(libc::ENOSYS) => ProcessCgroupErrorKind::V2Unavailable,
+        _ => ProcessCgroupErrorKind::Inspect,
+    };
+    ProcessCgroupError::new(kind, error.to_string())
+}
+
+fn cgroup_process_identity(pid: u32, repeated: bool) -> Result<String, ProcessCgroupError> {
+    match crate::process_observation::observe(pid) {
+        ProcessObservation::Live {
+            start_identity: Some(identity),
+        } => Ok(identity),
+        ProcessObservation::Live {
+            start_identity: None,
+        } => Err(ProcessCgroupError::new(
+            if repeated {
+                ProcessCgroupErrorKind::IdentityChanged
+            } else {
+                ProcessCgroupErrorKind::Inspect
+            },
+            "process start identity is unavailable",
+        )),
+        ProcessObservation::Dead { reason } => Err(ProcessCgroupError::new(
+            if repeated {
+                ProcessCgroupErrorKind::IdentityChanged
+            } else {
+                ProcessCgroupErrorKind::NotFound
+            },
+            reason,
+        )),
+        ProcessObservation::Unknown { reason } => Err(ProcessCgroupError::new(
+            if repeated {
+                ProcessCgroupErrorKind::IdentityChanged
+            } else {
+                ProcessCgroupErrorKind::Inspect
+            },
+            reason,
+        )),
+    }
+}
+
+fn read_cgroup_membership(pid: u32) -> Result<Vec<u8>, ProcessCgroupError> {
+    use std::io::Read as _;
+
+    let file = std::fs::File::open(format!("/proc/{pid}/cgroup")).map_err(cgroup_io_error)?;
+    let mut bytes = Vec::new();
+    file.take(PROCESS_CGROUP_MEMBERSHIP_MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(cgroup_io_error)?;
+    if bytes.len() > PROCESS_CGROUP_MEMBERSHIP_MAX_BYTES {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::InventoryTooLarge,
+            "process cgroup membership exceeds 64 KiB",
+        ));
+    }
+    parse_cgroup_membership(&bytes)
+}
+
+fn parse_cgroup_membership(bytes: &[u8]) -> Result<Vec<u8>, ProcessCgroupError> {
+    let mut found = None;
+    for line in bytes.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let mut fields = line.splitn(3, |byte| *byte == b':');
+        let hierarchy = fields.next().unwrap_or_default();
+        let controllers = fields
+            .next()
+            .ok_or_else(|| cgroup_invalid("membership row"))?;
+        let path = fields
+            .next()
+            .ok_or_else(|| cgroup_invalid("membership row"))?;
+        if hierarchy == b"0" && controllers.is_empty() {
+            if found.is_some() {
+                return Err(cgroup_invalid("duplicate unified membership"));
+            }
+            validate_cgroup_path(path)?;
+            found = Some(path.to_vec());
+        }
+    }
+    found.ok_or_else(|| {
+        ProcessCgroupError::new(
+            ProcessCgroupErrorKind::V2Unavailable,
+            "process has no unified cgroup v2 membership",
+        )
+    })
+}
+
+fn validate_cgroup_path(path: &[u8]) -> Result<(), ProcessCgroupError> {
+    const MAX_PATH_BYTES: usize = 4096;
+    if path.is_empty() || path[0] != b'/' || path.len() > MAX_PATH_BYTES || path.contains(&0) {
+        return Err(cgroup_invalid("membership path"));
+    }
+    if path != b"/"
+        && path[1..]
+            .split(|byte| *byte == b'/')
+            .any(|part| part.is_empty() || part == b"." || part == b"..")
+    {
+        return Err(cgroup_invalid("membership path component"));
+    }
+    Ok(())
+}
+
+fn open_cgroup_root() -> Result<std::fs::File, ProcessCgroupError> {
+    use std::os::fd::FromRawFd as _;
+
+    let path = c"/sys/fs/cgroup";
+    let descriptor = retry_eintr(|| unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    })
+    .map_err(cgroup_root_error)?;
+    // SAFETY: `open` returned a new owned descriptor and this is its only owner.
+    let file = unsafe { std::fs::File::from_raw_fd(descriptor) };
+    let mut filesystem = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    let result = retry_eintr(|| unsafe { libc::fstatfs(descriptor, filesystem.as_mut_ptr()) });
+    result.map_err(cgroup_io_error)?;
+    // SAFETY: successful `fstatfs` initialized the complete record.
+    let filesystem = unsafe { filesystem.assume_init() };
+    const CGROUP2_SUPER_MAGIC: libc::c_long = 0x6367_7270;
+    if filesystem.f_type as libc::c_long != CGROUP2_SUPER_MAGIC {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::V2Unavailable,
+            "/sys/fs/cgroup is not a cgroup v2 filesystem",
+        ));
+    }
+    Ok(file)
+}
+
+fn open_cgroup_directory(
+    root: &std::fs::File,
+    path: &[u8],
+) -> Result<std::fs::File, ProcessCgroupError> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _};
+
+    validate_cgroup_path(path)?;
+    let mut directory = root.try_clone().map_err(cgroup_io_error)?;
+    if path == b"/" {
+        return Ok(directory);
+    }
+    for component in path[1..].split(|byte| *byte == b'/') {
+        let component = std::ffi::CString::new(component)
+            .map_err(|_| cgroup_invalid("membership path component"))?;
+        let descriptor = retry_eintr(|| unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                component.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            )
+        })
+        .map_err(cgroup_io_error)?;
+        // SAFETY: `openat` returned a new owned descriptor and this is its only owner.
+        directory = unsafe { std::fs::File::from_raw_fd(descriptor) };
+    }
+    Ok(directory)
+}
+
+fn directory_identity(directory: &std::fs::File) -> Result<(u64, u64), ProcessCgroupError> {
+    use std::os::fd::AsRawFd as _;
+
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    retry_eintr(|| unsafe { libc::fstat(directory.as_raw_fd(), stat.as_mut_ptr()) })
+        .map_err(cgroup_io_error)?;
+    // SAFETY: successful `fstat` initialized the complete record.
+    let stat = unsafe { stat.assume_init() };
+    if stat.st_mode & libc::S_IFMT != libc::S_IFDIR {
+        return Err(cgroup_invalid(
+            "cgroup membership object is not a directory",
+        ));
+    }
+    Ok((stat.st_dev, stat.st_ino))
+}
+
+fn retry_eintr(mut operation: impl FnMut() -> libc::c_int) -> std::io::Result<libc::c_int> {
+    loop {
+        let result = operation();
+        if result >= 0 {
+            return Ok(result);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+fn cgroup_root_error(error: std::io::Error) -> ProcessCgroupError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        ProcessCgroupError::new(
+            ProcessCgroupErrorKind::V2Unavailable,
+            "cgroup v2 filesystem is not mounted",
+        )
+    } else {
+        cgroup_io_error(error)
+    }
+}
+
+fn cgroup_directory_recheck_error(error: ProcessCgroupError) -> ProcessCgroupError {
+    if matches!(
+        error.kind(),
+        ProcessCgroupErrorKind::NotFound | ProcessCgroupErrorKind::V2Unavailable
+    ) {
+        ProcessCgroupError::new(
+            ProcessCgroupErrorKind::DirectoryChanged,
+            "process cgroup directory disappeared during observation",
+        )
+    } else {
+        error
+    }
+}
+
+fn cgroup_io_error(error: std::io::Error) -> ProcessCgroupError {
+    let kind = match error.kind() {
+        std::io::ErrorKind::NotFound => ProcessCgroupErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => ProcessCgroupErrorKind::PermissionDenied,
+        _ => ProcessCgroupErrorKind::Inspect,
+    };
+    ProcessCgroupError::new(kind, error.to_string())
+}
+
+fn cgroup_invalid(subject: &str) -> ProcessCgroupError {
+    ProcessCgroupError::new(
+        ProcessCgroupErrorKind::InvalidData,
+        format!("{subject} is malformed"),
+    )
+}
+
+fn read_optional_cgroup_file(
+    directory: &std::fs::File,
+    field: &'static str,
+    unavailable: &mut Vec<ProcessCgroupUnavailableField>,
+) -> Result<Option<Vec<u8>>, ProcessCgroupError> {
+    use std::{
+        io::Read as _,
+        os::fd::{AsRawFd as _, FromRawFd as _},
+    };
+
+    let name = std::ffi::CString::new(field).expect("static cgroup field has no NUL");
+    let descriptor = match retry_eintr(|| unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    }) {
+        Ok(descriptor) => descriptor,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            unavailable.push(ProcessCgroupUnavailableField {
+                field,
+                kind: if error.kind() == std::io::ErrorKind::NotFound {
+                    ProcessCgroupUnavailableKind::NotPresent
+                } else {
+                    ProcessCgroupUnavailableKind::PermissionDenied
+                },
+            });
+            return Ok(None);
+        }
+        Err(error) => return Err(cgroup_io_error(error)),
+    };
+    // SAFETY: `openat` returned a new owned descriptor and this is its only owner.
+    let file = unsafe { std::fs::File::from_raw_fd(descriptor) };
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    retry_eintr(|| unsafe { libc::fstat(descriptor, stat.as_mut_ptr()) })
+        .map_err(cgroup_io_error)?;
+    // SAFETY: successful `fstat` initialized the complete record.
+    let stat = unsafe { stat.assume_init() };
+    if stat.st_mode & libc::S_IFMT != libc::S_IFREG {
+        return Err(cgroup_invalid(field));
+    }
+    let mut bytes = Vec::new();
+    file.take(PROCESS_CGROUP_FIELD_MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(cgroup_io_error)?;
+    if bytes.len() > PROCESS_CGROUP_FIELD_MAX_BYTES {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::InventoryTooLarge,
+            format!("{field} exceeds 1 MiB"),
+        ));
+    }
+    Ok(Some(bytes))
+}
+
+fn trim_ascii(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map_or(start, |index| index + 1);
+    &bytes[start..end]
+}
+
+fn parse_u64(bytes: &[u8], field: &str) -> Result<u64, ProcessCgroupError> {
+    let bytes = trim_ascii(bytes);
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+        return Err(cgroup_invalid(field));
+    }
+    std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|text| text.parse().ok())
+        .ok_or_else(|| cgroup_invalid(field))
+}
+
+fn parse_limit(bytes: &[u8], field: &str) -> Result<ProcessCgroupLimit, ProcessCgroupError> {
+    let bytes = trim_ascii(bytes);
+    if bytes == b"max" {
+        Ok(ProcessCgroupLimit::Max)
+    } else {
+        parse_u64(bytes, field).map(ProcessCgroupLimit::Value)
+    }
+}
+
+fn optional_u64(
+    directory: &std::fs::File,
+    field: &'static str,
+    unavailable: &mut Vec<ProcessCgroupUnavailableField>,
+) -> Result<Option<u64>, ProcessCgroupError> {
+    read_optional_cgroup_file(directory, field, unavailable)?
+        .map(|bytes| parse_u64(&bytes, field))
+        .transpose()
+}
+
+fn optional_limit(
+    directory: &std::fs::File,
+    field: &'static str,
+    unavailable: &mut Vec<ProcessCgroupUnavailableField>,
+) -> Result<Option<ProcessCgroupLimit>, ProcessCgroupError> {
+    read_optional_cgroup_file(directory, field, unavailable)?
+        .map(|bytes| parse_limit(&bytes, field))
+        .transpose()
+}
+
+fn optional_words(
+    directory: &std::fs::File,
+    field: &'static str,
+    unavailable: &mut Vec<ProcessCgroupUnavailableField>,
+) -> Result<Option<Vec<String>>, ProcessCgroupError> {
+    read_optional_cgroup_file(directory, field, unavailable)?
+        .map(|bytes| parse_words(&bytes, field))
+        .transpose()
+}
+
+fn parse_words(bytes: &[u8], field: &str) -> Result<Vec<String>, ProcessCgroupError> {
+    let mut words = Vec::new();
+    for word in trim_ascii(bytes).split(u8::is_ascii_whitespace) {
+        if word.is_empty() {
+            continue;
+        }
+        validate_counter_name(word, field)?;
+        let word = std::str::from_utf8(word)
+            .map_err(|_| cgroup_invalid(field))?
+            .to_owned();
+        if words.len() == PROCESS_CGROUP_MAX_COUNTERS {
+            return Err(ProcessCgroupError::new(
+                ProcessCgroupErrorKind::InventoryTooLarge,
+                format!("{field} has too many entries"),
+            ));
+        }
+        words.push(word);
+    }
+    words.sort_unstable();
+    if words.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(cgroup_invalid(field));
+    }
+    Ok(words)
+}
+
+fn optional_cpu_max(
+    directory: &std::fs::File,
+    field: &'static str,
+    unavailable: &mut Vec<ProcessCgroupUnavailableField>,
+) -> Result<Option<ProcessCgroupCpuMax>, ProcessCgroupError> {
+    read_optional_cgroup_file(directory, field, unavailable)?
+        .map(|bytes| {
+            let fields = trim_ascii(&bytes)
+                .split(u8::is_ascii_whitespace)
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>();
+            if fields.len() != 2 {
+                return Err(cgroup_invalid(field));
+            }
+            let period_microseconds = parse_u64(fields[1], field)?;
+            if period_microseconds == 0 {
+                return Err(cgroup_invalid(field));
+            }
+            Ok(ProcessCgroupCpuMax {
+                quota: parse_limit(fields[0], field)?,
+                period_microseconds,
+            })
+        })
+        .transpose()
+}
+
+fn optional_counters(
+    directory: &std::fs::File,
+    field: &'static str,
+    unavailable: &mut Vec<ProcessCgroupUnavailableField>,
+) -> Result<Option<Vec<ProcessCgroupCounter>>, ProcessCgroupError> {
+    read_optional_cgroup_file(directory, field, unavailable)?
+        .map(|bytes| parse_counters(&bytes, field))
+        .transpose()
+}
+
+fn parse_counters(
+    bytes: &[u8],
+    field: &str,
+) -> Result<Vec<ProcessCgroupCounter>, ProcessCgroupError> {
+    let mut counters = Vec::new();
+    for line in bytes.split(|byte| *byte == b'\n') {
+        let line = trim_ascii(line);
+        if line.is_empty() {
+            continue;
+        }
+        let mut fields = line
+            .split(u8::is_ascii_whitespace)
+            .filter(|part| !part.is_empty());
+        let name = fields.next().ok_or_else(|| cgroup_invalid(field))?;
+        let value = fields.next().ok_or_else(|| cgroup_invalid(field))?;
+        if fields.next().is_some() {
+            return Err(cgroup_invalid(field));
+        }
+        validate_counter_name(name, field)?;
+        if counters.len() == PROCESS_CGROUP_MAX_COUNTERS {
+            return Err(ProcessCgroupError::new(
+                ProcessCgroupErrorKind::InventoryTooLarge,
+                format!("{field} has too many counters"),
+            ));
+        }
+        counters.push(ProcessCgroupCounter {
+            name: std::str::from_utf8(name)
+                .map_err(|_| cgroup_invalid(field))?
+                .to_owned(),
+            value: parse_u64(value, field)?,
+        });
+    }
+    counters.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+    if counters.windows(2).any(|pair| pair[0].name == pair[1].name) {
+        return Err(cgroup_invalid(field));
+    }
+    Ok(counters)
+}
+
+fn validate_counter_name(bytes: &[u8], field: &str) -> Result<(), ProcessCgroupError> {
+    const MAX_NAME_BYTES: usize = 128;
+    if bytes.is_empty()
+        || bytes.len() > MAX_NAME_BYTES
+        || !bytes[0].is_ascii_lowercase()
+        || !bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_')
+    {
+        return Err(cgroup_invalid(field));
+    }
+    Ok(())
+}
+
+fn counter_bool(
+    counters: &[ProcessCgroupCounter],
+    name: &str,
+) -> Result<Option<bool>, ProcessCgroupError> {
+    match counters.iter().find(|counter| counter.name == name) {
+        Some(counter) if counter.value <= 1 => Ok(Some(counter.value == 1)),
+        Some(_) => Err(cgroup_invalid("cgroup.events boolean")),
+        None => Ok(None),
+    }
+}
+
+fn optional_io_stat(
+    directory: &std::fs::File,
+    field: &'static str,
+    unavailable: &mut Vec<ProcessCgroupUnavailableField>,
+) -> Result<Option<Vec<ProcessCgroupIoDevice>>, ProcessCgroupError> {
+    read_optional_cgroup_file(directory, field, unavailable)?
+        .map(|bytes| parse_io_stat(&bytes, field))
+        .transpose()
+}
+
+fn parse_io_stat(
+    bytes: &[u8],
+    field: &str,
+) -> Result<Vec<ProcessCgroupIoDevice>, ProcessCgroupError> {
+    let mut devices = Vec::new();
+    for line in bytes.split(|byte| *byte == b'\n') {
+        let line = trim_ascii(line);
+        if line.is_empty() {
+            continue;
+        }
+        if devices.len() == PROCESS_CGROUP_MAX_IO_DEVICES {
+            return Err(ProcessCgroupError::new(
+                ProcessCgroupErrorKind::InventoryTooLarge,
+                format!("{field} has too many devices"),
+            ));
+        }
+        let mut fields = line
+            .split(u8::is_ascii_whitespace)
+            .filter(|part| !part.is_empty());
+        let device = fields.next().ok_or_else(|| cgroup_invalid(field))?;
+        let separator = device
+            .iter()
+            .position(|byte| *byte == b':')
+            .ok_or_else(|| cgroup_invalid(field))?;
+        let (major, minor_with_separator) = device.split_at(separator);
+        let minor = &minor_with_separator[1..];
+        let mut counters = Vec::new();
+        for counter in fields {
+            let separator = counter
+                .iter()
+                .position(|byte| *byte == b'=')
+                .ok_or_else(|| cgroup_invalid(field))?;
+            let (name, value_with_separator) = counter.split_at(separator);
+            let value = &value_with_separator[1..];
+            validate_counter_name(name, field)?;
+            if counters.len() == PROCESS_CGROUP_MAX_COUNTERS {
+                return Err(ProcessCgroupError::new(
+                    ProcessCgroupErrorKind::InventoryTooLarge,
+                    format!("{field} device has too many counters"),
+                ));
+            }
+            counters.push(ProcessCgroupCounter {
+                name: std::str::from_utf8(name)
+                    .map_err(|_| cgroup_invalid(field))?
+                    .to_owned(),
+                value: parse_u64(value, field)?,
+            });
+        }
+        counters.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+        if counters.windows(2).any(|pair| pair[0].name == pair[1].name) {
+            return Err(cgroup_invalid(field));
+        }
+        devices.push(ProcessCgroupIoDevice {
+            major: parse_u32(major, field)?,
+            minor: parse_u32(minor, field)?,
+            counters,
+        });
+    }
+    devices.sort_unstable_by_key(|device| (device.major, device.minor));
+    if devices
+        .windows(2)
+        .any(|pair| (pair[0].major, pair[0].minor) == (pair[1].major, pair[1].minor))
+    {
+        return Err(cgroup_invalid(field));
+    }
+    Ok(devices)
+}
+
+fn parse_u32(bytes: &[u8], field: &str) -> Result<u32, ProcessCgroupError> {
+    let value = parse_u64(bytes, field)?;
+    u32::try_from(value).map_err(|_| cgroup_invalid(field))
+}
+
 pub struct ProcessTreeGuard {
     process_group: libc::pid_t,
     root_start_identity: Option<String>,
@@ -1005,5 +1678,103 @@ mod socket_tests {
         assert_eq!(row.protocol, "UNIX-STREAM");
         assert_eq!(row.local.as_deref(), Some(&b"/tmp/name \xff.sock"[..]));
         assert_eq!(row.endpoint, b"/tmp/name \xff.sock");
+    }
+}
+
+#[cfg(test)]
+mod process_cgroup_tests {
+    use super::{
+        directory_identity, open_cgroup_directory, parse_cgroup_membership, parse_counters,
+        parse_io_stat, validate_cgroup_path,
+    };
+    use crate::contract::process::ProcessCgroupErrorKind;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn process_cgroup_membership_selects_exact_unified_row_and_preserves_bytes() {
+        assert_eq!(
+            parse_cgroup_membership(b"4:cpu:/legacy\n0::/user.slice/job-\xff.scope\n")
+                .expect("unified membership"),
+            b"/user.slice/job-\xff.scope"
+        );
+        assert_eq!(
+            parse_cgroup_membership(b"2:cpu:/legacy\n")
+                .expect_err("v1-only membership")
+                .kind(),
+            ProcessCgroupErrorKind::V2Unavailable
+        );
+        assert_eq!(
+            parse_cgroup_membership(b"0::/one\n0::/two\n")
+                .expect_err("duplicate unified row")
+                .kind(),
+            ProcessCgroupErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn process_cgroup_path_rejects_traversal_empty_components_and_nul() {
+        for path in [
+            &b"relative"[..],
+            &b"/../escape"[..],
+            &b"/./dot"[..],
+            &b"/two//components"[..],
+            &b"/nul\0component"[..],
+        ] {
+            assert_eq!(
+                validate_cgroup_path(path).unwrap_err().kind(),
+                ProcessCgroupErrorKind::InvalidData
+            );
+        }
+        validate_cgroup_path(b"/").expect("root membership");
+        validate_cgroup_path(b"/user.slice/app.scope").expect("nested membership");
+    }
+
+    #[test]
+    fn process_cgroup_counter_and_io_parsers_are_bounded_and_deterministic() {
+        let counters = parse_counters(b"system_usec 9\nusage_usec 15\nuser_usec 6\n", "cpu.stat")
+            .expect("cpu counters");
+        assert_eq!(
+            counters
+                .iter()
+                .map(|counter| (counter.name.as_str(), counter.value))
+                .collect::<Vec<_>>(),
+            vec![("system_usec", 9), ("usage_usec", 15), ("user_usec", 6)]
+        );
+        assert!(parse_counters(b"usage_usec 1\nusage_usec 2\n", "cpu.stat").is_err());
+
+        let devices = parse_io_stat(b"8:16 wbytes=4 rbytes=3\n8:0 rios=2 rbytes=1\n", "io.stat")
+            .expect("io devices");
+        assert_eq!(
+            devices
+                .iter()
+                .map(|device| (device.major, device.minor))
+                .collect::<Vec<_>>(),
+            vec![(8, 0), (8, 16)]
+        );
+        assert_eq!(devices[1].counters[0].name, "rbytes");
+        assert_eq!(devices[1].counters[1].name, "wbytes");
+    }
+
+    #[test]
+    fn process_cgroup_directory_walk_refuses_symlink_components() {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let root_path = std::env::current_dir()
+            .expect("repository directory")
+            .join("target")
+            .join(format!(
+                "process-cgroup-platform-fixture-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+        std::fs::create_dir_all(root_path.join("owned/leaf")).expect("fixture directories");
+        std::os::unix::fs::symlink("owned", root_path.join("alias")).expect("fixture symlink");
+        let root = std::fs::File::open(&root_path).expect("fixture root");
+
+        let leaf = open_cgroup_directory(&root, b"/owned/leaf").expect("owned directory");
+        let identity = directory_identity(&leaf).expect("directory identity");
+        assert_ne!(identity, (0, 0));
+        assert!(open_cgroup_directory(&root, b"/alias/leaf").is_err());
+
+        std::fs::remove_dir_all(&root_path).expect("fixture cleanup");
     }
 }

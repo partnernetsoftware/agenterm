@@ -641,6 +641,10 @@ Q2 fast delegated facades
    │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
    ├─ [~] process sockets: native one-shot + public qjswasm macOS court ✓
    │  └─ [ ] bounded watch/diff + Linux native and Windows typed-refusal courts
+   ├─ [~] process cgroup: Linux cgroup v2 exact-process point snapshot
+   │  ├─ [x] pid/start identity + membership bytes + opened directory identity are bracketed
+   │  ├─ [x] public qjswasm macOS typed-not-applicable court; no false process-group equivalence
+   │  └─ [ ] Linux x86_64/aarch64 native courts + Windows typed-not-applicable court
    └─ [ ] privileged mutation and inspection watch/diff remain
 Q2b host/boot identity
 ├─ [x] `power status` / `power-status` uses one typed observe-only ACU facade
@@ -793,7 +797,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 131 ledger capabilities
-currently include 13 `gap` and 52 `platform-limited` rows. The compatibility
+currently include 12 `gap` and 53 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was

@@ -11,8 +11,12 @@ use std::{
 use crate::{contract::process::ProcessInfo, selected::process as adapter};
 
 pub use crate::contract::process::{
-    PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentEntry, ProcessEnvironmentSnapshot,
-    ProcessError, ProcessErrorKind, ProcessFileDescriptor, ProcessInspection, ProcessMemoryRegion,
+    PROCESS_CGROUP_FIELD_MAX_BYTES, PROCESS_CGROUP_MAX_COUNTERS, PROCESS_CGROUP_MAX_IO_DEVICES,
+    PROCESS_CGROUP_MEMBERSHIP_MAX_BYTES, PROCESS_ENVIRONMENT_MAX_BYTES, ProcessCgroupCounter,
+    ProcessCgroupCpuMax, ProcessCgroupError, ProcessCgroupErrorKind, ProcessCgroupIoDevice,
+    ProcessCgroupLimit, ProcessCgroupUnavailableField, ProcessCgroupUnavailableKind,
+    ProcessCgroupV2Snapshot, ProcessEnvironmentEntry, ProcessEnvironmentSnapshot, ProcessError,
+    ProcessErrorKind, ProcessFileDescriptor, ProcessInspection, ProcessMemoryRegion,
     ProcessSocketInfo, ProcessThreadInfo,
 };
 pub use crate::contract::process::{PipeProbeError, PipeProbeToken};
@@ -69,6 +73,23 @@ pub fn current_directory(pid: u32) -> Result<PathBuf, ProcessError> {
         ));
     }
     adapter::current_directory(pid)
+}
+
+/// Observe one exact process's Linux cgroup v2 membership and bounded point
+/// counters. The optional start identity lets an existing caller bind this
+/// observation to an earlier process lookup rather than silently following PID
+/// reuse. macOS and Windows return typed `NotApplicable`.
+pub fn cgroup_v2(
+    pid: u32,
+    expected_start_identity: Option<&str>,
+) -> Result<ProcessCgroupV2Snapshot, ProcessCgroupError> {
+    if pid == 0 {
+        return Err(ProcessCgroupError::new(
+            ProcessCgroupErrorKind::IdOutOfRange,
+            "process id must be greater than zero",
+        ));
+    }
+    adapter::cgroup_v2(pid, expected_start_identity)
 }
 
 fn validate_inspection(pid: u32, max_visited: usize) -> Result<(), ProcessError> {
@@ -208,6 +229,25 @@ mod tests {
         assert_eq!(
             super::environment_snapshot(0).unwrap_err().kind(),
             super::ProcessErrorKind::IdOutOfRange
+        );
+    }
+
+    #[test]
+    fn zero_is_not_a_process_cgroup_target() {
+        assert_eq!(
+            super::cgroup_v2(0, None).unwrap_err().kind(),
+            super::ProcessCgroupErrorKind::IdOutOfRange
+        );
+    }
+
+    #[cfg(any(target_os = "macos", windows))]
+    #[test]
+    fn non_linux_cgroup_observation_is_truthfully_not_applicable() {
+        assert_eq!(
+            super::cgroup_v2(std::process::id(), None)
+                .unwrap_err()
+                .kind(),
+            super::ProcessCgroupErrorKind::NotApplicable
         );
     }
 

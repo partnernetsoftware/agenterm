@@ -159,7 +159,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   automation for Bun/MCU dependencies, and consumes the temporary adapter's
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measures 131 capabilities,
-  while the current ledger has 13 gaps, 52 platform-limited rows, zero static
+  while the current ledger has 12 gaps, 53 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
@@ -708,6 +708,29 @@ flowchart LR
   result instead of erasing the valid tree. Public qjswasm evidence
   `cu.process-inventory-rich` is green on macOS; Linux and Windows native reruns
   remain before three-host promotion.
+
+- [~] `process-cgroup` closes the Linux observation half of MCU's cgroup shape
+  without equating unrelated host mechanisms. The native facade retains the
+  exact process object, brackets `/proc/<pid>/cgroup` membership bytes, opens
+  the cgroup v2 directory without following links, reads every bounded leaf
+  relative to that directory handle, and then rechecks process identity,
+  membership and directory device/inode. Counters leave the boundary as
+  lossless decimal strings; absent optional leaves remain distinct from
+  malformed, inaccessible or oversized data. Public qjswasm evidence
+  `cu.process-cgroup` is green on macOS with the typed
+  `process_cgroup_not_applicable` result. Linux x86_64/aarch64 native courts and
+  the Windows typed-not-applicable court remain before this leaf is complete.
+
+```mermaid
+flowchart LR
+  P["pid + optional start identity"] --> R["retain exact process object"]
+  R --> M1["read membership bytes"]
+  M1 --> D["open cgroup v2 directory<br/>no-follow · dev/inode"]
+  D --> L["bounded fd-relative leaf reads"]
+  L --> M2["recheck membership + directory + process"]
+  M2 -->|all identical| O["typed point snapshot"]
+  M2 -->|any drift| X["typed refusal · no mixed snapshot"]
+```
 
 - [~] `power status` now has a native, observe-only ACU facade rather than a
   Bun/MCU host probe. `agenterm-platform` reduces each OS boot source to an

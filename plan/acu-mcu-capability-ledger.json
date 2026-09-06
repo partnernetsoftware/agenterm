@@ -238,10 +238,13 @@
         {
           "id": "process.cgroup",
           "mcu_shape": "process cgroup PID",
-          "acu_shape": null,
-          "state": "gap",
-          "platforms": {"linux": "gap", "macos": "not-applicable", "windows": "not-applicable"},
-          "next": "Linux cgroup v2 observation facade"
+          "acu_shape": "process-cgroup --pid N [--start-identity ID] (alias: process cgroup PID)",
+          "state": "platform-limited",
+          "platforms": {"linux": "native-cgroup-v2", "macos": "not-applicable", "windows": "not-applicable"},
+          "qualification": "macos-public-qjswasm-typed-not-applicable-green-linux-native-public-court-pending-windows-typed-not-applicable-court-pending",
+          "evidence": ["cu.process-cgroup"],
+          "note": "Linux holds the exact process reference, brackets its cgroup membership bytes, reads every bounded cgroup v2 leaf relative to one no-follow directory fd, then rechecks membership, directory device/inode and process identity before publishing lossless decimal counters. macOS and Windows return process_cgroup_not_applicable rather than pretending process groups or Job Objects have Linux cgroup semantics.",
+          "next": "run the registered public qjswasm journey on Linux x86_64/aarch64 and the typed not-applicable path on Windows"
         }
       ]
     },

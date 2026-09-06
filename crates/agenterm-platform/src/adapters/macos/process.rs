@@ -3,7 +3,8 @@
 use std::process::{Child, ChildStderr, ChildStdout, Command};
 
 use crate::contract::process::{
-    PROCESS_ENVIRONMENT_MAX_BYTES, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
+    PROCESS_ENVIRONMENT_MAX_BYTES, ProcessCgroupError, ProcessCgroupErrorKind,
+    ProcessCgroupV2Snapshot, ProcessEnvironmentSnapshot, ProcessError, ProcessErrorKind,
     ProcessFileDescriptor, ProcessInfo, ProcessInspection, ProcessMemoryRegion, ProcessObservation,
     ProcessSocketInfo, ProcessThreadInfo,
 };
@@ -804,6 +805,16 @@ pub(crate) fn current_directory(pid: u32) -> Result<std::path::PathBuf, ProcessE
     Ok(std::path::PathBuf::from(OsString::from_vec(
         bytes[..length].to_vec(),
     )))
+}
+
+pub(crate) fn cgroup_v2(
+    _pid: u32,
+    _expected_start_identity: Option<&str>,
+) -> Result<ProcessCgroupV2Snapshot, ProcessCgroupError> {
+    Err(ProcessCgroupError::new(
+        ProcessCgroupErrorKind::NotApplicable,
+        "Linux cgroup v2 process observation does not apply to macOS",
+    ))
 }
 
 pub struct ProcessTreeGuard {

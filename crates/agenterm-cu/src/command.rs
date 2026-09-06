@@ -1413,6 +1413,15 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_visited: Option<usize>,
     },
+    /// Inspect one Linux cgroup v2 membership through an identity-bound
+    /// process object. Other hosts return a typed not-applicable result rather
+    /// than projecting process groups or Job Objects onto Linux semantics.
+    ProcessCgroup {
+        target: TargetRef,
+        pid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_identity: Option<String>,
+    },
     /// One cumulative resource sample for an exact, identity-bound process.
     ProcessUsage {
         target: TargetRef,
@@ -3322,6 +3331,7 @@ impl Command {
             Self::ProcessMaps { .. } => "process-maps".into(),
             Self::ProcessThreads { .. } => "process-threads".into(),
             Self::ProcessSockets { .. } => "process-sockets".into(),
+            Self::ProcessCgroup { .. } => "process-cgroup".into(),
             Self::ProcessUsage { .. } => "process-usage".into(),
             Self::ProcessWait { .. } => "process-wait".into(),
             Self::ProcessKill { .. } => "process-kill".into(),
@@ -3515,6 +3525,7 @@ impl Command {
             | Self::ProcessMaps { target, .. }
             | Self::ProcessThreads { target, .. }
             | Self::ProcessSockets { target, .. }
+            | Self::ProcessCgroup { target, .. }
             | Self::ProcessUsage { target, .. }
             | Self::ProcessWait { target, .. }
             | Self::ProcessKill { target, .. }

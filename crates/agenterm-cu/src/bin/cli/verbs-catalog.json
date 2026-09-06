@@ -908,6 +908,19 @@
       ]
     },
     {
+      "name": "process-cgroup",
+      "command": "process-cgroup",
+      "aliases": ["process cgroup"],
+      "grant": "observe",
+      "family": "process",
+      "summary": "identity- and membership-bracketed Linux cgroup v2 snapshot",
+      "usage": "process-cgroup --pid N [--start-identity ID]\nprocess cgroup PID [--start-identity ID]",
+      "args": [
+        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
+        {"flag": "--start-identity", "value": "ID", "help": "optional exact value returned by process-state"}
+      ]
+    },
+    {
       "name": "process-wait",
       "command": "process-wait",
       "aliases": [
@@ -5014,6 +5027,10 @@
     {
       "name": "process-sockets",
       "text": "agenterm-cu process-sockets    (also: process sockets)\n  scope: observe    family: Processes\n\nusage:\n  process-sockets --pid N [--family FAMILY] [--protocol PROTOCOL] [--state STATE] [--endpoint SUB] [--offset N] [--limit N] [--max-visited N]\n  process sockets PID [filters]\n\nReads one bounded process-owned socket inventory between matching process-start identities. Darwin uses linked libproc and Linux joins /proc/PID/fd socket inodes to the process network namespace without lsof or another executable. Endpoint and Unix-domain path bytes remain lossless. Windows refuses with a typed unsupported result. Native scan truncation, read errors, filter matches and caller pagination remain separate. Watch/diff is not part of this one-shot command.\n"
+    },
+    {
+      "name": "process-cgroup",
+      "text": "agenterm-cu process-cgroup    (also: process cgroup)\n  scope: observe    family: Processes\n\nusage:\n  process-cgroup --pid N [--start-identity ID]\n  process cgroup PID [--start-identity ID]\n\nReads one bounded Linux cgroup v2 point snapshot while bracketing the exact process start identity, membership path and opened cgroup directory identity. Numeric counters are lossless decimal strings; optional absent kernel files remain structurally distinct from malformed, oversized or inaccessible data. macOS and Windows return process_cgroup_not_applicable rather than pretending process groups or Job Objects have Linux cgroup semantics.\n"
     },
     {
       "name": "process-signal",

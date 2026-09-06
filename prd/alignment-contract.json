@@ -249,6 +249,7 @@
         "cu.process-inventory-rich",
         "cu.process-inspection",
         "cu.process-sockets",
+        "cu.process-cgroup",
         "cu.process-set-state",
         "cu.process-signal",
         "cu.network-routes",

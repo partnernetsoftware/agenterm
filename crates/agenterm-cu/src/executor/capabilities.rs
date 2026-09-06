@@ -344,6 +344,17 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         "max_events": 4096,
         "max_processes": 5000,
     });
+    let process_cgroup_verb = serde_json::json!({
+        "status": if cfg!(target_os = "linux") { "available" } else { "not-applicable" },
+        "group": "process",
+        "mode": "bounded-linux-cgroup-v2-point-snapshot",
+        "grant": "observe",
+        "identity_bound": true,
+        "membership_bracketed": true,
+        "directory_identity_bound": true,
+        "counter_encoding": "decimal-string",
+        "non_linux": "typed-process_cgroup_not_applicable",
+    });
     // Host-specific tree mapping only. Do not list unproven peers (live
     // RDP/UIA-over-RDP) as if this host ships them.
     let tree_mapping = current_tree_mapping();
@@ -491,6 +502,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-wait".into(), process_wait_verb);
         verbs.insert("process-kill".into(), process_kill_verb);
         verbs.insert("process-watch".into(), process_watch_verb);
+        verbs.insert("process-cgroup".into(), process_cgroup_verb);
         verbs.insert(
             "network-interfaces".into(),
             serde_json::json!({

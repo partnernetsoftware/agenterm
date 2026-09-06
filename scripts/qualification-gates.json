@@ -328,6 +328,10 @@
       "evidence": ["cu.process-sockets"]
     },
     {
+      "id": "cu-process-cgroup-smoke",
+      "evidence": ["cu.process-cgroup"]
+    },
+    {
       "id": "cu-process-set-state-smoke",
       "evidence": ["cu.process-set-state"]
     },
