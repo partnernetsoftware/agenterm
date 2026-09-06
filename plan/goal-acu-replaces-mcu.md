@@ -693,7 +693,7 @@ Q3 owned runtime facades
    │  └─ [ ] Linux x86_64 + Windows x86_64 qjswasm journeys; non-inventory storage shapes remain
    ├─ [x] bounded identity-aware network-probe
    ├─ [~] network-interfaces: native ifindex/LUID + bounded stable snapshot
-   │  ├─ [x] macOS public CLI schema/count/prefix court
+   │  ├─ [x] macOS public qjswasm schema/count/identity court `cu.network-interfaces`
    │  ├─ [x] Windows x86_64 + arm64 compile/Clippy
    │  └─ [ ] Linux + Windows native public runtime courts
    ├─ [~] network-routes: netlink/route-socket/IP-Helper bounded snapshot

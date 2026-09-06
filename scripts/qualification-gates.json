@@ -305,6 +305,10 @@
         "cu.service-plan",
         "cu.service-transaction"
       ]
+    },
+    {
+      "id": "cu-network-interfaces-smoke",
+      "evidence": ["cu.network-interfaces"]
     }
   ]
 }

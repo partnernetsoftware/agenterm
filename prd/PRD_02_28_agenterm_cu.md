@@ -1322,7 +1322,8 @@ flowchart LR
   missing MAC/netmask/CIDR fields are explicit; the whole snapshot shares one
   10,000-record native scan budget and ACU adds a 1 MiB response ceiling.
   `--max` is rejected outside 1..=5000 before enumeration. The public macOS
-  command is green and both Windows ISAs compile under strict Clippy; Linux and
+  qjswasm journey `cu.network-interfaces` is green and both Windows ISAs
+  compile under strict Clippy; Linux and
   Windows runtime courts remain, so the ledger truthfully stays
   `platform-limited`. `network-routes` now adds the matching shell-free route
   inventory through Linux NETLINK_ROUTE, macOS PF_ROUTE/NET_RT_DUMP2 and

@@ -801,7 +801,9 @@
           "mcu_shape": "network interfaces --max N with address, netmask, CIDR, MAC, scope and internal state",
           "acu_shape": "agenterm-cu network-interfaces --max N (alias: network interfaces)",
           "state": "platform-limited",
-          "platforms": {"macos": "native", "linux": "pending-runtime-court", "windows": "pending-runtime-court"},
+          "platforms": {"macos": "native-public-qjswasm-journey-green", "linux": "pending-runtime-court", "windows": "pending-runtime-court"},
+          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "evidence": ["cu.network-interfaces"],
           "next": "execute the same public stable-prefix/schema journey on native Linux and Windows, then promote to native",
           "note": "The shared platform facade uses getifaddrs plus ifindex on Unix and GetAdaptersAddresses plus adapter LUID on Windows. It returns stable-sorted address rows under a 10000-record scan ceiling and 1 MiB response ceiling; max is validated as 1..5000 before enumeration. Missing MAC/netmask/CIDR fields remain explicit unavailable fields. The MCU compatibility entry routes interfaces, routes and probes; DNS and global sockets remain honest gaps."
         },

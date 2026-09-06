@@ -1183,6 +1183,17 @@
         "task.cu-network-routes-smoke"
       ]
     },
+    "cu-network-interfaces-smoke": {
+      "inputs": ["built-agenterm-cu"],
+      "outputs": ["cu-network-interfaces-evidence"],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": ["task.cu-network-interfaces-smoke"]
+    },
     "cu-network-dns-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3424,6 +3435,20 @@
         "artifact_write",
         "process_spawn"
       ]
+    },
+    {
+      "id": "cu-network-interfaces-smoke",
+      "description": "Prove native interface inventory is bounded, identity-bearing, schema-complete and mutation-free on Windows, Linux and macOS.",
+      "entry": "scripts/qjs/cu-network-interfaces-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": ["windows", "linux", "macos"],
+      "side_effects": ["artifact_write", "process_spawn"]
     },
     {
       "id": "cu-network-dns-smoke",

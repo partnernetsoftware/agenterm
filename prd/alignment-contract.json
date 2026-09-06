@@ -242,7 +242,8 @@
         "cu.login-session-plan",
         "cu.audio-plan",
         "cu.service-plan",
-        "cu.service-transaction"
+        "cu.service-transaction",
+        "cu.network-interfaces"
       ]
     },
     {
