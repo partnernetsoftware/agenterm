@@ -540,7 +540,14 @@ flowchart LR
   exercises that PID route; its integrated rerun is still required. Both Linux desktop courts currently report a typed
   prerequisite gap (`no Chromium-family browser`), not a fabricated pass.
   The 2026-09-04 headless Google Chrome court and scripted transport tests are green;
-  real-profile and three-host journeys remain promotion evidence.
+  real-profile and three-host journeys remain promotion evidence. The current
+  public qjswasm court now runs the same mechanisms inside one ACU-owned,
+  isolated Brave Profile: exact navigation/find/fill/click, trusted
+  hover/scroll/drag, redacted dialog/file handling, PNG publication and a
+  completed stat-only download all preserve `focus_changed=false`; stop and
+  TTL then reap the browser and Native Messaging host. This replaces old
+  shell-script citations with emitted evidence ids for macOS, but does not
+  claim Linux or Windows qualification.
 - [~] “No pre-opened CDP port” is now split into two honest product routes.
   Chromium cannot acquire a DevTools TCP/pipe endpoint after its process has
   started, so ACU will not publish a fictitious attach verb or restart a user's
@@ -669,9 +676,11 @@ flowchart LR
   counts but never opens or emits file contents. Every exit attempts policy
   restoration. A held endpoint lock, policy refusal, cancellation, absent
   start event, deadline, or missing final file is a distinct typed failure,
-  never a fabricated success. The non-sensitive Blob court owns the first
-  public black-box evidence; real one-time credential downloads are excluded
-  until that gate is green.
+  never a fabricated success. The non-sensitive Blob path is now green in the
+  public qjswasm owned-Profile court: its GUID-named final path is a non-empty
+  regular file, the suggested name is preserved, and `content_read=false` is
+  asserted. Real one-time credential downloads remain excluded from
+  repeatable test fixtures.
 - [x] Native browser Save Panel handling is a separate P0 from direct CDP
   download. A real macOS incident proved that `windows` could observe a Brave
   `保存` panel by CGWindowID while `unlock`, targeted `send-keys`, and

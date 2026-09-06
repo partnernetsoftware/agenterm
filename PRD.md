@@ -155,6 +155,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       已在 macOS qjswasm 黑盒通过，Linux/Windows 资格仍待补
 │     │                       浏览器 exact MV3 connection 已有 profile-scoped windows 与 guarded
 │     │                       window-state；macOS owned Profile 活体连接/host EOF cleanup 已绿，
+│     │                       同一公开 qjswasm court 已证后台 CDP 读写、指针/对话框/文件、
+│     │                       PNG 与 stat-only download；Lnx/Win 同源证据仍待补
 │     │                       real-window/closed-shadow、Linux/Windows 与 native focus bridge 未过，仍记 gap
 │     │                       macOS core 已证平台身份/显示/不读内容的剪贴板元数据/有界 shell 回收；
 │     │                       owned-process + owned-desktop 也已证，macOS vocabulary 完整；

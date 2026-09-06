@@ -445,30 +445,30 @@
           "mcu_shape": "page read plus browser debug-read over DOM/accessibility content",
           "acu_shape": "page-text and page-find over explicit or --match-selected CDP target, or native accessibility window",
           "state": "delegated",
-          "evidence": ["scripts/cu-cdp-actuate-smoke.sh", "cu.windows-browser-page-text"]
+          "evidence": ["cu.browser-cdp-actuate.macos", "cu.windows-browser-page-text"]
         },
         {
           "id": "browser.cdp.actuate",
           "mcu_shape": "page click/type/nav and browser click/type/nav",
           "acu_shape": "page-click/page-fill/page-type/page-nav with exact or --match-selected target; page-type preserves existing focus and redacts text/value",
           "state": "delegated",
-          "evidence": ["scripts/cu-cdp-actuate-smoke.sh"],
-          "note": "Background-tab focus preservation and post-state readback are proved on the throwaway macOS court; Windows journey is declared but not yet promoted to evidence."
+          "evidence": ["cu.browser-cdp-actuate.macos"],
+          "note": "The public qjswasm macOS court proves navigation, exact find/fill/click and independent DOM post-state inside one ACU-owned isolated Profile without foreground activation. Windows journey is declared but not yet promoted to evidence."
         },
         {
           "id": "browser.cdp.screenshot",
           "mcu_shape": "page screenshot",
           "acu_shape": "page-screenshot with exact target and typed unavailable result",
           "state": "delegated",
-          "evidence": ["scripts/cu-cdp-actuate-smoke.sh"]
+          "evidence": ["cu.browser-cdp-screenshot.macos"]
         },
         {
           "id": "browser.cdp.pointer-dialog-files",
           "mcu_shape": "page hover/scroll/drag/dialog/files and right/double click variants",
           "acu_shape": "page-click supports semantic nodes or viewport pixels with trusted down/up read-back and release cleanup; page-hover verifies the trusted event target; page-scroll verifies the owned container event and offset; page-drag verifies trusted down/held-move/up and always attempts release after press; page-dialog verifies opening/closed events and redacts contents; page-files verifies the exact FileList while redacting local paths",
           "state": "delegated",
-          "evidence": ["scripts/cu-cdp-actuate-smoke.sh"],
-          "next": "promote the current throwaway-Chrome proof through real-profile and three-host browser courts"
+          "evidence": ["cu.browser-cdp-pointer-dialog-files.macos"],
+          "next": "promote the isolated owned-Profile proof through Linux and Windows browser courts"
         },
         {
           "id": "browser.tab.accessibility",
@@ -526,7 +526,7 @@
           "mcu_shape": "planned browser download lifecycle",
           "acu_shape": "page-download with exact CDP target and node, explicit download directory, bounded completion wait and stat-only receipt",
           "state": "native",
-          "evidence": ["scripts/cu-cdp-smoke.sh"],
+          "evidence": ["cu.browser-download.macos"],
           "note": "ACU serializes the browser-global allowAndName policy with one cross-process lock per CDP endpoint, listens for matching Browser.downloadWillBegin/downloadProgress completion, then verifies the GUID-named final entry by stat without reading its contents. The target stays backgrounded and every exit attempts policy restoration. Busy, blocked, canceled, not-started, timeout and missing-file states are typed failures rather than click success."
         },
         {

@@ -803,6 +803,7 @@ Q3 owned runtime facades
    └─ [ ] remaining transaction/device/service facades follow the machine ledger
 Q4 browser and platform depth
 ├─ [x] CDP core live
+│  ├─ [x] public qjswasm owned-Profile macOS court: actuation + pointer/dialog/files + PNG + stat-only download
 │  ├─ [x] page hover: trusted mousemove target read-back; MCU positional shape routed
 │  ├─ [x] page scroll: owned-container scroll event + offset read-back; MCU positional shape routed
 │  ├─ [x] page drag: trusted down/held-move/up read-back; release cleanup; MCU positional shape routed

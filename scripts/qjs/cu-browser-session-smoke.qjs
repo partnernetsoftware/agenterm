@@ -5,7 +5,11 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.browser-managed-profile.macos",
-  "cu.browser-bridge-owned-profile.macos"
+  "cu.browser-bridge-owned-profile.macos",
+  "cu.browser-cdp-actuate.macos",
+  "cu.browser-cdp-screenshot.macos",
+  "cu.browser-cdp-pointer-dialog-files.macos",
+  "cu.browser-download.macos"
 ];
 
 function ensure(condition, message) {
@@ -55,6 +59,33 @@ function invoke(grant, arguments) {
 function require_ok(result, label) {
   ensure(result.output.success === true && result.reply.ok === true, label);
   return result.reply;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const result = at(value, dotted);
+  return result === undefined || result === null ? "" : "" + result;
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (row.type === "page") { return row; }
+  }
+  return null;
+}
+
+function center(box) {
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2
+  };
 }
 
 function cleanup() {
@@ -143,6 +174,136 @@ try {
   const status = require_ok(invoke("observe", ["browser-session-status", name]), "cu_browser_session_status_failed");
   ensure(status.data.state === "ready" && status.data.owner_observation === "live", "cu_browser_session_status_state");
 
+  print("STEP public CDP verbs act on the owned page without foreground activation");
+  const port = "" + started.data.endpoint.port;
+  const targets = require_ok(invoke("observe", [
+    "page-targets", "--port", port
+  ]), "cu_browser_session_targets_failed");
+  const target = page_target(targets.data.targets);
+  ensure(target !== null && target.id !== "", "cu_browser_session_page_target_missing");
+  const target_id = "" + target.id;
+  const fixture = "data:text/html,<title>acu-qjs-browser</title>"
+    + "<form onsubmit='document.getElementById(\"out\").textContent=\"submitted\";return false'>"
+    + "<input id='q'><button id='go' type='button' onclick='document.getElementById(\"out\").textContent=\"clicked\"'>Go</button></form>"
+    + "<p id='out'>idle</p><input id='upload' type='file'>"
+    + "<a id='download' download='smoke.txt' href='data:text/plain,acu-download-smoke'>Download</a>"
+    + "<div id='drag-from' style='display:inline-block;width:80px;height:40px'>From</div>"
+    + "<div id='drag-to' style='display:inline-block;width:80px;height:40px'>To</div>"
+    + "<script>let d=false;document.getElementById('drag-from').onmousedown=e=>{d=e.isTrusted};"
+    + "document.getElementById('drag-to').onmouseup=e=>{if(d&&e.isTrusted){document.body.dataset.drag='done'}}</script>"
+    + "<div id='scroll' style='height:80px;overflow:auto'><div style='height:900px'>Tall</div></div>";
+  const nav = require_ok(invoke("observe,actuate", [
+    "page-nav", "--port", port, "--target-id", target_id,
+    "--url", fixture, "--wait-ms", "10000"
+  ]), "cu_browser_session_nav_failed");
+  ensure(nav.data.verified === true && nav.data.focus_changed === false, "cu_browser_session_nav_unverified");
+  ensure(nav.data.final_title === "acu-qjs-browser", "cu_browser_session_nav_title");
+
+  const input = require_ok(invoke("observe", [
+    "page-find", "--port", port, "--target-id", target_id, "--selector", "#q"
+  ]), "cu_browser_session_find_input_failed");
+  ensure(input.data.returned === 1 && input.data.nodes[0].editable === true, "cu_browser_session_input_shape");
+  const filled = require_ok(invoke("observe,actuate", [
+    "page-fill", "--port", port, "--target-id", target_id,
+    "--node", "" + input.data.nodes[0].node, "--text", "qjswasm", "--clear"
+  ]), "cu_browser_session_fill_failed");
+  ensure(filled.data.verified === true && filled.data.focus_changed === false, "cu_browser_session_fill_unverified");
+  const clicked = require_ok(invoke("observe,actuate", [
+    "page-click", "--port", port, "--target-id", target_id, "--selector", "#go"
+  ]), "cu_browser_session_click_failed");
+  ensure(clicked.data.performed === true && clicked.data.verified === true && clicked.data.focus_changed === false,
+    "cu_browser_session_click_unverified");
+  const business = require_ok(invoke("observe", [
+    "page-js", "--port", port, "--target-id", target_id,
+    "--expression", "document.getElementById('out').textContent"
+  ]), "cu_browser_session_business_read_failed");
+  ensure(text_at(business, "data.value") === "clicked", "cu_browser_session_click_business_state");
+
+  print("STEP pointer, dialog and file verbs prove exact post-state and secret-free receipts");
+  const button = require_ok(invoke("observe", [
+    "page-find", "--port", port, "--target-id", target_id, "--selector", "#go"
+  ]), "cu_browser_session_find_button_failed");
+  const button_xy = center(button.data.nodes[0].box);
+  const hovered = require_ok(invoke("observe,actuate", [
+    "page-hover", "--port", port, "--target-id", target_id,
+    "--x", "" + button_xy.x, "--y", "" + button_xy.y
+  ]), "cu_browser_session_hover_failed");
+  ensure(hovered.data.verified === true && hovered.data.focus_changed === false, "cu_browser_session_hover_unverified");
+  const scroll_node = require_ok(invoke("observe", [
+    "page-find", "--port", port, "--target-id", target_id, "--selector", "#scroll"
+  ]), "cu_browser_session_find_scroll_failed");
+  const scroll_xy = center(scroll_node.data.nodes[0].box);
+  const scrolled = require_ok(invoke("observe,actuate", [
+    "page-scroll", "--port", port, "--target-id", target_id,
+    "--x", "" + scroll_xy.x, "--y", "" + scroll_xy.y, "--dy", "120"
+  ]), "cu_browser_session_scroll_failed");
+  ensure(scrolled.data.verified === true && scrolled.data.focus_changed === false, "cu_browser_session_scroll_unverified");
+  const from_node = require_ok(invoke("observe", [
+    "page-find", "--port", port, "--target-id", target_id, "--selector", "#drag-from"
+  ]), "cu_browser_session_find_drag_from_failed");
+  const to_node = require_ok(invoke("observe", [
+    "page-find", "--port", port, "--target-id", target_id, "--selector", "#drag-to"
+  ]), "cu_browser_session_find_drag_to_failed");
+  const from_xy = center(from_node.data.nodes[0].box);
+  const to_xy = center(to_node.data.nodes[0].box);
+  const dragged = require_ok(invoke("observe,actuate", [
+    "page-drag", "--port", port, "--target-id", target_id,
+    "--x1", "" + from_xy.x, "--y1", "" + from_xy.y,
+    "--x2", "" + to_xy.x, "--y2", "" + to_xy.y
+  ]), "cu_browser_session_drag_failed");
+  ensure(dragged.data.verified === true && dragged.data.release_attempted === true,
+    "cu_browser_session_drag_unverified");
+
+  const upload = rh.join(context.run_directory, "upload.txt");
+  rh.write_text(upload, "hello");
+  const files = require_ok(invoke("observe,actuate", [
+    "page-files", "--port", port, "--target-id", target_id,
+    "--selector", "#upload", upload
+  ]), "cu_browser_session_files_failed");
+  ensure(files.data.verified === true, "cu_browser_session_files_unverified");
+  ensure(files.data.verification.observed[0].name === "upload.txt"
+    && files.data.verification.observed[0].size === 5, "cu_browser_session_files_readback");
+  ensure(JSON.stringify(files).indexOf(upload) < 0, "cu_browser_session_files_path_leak");
+
+  const dialog_secret = "dialog-" + rh.pid();
+  const armed = require_ok(invoke("observe", [
+    "page-js", "--port", port, "--target-id", target_id,
+    "--expression", "setTimeout(()=>{document.body.dataset.dialog=prompt('Question','')||'dismissed'},100);'armed'"
+  ]), "cu_browser_session_dialog_arm_failed");
+  ensure(text_at(armed, "data.value") === "armed", "cu_browser_session_dialog_not_armed");
+  const dialog = require_ok(invoke("observe,actuate", [
+    "page-dialog", "--port", port, "--target-id", target_id,
+    "--text", dialog_secret, "--wait-ms", "3000"
+  ]), "cu_browser_session_dialog_failed");
+  ensure(dialog.data.verified === true && JSON.stringify(dialog).indexOf(dialog_secret) < 0,
+    "cu_browser_session_dialog_receipt");
+  const dialog_read = require_ok(invoke("observe", [
+    "page-js", "--port", port, "--target-id", target_id,
+    "--expression", "document.body.dataset.dialog"
+  ]), "cu_browser_session_dialog_read_failed");
+  ensure(text_at(dialog_read, "data.value") === dialog_secret, "cu_browser_session_dialog_business_state");
+
+  print("STEP screenshot and download publish bounded files while download contents stay unread");
+  const screenshot_path = rh.join(context.run_directory, "page.png");
+  const screenshot = require_ok(invoke("observe", [
+    "page-screenshot", "--port", port, "--target-id", target_id, "--out", screenshot_path
+  ]), "cu_browser_session_screenshot_failed");
+  ensure(screenshot.data.focus_changed === false && direct_file(screenshot_path), "cu_browser_session_screenshot_missing");
+  ensure(rh.metadata(screenshot_path).len > 100, "cu_browser_session_screenshot_empty");
+  const download_directory = rh.join(context.run_directory, "downloads");
+  rh.create_dir_all(download_directory);
+  const downloaded = require_ok(invoke("observe,actuate", [
+    "page-download", "--port", port, "--target-id", target_id,
+    "--selector", "#download", "--download-dir", download_directory, "--wait-ms", "10000"
+  ]), "cu_browser_session_download_failed");
+  ensure(downloaded.data.state === "completed" && downloaded.data.suggested_filename === "smoke.txt",
+    "cu_browser_session_download_state");
+  ensure(downloaded.data.content_read === false && downloaded.data.focus_changed === false,
+    "cu_browser_session_download_authority");
+  ensure(direct_file(downloaded.data.final_path) && rh.metadata(downloaded.data.final_path).len > 0,
+    "cu_browser_session_download_missing");
+  ensure(downloaded.data.final_path.startsWith(download_directory + "/"), "cu_browser_session_download_escape");
+
   print("STEP explicit stop proves owner and browser cleanup before removal");
   const stopped = require_ok(invoke("actuate", [
     "browser-session-stop", name, "--expect", "stopped", "--timeout-ms", "15000"
@@ -203,7 +364,7 @@ if (succeeded !== 0 && completion_failure === "") {
     harness.emit_evidence(context, declared_evidence, id);
   }
   harness.remove_run(context);
-  print("PASS: owned browser profile and exact MV3 bridge lifecycle are verified");
+  print("PASS: owned browser profile, MV3 bridge and public CDP lifecycle are verified");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

@@ -3436,7 +3436,7 @@
     },
     {
       "id": "cu-browser-session-smoke",
-      "description": "Prove one ACU-owned isolated headless browser profile and fixed MV3 bridge through start, exact connection/status/inventory, stop, host EOF cleanup, restart, TTL cleanup and verified removal without foreground activation.",
+      "description": "Prove one ACU-owned isolated headless browser profile, fixed MV3 bridge, background CDP actuation, pointer/dialog/file operations, screenshot and stat-only download through exact post-state, stop, host EOF and TTL cleanup without foreground activation.",
       "entry": "scripts/qjs/cu-browser-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
