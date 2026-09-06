@@ -246,7 +246,9 @@ const evidence_suites = {
   "control-center-smoke": true,
   "control-center-linux-smoke": true,
   "control-center-macos-smoke": true,
+  "cu-linux-smoke": true,
   "cu-windows-smoke": true,
+  "cu-windows-browser-smoke": true,
   "cu-macos-smoke": true,
   "cu-macos-save-panel-smoke": true,
   "unix-frontend-linux-smoke": true,
@@ -297,6 +299,36 @@ for (const gate of evidence_gates) {
   const suite_path = rh.join(suite_dir, effective_suite + ".qjs");
   rh.require(rh.exists(suite_path), "prd_alignment_evidence_suite_missing:" + gate.id);
   const suite_source = rh.read_text(suite_path);
+  // CU journeys evolve quickly and used to leave newer declared tokens outside
+  // the gate manifest.  Ask the script for its declaration-only view: this
+  // path returns before touching a desktop, browser, device or product binary.
+  if (suite_name.startsWith("cu-")) {
+    const listed = rh.command(cli, [
+      "cli", "script", "run", suite_path,
+      "--profile", "tool", "--cwd", repo, "--project-root", repo,
+      "--", "--list-evidence"
+    ], { cwd: repo, timeout_ms: 30000 });
+    rh.require(listed.success === true, "prd_alignment_evidence_list_failed:" + gate.id);
+    const declared = [];
+    for (const source_line of listed.stdout.split("\n")) {
+      const declaration = source_line.trim();
+      if (declaration !== "") { declared.push(declaration); }
+    }
+    rh.require(
+      declared.length === gate.evidence.length,
+      "prd_alignment_evidence_declaration_count:" + gate.id +
+        ":declared=" + declared.length + ":registered=" + gate.evidence.length
+    );
+    let declaration_index = 0;
+    for (const evidence_id of gate.evidence) {
+      rh.require(
+        declared[declaration_index] === evidence_id,
+        "prd_alignment_evidence_declaration_mismatch:" + gate.id +
+          ":index=" + declaration_index
+      );
+      declaration_index = declaration_index + 1;
+    }
+  }
   for (const evidence_id of gate.evidence) {
     const evidence_key = "" + evidence_id;
     well_formed_name(evidence_key, "prd_alignment_evidence_id");

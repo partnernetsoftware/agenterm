@@ -109,7 +109,7 @@
           "acu_shape": "process-kill --pid N --start-identity ID --mode graceful|forceful --timeout-ms N --expect exited",
           "state": "native",
           "platforms": {"linux": "pidfd", "macos": "audit-token", "windows": "retained-handle"},
-          "evidence": ["linux-x86_64-pidfd-live", "cu.macos-process-kill-exact", "windows-x86_64-retained-handle-live"],
+          "evidence": ["cu.macos-process-kill-exact"],
           "declared_evidence": [
             "cu.linux-process-kill",
             "cu.macos-process-kill-exact",
@@ -149,9 +149,7 @@
             "windows": "typed-unsupported"
           },
           "qualification": "macos-public-cli-live-linux-journey-windows-refusal-pending",
-          "evidence": [
-            "agenterm-cu process-cwd macos host black-box"
-          ],
+          "evidence": ["cu.macos-process-cwd"],
           "declared_evidence": [
             "cu.macos-process-cwd",
             "cu.linux-process-cwd",
@@ -165,7 +163,7 @@
           "acu_shape": "process-argv --pid N [--values] [--offset N] [--limit N]",
           "state": "delegated",
           "qualification": "macos-public-cli-live-linux-windows-journey-pending",
-          "evidence": ["agenterm-cu process-argv host black-box"],
+          "evidence": ["cu.macos-process-argv"],
           "declared_evidence": [
             "cu.macos-process-argv",
             "cu.linux-process-argv",
@@ -184,9 +182,7 @@
             "windows": "typed-unsupported"
           },
           "qualification": "macos-public-cli-live-linux-journey-windows-refusal-pending",
-          "evidence": [
-            "agenterm-cu process-environment macos owned-process black-box"
-          ],
+          "evidence": ["cu.macos-process-environment"],
           "declared_evidence": [
             "cu.macos-process-environment",
             "cu.linux-process-environment",
@@ -384,9 +380,10 @@
           "mcu_shape": "state [--window HANDLE] [--depth N] as a screenshot-free desktop observation",
           "acu_shape": "desktop-state (alias state) composes one complete bounded window inventory, one exact bounded accessibility tree and pointer position",
           "state": "native",
-          "qualification": "macos-public-cli-live-linux-windows-journeys-pending",
-          "evidence": ["agenterm-cu desktop-state macos host black-box"],
-          "declared_evidence": ["cu.linux-desktop-state", "cu.windows-desktop-state"],
+          "qualification": "no-public-journey-yet",
+          "evidence": [],
+          "declared_evidence": [],
+          "next": "add one bounded desktop-state leaf to each native platform journey",
           "note": "An omitted handle requires resolved focus; explicit handles must exist in the first inventory. The exact WindowInfo row is re-read after the tree and any disappearance or identity/geometry/focus change fails typed desktop_state_changed. Tree truncation is explicit and more than 512 windows is refused instead of returned as a partial desktop."
         },
         {
@@ -587,7 +584,8 @@
           "acu_shape": "pty-start/status/wait-exit/stop over one isolated headless agenterm server; job identity binds validated name + logical instance + server epoch + stable @tab",
           "state": "native",
           "qualification": "local-six-cell-public-qjswasm-journey-green-macos-x86-via-rosetta",
-          "evidence": ["plan/experiment-headless-pty-owner.md"],
+          "evidence": ["cu.pty-background-interactive"],
+          "declared_evidence": ["cu.pty-background-interactive"],
           "next": "add process-group signal and forced-tree cleanup separately",
           "note": "Two concurrent macOS starts produced exactly one owner and one typed pty_job_busy. Duplicate, exact exit mismatch and explicit --expect stopped are typed; successful shutdown is verified by endpoint disappearance even when the disappearing authority cannot return an ACK. The existing AgenTerm server remains the sole POSIX PTY/ConPTY owner."
         },
@@ -693,6 +691,7 @@
           "mcu_shape": "exec <command...> --timeout S",
           "acu_shape": "shell-exec --command TEXT [--timeout-ms N] [--max-output-bytes N]",
           "state": "native",
+          "evidence": [],
           "next": "promote the shared public journey after Linux and Windows x86_64 native reruns; keep exec --json reserved for serialized CU worker commands",
           "note": "The MCU compatibility router maps only MCU exec to shell-exec and propagates the completed nested exit code. macOS and Windows arm64 native courts prove bounded dual-stream capture, exact nonzero exit and cleanup; Linux arm64 runtime evidence is still blocked by a corrupt guest transfer and is not claimed."
         }
@@ -719,6 +718,9 @@
           "acu_shape": "file-inspect PATH (alias: file inspect PATH) with final-link no-follow, bracketed stable-object identity and lossless metadata strings",
           "state": "native",
           "platforms": {"macos": "live-qjswasm-journey", "linux": "live-native-focused-court-x86_64", "windows": "live-native-focused-court-x86_64"},
+          "qualification": "macos-public-qjswasm-live-linux-windows-x86_64-focused-native-evidence-live-full-journey-rerun-pending",
+          "evidence": ["cu.macos-file-inspect", "cu.linux-file-inspect", "cu.windows-file-inspect"],
+          "declared_evidence": ["cu.macos-file-inspect", "cu.linux-file-inspect", "cu.windows-file-inspect"],
           "next": "promote the focused Linux and Windows proofs into their full qjswasm journeys; preserve typed unavailable for Windows link-object identity",
           "note": "Ordinary files and directories bracket the metadata read with two opened-object identities and fail file_identity_changed on replacement. Final links are never followed. Unix can identify the link object from metadata; Windows reports that narrow identity field unavailable rather than following the link. At 286a0514 the full macOS qjswasm journey is green at 41 STEP / 42 evidence with cleanup. At aff6cc7b a real Linux x86_64 UTM court matched the host SHA-256 for agenterm-cu and libagenterm.so, then proved ordinary-file opened-object identity, final-link no-follow/link-like identity, and typed file_inspect_failed for a missing path before releasing the VM. At 867a6a64 a real Windows x86_64 UTM court matched the host SHA-256 for agenterm-cu.exe and agenterm.dll, then proved ordinary-file opened-object identity, exact size and Windows attributes plus the same typed missing-path failure before release. These focused proofs are native ACU execution, not yet the full Linux/Windows qjswasm journeys. Package tests, strict Clippy and x86_64 Windows cargo-xwin check are green."
         },
@@ -752,6 +754,8 @@
           "acu_shape": "file-copy SOURCE DEST [--replace --apply] plus file-transaction status|rollback|recover|finalize ID",
           "state": "platform-limited",
           "platforms": {"macos": "live-qjswasm-journey", "linux": "pending-native-court", "windows": "pending-native-court"},
+          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "evidence": ["cu.file-copy-transaction"],
           "next": "run the same public qjswasm journey in Linux and Windows courts through the independent utm-court service",
           "note": "Default invocation is plan-only. Apply persists a private receipt before mutation, binds source/destination/temporary/backup/result by opened-object identity plus size/mtime/SHA-256, serializes the exact destination across processes, retains replacement backup until finalize, and fails closed on ambiguous recovery. The MCU compatibility adapter routes copy and applied transaction actions; its plan-wrapper spelling for rollback/recover/finalize without --apply deliberately remains on MCU until the adapter can project that wrapper losslessly. macOS public evidence cu.file-copy-transaction is green; Linux/Windows are not claimed yet."
         },
@@ -761,6 +765,8 @@
           "acu_shape": "file-move SOURCE DEST [--replace --apply] plus file-transaction status|rollback|recover|finalize ID",
           "state": "platform-limited",
           "platforms": {"macos": "live-qjswasm-journey", "linux": "pending-native-court", "windows": "pending-native-court"},
+          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "evidence": ["cu.file-move-transaction"],
           "next": "run the same public qjswasm journey in Linux and Windows courts through the independent utm-court service",
           "note": "Default invocation is plan-only. Apply uses one copy-then-retire state machine on same-volume and cross-volume paths, atomically refuses occupied marker/backup names, locks both exact path namespaces in stable order, retains source and replaced-destination backups until finalize, and recovers the two-name hard-link crash window without deleting an unknown object. The MCU compatibility adapter routes move and the shared applied transaction actions. macOS public evidence cu.file-move-transaction is green; Linux/Windows are not claimed yet."
         }
@@ -785,6 +791,8 @@
           "acu_shape": "agenterm-cu network-routes --max N (alias: network routes)",
           "state": "platform-limited",
           "platforms": {"macos": "live-qjswasm-journey", "linux": "pending-native-court", "windows": "pending-native-court"},
+          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "evidence": ["cu.network-routes"],
           "next": "run the same public qjswasm journey in Linux and Windows native courts, then promote to native",
           "note": "The shared platform facade uses NETLINK_ROUTE on Linux, PF_ROUTE NET_RT_DUMP2 on macOS and GetIpForwardTable2 on Windows. It preserves ifindex/LUID identity, rejects interrupted or malformed snapshots, stable-sorts a 10000-record scan under a 1 MiB response ceiling, and never invokes a shell. The compatibility adapter routes the lossless --max shape. macOS public evidence cu.network-routes is green; Linux/Windows runtime evidence is not claimed yet."
         },
@@ -815,6 +823,8 @@
             "linux": "native-per-process",
             "windows": "typed-unsupported"
           },
+          "qualification": "macos-public-qjswasm-live-linux-runtime-and-windows-refusal-courts-pending",
+          "evidence": ["cu.process-sockets"],
           "note": "The identity-safe per-process slice is live. Global/name-selected system socket inventory is not inferred from it and remains a gap.",
           "next": "add a bounded global inventory with exact process identity joins, then native courts"
         },
@@ -823,6 +833,8 @@
           "mcu_shape": "network probe HOST --port N --attempts N --timeout-ms N with DNS and TCP latency evidence",
           "acu_shape": "agenterm-cu network-probe HOST --port N --attempts N --timeout-ms N (alias: network probe)",
           "state": "platform-limited",
+          "qualification": "macos-linux-dual-isa-windows-x86_64-live-windows-arm64-rerun-pending",
+          "evidence": ["cu.network-probe"],
           "next": "restore the existing 2 MiB Windows release-size court without raising it; retain the Windows arm64 UTM/QGA pre-execution transport gap separately, then promote to native",
           "note": "Implemented behind an invocation-owned internal helper because Windows and glibc native resolver cancellation cannot prove completed cancellation. Resolution is once/deduplicated/frozen; TCP refusal and timeout are successful unreachable observations. The same public loopback journey is green on macOS arm64, Linux arm64 plus x86_64, and Windows x86_64; all six cells compile. Windows arm64 did not start because its UTM/QGA transfer lost progress. The active qjswasm/tinyvm host surface still has no generic DNS/TCP APIs."
         }

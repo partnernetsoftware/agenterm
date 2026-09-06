@@ -2104,6 +2104,25 @@
       "evidence": [
         "task.cu-windows-smoke"
       ]
+    },
+    "cu-windows-browser-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "interactive-browser-session"
+      ],
+      "outputs": [
+        "cu-windows-browser-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-windows-browser-smoke"
+      ]
     }
   },
   "tasks": [
@@ -3181,6 +3200,26 @@
       "id": "cu-windows-smoke",
       "description": "Prove agenterm-cu on a real Windows UIA desktop: typed capabilities, identity-bound process argv/usage/wait/kill, network/file observation, terminal control, owned WinForms fixture, tree/menu/query/invoke, focus, placement, screenshot, destructive close and orphan-free cleanup.",
       "entry": "scripts/qjs/cu-windows-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-windows-browser-smoke",
+      "description": "Prove Windows browser window, tab, page-text and CDP target semantics against one invocation-owned Chromium-family profile; absence is a typed skip, never evidence.",
+      "entry": "scripts/qjs/cu-windows-browser-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

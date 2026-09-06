@@ -237,6 +237,18 @@
       "evidence": [
         "cu.windows-uia-capabilities",
         "cu.windows-uia-window-identity",
+        "cu.windows-process-state",
+        "cu.windows-process-argv",
+        "cu.windows-process-cwd-refusal",
+        "cu.windows-process-environment-refusal",
+        "cu.windows-process-usage",
+        "cu.windows-process-usage-watch",
+        "cu.windows-process-wait",
+        "cu.windows-process-kill",
+        "cu.windows-process-lifecycle-watch",
+        "cu.windows-network-probe",
+        "cu.windows-file-inspect",
+        "cu.windows-terminal-control",
         "cu.windows-uia-tree",
         "cu.windows-uia-query",
         "cu.windows-uia-invoke",
@@ -246,9 +258,20 @@
         "cu.windows-uia-window-place",
         "cu.windows-uia-screenshot",
         "cu.windows-uia-destructive-close",
-        "cu.windows-network-probe",
-        "cu.windows-terminal-control",
         "cu.windows-uia-cleanup"
+      ]
+    },
+    {
+      "id": "cu-windows-browser-smoke",
+      "evidence": [
+        "cu.windows-browser-window",
+        "cu.windows-browser-unlock-typed",
+        "cu.windows-browser-tab-list",
+        "cu.windows-browser-tab-select",
+        "cu.windows-browser-page-text",
+        "cu.windows-browser-cdp-targets",
+        "cu.windows-browser-cdp-page-js",
+        "cu.windows-browser-cleanup"
       ]
     }
   ]

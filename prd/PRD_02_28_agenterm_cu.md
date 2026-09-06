@@ -10,11 +10,12 @@ modules own third-level requirements.
 `agenterm-cu` is in active partial delivery. Its executable identity, command
 shell, macOS host, runtime `libagenterm` boundary, Windows desktop-host ABI 1.7,
 and Windows UIA backend have owning implementation evidence. The UIA claim is
-backed by five pure tests, two real Win32 UIA fixture tests, and the passing
-staged public `cu-windows-smoke` with all seven declared evidence receipts.
-Candidate qualification and release are not claimed. This subtree root remains
-partial, and each child marks only the capability supported by its own named
-evidence.
+backed by five pure tests, two real Win32 UIA fixture tests, and a staged public
+`cu-windows-smoke` that declares 24 exact evidence identities. Those identities
+are now registered as one qualification contract; a script existing on disk is
+not itself a passing receipt. Candidate qualification and release are not
+claimed. This subtree root remains partial, and each child marks only the
+capability supported by its own named evidence.
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
@@ -56,6 +57,21 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 | 32 | [Window placement](PRD_02_32_cu_window_placement.md) | 命名摆放（Spectacle 目录）：几何核 + `agenterm-cu window-place` + 桌面常驻 `agenterm-cu host` 宿主 |
 
 ## Current delivery truth
+
+- [~] On Windows, the product `Command`/`Executor` path consumes UIA tree,
+  process, file, network and terminal behavior through the 24-token public
+  `cu-windows-smoke`; the gate is complete as a declaration, while fresh native
+  qualification remains required.
+- [~] Linux current-target process, terminal and AT-SPI desktop behavior runs
+  through the public qjswasm journey. Its 32 evidence identities are registered
+  in the host-native gate, so future receipts can be checked rather than cited
+  only as prose.
+- [~] Windows browser window, tab, page-text and CDP targeting use one owned
+  Chromium-family profile. The existing eight-token journey is now a named
+  task and qualification gate; typed browser absence emits no evidence.
+- [~] The expanded macOS public journey declares process, file and advanced AX evidence
+  as 45 exact identities. Its host-native gate now covers the full declared
+  set rather than the older 22-token subset.
 
 - [x] `agenterm-cu` is the only product executable. CLI and desktop-host modes
   share that binary; an executable named `cu` is not a compatibility surface.
