@@ -1164,6 +1164,15 @@ costs a full candidate cycle:
   paths or transcript contents into Git. Persistence is explicit through
   `AGENTERM_UTM_PERSIST_RECEIPT=evidence/<name>.json`, so ordinary development
   runs do not dirty the repository.
+- [x] Windows interactive recovery uses one stable ONLOGON task and script
+  path. Deleting the task immediately after a successful nonce also terminated
+  its live worker; retaining random tasks then produced stale `Running` state
+  across VM restarts. The service now replaces the stable definition when
+  absent, ends that exact task before recovery, starts one fresh mutex-owned
+  worker, proves a new nonce, and keeps it alive for the court. Exact source
+  `91d55b69` subsequently passed the full 24-token Windows ARM64 journey and
+  released the VM; the compact receipt is
+  [`evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json`](../evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json).
 - [x] Windows guest logs are an encoding boundary. Windows PowerShell 5 may
   redirect native output as UTF-16LE while Linux and newer shells emit UTF-8;
   the host normalizes the pulled text copy to UTF-8 with LF endings before

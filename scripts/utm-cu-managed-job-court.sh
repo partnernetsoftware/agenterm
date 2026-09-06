@@ -316,7 +316,7 @@ import os
 os.replace(sys.argv[1] + ".tmp", sys.argv[1])
 PY
 
-if [ -n "${AGENTERM_UTM_PERSIST_RECEIPT:-}" ]; then
+if [ "$OUTCOME" = passed ] && [ -n "${AGENTERM_UTM_PERSIST_RECEIPT:-}" ]; then
   case "$AGENTERM_UTM_PERSIST_RECEIPT" in
     evidence/*.json)
       PERSIST_PATH="$REPO_ROOT/$AGENTERM_UTM_PERSIST_RECEIPT"

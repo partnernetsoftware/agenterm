@@ -58,14 +58,16 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
 ## Current delivery truth
 
-- [~] On Windows, the product `Command`/`Executor` path consumes UIA tree,
+- [x] On Windows, the product `Command`/`Executor` path consumes UIA tree,
   process, file, network and terminal behavior through the 24-token public
-  `cu-windows-smoke`; the gate is complete as a declaration, while fresh native
-  qualification remains required.
-- [~] Linux current-target process, terminal and AT-SPI desktop behavior runs
+  `cu-windows-smoke`. Exact source `91d55b69` passed all 24 identities on the
+  native Windows ARM64 UTM court, with interactive nonce, exact bundle/log/
+  manifest hashes, guest/host exit zero and owned cleanup recorded in
+  [`evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json`](../evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json).
+- [x] Linux current-target process, terminal and AT-SPI desktop behavior runs
   through the public qjswasm journey. Its 32 evidence identities are registered
-  in the host-native gate, so future receipts can be checked rather than cited
-  only as prose.
+  in the host-native gate; exact source `7c489577` passed all 32 on a real
+  Linux x86_64 X11 court and retained the matching compact receipt.
 - [~] Windows browser window, tab, page-text and CDP targeting use one owned
   Chromium-family profile. The existing eight-token journey is now a named
   task and qualification gate; typed browser absence emits no evidence.
@@ -220,14 +222,14 @@ flowchart LR
 - [x] CU is the first runtime consumer of the `libagenterm` dynamic library.
   Product code owns command and action meaning while ABI/platform layers own
   native mechanisms.
-- [~] On Windows, the product `Command`/`Executor` path consumes UIA tree,
+- [x] On Windows, the product `Command`/`Executor` path consumes UIA tree,
   Value, Invoke and Focus through the runtime `agenterm.dll`; it neither opens
   COM/UIA directly nor caches native interfaces. The platform backend uses an
   MTA-capable per-operation session, bounded UIA and wall-clock timeouts,
   `SetAutoSetFocus(FALSE)`, and RuntimeId re-resolution for every node action.
   Structured UIA failure is typed and never silently becomes a coordinate
-  click. Five pure and two real fixture tests own the adapter evidence; staged
-  `cu-windows-smoke` owns the public DLL-backed journey.
+  click. Five pure and two real fixture tests own the adapter evidence; the
+  native ARM64 `cu-windows-smoke` receipt owns the public DLL-backed journey.
 - [~] The expanded Windows x86 UTM journey now reaches the public `.com`,
   qjswasm worker, process observation and UIA actuation through an interactive
   desktop worker. Its remaining red is explicit: the background court lets UIA
@@ -895,17 +897,11 @@ flowchart LR
   qjswasm journey now passes 44 steps / 45 evidence ids, including
   `cu.macos-terminal-control`: list → structured snapshot/cursor → literal send
   → contains wait → ordered delta continuation → bounded read → finalized wait
-  → remain-on-exit → typed late-write refusal → owned cleanup. On Linux x86_64
-  the earlier terminal step crossed every assertion,
-  but the enclosing suite later failed its older AT-SPI observation step, so it
-  emitted 0/27 evidence and remains unpromoted. The observation duration is now
-  six seconds so cold-guest latency cannot consume the entire post-mutation
-  window. Windows has a statically checked registered step, but the disposable
-  court failed its interactive nonce handoff before product bytes were sent;
-  zero Windows product evidence is claimed. A serial probe using the canonical
-  VM identity kept QGA and the VM live but still produced no job, exit or worker
-  log, ruling out duplicate VM names and narrowing the blocker to the
-  interactive Scheduled Task/session handoff. Arbitrary headless
+  → remain-on-exit → typed late-write refusal → owned cleanup. The full Linux
+  x86_64 and Windows ARM64 native journeys now cross these assertions and their
+  enclosing cleanup/evidence gates. Windows explicitly distinguishes graceful
+  server shutdown from the remain-on-exit GUI invariant, then reclaims only the
+  qjswasm-owned fixture process handle. Arbitrary headless
   PTYs and lease-owned jobs remain distinct platform/runtime gaps. They must
   not be simulated by a visible tab or by single-process metrics.
 
