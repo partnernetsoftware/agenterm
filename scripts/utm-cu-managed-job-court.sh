@@ -94,6 +94,10 @@ if [ "$TASK" = cu-linux-smoke ]; then
   mkdir -p "$PAYLOAD/examples/python"
   cp "$REPO_ROOT/examples/python/agenterm_atspi_fixture.py" "$PAYLOAD/examples/python/"
 fi
+if [ "$TASK" = cu-windows-smoke ]; then
+  mkdir -p "$PAYLOAD/examples/csharp"
+  cp "$REPO_ROOT/examples/csharp/agenterm_uia_fixture.cs" "$PAYLOAD/examples/csharp/"
+fi
 printf '%s\n' "$SOURCE_SHA" >"$PAYLOAD/SOURCE_SHA"
 
 if [ "$GUEST_OS" = linux ]; then
