@@ -23,10 +23,14 @@ use crate::{
         LAUNCH_SCHEMA_VERSION, ManagedJobEnvironment, ManagedJobLaunch, ManagedJobProcessLimits,
     },
     managed_job_store::{
-        ManagedJobRecord, ManagedJobState, ManagedJobStore, OwnerLiveness, ResidentOwnerIdentity,
+        ManagedJobOrigin, ManagedJobRecord, ManagedJobState, ManagedJobStore, OwnerLiveness,
+        ResidentOwnerIdentity,
     },
     runtime_coordinator::RuntimeCoordinator,
 };
+
+#[cfg(unix)]
+use crate::managed_job_owner::ManagedJobAdoption;
 
 use super::{
     CuError, now_utc_ms,
@@ -115,14 +119,98 @@ pub(super) fn job_spawn_payload(
             return Err(error);
         }
     };
-    let encoded = match serde_json::to_vec(&launch) {
+    start_resident_launch(&store, &record, &launch, now)
+}
+
+pub(super) fn job_adopt_payload(
+    pid: u32,
+    start_identity: &str,
+    ttl_seconds: u64,
+    stop_on_expiry: bool,
+    request: &JobRequestContext<'_>,
+) -> Result<Value, CuError> {
+    #[cfg(not(unix))]
+    {
+        let _ = (pid, start_identity, ttl_seconds, stop_on_expiry, request);
+        return Err(CuError::new(
+            "managed_job_adopt_unsupported",
+            "this host cannot retain an existing process group safely",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        let _refresh_fence = request.runtime.acquire_refresh_fence()?;
+        let _session_gate = request.runtime.acquire_session_gate(request.session_id)?;
+        let now = now_utc_ms().ok_or_else(clock_error)?;
+        request
+            .runtime
+            .session_verify(request.session_id, request.session_lease, now / 1_000)?;
+
+        // Validate the complete current-user group before publishing durable
+        // intent. The resident owner repeats this check after claiming the
+        // generation, closing the admission-to-owner race fail-closed.
+        let group =
+            agenterm_platform::process::ProcessTreeGuard::adopt_group_leader_for_termination(
+                pid,
+                start_identity,
+                JOB_RESOURCE_MAX_MEMBERS,
+            )
+            .map_err(|error| {
+                CuError::new(
+                    "managed_job_adopt_validation_failed",
+                    "process group could not be identity-bound for adoption",
+                )
+                .with_detail(json!({ "reason": error }))
+            })?;
+        drop(group);
+
+        let store = ManagedJobStore::open()?;
+        let record = store.reserve_start_with_origin(
+            Some(request.session_id),
+            ManagedJobOrigin::Adopted,
+            now,
+        )?;
+        let lease_ttl_ms = ttl_seconds.checked_mul(1_000).ok_or_else(|| {
+            CuError::new(
+                "managed_job_ttl_invalid",
+                "managed-job TTL overflows milliseconds",
+            )
+        })?;
+        let launch = ManagedJobLaunch {
+            schema_version: LAUNCH_SCHEMA_VERSION,
+            state_path: store.path().to_owned(),
+            handle: record.handle(),
+            program: PathBuf::new(),
+            arguments: Vec::new(),
+            current_directory: None,
+            environment: Vec::new(),
+            limits: None,
+            adoption: Some(ManagedJobAdoption {
+                process_id: pid,
+                start_identity: start_identity.to_owned(),
+                stop_on_expiry,
+            }),
+            output_capacity_bytes: OUTPUT_CAPACITY_BYTES,
+            lease_ttl_ms,
+        };
+        start_resident_launch(&store, &record, &launch, now)
+    }
+}
+
+fn start_resident_launch(
+    store: &ManagedJobStore,
+    record: &ManagedJobRecord,
+    launch: &ManagedJobLaunch,
+    now: i64,
+) -> Result<Value, CuError> {
+    let encoded = match serde_json::to_vec(launch) {
         Ok(encoded) => encoded,
         Err(_) => {
             let error = CuError::new(
                 "managed_job_launch_invalid",
                 "managed-job launch document could not be encoded",
             );
-            mark_clean_owner_failure(&store, &record, error.code.as_str(), now)?;
+            mark_clean_owner_failure(store, record, error.code.as_str(), now)?;
             return Err(error);
         }
     };
@@ -133,7 +221,7 @@ pub(super) fn job_spawn_payload(
                 "managed_job_owner_spawn_failed",
                 "agenterm-cu executable identity is unavailable",
             );
-            mark_clean_owner_failure(&store, &record, error.code.as_str(), now)?;
+            mark_clean_owner_failure(store, record, error.code.as_str(), now)?;
             return Err(error);
         }
     };
@@ -150,14 +238,14 @@ pub(super) fn job_spawn_payload(
                 "managed_job_owner_spawn_failed",
                 "managed-job resident owner could not start",
             );
-            mark_clean_owner_failure(&store, &record, error.code.as_str(), now)?;
+            mark_clean_owner_failure(store, record, error.code.as_str(), now)?;
             return Err(error);
         }
     };
     if mode != DetachedSpawnMode::Independent {
         let _ = owner_child.kill();
         let _ = owner_child.wait();
-        mark_clean_owner_failure(&store, &record, "owner_detach_unavailable", now)?;
+        mark_clean_owner_failure(store, record, "owner_detach_unavailable", now)?;
         return Err(CuError::new(
             "managed_job_detach_unavailable",
             "host kept the resident owner inside the caller lifetime",
@@ -166,7 +254,7 @@ pub(super) fn job_spawn_payload(
     let Some(mut input) = owner_child.stdin.take() else {
         let _ = owner_child.kill();
         let _ = owner_child.wait();
-        mark_clean_owner_failure(&store, &record, "owner_stdin_unavailable", now)?;
+        mark_clean_owner_failure(store, record, "owner_stdin_unavailable", now)?;
         return Err(CuError::new(
             "managed_job_owner_stdin_unavailable",
             "resident owner launch channel is unavailable",
@@ -180,7 +268,7 @@ pub(super) fn job_spawn_payload(
         drop(input);
         let _ = owner_child.kill();
         let _ = owner_child.wait();
-        return classify_post_spawn_failure(&store, &record, "owner_launch_write_failed", now);
+        return classify_post_spawn_failure(store, record, "owner_launch_write_failed", now);
     }
     drop(input);
 
@@ -226,12 +314,12 @@ pub(super) fn job_spawn_payload(
             ManagedJobState::StartIntent | ManagedJobState::Starting => {}
         }
         if let Ok(Some(_)) = owner_child.try_wait() {
-            return classify_post_spawn_failure(&store, &record, "owner_exited_before_ready", now);
+            return classify_post_spawn_failure(store, record, "owner_exited_before_ready", now);
         }
         if Instant::now() >= deadline {
             let _ = owner_child.kill();
             let _ = owner_child.wait();
-            return classify_post_spawn_failure(&store, &record, "owner_ready_timeout", now);
+            return classify_post_spawn_failure(store, record, "owner_ready_timeout", now);
         }
         thread::sleep(START_POLL);
     }
@@ -249,6 +337,7 @@ pub(super) fn stop_session_jobs(session_id: &str) -> Result<Value, CuError> {
     let matched = records.len();
     let mut already_terminal = 0usize;
     let mut stopped = 0usize;
+    let mut detached = 0usize;
     let mut failed = Vec::new();
 
     for record in records {
@@ -274,16 +363,15 @@ pub(super) fn stop_session_jobs(session_id: &str) -> Result<Value, CuError> {
             }
             ManagedJobState::Starting | ManagedJobState::Running => {
                 match client_request(&record.handle(), ManagedJobOperation::StopAndRelease) {
-                    Ok(ManagedJobResult::Stop { status })
-                        if !matches!(status.state, JobState::Running) =>
-                    {
-                        stopped += 1;
-                    }
-                    Ok(ManagedJobResult::Stop { .. }) => failed.push(json!({
-                        "job_id": record.job_id,
-                        "generation": record.generation,
-                        "code": "managed_job_stop_unverified",
-                    })),
+                    Ok(ManagedJobResult::Stop { status }) => match status.state {
+                        JobState::Detached => detached += 1,
+                        JobState::Running => failed.push(json!({
+                            "job_id": record.job_id,
+                            "generation": record.generation,
+                            "code": "managed_job_stop_unverified",
+                        })),
+                        _ => stopped += 1,
+                    },
                     Ok(_) => failed.push(json!({
                         "job_id": record.job_id,
                         "generation": record.generation,
@@ -307,6 +395,7 @@ pub(super) fn stop_session_jobs(session_id: &str) -> Result<Value, CuError> {
     let cleanup = json!({
         "matched": matched,
         "stopped": stopped,
+        "detached": detached,
         "already_terminal": already_terminal,
         "failed": failed,
         "complete": failed.is_empty(),
@@ -1060,10 +1149,15 @@ fn record_payload(
         ManagedJobState::Detached => ("detached", None),
         ManagedJobState::OrphanedUncertain => ("orphaned_uncertain", None),
     };
+    let origin = match record.origin {
+        ManagedJobOrigin::Spawned => "spawned",
+        ManagedJobOrigin::Adopted => "adopted",
+    };
     json!({
         "job_id": record.job_id,
         "generation": record.generation,
         "session_id": record.session_id,
+        "origin": origin,
         "state": state,
         "terminal": terminal,
         "created_at_utc_ms": record.created_at_utc_ms,
@@ -1071,7 +1165,7 @@ fn record_payload(
         "terminal_at_utc_ms": record.terminal_at_utc_ms,
         "owner_pid": record.owner.as_ref().map(|owner| owner.pid),
         "process_pid": record.process.as_ref().map(|process| process.pid),
-        "io_available": live.is_some(),
+        "io_available": live.is_some_and(|status| !status.adopted),
         "live": live,
     })
 }
@@ -1133,6 +1227,7 @@ fn build_launch(
             open_files: limits.open_files,
             processes: limits.processes,
         }),
+        adoption: None,
         output_capacity_bytes: OUTPUT_CAPACITY_BYTES,
         lease_ttl_ms,
     })
@@ -1330,6 +1425,7 @@ mod tests {
             generation: 1,
             nonce: "00000000000000000000000000000000".into(),
             session_id: session_id.map(str::to_owned),
+            origin: crate::managed_job_store::ManagedJobOrigin::Spawned,
             owner: None,
             process: None,
             state: ManagedJobState::StartIntent,

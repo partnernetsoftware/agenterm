@@ -1351,6 +1351,17 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_job_ttl")]
         ttl_seconds: u64,
     },
+    JobAdopt {
+        target: TargetRef,
+        pid: u32,
+        start_identity: String,
+        #[serde(deserialize_with = "deserialize_job_ttl")]
+        ttl_seconds: u64,
+        #[serde(default)]
+        stop_on_expiry: bool,
+        #[serde(default)]
+        force: bool,
+    },
     JobList {
         target: TargetRef,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3617,6 +3628,7 @@ impl Command {
             Self::LockList { .. } => "lock-list".into(),
             Self::LockRelease { .. } => "lock-release".into(),
             Self::JobSpawn { .. } => "job-spawn".into(),
+            Self::JobAdopt { .. } => "job-adopt".into(),
             Self::JobList { .. } => "job-list".into(),
             Self::JobStatus { .. } => "job-status".into(),
             Self::JobPrune { .. } => "job-prune".into(),
@@ -3987,6 +3999,7 @@ impl Command {
             | Self::LockList { target, .. }
             | Self::LockRelease { target, .. }
             | Self::JobSpawn { target, .. }
+            | Self::JobAdopt { target, .. }
             | Self::JobList { target, .. }
             | Self::JobStatus { target, .. }
             | Self::JobPrune { target, .. }
@@ -4192,6 +4205,7 @@ impl Command {
             | Self::LockAcquire { .. }
             | Self::LockRelease { .. }
             | Self::JobSpawn { .. }
+            | Self::JobAdopt { .. }
             | Self::JobWrite { .. }
             | Self::JobSetState { .. }
             | Self::JobSignal { .. }
@@ -4438,6 +4452,35 @@ impl Command {
                 }
                 if let Some(limits) = limits {
                     limits.validate()?;
+                }
+                Ok(())
+            }
+            Self::JobAdopt {
+                pid,
+                start_identity,
+                ttl_seconds,
+                stop_on_expiry,
+                force,
+                ..
+            } => {
+                if *pid <= 1 {
+                    return Err("managed-job adopt pid must be in 2..=4294967295");
+                }
+                if start_identity.is_empty()
+                    || start_identity.len() > 512
+                    || start_identity.bytes().any(|byte| byte == 0)
+                {
+                    return Err(
+                        "managed-job adopt start_identity must be in 1..=512 non-NUL bytes",
+                    );
+                }
+                if !(1..=JOB_TTL_SECONDS_MAX).contains(ttl_seconds) {
+                    return Err("managed-job ttl_seconds must be in 1..=86400");
+                }
+                if *stop_on_expiry != *force {
+                    return Err(
+                        "managed-job adopt expiry=stop requires --force, and --force is otherwise invalid",
+                    );
                 }
                 Ok(())
             }
@@ -4980,6 +5023,37 @@ mod tests {
             spawn
         );
         spawn_command.validate().expect("valid direct command");
+
+        let adopt = serde_json::json!({
+            "verb": "job-adopt",
+            "target": "ssh",
+            "pid": 42,
+            "start_identity": "opaque-start",
+            "ttl_seconds": 3_600,
+            "stop_on_expiry": false,
+            "force": false
+        });
+        let adopt_command: Command = serde_json::from_value(adopt.clone()).expect("adopt");
+        assert_eq!(adopt_command.verb(), "job-adopt");
+        assert_eq!(adopt_command.target(), TargetRef::Ssh);
+        assert_eq!(adopt_command.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&adopt_command).expect("serialize adopt"),
+            adopt
+        );
+        adopt_command.validate().expect("valid adopt command");
+
+        let stop_adopt: Command = serde_json::from_value(serde_json::json!({
+            "verb": "job-adopt",
+            "target": "current",
+            "pid": 42,
+            "start_identity": "opaque-start",
+            "ttl_seconds": 3_600,
+            "stop_on_expiry": true,
+            "force": true
+        }))
+        .expect("stop-on-expiry adopt");
+        stop_adopt.validate().expect("confirmed stop-on-expiry");
 
         let list: Command = serde_json::from_value(serde_json::json!({
             "verb": "job-list",

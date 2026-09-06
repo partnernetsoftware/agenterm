@@ -77,6 +77,14 @@ pub(crate) struct ExactProcessIdentity {
     pub start_identity: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedJobOrigin {
+    #[default]
+    Spawned,
+    Adopted,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub(crate) enum ManagedJobState {
@@ -106,6 +114,8 @@ pub(crate) struct ManagedJobRecord {
     pub generation: u64,
     pub nonce: String,
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub origin: ManagedJobOrigin,
     pub owner: Option<ResidentOwnerIdentity>,
     pub process: Option<ExactProcessIdentity>,
     pub state: ManagedJobState,
@@ -228,6 +238,15 @@ impl ManagedJobStore {
         session_id: Option<&str>,
         now_utc_ms: i64,
     ) -> Result<ManagedJobRecord, CuError> {
+        self.reserve_start_with_origin(session_id, ManagedJobOrigin::Spawned, now_utc_ms)
+    }
+
+    pub(crate) fn reserve_start_with_origin(
+        &self,
+        session_id: Option<&str>,
+        origin: ManagedJobOrigin,
+        now_utc_ms: i64,
+    ) -> Result<ManagedJobRecord, CuError> {
         validate_time(now_utc_ms)?;
         let session_id = session_id.map(validate_session_id).transpose()?;
         let job_id = random_uuid_v4()?;
@@ -244,6 +263,7 @@ impl ManagedJobStore {
                 generation: 1,
                 nonce,
                 session_id,
+                origin,
                 owner: None,
                 process: None,
                 state: ManagedJobState::StartIntent,
@@ -386,7 +406,6 @@ impl ManagedJobStore {
         )
     }
 
-    #[cfg(test)]
     pub(crate) fn mark_detached(
         &self,
         handle: &ManagedJobHandle,

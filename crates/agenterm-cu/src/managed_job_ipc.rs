@@ -254,6 +254,7 @@ pub(crate) enum WriteDelivery {
 #[serde(deny_unknown_fields)]
 pub(crate) struct JobStatus {
     pub state: JobState,
+    pub adopted: bool,
     pub stdin_open: bool,
     pub lease_remaining_ms: u64,
     pub stdout_earliest_cursor: u64,
@@ -268,6 +269,7 @@ pub(crate) enum JobState {
     Running,
     Exited { exit_code: i32 },
     Signaled { signal: u16 },
+    Detached,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -451,7 +453,9 @@ impl From<ResidentJobStatus> for JobStatus {
                 ResidentJobState::Running => JobState::Running,
                 ResidentJobState::Exited(exit_code) => JobState::Exited { exit_code },
                 ResidentJobState::Signaled(signal) => JobState::Signaled { signal },
+                ResidentJobState::Detached => JobState::Detached,
             },
+            adopted: status.adopted,
             stdin_open: status.stdin_open,
             lease_remaining_ms: status.lease_remaining_ms,
             stdout_earliest_cursor: status.stdout_earliest_cursor,
@@ -680,6 +684,7 @@ mod tests {
             current_directory: None,
             environment: Vec::<ManagedJobEnvironment>::new(),
             limits: None,
+            adoption: None,
             output_capacity_bytes: 32 * 1024,
             lease_ttl_ms: 60_000,
         };

@@ -204,6 +204,16 @@
       "args": []
     },
     {
+      "name": "job-adopt",
+      "command": "job-adopt",
+      "aliases": ["job adopt"],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "adopt one exact current-user POSIX process group under a resident owner",
+      "usage": "job-adopt PID --start-identity ID [--ttl-seconds N] [--expiry detach|stop] [--force]\njob adopt ...",
+      "args": []
+    },
+    {
       "name": "job-list",
       "command": "job-list",
       "aliases": ["job list"],
@@ -5278,6 +5288,10 @@
     {
       "name": "job-spawn",
       "text": "agenterm-cu job-spawn    (also: job spawn)\n  scope: actuate    family: Managed jobs\n\nusage: job-spawn [--env NAME=VALUE] [--unset-env NAME] [--cwd DIR] [--ttl-seconds N]\n                 [--cpu-seconds N] [--memory-bytes N] [--file-size-bytes N]\n                 [--max-open-files N] [--max-processes N] -- PROGRAM [ARG...]\n\nStarts one contained child under an independent resident owner. Optional CPU-time, address-space, file-size, open-file and process-count hard limits are installed before the first user instruction. Windows Job Objects support CPU-time, job-memory and active-process limits; file-size/open-file requests fail typed before spawn. macOS supports CPU-time, file-size, open-file and process-count limits; address-space memory requests fail typed because finite RLIMIT_AS is not useful below dyld's process-wide mapping. Requires global request/session identity. Exact replay returns the same job_id and generation without spawning twice. Command, environment and private owner nonce are never returned by list/status.\n"
+    },
+    {
+      "name": "job-adopt",
+      "text": "agenterm-cu job-adopt    (also: job adopt)\n  scope: actuate    family: Managed jobs\n\nusage: job-adopt PID --start-identity ID [--ttl-seconds N] [--expiry detach|stop] [--force]\n\nAdopts an existing POSIX process-group leader only after binding its exact start identity, stable bounded membership and current-user ownership, and retaining exact native termination authority for every member. Inability to retain that authority refuses adoption before durable intent. The default expiry detaches without mutating external work; expiry=stop requires --force. Windows returns typed unsupported rather than inferring retroactive Job Object ownership. Adopted jobs expose resources but no stdin/stdout ownership. Requires global request/session identity; exact replay never adopts twice.\n"
     },
     {
       "name": "job-list",

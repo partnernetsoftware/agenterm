@@ -1149,8 +1149,18 @@ flowchart LR
   spawn: Windows has no file-size/open-file Job limit, and macOS cannot impose
   a useful finite `RLIMIT_AS` below dyld's process-wide mapping. The macOS
   public qjswasm journey `cu.managed-job-limits` proves the supported path;
-  Linux/Windows reruns and process-group adopt remain, so the combined ledger
-  leaf stays a gap until those independent branches close.
+  Linux/Windows reruns remain. `job-adopt` now closes the POSIX ownership gap:
+  it requires an exact PID/start identity for a bounded same-user group and
+  retains pidfd or audit-token-backed authority before durable publication.
+  It owns none of the external process's stdin, output, cwd or environment.
+  Default TTL and session end detach without mutation; only explicit
+  `expiry=stop` plus `force` may terminate after freezing and rechecking exact
+  membership. A failure after termination may have started becomes durable
+  `managed_job_outcome_unknown`, so replay cannot repeat the effect. The
+  public macOS qjswasm journey `cu.managed-job-adopt` proves exact replay,
+  resource inventory, detach-on-session-end and explicit-stop cleanup.
+  Linux execution and Windows's exact pre-effect limitation remain before the
+  combined leaf can be release-qualified.
 
 - [~] Privilege is now split at the real authority boundary. The public
   `privilege plan process.set-priority` command is read-only on macOS/Linux:

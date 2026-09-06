@@ -737,6 +737,29 @@ fn parse_data_encoding(value: &str) -> Result<DeviceDataEncoding, String> {
 fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let command = match name {
         "job-spawn" => return parse_job_spawn(target, args),
+        "job-adopt" => {
+            let pid = positional(args, "PID")?
+                .parse()
+                .map_err(|_| "PID must be an integer in 2..=4294967295".to_owned())?;
+            let start_identity = flag_text(args, "--start-identity")?
+                .ok_or_else(|| "job-adopt requires --start-identity ID".to_owned())?;
+            let ttl_seconds = ttl_flag(args, DEFAULT_JOB_TTL_SECONDS)?;
+            let expiry = flag_text(args, "--expiry")?.unwrap_or_else(|| "detach".to_owned());
+            let force = take_switch(args, "--force");
+            let stop_on_expiry = match expiry.as_str() {
+                "detach" => false,
+                "stop" => true,
+                _ => return Err("job-adopt --expiry must be detach or stop".to_owned()),
+            };
+            Command::JobAdopt {
+                target,
+                pid,
+                start_identity,
+                ttl_seconds,
+                stop_on_expiry,
+                force,
+            }
+        }
         "job-list" => Command::JobList {
             target,
             state: flag_text(args, "--state")?
@@ -1604,6 +1627,55 @@ mod tests {
     #[test]
     fn managed_job_lifecycle_shapes_are_closed_and_bounded() {
         let id = "123e4567-e89b-42d3-a456-426614174000";
+        assert!(matches!(
+            parse(
+                "job",
+                &[
+                    "adopt",
+                    "42",
+                    "--start-identity",
+                    "opaque-start",
+                    "--ttl-seconds",
+                    "12",
+                    "--expiry",
+                    "detach",
+                ],
+            )
+            .unwrap(),
+            Command::JobAdopt {
+                pid: 42,
+                ttl_seconds: 12,
+                stop_on_expiry: false,
+                force: false,
+                ..
+            }
+        ));
+        assert!(
+            parse(
+                "job-adopt",
+                &["42", "--start-identity", "opaque-start", "--expiry", "stop",],
+            )
+            .is_err()
+        );
+        assert!(matches!(
+            parse(
+                "job-adopt",
+                &[
+                    "42",
+                    "--start-identity",
+                    "opaque-start",
+                    "--expiry",
+                    "stop",
+                    "--force",
+                ],
+            )
+            .unwrap(),
+            Command::JobAdopt {
+                stop_on_expiry: true,
+                force: true,
+                ..
+            }
+        ));
         assert!(matches!(
             parse("job", &["status", id]).unwrap(),
             Command::JobStatus { .. }

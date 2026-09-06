@@ -1465,7 +1465,16 @@ pub struct ProcessTreeGuard {
     process_group: libc::pid_t,
     root_start_identity: Option<String>,
     root_reference: Option<crate::process_reference::ProcessReference>,
+    adopted: bool,
+    adopted_termination: Option<Vec<AdoptedTerminationMember>>,
     active: bool,
+}
+
+struct AdoptedTerminationMember {
+    process_id: u32,
+    start_identity: String,
+    was_stopped: bool,
+    reference: crate::process_reference::ProcessReference,
 }
 
 pub(crate) fn configure_owned_command(command: &mut Command) -> Result<(), String> {
@@ -1497,8 +1506,98 @@ impl ProcessTreeGuard {
             process_group,
             root_start_identity,
             root_reference,
+            adopted: false,
+            adopted_termination: None,
             active: true,
         })
+    }
+
+    /// Retain an already-running, current-user process group for bounded
+    /// inventory. This does not mutate or terminate the group on drop.
+    pub fn adopt_group_leader(
+        process_id: u32,
+        expected_start_identity: &str,
+        max_members: usize,
+    ) -> Result<Self, String> {
+        if process_id <= 1 || expected_start_identity.is_empty() || max_members == 0 {
+            return Err("adopted process-group parameters are invalid".to_owned());
+        }
+        let native_id = libc::pid_t::try_from(process_id)
+            .map_err(|_| "adopted process ID exceeds pid_t".to_owned())?;
+        if unsafe { libc::getpgid(native_id) } != native_id {
+            return Err("adopted process must be its process-group leader".to_owned());
+        }
+        if !matches!(
+            observe(process_id),
+            ProcessObservation::Live { start_identity: Some(identity) }
+                if identity == expected_start_identity
+        ) {
+            return Err("adopted process identity is not live and exact".to_owned());
+        }
+        let root_reference = crate::process_reference::ProcessReference::open(process_id)
+            .map_err(|error| format!("retain adopted group leader failed: {error}"))?;
+        let guard = Self {
+            process_group: native_id,
+            root_start_identity: Some(expected_start_identity.to_owned()),
+            root_reference: Some(root_reference),
+            adopted: true,
+            adopted_termination: None,
+            active: true,
+        };
+        validate_adopted_group_owner(&guard, max_members)?;
+        Ok(guard)
+    }
+
+    /// Retain mutation-capable native references for every stable member of an
+    /// adopted process group. Callers must request this stronger authority
+    /// before publishing a contract that may stop the external group.
+    pub fn adopt_group_leader_for_termination(
+        process_id: u32,
+        expected_start_identity: &str,
+        max_members: usize,
+    ) -> Result<Self, String> {
+        let mut guard = Self::adopt_group_leader(process_id, expected_start_identity, max_members)?;
+        let before = guard.process_ids(max_members)?;
+        let mut members = Vec::with_capacity(before.len());
+        for member_id in &before {
+            let start_identity = match observe(*member_id) {
+                ProcessObservation::Live {
+                    start_identity: Some(identity),
+                } => identity,
+                _ => return Err("adopted group member identity is unavailable".to_owned()),
+            };
+            let reference =
+                crate::process_reference::ProcessReference::open_for_termination(*member_id)
+                    .map_err(|error| format!("retain adopted group member failed: {error}"))?;
+            let was_stopped = crate::process_metrics::is_stopped(*member_id).map_err(|error| {
+                format!("observe adopted group scheduler state failed: {error}")
+            })?;
+            if !matches!(
+                observe(*member_id),
+                ProcessObservation::Live { start_identity: Some(current) }
+                    if current == start_identity
+            ) || !reference.is_alive().unwrap_or(false)
+            {
+                return Err("adopted group member changed while authority was retained".to_owned());
+            }
+            members.push(AdoptedTerminationMember {
+                process_id: *member_id,
+                start_identity,
+                was_stopped,
+                reference,
+            });
+        }
+        let mut after = guard.process_ids(max_members)?;
+        let mut before = before;
+        before.sort_unstable();
+        after.sort_unstable();
+        if before != after {
+            return Err(
+                "adopted process-group membership changed while authority was retained".to_owned(),
+            );
+        }
+        guard.adopted_termination = Some(members);
+        Ok(guard)
     }
 
     pub fn process_ids(&self, max_members: usize) -> Result<Vec<u32>, String> {
@@ -1570,6 +1669,15 @@ impl ProcessTreeGuard {
     pub fn terminate(&mut self) -> Result<(), String> {
         if !self.active {
             return Ok(());
+        }
+        if self.adopted_termination.is_some() {
+            return self.terminate_adopted_group();
+        }
+        if self.adopted {
+            return Err(
+                "adopted process group was retained for observation and cannot be terminated"
+                    .to_owned(),
+            );
         }
         let root_id = u32::try_from(self.process_group)
             .map_err(|_| "owned process group is outside the process ID range".to_owned())?;
@@ -1652,6 +1760,142 @@ impl ProcessTreeGuard {
         self.active = false;
         Ok(())
     }
+
+    fn terminate_adopted_group(&mut self) -> Result<(), String> {
+        let current =
+            self.process_ids(self.adopted_termination.as_ref().map_or(0, Vec::len).max(1))?;
+        let members = self.adopted_termination.as_ref().expect("checked above");
+        let mut expected = members
+            .iter()
+            .map(|member| member.process_id)
+            .collect::<Vec<_>>();
+        let mut current = current;
+        expected.sort_unstable();
+        current.sort_unstable();
+        if current != expected
+            || members.iter().any(|member| {
+                !matches!(
+                    observe(member.process_id),
+                    ProcessObservation::Live { start_identity: Some(identity) }
+                        if identity == member.start_identity
+                ) || !member.reference.is_alive().unwrap_or(false)
+            })
+        {
+            return Err(
+                "adopted process-group membership or identity changed before termination"
+                    .to_owned(),
+            );
+        }
+
+        let mut frozen = Vec::new();
+        for (index, member) in members.iter().enumerate() {
+            if member.was_stopped {
+                continue;
+            }
+            if let Err(error) = member.reference.set_suspended(true) {
+                resume_adopted_members(members, &frozen);
+                return Err(format!("freeze adopted group member failed: {error}"));
+            }
+            frozen.push(index);
+        }
+        let stable = self.process_ids(members.len()).and_then(|mut ids| {
+            ids.sort_unstable();
+            if ids == expected
+                && members.iter().all(|member| {
+                    matches!(
+                        observe(member.process_id),
+                        ProcessObservation::Live { start_identity: Some(identity) }
+                            if identity == member.start_identity
+                    )
+                })
+            {
+                Ok(())
+            } else {
+                Err("adopted process-group changed while frozen".to_owned())
+            }
+        });
+        if let Err(error) = stable {
+            resume_adopted_members(members, &frozen);
+            return Err(error);
+        }
+
+        let root_id = u32::try_from(self.process_group)
+            .map_err(|_| "owned process group is outside the process ID range".to_owned())?;
+        for member in members.iter().filter(|member| member.process_id != root_id) {
+            member
+                .reference
+                .terminate(crate::process_control::TerminationMode::Forceful)
+                .map_err(|error| format!("terminate adopted group member failed: {error}"))?;
+        }
+        members
+            .iter()
+            .find(|member| member.process_id == root_id)
+            .ok_or_else(|| "adopted process-group root reference is missing".to_owned())?
+            .reference
+            .terminate(crate::process_control::TerminationMode::Forceful)
+            .map_err(|error| format!("terminate adopted group root failed: {error}"))?;
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        for member in members {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if member
+                .reference
+                .wait_for_exit(Some(remaining))
+                .map_err(|error| format!("wait for adopted group member exit failed: {error}"))?
+                != crate::process_reference::ProcessWait::Exited
+            {
+                return Err("adopted process-group did not exit before the deadline".to_owned());
+            }
+        }
+        self.active = false;
+        Ok(())
+    }
+}
+
+fn resume_adopted_members(members: &[AdoptedTerminationMember], frozen: &[usize]) {
+    for index in frozen.iter().rev() {
+        let _ = members[*index].reference.set_suspended(false);
+    }
+}
+
+fn validate_adopted_group_owner(
+    guard: &ProcessTreeGuard,
+    max_members: usize,
+) -> Result<(), String> {
+    use crate::process_security::ProcessPrincipal;
+
+    let current = crate::process_security::current_process()
+        .map_err(|error| format!("current process principal unavailable: {error}"))?;
+    let ProcessPrincipal::Posix {
+        effective_user_id, ..
+    } = current.principal()
+    else {
+        return Err("current process principal is not POSIX".to_owned());
+    };
+    let mut before = guard.process_ids(max_members)?;
+    before.sort_unstable();
+    if before.contains(&std::process::id()) {
+        return Err("refusing to adopt the controller's own process group".to_owned());
+    }
+    for process_id in &before {
+        let facts = crate::process_security::process(*process_id)
+            .map_err(|error| format!("adopted group principal unavailable: {error}"))?;
+        if !matches!(
+            facts.principal(),
+            ProcessPrincipal::Posix { effective_user_id: member_user_id, .. }
+                if member_user_id == effective_user_id
+        ) {
+            return Err(
+                "every adopted process-group member must belong to the current user".to_owned(),
+            );
+        }
+    }
+    let mut after = guard.process_ids(max_members)?;
+    after.sort_unstable();
+    if before != after {
+        return Err("adopted process-group membership changed during validation".to_owned());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

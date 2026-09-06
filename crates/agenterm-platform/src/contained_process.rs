@@ -381,6 +381,47 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
+    fn current_user_group_leader_can_be_adopted_by_exact_identity() {
+        let mut command = std::process::Command::new("/bin/sh");
+        command.args(["-c", "sleep 30"]);
+        crate::process::configure_owned_command(&mut command).expect("configure process group");
+        let mut child = command.spawn().expect("spawn adoptable process group");
+        let identity = crate::process_observation::start_identity(child.id())
+            .expect("adoptable root identity");
+        assert!(
+            crate::process::ProcessTreeGuard::adopt_group_leader(
+                child.id(),
+                "wrong-start-identity",
+                8,
+            )
+            .is_err()
+        );
+        let mut group =
+            crate::process::ProcessTreeGuard::adopt_group_leader(child.id(), &identity, 8)
+                .expect("adopt exact current-user group");
+        assert!(
+            group
+                .process_ids(8)
+                .expect("group members")
+                .contains(&child.id())
+        );
+        assert!(
+            group.terminate().is_err(),
+            "observation adoption cannot mutate"
+        );
+        drop(group);
+        let mut group = crate::process::ProcessTreeGuard::adopt_group_leader_for_termination(
+            child.id(),
+            &identity,
+            8,
+        )
+        .expect("retain exact termination authority");
+        group.terminate().expect("terminate adopted test group");
+        child.wait().expect("reap adopted test root");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
     fn unix_containment_inventory_is_group_complete_and_bounded() {
         let mut command = ContainedHeadlessCommand::new("/bin/sh");
         command.args(["-c", "sleep 30 & wait"]);

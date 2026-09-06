@@ -4154,6 +4154,30 @@ request cannot terminate a replacement generation. Failed starts also need a
 public exact-state removal path that independently proves owner and child absent;
 otherwise one failure permanently reserves the durable resource name.
 
+## Adopt external process groups without inventing ownership
+
+Adoption is not spawn ownership. Require the supplied process to be its group
+leader, bracket its exact start identity, bound the complete current membership
+and require every member to belong to the current user. Retain a mutation-safe
+native object for every member (`pidfd` on Linux, audit-token-bound reference on
+macOS) before publishing durable intent. A later stop must freeze only members
+that were not already scheduler-stopped, recheck stable frozen membership,
+terminate through those retained objects and preserve pre-existing stopped
+state on any pre-effect refusal. Once the first termination may have happened,
+any later failure is outcome-unknown and must never be automatically retried.
+
+The resident owner does not acquire an adopted process's stdin, output, cwd or
+environment. Default lease expiry and session end therefore detach without an
+effect; termination is a separate explicit policy that requires force. A host
+without an exact existing-group authority must refuse before publication rather
+than substitute a bare PID or group signal.
+
+When a public Script journey launches `target/debug/agenterm-cu`, rebuild that
+exact binary after source changes before interpreting behavior. Cargo source
+freshness and the bytes a black-box test executes are separate identities; bind
+release courts to an exact source SHA plus artifact digest instead of trusting a
+familiar output path.
+
 ## Preserve native error kinds across secure relative opens
 
 Windows `NtCreateFile` returns NTSTATUS, not a Win32 last-error value. Mapping

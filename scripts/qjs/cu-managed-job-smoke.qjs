@@ -13,6 +13,7 @@ const declared_evidence = [
   "cu.managed-job-lifecycle",
   "cu.managed-job-resources",
   "cu.managed-job-limits",
+  "cu.managed-job-adopt",
   "cu.managed-job-state-signal",
   "cu.managed-job-prune",
   "cu.audit-retention",
@@ -189,6 +190,11 @@ let session_lease = "";
 let first_job = null;
 let second_job = null;
 let session_bound_job = null;
+let adopted_job = null;
+let adopted_child = null;
+let adopted_stop_job = null;
+let adopted_stop_child = null;
+const owned_children = [];
 let first_owner_absent = false;
 let second_owner_absent = false;
 let session_bound_owner_absent = false;
@@ -486,6 +492,104 @@ try {
     "cu_managed_job_prune_readback"
   );
 
+  if (windows) {
+    print("STEP refuse process-group adoption on Windows instead of inventing retroactive Job Object ownership");
+    const adopt_args = mutation_prefix(request_root + "-adopt-unsupported", session_id, session_lease);
+    append_all(adopt_args, [
+      "job-adopt", "42", "--start-identity", "windows-has-no-posix-group", "--ttl-seconds", "30"
+    ]);
+    invoke_cu_failure(
+      run_directory, executable, adopt_args, "job-adopt", "managed_job_adopt_unsupported"
+    );
+  } else {
+    print("STEP adopt one exact external process group without taking its stdio or default expiry ownership");
+    adopted_child = harness.start_child(context, {
+      program: "/bin/sh",
+      args: ["-c", "while :; do sleep 1; done"],
+      env: {},
+      timeout_ms: 300000
+    }, "managed-job-adopt-fixture");
+    owned_children.push(adopted_child);
+    const adopted_process = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "process-state", "--pid", "" + adopted_child.pid
+    ], "process-state");
+    ensure(
+      adopted_process.state === "live" && text_of(adopted_process.start_identity) !== "",
+      "cu_managed_job_adopt_fixture_identity"
+    );
+    const adopt_args = mutation_prefix(request_root + "-adopt", session_id, session_lease);
+    append_all(adopt_args, [
+      "job-adopt", "" + adopted_child.pid,
+      "--start-identity", adopted_process.start_identity,
+      "--ttl-seconds", "30", "--expiry", "detach"
+    ]);
+    const adopted = invoke_cu(run_directory, executable, adopt_args, "job-adopt");
+    const adopted_replay = invoke_cu(run_directory, executable, adopt_args, "job-adopt");
+    adopted_job = {job_id: text_of(adopted.job_id), generation: adopted.generation};
+    ensure(
+      adopted_job.job_id !== "" && adopted_job.generation > 0
+        && adopted_replay.job_id === adopted_job.job_id
+        && adopted_replay.generation === adopted_job.generation,
+      "cu_managed_job_adopt_replay_identity"
+    );
+    const adopted_status = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "job-status", adopted_job.job_id
+    ], "job-status");
+    const adopted_resources = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "job-resources", adopted_job.job_id, "" + adopted_job.generation
+    ], "job-resources");
+    ensure(
+      adopted_status.origin === "adopted" && adopted_status.io_available === false
+        && adopted_status.live.adopted === true && adopted_status.live.stdin_open === false
+        && adopted_status.process_pid === adopted_child.pid
+        && has_resource_member(adopted_resources.members, adopted_child.pid, true),
+      "cu_managed_job_adopt_status_resources"
+    );
+
+    print("STEP pre-retain exact native authority before force-stopping an adopted process group");
+    adopted_stop_child = harness.start_child(context, {
+      program: "/bin/sh",
+      args: ["-c", "while :; do sleep 1; done"],
+      env: {},
+      timeout_ms: 300000
+    }, "managed-job-adopt-stop-fixture");
+    owned_children.push(adopted_stop_child);
+    const stop_process = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "process-state", "--pid", "" + adopted_stop_child.pid
+    ], "process-state");
+    const stop_adopt_args = mutation_prefix(request_root + "-adopt-stop", session_id, session_lease);
+    append_all(stop_adopt_args, [
+      "job-adopt", "" + adopted_stop_child.pid,
+      "--start-identity", stop_process.start_identity,
+      "--ttl-seconds", "30", "--expiry", "stop", "--force"
+    ]);
+    const adopted_stop = invoke_cu(run_directory, executable, stop_adopt_args, "job-adopt");
+    adopted_stop_job = {
+      job_id: text_of(adopted_stop.job_id), generation: adopted_stop.generation
+    };
+    const stopped_adopt_args = mutation_prefix(
+      request_root + "-stop-adopted", session_id, session_lease
+    );
+    append_all(stopped_adopt_args, [
+      "job-stop", adopted_stop_job.job_id, "" + adopted_stop_job.generation,
+      "--expect-stopped"
+    ]);
+    const stopped_adopt = invoke_cu(
+      run_directory, executable, stopped_adopt_args, "job-stop"
+    );
+    harness.child_wait(adopted_stop_child, 5000);
+    ensure(
+      stopped_adopt.stopped === true
+        && stopped_adopt.status.adopted === true
+        && stopped_adopt.status.state.kind === "signaled"
+        && harness.child_state(adopted_stop_child) === "exited",
+      "cu_managed_job_adopt_exact_stop"
+    );
+  }
+
   print("STEP bind one running job and target lock to the session before terminal cleanup");
   const bound_spawn_args = mutation_prefix(request_root + "-spawn-session-bound", session_id, session_lease);
   append_all(bound_spawn_args, ["job-spawn", "--ttl-seconds", "30", "--"]);
@@ -527,6 +631,17 @@ try {
     bound_status.terminal !== null && bound_status.state !== "running",
     "cu_managed_job_session_end_terminal_readback"
   );
+  if (adopted_job !== null) {
+    ensure(ended.jobs.detached >= 1, "cu_managed_job_session_end_adopt_detached_count");
+    ensure(wait_owner_absent(run_directory, executable, adopted_job), "cu_managed_job_adopt_owner_cleanup");
+    const adopted_after = invoke_cu(run_directory, executable, [
+      "--target", "current", "--grant", "observe", "job-status", adopted_job.job_id
+    ], "job-status");
+    ensure(
+      adopted_after.state === "detached" && harness.child_state(adopted_child) === "running",
+      "cu_managed_job_adopt_default_detach_preserves_external_group"
+    );
+  }
 
   print("STEP repeat session-end with the same lease without repeating any cleanup effect");
   const repeated_end = invoke_cu(run_directory, executable, [
@@ -668,12 +783,13 @@ if (session_id !== "" && !session_ended) {
 if (failure !== "") { succeeded = 0; }
 
 let completion_failure = "";
-try { harness.complete_children(context, [], succeeded !== 0, failure); }
+try { harness.complete_children(context, owned_children, succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-lifecycle");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-resources");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-limits");
+  harness.emit_evidence(context, declared_evidence, "cu.managed-job-adopt");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-state-signal");
   harness.emit_evidence(context, declared_evidence, "cu.managed-job-prune");
   harness.emit_evidence(context, declared_evidence, "cu.audit-retention");

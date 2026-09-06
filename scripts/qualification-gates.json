@@ -400,6 +400,7 @@
         "cu.managed-job-lifecycle",
         "cu.managed-job-resources",
         "cu.managed-job-limits",
+        "cu.managed-job-adopt",
         "cu.managed-job-state-signal",
         "cu.managed-job-prune",
         "cu.audit-retention",

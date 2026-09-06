@@ -28,7 +28,7 @@ use crate::managed_job_store::{
     ExactProcessIdentity, ManagedJobHandle, ManagedJobStore, ResidentOwnerIdentity,
 };
 
-pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 2;
+pub(crate) const LAUNCH_SCHEMA_VERSION: u32 = 3;
 const LAUNCH_MAX_BYTES: usize = 64 * 1024;
 const COMMAND_PARTS_MAX: usize = 256;
 const ENVIRONMENT_ENTRIES_MAX: usize = 256;
@@ -60,10 +60,19 @@ pub(crate) struct ManagedJobLaunch {
     pub current_directory: Option<PathBuf>,
     pub environment: Vec<ManagedJobEnvironment>,
     pub limits: Option<ManagedJobProcessLimits>,
+    pub adoption: Option<ManagedJobAdoption>,
     /// Aggregate retained bytes across stdout and stderr.
     pub output_capacity_bytes: usize,
     /// Resident control lease. It is held only in memory and is never persisted.
     pub lease_ttl_ms: u64,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ManagedJobAdoption {
+    pub process_id: u32,
+    pub start_identity: String,
+    pub stop_on_expiry: bool,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -111,6 +120,7 @@ impl ManagedJobOwnerError {
 pub(crate) enum ManagedJobTerminal {
     Exited(i32),
     Signaled(u16),
+    Detached,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -125,11 +135,13 @@ pub(crate) enum ResidentJobState {
     Running,
     Exited(i32),
     Signaled(u16),
+    Detached,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResidentJobStatus {
     pub state: ResidentJobState,
+    pub adopted: bool,
     pub stdin_open: bool,
     pub lease_remaining_ms: u64,
     pub stdout_earliest_cursor: u64,
@@ -314,6 +326,10 @@ pub(crate) struct ResidentJobOwner {
     owner: ResidentOwnerIdentity,
     process: ExactProcessIdentity,
     child: Option<ContainedChild>,
+    #[cfg(unix)]
+    adopted_group: Option<agenterm_platform::process::ProcessTreeGuard>,
+    adopted: bool,
+    stop_on_expiry: bool,
     stdin: Option<ContainedChildInput>,
     stdout: SharedRing,
     stderr: SharedRing,
@@ -333,9 +349,11 @@ impl ResidentJobOwner {
             None => ResidentJobState::Running,
             Some(ManagedJobTerminal::Exited(code)) => ResidentJobState::Exited(code),
             Some(ManagedJobTerminal::Signaled(signal)) => ResidentJobState::Signaled(signal),
+            Some(ManagedJobTerminal::Detached) => ResidentJobState::Detached,
         };
         Ok(ResidentJobStatus {
             state,
+            adopted: self.adopted,
             stdin_open: self.stdin.is_some(),
             lease_remaining_ms: self
                 .lease_deadline
@@ -387,14 +405,35 @@ impl ResidentJobOwner {
         &self,
         max_members: usize,
     ) -> Result<ResourceMemberIdentities, ManagedJobOwnerError> {
-        let containment = self
-            .child
-            .as_ref()
-            .ok_or_else(|| ManagedJobOwnerError::new("managed_job_resources_terminal"))?
-            .containment_members(max_members)
-            .map_err(|_| ManagedJobOwnerError::new("managed_job_containment_inventory_failed"))?;
-        let mut identities = Vec::with_capacity(containment.process_ids.len());
-        for pid in containment.process_ids {
+        let (provider, breakaway_prevented, process_ids) = if let Some(child) = &self.child {
+            let containment = child.containment_members(max_members).map_err(|_| {
+                ManagedJobOwnerError::new("managed_job_containment_inventory_failed")
+            })?;
+            (
+                containment.provider.to_owned(),
+                containment.breakaway_prevented,
+                containment.process_ids,
+            )
+        } else {
+            #[cfg(unix)]
+            {
+                let process_ids = self
+                    .adopted_group
+                    .as_ref()
+                    .ok_or_else(|| ManagedJobOwnerError::new("managed_job_resources_terminal"))?
+                    .process_ids(max_members)
+                    .map_err(|_| {
+                        ManagedJobOwnerError::new("managed_job_containment_inventory_failed")
+                    })?;
+                ("posix-adopted-process-group".to_owned(), false, process_ids)
+            }
+            #[cfg(not(unix))]
+            {
+                return Err(ManagedJobOwnerError::new("managed_job_resources_terminal"));
+            }
+        };
+        let mut identities = Vec::with_capacity(process_ids.len());
+        for pid in process_ids {
             let identity = start_identity(pid)
                 .map_err(|_| ManagedJobOwnerError::new("managed_job_member_identity_unknown"))?;
             identities.push(ExactProcessIdentity {
@@ -413,8 +452,8 @@ impl ResidentJobOwner {
                 .then_with(|| left.start_identity.cmp(&right.start_identity))
         });
         Ok(ResourceMemberIdentities {
-            provider: containment.provider.to_owned(),
-            breakaway_prevented: containment.breakaway_prevented,
+            provider,
+            breakaway_prevented,
             identities,
         })
     }
@@ -482,6 +521,9 @@ impl ResidentJobOwner {
         if let Some(report) = self.try_finish()? {
             return Ok(report);
         }
+        if self.adopted {
+            return self.stop_adopted();
+        }
         self.stdin.take();
         let _cleanup_result = self
             .child
@@ -508,7 +550,11 @@ impl ResidentJobOwner {
     /// can still drain output. Session teardown instead revokes that lease and
     /// requires the native IPC owner itself to disappear after replying.
     pub(crate) fn stop_and_release(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
-        let report = self.stop()?;
+        let report = if self.adopted && !self.stop_on_expiry {
+            self.finish_adopted_detached()?
+        } else {
+            self.stop()?
+        };
         self.lease_deadline = Instant::now();
         Ok(report)
     }
@@ -529,6 +575,14 @@ impl ResidentJobOwner {
     ) -> Result<Option<ManagedJobRunReport>, ManagedJobOwnerError> {
         if let Some(report) = self.terminal_report.clone() {
             return Ok(Some(report));
+        }
+        if self.adopted {
+            if start_identity(self.process.pid).ok().as_deref()
+                == Some(&self.process.start_identity)
+            {
+                return Ok(None);
+            }
+            return self.finish_adopted_detached().map(Some);
         }
         let exit = match self
             .child
@@ -574,6 +628,11 @@ impl ResidentJobOwner {
                 self.store
                     .mark_signaled(&self.handle, &self.owner, &self.process, signal, now)
             }
+            ManagedJobTerminal::Detached => {
+                return Err(ManagedJobOwnerError::new(
+                    "managed_job_process_state_unknown",
+                ));
+            }
         }
         .map_err(|_| ManagedJobOwnerError::new("managed_job_terminal_publish_failed"))?;
 
@@ -586,6 +645,61 @@ impl ResidentJobOwner {
         };
         self.terminal_report = Some(report.clone());
         Ok(report)
+    }
+
+    fn finish_adopted_detached(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+        self.store
+            .mark_detached(&self.handle, &self.owner, &self.process, now_utc_ms()?)
+            .map_err(|_| ManagedJobOwnerError::new("managed_job_terminal_publish_failed"))?;
+        self.finished = true;
+        #[cfg(unix)]
+        self.adopted_group.take();
+        let report = ManagedJobRunReport {
+            terminal: ManagedJobTerminal::Detached,
+            stdout: lock_ring(&self.stdout).snapshot(),
+            stderr: lock_ring(&self.stderr).snapshot(),
+        };
+        self.terminal_report = Some(report.clone());
+        Ok(report)
+    }
+
+    fn stop_adopted(&mut self) -> Result<ManagedJobRunReport, ManagedJobOwnerError> {
+        #[cfg(unix)]
+        {
+            self.adopted_group
+                .as_mut()
+                .ok_or_else(|| ManagedJobOwnerError::new("managed_job_process_state_unknown"))?
+                .terminate()
+                // Exact-group termination may have crossed the first native
+                // effect before a later member or verification failed.  The
+                // caller must not treat that result as safely retryable.
+                .map_err(|_| ManagedJobOwnerError::new("managed_job_outcome_unknown"))?;
+            let deadline = Instant::now() + CLEANUP_WAIT;
+            while start_identity(self.process.pid).ok().as_deref()
+                == Some(&self.process.start_identity)
+            {
+                if Instant::now() >= deadline {
+                    return Err(ManagedJobOwnerError::new("managed_job_outcome_unknown"));
+                }
+                thread::sleep(WAIT_POLL);
+            }
+            self.store
+                .mark_signaled(&self.handle, &self.owner, &self.process, 9, now_utc_ms()?)
+                .map_err(|_| ManagedJobOwnerError::new("managed_job_outcome_unknown"))?;
+            self.finished = true;
+            self.adopted_group.take();
+            let report = ManagedJobRunReport {
+                terminal: ManagedJobTerminal::Signaled(9),
+                stdout: lock_ring(&self.stdout).snapshot(),
+                stderr: lock_ring(&self.stderr).snapshot(),
+            };
+            self.terminal_report = Some(report.clone());
+            Ok(report)
+        }
+        #[cfg(not(unix))]
+        {
+            Err(ManagedJobOwnerError::new("managed_job_adopt_unsupported"))
+        }
     }
 
     #[cfg(test)]
@@ -604,7 +718,11 @@ impl ResidentJobOwner {
             return Ok(());
         }
         if Instant::now() >= self.lease_deadline {
-            self.stop().map(|_| ())
+            if self.adopted && !self.stop_on_expiry {
+                self.finish_adopted_detached().map(|_| ())
+            } else {
+                self.stop().map(|_| ())
+            }
         } else {
             self.try_finish().map(|_| ())
         }
@@ -747,6 +865,9 @@ impl Drop for ResidentJobOwner {
         if self.finished {
             return;
         }
+        if self.adopted {
+            return;
+        }
         let cleanup_known = self
             .child
             .as_mut()
@@ -791,6 +912,10 @@ pub(crate) fn start_owner_from_launch(
     store
         .claim_starting(&launch.handle, owner.clone(), now_utc_ms()?)
         .map_err(|_| ManagedJobOwnerError::new("managed_job_intent_claim_failed"))?;
+
+    if let Some(adoption) = launch.adoption.clone() {
+        return start_adopted_owner(store, launch.handle, owner, adoption, launch.lease_ttl_ms);
+    }
 
     let command = build_contained_command(&launch);
     let mut child = match command.spawn() {
@@ -916,6 +1041,10 @@ pub(crate) fn start_owner_from_launch(
         owner,
         process,
         child: Some(child),
+        #[cfg(unix)]
+        adopted_group: None,
+        adopted: false,
+        stop_on_expiry: true,
         stdin: Some(stdin_stream),
         stdout,
         stderr,
@@ -927,6 +1056,79 @@ pub(crate) fn start_owner_from_launch(
             .checked_add(Duration::from_millis(launch.lease_ttl_ms))
             .ok_or_else(|| ManagedJobOwnerError::new("managed_job_lease_invalid"))?,
     })
+}
+
+fn start_adopted_owner(
+    store: ManagedJobStore,
+    handle: ManagedJobHandle,
+    owner: ResidentOwnerIdentity,
+    adoption: ManagedJobAdoption,
+    lease_ttl_ms: u64,
+) -> Result<ResidentJobOwner, ManagedJobOwnerError> {
+    #[cfg(not(unix))]
+    {
+        let _ = (store, handle, owner, adoption, lease_ttl_ms);
+        return Err(ManagedJobOwnerError::new("managed_job_adopt_unsupported"));
+    }
+    #[cfg(unix)]
+    {
+        let group =
+            agenterm_platform::process::ProcessTreeGuard::adopt_group_leader_for_termination(
+                adoption.process_id,
+                &adoption.start_identity,
+                RESOURCE_MEMBERS_MAX,
+            );
+        let group = match group {
+            Ok(group) => group,
+            Err(_) => {
+                let _ = store.mark_start_failed(
+                    &handle,
+                    &owner,
+                    "adopt_validation_failed",
+                    now_utc_ms()?,
+                );
+                return Err(ManagedJobOwnerError::new(
+                    "managed_job_adopt_validation_failed",
+                ));
+            }
+        };
+        let process = ExactProcessIdentity {
+            pid: adoption.process_id,
+            start_identity: adoption.start_identity,
+        };
+        if store
+            .mark_running(&handle, &owner, process.clone(), now_utc_ms()?)
+            .is_err()
+        {
+            return Err(ManagedJobOwnerError::new(
+                "managed_job_running_publish_failed",
+            ));
+        }
+        let mut stdout = CursorRing::new(OUTPUT_CAPACITY_MIN / 2);
+        stdout.finish(None);
+        let mut stderr = CursorRing::new(OUTPUT_CAPACITY_MIN / 2);
+        stderr.finish(None);
+        Ok(ResidentJobOwner {
+            store,
+            handle,
+            owner,
+            process,
+            child: None,
+            adopted_group: Some(group),
+            adopted: true,
+            stop_on_expiry: adoption.stop_on_expiry,
+            stdin: None,
+            stdout: Arc::new(Mutex::new(stdout)),
+            stderr: Arc::new(Mutex::new(stderr)),
+            stdout_drain: None,
+            stderr_drain: None,
+            finished: false,
+            terminal_report: None,
+            lease_deadline: Instant::now()
+                .checked_add(Duration::from_millis(lease_ttl_ms))
+                .ok_or_else(|| ManagedJobOwnerError::new("managed_job_lease_invalid"))?,
+        })
+    }
 }
 
 /// Current synchronous internal entry point. A later detached-owner command
@@ -953,9 +1155,10 @@ pub(crate) fn read_launch(mut reader: impl Read) -> Result<ManagedJobLaunch, Man
 }
 
 fn validate_launch(launch: &ManagedJobLaunch) -> Result<(), ManagedJobOwnerError> {
+    let spawned = launch.adoption.is_none();
     if launch.schema_version != LAUNCH_SCHEMA_VERSION
         || !launch.state_path.is_absolute()
-        || !launch.program.is_absolute()
+        || (spawned && !launch.program.is_absolute())
         || launch.arguments.len() > COMMAND_PARTS_MAX
         || launch.environment.len() > ENVIRONMENT_ENTRIES_MAX
         || !(OUTPUT_CAPACITY_MIN..=OUTPUT_CAPACITY_MAX).contains(&launch.output_capacity_bytes)
@@ -970,7 +1173,7 @@ fn validate_launch(launch: &ManagedJobLaunch) -> Result<(), ManagedJobOwnerError
     {
         return Err(ManagedJobOwnerError::new("managed_job_launch_invalid"));
     }
-    if launch.program.as_os_str().is_empty()
+    if (spawned && launch.program.as_os_str().is_empty())
         || launch.program.as_os_str().as_encoded_bytes().contains(&0)
         || launch
             .arguments
@@ -982,6 +1185,21 @@ fn validate_launch(launch: &ManagedJobLaunch) -> Result<(), ManagedJobOwnerError
             .is_some_and(|path| path.as_os_str().as_encoded_bytes().contains(&0))
     {
         return Err(ManagedJobOwnerError::new("managed_job_launch_invalid"));
+    }
+    if let Some(adoption) = &launch.adoption {
+        if adoption.process_id <= 1
+            || adoption.start_identity.is_empty()
+            || adoption.start_identity.len() > 512
+            || !launch.program.as_os_str().is_empty()
+            || !launch.arguments.is_empty()
+            || launch.current_directory.is_some()
+            || !launch.environment.is_empty()
+            || launch.limits.is_some()
+        {
+            return Err(ManagedJobOwnerError::new("managed_job_launch_invalid"));
+        }
+        #[cfg(not(unix))]
+        return Err(ManagedJobOwnerError::new("managed_job_adopt_unsupported"));
     }
     let mut names = HashSet::with_capacity(launch.environment.len());
     for entry in &launch.environment {
@@ -1158,6 +1376,7 @@ mod tests {
             current_directory: None,
             environment: Vec::new(),
             limits: None,
+            adoption: None,
             output_capacity_bytes: 16 * 1024,
             lease_ttl_ms: 60_000,
         }

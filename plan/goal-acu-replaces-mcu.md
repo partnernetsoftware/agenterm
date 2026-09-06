@@ -717,13 +717,15 @@ Q3 owned runtime facades
 │  │  ├─ [x] macOS public qjswasm foreground/background/unrelated isolation court
 │  │  ├─ [x] direct ConPTY + console-agent C1 verdict: typed limit before mutation
 │  │  └─ [ ] Linux/Windows runtime rerun of the enlarged signal + cleanup court
-│  ├─ [~] managed-job prune + pre-exec limits: durable retention and kernel-enforced child budgets
+│  ├─ [~] managed-job adopt + prune + pre-exec limits
 │  │  ├─ [x] live/detached/orphaned-uncertain records are never candidates
 │  │  ├─ [x] CPU/file-size/open-file/process-count enter macOS/Linux before exec; Linux also has RLIMIT_AS
 │  │  ├─ [x] Windows child is suspended until configured Job CPU/memory/process limits own it
 │  │  ├─ [x] unsupported host/limit pairs fail before target spawn; macOS finite RLIMIT_AS is explicit
-│  │  ├─ [~] macOS public qjswasm court green; Linux/Windows rerun pending
-│  │  └─ [ ] identity-bound adopt still keeps the combined ledger leaf at gap
+│  │  ├─ [x] identity-bound POSIX process-group adopt; default expiry/session end detach
+│  │  ├─ [x] explicit stop freezes + rechecks exact membership; uncertain effect is never retried
+│  │  ├─ [x] macOS public qjswasm court `cu.managed-job-adopt` green
+│  │  └─ [ ] Linux native run + Windows exact typed-limitation evidence
 │  └─ [ ] aggregate resources, policy/priority, non-idempotent signals and expiry-detach shape
 └─ [~] file/network/storage/device/audio/resource/power/privilege
    ├─ [~] host resource status: bounded CPU/memory/load/uptime/process snapshot
@@ -832,7 +834,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 134 ledger capabilities
-currently include 7 `gap` and 57 `platform-limited` rows. The compatibility
+currently include 6 `gap` and 58 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was

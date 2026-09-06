@@ -277,6 +277,21 @@ impl Executor {
                     request,
                 )
             }
+            Command::JobAdopt {
+                pid,
+                start_identity,
+                ttl_seconds,
+                stop_on_expiry,
+                ..
+            } => {
+                let request = job_request.ok_or_else(|| {
+                    CuError::new(
+                        "managed_job_request_identity_required",
+                        "job-adopt requires request-id, session and session-lease",
+                    )
+                })?;
+                job_adopt_payload(*pid, start_identity, *ttl_seconds, *stop_on_expiry, request)
+            }
             Command::JobList {
                 state, offset, max, ..
             } => job_list_payload(*state, *offset, *max),

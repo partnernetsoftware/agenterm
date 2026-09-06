@@ -439,7 +439,7 @@ impl Executor {
                     .as_ref()
                     .is_some_and(|outcome| outcome.kind == FinalOutcomeKind::Succeeded);
                 if succeeded {
-                    if matches!(command, Command::JobSpawn { .. }) {
+                    if matches!(command, Command::JobSpawn { .. } | Command::JobAdopt { .. }) {
                         return match status
                             .outcome
                             .as_ref()
@@ -452,7 +452,7 @@ impl Executor {
                                 command,
                                 CuError::new(
                                     "managed_job_replay_projection_missing",
-                                    "completed job-spawn has no sealed public replay result",
+                                    "completed managed-job creation has no sealed public replay result",
                                 ),
                             ),
                         };
@@ -486,7 +486,9 @@ impl Executor {
                 }
                 let detail = if matches!(
                     command,
-                    Command::JobSpawn { .. } | Command::DeviceClaim { .. }
+                    Command::JobSpawn { .. }
+                        | Command::JobAdopt { .. }
+                        | Command::DeviceClaim { .. }
                 ) {
                     serde_json::json!({
                         "effect": "not_repeated",
@@ -511,7 +513,9 @@ impl Executor {
             Ok(ReserveDecision::Uncertain(status)) => {
                 let detail = if matches!(
                     command,
-                    Command::JobSpawn { .. } | Command::DeviceClaim { .. }
+                    Command::JobSpawn { .. }
+                        | Command::JobAdopt { .. }
+                        | Command::DeviceClaim { .. }
                 ) {
                     serde_json::json!({
                         "effect": "unknown",
@@ -597,7 +601,7 @@ impl Executor {
 
         let outcome = if reply.ok {
             let outcome = FinalOutcome::new(FinalOutcomeKind::Succeeded, "ok", None);
-            if matches!(command, Command::JobSpawn { .. }) {
+            if matches!(command, Command::JobSpawn { .. } | Command::JobAdopt { .. }) {
                 outcome.and_then(|outcome| {
                     reply
                         .data
@@ -605,7 +609,7 @@ impl Executor {
                         .ok_or_else(|| {
                             CuError::new(
                                 "managed_job_replay_projection_invalid",
-                                "successful job-spawn omitted its public identity",
+                                "successful managed-job creation omitted its public identity",
                             )
                         })
                         .and_then(replay_from_spawn_reply)
