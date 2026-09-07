@@ -133,10 +133,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `11 dynamic-stay` rows as their exact typed TODO and the one permanent-scope row as a
-  local rejection. The 23 resolved witnesses now have an executable disposition:
-  10 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 11 remaining
+  `9 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 24 resolved witnesses now have an executable disposition:
+  11 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 9 remaining
   dynamic-stay witness rows keep their stable repair identities. The `.084` witness now
   proves native Space filtering, while its other legacy watch filters remain explicitly
   asserted as the same typed TODO until their per-poll semantics exist.
@@ -506,8 +506,9 @@ ACU-only cutover
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green,
 │  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
 │  ├─ acu.dynamic.050 · simulator application status
-│  ├─ acu.dynamic.061 · PTY tmux provider / multi-pane inventory
-│  ├─ acu.dynamic.067 · bounded linear-time PTY pattern wait
+│  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
+│  ├─ [~] acu.dynamic.067 · `literal.*` reduces exactly to native loss-aware substring wait;
+│  │  └─ general bounded linear-time regex remains typed TODO
 │  ├─ acu.dynamic.072 · application inspection / signing facts
 │  ├─ acu.dynamic.074 · window-local scroll without physical-pointer movement
 │  ├─ acu.dynamic.075 · browser tabs selected by profile/application

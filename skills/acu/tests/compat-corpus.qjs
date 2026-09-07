@@ -47,7 +47,7 @@ require(explicit_todo === 0, "positive compatibility corpus must expose no TODO 
 let dynamic_stays = 0;
 let permanent_rejections = 0;
 const resolved_exec = ["acu.dynamic.003", "acu.dynamic.021", "acu.dynamic.051",
-  "acu.dynamic.066", "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
+  "acu.dynamic.066", "acu.dynamic.067", "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
   "acu.dynamic.084", "acu.dynamic.096"];
 const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.078", "acu.dynamic.083",
@@ -82,6 +82,10 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
       if (row.gap_id === "acu.dynamic.084") {
         same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
           "windows-watch", "--space", "1"], row.gap_id);
+      } else if (row.gap_id === "acu.dynamic.067") {
+        same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
+          "pty-wait", "job-1", "--contains", "text", "--cursor", "earliest",
+          "--timeout-ms", "30000"], row.gap_id);
       }
     } else if (resolved_todo.includes(row.gap_id)) {
       require(mapped.kind === "todo", row.gap_id + " pending compound must be TODO");
@@ -95,9 +99,21 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
     resolved_checked = resolved_checked + 1;
   }
 }
-require(dynamic_stays === 11, "dynamic stay corpus count");
-require(permanent_rejections === 1, "permanent rejection corpus count");
-require(resolved_checked === 23, "resolved dynamic corpus count");
+require(dynamic_stays === 9, "dynamic stay corpus count");
+require(permanent_rejections === 2, "permanent rejection corpus count");
+require(resolved_checked === 24, "resolved dynamic corpus count");
+
+const irreducible_wait = compat.canonicalize([
+  "pty", "wait", "job-1", "text[0-9]+", "--provider", "native"
+]);
+require(irreducible_wait.kind === "todo", "general regex wait remains TODO");
+require(irreducible_wait.gap_id === "acu.dynamic.067",
+  "general regex wait keeps stable dynamic id");
+
+const native_pty_list = compat.canonicalize(["pty", "list", "--provider", "native"]);
+require(native_pty_list.kind === "exec", "native PTY inventory executes");
+same_argv(native_pty_list.argv, ["--target", "current", "--grant", "observe,actuate",
+  "pty-list"], "native PTY inventory");
 
 const tree_value_bound = compat.canonicalize([
   "tree", "Window#1", "--max-value-bytes", "0"
@@ -113,4 +129,4 @@ require(space_with_unmapped_filter.kind === "todo", "unmapped watch filter remai
 require(space_with_unmapped_filter.gap_id === "acu.dynamic.084",
   "unmapped watch filter keeps stable dynamic id");
 
-"compat-corpus.qjs PASS 42 positive exec / 23 resolved dispositions (10 exec + 8 compound + 5 usage) / 11 dynamic TODO / 1 permanent rejection / 95 frozen";
+"compat-corpus.qjs PASS 42 positive exec / 24 resolved dispositions (11 exec + 8 compound + 5 usage) / 9 dynamic TODO / 2 permanent rejections / 95 frozen";

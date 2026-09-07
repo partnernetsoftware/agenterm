@@ -110,6 +110,21 @@ function optional_integer(raw, minimum, label) {
   return { ok: true, value: value };
 }
 
+function reducible_wait_literal(pattern) {
+  if (typeof pattern !== "string" || pattern.length < 1 || pattern.length > 512
+      || pattern.indexOf("\0") >= 0) {
+    return null;
+  }
+  let literal = pattern;
+  if (pattern.endsWith(".*")) { literal = pattern.slice(0, pattern.length - 2); }
+  if (literal.length < 1) { return null; }
+  const syntax = "\\^$.*+?()[]{}|";
+  for (let i = 0; i < literal.length; i = i + 1) {
+    if (syntax.indexOf(literal[i]) >= 0) { return null; }
+  }
+  return literal;
+}
+
 function compound_plan(kind, command, fields) {
   fields.kind = kind;
   fields.command = command;
@@ -132,6 +147,18 @@ function known_dynamic_boundary(argv) {
   if (verb === "pty" && has_arg(argv, "--provider")) {
     const provider = value_flag(argv, "provider");
     if (!provider.ok) { return { kind: "usage", command: "pty", message: provider.message }; }
+    if (provider.value !== "native") {
+      return { kind: "usage", command: "pty",
+        message: "tmux provider topology is outside the AgenTerm-owned one-tab PTY contract" };
+    }
+    if (sub === "list") {
+      const parsed = without_value_flags(argv, ["provider"]);
+      if (!parsed.ok) { return { kind: "usage", command: "pty", message: parsed.message }; }
+      if (parsed.argv.length !== 2) {
+        return { kind: "usage", command: "pty", message: "pty list accepts no extra arguments" };
+      }
+      return { kind: "exec", argv: ["pty-list"] };
+    }
     if (sub === "start" && provider.value === "native") {
       const parsed = without_value_flags(argv, ["provider"]);
       const native = ["pty-start"];
@@ -139,12 +166,26 @@ function known_dynamic_boundary(argv) {
       return { kind: "exec", argv: native };
     }
     if (sub === "wait") {
+      const parsed = without_value_flags(argv, ["provider", "timeout"]);
+      if (!parsed.ok) { return { kind: "usage", command: "pty", message: parsed.message }; }
+      if (parsed.argv.length === 4) {
+        const literal = reducible_wait_literal(parsed.argv[3]);
+        const timeout = parsed.values.timeout === null ? 30 : Number(parsed.values.timeout);
+        if (timeout !== timeout || timeout < 0.05 || timeout > 300) {
+          return { kind: "usage", command: "pty",
+            message: "pty wait --timeout must be in [0.05, 300] seconds" };
+        }
+        if (literal !== null) {
+          return { kind: "exec", argv: ["pty-wait", parsed.argv[2], "--contains", literal,
+            "--cursor", "earliest", "--timeout-ms", "" + Math.round(timeout * 1000)] };
+        }
+      }
       return todo("acu.dynamic.067", "pty", "legacy regex wait needs a bounded linear-time matcher");
     }
     if (sub === "start") {
       return todo("acu.dynamic.066", "pty", "legacy default-shell start needs a typed native shape");
     }
-    return todo("acu.dynamic.061", "pty", "tmux provider and multi-pane inventory are not typed yet");
+    return todo("acu.dynamic.061", "pty", "native provider shape is not typed yet");
   }
   if (verb === "job" && (sub === "output" || sub === "events" || sub === "wait")
       && !has_arg(argv, "--generation")) {
