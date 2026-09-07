@@ -36,6 +36,33 @@ fail() {
   exit 1
 }
 
+verify_cu_abi() {
+  local cu="$1"
+  local abi="$2"
+  local report="$TMP_DIR/cu-abi-doctor.json"
+  if ! AGENTERM_ABI_LIB="$abi" AGENTERM_NO_ACTIVATE=1 \
+    "$cu" --target current --grant observe doctor >"$report"; then
+    fail "agenterm-cu doctor rejected its colocated ABI library"
+  fi
+  python3 - "$report" <<'PY' || fail "agenterm-cu/libagenterm ABI verification failed"
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    reply = json.load(stream)
+abi = reply["data"]["checks"]["abi"]
+detail = abi["detail"]
+actual = (detail.get("major"), detail.get("minor"))
+required = (detail.get("required_major"), detail.get("required_minor"))
+symbols = detail.get("required_symbols")
+if reply.get("ok") is not True or abi.get("status") != "available":
+    raise SystemExit("ABI readiness is not available")
+if actual != required or actual != (1, 28):
+    raise SystemExit(f"expected exact ABI 1.28, library={actual}, CU requires={required}")
+if not isinstance(symbols, int) or isinstance(symbols, bool) or symbols <= 0:
+    raise SystemExit("required-symbol readiness was not proved")
+print(f"==> Verified agenterm-cu ABI {actual[0]}.{actual[1]} ({symbols} required symbols)")
+PY
+}
+
 warn_trust_preview() {
   {
     printf '==> %s\n' "************************************************************"
@@ -185,23 +212,28 @@ if [[ -n "$LOCAL_BUILD_DIR" ]]; then
   [[ "$OS" == "macos" ]] || fail "--local-build currently supports macOS only"
   [[ -d "$LOCAL_BUILD_DIR" ]] || fail "local build directory does not exist: $LOCAL_BUILD_DIR"
   LOCAL_BUILD_DIR="$(cd "$LOCAL_BUILD_DIR" && pwd -P)"
-  REQUIRED_EXECUTABLES=(agenterm)
+  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agenterm-install.XXXXXXXX")"
+  REQUIRED_EXECUTABLES=(agenterm agenterm-cu)
+  REQUIRED_LIBRARY="libagenterm.dylib"
   for executable in "${REQUIRED_EXECUTABLES[@]}"; do
     SOURCE_PATH="$LOCAL_BUILD_DIR/$executable"
     [[ -f "$SOURCE_PATH" && ! -L "$SOURCE_PATH" && -x "$SOURCE_PATH" ]] ||
       fail "local build is missing executable: $SOURCE_PATH"
   done
+  [[ -f "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY" && ! -L "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY" && -s "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY" ]] ||
+    fail "local build is missing ABI library: $LOCAL_BUILD_DIR/$REQUIRED_LIBRARY"
+  verify_cu_abi "$LOCAL_BUILD_DIR/agenterm-cu" "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY"
   LOCAL_VERSION_OUTPUT="$($LOCAL_BUILD_DIR/agenterm cli --version)"
   [[ "$LOCAL_VERSION_OUTPUT" =~ ^agenterm[[:space:]]+cli[[:space:]]+([0-9A-Za-z.+_-]+)$ ]] ||
     fail "local agenterm cli returned an invalid version: $LOCAL_VERSION_OUTPUT"
   RELEASE_VERSION="${BASH_REMATCH[1]}"
   VERSION="v$RELEASE_VERSION-local"
-  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agenterm-install.XXXXXXXX")"
   STAGING_DIR="$TMP_DIR/payload"
   mkdir -p "$STAGING_DIR"
   for executable in "${REQUIRED_EXECUTABLES[@]}"; do
     cp "$LOCAL_BUILD_DIR/$executable" "$STAGING_DIR/$executable"
   done
+  cp "$LOCAL_BUILD_DIR/$REQUIRED_LIBRARY" "$STAGING_DIR/$REQUIRED_LIBRARY"
 
   RELEASES_DIR="$INSTALL_ROOT/releases"
   RELEASE_DIR="$RELEASES_DIR/$RELEASE_VERSION-local-$OS-$ARCH"
@@ -215,6 +247,7 @@ if [[ -n "$LOCAL_BUILD_DIR" ]]; then
   for executable in "${REQUIRED_EXECUTABLES[@]}"; do
     replace_symlink "$CURRENT_LINK/$executable" "$BIN_DIR/$executable"
   done
+  replace_symlink "$CURRENT_LINK/$REQUIRED_LIBRARY" "$BIN_DIR/$REQUIRED_LIBRARY"
 
   APP_DIR="$APPLICATIONS_DIR/AgenTerm.app"
   APP_CONTENTS="$APP_DIR/Contents"
@@ -428,14 +461,19 @@ else
   tar -xzf "$ARCHIVE_PATH" -C "$STAGING_DIR"
 fi
 
-REQUIRED_EXECUTABLES=(
-  agenterm
-)
+REQUIRED_EXECUTABLES=(agenterm agenterm-cu)
+if [[ "$OS" == "macos" ]]; then
+  REQUIRED_LIBRARY="libagenterm.dylib"
+else
+  REQUIRED_LIBRARY="libagenterm.so"
+fi
 for executable in "${REQUIRED_EXECUTABLES[@]}"; do
   [[ -f "$STAGING_DIR/$executable" && ! -L "$STAGING_DIR/$executable" ]] ||
     fail "release payload is missing $executable"
   chmod +x "$STAGING_DIR/$executable"
 done
+[[ -f "$STAGING_DIR/$REQUIRED_LIBRARY" && ! -L "$STAGING_DIR/$REQUIRED_LIBRARY" && -s "$STAGING_DIR/$REQUIRED_LIBRARY" ]] ||
+  fail "release payload is missing $REQUIRED_LIBRARY"
 
 if [[ "$OS" == "macos" && "$USE_UNSIGNED_PREVIEW" != "1" ]]; then
   command -v codesign >/dev/null 2>&1 || fail "codesign is required on macOS"
@@ -446,7 +484,10 @@ if [[ "$OS" == "macos" && "$USE_UNSIGNED_PREVIEW" != "1" ]]; then
     [[ "$SIGNATURE_INFO" == *"Authority=Developer ID Application:"* ]] ||
       fail "$executable is not signed with an Apple Developer ID Application identity"
   done
+  codesign --verify --strict "$STAGING_DIR/$REQUIRED_LIBRARY" >/dev/null 2>&1 ||
+    fail "Apple code-signature verification failed for $REQUIRED_LIBRARY"
 fi
+verify_cu_abi "$STAGING_DIR/agenterm-cu" "$STAGING_DIR/$REQUIRED_LIBRARY"
 
 RELEASES_DIR="$INSTALL_ROOT/releases"
 RELEASE_DIR="$RELEASES_DIR/$RELEASE_VERSION-$OS-$ARCH"
@@ -463,6 +504,7 @@ for executable in "${REQUIRED_EXECUTABLES[@]}"; do
   LINK_PATH="$BIN_DIR/$executable"
   replace_symlink "$CURRENT_LINK/$executable" "$LINK_PATH"
 done
+replace_symlink "$CURRENT_LINK/$REQUIRED_LIBRARY" "$BIN_DIR/$REQUIRED_LIBRARY"
 
 # G2: remove broken BIN symlinks that still point under this install root
 # (e.g. renamed agenterm-script → agenterm-rh left a dangling link).

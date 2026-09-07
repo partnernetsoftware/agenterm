@@ -7,6 +7,13 @@ mkdir -p "$TMP/bin"
 for name in agenterm agenterm-cc agenterm-cu libagenterm.dylib; do
   printf 'fixture:%s\n' "$name" > "$TMP/bin/$name"
 done
+cat > "$TMP/bin/agenterm-cu" <<'EOF'
+#!/bin/sh
+test -f "${AGENTERM_ABI_LIB:?}" || exit 1
+cat <<'JSON'
+{"ok":true,"data":{"checks":{"abi":{"status":"available","detail":{"major":1,"minor":28,"required_major":1,"required_minor":28,"required_symbols":61}}}}}
+JSON
+EOF
 chmod 0755 "$TMP/bin/agenterm" "$TMP/bin/agenterm-cc" "$TMP/bin/agenterm-cu"
 "$ROOT/packaging/privilege/macos/stage-app-bundle.sh" \
   aarch64 "$TMP/bin" "$TMP/AgenTerm.app" 0.0.0-test

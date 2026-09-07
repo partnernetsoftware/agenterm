@@ -22,18 +22,26 @@ APP_BIN="${APP}/Contents/MacOS/agenterm-cu"
 BIN="${BIN_DIR}/agenterm-cu"
 PLIST="${LAUNCH_DIR}/${LABEL}.plist"
 
-echo "building release agenterm-cu..."
-cargo build -p agenterm-cu --bin agenterm-cu --release --manifest-path "${ROOT}/Cargo.toml"
+echo "building abi-release agenterm-cu + libagenterm..."
+cargo build --locked --profile abi-release -p agenterm-cu -p agenterm-abi \
+  --manifest-path "${ROOT}/Cargo.toml"
+CU_SOURCE="${ROOT}/target/abi-release/agenterm-cu"
+ABI_SOURCE="${ROOT}/target/abi-release/libagenterm.dylib"
+"${ROOT}/packaging/verify-cu-abi.sh" "${CU_SOURCE}" "${ABI_SOURCE}"
 
 mkdir -p "${BIN_DIR}" "${DATA_DIR}" "${LAUNCH_DIR}" "${APP}/Contents/MacOS"
-cp "${ROOT}/target/release/agenterm-cu" "${APP_BIN}"
+cp "${CU_SOURCE}" "${APP_BIN}"
+cp "${ABI_SOURCE}" "${APP}/Contents/MacOS/libagenterm.dylib"
 chmod 755 "${APP_BIN}"
+chmod 644 "${APP}/Contents/MacOS/libagenterm.dylib"
 ln -sfn "${APP_BIN}" "${BIN}"
 
 # Mirror for any old absolute paths.
 mkdir -p "${LEGACY_APP}/Contents/MacOS"
 cp "${APP_BIN}" "${LEGACY_APP}/Contents/MacOS/agenterm-cu"
+cp "${ABI_SOURCE}" "${LEGACY_APP}/Contents/MacOS/libagenterm.dylib"
 chmod 755 "${LEGACY_APP}/Contents/MacOS/agenterm-cu"
+chmod 644 "${LEGACY_APP}/Contents/MacOS/libagenterm.dylib"
 
 write_plist() {
   local dest=$1
