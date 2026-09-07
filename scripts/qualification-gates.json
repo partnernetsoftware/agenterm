@@ -510,6 +510,12 @@
       "evidence": [
         "cu.tree-selector-subtree"
       ]
+    },
+    {
+      "id": "cu-query-watch-smoke",
+      "evidence": [
+        "cu.query-watch-filtered-poll"
+      ]
     }
   ]
 }

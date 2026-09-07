@@ -118,9 +118,249 @@ pub(super) fn window_app_name(handle: Option<isize>) -> String {
         .unwrap_or_default()
 }
 
-/// Bounded, filtered flat node list over the same walk `tree` makes.
+fn query_watch_bounds(
+    watch_ms: Option<u64>,
+    until: Option<QueryWatchUntil>,
+    interval_ms: Option<u64>,
+    max_events: Option<usize>,
+) -> Result<Option<(u64, u64, usize)>, CuError> {
+    let Some(watch_ms) = watch_ms else {
+        if until.is_some() || interval_ms.is_some() || max_events.is_some() {
+            return Err(invalid_input(
+                "query --until/--interval-ms/--max-events requires --watch-ms".into(),
+            ));
+        }
+        return Ok(None);
+    };
+    if !(100..=crate::command::QUERY_WATCH_DURATION_MS_MAX).contains(&watch_ms) {
+        return Err(invalid_input(format!(
+            "query --watch-ms must be in 100..={}",
+            crate::command::QUERY_WATCH_DURATION_MS_MAX
+        )));
+    }
+    let interval_ms = interval_ms.unwrap_or(250);
+    if !(crate::command::QUERY_WATCH_INTERVAL_MS_MIN..=crate::command::QUERY_WATCH_INTERVAL_MS_MAX)
+        .contains(&interval_ms)
+    {
+        return Err(invalid_input(format!(
+            "query --interval-ms must be in {}..={}",
+            crate::command::QUERY_WATCH_INTERVAL_MS_MIN,
+            crate::command::QUERY_WATCH_INTERVAL_MS_MAX
+        )));
+    }
+    let max_events = max_events.unwrap_or(500);
+    if !(1..=crate::command::QUERY_WATCH_EVENTS_MAX).contains(&max_events) {
+        return Err(invalid_input(format!(
+            "query --max-events must be in 1..={}",
+            crate::command::QUERY_WATCH_EVENTS_MAX
+        )));
+    }
+    Ok(Some((watch_ms, interval_ms, max_events)))
+}
+
+fn query_nodes_by_id(
+    payload: &serde_json::Value,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    payload["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|node| Some((node["id"].as_str()?.to_owned(), node.clone())))
+        .collect()
+}
+
+fn query_changed_fields(before: &serde_json::Value, after: &serde_json::Value) -> Vec<String> {
+    let mut fields = std::collections::BTreeSet::new();
+    if let Some(object) = before.as_object() {
+        fields.extend(object.keys().cloned());
+    }
+    if let Some(object) = after.as_object() {
+        fields.extend(object.keys().cloned());
+    }
+    fields
+        .into_iter()
+        .filter(|field| field != "index" && field != "depth" && before[field] != after[field])
+        .collect()
+}
+
+fn diff_query_nodes(
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+) -> Vec<serde_json::Value> {
+    let before = query_nodes_by_id(before);
+    let after = query_nodes_by_id(after);
+    let mut events = Vec::new();
+    for id in after.keys().filter(|id| !before.contains_key(*id)) {
+        events.push(serde_json::json!({ "type": "appeared", "node_id": id }));
+    }
+    for id in before.keys().filter(|id| !after.contains_key(*id)) {
+        events.push(serde_json::json!({ "type": "disappeared", "node_id": id }));
+    }
+    for (id, next) in &after {
+        if let Some(previous) = before.get(id) {
+            let changed_fields = query_changed_fields(previous, next);
+            if !changed_fields.is_empty() {
+                events.push(serde_json::json!({
+                    "type": "changed",
+                    "node_id": id,
+                    "changed_fields": changed_fields,
+                }));
+            }
+        }
+    }
+    events
+}
+
+fn query_watch_satisfied(
+    until: Option<QueryWatchUntil>,
+    sample: &serde_json::Value,
+    changed: bool,
+) -> bool {
+    match until {
+        None => false,
+        Some(QueryWatchUntil::Present) => sample["matched"].as_u64().unwrap_or(0) > 0,
+        Some(QueryWatchUntil::Absent) => {
+            sample["matched"].as_u64() == Some(0)
+                && sample["scan_truncated"].as_bool() == Some(false)
+        }
+        Some(QueryWatchUntil::Change) => changed,
+    }
+}
+
+/// Bounded, filtered flat node list over the same walk `tree` makes. With a
+/// watch budget, every poll repeats this exact acquisition/filter contract;
+/// transient later acquisition failures are counted, never turned into an
+/// empty sample, and the desktop foreground identity is bracketed.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn query_payload(
+    window: isize,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    filter: observe::NodeFilter,
+    text_and_text_exact: bool,
+    offset: Option<usize>,
+    max: Option<usize>,
+    selector: Option<&str>,
+    watch_ms: Option<u64>,
+    until: Option<QueryWatchUntil>,
+    interval_ms: Option<u64>,
+    max_events: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    let watch = query_watch_bounds(watch_ms, until, interval_ms, max_events)?;
+    let focus_before = if watch.is_some() {
+        Some(super::pointer::focused_window_identity()?.ok_or_else(|| {
+            CuError::new(
+                "focused_window_unavailable",
+                "query watch requires one uniquely resolved focused top-level window",
+            )
+        })?)
+    } else {
+        None
+    };
+    let mut sample = query_once_payload(
+        window,
+        depth,
+        max_nodes,
+        filter.clone(),
+        text_and_text_exact,
+        offset,
+        max,
+        selector,
+    )?;
+    let Some((watch_ms, interval_ms, max_events)) = watch else {
+        return Ok(sample);
+    };
+    let Some(focus_before) = focus_before else {
+        return Err(CuError::new(
+            "query_watch_internal",
+            "query watch did not retain its foreground baseline",
+        ));
+    };
+    let started = Instant::now();
+    let deadline = started + Duration::from_millis(watch_ms);
+    let mut events = Vec::new();
+    let mut event_seq = 0u64;
+    let mut dropped_events = 0usize;
+    let mut missing_samples = 0usize;
+    let mut polls = 1usize;
+    let mut condition_satisfied = query_watch_satisfied(until, &sample, false);
+    while !condition_satisfied && Instant::now() < deadline {
+        thread::sleep(
+            Duration::from_millis(interval_ms)
+                .min(deadline.saturating_duration_since(Instant::now())),
+        );
+        polls += 1;
+        let next = match query_once_payload(
+            window,
+            depth,
+            max_nodes,
+            filter.clone(),
+            text_and_text_exact,
+            offset,
+            max,
+            selector,
+        ) {
+            Ok(next) => next,
+            Err(_) => {
+                missing_samples += 1;
+                continue;
+            }
+        };
+        let batch = diff_query_nodes(&sample, &next);
+        for event in &batch {
+            event_seq += 1;
+            if events.len() < max_events {
+                let mut event = event.clone();
+                event["seq"] = event_seq.into();
+                event["t_ms"] = (started.elapsed().as_millis() as u64).into();
+                events.push(event);
+            } else {
+                dropped_events += 1;
+            }
+        }
+        sample = next;
+        condition_satisfied = query_watch_satisfied(until, &sample, !batch.is_empty());
+    }
+    let focus_after = super::pointer::focused_window_identity()?.ok_or_else(|| {
+        CuError::new(
+            "focused_window_unavailable",
+            "query watch could not re-read one focused top-level window",
+        )
+    })?;
+    if focus_after != focus_before {
+        return Err(CuError::new(
+            "focused_window_changed",
+            "desktop foreground identity changed while query watch was observing",
+        ));
+    }
+    let observation = serde_json::json!({
+        "mode": "poll-diff",
+        "duration_ms": watch_ms,
+        "interval_ms": interval_ms,
+        "polls": polls,
+        "missing_samples": missing_samples,
+        "until": until,
+        "condition_satisfied": condition_satisfied,
+        "timed_out": until.is_some() && !condition_satisfied,
+        "event_count": events.len(),
+        "dropped_event_count": dropped_events,
+        "truncated_events": dropped_events > 0,
+        "foreground_unchanged": true,
+        "events": events,
+        "final": sample,
+    });
+    if until.is_some() && !condition_satisfied {
+        return Err(CuError::new(
+            "query_watch_timeout",
+            "query watch exhausted its deadline before the requested condition",
+        )
+        .with_detail(observation));
+    }
+    Ok(observation)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn query_once_payload(
     window: isize,
     depth: Option<u32>,
     max_nodes: Option<usize>,
@@ -805,6 +1045,72 @@ mod tests {
     }
 
     #[test]
+    fn query_watch_bounds_are_closed_before_any_platform_read() {
+        assert!(
+            query_watch_bounds(None, None, None, None)
+                .expect("ordinary query")
+                .is_none()
+        );
+        for error in [
+            query_watch_bounds(None, Some(QueryWatchUntil::Present), None, None),
+            query_watch_bounds(Some(99), None, None, None),
+            query_watch_bounds(Some(100), None, Some(49), None),
+            query_watch_bounds(Some(100), None, None, Some(0)),
+        ] {
+            assert_eq!(error.expect_err("closed bounds").code, "invalid_input");
+        }
+        assert_eq!(
+            query_watch_bounds(
+                Some(30_000),
+                Some(QueryWatchUntil::Change),
+                Some(2_000),
+                Some(2_000)
+            )
+            .expect("upper bounds"),
+            Some((30_000, 2_000, 2_000))
+        );
+    }
+
+    #[test]
+    fn query_watch_diff_ignores_walk_position_but_reports_semantic_change() {
+        let before = serde_json::json!({"nodes": [
+            {"id":"/0/a", "index":1, "depth":1, "name":"same"},
+            {"id":"/0/gone", "name":"gone"}
+        ]});
+        let after_position_only = serde_json::json!({"nodes": [
+            {"id":"/0/a", "index":9, "depth":7, "name":"same"},
+            {"id":"/0/gone", "name":"gone"}
+        ]});
+        assert!(diff_query_nodes(&before, &after_position_only).is_empty());
+
+        let after = serde_json::json!({"nodes": [
+            {"id":"/0/a", "index":9, "depth":7, "name":"changed"},
+            {"id":"/0/new", "name":"new"}
+        ]});
+        let events = diff_query_nodes(&before, &after);
+        assert_eq!(events.len(), 3);
+        assert!(events.iter().any(|event| event["type"] == "appeared"));
+        assert!(events.iter().any(|event| event["type"] == "disappeared"));
+        assert!(events.iter().any(|event| {
+            event["type"] == "changed" && event["changed_fields"] == serde_json::json!(["name"])
+        }));
+    }
+
+    #[test]
+    fn query_watch_absence_requires_a_complete_scan() {
+        assert!(query_watch_satisfied(
+            Some(QueryWatchUntil::Absent),
+            &serde_json::json!({"matched":0,"scan_truncated":false}),
+            false
+        ));
+        assert!(!query_watch_satisfied(
+            Some(QueryWatchUntil::Absent),
+            &serde_json::json!({"matched":0,"scan_truncated":true}),
+            false
+        ));
+    }
+
+    #[test]
     fn observe_ready_marker_is_atomic_owned_json_and_never_overwrites() {
         let directory = std::env::temp_dir().join(format!(
             "agenterm-cu-observe-ready-{}-{}",
@@ -892,6 +1198,10 @@ mod tests {
                     offset: None,
                     max,
                     selector: None,
+                    watch_ms: None,
+                    until: None,
+                    interval_ms: None,
+                    max_events: None,
                 })
             };
         let no_window = query(0, None, None, None);

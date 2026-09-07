@@ -1080,6 +1080,10 @@ impl Executor {
                 offset,
                 max,
                 selector,
+                watch_ms,
+                until,
+                interval_ms,
+                max_events,
                 ..
             } => query_payload(
                 *window,
@@ -1097,6 +1101,10 @@ impl Executor {
                 *offset,
                 *max,
                 selector.as_deref(),
+                *watch_ms,
+                *until,
+                *interval_ms,
+                *max_events,
             ),
             Command::Invoke {
                 window,

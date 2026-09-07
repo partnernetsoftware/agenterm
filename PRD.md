@@ -150,6 +150,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       macOS qjswasm 黑盒已绿，Linux/Windows GUI court 待补
 │     │                       tree --selector 已原样保留有界扫描真相并返回 selector-rooted 子树；
 │     │                       macOS owned fixture 已绿，Linux/Windows 同一 court 待跑
+│     │                       query watch 已成为同一有界过滤器上的 poll-diff：缺样本不冒充 absent，
+│     │                       前景变化与 until 超时都 typed fail；三平台公开 court 已注册
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
 │     │                       doctor desktop baseline、system readiness 与 capability counts 已有
 │     │                       公开 qjswasm 证据；live probe 共核 macOS、Windows ARM64、Linux ARM64 已绿，Linux x86_64 完整 33 项旅程亦绿

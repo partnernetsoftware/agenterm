@@ -4410,6 +4410,17 @@ caused by observing another application is not a valid result. Preserve the
 last complete observation at timeout and never turn an incomplete read into an
 absence receipt.
 
+A filtered accessibility watch must repeat the same bounded acquisition and
+predicate as the one-shot query; a generic accessibility notification stream
+is not a substitute for the caller's final matching row set. Treat failed
+later acquisitions as counted missing samples, never as empty samples. Diff by
+stable node identity, exclude traversal-only `index` / `depth` churn from
+semantic changes, retain only bounded identity plus changed-field names in the
+event ledger, and publish the full node payload once as the final observation.
+Bracket the whole watch with exact foreground identity. A requested `until`
+condition that exhausts its deadline is a typed failure carrying that final
+observation, not a successful reply with `timed_out=true` hidden in data.
+
 ## External terminal input is an attributed foreground transaction
 
 An accessibility window handle is not an AgenTerm scope/epoch/tab identity.

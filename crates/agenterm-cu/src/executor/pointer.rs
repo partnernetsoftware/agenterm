@@ -14,7 +14,7 @@ pub(super) fn pointer_position() -> Result<serde_json::Value, CuError> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
-struct FocusedWindowIdentity {
+pub(super) struct FocusedWindowIdentity {
     handle: isize,
     process_id: u32,
 }
@@ -35,7 +35,7 @@ fn validate_pointer_scroll(dx: i32, dy: i32) -> Result<(), CuError> {
     Ok(())
 }
 
-fn focused_window_identity() -> Result<Option<FocusedWindowIdentity>, CuError> {
+pub(super) fn focused_window_identity() -> Result<Option<FocusedWindowIdentity>, CuError> {
     let mut windows =
         mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();

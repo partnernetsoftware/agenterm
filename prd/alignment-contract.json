@@ -312,7 +312,8 @@
         "cu.macos-pointer-restored",
         "cu.macos-pointer-refusals",
         "cu.pointer-scroll-content-delivery",
-        "cu.tree-selector-subtree"
+        "cu.tree-selector-subtree",
+        "cu.query-watch-filtered-poll"
       ]
     },
     {

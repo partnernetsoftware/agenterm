@@ -558,6 +558,17 @@ flowchart LR
   qjswasm evidence `cu.tree-selector-subtree` is green on macOS; the same owned
   fixture is registered for Linux and Windows. MCU-only `--page` and
   `--max-value-bytes` tree projections remain separate migration debt.
+- [~] `query --watch-ms` now repeats the exact bounded query acquisition and
+  filter rather than substituting the generic event observer. Optional
+  `--until present|absent|change`, a bounded interval and a bounded compact
+  diff ledger are public. A failed later acquisition increments
+  `missing_samples` and can never satisfy `absent`; absence additionally
+  requires a complete untruncated scan. Foreground identity is bracketed, an
+  unmet condition is typed `query_watch_timeout` with the final observation,
+  and diff events carry identity/changed-field names without duplicating node
+  text. Public qjswasm evidence `cu.query-watch-filtered-poll` owns the
+  macOS/Linux/Windows fixture contract; same-source native executions remain
+  the qualification step. MCU-only filter shapes remain separate debt.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
   gated `minimize`/`restore` are live in the macOS Cocoa/AX public journey.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;

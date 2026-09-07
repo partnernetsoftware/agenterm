@@ -867,16 +867,19 @@ the blockers were measured, never that MCU may be removed.
 
 The compatibility adapter now has zero static STAY spellings and 14 dynamic
 STAY witnesses on macOS after lossless projections for `resource top`, focused
-PID, observe role, wait absence, platform-default-shell PTY and selector-rooted
-trees. The tree witness count does not fall yet because MCU-only `--page` and
-`--max-value-bytes` remain under that argument-sensitive gap id; selector itself
-now routes wholly through ACU. Omitting `-- PROGRAM` starts AgenTerm's native default
+PID, observe role, wait absence, platform-default-shell PTY, selector-rooted
+trees and bounded filtered query watch. The tree/query witness count does not
+fall yet because MCU-only filters including `--page`, `--max-value-bytes`,
+`--subrole` and state/action predicates remain under the same argument-sensitive
+gap ids; watch control itself now routes through ACU. The tree witness count
+also remains because selector completion does not erase those other tree flags.
+Omitting `-- PROGRAM` starts AgenTerm's native default
 shell and the public `cu-pty-smoke` proves that path; MCU string-eval
 `--cmd` / `--exec-json` shortcuts remain separate. The count is deliberately not
 reduced by reclassifying useful MCU behavior as a permanent rejection: tmux
-PTY, bounded pattern wait, app/signing observation, app-global menus and native
-wheel input remain real ACU gaps until a typed replacement and public evidence
-exist. ABI 1.28 now supplies the bounded three-host desktop wheel mechanism.
+PTY, bounded pattern wait, app/signing observation, app-global menus and
+window-local pointer movement remain real ACU gaps until a typed replacement
+and public evidence exist. ABI 1.28 now supplies the bounded three-host desktop wheel mechanism.
 Its reply deliberately retains `delivery_verified=false`; the separate owned
 qjswasm content-movement court is green on macOS and must still pass Linux X11
 and Windows before the adapter may map MCU `scroll --to desktop`. Window-local hover/wheel is still separate

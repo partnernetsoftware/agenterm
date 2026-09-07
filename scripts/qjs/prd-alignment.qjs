@@ -303,6 +303,7 @@ const evidence_suites = {
   "cu-macos-pointer-smoke": true,
   "cu-pointer-scroll-smoke": true,
   "cu-tree-selector-smoke": true,
+  "cu-query-watch-smoke": true,
   "unix-frontend-linux-smoke": true,
   "unix-frontend-macos-smoke": true,
   "server-smoke": true,

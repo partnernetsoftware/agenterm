@@ -2177,8 +2177,8 @@
       ],
       "grant": "observe",
       "family": "a11y-observe",
-      "summary": "bounded, filtered flat node list",
-      "usage": "query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]\n      [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]\n      [--offset N] [--max N] [--selector PATH]\ninspect HANDLE [flags]           (alias of query; --app is a migration gap)\nfind HANDLE TEXT [flags]         (alias of query --text TEXT)\nread HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)",
+      "summary": "bounded filtered nodes, once or by poll-diff watch",
+      "usage": "query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]\n      [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]\n      [--offset N] [--max N] [--selector PATH]\n      [--watch-ms N [--until present|absent|change] [--interval-ms N] [--max-events N]]\ninspect HANDLE [flags]           (alias of query; --app is a migration gap)\nfind HANDLE TEXT [flags]         (alias of query --text TEXT)\nread HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)",
       "args": [
         {
           "flag": "--window",
@@ -2239,6 +2239,26 @@
           "flag": "--selector",
           "value": "PATH",
           "help": "MCU Role[idx] / Role@title / *@title / #desc path"
+        },
+        {
+          "flag": "--watch-ms",
+          "value": "N",
+          "help": "bounded poll duration in milliseconds (100..30000)"
+        },
+        {
+          "flag": "--until",
+          "value": "present|absent|change",
+          "help": "stop condition; requires --watch-ms"
+        },
+        {
+          "flag": "--interval-ms",
+          "value": "N",
+          "help": "poll interval (50..2000; default 250; requires --watch-ms)"
+        },
+        {
+          "flag": "--max-events",
+          "value": "N",
+          "help": "bounded diff events (1..2000; default 500; requires --watch-ms)"
         }
       ]
     },
@@ -5874,7 +5894,7 @@
     },
     {
       "name": "query",
-      "text": "agenterm-cu query    (also: inspect, find, read)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]\n        [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]\n        [--offset N] [--max N] [--selector PATH]\n  inspect HANDLE [flags]           (alias of query; --app is a migration gap)\n  find HANDLE TEXT [flags]         (alias of query --text TEXT)\n  read HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --role R,R                    roles to keep (AXTextArea or text-area spellings)\n  --text T                      name / value substring\n  --text-exact T                exact name / value (not with --text)\n  --identifier ID               accessibility identifier\n  --actionable                  nodes that offer an action\n  --within X,Y,W,H              screen rectangle the node must intersect\n  --offset N                    page start\n  --max N                       page size\n  --selector PATH               MCU Role[idx] / Role@title / *@title / #desc path\n\nBounded, filtered flat node list with visited / matched / returned /\ntruncated; roles accept AXTextArea or text-area; an unknown flag fails\nbefore the walk. inspect is query (MCU `inspect HANDLE`; `--app` stays\nMCU). find HANDLE TEXT is query --text; read HANDLE SELECTOR is query\n--selector. MCU selectors: Role[idx] / Role@title / *@title / #desc.\n"
+      "text": "agenterm-cu query    (also: inspect, find, read)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]\n        [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]\n        [--offset N] [--max N] [--selector PATH]\n        [--watch-ms N [--until present|absent|change] [--interval-ms N] [--max-events N]]\n  inspect HANDLE [flags]           (alias of query; --app is a migration gap)\n  find HANDLE TEXT [flags]         (alias of query --text TEXT)\n  read HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --role R,R                    roles to keep (AXTextArea or text-area spellings)\n  --text T                      name / value substring\n  --text-exact T                exact name / value (not with --text)\n  --identifier ID               accessibility identifier\n  --actionable                  nodes that offer an action\n  --within X,Y,W,H              screen rectangle the node must intersect\n  --offset N                    page start\n  --max N                       page size\n  --selector PATH               MCU Role[idx] / Role@title / *@title / #desc path\n  --watch-ms N                 bounded poll duration (100..30000 ms)\n  --until CONDITION             present, absent, or change; requires --watch-ms\n  --interval-ms N              poll interval (50..2000; default 250)\n  --max-events N               retained identity-only diff events (1..2000; default 500)\n\nWithout --watch-ms this is the existing bounded, filtered flat node list. A\nwatch repeats that exact acquisition and returns one full final query plus\nbounded identity-only appeared/disappeared/changed events. Later acquisition\nerrors count as missing samples; they never masquerade as absence. `absent`\nrequires an untruncated complete scan. Foreground identity is compared before\nand after; a changed foreground or unmet --until fails typed. inspect is query\n(MCU `inspect HANDLE`; `--app` stays MCU). find HANDLE TEXT is query --text;\nread HANDLE SELECTOR is query --selector.\n"
     },
     {
       "name": "hit",

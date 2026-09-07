@@ -357,9 +357,9 @@
         {
           "id": "desktop.tree.query",
           "mcu_shape": "tree/query/elements/inspect/find/read with depth, scan, result, state, action and region bounds",
-          "acu_shape": "tree/query plus inspect/find/read aliases, flat results, selector-rooted subtree projection and typed truncation metadata",
+          "acu_shape": "tree/query plus inspect/find/read aliases, flat results, selector-rooted subtree projection, bounded filtered poll-diff watch and typed truncation/timeout metadata",
           "state": "delegated",
-          "evidence": ["cu.macos-ax-query", "cu.linux-atspi-query", "cu.windows-uia-query", "cu.tree-selector-subtree"]
+          "evidence": ["cu.macos-ax-query", "cu.linux-atspi-query", "cu.windows-uia-query", "cu.tree-selector-subtree", "cu.query-watch-filtered-poll"]
         },
         {
           "id": "desktop.focused-element",

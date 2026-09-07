@@ -3,7 +3,7 @@
 //! read-backs, `wait`, and the non-tree observers (`screenshot`, `zoom`,
 //! `device-screenshot`, `pointer-position`, and `desktop-state`).
 
-use agenterm_cu::{Command, TargetRef, WaitCondition};
+use agenterm_cu::{Command, QueryWatchUntil, TargetRef, WaitCondition};
 
 use super::verbs::VerbSpec;
 use super::{
@@ -354,11 +354,26 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
     if let Some(raw) = selector.as_deref() {
         agenterm_cu::observe::parse_selector(raw)?;
     }
+    let watch_ms = flag_parsed::<u64>(args, "--watch-ms")?;
+    let until = match flag_text(args, "--until")?.as_deref() {
+        None => None,
+        Some("present") => Some(QueryWatchUntil::Present),
+        Some("absent") => Some(QueryWatchUntil::Absent),
+        Some("change") => Some(QueryWatchUntil::Change),
+        Some(value) => {
+            return Err(format!(
+                "query --until must be present|absent|change, got {value:?}"
+            ));
+        }
+    };
+    let interval_ms = flag_parsed::<u64>(args, "--interval-ms")?;
+    let max_events = flag_parsed::<usize>(args, "--max-events")?;
     if !args.is_empty() {
         return Err(format!(
             "{verb} accepts only --window H --depth N --max-nodes N --role R,R \
              --text T | --text-exact T --identifier ID --actionable \
-             --within X,Y,W,H --offset N --max N --selector PATH; unexpected {:?}",
+             --within X,Y,W,H --offset N --max N --selector PATH --watch-ms N \
+             --until present|absent|change --interval-ms N --max-events N; unexpected {:?}",
             args[0]
         ));
     }
@@ -376,6 +391,10 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
         offset,
         max,
         selector,
+        watch_ms,
+        until,
+        interval_ms,
+        max_events,
     })
 }
 
@@ -676,6 +695,43 @@ mod tests {
         ));
         let mut stray = vec!["--unknown".into()];
         assert!(parse(spec, "state", TargetRef::Current, &mut stray).is_err());
+    }
+
+    #[test]
+    fn query_watch_parses_only_the_closed_bounded_shape() {
+        let spec = verbs::lookup("query").expect("query verb");
+        let mut args = vec![
+            "--window".into(),
+            "Fixture#7".into(),
+            "--role".into(),
+            "button".into(),
+            "--watch-ms".into(),
+            "1500".into(),
+            "--until".into(),
+            "change".into(),
+            "--interval-ms".into(),
+            "100".into(),
+            "--max-events".into(),
+            "12".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "query", TargetRef::Current, &mut args).expect("query watch"),
+            Command::Query {
+                window: 7,
+                watch_ms: Some(1500),
+                until: Some(QueryWatchUntil::Change),
+                interval_ms: Some(100),
+                max_events: Some(12),
+                ..
+            }
+        ));
+        let mut invalid = vec![
+            "--window".into(),
+            "7".into(),
+            "--until".into(),
+            "forever".into(),
+        ];
+        assert!(parse(spec, "query", TargetRef::Current, &mut invalid).is_err());
     }
 
     #[test]

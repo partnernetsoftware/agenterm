@@ -77,6 +77,18 @@ pub const DEVICE_LEASE_LIST_MAX: usize = 1_024;
 pub const DEVICE_IO_BYTES_MAX: usize = 64 * 1024;
 pub const DEVICE_IO_TIMEOUT_MS_MAX: u64 = 300_000;
 pub const DEVICE_LEASE_TTL_SECONDS_MAX: u64 = 86_400;
+pub const QUERY_WATCH_DURATION_MS_MAX: u64 = 30_000;
+pub const QUERY_WATCH_INTERVAL_MS_MIN: u64 = 50;
+pub const QUERY_WATCH_INTERVAL_MS_MAX: u64 = 2_000;
+pub const QUERY_WATCH_EVENTS_MAX: usize = 2_000;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum QueryWatchUntil {
+    Present,
+    Absent,
+    Change,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -2338,6 +2350,17 @@ pub enum Command {
         /// Scopes the query to that node and its descendants.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
+        /// Poll the same bounded query without raising or activating its
+        /// window. Later acquisition failures are counted as missing samples,
+        /// never reinterpreted as an empty result.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        watch_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        until: Option<QueryWatchUntil>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interval_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_events: Option<usize>,
     },
     /// One semantic action on one node of `window` through the platform
     /// a11y backend, never activating or raising the window. Exactly one of
@@ -6971,6 +6994,10 @@ mod tests {
             offset: Some(2),
             max: Some(10),
             selector: None,
+            watch_ms: None,
+            until: None,
+            interval_ms: None,
+            max_events: None,
         };
         assert_eq!(command.verb(), "query");
         assert_eq!(command.target(), TargetRef::Vnc);

@@ -600,6 +600,25 @@
         "task.cu-tree-selector-smoke"
       ]
     },
+    "cu-query-watch-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-query-watch-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-query-watch-smoke"
+      ]
+    },
     "cu-macos-web-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4270,6 +4289,28 @@
       "id": "cu-tree-selector-smoke",
       "description": "Prove tree --selector returns exactly one deterministic selected root and its descendants from the honest bounded window-root walk, preserving stable node identities and original flatten indices while making selector-relative depth explicit.",
       "entry": "scripts/qjs/cu-tree-selector-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-query-watch-smoke",
+      "description": "Prove query watch repeats one bounded filtered acquisition, treats failed samples separately from absence, emits compact identity-only diffs, preserves foreground identity, and reports unmet conditions as typed timeouts with the final observation.",
+      "entry": "scripts/qjs/cu-query-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

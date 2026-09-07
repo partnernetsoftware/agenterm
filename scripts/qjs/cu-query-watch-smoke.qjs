@@ -1,0 +1,325 @@
+// Public three-host black-box court for bounded `query --watch-ms` polling.
+//
+// The court owns one repository fixture and observes only that exact pid/window.
+// It proves the wrapper keeps one lossless final query, emits bounded identity-
+// only diff events, does not move foreground focus, and fails closed when an
+// `--until` condition expires or watch options are incomplete/invalid.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.query-watch-filtered-poll"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  return current;
+}
+
+function text_at(value, dotted) { return text_of(at(value, dotted)); }
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(run_directory) {
+  return {
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_NO_ACTIVATE: "1"
+  };
+}
+
+function run_cu(context, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: context.run_directory,
+    env: cu_env(context.run_directory),
+    timeout_ms: 45000
+  });
+  ensure(output.stdout.trim() !== "", "cu_query_watch_empty_reply:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === output.success, "cu_query_watch_process_reply_disagree");
+  return reply;
+}
+
+function csc_path(value) {
+  return ("" + value).replaceAll("/", "\\");
+}
+
+function framework_csc() {
+  const windows = rh.env_or("WINDIR", "C:/Windows");
+  const candidates = [
+    rh.join(windows, "Microsoft.NET/Framework64/v4.0.30319/csc.exe"),
+    rh.join(windows, "Microsoft.NET/Framework/v4.0.30319/csc.exe")
+  ];
+  for (const candidate of candidates) {
+    if (direct_file(candidate)) { return candidate; }
+  }
+  throw "cu_query_watch_framework_csc_missing";
+}
+
+function fixture_spec(repo, run_directory) {
+  if (harness.host_is_windows()) {
+    const source = rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs");
+    const executable = rh.join(run_directory, "agenterm-uia-fixture.exe");
+    ensure(direct_file(source), "cu_query_watch_uia_source_missing");
+    const compiled = rh.command(framework_csc(), [
+      "/nologo", "/target:winexe", "/out:" + csc_path(executable),
+      "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
+      csc_path(source)
+    ], { cwd: run_directory, timeout_ms: 60000 });
+    ensure(compiled.success === true && direct_file(executable),
+      "cu_query_watch_uia_compile:" + compiled.stdout + compiled.stderr);
+    return { program: executable, args: [], env: {}, title_prefix: "agenterm-win-fixture-" };
+  }
+
+  const uname = rh.command("uname", ["-s"], { timeout_ms: 5000 });
+  ensure(uname.success === true, "cu_query_watch_uname_failed");
+  if (uname.stdout.trim() === "Darwin") {
+    const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
+    const executable = rh.join(run_directory, "agenterm-ax-fixture");
+    ensure(direct_file(source), "cu_query_watch_ax_source_missing");
+    const compiled = rh.command("clang", [
+      "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
+      source, "-o", executable
+    ], { cwd: repo, timeout_ms: 60000 });
+    ensure(compiled.success === true && direct_file(executable),
+      "cu_query_watch_ax_compile:" + compiled.stdout + compiled.stderr);
+    return { program: executable, args: [], env: {}, title_prefix: "agenterm-ax-fixture-" };
+  }
+
+  ensure(uname.stdout.trim() === "Linux", "cu_query_watch_host_unsupported");
+  const source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+  ensure(direct_file(source), "cu_query_watch_atspi_source_missing");
+  return {
+    program: "python3",
+    args: [source],
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    title_prefix: "agenterm-linux-fixture-"
+  };
+}
+
+function window_for_pid(context, executable, pid, title) {
+  const reply = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + pid
+  ]);
+  ensure(reply.ok === true, "cu_query_watch_window_inventory");
+  let found = null;
+  let matches = 0;
+  for (const row of reply.data.windows) {
+    if (int_at(row, "process_id") === pid && text_at(row, "title") === title) {
+      found = row;
+      matches = matches + 1;
+    }
+  }
+  ensure(matches === 1, "cu_query_watch_window_identity:" + matches);
+  return found;
+}
+
+function assert_final_query(observation, handle) {
+  ensure(text_at(observation, "mode") === "poll-diff",
+    "cu_query_watch_mode:" + JSON.stringify(observation));
+  ensure(int_at(observation, "polls") >= 1 && int_at(observation, "missing_samples") >= 0,
+    "cu_query_watch_poll_account:" + JSON.stringify(observation));
+  ensure(flag_at(observation, "foreground_unchanged"),
+    "cu_query_watch_foreground_changed:" + JSON.stringify(observation));
+  ensure(Array.isArray(observation.events)
+      && int_at(observation, "event_count") === observation.events.length
+      && int_at(observation, "dropped_event_count") >= 0,
+    "cu_query_watch_event_account:" + JSON.stringify(observation));
+  ensure(int_at(observation.final, "window") === handle
+      && Array.isArray(observation.final.nodes)
+      && int_at(observation.final, "returned") === observation.final.nodes.length,
+    "cu_query_watch_final_query:" + JSON.stringify(observation.final));
+  for (const event of observation.events) {
+    const type = text_at(event, "type");
+    ensure(type === "appeared" || type === "disappeared" || type === "changed",
+      "cu_query_watch_event_type:" + JSON.stringify(event));
+    ensure(text_at(event, "node_id") !== ""
+        && int_at(event, "seq") >= 1
+        && int_at(event, "t_ms") >= 0,
+      "cu_query_watch_event_identity:" + JSON.stringify(event));
+    if (type === "changed") {
+      ensure(Array.isArray(event.changed_fields) && event.changed_fields.length > 0,
+        "cu_query_watch_changed_fields:" + JSON.stringify(event));
+    }
+    ensure(at(event, "before") === undefined && at(event, "after") === undefined,
+      "cu_query_watch_event_leaked_node_payload:" + JSON.stringify(event));
+  }
+}
+
+function assert_invalid_watch(reply, label) {
+  ensure(reply.ok === false
+      && (text_at(reply, "error.code") === "invalid_input"
+          || text_at(reply, "error.code") === "usage"),
+    label + ":" + JSON.stringify(reply));
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_query_watch_executable_missing");
+
+const context = harness.new_context(repo, "cu-query-watch");
+const children = [];
+let succeeded = false;
+let failure = "";
+
+try {
+  print("STEP start one owned accessibility fixture and bind its exact window");
+  const spec = fixture_spec(repo, context.run_directory);
+  const fixture = harness.start({
+    program: spec.program,
+    args: spec.args,
+    current_dir: context.run_directory,
+    env: spec.env,
+    timeout_ms: 60000
+  });
+  children.push(fixture);
+  const pid = harness.spawned_pid(fixture);
+  const title = spec.title_prefix + pid;
+  const ready = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "30000", "--window-title-contains", title
+  ]);
+  ensure(ready.ok === true && flag_at(ready, "data.met"), "cu_query_watch_fixture_not_ready");
+  const window = window_for_pid(context, executable, pid, title);
+  const handle_value = int_at(window, "handle");
+  const handle = "" + handle_value;
+
+  const baseline = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--depth", "64", "--max-nodes", "5000"
+  ]);
+  ensure(baseline.ok === true
+      && !flag_at(baseline, "data.scan_truncated")
+      && Array.isArray(baseline.data.nodes)
+      && baseline.data.nodes.length > 0,
+    "cu_query_watch_baseline:" + JSON.stringify(baseline));
+  const stable_role = text_at(baseline.data.nodes[0], "role");
+  ensure(stable_role !== "", "cu_query_watch_baseline_role_missing");
+
+  print("STEP bounded polling with no condition returns one unchanged final query");
+  const unchanged = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--role", stable_role, "--depth", "64", "--max-nodes", "5000",
+    "--watch-ms", "150", "--interval-ms", "50", "--max-events", "8"
+  ]);
+  ensure(unchanged.ok === true, "cu_query_watch_unchanged_failed:" + JSON.stringify(unchanged));
+  assert_final_query(unchanged.data, handle_value);
+  ensure(text_at(unchanged, "data.until") === ""
+      && !flag_at(unchanged, "data.condition_satisfied")
+      && !flag_at(unchanged, "data.timed_out")
+      && int_at(unchanged, "data.polls") >= 2
+      && int_at(unchanged, "data.missing_samples") === 0
+      && int_at(unchanged, "data.event_count") === 0
+      && !flag_at(unchanged, "data.truncated_events")
+      && int_at(unchanged, "data.final.matched") >= 1,
+    "cu_query_watch_unchanged_shape:" + JSON.stringify(unchanged.data));
+
+  print("STEP present stops on the first complete matching sample");
+  const present = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--role", stable_role, "--depth", "64", "--max-nodes", "5000",
+    "--watch-ms", "1000", "--until", "present", "--interval-ms", "50",
+    "--max-events", "8"
+  ]);
+  ensure(present.ok === true, "cu_query_watch_present_failed:" + JSON.stringify(present));
+  assert_final_query(present.data, handle_value);
+  ensure(text_at(present, "data.until") === "present"
+      && flag_at(present, "data.condition_satisfied")
+      && !flag_at(present, "data.timed_out")
+      && int_at(present, "data.polls") === 1
+      && int_at(present, "data.missing_samples") === 0
+      && int_at(present, "data.final.matched") >= 1,
+    "cu_query_watch_present_not_early:" + JSON.stringify(present.data));
+
+  print("STEP absent succeeds only from a complete non-truncated missing sample");
+  const absent_identifier = "agenterm-query-watch-absent-" + pid;
+  const absent = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--identifier", absent_identifier, "--depth", "64", "--max-nodes", "5000",
+    "--watch-ms", "1000", "--until", "absent", "--interval-ms", "50",
+    "--max-events", "8"
+  ]);
+  ensure(absent.ok === true, "cu_query_watch_absent_failed:" + JSON.stringify(absent));
+  assert_final_query(absent.data, handle_value);
+  ensure(text_at(absent, "data.until") === "absent"
+      && flag_at(absent, "data.condition_satisfied")
+      && !flag_at(absent, "data.timed_out")
+      && int_at(absent, "data.polls") === 1
+      && int_at(absent, "data.missing_samples") === 0
+      && int_at(absent, "data.final.matched") === 0
+      && !flag_at(absent, "data.final.scan_truncated"),
+    "cu_query_watch_absent_without_complete_scan:" + JSON.stringify(absent.data));
+
+  print("STEP an unmet until condition is a typed timeout with the final observation");
+  const change_timeout = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--identifier", absent_identifier, "--depth", "64", "--max-nodes", "5000",
+    "--watch-ms", "150", "--until", "change", "--interval-ms", "50",
+    "--max-events", "8"
+  ]);
+  ensure(change_timeout.ok === false
+      && text_at(change_timeout, "error.code") === "query_watch_timeout",
+    "cu_query_watch_timeout_not_typed:" + JSON.stringify(change_timeout));
+  assert_final_query(change_timeout.error.detail, handle_value);
+  ensure(text_at(change_timeout, "error.detail.until") === "change"
+      && !flag_at(change_timeout, "error.detail.condition_satisfied")
+      && flag_at(change_timeout, "error.detail.timed_out")
+      && int_at(change_timeout, "error.detail.event_count") === 0,
+    "cu_query_watch_timeout_observation:" + JSON.stringify(change_timeout.error));
+
+  print("STEP orphan options and invalid budgets fail typed before polling");
+  assert_invalid_watch(run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--until", "present"
+  ]), "cu_query_watch_orphan_until");
+  assert_invalid_watch(run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--watch-ms", "0"
+  ]), "cu_query_watch_zero_duration");
+  assert_invalid_watch(run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--watch-ms", "100", "--interval-ms", "49"
+  ]), "cu_query_watch_short_interval");
+  assert_invalid_watch(run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--watch-ms", "100", "--max-events", "0"
+  ]), "cu_query_watch_zero_events");
+
+  const after = window_for_pid(context, executable, pid, title);
+  ensure(int_at(after, "handle") === handle_value
+      && flag_at(after, "focused") === flag_at(window, "focused"),
+    "cu_query_watch_changed_window_identity_or_focus");
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+harness.complete(context, children, succeeded, failure);
+if (!succeeded) { throw failure; }
+harness.emit_evidence(context, declared_evidence, "cu.query-watch-filtered-poll");
+harness.remove_run(context);
+print("PASS: bounded query watch keeps a lossless final query, honest diff account and foreground invariants");
+return;
