@@ -798,7 +798,9 @@ Q3 owned runtime facades
    │  ├─ [x] `process.signal` binds exact root/tree identities, parent edges, state, signal and timeout
    │  ├─ [x] contract digest excludes time; approval digest binds issue/expiry; mutation is always false
    │  ├─ [x] macOS public qjswasm journeys `cu.privilege-plan` and `cu.privileged-signal-plan`
-   │  ├─ [x] provider wire rejects unknown fields, digest tamper, expiry and non-current scope before consent
+   │  ├─ [x] provider wire: closed priority/signal union + explicit auth mode + 64 KiB maximum-shape court
+   │  ├─ [x] pre-consent replay survives plan expiry; absent requests recheck freshness before atomic reserve
+   │  ├─ [x] typed provider states prevent effect/result contradictions; completed replay binds sealed receipt
    │  ├─ [x] provider-owned replay court: exact completion replays; reserved/unknown never dispatches twice; changed fingerprint conflicts
    │  └─ [ ] native consent/apply provider + Linux/Windows public courts; Windows nice mapping remains typed unavailable
    ├─ [~] process scheduler state mutation

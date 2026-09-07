@@ -15,15 +15,21 @@ use sha2::{Digest, Sha256};
 use crate::{
     CuError,
     idempotency_store::{
-        FinalOutcome, FinalOutcomeKind, FreshReservation, IdempotencyStore, ReserveDecision,
-        fingerprint_canonical_request,
+        FinalOutcome, FinalOutcomeKind, FinalReplay, FreshReservation, IdempotencyStore,
+        RequestState, ReserveDecision, fingerprint_canonical_request,
     },
-    privilege_plan::{ProcessPriorityPlan, validate_process_priority_plan},
+    privilege_plan::{
+        PrivilegeOperation, ProcessPriorityPlan, ProcessSignalPlan, validate_process_priority_plan,
+        validate_process_signal_plan,
+    },
 };
 
 pub const PRIVILEGE_APPLY_PROTOCOL_VERSION: u32 = 1;
 pub const PRIVILEGE_PROVIDER_CONTRACT_VERSION: u32 = 1;
-const MAX_REQUEST_BYTES: usize = 16 * 1024;
+/// One request must carry the maximum valid 129-member signal plan on every
+/// target. All native transports must reuse this exact ceiling.
+pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
+pub const MAX_REPLY_BYTES: usize = 16 * 1024;
 const MAX_ID_BYTES: usize = 128;
 const PROVIDER_REPLAY_RETENTION_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 const PROVIDER_KEY_DOMAIN: &[u8] = b"agenterm-cu/privileged-provider-key/v1\0";
@@ -48,47 +54,92 @@ pub struct PrivilegeClientV1 {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum PrivilegePlanV1 {
+    ProcessPriority(ProcessPriorityPlan),
+    ProcessSignal(ProcessSignalPlan),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case", tag = "mode", deny_unknown_fields)]
+pub enum PrivilegeAuthorizationV1 {
+    OneShotNativeConsent,
+    DelegatedGrant { grant_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PrivilegeApplyRequestV1 {
     pub protocol_version: u32,
     pub request_id: String,
-    pub plan: ProcessPriorityPlan,
+    pub plan: PrivilegePlanV1,
+    pub authorization: PrivilegeAuthorizationV1,
     pub origin: PrivilegeOriginV1,
     pub client: PrivilegeClientV1,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PrivilegeApplyState {
-    Refused,
-    ConsentCanceled,
-    ConsentUnavailable,
-    Expired,
-    PreconditionChanged,
-    Reserved,
-    Completed,
-    Failed,
-    OutcomeUnknown,
+pub enum PrivilegeVerificationV1 {
+    Verified,
+    NotApplicable,
+    Unverified,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct PrivilegeApplyReplyV1 {
-    pub protocol_version: u32,
-    pub request_id: String,
-    pub state: PrivilegeApplyState,
-    pub contract_digest: String,
-    pub approval_digest: String,
-    pub mutation_attempted: bool,
-    pub verified: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub receipt_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_identity_digest: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub origin_principal_digest: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_code: Option<String>,
+#[serde(rename_all = "snake_case", tag = "state", deny_unknown_fields)]
+pub enum PrivilegeApplyReplyV1 {
+    Refused {
+        protocol_version: u32,
+        request_id: String,
+        contract_digest: String,
+        approval_digest: String,
+        error_code: String,
+    },
+    ConsentCanceled {
+        protocol_version: u32,
+        request_id: String,
+        contract_digest: String,
+        approval_digest: String,
+    },
+    Completed {
+        protocol_version: u32,
+        request_id: String,
+        contract_digest: String,
+        approval_digest: String,
+        receipt_id: String,
+        receipt_sha256: String,
+        provider_identity_digest: String,
+        origin_principal_digest: String,
+        verification: PrivilegeVerificationV1,
+    },
+    FailedBeforeEffect {
+        protocol_version: u32,
+        request_id: String,
+        contract_digest: String,
+        approval_digest: String,
+        error_code: String,
+    },
+    FailedAfterEffect {
+        protocol_version: u32,
+        request_id: String,
+        contract_digest: String,
+        approval_digest: String,
+        error_code: String,
+        receipt_id: String,
+        receipt_sha256: String,
+        provider_identity_digest: String,
+        origin_principal_digest: String,
+    },
+    OutcomeUnknown {
+        protocol_version: u32,
+        request_id: String,
+        contract_digest: String,
+        approval_digest: String,
+        receipt_id: String,
+        provider_identity_digest: String,
+        origin_principal_digest: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,6 +161,101 @@ impl PrivilegeProviderNamespace {
             Self::Fixture => "fixture-v1",
         }
     }
+}
+
+impl PrivilegePlanV1 {
+    fn operation(&self) -> PrivilegeOperation {
+        match self {
+            Self::ProcessPriority(plan) => plan.operation,
+            Self::ProcessSignal(plan) => plan.operation,
+        }
+    }
+
+    fn contract_digest(&self) -> &str {
+        match self {
+            Self::ProcessPriority(plan) => &plan.contract_digest,
+            Self::ProcessSignal(plan) => &plan.contract_digest,
+        }
+    }
+
+    fn issued_at_utc_ms(&self) -> u64 {
+        match self {
+            Self::ProcessPriority(plan) => plan.issued_at_utc_ms,
+            Self::ProcessSignal(plan) => plan.issued_at_utc_ms,
+        }
+    }
+
+    fn validate_at(&self, now_utc_ms: u64) -> Result<(), CuError> {
+        match self {
+            Self::ProcessPriority(plan) => validate_process_priority_plan(plan, now_utc_ms),
+            Self::ProcessSignal(plan) => validate_process_signal_plan(plan, now_utc_ms),
+        }
+    }
+
+    fn validate_structure(&self) -> Result<(), CuError> {
+        self.validate_at(self.issued_at_utc_ms())?;
+        match (self, self.operation()) {
+            (Self::ProcessPriority(_), PrivilegeOperation::ProcessSetPriority)
+            | (Self::ProcessSignal(_), PrivilegeOperation::ProcessSignal) => Ok(()),
+            _ => Err(CuError::new(
+                "privilege_plan_invalid",
+                "privilege plan variant does not match its closed operation",
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ValidatedPrivilegeRequestV1 {
+    request: PrivilegeApplyRequestV1,
+    fingerprint: String,
+}
+
+impl ValidatedPrivilegeRequestV1 {
+    pub fn request(&self) -> &PrivilegeApplyRequestV1 {
+        &self.request
+    }
+
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+}
+
+/// Native peer identity. No wire or public constructor exists: a provider
+/// child module may create this only after authenticating its native IPC peer.
+#[derive(Clone, Debug)]
+pub struct AuthenticatedPrivilegePeer {
+    principal_digest: String,
+    provider_identity_digest: String,
+}
+
+#[derive(Debug)]
+pub struct NativeAuthorizationProof {
+    authorization: PrivilegeAuthorizationV1,
+}
+
+#[derive(Debug)]
+pub struct PreparedPrivilegeEffect {
+    contract_digest: String,
+}
+
+/// Closed proof that native consent/delegated authorization and exact native
+/// effect preparation have both completed for this contract.
+#[derive(Debug)]
+pub struct AuthorizedPreparedRequest {
+    validated: ValidatedPrivilegeRequestV1,
+    peer: AuthenticatedPrivilegePeer,
+}
+
+#[derive(Debug)]
+pub enum PrivilegeProviderLookupDecision {
+    Missing,
+    ReplayFinalized {
+        outcome_code: String,
+        receipt_id: Option<String>,
+        receipt_sha256: Option<String>,
+    },
+    OutcomeUnknown,
 }
 
 /// Provider-owned durable replay gate. The path must live in storage protected
@@ -142,9 +288,26 @@ pub enum PrivilegeProviderReserveDecision {
     Fresh(PrivilegeProviderReservation),
     ReplayFinalized {
         outcome_code: String,
+        receipt_id: Option<String>,
         receipt_sha256: Option<String>,
     },
     OutcomeUnknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PrivilegeProviderFinalOutcome {
+    Completed {
+        outcome_code: String,
+        receipt_id: String,
+        receipt_sha256: String,
+    },
+    FailedBeforeEffect {
+        outcome_code: String,
+    },
+    FailedAfterEffect {
+        outcome_code: String,
+        receipt_sha256: String,
+    },
 }
 
 impl PrivilegeProviderLedger {
@@ -158,56 +321,73 @@ impl PrivilegeProviderLedger {
         })
     }
 
-    /// Reserve only after native consent and provider-side precondition checks.
-    pub fn reserve_after_consent(
+    /// Read durable replay state before opening native consent. An expired plan
+    /// can still retrieve an earlier terminal/unknown outcome during retention.
+    pub fn lookup_before_consent(
         &self,
-        request: &PrivilegeApplyRequestV1,
-        origin_principal_digest: &str,
+        validated: &ValidatedPrivilegeRequestV1,
+        peer: &AuthenticatedPrivilegePeer,
+        now_utc_ms: i64,
+    ) -> Result<PrivilegeProviderLookupDecision, CuError> {
+        validate_authenticated_peer(peer)?;
+        let provider_key = provider_key(
+            self.namespace,
+            &peer.principal_digest,
+            &validated.request.request_id,
+        );
+        match self
+            .store
+            .lookup(&provider_key, &validated.fingerprint, now_utc_ms)?
+        {
+            None => Ok(PrivilegeProviderLookupDecision::Missing),
+            Some(status) => lookup_decision(status),
+        }
+    }
+
+    /// Atomic second replay check and reservation after native consent and
+    /// exact-object preparation. Only the provider's private type-state can
+    /// reach this method.
+    pub fn reserve_authorized(
+        &self,
+        authorized: &AuthorizedPreparedRequest,
         now_utc_ms: i64,
     ) -> Result<PrivilegeProviderReserveDecision, CuError> {
-        validate_digest(
-            origin_principal_digest,
-            "privilege_origin_principal_invalid",
-        )?;
-        let now_for_plan = u64::try_from(now_utc_ms).map_err(|_| {
-            CuError::new(
-                "privilege_provider_clock_invalid",
-                "provider clock must be non-negative UTC milliseconds",
-            )
-        })?;
-        validate_apply_request(request, now_for_plan)?;
-        let canonical = serde_json::to_vec(request).map_err(|_| {
-            CuError::new(
-                "privilege_request_invalid",
-                "privilege apply request could not be serialized canonically",
-            )
-        })?;
-        let fingerprint = fingerprint_canonical_request(&canonical)?;
-        let provider_key =
-            provider_key(self.namespace, origin_principal_digest, &request.request_id);
+        validate_authenticated_peer(&authorized.peer)?;
+        validate_fresh_request(&authorized.validated.request, now_utc_ms)?;
+        let provider_key = provider_key(
+            self.namespace,
+            &authorized.peer.principal_digest,
+            &authorized.validated.request.request_id,
+        );
         match self.store.reserve(
             &provider_key,
-            &fingerprint,
+            &authorized.validated.fingerprint,
             PROVIDER_REPLAY_RETENTION_MS,
             now_utc_ms,
         )? {
             ReserveDecision::Fresh(fresh) => Ok(PrivilegeProviderReserveDecision::Fresh(
                 PrivilegeProviderReservation {
                     provider_key,
-                    fingerprint,
+                    fingerprint: authorized.validated.fingerprint.clone(),
                     fresh,
                 },
             )),
             ReserveDecision::ReplayFinalized(status) => {
-                let outcome = status.outcome.ok_or_else(|| {
-                    CuError::new(
+                let PrivilegeProviderLookupDecision::ReplayFinalized {
+                    outcome_code,
+                    receipt_id,
+                    receipt_sha256,
+                } = lookup_decision(status)?
+                else {
+                    return Err(CuError::new(
                         "privilege_provider_state_invalid",
-                        "finalized provider reservation has no outcome",
-                    )
-                })?;
+                        "finalized reservation did not yield a terminal replay",
+                    ));
+                };
                 Ok(PrivilegeProviderReserveDecision::ReplayFinalized {
-                    outcome_code: outcome.code,
-                    receipt_sha256: outcome.receipt_sha256,
+                    outcome_code,
+                    receipt_id,
+                    receipt_sha256,
                 })
             }
             ReserveDecision::Uncertain(_) => Ok(PrivilegeProviderReserveDecision::OutcomeUnknown),
@@ -217,21 +397,33 @@ impl PrivilegeProviderLedger {
     pub fn finalize(
         &self,
         reservation: &PrivilegeProviderReservation,
-        succeeded: bool,
-        outcome_code: &str,
-        receipt_sha256: Option<String>,
+        outcome: PrivilegeProviderFinalOutcome,
         now_utc_ms: i64,
     ) -> Result<(), CuError> {
-        let kind = if succeeded {
-            FinalOutcomeKind::Succeeded
-        } else {
-            FinalOutcomeKind::Failed
+        let outcome = match outcome {
+            PrivilegeProviderFinalOutcome::Completed {
+                outcome_code,
+                receipt_id,
+                receipt_sha256,
+            } => FinalOutcome::new(
+                FinalOutcomeKind::Succeeded,
+                outcome_code,
+                Some(receipt_sha256),
+            )?
+            .with_replay(FinalReplay::PrivilegeApply { receipt_id })?,
+            PrivilegeProviderFinalOutcome::FailedBeforeEffect { outcome_code } => {
+                FinalOutcome::new(FinalOutcomeKind::Failed, outcome_code, None)?
+            }
+            PrivilegeProviderFinalOutcome::FailedAfterEffect {
+                outcome_code,
+                receipt_sha256,
+            } => FinalOutcome::new(FinalOutcomeKind::Failed, outcome_code, Some(receipt_sha256))?,
         };
         self.store.finalize(
             &reservation.provider_key,
             &reservation.fingerprint,
             &reservation.fresh.completion_token,
-            FinalOutcome::new(kind, outcome_code, receipt_sha256)?,
+            outcome,
             now_utc_ms,
         )?;
         Ok(())
@@ -252,14 +444,11 @@ impl PrivilegeProviderLedger {
     }
 }
 
-/// Parse and validate the untrusted wire bytes before any consent interaction.
-///
-/// The returned fingerprint binds the entire canonical request. It is safe to
-/// persist as provider idempotency metadata; the request body is not.
-pub fn parse_apply_request(
-    bytes: &[u8],
-    now_utc_ms: u64,
-) -> Result<(PrivilegeApplyRequestV1, String), CuError> {
+/// Parse and structurally validate untrusted wire bytes before replay lookup.
+/// Freshness is deliberately separate: an expired approval can still retrieve
+/// an earlier retained terminal or uncertain provider outcome without opening
+/// native consent again.
+pub fn parse_apply_request(bytes: &[u8]) -> Result<ValidatedPrivilegeRequestV1, CuError> {
     if bytes.is_empty() || bytes.len() > MAX_REQUEST_BYTES {
         return Err(CuError::new(
             "privilege_request_size_invalid",
@@ -272,20 +461,166 @@ pub fn parse_apply_request(
             "privilege apply request is not the closed protocol-v1 shape",
         )
     })?;
-    validate_apply_request(&request, now_utc_ms)?;
+    validate_apply_request_structure(&request)?;
     let canonical = serde_json::to_vec(&request).map_err(|_| {
         CuError::new(
             "privilege_request_invalid",
             "privilege apply request could not be serialized canonically",
         )
     })?;
-    Ok((request, fingerprint_canonical_request(&canonical)?))
+    Ok(ValidatedPrivilegeRequestV1 {
+        request,
+        fingerprint: fingerprint_canonical_request(&canonical)?,
+    })
 }
 
-fn validate_apply_request(
-    request: &PrivilegeApplyRequestV1,
-    now_utc_ms: u64,
-) -> Result<(), CuError> {
+pub fn parse_apply_reply(bytes: &[u8]) -> Result<PrivilegeApplyReplyV1, CuError> {
+    if bytes.is_empty() || bytes.len() > MAX_REPLY_BYTES {
+        return Err(CuError::new(
+            "privilege_reply_size_invalid",
+            "privilege apply reply is empty or exceeds its byte budget",
+        ));
+    }
+    let reply: PrivilegeApplyReplyV1 = serde_json::from_slice(bytes).map_err(|_| {
+        CuError::new(
+            "privilege_reply_invalid",
+            "privilege apply reply is not the closed protocol-v1 shape",
+        )
+    })?;
+    validate_apply_reply(&reply)?;
+    Ok(reply)
+}
+
+fn validate_apply_reply(reply: &PrivilegeApplyReplyV1) -> Result<(), CuError> {
+    let (protocol_version, request_id, contract_digest, approval_digest) = match reply {
+        PrivilegeApplyReplyV1::Refused {
+            protocol_version,
+            request_id,
+            contract_digest,
+            approval_digest,
+            error_code,
+        }
+        | PrivilegeApplyReplyV1::FailedBeforeEffect {
+            protocol_version,
+            request_id,
+            contract_digest,
+            approval_digest,
+            error_code,
+        } => {
+            validate_machine_code(error_code)?;
+            (
+                *protocol_version,
+                request_id,
+                contract_digest,
+                approval_digest,
+            )
+        }
+        PrivilegeApplyReplyV1::ConsentCanceled {
+            protocol_version,
+            request_id,
+            contract_digest,
+            approval_digest,
+        } => (
+            *protocol_version,
+            request_id,
+            contract_digest,
+            approval_digest,
+        ),
+        PrivilegeApplyReplyV1::Completed {
+            protocol_version,
+            request_id,
+            contract_digest,
+            approval_digest,
+            receipt_id,
+            receipt_sha256,
+            provider_identity_digest,
+            origin_principal_digest,
+            ..
+        } => {
+            validate_receipt_id(receipt_id)?;
+            validate_digest(receipt_sha256, "privilege_receipt_digest_invalid")?;
+            validate_digest(
+                provider_identity_digest,
+                "privilege_provider_identity_invalid",
+            )?;
+            validate_digest(
+                origin_principal_digest,
+                "privilege_origin_principal_invalid",
+            )?;
+            (
+                *protocol_version,
+                request_id,
+                contract_digest,
+                approval_digest,
+            )
+        }
+        PrivilegeApplyReplyV1::FailedAfterEffect {
+            protocol_version,
+            request_id,
+            contract_digest,
+            approval_digest,
+            error_code,
+            receipt_id,
+            receipt_sha256,
+            provider_identity_digest,
+            origin_principal_digest,
+        } => {
+            validate_machine_code(error_code)?;
+            validate_receipt_id(receipt_id)?;
+            validate_digest(receipt_sha256, "privilege_receipt_digest_invalid")?;
+            validate_digest(
+                provider_identity_digest,
+                "privilege_provider_identity_invalid",
+            )?;
+            validate_digest(
+                origin_principal_digest,
+                "privilege_origin_principal_invalid",
+            )?;
+            (
+                *protocol_version,
+                request_id,
+                contract_digest,
+                approval_digest,
+            )
+        }
+        PrivilegeApplyReplyV1::OutcomeUnknown {
+            protocol_version,
+            request_id,
+            contract_digest,
+            approval_digest,
+            receipt_id,
+            provider_identity_digest,
+            origin_principal_digest,
+        } => {
+            validate_receipt_id(receipt_id)?;
+            validate_digest(
+                provider_identity_digest,
+                "privilege_provider_identity_invalid",
+            )?;
+            validate_digest(
+                origin_principal_digest,
+                "privilege_origin_principal_invalid",
+            )?;
+            (
+                *protocol_version,
+                request_id,
+                contract_digest,
+                approval_digest,
+            )
+        }
+    };
+    if protocol_version != PRIVILEGE_APPLY_PROTOCOL_VERSION {
+        return Err(CuError::new(
+            "privilege_protocol_unsupported",
+            "privilege reply protocol version is unsupported",
+        ));
+    }
+    validate_identifier(request_id, "privilege_request_id_invalid")?;
+    validate_digest(contract_digest, "privilege_contract_digest_invalid")?;
+    validate_digest(approval_digest, "privilege_approval_digest_invalid")
+}
+
+fn validate_apply_request_structure(request: &PrivilegeApplyRequestV1) -> Result<(), CuError> {
     if request.protocol_version != PRIVILEGE_APPLY_PROTOCOL_VERSION
         || request.client.contract_version != PRIVILEGE_PROVIDER_CONTRACT_VERSION
     {
@@ -296,8 +631,90 @@ fn validate_apply_request(
     }
     validate_identifier(&request.request_id, "privilege_request_id_invalid")?;
     validate_identifier(&request.origin.session_id, "privilege_session_id_invalid")?;
-    validate_process_priority_plan(&request.plan, now_utc_ms)?;
+    match &request.authorization {
+        PrivilegeAuthorizationV1::OneShotNativeConsent => {}
+        PrivilegeAuthorizationV1::DelegatedGrant { grant_id } => {
+            validate_identifier(grant_id, "privilege_grant_id_invalid")?;
+        }
+    }
+    request.plan.validate_structure()?;
     Ok(())
+}
+
+fn validate_fresh_request(
+    request: &PrivilegeApplyRequestV1,
+    now_utc_ms: i64,
+) -> Result<(), CuError> {
+    let now_utc_ms = u64::try_from(now_utc_ms).map_err(|_| {
+        CuError::new(
+            "privilege_provider_clock_invalid",
+            "provider clock must be non-negative UTC milliseconds",
+        )
+    })?;
+    request.plan.validate_at(now_utc_ms)
+}
+
+fn validate_authenticated_peer(peer: &AuthenticatedPrivilegePeer) -> Result<(), CuError> {
+    validate_digest(&peer.principal_digest, "privilege_origin_principal_invalid")?;
+    validate_digest(
+        &peer.provider_identity_digest,
+        "privilege_provider_identity_invalid",
+    )
+}
+
+pub fn bind_authorized_prepared(
+    validated: ValidatedPrivilegeRequestV1,
+    peer: AuthenticatedPrivilegePeer,
+    authorization: NativeAuthorizationProof,
+    prepared: PreparedPrivilegeEffect,
+) -> Result<AuthorizedPreparedRequest, CuError> {
+    validate_authenticated_peer(&peer)?;
+    if authorization.authorization != validated.request.authorization {
+        return Err(CuError::new(
+            "privilege_authorization_mismatch",
+            "native authorization does not match the requested mode",
+        ));
+    }
+    if prepared.contract_digest != validated.request.plan.contract_digest() {
+        return Err(CuError::new(
+            "privilege_prepared_effect_mismatch",
+            "prepared native effect does not match the validated contract",
+        ));
+    }
+    Ok(AuthorizedPreparedRequest { validated, peer })
+}
+
+fn lookup_decision(
+    status: crate::idempotency_store::RequestStatus,
+) -> Result<PrivilegeProviderLookupDecision, CuError> {
+    match status.state {
+        RequestState::Reserved | RequestState::OutcomeUnknown => {
+            Ok(PrivilegeProviderLookupDecision::OutcomeUnknown)
+        }
+        RequestState::Finalized => {
+            let outcome = status.outcome.ok_or_else(|| {
+                CuError::new(
+                    "privilege_provider_state_invalid",
+                    "finalized provider reservation has no outcome",
+                )
+            })?;
+            let receipt_id = match outcome.replay {
+                Some(FinalReplay::PrivilegeApply { receipt_id }) => Some(receipt_id),
+                None => None,
+                Some(_) => {
+                    return Err(CuError::new(
+                        "privilege_provider_state_invalid",
+                        "provider replay metadata belongs to another effect family",
+                    ));
+                }
+            };
+            Ok(PrivilegeProviderLookupDecision::ReplayFinalized {
+                outcome_code: outcome.code,
+                receipt_id,
+                receipt_sha256: outcome.receipt_sha256,
+            })
+        }
+    }
 }
 
 fn validate_identifier(value: &str, code: &'static str) -> Result<(), CuError> {
@@ -310,6 +727,44 @@ fn validate_identifier(value: &str, code: &'static str) -> Result<(), CuError> {
         return Err(CuError::new(
             code,
             "privilege identifier must be bounded printable ASCII without whitespace",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_machine_code(value: &str) -> Result<(), CuError> {
+    if value.is_empty()
+        || value.len() > 96
+        || !value.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || matches!(byte, b'_' | b'-' | b'.' | b':')
+        })
+    {
+        return Err(CuError::new(
+            "privilege_error_code_invalid",
+            "privilege error code must be a bounded lowercase machine token",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_receipt_id(value: &str) -> Result<(), CuError> {
+    let valid = value.len() == 36
+        && value.as_bytes().get(8) == Some(&b'-')
+        && value.as_bytes().get(13) == Some(&b'-')
+        && value.as_bytes().get(18) == Some(&b'-')
+        && value.as_bytes().get(23) == Some(&b'-')
+        && value.as_bytes().get(14) == Some(&b'4')
+        && matches!(value.as_bytes().get(19), Some(b'8' | b'9' | b'a' | b'b'))
+        && value.bytes().enumerate().all(|(index, byte)| {
+            matches!(index, 8 | 13 | 18 | 23)
+                || byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()
+        });
+    if !valid {
+        return Err(CuError::new(
+            "privilege_receipt_id_invalid",
+            "privilege receipt id must be a lowercase UUID v4",
         ));
     }
     Ok(())
@@ -352,13 +807,18 @@ fn provider_key(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     use super::*;
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     use crate::privilege_plan::process_priority_plan;
+    use crate::{
+        command::ProcessSignalKind,
+        privilege_plan::{
+            PROCESS_SIGNAL_TREE_MAX_DESCENDANTS, ProcessSignalBeforeState, ProcessSignalMember,
+            ProcessSignalScope,
+        },
+    };
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn request(now: u64) -> PrivilegeApplyRequestV1 {
@@ -367,7 +827,10 @@ mod tests {
         PrivilegeApplyRequestV1 {
             protocol_version: PRIVILEGE_APPLY_PROTOCOL_VERSION,
             request_id: "request-01".into(),
-            plan: process_priority_plan(pid, nice, 120, now).unwrap(),
+            plan: PrivilegePlanV1::ProcessPriority(
+                process_priority_plan(pid, nice, 120, now).unwrap(),
+            ),
+            authorization: PrivilegeAuthorizationV1::OneShotNativeConsent,
             origin: PrivilegeOriginV1 {
                 session_id: "session-01".into(),
                 target_scope: PrivilegeTargetScope::Current,
@@ -378,16 +841,144 @@ mod tests {
         }
     }
 
+    fn peer() -> AuthenticatedPrivilegePeer {
+        AuthenticatedPrivilegePeer {
+            principal_digest: sha256_hex(b"fixture-principal"),
+            provider_identity_digest: sha256_hex(b"fixture-provider"),
+        }
+    }
+
+    fn authorize(validated: ValidatedPrivilegeRequestV1) -> AuthorizedPreparedRequest {
+        let authorization = validated.request.authorization.clone();
+        let contract_digest = validated.request.plan.contract_digest().to_owned();
+        bind_authorized_prepared(
+            validated,
+            peer(),
+            NativeAuthorizationProof { authorization },
+            PreparedPrivilegeEffect { contract_digest },
+        )
+        .unwrap()
+    }
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn closed_request_round_trips_with_stable_fingerprint() {
         let request = request(1_000);
         let bytes = serde_json::to_vec(&request).unwrap();
-        let (parsed, first) = parse_apply_request(&bytes, 1_001).unwrap();
-        let (_, second) = parse_apply_request(&bytes, 1_001).unwrap();
-        assert_eq!(parsed, request);
-        assert_eq!(first, second);
-        assert_eq!(first.len(), 64);
+        let first = parse_apply_request(&bytes).unwrap();
+        let second = parse_apply_request(&bytes).unwrap();
+        assert_eq!(first.request(), &request);
+        assert_eq!(first.fingerprint(), second.fingerprint());
+        assert_eq!(first.fingerprint().len(), 64);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn signal_plan_round_trips_through_the_closed_union() {
+        let plan = crate::privilege_plan::process_signal_plan(
+            std::process::id(),
+            ProcessSignalKind::Terminate,
+            false,
+            false,
+            5_000,
+            16,
+            120,
+            1_000,
+        )
+        .unwrap();
+        let mut request = request(1_000);
+        request.plan = PrivilegePlanV1::ProcessSignal(plan.clone());
+        let parsed = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        assert!(matches!(
+            parsed.request().plan,
+            PrivilegePlanV1::ProcessSignal(ref actual) if actual == &plan
+        ));
+    }
+
+    #[test]
+    fn reply_states_cannot_encode_effect_contradictions() {
+        let reply = PrivilegeApplyReplyV1::FailedAfterEffect {
+            protocol_version: 1,
+            request_id: "request-01".into(),
+            contract_digest: "a".repeat(64),
+            approval_digest: "b".repeat(64),
+            error_code: "readback_failed".into(),
+            receipt_id: "12345678-1234-4234-8234-123456789abc".into(),
+            receipt_sha256: "c".repeat(64),
+            provider_identity_digest: "d".repeat(64),
+            origin_principal_digest: "e".repeat(64),
+        };
+        let value = serde_json::to_value(&reply).unwrap();
+        assert_eq!(value["state"], "failed_after_effect");
+        assert!(value.get("mutation_attempted").is_none());
+        assert!(value.get("verified").is_none());
+        parse_apply_reply(&serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let mut invalid_code = value.clone();
+        invalid_code["error_code"] = serde_json::json!("Human Error");
+        assert_eq!(
+            parse_apply_reply(&serde_json::to_vec(&invalid_code).unwrap())
+                .unwrap_err()
+                .code,
+            "privilege_error_code_invalid"
+        );
+
+        let mut unknown = value;
+        unknown["unexpected"] = serde_json::json!(true);
+        assert_eq!(
+            parse_apply_reply(&serde_json::to_vec(&unknown).unwrap())
+                .unwrap_err()
+                .code,
+            "privilege_reply_invalid"
+        );
+        assert_eq!(
+            parse_apply_reply(&vec![b' '; MAX_REPLY_BYTES + 1])
+                .unwrap_err()
+                .code,
+            "privilege_reply_size_invalid"
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn type_state_rejects_wrong_authorization_and_prepared_contract() {
+        let request = request(1_000);
+        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        let wrong_authorization = NativeAuthorizationProof {
+            authorization: PrivilegeAuthorizationV1::DelegatedGrant {
+                grant_id: "grant-01".into(),
+            },
+        };
+        assert_eq!(
+            bind_authorized_prepared(
+                validated,
+                peer(),
+                wrong_authorization,
+                PreparedPrivilegeEffect {
+                    contract_digest: request.plan.contract_digest().to_owned(),
+                },
+            )
+            .unwrap_err()
+            .code,
+            "privilege_authorization_mismatch"
+        );
+
+        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        assert_eq!(
+            bind_authorized_prepared(
+                validated,
+                peer(),
+                NativeAuthorizationProof {
+                    authorization: request.authorization.clone(),
+                },
+                PreparedPrivilegeEffect {
+                    contract_digest: "f".repeat(64),
+                },
+            )
+            .unwrap_err()
+            .code,
+            "privilege_prepared_effect_mismatch"
+        );
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -397,33 +988,37 @@ mod tests {
         let mut value = serde_json::to_value(&request).unwrap();
         value["password"] = serde_json::json!("must-never-enter-this-protocol");
         assert_eq!(
-            parse_apply_request(&serde_json::to_vec(&value).unwrap(), 1_001)
+            parse_apply_request(&serde_json::to_vec(&value).unwrap())
                 .unwrap_err()
                 .code,
             "privilege_request_invalid"
         );
 
         let mut tampered = request.clone();
-        tampered.plan.after.nice = if tampered.plan.after.nice == 20 {
+        let PrivilegePlanV1::ProcessPriority(plan) = &mut tampered.plan else {
+            unreachable!()
+        };
+        plan.after.nice = if plan.after.nice == 20 {
             19
         } else {
-            tampered.plan.after.nice + 1
+            plan.after.nice + 1
         };
         assert_eq!(
-            parse_apply_request(&serde_json::to_vec(&tampered).unwrap(), 1_001)
+            parse_apply_request(&serde_json::to_vec(&tampered).unwrap())
                 .unwrap_err()
                 .code,
             "privilege_plan_digest_mismatch"
         );
+        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
         assert_eq!(
-            parse_apply_request(
-                &serde_json::to_vec(&request).unwrap(),
-                request.plan.expires_at_utc_ms + 1,
-            )
-            .unwrap_err()
-            .code,
+            validate_fresh_request(&request, 999).unwrap_err().code,
+            "privilege_plan_not_yet_valid"
+        );
+        assert_eq!(
+            validate_fresh_request(&request, 121_001).unwrap_err().code,
             "privilege_plan_expired"
         );
+        assert_eq!(validated.request(), &request);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -432,10 +1027,68 @@ mod tests {
         let mut request = request(1_000);
         request.request_id = "bad request".into();
         assert_eq!(
-            parse_apply_request(&serde_json::to_vec(&request).unwrap(), 1_001)
+            parse_apply_request(&serde_json::to_vec(&request).unwrap())
                 .unwrap_err()
                 .code,
             "privilege_request_id_invalid"
+        );
+    }
+
+    #[test]
+    fn maximum_signal_request_fits_one_shared_wire_ceiling() {
+        let identity = "windows-filetime:18446744073709551615".to_owned();
+        let mut members = Vec::new();
+        for index in 0..=PROCESS_SIGNAL_TREE_MAX_DESCENDANTS {
+            members.push(ProcessSignalMember {
+                pid: index + 2,
+                depth: u32::from(index != 0),
+                parent_pid: (index != 0).then_some(2),
+                start_identity: identity.clone(),
+                before: ProcessSignalBeforeState { stopped: false },
+            });
+        }
+        let request = PrivilegeApplyRequestV1 {
+            protocol_version: PRIVILEGE_APPLY_PROTOCOL_VERSION,
+            request_id: "r".repeat(MAX_ID_BYTES),
+            plan: PrivilegePlanV1::ProcessSignal(ProcessSignalPlan {
+                schema_version: 1,
+                operation: PrivilegeOperation::ProcessSignal,
+                target: crate::privilege_plan::ProcessSignalTarget {
+                    pid: 2,
+                    start_identity: identity,
+                },
+                scope: ProcessSignalScope::Tree,
+                signal: ProcessSignalKind::Terminate,
+                force: false,
+                timeout_ms: 60_000,
+                max_descendants: PROCESS_SIGNAL_TREE_MAX_DESCENDANTS,
+                members,
+                issued_at_utc_ms: u64::MAX - 600_000,
+                expires_at_utc_ms: u64::MAX,
+                contract_digest: "a".repeat(64),
+                approval_digest: "b".repeat(64),
+                consent_requested: false,
+                mutation_performed: false,
+            }),
+            authorization: PrivilegeAuthorizationV1::DelegatedGrant {
+                grant_id: "g".repeat(MAX_ID_BYTES),
+            },
+            origin: PrivilegeOriginV1 {
+                session_id: "s".repeat(MAX_ID_BYTES),
+                target_scope: PrivilegeTargetScope::Current,
+            },
+            client: PrivilegeClientV1 {
+                contract_version: PRIVILEGE_PROVIDER_CONTRACT_VERSION,
+            },
+        };
+        let bytes = serde_json::to_vec(&request).unwrap();
+        assert_eq!(bytes.len(), 16_607);
+        assert!(bytes.len() <= MAX_REQUEST_BYTES);
+        assert_eq!(
+            parse_apply_request(&vec![b' '; MAX_REQUEST_BYTES + 1])
+                .unwrap_err()
+                .code,
+            "privilege_request_size_invalid"
         );
     }
 
@@ -457,51 +1110,80 @@ mod tests {
         )
         .unwrap();
         let request = request(1_000);
-        let principal = sha256_hex(b"fixture-principal");
+        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        assert!(matches!(
+            ledger
+                .lookup_before_consent(&validated, &peer(), 1_000)
+                .unwrap(),
+            PrivilegeProviderLookupDecision::Missing
+        ));
 
         let first = match ledger
-            .reserve_after_consent(&request, &principal, 1_001)
+            .reserve_authorized(&authorize(validated), 1_001)
             .unwrap()
         {
             PrivilegeProviderReserveDecision::Fresh(reservation) => reservation,
             other => panic!("expected fresh reservation, got {other:?}"),
         };
+        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
         assert!(matches!(
             ledger
-                .reserve_after_consent(&request, &principal, 1_002)
+                .lookup_before_consent(&validated, &peer(), 1_002)
+                .unwrap(),
+            PrivilegeProviderLookupDecision::OutcomeUnknown
+        ));
+        assert!(matches!(
+            ledger
+                .reserve_authorized(&authorize(validated), 1_002)
                 .unwrap(),
             PrivilegeProviderReserveDecision::OutcomeUnknown
         ));
         ledger.mark_outcome_unknown(&first, 1_003).unwrap();
+        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
         assert!(matches!(
             ledger
-                .reserve_after_consent(&request, &principal, 1_004)
+                .lookup_before_consent(&validated, &peer(), 1_004)
                 .unwrap(),
-            PrivilegeProviderReserveDecision::OutcomeUnknown
+            PrivilegeProviderLookupDecision::OutcomeUnknown
         ));
 
         let mut completed_request = request.clone();
         completed_request.request_id = "request-02".into();
+        let completed_validated =
+            parse_apply_request(&serde_json::to_vec(&completed_request).unwrap()).unwrap();
         let completed = match ledger
-            .reserve_after_consent(&completed_request, &principal, 1_005)
+            .reserve_authorized(&authorize(completed_validated), 1_005)
             .unwrap()
         {
             PrivilegeProviderReserveDecision::Fresh(reservation) => reservation,
             other => panic!("expected fresh reservation, got {other:?}"),
         };
         let receipt = sha256_hex(b"fixture-receipt");
+        let receipt_id = "12345678-1234-4234-8234-123456789abc".to_owned();
         ledger
-            .finalize(&completed, true, "completed", Some(receipt.clone()), 1_006)
+            .finalize(
+                &completed,
+                PrivilegeProviderFinalOutcome::Completed {
+                    outcome_code: "completed".into(),
+                    receipt_id: receipt_id.clone(),
+                    receipt_sha256: receipt.clone(),
+                },
+                1_006,
+            )
             .unwrap();
+        let completed_validated =
+            parse_apply_request(&serde_json::to_vec(&completed_request).unwrap()).unwrap();
         match ledger
-            .reserve_after_consent(&completed_request, &principal, 1_007)
+            .lookup_before_consent(&completed_validated, &peer(), 121_001)
             .unwrap()
         {
-            PrivilegeProviderReserveDecision::ReplayFinalized {
+            PrivilegeProviderLookupDecision::ReplayFinalized {
                 outcome_code,
+                receipt_id: replay_receipt_id,
                 receipt_sha256,
             } => {
                 assert_eq!(outcome_code, "completed");
+                assert_eq!(replay_receipt_id.as_deref(), Some(receipt_id.as_str()));
                 assert_eq!(receipt_sha256.as_deref(), Some(receipt.as_str()));
             }
             other => panic!("expected finalized replay, got {other:?}"),
@@ -509,9 +1191,10 @@ mod tests {
 
         let mut changed = completed_request.clone();
         changed.origin.session_id = "session-02".into();
+        let changed = parse_apply_request(&serde_json::to_vec(&changed).unwrap()).unwrap();
         assert_eq!(
             ledger
-                .reserve_after_consent(&changed, &principal, 1_008)
+                .lookup_before_consent(&changed, &peer(), 121_002)
                 .unwrap_err()
                 .code,
             "request_id_conflict"

@@ -47,7 +47,9 @@ pub(super) fn device_replay_payload(replay: &FinalReplay) -> Value {
             "idempotent": true,
             "lease_secret_replayed": false,
         }),
-        FinalReplay::JobSpawn { .. } => unreachable!("device replay requires device identity"),
+        FinalReplay::JobSpawn { .. } | FinalReplay::PrivilegeApply { .. } => {
+            unreachable!("device replay requires device identity")
+        }
     }
 }
 

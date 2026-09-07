@@ -4536,6 +4536,19 @@ court that proves real consent, retained-object mutation, provider-owned replay
 behavior and postcondition read-back. The first can never stand in for the
 second.
 
+Provider replay lookup must happen before consent and before approval-freshness
+rejection. First structurally validate and fingerprint the closed request, then
+authenticate the native peer and consult provider-owned replay state. A
+finalized or uncertain request returns its retained state without prompting;
+only an absent identity may check freshness, authorize, prepare exact native
+objects and atomically reserve. Recheck at reservation to close the race while
+consent was open. Keep the wire ceiling shared by every transport and prove it
+with the maximum legal request; the 128-descendant signal contract serializes
+to 16,607 bytes in its pinned maximum-shape test and uses a 64 KiB ceiling.
+Use fixed-width integers in cross-ISA protocol fields and restrict native start
+identities to their actual prefix-plus-decimal grammar so JSON escaping cannot
+silently invalidate the byte proof.
+
 ## Freeze persisted grants to canonical operations
 
 Target, desktop session, scope, expiry and use count do not stop one broad

@@ -356,27 +356,7 @@ pub fn validate_process_priority_plan(
             "privilege plan has an invalid closed shape",
         ));
     }
-    let ttl_ms = plan
-        .expires_at_utc_ms
-        .checked_sub(plan.issued_at_utc_ms)
-        .ok_or_else(|| {
-            CuError::new(
-                "privilege_plan_invalid",
-                "privilege plan expiry precedes its issue time",
-            )
-        })?;
-    if !(MIN_PLAN_TTL_SECONDS * 1_000..=MAX_PLAN_TTL_SECONDS * 1_000).contains(&ttl_ms) {
-        return Err(CuError::new(
-            "privilege_plan_invalid",
-            "privilege plan lifetime is outside the bounded contract",
-        ));
-    }
-    if now_utc_ms > plan.expires_at_utc_ms {
-        return Err(CuError::new(
-            "privilege_plan_expired",
-            "privilege plan expired before provider reservation",
-        ));
-    }
+    validate_plan_lifetime(plan.issued_at_utc_ms, plan.expires_at_utc_ms, now_utc_ms)?;
     let contract = ContractProjection {
         schema_version: plan.schema_version,
         operation: plan.operation,
@@ -803,6 +783,12 @@ fn validate_plan_lifetime(
         return Err(CuError::new(
             "privilege_plan_invalid",
             "privilege plan lifetime is outside the bounded contract",
+        ));
+    }
+    if now_utc_ms < issued_at_utc_ms {
+        return Err(CuError::new(
+            "privilege_plan_not_yet_valid",
+            "privilege plan issue time is later than the provider clock",
         ));
     }
     if now_utc_ms > expires_at_utc_ms {

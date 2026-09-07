@@ -140,7 +140,7 @@
           "state": "gap",
           "evidence": ["cu.privileged-signal-plan"],
           "next": "fixed-identity native consent provider with provider-owned replay state and the same exact-object single/tree contract",
-          "note": "Planning is public and read-only; it is not elevation. The gap remains until a protected provider authenticates the caller, obtains native consent out of band, revalidates and retains every exact native process object, reserves before effect, performs at most once and owns postcondition read-back."
+          "note": "Planning is public and read-only; it is not elevation. The shared provider protocol now has a closed priority/signal union, explicit one-shot/delegated authorization mode, a maximum-shape-tested 64 KiB wire ceiling, pre-consent replay lookup and contradiction-free terminal states. The gap remains until a protected provider authenticates the caller, obtains native consent out of band, revalidates and retains every exact native process object, reserves before effect, performs at most once and owns postcondition read-back."
         },
         {
           "id": "process.cwd",

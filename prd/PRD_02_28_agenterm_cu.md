@@ -1237,10 +1237,19 @@ flowchart LR
   `cu.privilege-plan` proves the public qjswasm path and `mutation_performed`
   remains false. Windows returns `privilege_operation_unsupported` because a
   priority-class contract is not Unix nice. The next provider boundary now has
-  a bounded protocol-v1 request/reply codec: it rejects unknown fields,
-  whitespace/unbounded identities, changed plan bytes, expired plans and
-  non-current targets before any consent UI; it recomputes both digests and
-  emits only a canonical request fingerprint for provider-side replay state.
+  a bounded protocol-v1 request/reply codec. Its closed plan union carries only
+  `process.set-priority` or `process.signal`; authorization is exactly one-shot
+  native consent or one explicit delegated-grant id. The shared 64 KiB ceiling
+  carries the maximum legal 129-member signal request (16,607 bytes in the
+  pinned worst-shape court). Unknown fields, unbounded identifiers, changed
+  plan bytes and non-current targets fail before consent. Structural validation
+  and replay lookup intentionally precede freshness: an expired approval can
+  retrieve a retained completed/unknown result without prompting or repeating
+  an effect. Only an absent request proceeds through freshness, native consent,
+  exact-object preparation and a second atomic replay/reservation check. Tagged
+  replies cannot encode completed/refused or before-effect/after-effect
+  contradictions, and a completed replay binds a separately sealed receipt id
+  and digest.
   This is protocol infrastructure, not shipped elevation: `approval_digest`
   identifies an expiring intent and is never evidence of human consent.
   Authorization Services, polkit or UAC must authenticate the peer and consent

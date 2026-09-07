@@ -69,6 +69,7 @@ pub enum FinalOutcomeKind {
 pub enum FinalReplay {
     JobSpawn { job_id: String, generation: u64 },
     DeviceClaim { lease_id: String, generation: u64 },
+    PrivilegeApply { receipt_id: String },
 }
 
 /// Bounded, non-secret outcome metadata retained for exact replay.
@@ -672,6 +673,14 @@ fn validate_outcome(outcome: &FinalOutcome) -> Result<(), CuError> {
                     return Err(CuError::new(
                         "request_outcome_invalid",
                         "device replay requires a lowercase UUID v4 and nonzero generation",
+                    ));
+                }
+            }
+            FinalReplay::PrivilegeApply { receipt_id } => {
+                if !is_lowercase_uuid_v4(receipt_id) {
+                    return Err(CuError::new(
+                        "request_outcome_invalid",
+                        "privilege replay requires a lowercase UUID v4 receipt id",
                     ));
                 }
             }
