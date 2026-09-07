@@ -19,7 +19,8 @@ use crate::{
         RequestState, ReserveDecision, fingerprint_canonical_request,
     },
     privilege_plan::{
-        PrivilegeOperation, ProcessPriorityPlan, ProcessSignalPlan, validate_process_priority_plan,
+        PrivilegeOperation, ProcessPriorityPlan, ProcessSignalPlan,
+        revalidate_process_signal_precondition, validate_process_priority_plan,
         validate_process_signal_plan,
     },
 };
@@ -234,17 +235,41 @@ pub struct NativeAuthorizationProof {
     authorization: PrivilegeAuthorizationV1,
 }
 
+pub struct PreparedProcessSignalEffect {
+    pub(crate) plan: ProcessSignalPlan,
+    pub(crate) references: Vec<agenterm_platform::process_reference::ProcessReference>,
+}
+
+impl std::fmt::Debug for PreparedProcessSignalEffect {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedProcessSignalEffect")
+            .field("contract_digest", &self.plan.contract_digest)
+            .field("member_count", &self.references.len())
+            .finish()
+    }
+}
+
 #[derive(Debug)]
-pub struct PreparedPrivilegeEffect {
-    contract_digest: String,
+pub enum PreparedPrivilegeEffect {
+    ProcessSignal(PreparedProcessSignalEffect),
+}
+
+impl PreparedPrivilegeEffect {
+    fn contract_digest(&self) -> &str {
+        match self {
+            Self::ProcessSignal(effect) => &effect.plan.contract_digest,
+        }
+    }
 }
 
 /// Closed proof that native consent/delegated authorization and exact native
 /// effect preparation have both completed for this contract.
 #[derive(Debug)]
 pub struct AuthorizedPreparedRequest {
-    validated: ValidatedPrivilegeRequestV1,
-    peer: AuthenticatedPrivilegePeer,
+    pub(crate) validated: ValidatedPrivilegeRequestV1,
+    pub(crate) peer: AuthenticatedPrivilegePeer,
+    pub(crate) prepared: PreparedPrivilegeEffect,
 }
 
 #[derive(Debug)]
@@ -266,10 +291,30 @@ pub struct PrivilegeProviderLedger {
     store: IdempotencyStore,
 }
 
-pub struct PrivilegeProviderReservation {
+struct PrivilegeProviderReservation {
     provider_key: String,
     fingerprint: String,
     fresh: FreshReservation,
+}
+
+/// A fresh provider reservation and the exact native objects it authorizes.
+/// Keeping both in one non-cloneable value prevents an effect implementation
+/// from dropping the retained objects and reopening mutable numeric PIDs.
+pub struct PrivilegeProviderExecution {
+    reservation: PrivilegeProviderReservation,
+    pub(crate) authorized: AuthorizedPreparedRequest,
+}
+
+impl std::fmt::Debug for PrivilegeProviderExecution {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PrivilegeProviderExecution")
+            .field("provider_key", &self.reservation.provider_key)
+            .field("fingerprint", &self.reservation.fingerprint)
+            .field("prepared", &self.authorized.prepared)
+            .field("completion_token", &"<redacted>")
+            .finish()
+    }
 }
 
 impl std::fmt::Debug for PrivilegeProviderReservation {
@@ -285,7 +330,7 @@ impl std::fmt::Debug for PrivilegeProviderReservation {
 
 #[derive(Debug)]
 pub enum PrivilegeProviderReserveDecision {
-    Fresh(PrivilegeProviderReservation),
+    Fresh(Box<PrivilegeProviderExecution>),
     ReplayFinalized {
         outcome_code: String,
         receipt_id: Option<String>,
@@ -349,7 +394,7 @@ impl PrivilegeProviderLedger {
     /// reach this method.
     pub fn reserve_authorized(
         &self,
-        authorized: &AuthorizedPreparedRequest,
+        authorized: AuthorizedPreparedRequest,
         now_utc_ms: i64,
     ) -> Result<PrivilegeProviderReserveDecision, CuError> {
         validate_authenticated_peer(&authorized.peer)?;
@@ -365,13 +410,16 @@ impl PrivilegeProviderLedger {
             PROVIDER_REPLAY_RETENTION_MS,
             now_utc_ms,
         )? {
-            ReserveDecision::Fresh(fresh) => Ok(PrivilegeProviderReserveDecision::Fresh(
-                PrivilegeProviderReservation {
-                    provider_key,
-                    fingerprint: authorized.validated.fingerprint.clone(),
-                    fresh,
+            ReserveDecision::Fresh(fresh) => Ok(PrivilegeProviderReserveDecision::Fresh(Box::new(
+                PrivilegeProviderExecution {
+                    reservation: PrivilegeProviderReservation {
+                        provider_key,
+                        fingerprint: authorized.validated.fingerprint.clone(),
+                        fresh,
+                    },
+                    authorized,
                 },
-            )),
+            ))),
             ReserveDecision::ReplayFinalized(status) => {
                 let PrivilegeProviderLookupDecision::ReplayFinalized {
                     outcome_code,
@@ -396,7 +444,7 @@ impl PrivilegeProviderLedger {
 
     pub fn finalize(
         &self,
-        reservation: &PrivilegeProviderReservation,
+        execution: Box<PrivilegeProviderExecution>,
         outcome: PrivilegeProviderFinalOutcome,
         now_utc_ms: i64,
     ) -> Result<(), CuError> {
@@ -420,9 +468,9 @@ impl PrivilegeProviderLedger {
             } => FinalOutcome::new(FinalOutcomeKind::Failed, outcome_code, Some(receipt_sha256))?,
         };
         self.store.finalize(
-            &reservation.provider_key,
-            &reservation.fingerprint,
-            &reservation.fresh.completion_token,
+            &execution.reservation.provider_key,
+            &execution.reservation.fingerprint,
+            &execution.reservation.fresh.completion_token,
             outcome,
             now_utc_ms,
         )?;
@@ -431,17 +479,81 @@ impl PrivilegeProviderLedger {
 
     pub fn mark_outcome_unknown(
         &self,
-        reservation: &PrivilegeProviderReservation,
+        execution: Box<PrivilegeProviderExecution>,
         now_utc_ms: i64,
     ) -> Result<(), CuError> {
         self.store.mark_outcome_unknown(
-            &reservation.provider_key,
-            &reservation.fingerprint,
-            &reservation.fresh.completion_token,
+            &execution.reservation.provider_key,
+            &execution.reservation.fingerprint,
+            &execution.reservation.fresh.completion_token,
             now_utc_ms,
         )?;
         Ok(())
     }
+}
+
+/// Retain every exact native process object and revalidate the complete signal
+/// precondition while those objects are still held. Priority mutation remains
+/// unavailable until a platform facade can mutate one retained process object;
+/// reopening a PID with `setpriority` would violate this contract.
+pub fn prepare_privilege_effect(
+    validated: &ValidatedPrivilegeRequestV1,
+) -> Result<PreparedPrivilegeEffect, CuError> {
+    let PrivilegePlanV1::ProcessSignal(plan) = &validated.request.plan else {
+        return Err(CuError::new(
+            "privilege_effect_unsupported",
+            "process.set-priority has no race-free retained-object mutation primitive",
+        ));
+    };
+    if cfg!(windows)
+        && (plan.scope != crate::privilege_plan::ProcessSignalScope::Single
+            || plan.signal != crate::command::ProcessSignalKind::Kill
+            || !plan.force)
+    {
+        return Err(CuError::new(
+            "privilege_effect_unsupported",
+            "Windows supports only forceful termination of one retained process object",
+        ));
+    }
+
+    revalidate_process_signal_precondition(plan)?;
+    let mut references = Vec::with_capacity(plan.members.len());
+    for member in &plan.members {
+        let reference =
+            agenterm_platform::process_reference::ProcessReference::open_for_termination(
+                member.pid,
+            )
+            .map_err(|error| CuError::new("privilege_effect_prepare_failed", error.to_string()))?;
+        if reference.id() != member.pid
+            || !reference.is_alive().map_err(|error| {
+                CuError::new("privilege_effect_prepare_failed", error.to_string())
+            })?
+        {
+            return Err(CuError::new(
+                "privilege_precondition_changed",
+                "an approved process exited while its exact native object was retained",
+            ));
+        }
+        references.push(reference);
+    }
+    revalidate_process_signal_precondition(plan)?;
+    for reference in &references {
+        let alive = reference
+            .is_alive()
+            .map_err(|error| CuError::new("privilege_effect_prepare_failed", error.to_string()))?;
+        if !alive {
+            return Err(CuError::new(
+                "privilege_precondition_changed",
+                "an approved process changed during final retained-object validation",
+            ));
+        }
+    }
+    Ok(PreparedPrivilegeEffect::ProcessSignal(
+        PreparedProcessSignalEffect {
+            plan: plan.clone(),
+            references,
+        },
+    ))
 }
 
 /// Parse and structurally validate untrusted wire bytes before replay lookup.
@@ -675,13 +787,17 @@ pub fn bind_authorized_prepared(
             "native authorization does not match the requested mode",
         ));
     }
-    if prepared.contract_digest != validated.request.plan.contract_digest() {
+    if prepared.contract_digest() != validated.request.plan.contract_digest() {
         return Err(CuError::new(
             "privilege_prepared_effect_mismatch",
             "prepared native effect does not match the validated contract",
         ));
     }
-    Ok(AuthorizedPreparedRequest { validated, peer })
+    Ok(AuthorizedPreparedRequest {
+        validated,
+        peer,
+        prepared,
+    })
 }
 
 fn lookup_decision(
@@ -848,14 +964,34 @@ mod tests {
         }
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn signal_request(now: u64, signal: ProcessSignalKind) -> PrivilegeApplyRequestV1 {
+        let mut request = request(now);
+        request.plan = PrivilegePlanV1::ProcessSignal(
+            crate::privilege_plan::process_signal_plan(
+                std::process::id(),
+                signal,
+                false,
+                false,
+                5_000,
+                16,
+                120,
+                now,
+            )
+            .unwrap(),
+        );
+        request
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn authorize(validated: ValidatedPrivilegeRequestV1) -> AuthorizedPreparedRequest {
         let authorization = validated.request.authorization.clone();
-        let contract_digest = validated.request.plan.contract_digest().to_owned();
+        let prepared = prepare_privilege_effect(&validated).unwrap();
         bind_authorized_prepared(
             validated,
             peer(),
             NativeAuthorizationProof { authorization },
-            PreparedPrivilegeEffect { contract_digest },
+            prepared,
         )
         .unwrap()
     }
@@ -863,7 +999,7 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn closed_request_round_trips_with_stable_fingerprint() {
-        let request = request(1_000);
+        let request = signal_request(1_000, ProcessSignalKind::User1);
         let bytes = serde_json::to_vec(&request).unwrap();
         let first = parse_apply_request(&bytes).unwrap();
         let second = parse_apply_request(&bytes).unwrap();
@@ -942,43 +1078,97 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn type_state_rejects_wrong_authorization_and_prepared_contract() {
-        let request = request(1_000);
-        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        let signal_request_value = signal_request(1_000, ProcessSignalKind::User1);
+        let validated =
+            parse_apply_request(&serde_json::to_vec(&signal_request_value).unwrap()).unwrap();
+        let prepared = prepare_privilege_effect(&validated).unwrap();
         let wrong_authorization = NativeAuthorizationProof {
             authorization: PrivilegeAuthorizationV1::DelegatedGrant {
                 grant_id: "grant-01".into(),
             },
         };
         assert_eq!(
-            bind_authorized_prepared(
-                validated,
-                peer(),
-                wrong_authorization,
-                PreparedPrivilegeEffect {
-                    contract_digest: request.plan.contract_digest().to_owned(),
-                },
-            )
-            .unwrap_err()
-            .code,
+            bind_authorized_prepared(validated, peer(), wrong_authorization, prepared,)
+                .unwrap_err()
+                .code,
             "privilege_authorization_mismatch"
         );
 
-        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        let prepared_request = signal_request(1_000, ProcessSignalKind::User1);
+        let prepared_validated =
+            parse_apply_request(&serde_json::to_vec(&prepared_request).unwrap()).unwrap();
+        let prepared = prepare_privilege_effect(&prepared_validated).unwrap();
+        let other_request = signal_request(1_000, ProcessSignalKind::User2);
+        let other_validated =
+            parse_apply_request(&serde_json::to_vec(&other_request).unwrap()).unwrap();
         assert_eq!(
             bind_authorized_prepared(
-                validated,
+                other_validated,
                 peer(),
                 NativeAuthorizationProof {
-                    authorization: request.authorization.clone(),
+                    authorization: other_request.authorization.clone(),
                 },
-                PreparedPrivilegeEffect {
-                    contract_digest: "f".repeat(64),
-                },
+                prepared,
             )
             .unwrap_err()
             .code,
             "privilege_prepared_effect_mismatch"
         );
+
+        let priority = request(1_000);
+        let validated = parse_apply_request(&serde_json::to_vec(&priority).unwrap()).unwrap();
+        assert_eq!(
+            prepare_privilege_effect(&validated).unwrap_err().code,
+            "privilege_effect_unsupported"
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn signal_preparation_retains_exact_objects_and_refuses_scheduler_drift() {
+        let request = signal_request(1_000, ProcessSignalKind::User1);
+        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        let prepared = prepare_privilege_effect(&validated).unwrap();
+        let PreparedPrivilegeEffect::ProcessSignal(prepared) = prepared;
+        assert_eq!(prepared.references.len(), 1);
+        assert_eq!(prepared.references[0].id(), std::process::id());
+        assert!(prepared.references[0].is_alive().unwrap());
+
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn signal preparation fixture");
+        let plan = crate::privilege_plan::process_signal_plan(
+            child.id(),
+            ProcessSignalKind::User1,
+            false,
+            false,
+            5_000,
+            16,
+            120,
+            1_000,
+        )
+        .unwrap();
+        let mut drift_request = request;
+        drift_request.request_id = "request-drift".into();
+        drift_request.plan = PrivilegePlanV1::ProcessSignal(plan);
+        let drift_validated =
+            parse_apply_request(&serde_json::to_vec(&drift_request).unwrap()).unwrap();
+        let child_reference =
+            agenterm_platform::process_reference::ProcessReference::open_for_termination(
+                child.id(),
+            )
+            .unwrap();
+        child_reference.set_suspended(true).unwrap();
+        assert_eq!(
+            prepare_privilege_effect(&drift_validated).unwrap_err().code,
+            "privilege_precondition_changed"
+        );
+        child_reference.set_suspended(false).unwrap();
+        child_reference
+            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .unwrap();
+        child.wait().unwrap();
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1109,7 +1299,7 @@ mod tests {
             PrivilegeProviderNamespace::Fixture,
         )
         .unwrap();
-        let request = request(1_000);
+        let request = signal_request(1_000, ProcessSignalKind::User1);
         let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
         assert!(matches!(
             ledger
@@ -1119,12 +1309,16 @@ mod tests {
         ));
 
         let first = match ledger
-            .reserve_authorized(&authorize(validated), 1_001)
+            .reserve_authorized(authorize(validated), 1_001)
             .unwrap()
         {
             PrivilegeProviderReserveDecision::Fresh(reservation) => reservation,
             other => panic!("expected fresh reservation, got {other:?}"),
         };
+        let PreparedPrivilegeEffect::ProcessSignal(prepared) = &first.authorized.prepared;
+        assert_eq!(prepared.references.len(), 1);
+        assert_eq!(prepared.references[0].id(), std::process::id());
+        assert!(prepared.references[0].is_alive().unwrap());
         let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
         assert!(matches!(
             ledger
@@ -1134,11 +1328,11 @@ mod tests {
         ));
         assert!(matches!(
             ledger
-                .reserve_authorized(&authorize(validated), 1_002)
+                .reserve_authorized(authorize(validated), 1_002)
                 .unwrap(),
             PrivilegeProviderReserveDecision::OutcomeUnknown
         ));
-        ledger.mark_outcome_unknown(&first, 1_003).unwrap();
+        ledger.mark_outcome_unknown(first, 1_003).unwrap();
         let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
         assert!(matches!(
             ledger
@@ -1152,7 +1346,7 @@ mod tests {
         let completed_validated =
             parse_apply_request(&serde_json::to_vec(&completed_request).unwrap()).unwrap();
         let completed = match ledger
-            .reserve_authorized(&authorize(completed_validated), 1_005)
+            .reserve_authorized(authorize(completed_validated), 1_005)
             .unwrap()
         {
             PrivilegeProviderReserveDecision::Fresh(reservation) => reservation,
@@ -1162,7 +1356,7 @@ mod tests {
         let receipt_id = "12345678-1234-4234-8234-123456789abc".to_owned();
         ledger
             .finalize(
-                &completed,
+                completed,
                 PrivilegeProviderFinalOutcome::Completed {
                     outcome_code: "completed".into(),
                     receipt_id: receipt_id.clone(),

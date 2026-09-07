@@ -1260,7 +1260,15 @@ flowchart LR
   namespace, OS-principal digest and request id; it retains only canonical
   request/receipt digests and bounded outcome tokens. Exact completion replays
   without mutation, a changed request conflicts, and either a live reservation
-  or a recorded uncertain outcome can never become fresh again.
+  or a recorded uncertain outcome can never become fresh again. Exact-object
+  preparation is no longer a digest-only type name: for `process.signal` it
+  revalidates the complete precondition, opens and retains every native process
+  reference, revalidates again while all references are held, then moves those
+  non-cloneable references through authorization into the fresh provider
+  execution reservation. Effect code therefore cannot discard preparation and
+  reopen mutable numeric PIDs without crossing the typed boundary. The
+  `process.set-priority` branch fails closed before reservation because no
+  retained-object priority mutation primitive exists yet.
   Provider installation, native consent and real apply remain explicit gaps;
   no shell, password capture or hidden elevation substitutes for them.
 
