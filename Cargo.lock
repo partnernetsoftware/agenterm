@@ -41,6 +41,7 @@ version = "0.1.16"
 dependencies = [
  "ab_glyph",
  "agenterm-chassis",
+ "agenterm-cu",
  "agenterm-lua",
  "agenterm-platform",
  "agenterm-qjswasm",

@@ -123,5 +123,5 @@ pub fn dispatch_json(args: &[String]) -> CuReply {
             .with_request_identity(request_identity)
             .with_request_effect_scope(effect_scope);
     }
-    executor.execute(&command)
+    agenterm_cu::embedder::execute_command(&executor, &command)
 }

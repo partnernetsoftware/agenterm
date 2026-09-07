@@ -362,8 +362,9 @@ pub fn tool_door_declarations() -> Vec<HostFn> {
 /// raw signatures in `src/host.rs` and these declarations -- can be checked
 /// against each other from outside.
 ///
-/// Three declarations, four imports: `fleet_result` is a two-pass byte
-/// result, so it brings `fleet_result_len` with it. See `src/host.rs`.
+/// Five declarations, seven imports: both `fleet_result` and `acu_result` are
+/// two-pass byte results and bring their private length imports with them. See
+/// `src/host.rs`.
 pub fn door_declarations() -> Vec<HostFn> {
     host::declarations()
 }
@@ -688,6 +689,20 @@ pub struct Outcome {
 /// The repository-wide fleet bridge shape, reused verbatim. This crate exposes
 /// that existing capability to wasm guests; it does not invent a second one.
 pub type FleetBridgeFn = Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>;
+
+/// The raw bridge behind the embedder-provided `agenterm:acu` module.
+///
+/// This crate only transports one JSON command and one JSON reply. It does not
+/// depend on `agenterm-cu`, interpret commands, or own machine-control policy.
+pub type AcuBridgeFn = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
+
+/// Host callbacks installed into one slot. Each callback is optional and a
+/// missing callback is reported as status 2 by its raw door operation.
+#[derive(Clone, Default)]
+pub struct HostBridges {
+    pub fleet: Option<FleetBridgeFn>,
+    pub acu: Option<AcuBridgeFn>,
+}
 
 /// Ten distinguishable failure classes. A caller must be able to tell "this
 /// syntax is not supported yet" from "the guest ran out of budget" from "the
@@ -1136,6 +1151,21 @@ impl Engine {
         guest: Guest<'_>,
         bridge: Option<FleetBridgeFn>,
     ) -> Result<SlotId, QjswasmError> {
+        self.spawn_with_bridges(
+            guest,
+            HostBridges {
+                fleet: bridge,
+                acu: None,
+            },
+        )
+    }
+
+    /// [`spawn`](Self::spawn) with all embedder callbacks installed together.
+    pub fn spawn_with_bridges(
+        &mut self,
+        guest: Guest<'_>,
+        bridges: HostBridges,
+    ) -> Result<SlotId, QjswasmError> {
         let owned;
         // The convention travels with the bytes: a hand-written module speaks
         // wasm numerics, and what the compiler emits speaks the V1 pair. The
@@ -1157,7 +1187,7 @@ impl Engine {
             }
         };
         let tool = self.tool_door.then(|| self.tool_args.clone());
-        let slot = slot::Slot::load(bytes, &self.budget, bridge, convention, tool)?;
+        let slot = slot::Slot::load(bytes, &self.budget, bridges, convention, tool)?;
         let id = SlotId {
             engine: self.id,
             index: self.next_index,
@@ -1269,7 +1299,26 @@ impl Engine {
         entry: &str,
         args: &[Value],
     ) -> Result<Outcome, QjswasmError> {
-        let id = self.spawn(guest, bridge)?;
+        self.run_once_with_bridges(
+            guest,
+            HostBridges {
+                fleet: bridge,
+                acu: None,
+            },
+            entry,
+            args,
+        )
+    }
+
+    /// [`run_once`](Self::run_once) with all embedder callbacks installed.
+    pub fn run_once_with_bridges(
+        &mut self,
+        guest: Guest<'_>,
+        bridges: HostBridges,
+        entry: &str,
+        args: &[Value],
+    ) -> Result<Outcome, QjswasmError> {
+        let id = self.spawn_with_bridges(guest, bridges)?;
         let out =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call(id, entry, args)));
         self.kill(id);

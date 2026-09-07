@@ -19,7 +19,7 @@
 //! buffer, and its captured bridge closure in one move.
 
 use crate::host::{self, HostState};
-use crate::{Budget, Cost, FleetBridgeFn, JsValue, Outcome, QjswasmError, Value};
+use crate::{Budget, Cost, HostBridges, JsValue, Outcome, QjswasmError, Value};
 
 const ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_heap_ptr";
 const JSON_PARSE_ALLOCATION_PROBE_EXPORT: &str = "__tinyvm_qjs_json_parse_bytes";
@@ -94,13 +94,13 @@ impl Slot {
     pub(crate) fn load(
         bytes: &[u8],
         budget: &Budget,
-        bridge: Option<FleetBridgeFn>,
+        bridges: HostBridges,
         convention: Convention,
         tool_door: Option<Vec<String>>,
     ) -> Result<Self, QjswasmError> {
         let mut module = tinyvm::WasmModule::from_bytes_explained(bytes, budget.limits)
             .map_err(QjswasmError::from_load)?;
-        let door = host::install(&mut module, budget, bridge, tool_door)?;
+        let door = host::install(&mut module, budget, bridges, tool_door)?;
         // Instantiation applies data segments and initial globals and runs the
         // start function, so a guest whose start traps or overruns its budget
         // fails here -- classified like any other execution fault rather than

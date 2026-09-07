@@ -475,6 +475,21 @@ fn qjs_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + u
         }
     }
     move |specifier: &str| {
+        // Product-owned built-in: resolve before the filesystem so a project
+        // cannot shadow the typed ACU adapter with a same-named file.
+        if specifier == "agenterm:acu" {
+            return Some(
+                r#"
+export function call(command) {
+  const status = acu_call(JSON.stringify(command));
+  const result = acu_result();
+  if (status !== 0) { throw "agenterm:acu bridge status " + status + ": " + result; }
+  return JSON.parse(result);
+}
+"#
+                .to_owned(),
+            );
+        }
         canonical.iter().find_map(|root| {
             let mut candidate = root.join(specifier);
             if candidate.extension().is_none() {
@@ -862,13 +877,13 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         _options: &ScriptInvocationOptions,
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
-        let bridge: Option<agenterm_qjswasm::FleetBridgeFn> = fleet_bridge;
+        let bridges = qjs_host_bridges(fleet_bridge);
         let mut engine = agenterm_qjswasm::Engine::new();
         Some(
             engine
-                .run_once(
+                .run_once_with_bridges(
                     agenterm_qjswasm::Guest::CompiledQjs(artifact),
-                    bridge,
+                    bridges,
                     "main",
                     &[],
                 )
@@ -984,7 +999,7 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // `ScriptFleetBridgeFn` and `agenterm_qjswasm::FleetBridgeFn` are the
         // same `Arc<dyn Fn(&str, &str) -> Result<String, String> + Send + Sync>`
         // shape, so this is a rebind, not a wrapper.
-        let bridge: Option<agenterm_qjswasm::FleetBridgeFn> = fleet_bridge;
+        let bridges = qjs_host_bridges(fleet_bridge);
 
         // `"main"` with no arguments is still the entry convention after the
         // `049ebba` bump, re-checked rather than assumed: the compiler exports
@@ -1033,9 +1048,9 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
         // is the right answer for a script that is not a task entry.
         engine.set_tool_args(qjs_arguments(options.arguments.as_ref()));
         let outcome = engine
-            .run_once(
+            .run_once_with_bridges(
                 agenterm_qjswasm::Guest::CompiledQjs(&wasm),
-                bridge,
+                bridges,
                 "main",
                 &[],
             )
@@ -1065,6 +1080,24 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                     .immediate_stringify_host_argument_bytes,
             }),
         })
+    }
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn qjs_host_bridges(fleet: Option<ScriptFleetBridgeFn>) -> agenterm_qjswasm::HostBridges {
+    #[cfg(feature = "script-acu-embedder")]
+    let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|command_json| {
+        serde_json::to_string(&agenterm_cu::embedder::execute_json_from_environment(
+            command_json,
+        ))
+        .map_err(|error| format!("serializing ACU reply: {error}"))
+    });
+    agenterm_qjswasm::HostBridges {
+        fleet,
+        #[cfg(feature = "script-acu-embedder")]
+        acu: Some(acu),
+        #[cfg(not(feature = "script-acu-embedder"))]
+        acu: None,
     }
 }
 
@@ -1668,6 +1701,46 @@ mod tests {
             assert_eq!(result.value, want, "{source:?}");
             assert!(result.stdout.is_empty(), "{source:?}");
         }
+    }
+
+    #[cfg(feature = "script-acu-embedder")]
+    #[test]
+    fn agenterm_acu_module_is_built_in_and_preserves_error_replies_as_data() {
+        let _guard = ENV_LOCK.lock().expect("lock");
+        let _backend = EnvGuard::set("qjswasm");
+        let prior_grant = std::env::var("AGENTERM_CU_GRANT").ok();
+        unsafe { std::env::remove_var("AGENTERM_CU_GRANT") };
+        let source = r#"
+import * as acu from "agenterm:acu";
+const reply = acu.call({verb:"capabilities", target:"current"});
+return "ok=" + reply.ok + ";code=" + reply.error.code;
+"#;
+        let result = QjswasmEngineBackend
+            .execute(source, &ScriptInvocationOptions::default(), None)
+            .expect("ok:false is returned to qjs as ordinary CuReply data");
+        match prior_grant {
+            Some(value) => unsafe { std::env::set_var("AGENTERM_CU_GRANT", value) },
+            None => unsafe { std::env::remove_var("AGENTERM_CU_GRANT") },
+        }
+        let text = result
+            .value
+            .and_then(|value| value.as_str().map(str::to_owned));
+        assert!(text.is_some_and(|text| text.starts_with("ok=false;code=")));
+    }
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn filesystem_cannot_shadow_agenterm_acu_module() {
+        let root = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            root.path().join("agenterm:acu.qjs"),
+            "this is not valid qjs",
+        )
+        .expect("write shadow candidate");
+        let resolve = qjs_module_resolver(&[root.path().to_path_buf()]);
+        let built_in = resolve("agenterm:acu").expect("built-in");
+        assert!(built_in.contains("acu_call"));
+        assert!(!built_in.contains("not valid"));
     }
 
     /// `check` and `execute` must agree about what the subset is.

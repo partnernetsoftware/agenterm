@@ -1208,6 +1208,33 @@ mod tests {
         assert_eq!(frame_result(&frames[1]).value, Some(serde_json::json!(42)));
     }
 
+    #[cfg(feature = "script-acu-embedder")]
+    #[test]
+    fn framed_worker_exposes_the_typed_agenterm_acu_module() {
+        let source = r#"
+import * as acu from "agenterm:acu";
+const reply = acu.call({verb:"not-a-command"});
+return reply.ok + ":" + reply.command + ":" + reply.error.code;
+"#;
+        let mut output = Vec::new();
+        process_framed_stream(
+            Cursor::new(encoded_frame(&invoke_frame(
+                "acu-frame",
+                "acu-invocation",
+                source,
+            ))),
+            &mut output,
+        )
+        .expect("framed stream");
+        let frames = decoded_frames(&output);
+        let result = frame_result(frames.first().expect("result frame"));
+        assert!(result.ok, "{result:?}");
+        assert_eq!(
+            result.value,
+            Some(serde_json::json!("false:acu.call:invalid_command"))
+        );
+    }
+
     /// A cancel frame that names a running invocation ends it at its next
     /// host wait or operation, and the result frame says `cancelled` -- the
     /// class the protocol had for it all along but never produced: until now

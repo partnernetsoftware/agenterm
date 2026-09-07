@@ -5,6 +5,9 @@
 //! fleet_call(op_ptr, op_len, params_ptr, params_len)     -> i32   // status
 //! fleet_result_len()                                     -> i32
 //! fleet_result(dst_ptr, dst_len)                         -> i32   // written, negative = too small
+//! acu_call(command_ptr, command_len)                     -> i32   // status
+//! acu_result_len()                                       -> i32
+//! acu_result(dst_ptr, dst_len)                           -> i32   // written, negative = too small
 //! ```
 //!
 //! # Why the bridge answer arrives in two passes
@@ -165,7 +168,7 @@ use tinyvm::{Val, WasmError};
 use tinyvm_qjs::{HostFn, HostParam, HostResult};
 
 use crate::tool;
-use crate::{Budget, FleetBridgeFn, QjswasmError};
+use crate::{AcuBridgeFn, Budget, FleetBridgeFn, HostBridges, QjswasmError};
 
 /// The module name every guest may import from. `tool::DOOR` is the other,
 /// and only a slot that opened it may import from that one.
@@ -180,8 +183,12 @@ const STATUS_NO_BRIDGE: i32 = 2;
 /// from `max_bridge_result_bytes`: that cap bounds what an outside bridge can
 /// push into a slot, not the door's own bounded, constant strings.
 const NO_BRIDGE: &str = "agenterm: no fleet bridge is installed in this slot";
+const NO_ACU_BRIDGE: &str = "agenterm: no ACU bridge is installed in this slot";
 const NOT_UTF8: &str = "agenterm: fleet_call op and params must be UTF-8 text";
+const ACU_NOT_UTF8: &str = "agenterm: acu_call command must be UTF-8 text";
 const RESULT_TOO_LARGE: &str = "agenterm: fleet result exceeds the slot's max_bridge_result_bytes";
+const ACU_RESULT_TOO_LARGE: &str =
+    "agenterm: ACU result exceeds the slot's max_bridge_result_bytes";
 
 /// The `&'static str` the core carries when a bridge panicked. The useful text
 /// -- which op, and what the panic said -- does not fit in a
@@ -189,15 +196,19 @@ const RESULT_TOO_LARGE: &str = "agenterm: fleet result exceeds the slot's max_br
 /// `slot.rs` reports that instead. This literal is the fallback nobody should
 /// see.
 const BRIDGE_PANICKED: &str = "agenterm door: the fleet bridge panicked";
+const ACU_BRIDGE_PANICKED: &str = "agenterm door: the ACU bridge panicked";
 
 /// The exact shape of each door import: `(field, params, results)`. Every
 /// parameter and result is `i32`, which `ImportDesc::i32_only` reports in one
 /// flag, so this table is a complete signature check.
-const SIGNATURES: [(&str, usize, usize); 4] = [
+const SIGNATURES: [(&str, usize, usize); 7] = [
     ("print", 2, 0),
     ("fleet_call", 4, 1),
     ("fleet_result_len", 0, 1),
     ("fleet_result", 2, 1),
+    ("acu_call", 2, 1),
+    ("acu_result_len", 0, 1),
+    ("acu_result", 2, 1),
 ];
 
 /// The same door, said in the vocabulary the `.qjs` compiler needs: which host
@@ -216,9 +227,9 @@ const SIGNATURES: [(&str, usize, usize); 4] = [
 /// `plan/design-agenterm-qjswasm.md` 6.5 as the cross-repo contract; upstream
 /// carries the mechanism (`Names::Declared`) and no `agenterm` vocabulary.
 ///
-/// # Why three declarations for four imports
+/// # Why five declarations become seven imports
 ///
-/// `fleet_result` is a [`HostResult::Bytes`] door: a wasm function cannot
+/// `fleet_result` and `acu_result` are [`HostResult::Bytes`] doors: a wasm function cannot
 /// return a slice, so the compiler asks `fleet_result_len` how many bytes are
 /// waiting, bump-allocates a string of exactly that size on the guest's own
 /// heap, then has `fleet_result` fill it -- and traps unless the copy wrote
@@ -239,8 +250,8 @@ const SIGNATURES: [(&str, usize, usize); 4] = [
 /// # Order
 ///
 /// Declaration order is import order upstream, and this order matches
-/// [`SIGNATURES`] -- `print`, `fleet_call`, then the two `fleet_result`
-/// passes -- so the two tables read the same way down the page. Only the
+/// [`SIGNATURES`] -- `print`, the three fleet imports, then the three ACU
+/// imports -- so the two tables read the same way down the page. Only the
 /// declarations a script actually mentions become imports.
 pub(crate) fn declarations() -> Vec<HostFn> {
     vec![
@@ -267,10 +278,26 @@ pub(crate) fn declarations() -> Vec<HostFn> {
                 length: "fleet_result_len".to_string(),
             },
         },
+        HostFn {
+            name: "acu_call".to_string(),
+            module: DOOR.to_string(),
+            field: "acu_call".to_string(),
+            params: vec![HostParam::StrPtrLen],
+            result: HostResult::I32,
+        },
+        HostFn {
+            name: "acu_result".to_string(),
+            module: DOOR.to_string(),
+            field: "acu_result".to_string(),
+            params: Vec::new(),
+            result: HostResult::Bytes {
+                length: "acu_result_len".to_string(),
+            },
+        },
     ]
 }
 
-/// One slot's door state, shared by the four closures.
+/// One slot's door state, shared by the seven closures.
 struct Pending {
     /// `agenterm.print` bytes, verbatim. Held as bytes rather than a `String`
     /// because the cap can land mid-code-point; decoding happens once, at
@@ -282,6 +309,9 @@ struct Pending {
     /// collection so a guest may copy it twice; the next `fleet_call` replaces
     /// it.
     result: Vec<u8>,
+    /// ACU has an independent retained result so interleaved fleet calls
+    /// cannot overwrite its two-pass copy.
+    acu_result: Vec<u8>,
     /// Why the door itself failed, when the reason is longer than the
     /// `&'static str` a `tinyvm::WasmError` can carry -- today, an embedder's
     /// bridge that panicked. Written on the way out of the callback and read
@@ -371,7 +401,7 @@ impl HostState {
     }
 }
 
-/// Bind the four door functions into `module` and return the state they share.
+/// Bind the seven door functions into `module` and return the state they share.
 ///
 /// A guest need not import all four -- or any. Only the imports it actually
 /// declares are bound; the rest are simply absent, which is why the loop below
@@ -384,7 +414,7 @@ impl HostState {
 pub(crate) fn install(
     module: &mut tinyvm::WasmModule,
     budget: &Budget,
-    bridge: Option<FleetBridgeFn>,
+    bridges: HostBridges,
     tool: Option<Vec<String>>,
 ) -> Result<HostState, QjswasmError> {
     check_declarations(module, tool.is_some())?;
@@ -402,6 +432,7 @@ pub(crate) fn install(
         stdout_truncated: false,
         max_stdout: budget.max_stdout_bytes,
         result: Vec::new(),
+        acu_result: Vec::new(),
         fault: None,
     }));
 
@@ -438,7 +469,7 @@ pub(crate) fn install(
 
         let (status, payload) = match (str::from_utf8(op), str::from_utf8(params)) {
             (Err(_), _) | (_, Err(_)) => (STATUS_ERR, NOT_UTF8.as_bytes().to_vec()),
-            (Ok(op), Ok(params)) => match &bridge {
+            (Ok(op), Ok(params)) => match &bridges.fleet {
                 None => (STATUS_NO_BRIDGE, NO_BRIDGE.as_bytes().to_vec()),
                 Some(bridge) => match call_bridge(&meter_for_fleet, bridge, op, params) {
                     Ok(Ok(answer)) => (STATUS_OK, answer.into_bytes()),
@@ -495,6 +526,56 @@ pub(crate) fn install(
         }
         dst[..needed as usize].copy_from_slice(&state.borrow().result);
         Ok(vec![Val::I32(needed)])
+    })?;
+
+    let state = Rc::clone(&pending);
+    let max_result = budget.max_bridge_result_bytes;
+    let meter_for_acu = Rc::clone(&meter);
+    let acu_bridge = bridges.acu;
+    bind(module, DOOR, "acu_call", move |args, memory| {
+        let command = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
+        // A new operation invalidates the previous two-pass answer even when
+        // this one is later refused, cancelled, or panics.
+        state.borrow_mut().acu_result.clear();
+        meter_for_acu
+            .borrow_mut()
+            .charge(command.len())
+            .map_err(WasmError::Trap)?;
+        let (status, payload) = match str::from_utf8(command) {
+            Err(_) => (STATUS_ERR, ACU_NOT_UTF8.as_bytes().to_vec()),
+            Ok(command) => match &acu_bridge {
+                None => (STATUS_NO_BRIDGE, NO_ACU_BRIDGE.as_bytes().to_vec()),
+                Some(bridge) => match call_acu_bridge(&meter_for_acu, bridge, command) {
+                    Ok(Ok(answer)) => (STATUS_OK, answer.into_bytes()),
+                    Ok(Err(message)) => (STATUS_ERR, message.into_bytes()),
+                    Err(panic) => {
+                        state.borrow_mut().fault = Some(panic);
+                        return Err(WasmError::Trap(ACU_BRIDGE_PANICKED));
+                    }
+                },
+            },
+        };
+        meter_for_acu
+            .borrow_mut()
+            .check_cancel()
+            .map_err(WasmError::Trap)?;
+        let (status, payload) = if payload.len() > max_result {
+            (STATUS_ERR, ACU_RESULT_TOO_LARGE.as_bytes().to_vec())
+        } else {
+            (status, payload)
+        };
+        state.borrow_mut().acu_result = payload;
+        Ok(vec![Val::I32(status)])
+    })?;
+
+    let state = Rc::clone(&pending);
+    bind(module, DOOR, "acu_result_len", move |_args, _memory| {
+        Ok(vec![Val::I32(result_len(&state.borrow().acu_result)?)])
+    })?;
+
+    let state = Rc::clone(&pending);
+    bind(module, DOOR, "acu_result", move |args, memory| {
+        copy_result(&state.borrow().acu_result, args, memory)
     })?;
 
     Ok(HostState {
@@ -667,6 +748,38 @@ fn call_bridge(
     answer
 }
 
+fn call_acu_bridge(
+    meter: &Rc<RefCell<Meter>>,
+    bridge: &AcuBridgeFn,
+    command: &str,
+) -> Result<Result<String, String>, String> {
+    let started = Instant::now();
+    let answer = contain("the ACU bridge panicked while serving a command", || {
+        bridge(command)
+    });
+    let mut meter = meter.borrow_mut();
+    meter.waited(started.elapsed());
+    if let Ok(Ok(text)) = &answer {
+        meter.answered(text.len());
+    }
+    answer
+}
+
+fn result_len(result: &[u8]) -> Result<i32, WasmError> {
+    i32::try_from(result.len())
+        .map_err(|_| WasmError::Trap("agenterm door: pending result exceeds i32"))
+}
+
+fn copy_result(result: &[u8], args: &[Val], memory: &mut [u8]) -> Result<Vec<Val>, WasmError> {
+    let dst = guest_slice_mut(memory, arg(args, 0)?, arg(args, 1)?)?;
+    let needed = result_len(result)?;
+    if needed as usize > dst.len() {
+        return Ok(vec![Val::I32(-needed)]);
+    }
+    dst[..needed as usize].copy_from_slice(result);
+    Ok(vec![Val::I32(needed)])
+}
+
 /// Run host code on a guest's behalf without letting a panic escape into the
 /// interpreter. `Ok` is what it answered; `Err` is `what`, plus the panic's
 /// own message when it has one. Shared by both doors.
@@ -819,7 +932,15 @@ mod tests {
         bridge: Option<FleetBridgeFn>,
     ) -> (Result<Vec<Val>, WasmError>, HostState) {
         let mut module = load(wasm, budget);
-        let state = match install(&mut module, budget, bridge, None) {
+        let state = match install(
+            &mut module,
+            budget,
+            HostBridges {
+                fleet: bridge,
+                acu: None,
+            },
+            None,
+        ) {
             Ok(state) => state,
             Err(error) => panic!("door failed to install: {error}"),
         };
@@ -844,7 +965,7 @@ mod tests {
     fn install_error(wasm: &[u8]) -> QjswasmError {
         let budget = Budget::default();
         let mut module = load(wasm, &budget);
-        match install(&mut module, &budget, None, None) {
+        match install(&mut module, &budget, HostBridges::default(), None) {
             Ok(_) => panic!("expected the door to refuse this guest"),
             Err(error) => error,
         }
@@ -1421,7 +1542,13 @@ mod tests {
         // And the same bytes load once the door is open.
         let budget = Budget::default();
         let mut module = load(&wasm, &budget);
-        install(&mut module, &budget, None, Some(Vec::new())).expect("the tool door binds it");
+        install(
+            &mut module,
+            &budget,
+            HostBridges::default(),
+            Some(Vec::new()),
+        )
+        .expect("the tool door binds it");
     }
 
     /// Every tool declaration passes the load gate of a slot that opened the

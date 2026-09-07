@@ -19,6 +19,7 @@ pub(crate) mod device_lease_ipc;
 pub(crate) mod device_lease_owner;
 pub(crate) mod device_lease_store;
 pub mod dynlib;
+pub mod embedder;
 pub mod executor;
 pub mod file_move_transactions;
 pub mod file_transactions;
