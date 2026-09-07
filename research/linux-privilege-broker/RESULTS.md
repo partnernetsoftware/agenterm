@@ -65,9 +65,13 @@ the same real court proved the typed result.
 An attempted public-CLI B4 court did not reach the broker concurrently: two
 processes sharing one runtime session are intentionally serialized by the
 ordinary-user runtime lock, and the loser returned `runtime_lock_contended`.
-This is not counted as B4. A native court driver must open two broker
-connections with one identical already-bound request without weakening the
-public session lock.
+This is not counted as B4. The bounded native court driver then opened two
+simultaneous broker connections with one identical request derived from the
+public plan. Both callers returned `completed` with the same sealed receipt.
+The broker-owned delta was exactly two requests, one native-consent call, one
+effect attempt, one finalized replay and two completed replies; every conflict,
+unknown-outcome and write-failure delta remained zero. This proves B4 without
+weakening the public session lock or introducing a configurable broker client.
 
 ## Criteria ledger
 
@@ -76,7 +80,7 @@ public session lock.
 | B1 | partial | x86_64 broker counters prove finalized replay and fingerprint conflict each use zero additional consent/effect; retained-unknown counter proof remains missing, and aarch64 is pending |
 | B2 | partial | Exact x86_64 desktop prompt passed; aarch64 pending |
 | B3 | partial | x86_64 approve = one verified effect; cancel = zero effect; deny/no-agent and counter proof pending |
-| B4 | pending | public callers are serialized by their runtime-session lock; a direct native two-connection court is still required |
+| B4 | passed on x86_64 | two simultaneous native connections returned one identical completed receipt; counters prove exactly one consent, one effect and one finalized replay |
 | B5 | pending | pre-reservation client death and post-reservation disconnect not run |
 | C1 | partial | forged-input unit tests pass; real installed rejection matrix not yet executed |
 | C2 | partial | five failure cuts, five SIGKILL cuts, first install, bad digest and uninstall pass in the package selftest; real Linux interrupted upgrade pending |

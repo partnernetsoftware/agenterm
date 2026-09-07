@@ -46,6 +46,14 @@ The real apply call also carries the public `--request-id`, `--session` and
 documentation. A native password, authentication response or token is never a
 fixture, log field or repository input.
 
+Criterion B4 deliberately bypasses the public runtime-session lock without
+creating a second product client. `concurrent-native-client.py` decodes one
+public privilege-plan reply, opens exactly two simultaneous connections to the
+fixed production socket, and accepts only two completed replies carrying the
+same sealed receipt. Broker-owned counter deltas must additionally prove two
+requests, one native-consent boundary, one effect boundary and one finalized
+replay. The driver never accepts a configurable socket, operation or target.
+
 The court must release a leased VM after evidence. A missing active graphical
 session, unavailable native agent, mixed package generation or unbound target
 is a failure, never a skipped success.
