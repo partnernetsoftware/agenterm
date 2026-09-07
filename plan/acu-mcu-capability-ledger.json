@@ -102,7 +102,34 @@
             "macos": "retained-audit-token",
             "windows": "typed-unsupported"
           },
-          "qualification": "macos-linux-dual-isa-and-windows-arm64-public-qjswasm-live-windows-x86_64-court-blocked",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-process-set-state-smoke",
+                "evidence": [
+                  "cu.process-set-state"
+                ]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-process-set-state-smoke",
+                "evidence": [
+                  "cu.process-set-state"
+                ]
+              },
+              "windows": {
+                "result": "typed-intentional-retirement",
+                "gate": "cu-process-set-state-smoke",
+                "evidence": [
+                  "cu.process-set-state"
+                ],
+                "error_code": "process_state_unsupported",
+                "rationale": "Windows has no stable public arbitrary-process suspend/resume contract; ACU refuses before effect rather than using undocumented thread mutation."
+              }
+            }
+          },
           "evidence": ["cu.process-set-state"],
           "note": "ACU signals through one retained native process object, verifies scheduler state and closes the effect receipt on every post-effect result. The MCU adapter routes the unprivileged shape after freezing start identity; --sudo/--broker remain with the privilege-provider gap."
         },

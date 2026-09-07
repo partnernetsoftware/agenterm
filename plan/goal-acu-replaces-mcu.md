@@ -885,11 +885,12 @@ an exact error code and rationale. This prevents a sentence containing
 token from falsely satisfying a composite capability whose court owns several
 independent behavioral claims.
 
-The first schema-2 leaves are `process.cwd` and `process.environment`.
-macOS and Linux bind their native reads to the existing public host journeys;
-Windows binds the exact typed-refusal tokens and error codes because there is
-no stable public arbitrary-process cwd or initial-environment API. Undocumented
-remote PEB reads are deliberately not treated as parity.
+The first schema-2 leaves are `process.state.mutate`, `process.cwd` and
+`process.environment`. macOS and Linux bind their native state mutation and
+reads to the existing public host journeys; Windows binds the exact
+typed-refusal tokens and error codes because there is no stable public
+arbitrary-process suspend/resume, cwd or initial-environment API. Undocumented
+thread mutation and remote PEB reads are deliberately not treated as parity.
 
 The owned browser-session row is no longer a capability gap. Its macOS public
 qjswasm court proves exact owner/browser identities, generation-preserving
