@@ -1,0 +1,412 @@
+// Public three-host black-box court for `tree --selector`.
+//
+// The court starts one repository-owned accessibility fixture, reads its
+// complete flat tree, and derives MCU `Role[index] / ...` selectors from the
+// observed parent links. Nothing depends on a toolkit's incidental child
+// order: the selector index is calculated from that same immutable fixture
+// tree. The selected reply must keep the original flatten indices while
+// resetting depth to zero at the selected root.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.tree-selector-subtree"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  return current;
+}
+
+function text_at(value, dotted) { return text_of(at(value, dotted)); }
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(run_directory) {
+  return {
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_NO_ACTIVATE: "1"
+  };
+}
+
+function run_cu(context, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: context.run_directory,
+    env: cu_env(context.run_directory),
+    timeout_ms: 30000
+  });
+  ensure(output.stdout.trim() !== "", "cu_tree_selector_empty_reply:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === output.success, "cu_tree_selector_process_reply_disagree");
+  return reply;
+}
+
+function csc_path(value) {
+  return ("" + value).replaceAll("/", "\\");
+}
+
+function framework_csc() {
+  const windows = rh.env_or("WINDIR", "C:/Windows");
+  const candidates = [
+    rh.join(windows, "Microsoft.NET/Framework64/v4.0.30319/csc.exe"),
+    rh.join(windows, "Microsoft.NET/Framework/v4.0.30319/csc.exe")
+  ];
+  for (const candidate of candidates) {
+    if (direct_file(candidate)) { return candidate; }
+  }
+  throw "cu_tree_selector_framework_csc_missing";
+}
+
+// Return a process spec and the title prefix published by one of the three
+// existing owned fixtures. Compilation output stays under this run directory.
+function fixture_spec(repo, run_directory) {
+  if (harness.host_is_windows()) {
+    const source = rh.join(repo, "examples/csharp/agenterm_uia_fixture.cs");
+    const executable = rh.join(run_directory, "agenterm-uia-fixture.exe");
+    ensure(direct_file(source), "cu_tree_selector_uia_source_missing");
+    const compiled = rh.command(framework_csc(), [
+      "/nologo", "/target:winexe", "/out:" + csc_path(executable),
+      "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
+      csc_path(source)
+    ], { cwd: run_directory, timeout_ms: 60000 });
+    ensure(compiled.success === true && direct_file(executable),
+      "cu_tree_selector_uia_compile:" + compiled.stdout + compiled.stderr);
+    return { program: executable, args: [], env: {}, title_prefix: "agenterm-win-fixture-" };
+  }
+
+  const uname = rh.command("uname", ["-s"], { timeout_ms: 5000 });
+  ensure(uname.success === true, "cu_tree_selector_uname_failed");
+  if (uname.stdout.trim() === "Darwin") {
+    const source = rh.join(repo, "examples/objc/agenterm_ax_fixture.m");
+    const executable = rh.join(run_directory, "agenterm-ax-fixture");
+    ensure(direct_file(source), "cu_tree_selector_ax_source_missing");
+    const compiled = rh.command("clang", [
+      "-fobjc-arc", "-framework", "Cocoa", "-Wall", "-Wextra", "-Werror",
+      source, "-o", executable
+    ], { cwd: repo, timeout_ms: 60000 });
+    ensure(compiled.success === true && direct_file(executable),
+      "cu_tree_selector_ax_compile:" + compiled.stdout + compiled.stderr);
+    return { program: executable, args: [], env: {}, title_prefix: "agenterm-ax-fixture-" };
+  }
+
+  ensure(uname.stdout.trim() === "Linux", "cu_tree_selector_host_unsupported");
+  const source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+  ensure(direct_file(source), "cu_tree_selector_atspi_source_missing");
+  return {
+    program: "python3",
+    args: [source],
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    title_prefix: "agenterm-linux-fixture-"
+  };
+}
+
+function window_for_pid(context, executable, pid, title) {
+  const reply = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--pid", "" + pid
+  ]);
+  ensure(reply.ok === true, "cu_tree_selector_window_inventory");
+  let found = null;
+  let matches = 0;
+  for (const row of reply.data.windows) {
+    if (int_at(row, "process_id") === pid && text_at(row, "title") === title) {
+      found = row;
+      matches = matches + 1;
+    }
+  }
+  ensure(matches === 1, "cu_tree_selector_window_identity:" + matches);
+  return found;
+}
+
+function node_by_id(nodes, id) {
+  for (const node of nodes) {
+    if (text_at(node, "id") === id) { return node; }
+  }
+  return null;
+}
+
+function role_is_selector_safe(role) {
+  return role !== ""
+    && role.indexOf("/") < 0
+    && role.indexOf("[") < 0
+    && role.indexOf("]") < 0
+    && role.indexOf("@") < 0;
+}
+
+function is_descendant(nodes, node, root_id) {
+  let current = node;
+  for (let step = 0; step < nodes.length; step = step + 1) {
+    if (text_at(current, "id") === root_id) { return true; }
+    const parent_id = text_at(current, "parent_id");
+    if (parent_id === "") { return false; }
+    current = node_by_id(nodes, parent_id);
+    if (current === null) { return false; }
+  }
+  throw "cu_tree_selector_parent_cycle";
+}
+
+function subtree_nodes(nodes, root_id) {
+  const result = [];
+  for (const node of nodes) {
+    if (is_descendant(nodes, node, root_id)) { result.push(node); }
+  }
+  return result;
+}
+
+// Derive `role[index]` segments from root to node. The index counts siblings
+// with the same role, exactly as observe::walk_selector does.
+function selector_for(nodes, tree_root_id, node) {
+  const reverse = [];
+  let current = node;
+  for (let step = 0; step < nodes.length; step = step + 1) {
+    if (text_at(current, "id") === tree_root_id) { break; }
+    const parent_id = text_at(current, "parent_id");
+    ensure(parent_id !== "", "cu_tree_selector_path_left_tree");
+    const role = text_at(current, "role");
+    ensure(role_is_selector_safe(role), "cu_tree_selector_unsafe_role:" + role);
+    let ordinal = 0;
+    for (const sibling of nodes) {
+      if (text_at(sibling, "id") === text_at(current, "id")) { break; }
+      if (text_at(sibling, "parent_id") === parent_id
+          && text_at(sibling, "role") === role) {
+        ordinal = ordinal + 1;
+      }
+    }
+    reverse.push(role + "[" + ordinal + "]");
+    current = node_by_id(nodes, parent_id);
+    ensure(current !== null, "cu_tree_selector_parent_missing:" + parent_id);
+  }
+  ensure(text_at(current, "id") === tree_root_id, "cu_tree_selector_root_unreachable");
+  let selector = "";
+  for (let i = reverse.length - 1; i >= 0; i = i - 1) {
+    if (selector !== "") { selector = selector + "/"; }
+    selector = selector + reverse[i];
+  }
+  ensure(selector !== "", "cu_tree_selector_selected_window_root");
+  return selector;
+}
+
+function choose_subtree(nodes, tree_root_id) {
+  let best = null;
+  let best_count = 0;
+  for (const node of nodes) {
+    if (text_at(node, "id") === tree_root_id || !role_is_selector_safe(text_at(node, "role"))) {
+      continue;
+    }
+    const count = subtree_nodes(nodes, text_at(node, "id")).length;
+    if (count > best_count && count < nodes.length) {
+      try {
+        selector_for(nodes, tree_root_id, node);
+        best = node;
+        best_count = count;
+      } catch (_error) {
+        // Another candidate may have a fully representable ancestor chain.
+      }
+    }
+  }
+  ensure(best !== null && best_count > 1, "cu_tree_selector_fixture_has_no_proper_subtree");
+  return best;
+}
+
+function choose_indexed_sibling(nodes, tree_root_id) {
+  for (const node of nodes) {
+    if (text_at(node, "id") === tree_root_id || !role_is_selector_safe(text_at(node, "role"))) {
+      continue;
+    }
+    const parent_id = text_at(node, "parent_id");
+    let prior = 0;
+    for (const sibling of nodes) {
+      if (text_at(sibling, "id") === text_at(node, "id")) { break; }
+      if (text_at(sibling, "parent_id") === parent_id
+          && text_at(sibling, "role") === text_at(node, "role")) {
+        prior = prior + 1;
+      }
+    }
+    if (prior > 0) {
+      try {
+        selector_for(nodes, tree_root_id, node);
+        return node;
+      } catch (_error) {
+        // Keep looking for a sibling whose full path the grammar represents.
+      }
+    }
+  }
+  throw "cu_tree_selector_fixture_has_no_indexed_sibling";
+}
+
+function choose_first_root_child(nodes, tree_root_id) {
+  for (const node of nodes) {
+    if (text_at(node, "parent_id") === tree_root_id
+        && role_is_selector_safe(text_at(node, "role"))) {
+      return node;
+    }
+  }
+  throw "cu_tree_selector_fixture_has_no_root_child";
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_tree_selector_executable_missing");
+
+const context = harness.new_context(repo, "cu-tree-selector");
+const children = [];
+let succeeded = false;
+let failure = "";
+
+try {
+  print("STEP start one owned accessibility fixture and freeze its complete flat tree");
+  const spec = fixture_spec(repo, context.run_directory);
+  const fixture = harness.start({
+    program: spec.program,
+    args: spec.args,
+    current_dir: context.run_directory,
+    env: spec.env,
+    timeout_ms: 60000
+  });
+  children.push(fixture);
+  const pid = harness.spawned_pid(fixture);
+  const title = spec.title_prefix + pid;
+  const ready = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "30000", "--window-title-contains", title
+  ]);
+  ensure(ready.ok === true && flag_at(ready, "data.met"), "cu_tree_selector_fixture_not_ready");
+  const window = window_for_pid(context, executable, pid, title);
+  const handle = "" + int_at(window, "handle");
+  const baseline = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--depth", "64", "--max-nodes", "5000", "--flat"
+  ]);
+  ensure(baseline.ok === true && !flag_at(baseline, "data.truncated"),
+    "cu_tree_selector_baseline_truncated");
+  ensure(Array.isArray(baseline.data.nodes) && baseline.data.nodes.length > 2,
+    "cu_tree_selector_baseline_empty");
+  const baseline_nodes = baseline.data.nodes;
+  const tree_root_id = text_at(baseline, "data.root_id");
+  ensure(tree_root_id !== "", "cu_tree_selector_baseline_root_missing");
+
+  print("STEP selector reply is exactly the chosen root and all of its descendants");
+  const selected_node = choose_subtree(baseline_nodes, tree_root_id);
+  const selected_id = text_at(selected_node, "id");
+  const selector = selector_for(baseline_nodes, tree_root_id, selected_node);
+  const expected = subtree_nodes(baseline_nodes, selected_id);
+  const selected = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", selector, "--depth", "64", "--max-nodes", "5000", "--flat"
+  ]);
+  ensure(selected.ok === true
+      && text_at(selected, "data.selector") === selector
+      && text_at(selected, "data.root_id") === selected_id
+      && !flag_at(selected, "data.truncated")
+      && int_at(selected, "data.returned") === expected.length
+      && selected.data.nodes.length === expected.length,
+    "cu_tree_selector_selected_shape:" + JSON.stringify(selected.data));
+  for (let i = 0; i < selected.data.nodes.length; i = i + 1) {
+    const actual = selected.data.nodes[i];
+    const original = expected[i];
+    ensure(text_at(actual, "id") === text_at(original, "id"),
+      "cu_tree_selector_subtree_order:" + i);
+    ensure(int_at(actual, "depth") === int_at(original, "depth") - int_at(selected_node, "depth"),
+      "cu_tree_selector_relative_depth:" + i);
+    if (i > 0) {
+      ensure(int_at(actual, "index") > int_at(selected.data.nodes[i - 1], "index"),
+        "cu_tree_selector_walk_index_order:" + i);
+    }
+  }
+  ensure(int_at(selected.data.nodes[0], "depth") === 0,
+    "cu_tree_selector_root_depth_not_zero");
+
+  print("STEP sibling index deterministically selects one repeated-role node");
+  const indexed_node = choose_indexed_sibling(baseline_nodes, tree_root_id);
+  const indexed_selector = selector_for(baseline_nodes, tree_root_id, indexed_node);
+  const indexed = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", indexed_selector, "--depth", "64", "--max-nodes", "5000", "--flat"
+  ]);
+  ensure(indexed.ok === true
+      && text_at(indexed, "data.root_id") === text_at(indexed_node, "id")
+      && text_at(indexed.data.nodes[0], "id") === text_at(indexed_node, "id")
+      && int_at(indexed.data.nodes[0], "depth") === 0,
+    "cu_tree_selector_indexed_sibling:" + JSON.stringify(indexed.data));
+
+  print("STEP the window-root budget remains honest while a visible selected root is scoped");
+  const bounded_node = choose_first_root_child(baseline_nodes, tree_root_id);
+  const bounded_selector = selector_for(baseline_nodes, tree_root_id, bounded_node);
+  const bounded_scan_nodes = int_at(bounded_node, "index") + 1;
+  ensure(bounded_scan_nodes < baseline_nodes.length,
+    "cu_tree_selector_fixture_too_small_for_truncation");
+  const bounded = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", bounded_selector, "--max-nodes", "" + bounded_scan_nodes, "--flat"
+  ]);
+  ensure(bounded.ok === true
+      && flag_at(bounded, "data.truncated")
+      && int_at(bounded, "data.returned") === 1
+      && int_at(bounded, "data.visited") >= bounded_scan_nodes
+      && text_at(bounded, "data.root_id") === text_at(bounded_node, "id")
+      && text_at(bounded.data.nodes[0], "id") === text_at(bounded_node, "id")
+      && int_at(bounded.data.nodes[0], "depth") === 0,
+    "cu_tree_selector_bounded_truth:" + JSON.stringify(bounded.data));
+
+  print("STEP selector miss, invalid grammar and invalid budget fail typed");
+  const missing = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", "button[100000]", "--flat"
+  ]);
+  ensure(missing.ok === false && text_at(missing, "error.code") === "a11y_node_not_found",
+    "cu_tree_selector_miss_not_typed:" + JSON.stringify(missing));
+  const malformed = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", "button[", "--flat"
+  ]);
+  ensure(malformed.ok === false
+      && (text_at(malformed, "error.code") === "invalid_input"
+          || text_at(malformed, "error.code") === "usage"),
+    "cu_tree_selector_malformed_not_typed:" + JSON.stringify(malformed));
+  const invalid_budget = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", selector, "--max-nodes", "0", "--flat"
+  ]);
+  ensure(invalid_budget.ok === false
+      && (text_at(invalid_budget, "error.code") === "invalid_input"
+          || text_at(invalid_budget, "error.code") === "usage"),
+    "cu_tree_selector_budget_not_typed:" + JSON.stringify(invalid_budget));
+
+  const after = window_for_pid(context, executable, pid, title);
+  ensure(int_at(after, "handle") === int_at(window, "handle")
+      && flag_at(after, "focused") === flag_at(window, "focused"),
+    "cu_tree_selector_changed_window_identity_or_focus");
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+harness.complete(context, children, succeeded, failure);
+if (!succeeded) { throw failure; }
+harness.emit_evidence(context, declared_evidence, "cu.tree-selector-subtree");
+harness.remove_run(context);
+print("PASS: tree selector returns one bounded subtree with stable original identities and typed misses");
+return;

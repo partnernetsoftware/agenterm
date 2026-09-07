@@ -23,17 +23,28 @@ pub fn parse(
     }
     match spec.name {
         "tree" => {
-            let window = flag_window_opt(args);
+            let window = flag_window(args)?;
             let depth = flag_parsed::<u32>(args, "--depth")?;
             let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+            let selector = flag_text(args, "--selector")?;
+            if let Some(raw) = selector.as_deref() {
+                agenterm_cu::observe::parse_selector(raw)?;
+            }
             // `elements` is the MCU spelling of `tree --flat`.
             let flat = spelled == "elements" || take_switch(args, "--flat");
+            if !args.is_empty() {
+                return Err(format!(
+                    "tree accepts only [--window H] [--depth N] [--max-nodes N] [--flat] [--selector PATH]; unexpected {:?}",
+                    args[0]
+                ));
+            }
             Ok(Command::Tree {
                 target,
                 window,
                 depth,
                 max_nodes,
                 flat,
+                selector,
             })
         }
         "desktop-state" => {

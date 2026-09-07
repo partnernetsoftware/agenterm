@@ -2109,8 +2109,8 @@
       ],
       "grant": "observe",
       "family": "a11y-observe",
-      "summary": "bounded a11y tree of a window; --flat numbers nodes",
-      "usage": "tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat]\nelements [--window HANDLE] [--depth N] [--max-nodes N]     (alias of tree --flat)",
+      "summary": "bounded a11y tree of a window or selected subtree; --flat numbers nodes",
+      "usage": "tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat] [--selector PATH]\nelements [--window HANDLE] [--depth N] [--max-nodes N] [--selector PATH]     (alias of tree --flat)",
       "args": [
         {
           "flag": "--window",
@@ -2131,6 +2131,11 @@
           "flag": "--flat",
           "value": "",
           "help": "number nodes (index, depth) in walk order"
+        },
+        {
+          "flag": "--selector",
+          "value": "PATH",
+          "help": "return the selected node and descendants from the bounded walk"
         }
       ]
     },
@@ -5861,7 +5866,7 @@
     },
     {
       "name": "tree",
-      "text": "agenterm-cu tree    (also: elements)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat]\n  elements [--window HANDLE] [--depth N] [--max-nodes N]     (alias of tree --flat)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --flat                        number nodes (index, depth) in walk order\n\nDepth (root=0, <=64) and node budget (1..20000) apply while the platform\nwalks; the reply carries truncated / visited / returned. --flat numbers\nnodes (index, depth) in walk order -- the same identity query reports.\n`elements` is the MCU spelling of tree --flat.\n"
+      "text": "agenterm-cu tree    (also: elements)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat] [--selector PATH]\n  elements [--window HANDLE] [--depth N] [--max-nodes N] [--selector PATH]     (alias of tree --flat)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --flat                        number nodes (index, depth) in walk order\n  --selector PATH               return that MCU selector node and its descendants\n\nDepth (root=0, <=64) and node budget (1..20000) apply while the platform\nwalks; the reply carries truncated / visited / returned. --flat numbers nodes\nwith selector-relative depth while retaining the original flatten index.\n--selector scopes the already bounded window-root walk; it does not claim a\nsecond backend walk. `elements` is the MCU spelling of tree --flat.\n"
     },
     {
       "name": "desktop-state",

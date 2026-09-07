@@ -2285,6 +2285,11 @@ pub enum Command {
         max_nodes: Option<usize>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         flat: bool,
+        /// MCU path: select one node from the bounded window-root walk and
+        /// return only that node and its descendants. The platform budget
+        /// still applies to the original window-root walk.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
     },
     /// One bounded desktop observation composed from a window inventory, one
     /// window-scoped accessibility tree, and the pointer position.  The
@@ -6904,6 +6909,7 @@ mod tests {
                 depth: None,
                 max_nodes: None,
                 flat: false,
+                selector: None,
             }
         ));
         assert_eq!(
@@ -6916,13 +6922,15 @@ mod tests {
             depth: Some(3),
             max_nodes: Some(5),
             flat: true,
+            selector: Some("Group[0]".into()),
         };
         assert_eq!(bounded.required_grant(), Grant::Observe);
         assert_eq!(
             serde_json::to_value(&bounded).expect("serialize"),
             serde_json::json!({
                 "verb": "tree", "target": "ssh", "window": 7,
-                "depth": 3, "max_nodes": 5, "flat": true
+                "depth": 3, "max_nodes": 5, "flat": true,
+                "selector": "Group[0]"
             })
         );
     }

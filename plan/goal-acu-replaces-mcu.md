@@ -866,9 +866,11 @@ Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
 The compatibility adapter now has zero static STAY spellings and 14 dynamic
-STAY witnesses on macOS after four lossless projections (`resource top`,
-focused PID, observe role and wait absence) plus the platform-default-shell
-PTY projection. Omitting `-- PROGRAM` now starts AgenTerm's native default
+STAY witnesses on macOS after lossless projections for `resource top`, focused
+PID, observe role, wait absence, platform-default-shell PTY and selector-rooted
+trees. The tree witness count does not fall yet because MCU-only `--page` and
+`--max-value-bytes` remain under that argument-sensitive gap id; selector itself
+now routes wholly through ACU. Omitting `-- PROGRAM` starts AgenTerm's native default
 shell and the public `cu-pty-smoke` proves that path; MCU string-eval
 `--cmd` / `--exec-json` shortcuts remain separate. The count is deliberately not
 reduced by reclassifying useful MCU behavior as a permanent rejection: tmux

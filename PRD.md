@@ -142,12 +142,14 @@ AgenTerm — local agent & process fleet work OS
 │     │                       才用 `acu.qjs` 接替过渡薄壳；它只保留旧语法兼容
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
-│     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 134 叶：
-│     │                       native 35 / delegated 31 / platform-limited 62 / gap 1 / retired 5
+│     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 135 叶：
+│     │                       native 35 / delegated 31 / platform-limited 63 / gap 1 / retired 5
 │     │                       平台资格用 schema-2 三主机矩阵；每格必须绑定完整 evidence-token 集，
 │     │                       旧散文、pending 或只证复合能力一半的单 token 一律不能晋级
 │     │                       exact @tab 视口滚动与渲染 PNG 已走同一 control plane；
 │     │                       macOS qjswasm 黑盒已绿，Linux/Windows GUI court 待补
+│     │                       tree --selector 已原样保留有界扫描真相并返回 selector-rooted 子树；
+│     │                       macOS owned fixture 已绿，Linux/Windows 同一 court 待跑
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
 │     │                       doctor desktop baseline、system readiness 与 capability counts 已有
 │     │                       公开 qjswasm 证据；live probe 共核 macOS、Windows ARM64、Linux ARM64 已绿，Linux x86_64 完整 33 项旅程亦绿

@@ -214,6 +214,7 @@ mod tests {
             depth: None,
             max_nodes: None,
             flat: false,
+            selector: None,
         };
         let auth = Authorization::from_cli_and_env(Some("observe"));
         let err = run_session(&endpoint, &command, &auth).expect_err("placeholder");

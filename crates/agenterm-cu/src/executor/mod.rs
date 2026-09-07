@@ -1498,6 +1498,7 @@ mod tests {
             depth: None,
             max_nodes: None,
             flat: false,
+            selector: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -1591,6 +1592,7 @@ mod tests {
             depth: None,
             max_nodes: None,
             flat: false,
+            selector: None,
         });
         assert!(!tree.ok);
         assert_eq!(tree.error.as_ref().unwrap().code, "rdp_unavailable");
@@ -1658,6 +1660,7 @@ mod tests {
             depth: None,
             max_nodes: None,
             flat: false,
+            selector: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -1682,6 +1685,7 @@ mod tests {
             depth: None,
             max_nodes: None,
             flat: false,
+            selector: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);

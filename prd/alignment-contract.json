@@ -311,7 +311,8 @@
         "cu.macos-pointer-move",
         "cu.macos-pointer-restored",
         "cu.macos-pointer-refusals",
-        "cu.pointer-scroll-content-delivery"
+        "cu.pointer-scroll-content-delivery",
+        "cu.tree-selector-subtree"
       ]
     },
     {

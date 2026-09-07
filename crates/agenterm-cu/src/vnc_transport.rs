@@ -1395,6 +1395,7 @@ mod tests {
             depth: None,
             max_nodes: None,
             flat: false,
+            selector: None,
         };
         let remote = rewrite_command_target_current(&command).expect("rewrite");
         assert_eq!(remote.verb(), "tree");

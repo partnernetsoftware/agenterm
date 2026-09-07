@@ -21,38 +21,90 @@ pub(super) fn budget_json(depth: Option<u32>, max_nodes: Option<usize>) -> serde
 
 /// Bounded tree. `flat` returns the same nodes in walk order, each with its
 /// flatten `index` and `depth`; the identities are the tree's own ids.
+#[derive(serde::Serialize)]
+struct ScopedFlatNode<'a> {
+    index: usize,
+    depth: u32,
+    #[serde(flatten)]
+    node: &'a mechanism::A11yNode,
+}
+
 pub(super) fn tree_payload(
     window: Option<isize>,
     depth: Option<u32>,
     max_nodes: Option<usize>,
     flat: bool,
+    selector: Option<&str>,
 ) -> Result<serde_json::Value, CuError> {
     let budget = tree_budget(depth, max_nodes)?;
     let tree = mechanism::tree_for_window_bounded(window, budget).map_err(map_mechanism_err)?;
-    let nodes = if flat {
-        serde_json::to_value(observe::flatten(&tree))
+    scoped_tree_payload(tree, depth, max_nodes, flat, selector)
+}
+
+fn scoped_tree_payload(
+    tree: mechanism::A11yTree,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    flat: bool,
+    selector: Option<&str>,
+) -> Result<serde_json::Value, CuError> {
+    let all_flat = observe::flatten(&tree);
+    let scoped = if let Some(selector) = selector {
+        let scoped =
+            observe::query_selector_scope(&tree, &all_flat, selector).map_err(invalid_input)?;
+        if scoped.is_empty() {
+            return Err(CuError::new(
+                "a11y_node_not_found",
+                format!("tree --selector {selector:?} matched no node in the bounded walk"),
+            ));
+        }
+        scoped
     } else {
-        serde_json::to_value(&tree.nodes)
+        all_flat.iter().collect()
+    };
+    let selected_root_id = scoped
+        .first()
+        .map(|entry| entry.node.id.as_str())
+        .unwrap_or(tree.root_id.as_str());
+    let selected_root_depth = scoped.first().map_or(0, |entry| entry.depth);
+    let nodes = if flat {
+        serde_json::to_value(
+            scoped
+                .iter()
+                .map(|entry| ScopedFlatNode {
+                    index: entry.index,
+                    depth: entry.depth.saturating_sub(selected_root_depth),
+                    node: entry.node,
+                })
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        serde_json::to_value(scoped.iter().map(|entry| entry.node).collect::<Vec<_>>())
     }
     .map_err(|error| CuError::new("serialize", error.to_string()))?;
     let ax = observe::classify_ax_tree(&tree);
     let app = window_app_name(tree.window_handle);
-    Ok(serde_json::json!({
+    let mut payload = serde_json::json!({
         "degraded": false,
         "backend": tree.backend,
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
         "window": tree.window_handle,
-        "root_id": tree.root_id,
+        "root_id": selected_root_id,
         "flat": flat,
         "budget": budget_json(depth, max_nodes),
         "truncated": tree.truncated,
         "visited": tree.visited,
-        "returned": tree.returned,
+        "returned": scoped.len(),
         "ax": ax.as_str(),
         "next_actions": observe::empty_chrome_next_actions(ax, &app),
         "nodes": nodes,
-    }))
+    });
+    if let Some(selector) = selector {
+        payload["selector"] = selector.into();
+        payload["selector_root_depth"] = selected_root_depth.into();
+    }
+    Ok(payload)
 }
 
 pub(super) fn window_app_name(handle: Option<isize>) -> String {
@@ -687,6 +739,71 @@ pub(super) fn verify_payload(
 mod tests {
     use super::*;
 
+    fn selector_tree() -> mechanism::A11yTree {
+        let node =
+            |id: &str, parent_id: Option<&str>, role: &str, name: &str| mechanism::A11yNode {
+                id: id.into(),
+                parent_id: parent_id.map(str::to_owned),
+                role: role.into(),
+                name: name.into(),
+                states: vec!["showing".into()],
+                bounds: mechanism::A11yBounds {
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                },
+                actions: Vec::new(),
+                text: None,
+                identifier: None,
+            };
+        mechanism::A11yTree {
+            backend: "fixture".into(),
+            window_handle: Some(7),
+            root_id: "/0".into(),
+            nodes: vec![
+                node("/0", None, "window", "root"),
+                node("/0/0", Some("/0"), "group", "first"),
+                node("/0/0/0", Some("/0/0"), "button", "inside"),
+                node("/0/1", Some("/0"), "group", "second"),
+            ],
+            truncated: true,
+            visited: 9,
+            returned: 4,
+        }
+    }
+
+    #[test]
+    fn tree_selector_returns_only_the_deterministic_subtree_without_hiding_scan_truth() {
+        let payload =
+            scoped_tree_payload(selector_tree(), Some(4), Some(20), true, Some("Group[0]"))
+                .expect("selected subtree");
+        assert_eq!(payload["selector"], "Group[0]");
+        assert_eq!(payload["root_id"], "/0/0");
+        assert_eq!(payload["returned"], 2);
+        assert_eq!(payload["visited"], 9);
+        assert_eq!(payload["truncated"], true);
+        assert_eq!(payload["nodes"][0]["id"], "/0/0");
+        assert_eq!(payload["nodes"][0]["index"], 1);
+        assert_eq!(payload["nodes"][0]["depth"], 0);
+        assert_eq!(payload["nodes"][1]["id"], "/0/0/0");
+        assert_eq!(payload["nodes"][1]["depth"], 1);
+        assert!(
+            payload["nodes"]
+                .as_array()
+                .expect("nodes")
+                .iter()
+                .all(|node| node["id"] != "/0/1")
+        );
+    }
+
+    #[test]
+    fn tree_selector_miss_is_typed_instead_of_an_empty_success() {
+        let error = scoped_tree_payload(selector_tree(), None, None, false, Some("Button[9]"))
+            .expect_err("selector miss");
+        assert_eq!(error.code, "a11y_node_not_found");
+    }
+
     #[test]
     fn observe_ready_marker_is_atomic_owned_json_and_never_overwrites() {
         let directory = std::env::temp_dir().join(format!(
@@ -746,6 +863,7 @@ mod tests {
             depth: Some(65),
             max_nodes: None,
             flat: false,
+            selector: None,
         });
         assert!(!too_deep.ok);
         assert_eq!(too_deep.error.as_ref().unwrap().code, "invalid_input");
@@ -755,6 +873,7 @@ mod tests {
             depth: None,
             max_nodes: Some(0),
             flat: false,
+            selector: None,
         });
         assert_eq!(zero_nodes.error.as_ref().unwrap().code, "invalid_input");
         let query =

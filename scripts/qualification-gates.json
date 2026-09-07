@@ -504,6 +504,12 @@
       "evidence": [
         "cu.pointer-scroll-content-delivery"
       ]
+    },
+    {
+      "id": "cu-tree-selector-smoke",
+      "evidence": [
+        "cu.tree-selector-subtree"
+      ]
     }
   ]
 }

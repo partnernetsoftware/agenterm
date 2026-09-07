@@ -549,6 +549,15 @@ flowchart LR
   evidence contract. Each slice is proven by a `.qjs` journey
   (`scripts/qjs/cu-macos-smoke.qjs`, first) so the script engine is exercised
   by real computer-use scripts.
+- [~] `tree --selector PATH` now closes the nested-subtree part of MCU's tree
+  contract without inventing a second backend walk. One platform-bounded
+  window-root acquisition resolves the existing deterministic sibling-index
+  selector, then returns only that root and its descendants. The reply preserves
+  original node ids and flatten indices, rebases displayed depth to the selected
+  root, and retains the original `visited` / `truncated` scan truth. Public
+  qjswasm evidence `cu.tree-selector-subtree` is green on macOS; the same owned
+  fixture is registered for Linux and Windows. MCU-only `--page` and
+  `--max-value-bytes` tree projections remain separate migration debt.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
   gated `minimize`/`restore` are live in the macOS Cocoa/AX public journey.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;
