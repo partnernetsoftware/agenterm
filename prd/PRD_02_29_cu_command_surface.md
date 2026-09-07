@@ -41,7 +41,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 ## Abstract command set
 
 - [x] the concrete verb surface is one static table,
-  `crates/agenterm-cu/src/bin/cli/verbs.rs` (name, aliases, scope, family,
+  `crates/agenterm-cu/src/cli/verbs-catalog.json` (name, aliases, scope, family,
   usage, reference). `agenterm-cu --help` renders it grouped by family;
   `agenterm-cu help <verb>` / `<verb> --help` carry the reference prose;
   `agenterm-cu verbs --json` emits the table; `scripts/gen-cu-verbs-doc.sh`
@@ -52,6 +52,12 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   aliases (`shot`, `type`, `key`, `move`, `dclick`, `rclick`, `frame`,
   `movewin`, `resize`, `maximize`, `cursor`, `clip`, `caps`, `elements`,
   `inspect`, `find`, `read`).
+- [x] ordinary argv parsing is library-owned in `crates/agenterm-cu/src/argv.rs`
+  and `crates/agenterm-cu/src/cli/`: bounded arguments, globals, transport,
+  authority, aliases and verb parsing all converge on the same
+  `Command -> Executor -> CuReply` path. The executable retains native-host and
+  resident-worker entry modes plus human presentation; embedded callers never
+  receive a `see stderr` placeholder or write terminal output as a side effect.
 - [x] the shell envelope has one truth value at both layers. Every ordinary
   invocation writes exactly one `CuReply` JSON object to stdout; `ok:true`
   exits 0, a typed runtime/transport/operation failure exits 1, and typed

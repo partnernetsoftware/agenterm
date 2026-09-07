@@ -48,7 +48,7 @@ fn main() {
 fn build_verb_catalog() {
     use std::collections::BTreeSet;
 
-    const CATALOG: &str = "src/bin/cli/verbs-catalog.json";
+    const CATALOG: &str = "src/cli/verbs-catalog.json";
     println!("cargo:rerun-if-changed={CATALOG}");
     println!("cargo:rerun-if-env-changed=AGENTERM_CU_SIZE_COURT");
     println!("cargo:rerun-if-env-changed=AGENTERM_CU_SIZE_COLD_ROWS");

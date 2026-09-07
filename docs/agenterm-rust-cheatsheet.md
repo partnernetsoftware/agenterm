@@ -4054,6 +4054,24 @@ Windows product ceiling. Linux has its separate 4 MiB ceiling. A good slope is
 a durable architecture result, not permission to claim either absolute budget
 passed or to move CLI policy into a shared DLL.
 
+## Keep argv parsing in the typed library and presentation in the binary
+
+When a command surface serves a shell, an in-process script object and future
+protocol consumers, the binary must not own the only `argv -> Command` parser.
+Put argument bounds, globals, authority selection, alias resolution and verb
+parsing in one silent library adapter that ends at the same `Executor` and
+returns the complete typed reply. Keep native-host framing, resident worker
+sentinels, terminal help rendering and process exit codes in the binary.
+
+Reject binary-only entry modes before authority acquisition or effects, and
+bound both argument count and aggregate encoded bytes. Embedded NUL must be a
+typed refusal. Help is protocol data too: an in-process caller cannot follow a
+`see stderr` placeholder, so the typed reply must carry the requested bounded
+help text while the binary may independently render that same text to stderr.
+Keep the checked-in verb catalog beside the library parser; leaving its truth
+source under `src/bin/` recreates binary ownership even if generated tables are
+later re-exported by the library.
+
 ## Measure guest allocation below the page granularity
 
 Linear-memory pages are a budget receipt, not an allocation-lifetime trace: a

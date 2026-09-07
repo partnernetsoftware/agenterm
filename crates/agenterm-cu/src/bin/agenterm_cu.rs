@@ -1,15 +1,12 @@
 //! `agenterm-cu` shell command (PRD_02_29 shell layer).
 //!
 //! Machine-readable JSON on stdout; human usage on stderr. Verb parsing lives
-//! in `cli/`, one module per family, all keyed by the verb table in
-//! `cli/verbs.rs`; this file only routes.
+//! in the library's `cli/`, one module per family, all keyed by its verb table;
+//! this file only owns process entry modes and presentation.
 
-mod cli;
-
-use agenterm_cu::{Command, CuReply};
-
-use cli::global::{Globals, authority_environment_flags};
-use cli::verbs;
+#[cfg(test)]
+use agenterm_cu::Command;
+use agenterm_cu::{CuReply, cli, cli::verbs};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -73,7 +70,11 @@ fn main() {
     {
         std::process::exit(run_x11_clipboard_owner());
     }
-    std::process::exit(print_reply(&dispatch(args)));
+    let reply = dispatch(args.clone());
+    if let Some(diagnostic) = agenterm_cu::argv::human_diagnostic(&args, &reply) {
+        eprint!("{diagnostic}");
+    }
+    std::process::exit(print_reply(&reply));
 }
 
 fn browser_bridge_origin() -> &'static str {
@@ -141,107 +142,8 @@ fn print_reply(reply: &CuReply) -> i32 {
     }
 }
 
-fn is_help_token(token: &str) -> bool {
-    matches!(token, "--help" | "-h") || verbs::lookup(token).is_some_and(|spec| spec.name == "help")
-}
-
-/// `<verb> --help` (or `-h`), also after a two-token spelling such as
-/// `menu inspect --help`. Nothing else may follow, so a verb whose free text
-/// happens to contain `-h` is never mistaken for a help request.
-fn wants_verb_help(args: &[String]) -> bool {
-    let tail = &args[1..];
-    let sub_form = tail.first().is_some_and(|second| {
-        verbs::resolve(&args[0], Some(second)).is_some_and(|spec| {
-            spec.aliases
-                .contains(&format!("{} {second}", args[0]).as_str())
-        })
-    });
-    let tail = if sub_form { &tail[1..] } else { tail };
-    tail.len() == 1 && matches!(tail[0].as_str(), "--help" | "-h")
-}
-
-fn dispatch(mut args: Vec<String>) -> CuReply {
-    let (ambient_authority_present, unsupported_authority_environment) =
-        authority_environment_flags();
-    // `<verb> --help` for the entry modes too (`grant --help`, `exec --help`).
-    if let Some(spec) = args
-        .first()
-        .and_then(|first| verbs::resolve(first, args.get(1).map(String::as_str)))
-        && wants_verb_help(&args)
-    {
-        return cli::help::verb_help(spec);
-    }
-    if let Some(reply) = agenterm_cu::grant_management::dispatch(&args, ambient_authority_present) {
-        return reply;
-    }
-    if args.first().is_none_or(|first| is_help_token(first)) {
-        return cli::help::run_help(args.get(1..).unwrap_or(&[]));
-    }
-
-    let mut globals = match Globals::parse(&mut args) {
-        Ok(globals) => globals,
-        Err(reply) => return *reply,
-    };
-    let spec = args
-        .first()
-        .and_then(|first| verbs::resolve(first, args.get(1).map(String::as_str)));
-    match spec.map(|spec| spec.name) {
-        // Global flags may precede `exec` so remote workers can be invoked as
-        // `agenterm-cu --grant observe exec --json -` as well as `exec` first.
-        Some("exec") => {
-            return cli::exec::dispatch_json(&globals.exec_args(args.into_iter().skip(1)));
-        }
-        Some("help") => return cli::help::run_help(&args[1..]),
-        _ => {}
-    }
-    if let Some(spec) = spec
-        && wants_verb_help(&args)
-    {
-        return cli::help::verb_help(spec);
-    }
-
-    let target = match globals.resolve_target() {
-        Ok(target) => target,
-        Err(reply) => return *reply,
-    };
-
-    let Some(spelled) = args.first().cloned() else {
-        return cli::usage_err("missing command verb");
-    };
-    args.remove(0);
-
-    let command = match spec {
-        Some(spec) => match cli::parse_command(spec, &spelled, target, &mut args) {
-            Ok(command) => command,
-            Err(message) => return cli::usage_err_for(spec, message),
-        },
-        None if agenterm_cu::mcu_surface::is_align_verb(&spelled) => Command::Align {
-            target,
-            group: spelled,
-        },
-        None => {
-            let near = verbs::near_matches(&spelled);
-            return cli::usage_err(if near.is_empty() {
-                format!("unknown command '{spelled}'")
-            } else {
-                format!(
-                    "unknown command '{spelled}'; near matches: {}",
-                    near.join(", ")
-                )
-            });
-        }
-    };
-
-    let executor = match globals.executor(
-        target,
-        &command,
-        ambient_authority_present,
-        unsupported_authority_environment,
-    ) {
-        Ok(executor) => executor,
-        Err(reply) => return *reply,
-    };
-    executor.execute(&command)
+fn dispatch(args: Vec<String>) -> CuReply {
+    agenterm_cu::argv::execute_argv_from_environment(args)
 }
 
 fn run_x11_clipboard_owner() -> i32 {
@@ -1788,7 +1690,11 @@ mod surface_tests {
         }
         let bare = run(&["help"]);
         assert!(bare.ok);
-        assert_eq!(bare.data.as_ref().unwrap()["usage"], "see stderr");
+        assert!(
+            bare.data.as_ref().unwrap()["usage"]
+                .as_str()
+                .is_some_and(|text| text.contains("capabilities"))
+        );
         let flag = run(&["--help"]);
         assert!(flag.ok);
         let empty = dispatch(Vec::new());

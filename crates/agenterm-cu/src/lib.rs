@@ -3,6 +3,9 @@
 //! Orchestrator agents should drive desktops through structured observation and
 //! actuation, not screenshot/OCR coordinate guessing. See `README.md`.
 
+extern crate self as agenterm_cu;
+
+pub mod argv;
 pub mod audio_control;
 pub mod audit;
 pub mod auth;
@@ -14,6 +17,7 @@ pub mod browser_profiles;
 pub mod browser_session;
 pub mod browser_session_owner;
 pub mod cdp;
+pub mod cli;
 pub mod command;
 pub(crate) mod device_lease_ipc;
 pub(crate) mod device_lease_owner;

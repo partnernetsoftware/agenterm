@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate docs/agenterm-cu-verbs.md from the binary's validated projection of
-# `crates/agenterm-cu/src/bin/cli/verbs-catalog.json`.
+# `crates/agenterm-cu/src/cli/verbs-catalog.json`.
 # Run from the repository root after `cargo build -p agenterm-cu --bin agenterm-cu`.
 set -euo pipefail
 CU=${AGENTERM_CU:-agenterm-cu}

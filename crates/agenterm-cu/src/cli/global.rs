@@ -39,7 +39,7 @@ impl Globals {
         let mut globals = Self::default();
         while let Some(flag) = args.first() {
             match flag.as_str() {
-                "--help" | "-h" => return Err(Box::new(help::run_help(&[]))),
+                "--help" | "-h" => return Err(Box::new(help::run_help_silent(&[]))),
                 "--target" => {
                     let value = take_value(args, "--target");
                     globals.target = TargetRef::parse(&value);
@@ -515,10 +515,9 @@ fn resolve_authorization(cli_grant: Option<&str>) -> Result<Authorization, CuErr
     })
 }
 
-fn take_value(args: &mut Vec<String>, flag: &str) -> String {
+fn take_value(args: &mut Vec<String>, _flag: &str) -> String {
     args.remove(0);
     if args.is_empty() {
-        eprintln!("missing value for {flag}");
         return String::new();
     }
     args.remove(0)

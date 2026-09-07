@@ -797,20 +797,21 @@ same `host_actions::execute` → `Command` → `Executor` chain used by real men
 and shortcut events. Candidate qualification remains incomplete, so
 architecture status is partial.
 
-### CLI surface layout (`crates/agenterm-cu/src/bin/`)
+### CLI surface layout (`crates/agenterm-cu/src/`)
 
-`src/bin/agenterm_cu.rs` only routes: the entry modes (`host`, `verbs`,
-`exec`, `help`), the global flags, then one verb-table lookup. Argument parsers
-live in `src/bin/cli/`, bin-private (Cargo auto-discovers `src/bin/*.rs` as
-extra binaries, so the modules sit in a directory without `main.rs`). The typed
-verb truth is library-owned so CLI routing, persisted grants and the future
-qjswasm/MCP consumers cannot acquire separate catalogs:
+`src/bin/agenterm_cu.rs` owns only process entry modes and terminal
+presentation. Ordinary global flags, aliases and verb arguments enter the
+silent library adapter in `src/argv.rs`; its parsers live in `src/cli/` and
+finish at the same `Command -> Executor -> CuReply` boundary used by embedded
+consumers. The typed verb truth is library-owned so CLI routing, persisted
+grants and qjswasm/MCP consumers cannot acquire separate catalogs:
 
 | File | Owns |
 |------|------|
 | `src/verb_catalog.rs` | generated hot `VERBS` table plus compressed cold discovery/help projection; owns `lookup` / `resolve` / `near_matches` for all runtime consumers |
 | `cli/verbs-catalog.json` | checked-in declaration SSOT: canonical name, reply command, aliases, scope, family, summary, usage, args and reference prose; `build.rs` validates it and generates both projections |
-| `cli/verbs.rs` | bin-private re-export of the library catalog for the argument parser modules; contains no second declaration or embedded projection |
+| `src/argv.rs` | bounded, silent argv adapter: globals, target and authority selection, entry-mode refusal, parse and `Executor` dispatch |
+| `cli/verbs.rs` | parser-facing re-export of the library catalog; contains no second declaration or embedded projection |
 | `cli/help.rs` | `--help` (grouped by family, one line per verb), `help <verb>` and `<verb> --help`, the ssh / vnc / rdp topics, `verbs [--json\|--text]`; every line is rendered from the table |
 | `cli/global.rs` | `--target` / `--ssh*` / `--vnc*` / `--rdp` / `--grant*` parsing, env fallbacks, combination refusals, authorization and `Executor` assembly (shared with `exec`) |
 | `cli/exec.rs` | the `exec --json` worker mode |

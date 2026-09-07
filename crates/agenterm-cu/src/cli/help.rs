@@ -146,10 +146,6 @@ pub fn top_level_text() -> String {
     text
 }
 
-pub fn eprint_top_level() {
-    eprint!("{}", top_level_text());
-}
-
 /// One verb's full reference: spellings, scope, usage, arguments, prose.
 pub fn verb_text(spec: &VerbSpec) -> String {
     verbs::cold_help(spec.name).to_owned()
@@ -158,30 +154,28 @@ pub fn verb_text(spec: &VerbSpec) -> String {
 /// `help [name…]`: the grouped list, one verb, one transport topic, or a
 /// typed usage error naming the near matches.
 pub fn run_help(args: &[String]) -> CuReply {
+    run_help_silent(args)
+}
+
+/// `help [name…]` without terminal output, for library/protocol callers.
+pub fn run_help_silent(args: &[String]) -> CuReply {
     let Some(first) = args.first() else {
-        eprint_top_level();
         return help_reply(None);
     };
     if matches!(first.as_str(), "--help" | "-h") {
-        eprint_top_level();
         return help_reply(None);
     }
     let name = args.join(" ");
-    if let Some((topic, text)) = TOPICS.iter().find(|(topic, _)| *topic == name) {
-        eprint!("{text}");
+    if let Some((topic, _)) = TOPICS.iter().find(|(topic, _)| *topic == name) {
         return help_reply(Some(topic));
     }
     if let Some(spec) = verbs::VERBS
         .iter()
         .find(|spec| spec.spellings().any(|spelling| spelling == name))
     {
-        return verb_help(spec);
+        return verb_help_silent(spec);
     }
     if args.len() == 1 && agenterm_cu::mcu_surface::is_align_verb(first) {
-        eprintln!(
-            "agenterm-cu {first}: MCU-aligned verb with no mechanism in this binary; it answers typed unsupported.\n  {}",
-            agenterm_cu::mcu_surface::typed_reason_for_verb(first)
-        );
         return help_reply(Some(first));
     }
     let near = verbs::near_matches(&name);
@@ -194,8 +188,31 @@ pub fn run_help(args: &[String]) -> CuReply {
 }
 
 pub fn verb_help(spec: &VerbSpec) -> CuReply {
-    eprint!("{}", verb_text(spec));
+    verb_help_silent(spec)
+}
+
+pub fn verb_help_silent(spec: &VerbSpec) -> CuReply {
     help_reply(Some(spec.name))
+}
+
+/// Resolve the exact human help text named by a typed help reply.
+pub fn human_help_text(verb: Option<&str>) -> Option<String> {
+    let Some(verb) = verb else {
+        return Some(top_level_text());
+    };
+    if let Some((_, text)) = TOPICS.iter().find(|(topic, _)| *topic == verb) {
+        return Some((*text).to_owned());
+    }
+    if let Some(spec) = verbs::VERBS.iter().find(|spec| spec.name == verb) {
+        return Some(verb_text(spec));
+    }
+    if agenterm_cu::mcu_surface::is_align_verb(verb) {
+        return Some(format!(
+            "agenterm-cu {verb}: MCU-aligned verb with no mechanism in this binary; it answers typed unsupported.\n  {}\n",
+            agenterm_cu::mcu_surface::typed_reason_for_verb(verb)
+        ));
+    }
+    None
 }
 
 /// `verbs [--json | --text]`: `Ok` is the text to print on stdout.
@@ -518,7 +535,11 @@ mod tests {
         }
         let bare = run_help(&[]);
         assert!(bare.ok);
-        assert_eq!(bare.data.as_ref().unwrap()["usage"], "see stderr");
+        assert!(
+            bare.data.as_ref().unwrap()["usage"]
+                .as_str()
+                .is_some_and(|text| text.contains("capabilities"))
+        );
     }
 
     #[test]

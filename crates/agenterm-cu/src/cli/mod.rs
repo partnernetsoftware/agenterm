@@ -1,4 +1,4 @@
-//! Shell parsing for `agenterm-cu`: one module per verb family, all driven
+//! Library-owned argv parsing for `agenterm-cu`: one module per verb family, all driven
 //! by the static verb table in [`verbs`]. The binary's `dispatch` resolves
 //! the first token through that table and hands the rest to
 //! [`parse_command`]; every usage failure is a `String` here and becomes the
@@ -60,16 +60,16 @@ pub fn parse_command(
     }
 }
 
-/// The typed usage reply; the grouped command list goes to stderr.
+/// The typed usage reply. Presentation belongs to the binary wrapper; library
+/// callers receive data without stderr side effects.
 pub fn usage_err(message: impl Into<String>) -> CuReply {
-    help::eprint_top_level();
     usage_reply(message)
 }
 
-/// The typed usage reply for one verb; that verb's reference goes to stderr
-/// instead of the whole list.
+/// The typed usage reply for one verb. `spec` is retained at the call site so
+/// the binary can independently choose the matching human reference.
 pub fn usage_err_for(spec: &VerbSpec, message: impl Into<String>) -> CuReply {
-    eprint!("{}", help::verb_text(spec));
+    let _ = spec;
     usage_reply(message)
 }
 
@@ -84,9 +84,10 @@ fn usage_reply(message: impl Into<String>) -> CuReply {
 }
 
 pub fn help_reply(verb: Option<&str>) -> CuReply {
+    let text = help::human_help_text(verb).unwrap_or_default();
     let data = match verb {
-        Some(verb) => serde_json::json!({ "usage": "see stderr", "verb": verb }),
-        None => serde_json::json!({ "usage": "see stderr" }),
+        Some(verb) => serde_json::json!({ "usage": text, "verb": verb }),
+        None => serde_json::json!({ "usage": text }),
     };
     CuReply {
         ok: true,
