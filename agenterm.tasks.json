@@ -994,6 +994,24 @@
         "task.cu-power-status-smoke"
       ]
     },
+    "cu-clipboard-roundtrip-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-clipboard-roundtrip-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-clipboard-roundtrip-smoke"
+      ]
+    },
     "cu-device-inventory-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3431,6 +3449,27 @@
       "id": "cu-power-status-smoke",
       "description": "Prove host and boot identities are stable installation-scoped pseudonyms, observation never enrolls state and no hardware or native process identity leaks.",
       "entry": "scripts/qjs/cu-power-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-clipboard-roundtrip-smoke",
+      "description": "Prove direct UTF-8 text and one host native clipboard type round-trip through the public clipboard verbs with digest-verified read-back, bounded reads, no-overwrite --out and plan-only clear; the host clipboard is mutated only when exactly empty, then cleared back to an independently verified empty state, otherwise the court is a zero-write BLOCKED result.",
+      "entry": "scripts/qjs/cu-clipboard-roundtrip-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

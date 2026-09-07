@@ -446,6 +446,10 @@
       "evidence": ["cu.power-host-status"]
     },
     {
+      "id": "cu-clipboard-roundtrip-smoke",
+      "evidence": ["cu.clipboard-text-native-roundtrip"]
+    },
+    {
       "id": "cu-host-open-smoke",
       "evidence": ["cu.host-open.macos"]
     },

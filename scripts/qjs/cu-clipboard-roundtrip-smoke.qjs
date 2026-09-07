@@ -1,0 +1,255 @@
+// Public black-box court for the bounded native clipboard verbs: direct UTF-8
+// text and one host native type travel through clipboard-write, read back
+// as text / native bytes / type inventory (digest-checked), and the host
+// clipboard is then cleared back to the exact empty state.
+//
+// Data integrity comes first. Before any write the court reads the type
+// inventory and text; only an exactly empty clipboard is mutated. Anything
+// else is a zero-write BLOCKED result, never success. This is intentionally
+// stricter than saving one text representation: a clipboard may carry several
+// flavours with different bytes, and this API cannot atomically restore that
+// complete multi-flavour object. A host with no clipboard path also cannot
+// emit the native-roundtrip evidence.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.clipboard-text-native-roundtrip"];
+const text_type = "text/plain;charset=utf-8";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function host_kind() {
+  if (harness.host_is_windows()) { return "windows"; }
+  const uname = rh.command("uname", ["-s"], { timeout_ms: 10000 });
+  if (uname.success && uname.stdout.trim() === "Darwin") { return "macos"; }
+  return "linux";
+}
+
+// The host's own spelling of "UTF-8 text" for a one-type file write/read.
+function native_text_type_for(kind) {
+  if (kind === "macos") { return "«class utf8»"; }
+  if (kind === "windows") { return "CF_TEXT"; }
+  if (rh.env_or("DISPLAY", "") !== "") { return "UTF8_STRING"; }
+  return "text/plain;charset=utf-8";
+}
+
+function is_hex64(value) {
+  return typeof value === "string" && value.length === 64 && rh.only_chars(value, rh.HEX);
+}
+
+function list_has(list, value) {
+  if (!Array.isArray(list)) { return false; }
+  for (const item of list) { if (item === value) { return true; } }
+  return false;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_clipboard_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-clipboard-roundtrip");
+const kind = host_kind();
+const native_type = native_text_type_for(kind);
+const receipt_path = rh.join(context.run_directory, "cu-receipts.jsonl");
+
+function run(grant, verb_args) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of verb_args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: context.run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: receipt_path
+    },
+    timeout_ms: 30000
+  });
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === output.success, "cu_clipboard_reply_state:" + verb_args[0]);
+  return reply;
+}
+
+function invoke(grant, verb_args, expect_success) {
+  const reply = run(grant, verb_args);
+  ensure(reply.ok === expect_success,
+         "cu_clipboard_unexpected_outcome:" + verb_args[0] + ":" + JSON.stringify(reply.error));
+  return reply;
+}
+
+// One reply that is either the verb's success or typed `unsupported`.
+function invoke_or_unsupported(grant, verb_args) {
+  const reply = run(grant, verb_args);
+  if (reply.ok === true) { return reply; }
+  ensure(reply.error !== undefined && reply.error.code === "unsupported",
+         "cu_clipboard_unexpected_error:" + verb_args[0] + ":" + JSON.stringify(reply.error));
+  return reply;
+}
+
+function digest_of_text(name, text) {
+  const path = rh.join(context.run_directory, name);
+  rh.write_text(path, text);
+  return rh.sha256_file(path);
+}
+
+function no_receipt_written() {
+  return !rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "";
+}
+
+// The clipboard as found: text and complete flavour list. Payloads are never
+// read for a non-empty clipboard because this court refuses mutation instead.
+function snapshot() {
+  const inventory = invoke("observe", ["clipboard-read", "--metadata-only"], true);
+  ensure(inventory.data.payload_read === false && inventory.data.text === undefined
+         && inventory.data.value === undefined, "cu_clipboard_probe_payload_leak");
+  const text = invoke("observe", ["clipboard-read"], true);
+  ensure(typeof text.data.text === "string" && text.data.format === text_type, "cu_clipboard_text_shape");
+  return {
+    types: inventory.data.types,
+    types_available: inventory.data.types_available,
+    text: text.data.text,
+    bytes: text.data.bytes
+  };
+}
+
+let succeeded = 0;
+let failure = "";
+let mutated = false;
+let found = null;
+try {
+  print("STEP type inventory answers without reading a payload (" + kind + ", native type " + native_type + ")");
+  const probe = invoke_or_unsupported("observe", ["clipboard-read", "--metadata-only"]);
+  if (probe.ok !== true) {
+    print("STEP no clipboard path on this host: every verb refuses typed before any effect");
+    ensure(invoke_or_unsupported("observe", ["clipboard-read"]).ok === false, "cu_clipboard_unavailable_read");
+    ensure(invoke_or_unsupported("observe", ["clipboard-read", "--type", native_type]).ok === false,
+           "cu_clipboard_unavailable_type_read");
+    const nonce_path = rh.join(context.run_directory, "nonce.txt");
+    rh.write_text(nonce_path, "agenterm-cu clipboard court\n");
+    ensure(invoke_or_unsupported("actuate", ["clipboard-write", "--type", native_type, "--path", nonce_path]).ok === false,
+           "cu_clipboard_unavailable_write");
+    ensure(invoke_or_unsupported("actuate", ["clipboard-write", "--type", text_type, "--text", "court"]).ok === false,
+           "cu_clipboard_unavailable_text_write");
+    ensure(no_receipt_written(), "cu_clipboard_unavailable_receipt_written");
+    print("MODE typed-unavailable reason=" + probe.error.message);
+    throw "cu_clipboard_typed_unavailable";
+  } else {
+    ensure(probe.command === "clipboard-read" && probe.target === "current", "cu_clipboard_probe_identity");
+
+    print("STEP prove the clipboard is exactly empty before any write");
+    found = snapshot();
+    if (found.types_available !== true || found.types.length !== 0
+        || found.text !== "" || found.bytes !== 0) {
+      print("BLOCKED zero writes: clipboard is not exactly empty");
+      throw "cu_clipboard_blocked_nonempty";
+    }
+    print("FOUND empty clipboard");
+
+    mutated = true;
+    print("STEP direct UTF-8 text publishes with native read-back verification");
+    const nonce = "agenterm-cu clipboard court " + context.run_id + " ≠ 你好\n";
+    const nonce_digest = digest_of_text("nonce-text.txt", nonce);
+    const direct = invoke("actuate", ["clipboard-write", "--type", text_type, "--text", nonce], true);
+    ensure(direct.command === "clipboard-write" && direct.data.type === text_type, "cu_clipboard_text_write_identity");
+    ensure(direct.data.verified === true && direct.data.sha256 === nonce_digest, "cu_clipboard_text_write_verified");
+    ensure(direct.data.text === undefined, "cu_clipboard_text_write_echo");
+    const text_view = invoke("observe", ["clipboard-read"], true);
+    ensure(text_view.data.text === nonce && text_view.data.bytes === direct.data.bytes, "cu_clipboard_text_view");
+    const wrong_type = invoke("actuate", ["clipboard-write", "--type", native_type === text_type ? "STRING" : native_type,
+                                          "--text", "court"], false);
+    ensure(wrong_type.error.code === "invalid_input", "cu_clipboard_text_wrong_type:" + wrong_type.error.code);
+
+    print("STEP one native type publishes from a regular file and reads back byte-exact");
+    const native_nonce = "agenterm-cu native court " + context.run_id + "\n";
+    // CF_TEXT is a NUL-terminated byte string; the terminator is part of the
+    // payload the Windows clipboard stores and reads back.
+    const native_bytes = kind === "windows" ? native_nonce + "\u0000" : native_nonce;
+    const native_path = rh.join(context.run_directory, "nonce-native.txt");
+    rh.write_text(native_path, native_bytes);
+    const native_digest = rh.sha256_file(native_path);
+    const write = invoke("actuate", ["clipboard-write", "--type", native_type, "--path", native_path], true);
+    ensure(write.data.type === native_type && write.data.verified === true, "cu_clipboard_native_write_verified");
+    ensure(write.data.bytes === native_bytes.length && is_hex64(write.data.sha256)
+           && write.data.sha256 === native_digest, "cu_clipboard_native_write_digest");
+    const typed = invoke("observe", ["clipboard-read", "--type", native_type], true);
+    ensure(typed.data.type === native_type && typed.data.bytes === write.data.bytes
+           && typed.data.sha256 === native_digest, "cu_clipboard_native_read_digest");
+    if (typed.data.encoding === "utf8") {
+      ensure(typed.data.value === native_bytes, "cu_clipboard_native_read_value");
+    } else {
+      ensure(typed.data.encoding === "base64", "cu_clipboard_native_read_encoding");
+    }
+    const after_native = invoke("observe", ["clipboard-read"], true);
+    ensure(after_native.data.text.startsWith(native_nonce.slice(0, native_nonce.length - 1)), "cu_clipboard_native_text_view");
+    const inventory = invoke("observe", ["clipboard-read", "--metadata-only"], true);
+    ensure(inventory.data.types_available === true && list_has(inventory.data.types, native_type),
+           "cu_clipboard_inventory_after_write:" + JSON.stringify(inventory.data.types));
+
+    print("STEP the byte budget is a typed failure, and --out never overwrites silently");
+    const too_small = invoke("observe", ["clipboard-read", "--type", native_type, "--max-bytes", "1"], false);
+    ensure(too_small.error.code === "clipboard_too_large", "cu_clipboard_budget_code:" + too_small.error.code);
+    const out_path = rh.join(context.run_directory, "clipboard-out.bin");
+    const out = invoke("observe", ["clipboard-read", "--type", native_type, "--out", out_path], true);
+    ensure(out.data.out === out_path && out.data.value === undefined, "cu_clipboard_out_reply");
+    ensure(rh.sha256_file(out_path) === native_digest, "cu_clipboard_out_digest");
+    const clash = invoke("observe", ["clipboard-read", "--type", native_type, "--out", out_path], false);
+    ensure(clash.error.code === "clipboard_write_failed", "cu_clipboard_out_clash_code:" + clash.error.code);
+    ensure(invoke("observe", ["clipboard-read", "--type", native_type, "--out", out_path, "--replace"], true).data.out === out_path,
+           "cu_clipboard_out_replace");
+
+    print("STEP clipboard-clear without --apply is a plan and changes nothing");
+    const planned = invoke("actuate", ["clipboard-clear"], true);
+    ensure(planned.data.status === "planned" && planned.data.applyRequired === true, "cu_clipboard_clear_planned");
+    ensure(invoke("observe", ["clipboard-read"], true).data.text === after_native.data.text,
+           "cu_clipboard_clear_plan_had_effect");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+// Cleanup runs whenever a write happened, on success and on failure alike.
+// The only admitted initial state was empty, so clear + empty read-back is an
+// exact restoration rather than a lossy reconstruction of clipboard flavours.
+if (mutated) {
+  try {
+    print("STEP clear back to the admitted empty initial state and re-verify");
+    const cleared = invoke("actuate", ["clipboard-clear", "--apply"], true);
+    ensure(cleared.data.status === "cleared", "cu_clipboard_clear_applied");
+    const back = snapshot();
+    ensure(back.types_available === true && back.types.length === 0
+           && back.text === "" && back.bytes === 0, "cu_clipboard_restore_empty");
+    print("RESTORED empty clipboard");
+  } catch (error) {
+    if (failure === "") { failure = "" + error; } else { failure = failure + "; restore: " + error; }
+    succeeded = 0;
+  }
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.clipboard-text-native-roundtrip");
+  harness.remove_run(context);
+  print("PASS: clipboard direct-text and native-type round trip through the public verbs with the initially empty clipboard restored and re-verified");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
