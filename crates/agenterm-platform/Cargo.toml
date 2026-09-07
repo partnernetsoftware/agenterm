@@ -353,6 +353,10 @@ ipc = [
     "windows-sys/Win32_System_IO",
     "windows-sys/Win32_System_Pipes",
 ]
+# Separate from current-user `ipc`: this is the Linux system-activated,
+# root-owned privilege-broker carrier and deliberately has different peer and
+# endpoint authority rules.
+system-broker = ["dep:libc"]
 pty = [
     "process-metrics",
     "process-reference",

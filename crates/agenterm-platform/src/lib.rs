@@ -486,6 +486,14 @@ pub mod diagnostics;
 #[cfg(feature = "screenshot")]
 pub mod screenshot;
 
+/// Linux system-activated privilege-broker transport.
+///
+/// This is deliberately separate from current-user `ipc`: ordinary native IPC requires
+/// same-user peers, while this transport connects an ordinary user to one
+/// fixed root-owned service endpoint.
+#[cfg(all(feature = "system-broker", target_os = "linux"))]
+pub mod system_broker;
+
 mod selected;
 
 #[cfg(test)]
