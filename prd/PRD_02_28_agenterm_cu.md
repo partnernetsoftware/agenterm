@@ -457,7 +457,8 @@ ACU-only cutover
 │  ├─ [x] no adapter branch spawns or recommends the archived MCU runtime
 │  └─ [x] MCU implementation is read-only reference, outside supported entrypoints
 ├─ [x] dynamic TODO registry (complete corpus; no unknown fallback)
-│  ├─ acu.dynamic.003 · snapshot tree + PNG in one receipt
+│  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green,
+│  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
 │  ├─ acu.dynamic.050 · simulator application status
 │  ├─ acu.dynamic.061 · PTY tmux provider / multi-pane inventory
 │  ├─ acu.dynamic.067 · bounded linear-time PTY pattern wait

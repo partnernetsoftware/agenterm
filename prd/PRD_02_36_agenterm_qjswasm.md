@@ -46,7 +46,10 @@ agenterm-qjswasm
 │  ├─ [x] Fleet facade and public CLI route
 │  ├─ [x] qualify / pack / run / bounded check-many, including recursive imports
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
-│  ├─ [ ] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
+│  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
+│  │  ├─ [x] raw bounded door + non-shadowable qjs module + shared Command/Executor/CuReply adapter
+│  │  ├─ [ ] size-compliant default provider; static experiment adds 5,133,824 bytes to Windows PE
+│  │  ├─ [ ] MCP consumes the same adapter (current MCP surface remains separate and read-only)
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
 │  │  ├─ `acu.qjs` is only a temporary Bun-free legacy-syntax adapter
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism
@@ -109,6 +112,8 @@ flowchart LR
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
   ACUOBJ["agenterm:acu embedder object<br/>shared schema · Executor · failures · receipts"]
+  ACUSIZE{"default provider<br/>Windows PE ≤ 4 MiB?"}
+  ACUEXP["delivery experiment<br/>dynamic / resident IPC / static split"]
   TS["temporary acu.ts<br/>legacy argv + binary discovery only"]
   ABSENT{"zero STAY + MCU absent<br/>black-box parity"}
   COMPAT["temporary acu.qjs<br/>legacy mapping only · no Bun"]
@@ -144,7 +149,9 @@ flowchart LR
   MANY -. bytes · modules · deadline .-> COMP
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
-  DOOR --> ACUOBJ --> ACUCLI --> RECEIPT
+  DOOR --> ACUOBJ --> ACUSIZE
+  ACUSIZE -->|green| ACUCLI --> RECEIPT
+  ACUSIZE -->|red| ACUEXP --> ACUSIZE
   TS --> ABSENT
   ACUOBJ --> ABSENT
   ABSENT --> COMPAT

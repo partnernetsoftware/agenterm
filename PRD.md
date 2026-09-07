@@ -137,8 +137,9 @@ AgenTerm — local agent & process fleet work OS
 │     ├─ transition             `acu.ts` 只做旧 argv 映射、binary 发现与 stdio/exit 转发
 │     │                       2026-09-07 起立即 ACU-only：未实现形状返回 `acu_todo` ALERT，
 │     │                       旧 MCU 仅作归档参考且永不运行时回退；完整 TODO 树归口 PRD 28
-│     ├─ convergence            qjswasm embedder 提供 `agenterm:acu` 对象（qjs 中为 `acu`）
-│     │                       CLI / MCP / qjs 共用 typed schema、Executor、error 与 receipt
+│     ├─ convergence            `agenterm:acu` typed door 与同一 Executor adapter 已落地；
+│     │                       静态 provider 因 Windows PE 3.73→8.87 MiB 未进默认构建，
+│     │                       正以尺寸判决实验选择 provider 边界；MCP 接线仍待完成
 │     ├─ Bun-free bridge         先切断 MCU runtime；过渡 `acu.ts` 的 Bun 尾账随后由
 │     │                       `agenterm:acu` + `acu.qjs` 接替，它只保留旧语法兼容
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
@@ -154,6 +155,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       macOS owned fixture 已绿，Linux/Windows 同一 court 待跑
 │     │                       query watch 已成为同一有界过滤器上的 poll-diff：缺样本不冒充 absent，
 │     │                       前景变化与 until 超时都 typed fail；三平台公开 court 已注册
+│     │                       snapshot --shot 已用同一 snapshot id 成对发布 tree+PNG；
+│     │                       单测/兼容壳已绿，三平台原生截图 court 仍待补齐
 │     │                       query 第一批无 ABI 筛选已落：action/depth/五类三态；unknown 不冒充
 │     │                       false，inspect/find/read/tree/elements 的假等价已从过渡层撤回
 │     │                       immediate-cutover 复测 76 个后续债：1 capability / 15 evidence /
@@ -264,6 +267,8 @@ flowchart LR
   CU["agenterm-cu<br/>typed machine control · agenterm:acu"]
   ACTS["temporary acu.ts<br/>argv mapping · binary discovery<br/>no product effects"]
   ACUOBJ["agenterm:acu object<br/>one schema · Executor · receipts"]
+  ACUSIZE{"default provider<br/>Windows PE ≤ 4 MiB?"}
+  ACUEXP["provider experiment<br/>dynamic / resident IPC / static split"]
   ACUQJS["temporary acu.qjs<br/>Bun-free legacy mapping"]
   TODO["acu_todo ALERT<br/>stable gap id · explicit missing behavior"]
   MCUARC["archived MCU source<br/>read-only implementation reference"]
@@ -293,7 +298,9 @@ flowchart LR
   REFRESH & ACUOBJ & EVIDENCE --> RETIRE{"final qualification<br/>native courts · six-cell · Bun absent"}
   RETIRE -->|red| CU
   RETIRE -->|green| RELEASE
-  ACUOBJ -->|typed calls| ACUQJS --> EVIDENCE
+  ACUOBJ --> ACUSIZE
+  ACUSIZE -->|green| ACUQJS --> EVIDENCE
+  ACUSIZE -->|red| ACUEXP --> ACUSIZE
   ROAD -. assigns bounded versions .-> CU & CC & RELEASE
 ```
 

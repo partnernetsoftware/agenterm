@@ -70,7 +70,8 @@ ACU replaces MCU
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
-│  ├─ phase 2: embedder-provided `agenterm:acu` object (qjs `acu`) shares schema/Executor/errors with CLI and MCP
+│  ├─ phase 2 [~]: bounded `agenterm:acu` door + shared Executor adapter are green; default provider and MCP remain
+│  │  └─ static provider is rejected for delivery: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  ├─ phase 3: after object parity + TODO-aware MCU-absent court, `acu.qjs` removes Bun while retaining only compatibility mapping
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
@@ -88,7 +89,7 @@ ACU replaces MCU
    ├─ [x] no production fallback executes MCU
    ├─ [~] Bun remains only in the temporary argv adapter
    ├─ [~] every known stay is an explicit TODO, repaired dynamically
-   └─ [ ] qjswasm object + acu.qjs remove the final Bun adapter
+   └─ [~] qjswasm object door exists; size-compliant provider + MCP + acu.qjs must remove final Bun adapter
 ```
 
 ## Mermaid flowchart memory palace
@@ -110,7 +111,9 @@ flowchart LR
   I --> Q
   P --> Q
   Q --> AO["agenterm:acu embedder object<br/>one schema + Executor + failures"]
-  AO --> AQ["temporary acu.qjs compatibility shell<br/>no Bun · no duplicated mechanism"]
+  AO --> SZ{"default provider<br/>Windows PE ≤ 4 MiB?"}
+  SZ -->|green| AQ["temporary acu.qjs compatibility shell<br/>no Bun · no duplicated mechanism"]
+  SZ -->|red| PX["provider delivery experiment"] --> SZ
   SET --> PS["permissions status + open-next live<br/>real status · exact pane · never consent"]
   PS --> Q
   SET --> HO["host open + notification live<br/>shell-free · acceptance ≠ verification"]
