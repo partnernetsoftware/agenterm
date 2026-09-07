@@ -135,13 +135,15 @@ AgenTerm — local agent & process fleet work OS
 ├─ agenterm-cu（computer-use 子树 · partial；六格 execute-only Candidate court 已接线、待首跑）
 │  └─ 28 agenterm-cu            自有 computer-use 底座：定义、边界、不变量、晋升门
 │     ├─ transition             `acu.ts` 只做旧 argv 映射、binary 发现与 stdio/exit 转发
-│     │                       每个 `STAY` 都是待消除的下架阻塞，不得在 TypeScript 里新增 effect
+│     │                       2026-09-07 起立即 ACU-only：未实现形状返回 `acu_todo` ALERT，
+│     │                       旧 MCU 仅作归档参考且永不运行时回退；完整 TODO 树归口 PRD 28
 │     ├─ convergence            qjswasm embedder 提供 `agenterm:acu` 对象（qjs 中为 `acu`）
 │     │                       CLI / MCP / qjs 共用 typed schema、Executor、error 与 receipt
-│     ├─ Bun-free bridge         `agenterm:acu` 先可用；零 `STAY` + MCU-absent 门绿后，
-│     │                       才用 `acu.qjs` 接替过渡薄壳；它只保留旧语法兼容
+│     ├─ Bun-free bridge         先切断 MCU runtime；过渡 `acu.ts` 的 Bun 尾账随后由
+│     │                       `agenterm:acu` + `acu.qjs` 接替，它只保留旧语法兼容
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
-│     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
+│     ├─ retirement             MCU 立即退出生产入口；TODO 动态补 ACU。调用者迁到 typed
+│     │                       `acu` 对象后，过渡 `acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 135 叶：
 │     │                       native 35 / delegated 31 / platform-limited 63 / gap 1 / retired 5
 │     │                       平台资格用 schema-2 三主机矩阵；每格必须绑定完整 evidence-token 集，
@@ -154,8 +156,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       前景变化与 until 超时都 typed fail；三平台公开 court 已注册
 │     │                       query 第一批无 ABI 筛选已落：action/depth/五类三态；unknown 不冒充
 │     │                       false，inspect/find/read/tree/elements 的假等价已从过渡层撤回
-│     │                       retirement court 当前 80 阻塞：1 capability / 15 evidence /
-│     │                       63 platform qualification / 1 adapter；先清假等价再扩能力
+│     │                       immediate-cutover 复测 76 个后续债：1 capability / 15 evidence /
+│     │                       60 platform qualification；adapter blocker 已清零，两项 schema
+│     │                       quick-win 已集成；TODO 不冒充成功、也不再授权 MCU 回退
 │     │                       browser profile 全量 tabs 只认 MV3 bridge；AX tab-strip 不得冒充
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
 │     │                       doctor desktop baseline、system readiness 与 capability counts 已有
@@ -262,6 +265,8 @@ flowchart LR
   ACTS["temporary acu.ts<br/>argv mapping · binary discovery<br/>no product effects"]
   ACUOBJ["agenterm:acu object<br/>one schema · Executor · receipts"]
   ACUQJS["temporary acu.qjs<br/>Bun-free legacy mapping"]
+  TODO["acu_todo ALERT<br/>stable gap id · explicit missing behavior"]
+  MCUARC["archived MCU source<br/>read-only implementation reference"]
   BRIDGE["stable MV3 profile<br/>exact-tab lock · unique reconnect"]
   REFRESH["owner-preserving refresh<br/>stable admission fence · no daemon restart"]
   PLATFORM["agenterm-platform<br/>Win · macOS · Linux mechanisms"]
@@ -272,16 +277,22 @@ flowchart LR
 
   U --> TERM --> FLEET --> CLI
   PLATFORM --> TERM & CU
-  ACTS -. shrink every STAY .-> CU
+  ACTS -->|lossless shape| CU
+  ACTS -->|missing shape| TODO
+  TODO -->|implementation reference only| MCUARC
+  MCUARC -. never execute .-> TODO
   CU --> REFRESH
   CU --> BRIDGE --> EVIDENCE
   FLEET --> SCRIPT & CU & CC
   SCRIPT --> CU & CC
   CU & SCRIPT --> ACUOBJ
   TERM & CLI & SCRIPT & CU --> EVIDENCE --> RELEASE
-  REFRESH & ACTS & ACUOBJ --> RETIRE{"retirement court<br/>zero gap · native courts · six-cell<br/>typed object · MCU absent"}
+  ACTS & TODO --> CUTOVER{"immediate cutover<br/>complete TODO catalog · MCU runtime absent"}
+  CUTOVER -->|red| ACTS
+  CUTOVER -->|green| ACUQJS
+  REFRESH & ACUOBJ & EVIDENCE --> RETIRE{"final qualification<br/>native courts · six-cell · Bun absent"}
   RETIRE -->|red| CU
-  RETIRE -->|green| ACUQJS
+  RETIRE -->|green| RELEASE
   ACUOBJ -->|typed calls| ACUQJS --> EVIDENCE
   ROAD -. assigns bounded versions .-> CU & CC & RELEASE
 ```

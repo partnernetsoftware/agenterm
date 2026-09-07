@@ -91,9 +91,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 - [x] `agenterm-cu` is the only product executable. CLI and desktop-host modes
   share that binary; an executable named `cu` is not a compatibility surface.
 - [~] The temporary `skills/mcu/acu.ts` adapter owns only lossless legacy argv
-  projection and ACU binary discovery. It must first shrink every useful MCU
-  shape out of `STAY`, then be rewritten as `acu.qjs` so daily compatibility
-  no longer requires Bun. That is an intermediate shell, not a second product
+  projection, ACU binary discovery, and explicit `acu_todo` publication. Since
+  the immediate cutover, no `STAY` executes MCU: useful missing shapes remain
+  named TODOs while the adapter is rewritten as `acu.qjs` so daily
+  compatibility no longer requires Bun. That is an intermediate shell, not a second product
   implementation: no native mechanism, authority policy or postcondition may
   be copied from the Rust owner into qjswasm. The converged API is an
   embedder-provided `agenterm:acu` object (exposed to qjs as `acu`) whose qjs
@@ -103,15 +104,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   ```text
   compatibility-shell lifecycle
-  ├─ now: acu.ts = legacy argv projection + ACU binary discovery
+  ├─ now: acu.ts = legacy argv projection + ACU binary discovery + TODO publication
   │  ├─ no product mechanism
   │  ├─ no independent authority or postcondition
-  │  └─ every STAY is a measured retirement blocker
+  │  └─ every unresolved known shape is `acu_todo`; MCU fallback is disabled
   ├─ convergence owner: agenterm:acu = stable typed embedder object
   │  ├─ implemented before the compatibility-shell switch
   │  ├─ one schema / Executor / error vocabulary / receipt contract
   │  └─ consumed directly by CLI, MCP and qjswasm
-  ├─ after object parity + zero-STAY + MCU-absent courts: acu.qjs = Bun-free syntax adapter
+  ├─ after object parity + TODO-aware MCU-absent courts: acu.qjs = Bun-free syntax adapter
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
   └─ acu.qjs retires when legacy MCU syntax has no retained callers
@@ -142,7 +143,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     TS["acu.ts today<br/>argv projection · binary discovery"]
     OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
     OBJ["agenterm:acu<br/>embedder object library"]
-    GATE{"typed-object parity · zero STAY<br/>MCU-absent black box"}
+    GATE{"typed-object parity · TODO-aware<br/>MCU-absent black box"}
     QJS["acu.qjs transition<br/>Bun-free legacy mapping"]
     USERS["typed consumers<br/>CLI · MCP · qjs"]
     LEGACY["legacy callers<br/>temporary only"]
@@ -437,6 +438,67 @@ binary without its matching dylib is inert.
   returns a real AX tree, `windows` returns real window handles, and
   `screenshot --window <handle>` produces a real PNG. This proves the four
   capabilities are live at head and isolates the failure to distribution + TCC.
+
+## Immediate ACU-only cutover and archived-MCU repair loop
+
+The 2026-09-07 product ruling changes retirement sequencing, not evidence
+honesty. Runtime callers switch to ACU immediately; they no longer wait for
+every compatibility leaf to ship. A shape ACU cannot yet express must fail
+with one machine-readable `acu_todo` ALERT containing its stable `gap_id`.
+Legacy MCU may be read from the archive to implement that gap, but must never
+be executed as fallback. Closing a TODO still requires its owning public
+qjswasm court and applicable native qualifications.
+
+```text
+ACU-only cutover
+├─ [x] execution switch
+│  ├─ [x] `mcu` compatibility command enters the ACU adapter only
+│  ├─ [x] every unresolved shape returns `acu_todo` + ALERT + stable gap id
+│  ├─ [x] no adapter branch spawns or recommends the archived MCU runtime
+│  └─ [x] MCU implementation is read-only reference, outside supported entrypoints
+├─ [x] dynamic TODO registry (complete corpus; no unknown fallback)
+│  ├─ acu.dynamic.003 · snapshot tree + PNG in one receipt
+│  ├─ acu.dynamic.050 · simulator application status
+│  ├─ acu.dynamic.061 · PTY tmux provider / multi-pane inventory
+│  ├─ acu.dynamic.067 · bounded linear-time PTY pattern wait
+│  ├─ acu.dynamic.072 · application inspection / signing facts
+│  ├─ acu.dynamic.074 · window-local scroll without physical-pointer movement
+│  ├─ acu.dynamic.075 · browser tabs selected by profile/application
+│  ├─ acu.dynamic.076 · multi-window `inspect --app`
+│  ├─ acu.dynamic.077 · missing lossless query predicates such as subrole
+│  ├─ acu.dynamic.078 · nested/value-bounded tree compatibility shapes
+│  ├─ acu.dynamic.084 · windows-watch filters evaluated inside the poll
+│  ├─ acu.dynamic.086 · app-global menu inspection without ambiguous window choice
+│  ├─ acu.dynamic.087 · app-global menu invocation without ambiguous window choice
+│  └─ acu.dynamic.095 · window-local background hover without moving the real cursor
+├─ [ ] native/product TODO registry
+│  ├─ capability truth and platform status → `plan/acu-mcu-capability-ledger.json`
+│  ├─ one current true gap → `process.signal.privileged`
+│  ├─ implemented but unregistered evidence remains ALERT debt, never a fallback
+│  └─ platform-limited cells remain typed and visible until their native court closes
+└─ [ ] final retirement evidence
+   ├─ MCU source absent from production entrypoints
+   ├─ Bun absent from production ACU execution
+   ├─ dynamic corpus returns only ACU execution, typed retirement or `acu_todo`
+   └─ six-cell Candidate consumes ACU + matching `libagenterm` bytes
+```
+
+```mermaid
+flowchart LR
+  CALL["legacy-shaped call"] --> MAP{"ACU lossless mapping exists?"}
+  MAP -->|yes| ACU["typed agenterm-cu execution"]
+  MAP -->|no| TODO["ALERT + acu_todo<br/>stable gap_id · no fallback"]
+  TODO --> REF["read archived MCU reference"]
+  REF --> IMPL["implement typed ACU leaf"]
+  IMPL --> COURT["public qjswasm court<br/>native cells + safe failure"]
+  COURT --> CLOSE["remove TODO id"]
+  CLOSE --> ACU
+  TODO -. forbidden .-> DEAD["execute archived MCU"]
+```
+
+The TODO registry is deliberately an executable debt interface, not a claim
+that missing behavior works. Unknown shapes still fail as ordinary usage;
+known legacy shapes fail as `acu_todo`. Neither result is green evidence.
 
 ## Product outcome
 

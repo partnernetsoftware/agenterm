@@ -2,6 +2,13 @@
 
 Status: **active**
 
+Execution ruling (2026-09-07): **MCU runtime is retired immediately.** The
+compatibility spelling enters ACU only. Missing legacy shapes are not blockers
+for the switch and never trigger fallback; each returns a stable,
+machine-readable `acu_todo` ALERT and is repaired dynamically from the
+read-only archived implementation. Evidence remains mandatory before a TODO is
+closed or a capability is claimed available.
+
 Product owners: [`prd/PRD_02_28_agenterm_cu.md`](../prd/PRD_02_28_agenterm_cu.md) and
 [`prd/PRD_02_36_agenterm_qjswasm.md`](../prd/PRD_02_36_agenterm_qjswasm.md)
 
@@ -15,10 +22,10 @@ unclassified public shapes. This closes accounting, not implementation: every
 
 ## Product outcome
 
-`agenterm-cu` becomes the one installed machine/computer-use entry for agents.
-It replaces the user-visible MCU/Bun runtime while reusing the correct owning
-mechanism behind typed facades. MCU remains only a temporary compatibility
-adapter and an experiment incubator until its retirement gates pass.
+`agenterm-cu` is the one installed machine/computer-use implementation for
+agents. The old MCU runtime is no longer a fallback. Its source is retained
+only as a read-only design reference while ACU dynamically closes explicit
+TODOs behind typed facades.
 
 Replacement means **all useful workflows remain reachable without MCU**, not
 that every MCU TypeScript module is translated into Rust. A capability may be
@@ -30,6 +37,11 @@ identity, deadline, cleanup and evidence contract belong to ACU.
 
 ```text
 ACU replaces MCU
+├─ immediate runtime cutover
+│  ├─ `mcu` is a compatibility spelling that enters ACU only
+│  ├─ unresolved known shape → `ALERT` + `acu_todo` + stable gap id
+│  ├─ unknown shape → typed usage error
+│  └─ archived MCU source may be read but never executed as fallback
 ├─ capability accounting
 │  ├─ every MCU public verb and sub-verb has one stable capability id
 │  ├─ state = native | delegated | gap | platform-limited | retired
@@ -59,7 +71,7 @@ ACU replaces MCU
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
 │  ├─ phase 2: embedder-provided `agenterm:acu` object (qjs `acu`) shares schema/Executor/errors with CLI and MCP
-│  ├─ phase 3: after object parity + zero STAY, `acu.qjs` removes Bun while retaining only compatibility mapping
+│  ├─ phase 3: after object parity + TODO-aware MCU-absent court, `acu.qjs` removes Bun while retaining only compatibility mapping
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency
@@ -72,10 +84,11 @@ ACU replaces MCU
 │  ├─ MCU workflow parity corpus run against ACU
 │  └─ comparative court: structure, background control, success and recovery
 └─ retirement
-   ├─ default docs and PATH resolve to agenterm-cu
-   ├─ no production workflow imports skills/mcu or requires Bun
-   ├─ acu.ts compatibility telemetry has zero unexplained stays
-   └─ MCU removal rehearsal leaves all declared gates green
+   ├─ [x] default compatibility command resolves to ACU
+   ├─ [x] no production fallback executes MCU
+   ├─ [~] Bun remains only in the temporary argv adapter
+   ├─ [~] every known stay is an explicit TODO, repaired dynamically
+   └─ [ ] qjswasm object + acu.qjs remove the final Bun adapter
 ```
 
 ## Mermaid flowchart memory palace
@@ -87,6 +100,7 @@ flowchart LR
   M --> RUN["service/runtime/session/audit ✓"] & SET["setup/doctor/permissions ✓"] & POW["power ✓"] & PRIV["privilege ✓"] & SIM["Simulator ✓"]
   DESK & PROC & BROW & PTY & FILE & NET & RES & DEV & RUN & SET & POW & PRIV & SIM --> L["13-family machine-readable ledger<br/>R0 accounting complete"]
   L --> C{"capability state"}
+  L --> SW["immediate ACU-only switch<br/>MCU runtime archived"]
   C -->|native| CU["agenterm-cu mechanism"]
   C -->|delegated| F["typed owning facade"]
   C -->|gap| I["implementation slice"]
@@ -122,11 +136,11 @@ flowchart LR
   SIG --> Q
   Q --> H["three-host native court"]
   H --> S["six-cell sealed execution"]
-  S --> D{"all replacement gates?"}
-  D -->|no| L
-  D -->|yes| R["switch default entry"]
-  R --> X["MCU compatibility-only"]
-  X --> Z["removal rehearsal"]
+  S --> D{"all final qualification gates?"}
+  D -->|no| TODO["ALERT + acu_todo<br/>dynamic repair queue"]
+  TODO --> REF["read archived MCU source<br/>never execute"] --> I
+  D -->|yes| Z["remove Bun argv adapter"]
+  SW --> Q
   L --> RT["retirement critical path<br/>runtime spine → jobs → transactions"]
   RT --> D
 ```
@@ -145,11 +159,12 @@ flowchart LR
 temporary `gap`, a proved `platform-limited` cell, or a reviewed `retired`
 behavior. A group or verb appearing in `capabilities` does not make it shipped.
 
-## Current retirement frontier (2026-09-05)
+## Current retirement frontier (2026-09-07)
 
-The active cut is deliberately narrow: clear every unexplained compatibility
-`STAY`, then pass the MCU-absence court. General qjswasm optimization and new
-product branches do not pre-empt these blockers.
+Runtime retirement is complete: supported `mcu` and `acu` entrypoints both
+execute ACU, and the adapter reports `mcu_required=false` with fallback disabled.
+The remaining frontier is dynamic TODO closure plus removal of the temporary
+Bun argv adapter; missing behavior is visible debt, not authority to revive MCU.
 
 The compatibility migration has three explicit phases. Today `acu.ts` may
 only perform lossless legacy argv projection and binary discovery; it cannot

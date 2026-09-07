@@ -924,7 +924,26 @@
           "acu_shape": "storage-devices --max N (alias: storage devices --max N) through a bounded privacy-minimized native provider",
           "state": "platform-limited",
           "platforms": {"macos": "live-qjswasm-journey", "linux": "live-qjswasm-journey-aarch64", "windows": "live-qjswasm-journey-aarch64"},
-          "qualification": "macos-linux-aarch64-windows-aarch64-live-linux-x86-windows-x86-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-storage-devices-smoke",
+                "evidence": ["cu.storage-devices"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-storage-devices-smoke",
+                "evidence": ["cu.storage-devices"]
+              },
+              "windows": {
+                "result": "native-qualified",
+                "gate": "cu-storage-devices-smoke",
+                "evidence": ["cu.storage-devices"]
+              }
+            }
+          },
           "evidence": ["cu.storage-devices"],
           "next": "run cu.storage-devices on native Linux x86_64 and Windows x86_64 courts; keep the remaining storage mutation and volume shapes as explicit dynamic fallbacks",
           "note": "The platform facade uses fixed system providers, one shared deadline, contained process-tree cleanup, a 10000-row scan ceiling and a 2 MiB provider-output ceiling. ACU adds a 1 MiB response ceiling, exact decimal capacity strings and explicit unavailable fields. It never requests or emits serial, WWN or Windows UniqueId. macOS native qjswasm evidence is green. Exact source 76f85249 also passed the same public qjswasm journey on a native Linux aarch64 Lima/VZ court with source, bundle and guest artifact digests matched; unavailable UTM launch infrastructure is not product evidence. Exact source 00d22433 passed on a Windows aarch64 UTM court after a ten-file guest manifest match and was then reverted and stopped. Linux x86_64 and Windows x86_64 remain open. The exact storage devices compatibility shape now routes to ACU, while volume_space and storage mutations remain separate shapes."
@@ -1056,7 +1075,26 @@
           "mcu_shape": "network probe HOST --port N --attempts N --timeout-ms N with DNS and TCP latency evidence",
           "acu_shape": "agenterm-cu network-probe HOST --port N --attempts N --timeout-ms N (alias: network probe)",
           "state": "platform-limited",
-          "qualification": "macos-linux-dual-isa-windows-x86_64-live-windows-arm64-rerun-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-network-probe-smoke",
+                "evidence": ["cu.network-probe"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-network-probe-smoke",
+                "evidence": ["cu.network-probe"]
+              },
+              "windows": {
+                "result": "native-qualified",
+                "gate": "cu-network-probe-smoke",
+                "evidence": ["cu.network-probe"]
+              }
+            }
+          },
           "evidence": ["cu.network-probe"],
           "next": "restore the existing 2 MiB Windows release-size court without raising it; retain the Windows arm64 UTM/QGA pre-execution transport gap separately, then promote to native",
           "note": "Implemented behind an invocation-owned internal helper because Windows and glibc native resolver cancellation cannot prove completed cancellation. Resolution is once/deduplicated/frozen; TCP refusal and timeout are successful unreachable observations. The same public loopback journey is green on macOS arm64, Linux arm64 plus x86_64, and Windows x86_64; all six cells compile. Windows arm64 did not start because its UTM/QGA transfer lost progress. The active qjswasm/tinyvm host surface still has no generic DNS/TCP APIs."
