@@ -206,7 +206,7 @@ else
   GUEST_ROOT="$GUEST_BASE\\agenterm-$RUN_ID"
   GUEST_LOG="$GUEST_BASE\\agenterm-$RUN_ID.log"
   GUEST_EXIT="$GUEST_BASE\\agenterm-$RUN_ID.exit"
-  AGENT_ROOT="$($UTM_COURT_CLI windows-agent-root)"
+  AGENT_ROOT="$($COURT_CLI windows-agent-root)"
   JOB="$AGENT_ROOT\\job.pending.ps1"
   READY="$AGENT_ROOT\\job.ready"
   echo "UTM court phase: payload-transfer"

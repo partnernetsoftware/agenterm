@@ -1517,9 +1517,10 @@ flowchart LR
   `SystemRoot/System32` instead of relying on an interactive-shell PATH. The
   rerun exposed that the session worker synchronously ran test jobs and could
   therefore starve its own readiness nonce after a restored or interrupted
-  court. `utm-court` e248f8c moves readiness into a separate responder and a
+  court. `utm-court` fd7a274 moves readiness into a separate responder and a
   versioned protocol root, refuses source drift instead of overwriting a locked
-  PowerShell script, and exposes `windows-agent-root` so product runners do not
+  PowerShell script, resolves the QGA launcher by its absolute inbox path, and
+  exposes `windows-agent-root` so product runners do not
   hard-code that generation. A 120-second blocking-job injection still returned
   a valid interactive nonce. The exact product journey remains pending until it
   is rerun through this repaired provider; infrastructure evidence is not

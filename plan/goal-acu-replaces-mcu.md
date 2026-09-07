@@ -999,9 +999,10 @@ ACU command.
 The first schema-v2 qualification conversion now has live macOS and Linux
 x86_64 receipts for exact process signals and live macOS/Linux/Windows ARM64
 receipts for the read-only privilege plan. Windows signal remains a named
-interactive-session-agent rerun, not a product pass: `utm-court` e248f8c now
+interactive-session-agent rerun, not a product pass: `utm-court` fd7a274 now
 separates nonce service from a blocked test worker, seals a versioned Windows
-agent source, and lets this runner discover the protocol root. A 120-second
+agent source, resolves the launcher outside interactive-user `PATH`, and lets
+this runner discover the protocol root. A 120-second
 blocking-job injection proved readiness stays live. Court payloads use
 `release-fast`: the x86 debug bundle was 74 MiB and timed out before execution,
 while the optimized test body transferred and ran. The next court efficiency
