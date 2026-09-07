@@ -74,10 +74,12 @@ ACU replaces MCU
 │  │  MCP read-only capabilities uses the same adapter; six-cell dynamic-load court is wired and
 │  │  locally green, with first exact-SHA remote execution and broader MCP still pending
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
-│  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
+│  │  ├─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
+│  │  └─ [~] standalone `agenterm-cu` thin-launcher experiment: preserve every entry mode while
+│  │     recovering Linux 4 MiB / Windows 2 MiB courts; no capability pruning or budget increase
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
-│  │  all 5 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
+│  │  all 3 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
 │  │  `.084` Space filtering executes natively while its remaining filter shapes keep that typed TODO;
 │  │  all 30 resolved witnesses have a checked disposition (17 exec · 8 compound · 5 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
@@ -898,11 +900,12 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
-At source `6c7f5194`, the public report measures 80 blockers: one capability
-gap, 15 available leaves without registered evidence, 63 incomplete schema-2
-platform qualifications, and the compatibility adapter still requiring MCU.
-The count is a fail-closed work queue, not a claim that 80 native mechanisms
-are missing. Query parity review also exposed silent semantic differences in
+At source `9837cf81`, the public report measures 76 blockers: one capability
+gap, 18 available leaves without registered evidence, and 57 incomplete
+schema-2 platform qualifications. The compatibility adapter is Bun-free,
+complete over its frozen corpus and does not require MCU. The count is a
+fail-closed work queue, not a claim that 76 native mechanisms are missing.
+Query parity review also exposed silent semantic differences in
 defaults, geometry and legacy alias results; correcting those differences now
 precedes adding more flags. Browser profile-wide tabs are separately frozen to
 the MV3 bridge: a one-window AX tab strip is never an acceptable fallback.

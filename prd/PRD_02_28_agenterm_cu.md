@@ -1562,13 +1562,18 @@ flowchart LR
   `privilege_consent_canceled`, and the target remained live. A separately
   approved request returned `completed + verified`, terminated its exact
   root-owned fixture, and replay returned the identical immutable receipt in
-  0.13 seconds without repeating the effect. Counter-backed finalized/unknown/
-  conflict cases, lost reply, concurrent duplicate suppression, client-death
-  cancellation and the aarch64 court remain unproved; therefore the capability
-  is still `[~]` and not shipped. The current Linux release artifacts are also
-  over the governing `agenterm-cu` size budget after linking the polkit
-  transport, so qualification
-  cannot raise that budget or promote these bytes. The decisive experiment and
+  0.13 seconds without repeating the effect. Broker-owned counters now prove
+  finalized replay and request conflict add neither consent nor effect, and a
+  two-connection race proves exactly one consent/effect plus one finalized
+  replay. Retained-unknown, deny/no-agent, caller-death cancellation, installed
+  rejection/upgrade cuts, the aarch64 court and the 20-run latency court remain
+  unproved; therefore the capability is still `[~]` and not shipped. At source
+  `9837cf81`, the current Linux x86_64 stripped release measured 10,188,952
+  bytes against the unchanged 4,194,304-byte `agenterm-cu` court. Attribution
+  shows that pruning the polkit transport alone cannot recover the budget, so
+  qualification cannot raise that budget or promote these bytes. The
+  fixed-sibling thin-launcher decision is frozen in
+  `plan/design-acu-thin-launcher-experiment.md`; the broker experiment and
   exact result ledger live in `plan/design-linux-privilege-broker-experiment.md`
   and `research/linux-privilege-broker/RESULTS.md`.
 
@@ -1649,9 +1654,11 @@ flowchart LR
   pre-stopped members remain stopped on failed TERM. Fixture courts prove the
   one-attempt gate and recoverable tree core without claiming elevation. This
   fixed Linux broker now reaches that effect core, but the capability gap stays
-  open until its approve/replay/race/client-death cases, both Linux ISAs and the
-  release-size court are green. macOS and Windows still require their own
-  protected native provider transports; a Linux result cannot qualify them.
+  open until its remaining caller-death/failure cases, both Linux ISAs and the
+  release-size court are green. macOS already has a launchd + Authorization
+  Services protected transport, but still lacks broker-owned metrics and a
+  signed/notarized/root-installed live apply court. Windows still lacks its
+  protected provider transport. A result from one OS cannot qualify another.
 
 - [~] The non-privileged exact-object signal court is live on macOS and Linux
   x86_64 for the same source line. Its Windows ARM64 run exposed and fixed two
