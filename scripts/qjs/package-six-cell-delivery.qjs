@@ -18,7 +18,7 @@ const cells = [
 
 function artifact_leaf(profile) {
   if (profile === "dev") { return "debug"; }
-  return "release";
+  return profile;
 }
 
 function read_version(repo) {

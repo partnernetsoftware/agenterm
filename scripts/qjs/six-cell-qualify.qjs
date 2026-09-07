@@ -20,10 +20,8 @@
 import * as rh from "lib/rh_compat";
 
 function artifact_dir(repo, target, profile) {
-  let leaf = "debug";
-  if (profile === "release" || profile === "release-fast") {
-    leaf = "release";
-  }
+  let leaf = profile;
+  if (profile === "dev") { leaf = "debug"; }
   return rh.join(rh.join(rh.join(repo, "target"), target), leaf);
 }
 
