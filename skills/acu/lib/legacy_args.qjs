@@ -1,0 +1,227 @@
+// Pure legacy ACU argument parsing and global-prefix normalization.
+//
+// This module deliberately has no host calls. It only maps an explicit array
+// of strings to JSON-compatible arrays, objects, strings, booleans and null.
+
+export const BOOL_FLAGS = [
+  "json", "all", "focused", "shot", "check", "bg", "new", "raw",
+  "running", "force", "help", "from-zoom", "enter", "dclick", "sound",
+  "actionable", "files", "ports", "consume", "meta", "ax-meta", "private",
+  "advance", "values", "executable", "onscreen", "minimized", "occluded",
+  "tree", "apply", "replace", "allow-foreground", "sudo", "broker",
+  "start-suspended", "frozen"
+];
+
+const GLOBAL_VALUE_FLAGS = [
+  "target", "ssh", "ssh-port", "ssh-identity", "ssh-cu", "ssh-env",
+  "vnc", "vnc-port", "vnc-cu", "vnc-env", "rdp",
+  "grant", "grant-id", "grant-store", "request-id", "session", "session-lease"
+];
+const REPEATABLE_GLOBAL_FLAGS = ["ssh-env", "vnc-env"];
+
+function fail(code, detail) {
+  throw code + (detail === "" ? "" : ":" + detail);
+}
+
+function copyArgv(argv) {
+  if (!Array.isArray(argv)) { fail("acu_legacy_argv_not_array", ""); }
+  const out = [];
+  for (let i = 0; i < argv.length; i = i + 1) {
+    if (typeof argv[i] !== "string") {
+      fail("acu_legacy_argv_value", "index=" + i);
+    }
+    out.push(argv[i]);
+  }
+  return out;
+}
+
+function contains(values, wanted) {
+  for (let i = 0; i < values.length; i = i + 1) {
+    if (values[i] === wanted) { return true; }
+  }
+  return false;
+}
+
+function boolWord(value) {
+  if (typeof value !== "string") { return false; }
+  const lower = value.toLowerCase();
+  return lower === "true" || lower === "false" || lower === "0"
+    || lower === "1" || lower === "yes" || lower === "no"
+    || lower === "on" || lower === "off";
+}
+
+export function flagIsFalse(value) {
+  if (value === false) { return true; }
+  if (typeof value !== "string") { return false; }
+  const lower = value.toLowerCase();
+  return lower === "false" || lower === "0" || lower === "no" || lower === "off";
+}
+
+export function flagTruthy(value) {
+  if (value === undefined || value === false) { return false; }
+  if (value === true) { return true; }
+  if (typeof value === "string") {
+    const lower = value.toLowerCase();
+    if (lower === "false" || lower === "0" || lower === "no" || lower === "off") {
+      return false;
+    }
+    if (lower === "true" || lower === "1" || lower === "yes" || lower === "on") {
+      return true;
+    }
+    return value !== "";
+  }
+  return !!value;
+}
+
+// Compatibility projection of skills/acu/shared/cli-args.ts. `separator` and
+// `trailing` retain information that the old adapter did not expose, so a
+// caller that rewrites argv can preserve a literal `--` and every token after
+// it without trimming or reparsing text.
+export function parseArgs(argv) {
+  const input = copyArgv(argv);
+  const positionals = [];
+  const flags = {};
+  const trailing = [];
+  let separator = false;
+  for (let i = 0; i < input.length; i = i + 1) {
+    const current = input[i];
+    if (separator) {
+      positionals.push(current);
+      trailing.push(current);
+    } else if (current === "--") {
+      separator = true;
+    } else if (current.startsWith("--")) {
+      const equals = current.indexOf("=");
+      if (equals > 0) {
+        flags[current.slice(2, equals)] = current.slice(equals + 1);
+      } else {
+        const name = current.slice(2);
+        const next = input[i + 1];
+        if (contains(BOOL_FLAGS, name)) {
+          if (next !== undefined && boolWord(next)) {
+            flags[name] = next;
+            i = i + 1;
+          } else {
+            flags[name] = true;
+          }
+        } else if (next !== undefined && !next.startsWith("--")) {
+          flags[name] = next;
+          i = i + 1;
+        } else {
+          flags[name] = true;
+        }
+      }
+    } else {
+      positionals.push(current);
+    }
+  }
+  return { _: positionals, flags: flags, separator: separator, trailing: trailing };
+}
+
+function globalName(name) {
+  return contains(GLOBAL_VALUE_FLAGS, name) || name === "json";
+}
+
+// Extracts global flags wherever the legacy parser accepted them (before the
+// first `--`), rejects ambiguous repetitions, and returns the exact remaining
+// argv. The returned prefix is ready to prepend to one `agenterm:acu.argv`
+// request. The observe+actuate default is the existing, explicit compatibility
+// CLI contract; this parser owns no native mechanism or hidden escalation.
+export function extractGlobals(argv) {
+  const input = copyArgv(argv);
+  const remaining = [];
+  const seen = {};
+  const values = {};
+  const provided = [];
+  let json = false;
+  let separated = false;
+
+  for (let i = 0; i < input.length; i = i + 1) {
+    const current = input[i];
+    if (separated) {
+      remaining.push(current);
+      continue;
+    }
+    if (current === "--") {
+      separated = true;
+      remaining.push(current);
+      continue;
+    }
+    if (!current.startsWith("--")) {
+      remaining.push(current);
+      continue;
+    }
+
+    const equals = current.indexOf("=");
+    const name = equals > 0 ? current.slice(2, equals) : current.slice(2);
+    if (!globalName(name)) {
+      remaining.push(current);
+      continue;
+    }
+    if (seen[name] === true && !contains(REPEATABLE_GLOBAL_FLAGS, name)) {
+      fail("acu_legacy_global_duplicate", "--" + name);
+    }
+    seen[name] = true;
+
+    if (name === "json") {
+      if (equals > 0) {
+        json = flagTruthy(current.slice(equals + 1));
+      } else {
+        const next = input[i + 1];
+        if (next !== undefined && boolWord(next)) {
+          json = flagTruthy(next);
+          i = i + 1;
+        } else {
+          json = true;
+        }
+      }
+      continue;
+    }
+
+    let value = "";
+    if (equals > 0) {
+      value = current.slice(equals + 1);
+    } else {
+      const next = input[i + 1];
+      if (next === undefined || next.startsWith("--")) {
+        fail("acu_legacy_global_value", "--" + name);
+      }
+      value = next;
+      i = i + 1;
+    }
+    values[name] = value;
+    provided.push("--" + name);
+    provided.push(value);
+  }
+
+  if (seen["grant"] === true && seen["grant-id"] === true) {
+    fail("acu_legacy_global_conflict", "--grant/--grant-id");
+  }
+  if (seen["grant-store"] === true && seen["grant-id"] !== true) {
+    fail("acu_legacy_global_conflict", "--grant-store requires --grant-id");
+  }
+
+  const routedTarget = seen["ssh"] === true || seen["vnc"] === true || seen["rdp"] === true;
+  const target = seen["target"] === true ? values["target"] : (routedTarget ? null : "current");
+  const grantId = seen["grant-id"] === true ? values["grant-id"] : null;
+  const grantStore = seen["grant-store"] === true ? values["grant-store"] : null;
+  const grant = grantId === null
+    ? (seen["grant"] === true ? values["grant"] : "observe,actuate")
+    : null;
+  const prefix = [];
+  if (target !== null && seen["target"] !== true) { prefix.push("--target"); prefix.push(target); }
+  if (grantId === null && seen["grant"] !== true) { prefix.push("--grant"); prefix.push(grant); }
+  for (let i = 0; i < provided.length; i = i + 1) { prefix.push(provided[i]); }
+
+  return {
+    globals: {
+      target: target,
+      grant: grant,
+      grant_id: grantId,
+      grant_store: grantStore,
+      json: json
+    },
+    prefix: prefix,
+    argv: remaining
+  };
+}

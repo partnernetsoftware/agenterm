@@ -1,0 +1,111 @@
+import * as legacy from "skills/acu/lib/legacy_args";
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function exact(actual, expected, message) {
+  require(actual.length === expected.length, message + " length");
+  for (let i = 0; i < expected.length; i = i + 1) {
+    require(actual[i] === expected[i], message + " index=" + i);
+  }
+}
+
+function mustThrow(code, action) {
+  let caught = "";
+  try { action(); } catch (error) { caught = "" + error; }
+  require(caught.startsWith(code), "expected " + code + ", got " + caught);
+}
+
+const parsed = legacy.parseArgs([
+  "query", "", "  ", "line one\nline two", "--json", "false", "--name=",
+  "--", "--grant", "after\nseparator"
+]);
+exact(parsed._, [
+  "query", "", "  ", "line one\nline two", "--grant", "after\nseparator"
+], "parse positionals");
+require(parsed.flags.json === "false", "explicit bool word");
+require(parsed.flags.name === "", "inline empty value");
+require(parsed.separator === true, "separator presence");
+exact(parsed.trailing, ["--grant", "after\nseparator"], "separator trailing");
+
+const boolDoesNotSwallow = legacy.parseArgs(["--shot", "payload"]);
+require(boolDoesNotSwallow.flags.shot === true, "bool true");
+exact(boolDoesNotSwallow._, ["payload"], "bool positional");
+const valueDoesSwallow = legacy.parseArgs(["--selector", "  exact \n value  "]);
+require(valueDoesSwallow.flags.selector === "  exact \n value  ", "value exactness");
+
+require(legacy.flagIsFalse("OFF") === true, "false word");
+require(legacy.flagIsFalse("") === false, "empty is not false word");
+require(legacy.flagTruthy("YES") === true, "true word");
+require(legacy.flagTruthy("") === false, "empty is falsey");
+require(legacy.flagTruthy("anything") === true, "other nonempty string");
+
+const defaults = legacy.extractGlobals([
+  "query", "", "  ", "line one\nline two", "--", "--target", "literal"
+]);
+exact(defaults.prefix, [
+  "--target", "current", "--grant", "observe,actuate"
+], "default prefix");
+exact(defaults.argv, [
+  "query", "", "  ", "line one\nline two", "--", "--target", "literal"
+], "remaining exact argv");
+require(defaults.globals.target === "current", "default target data");
+require(defaults.globals.grant === "observe,actuate", "default grant data");
+require(defaults.globals.grant_id === null, "default grant id data");
+
+const explicit = legacy.extractGlobals([
+  "query", "Window#1", "--target=", "--grant-id", "grant\n id",
+  "--grant-store=  store path  ", "--json=off"
+]);
+exact(explicit.prefix, [
+  "--target", "", "--grant-id", "grant\n id", "--grant-store", "  store path  "
+], "explicit prefix");
+exact(explicit.argv, ["query", "Window#1"], "global removal");
+require(explicit.globals.target === "", "empty target preserved");
+require(explicit.globals.grant === null, "grant-id suppresses grant");
+require(explicit.globals.json === false, "json false extraction");
+
+const routed = legacy.extractGlobals([
+  "doctor", "--ssh", "host.example", "--ssh-env", "A=one",
+  "--ssh-env=B=two", "--request-id", "request-1", "--session", "session-1",
+  "--session-lease", "lease-1"
+]);
+exact(routed.prefix, [
+  "--grant", "observe,actuate", "--ssh", "host.example", "--ssh-env", "A=one",
+  "--ssh-env", "B=two", "--request-id", "request-1", "--session", "session-1",
+  "--session-lease", "lease-1"
+], "routed and repeatable globals");
+require(routed.globals.target === null, "routed target does not invent current");
+
+const roundTrip = JSON.parse(JSON.stringify(explicit));
+exact(roundTrip.prefix, explicit.prefix, "json-compatible prefix");
+exact(roundTrip.argv, explicit.argv, "json-compatible argv");
+require(roundTrip.globals.grant_id === "grant\n id", "json-compatible globals");
+
+mustThrow("acu_legacy_global_duplicate:--target", function() {
+  legacy.extractGlobals(["--target", "one", "--target=two", "doctor"]);
+});
+mustThrow("acu_legacy_global_duplicate:--json", function() {
+  legacy.extractGlobals(["--json", "--json=false", "doctor"]);
+});
+mustThrow("acu_legacy_global_value:--grant", function() {
+  legacy.extractGlobals(["doctor", "--grant", "--target", "current"]);
+});
+mustThrow("acu_legacy_global_value:--target", function() {
+  legacy.extractGlobals(["doctor", "--target"]);
+});
+mustThrow("acu_legacy_global_conflict:--grant/--grant-id", function() {
+  legacy.extractGlobals(["--grant", "observe", "--grant-id", "id", "doctor"]);
+});
+mustThrow("acu_legacy_global_conflict:--grant-store requires --grant-id", function() {
+  legacy.extractGlobals(["--grant-store", "path", "doctor"]);
+});
+mustThrow("acu_legacy_argv_not_array", function() {
+  legacy.parseArgs({ length: 0 });
+});
+mustThrow("acu_legacy_argv_value:index=1", function() {
+  legacy.extractGlobals(["doctor", 1]);
+});
+
+"legacy_args.qjs PASS";
