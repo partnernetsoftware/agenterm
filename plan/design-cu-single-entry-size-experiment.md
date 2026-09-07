@@ -221,3 +221,9 @@ parsers and platform mechanisms in one link unit. The next size experiment
 must measure a real L3 boundary (feature/entry partition or the planned
 embedder-installed `agenterm:acu` bridge) against the same public behavior;
 renaming, post-compression, or raising the ceiling cannot count as a win.
+
+The corresponding exact size-optimized Windows x86_64 build at source
+`819d4d17` produced a 6,268,416-byte `agenterm-cu.exe` in 50.30 seconds. It is
+4,171,264 bytes over the unchanged 2,097,152-byte court. This replaces the
+stale 2,221,056-byte C0 number as the current frontier; C0 remains historical
+evidence for that earlier source, not a usable artifact for today's surface.
