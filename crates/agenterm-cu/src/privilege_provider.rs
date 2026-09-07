@@ -169,7 +169,14 @@ pub(crate) fn lookup_before_native_consent(
         authority.state_root.join("replay.json"),
         authority.namespace,
     )?;
-    match ledger.lookup_before_consent(&validated, &authority.peer, now_utc_ms)? {
+    let lookup = match ledger.lookup_before_consent(&validated, &authority.peer, now_utc_ms) {
+        Ok(lookup) => lookup,
+        Err(error) if error.code == "request_id_conflict" => {
+            return Ok(PreConsentDecision::Reply(refused(request, &error.code)));
+        }
+        Err(error) => return Err(error),
+    };
+    match lookup {
         PrivilegeProviderLookupDecision::ReplayFinalized {
             outcome_code,
             receipt_id,

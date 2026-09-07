@@ -69,20 +69,17 @@ pub(crate) fn process_authenticated_request_observed(
     mut observe: impl FnMut(PrivilegeBrokerEvent) -> Result<(), CuError>,
 ) -> Result<PrivilegeApplyReplyV1, CuError> {
     observe(PrivilegeBrokerEvent::RequestAccepted)?;
-    let decision = match lookup_before_native_consent(authority, request_bytes, now_utc_ms) {
-        Ok(decision) => decision,
-        Err(error) => {
-            if error.code == "request_id_conflict" {
-                observe(PrivilegeBrokerEvent::RequestConflict)?;
-            }
-            return Err(error);
-        }
-    };
+    let decision = lookup_before_native_consent(authority, request_bytes, now_utc_ms)?;
     let reply = match decision {
         PreConsentDecision::Reply(reply) => {
             match &reply {
                 PrivilegeApplyReplyV1::OutcomeUnknown { .. } => {
                     observe(PrivilegeBrokerEvent::ReplayOutcomeUnknown)?;
+                }
+                PrivilegeApplyReplyV1::Refused { error_code, .. }
+                    if error_code == "request_id_conflict" =>
+                {
+                    observe(PrivilegeBrokerEvent::RequestConflict)?;
                 }
                 _ => observe(PrivilegeBrokerEvent::ReplayFinalized)?,
             }
@@ -378,7 +375,7 @@ mod tests {
         })
         .unwrap();
         let mut events = Vec::new();
-        let error = process_authenticated_request_observed(
+        let reply = process_authenticated_request_observed(
             &authority,
             &conflicting,
             1_002,
@@ -388,13 +385,18 @@ mod tests {
                 Ok(())
             },
         )
-        .unwrap_err();
-        assert_eq!(error.code, "request_id_conflict");
+        .unwrap();
+        assert!(matches!(
+            reply,
+            PrivilegeApplyReplyV1::Refused { ref error_code, .. }
+                if error_code == "request_id_conflict"
+        ));
         assert_eq!(
             events,
             [
                 PrivilegeBrokerEvent::RequestAccepted,
                 PrivilegeBrokerEvent::RequestConflict,
+                PrivilegeBrokerEvent::ReplyRefused,
             ]
         );
         assert!(!agenterm_platform::process_metrics::is_stopped(second_child.id()).unwrap());
