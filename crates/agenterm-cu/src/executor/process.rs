@@ -1911,7 +1911,7 @@ fn process_tree_signal_payload(
     }
 
     if !matches!(signal, ProcessSignalKind::Stop | ProcessSignalKind::Kill)
-        && let Err(error) = restore_tree_members(&known, signal != ProcessSignalKind::Terminate)
+        && let Err(error) = restore_tree_members(&known, true)
     {
         return fail_process_tree_signal(receipts, &ticket, error, true, &known);
     }
@@ -3269,6 +3269,63 @@ mod tests {
         .expect("kill exact tree");
         assert_eq!(killed["verified"], true);
         child.wait().expect("reap tree root");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn failed_tree_terminate_does_not_resume_a_member_stopped_before_the_transaction() {
+        use std::io::BufRead as _;
+
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "trap '' TERM; echo ready; while :; do sleep 1; done"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn pre-stopped tree fixture");
+        let mut ready = String::new();
+        std::io::BufReader::new(child.stdout.take().expect("fixture stdout"))
+            .read_line(&mut ready)
+            .expect("read fixture readiness");
+        assert_eq!(ready.trim(), "ready");
+        let identity = live_start_identity(child.id()).expect("fixture identity");
+        let reference =
+            agenterm_platform::process_reference::ProcessReference::open_for_termination(
+                child.id(),
+            )
+            .expect("retain pre-stopped root");
+        reference.set_suspended(true).expect("pre-stop root");
+        assert!(process_stopped(child.id()).expect("observe pre-stopped root"));
+
+        let root = std::fs::canonicalize(std::env::temp_dir())
+            .expect("temporary root")
+            .join(format!("agenterm-cu-tree-term-pre-stopped-{}", child.id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut receipts = ReceiptLog::open_in(&root, crate::TargetRef::Current).unwrap();
+
+        let error = process_signal_payload(
+            child.id(),
+            Some(&identity),
+            ProcessSignalKind::Terminate,
+            ProcessSignalOptions {
+                timeout_ms: 100,
+                force: false,
+                tree: true,
+                max_descendants: 16,
+            },
+            &mut receipts,
+        )
+        .expect_err("ignored TERM cannot satisfy the exit postcondition");
+        assert_eq!(error.code, "process_tree_signal_postcondition_failed");
+        assert!(
+            process_stopped(child.id()).expect("observe preserved scheduler state"),
+            "failed TERM must not resume a member stopped before the transaction"
+        );
+
+        reference.set_suspended(false).expect("resume fixture root");
+        reference
+            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .expect("terminate fixture root");
+        child.wait().expect("reap fixture root");
         std::fs::remove_dir_all(root).unwrap();
     }
 
