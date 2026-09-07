@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.partnernetsoftware.agenterm.cu.privilege</string>
+  <key>BundleProgram</key>
+  <string>Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>com.partnernetsoftware.agenterm.cu.privilege</string>
+    <string>--agenterm-cu-internal-privilege-broker</string>
+  </array>
+  <key>AssociatedBundleIdentifiers</key>
+  <array>
+    <string>com.partnernetsoftware.agenterm</string>
+  </array>
+  <key>Sockets</key>
+  <dict>
+    <key>SystemBroker</key>
+    <dict>
+      <key>SockPathMode</key>
+      <integer>438</integer>
+      <key>SockPathName</key>
+      <string>/private/var/run/agenterm/cu-privilege.sock</string>
+    </dict>
+  </dict>
+</dict>
+</plist>

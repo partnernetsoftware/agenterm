@@ -18,6 +18,7 @@ use agenterm_platform::{
 
 use crate::{
     CuError,
+    privilege_apply::{PrivilegeApplyRequestV1, PrivilegePlanV1, parse_apply_request},
     privilege_broker::{NativeConsentDecision, process_authenticated_request_observed},
     privilege_broker_wire::{
         MacosBrokerConsent, MacosServerDisposition, read_macos_broker_consent, read_macos_request,
@@ -60,6 +61,8 @@ fn process_connection(stream: &mut SystemBrokerStream) -> Result<(), CuError> {
         .set_io_timeout(CONNECTION_DEADLINE)
         .map_err(platform_error)?;
     let request = read_macos_request(&mut *stream)?;
+    let validated = parse_apply_request(&request)?;
+    require_process_signal(validated.request())?;
     require_live_peer(stream, "admission")?;
     let authority = authority_for_peer(stream.peer())?;
     let now_utc_ms = current_time_ms()?;
@@ -106,6 +109,16 @@ fn process_connection(stream: &mut SystemBrokerStream) -> Result<(), CuError> {
     }
     write_reply(&mut *stream, &reply)?;
     stream.shutdown_write().map_err(platform_error)
+}
+
+fn require_process_signal(request: &PrivilegeApplyRequestV1) -> Result<(), CuError> {
+    match &request.plan {
+        PrivilegePlanV1::ProcessSignal(_) => Ok(()),
+        PrivilegePlanV1::ProcessPriority(_) => Err(CuError::new(
+            "privilege_operation_unsupported",
+            "the macOS provider right authorizes only process.signal",
+        )),
+    }
 }
 
 fn require_live_peer(stream: &SystemBrokerStream, phase: &'static str) -> Result<(), CuError> {
@@ -158,6 +171,14 @@ fn platform_error(error: SystemBrokerError) -> CuError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        command::ProcessSignalKind,
+        privilege_apply::{
+            PRIVILEGE_APPLY_PROTOCOL_VERSION, PRIVILEGE_PROVIDER_CONTRACT_VERSION,
+            PrivilegeAuthorizationV1, PrivilegeClientV1, PrivilegeOriginV1, PrivilegeTargetScope,
+        },
+        privilege_plan::{process_priority_plan, process_signal_plan},
+    };
 
     #[test]
     fn proof_failures_remain_distinct_from_user_cancellation() {
@@ -173,5 +194,43 @@ mod tests {
             consent_error_code(PrivilegeAuthorizationErrorKind::TimedOut),
             "privilege_consent_timeout"
         );
+    }
+
+    #[test]
+    fn operation_scoped_right_refuses_priority_before_consent() {
+        let priority = process_priority_plan(std::process::id(), 0, 60, 1_000_000).unwrap();
+        let request = request_with_plan(PrivilegePlanV1::ProcessPriority(priority));
+        let error = require_process_signal(&request).unwrap_err();
+        assert_eq!(error.code, "privilege_operation_unsupported");
+
+        let signal = process_signal_plan(
+            std::process::id(),
+            ProcessSignalKind::Stop,
+            false,
+            false,
+            1_000,
+            1,
+            60,
+            1_000_000,
+        )
+        .unwrap();
+        let request = request_with_plan(PrivilegePlanV1::ProcessSignal(signal));
+        require_process_signal(&request).unwrap();
+    }
+
+    fn request_with_plan(plan: PrivilegePlanV1) -> PrivilegeApplyRequestV1 {
+        PrivilegeApplyRequestV1 {
+            protocol_version: PRIVILEGE_APPLY_PROTOCOL_VERSION,
+            request_id: "macos-right-scope-fixture".into(),
+            plan,
+            authorization: PrivilegeAuthorizationV1::OneShotNativeConsent,
+            origin: PrivilegeOriginV1 {
+                session_id: "macos-right-scope-session".into(),
+                target_scope: PrivilegeTargetScope::Current,
+            },
+            client: PrivilegeClientV1 {
+                contract_version: PRIVILEGE_PROVIDER_CONTRACT_VERSION,
+            },
+        }
     }
 }

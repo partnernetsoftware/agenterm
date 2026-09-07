@@ -50,6 +50,7 @@ libc = "0.2"
 # job compiles this target, so anything missing here fails there and nowhere
 # else.
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
 objc2 = "0.5.2"
 objc2-app-kit = { version = "0.2.2", features = [
     "NSApplication",
@@ -74,6 +75,7 @@ objc2-foundation = { version = "0.2.2", features = [
     "NSThread",
     "NSValue",
 ] }
+security-framework = "3"
 
 [[bin]]
 name = "agenterm-cu"

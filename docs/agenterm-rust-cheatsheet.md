@@ -4642,6 +4642,18 @@ disagreement, and retain the audit-token pidversion for exact liveness instead
 of following a recycled numeric PID. Failure to inspect a live task token is
 typed unavailable, never guessed as process exit.
 
+An embedded macOS `SMAppService` daemon is not trustworthy merely because its
+app and helper share a signing Team. A user-writable app bundle permits replay
+of an older, still-valid same-Team helper. For a root effect provider, require
+a root-authorized package installation whose complete fixed bundle ancestry is
+root-owned and not group/world writable, reject ordinary drag installation,
+and additionally validate the app and helper Developer ID designated
+requirements plus equal Team identifiers from their signed bytes. Keep the
+Authorization Services right operation-scoped and distinct from the launchd
+label; a broker for that right must reject every other plan before replay,
+consent or provider execution. Unsigned and ad-hoc bundles may be packaging
+rehearsals, but must remain explicitly non-deployable.
+
 Give every fresh provider attempt a durable random UUIDv4 before its replay
 reservation. Keep that attempt record only while the outcome can be uncertain;
 terminal ledger records point to an immutable receipt and its SHA-256 over the

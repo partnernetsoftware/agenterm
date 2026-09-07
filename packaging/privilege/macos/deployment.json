@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "minimum_macos_version": "13.0",
+  "install_authority": "root-owned-package-only",
+  "ordinary_drag_install_supported": false,
+  "app": {
+    "bundle_name": "AgenTerm.app",
+    "bundle_identifier": "com.partnernetsoftware.agenterm",
+    "install_path": "/Applications/AgenTerm.app",
+    "executable_relative_path": "Contents/MacOS/agenterm"
+  },
+  "helper": {
+    "label": "com.partnernetsoftware.agenterm.cu.privilege",
+    "bundle_relative_path": "Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege",
+    "installed_path": "/Applications/AgenTerm.app/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege",
+    "argument": "--agenterm-cu-internal-privilege-broker"
+  },
+  "launchd": {
+    "plist_relative_path": "Contents/Library/LaunchDaemons/com.partnernetsoftware.agenterm.cu.privilege.plist",
+    "socket_key": "SystemBroker",
+    "socket_path": "/private/var/run/agenterm/cu-privilege.sock",
+    "socket_mode": 438
+  },
+  "authorization": {
+    "right": "com.partnernetsoftware.agenterm.cu.privilege.process-signal",
+    "rule": "authenticate-admin",
+    "shared": false,
+    "timeout_seconds": 0
+  },
+  "signing": {
+    "expected_team_environment": "AGENTERM_APPLE_TEAM_ID",
+    "app_requirement_template": "anchor apple generic and identifier \"com.partnernetsoftware.agenterm\" and certificate leaf[subject.OU] = \"@APPLE_TEAM_ID@\"",
+    "helper_requirement_template": "anchor apple generic and identifier \"com.partnernetsoftware.agenterm.cu.privilege\" and certificate leaf[subject.OU] = \"@APPLE_TEAM_ID@\""
+  }
+}

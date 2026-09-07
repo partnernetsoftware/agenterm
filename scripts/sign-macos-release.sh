@@ -13,6 +13,16 @@ IDENTITY="${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY required}"
 PYTHON="${PYTHON:-python3}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MANIFEST="$ROOT/scripts/artifacts.json"
+APP_BUNDLE="$BIN_DIR/AgenTerm.app"
+APP_IDENTIFIER="com.partnernetsoftware.agenterm"
+HELPER_IDENTIFIER="com.partnernetsoftware.agenterm.cu.privilege"
+HELPER="$APP_BUNDLE/Contents/Resources/$HELPER_IDENTIFIER"
+TEAM_ID="${AGENTERM_APPLE_TEAM_ID:?AGENTERM_APPLE_TEAM_ID required at build and signing time}"
+
+if [[ ! "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
+  echo "AGENTERM_APPLE_TEAM_ID must be a 10-character Apple Team identifier." >&2
+  exit 1
+fi
 
 if [[ ! -d "$BIN_DIR" ]]; then
   echo "Binary directory not found: $BIN_DIR" >&2
@@ -67,4 +77,31 @@ for name in "${ARTIFACT_NAMES[@]}"; do
   codesign --verify --strict --verbose=2 "$path"
 done
 
-echo "==> signed ${#ARTIFACT_NAMES[@]} macOS artifact(s) for $ARCH"
+VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/Cargo.toml" | head -n 1)"
+"$ROOT/packaging/privilege/macos/stage-app-bundle.sh" \
+  "$ARCH" "$BIN_DIR" "$APP_BUNDLE" "$VERSION"
+
+# Sign every nested code object before sealing the outer app. The helper gets
+# its fixed identifier; no certificate or Team identifier is stored in source.
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  "$APP_BUNDLE/Contents/MacOS/libagenterm.dylib"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  --identifier "$HELPER_IDENTIFIER" \
+  --entitlements "$ROOT/packaging/privilege/macos/helper.entitlements" \
+  "$HELPER"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  --identifier "com.partnernetsoftware.agenterm.cu" \
+  "$APP_BUNDLE/Contents/MacOS/agenterm-cu"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  --identifier "com.partnernetsoftware.agenterm.cc" \
+  "$APP_BUNDLE/Contents/MacOS/agenterm-cc"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  --identifier "$APP_IDENTIFIER" \
+  "$APP_BUNDLE/Contents/MacOS/agenterm"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  --identifier "$APP_IDENTIFIER" \
+  --entitlements "$ROOT/packaging/privilege/macos/app.entitlements" \
+  "$APP_BUNDLE"
+"$ROOT/packaging/privilege/macos/validate-app-bundle.sh" --signed-bundle "$APP_BUNDLE"
+
+echo "==> signed ${#ARTIFACT_NAMES[@]} flat macOS artifact(s) and AgenTerm.app for $ARCH"

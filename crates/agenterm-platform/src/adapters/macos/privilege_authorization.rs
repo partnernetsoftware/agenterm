@@ -245,7 +245,7 @@ fn verify_with_root_requirement(
 }
 
 fn fixed_right() -> authorization::AuthorizationItem {
-    let name = c"com.partnernetsoftware.agenterm.cu.privilege";
+    let name = c"com.partnernetsoftware.agenterm.cu.privilege.process-signal";
     debug_assert_eq!(name.to_bytes(), PRIVILEGE_ACTION_ID.as_bytes());
     authorization::AuthorizationItem {
         name: name.as_ptr(),

@@ -98,6 +98,7 @@ version = "0.1.16"
 dependencies = [
  "agenterm-control-client",
  "agenterm-platform",
+ "core-foundation 0.10.1",
  "libc",
  "libloading 0.8.9",
  "miniz_oxide",
@@ -105,6 +106,7 @@ dependencies = [
  "objc2-app-kit 0.2.2",
  "objc2-foundation 0.2.2",
  "regex",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2 0.11.0",

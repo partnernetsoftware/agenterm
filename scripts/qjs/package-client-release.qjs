@@ -225,6 +225,28 @@ if (rh.has_env("AGENTERM_PACKAGE_SBOM")) {
 }
 if (os_name === "macos") {
   copy_required(sbom_source, rh.join(staging, "agenterm-sbom.spdx.json"), "package_client_sbom_missing");
+  const app_bundle = rh.join(staging, "AgenTerm.app");
+  const stage_bundle = rh.join(repo, "packaging/privilege/macos/stage-app-bundle.sh");
+  const validate_bundle = rh.join(repo, "packaging/privilege/macos/validate-app-bundle.sh");
+  if (signed) {
+    const signed_bundle = rh.join(binary_directory, "AgenTerm.app");
+    rh.require(rh.exists(signed_bundle), "package_client_signed_app_missing");
+    const copy_bundle_code = rh.command_status(
+      "ditto", ["--rsrc", "--extattr", "--noqtn", signed_bundle, app_bundle], chmod_options
+    );
+    rh.require(copy_bundle_code === 0, "package_client_signed_app_copy");
+    const signed_bundle_code = rh.command_status(
+      validate_bundle, ["--signed-bundle", app_bundle], chmod_options
+    );
+    rh.require(signed_bundle_code === 0, "package_client_signed_app_invalid");
+  } else {
+    const stage_bundle_code = rh.command_status(
+      stage_bundle, [arch, binary_directory, app_bundle, version], chmod_options
+    );
+    rh.require(stage_bundle_code === 0, "package_client_unsigned_app_stage");
+    const layout_code = rh.command_status(validate_bundle, ["--layout", app_bundle], chmod_options);
+    rh.require(layout_code === 0, "package_client_unsigned_app_layout");
+  }
 }
 if (unsigned_preview) {
   const preview_source = rh.join(repo, "docs/macos-unsigned-preview.md");
@@ -323,6 +345,11 @@ const package_manifest = {
   channel: release_channel,
   signed: signed,
   notarized: false,
+  macos_app_bundle: os_name === "macos" ? "AgenTerm.app" : "",
+  privilege_provider_signed_bundle: os_name === "macos" && signed,
+  privilege_provider_deployable: false,
+  privilege_provider_install_authority: os_name === "macos" ? "root-owned-package-only" : "not_applicable",
+  privilege_provider_registration: os_name === "macos" ? "not_performed" : "not_applicable",
   artifact: archive_name,
   sha256: archive_hash,
   payload_uncompressed_bytes: payload_uncompressed_bytes,

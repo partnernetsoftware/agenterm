@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>class</key>
+  <string>user</string>
+  <key>group</key>
+  <string>admin</string>
+  <key>shared</key>
+  <false/>
+  <key>timeout</key>
+  <integer>0</integer>
+  <key>comment</key>
+  <string>Authorize one identity-bound AgenTerm process operation.</string>
+</dict>
+</plist>

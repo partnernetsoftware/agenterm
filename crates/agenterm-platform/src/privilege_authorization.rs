@@ -21,7 +21,12 @@ use crate::system_broker::{SystemBrokerError, SystemBrokerStream};
 mod native;
 
 /// The sole production action accepted by this facade.
+#[cfg(not(target_os = "macos"))]
 pub const PRIVILEGE_ACTION_ID: &str = "com.partnernetsoftware.agenterm.cu.privilege";
+/// The operation-scoped macOS Authorization Services right. It deliberately
+/// differs from the launchd helper label and never contains a wildcard.
+#[cfg(target_os = "macos")]
+pub const PRIVILEGE_ACTION_ID: &str = "com.partnernetsoftware.agenterm.cu.privilege.process-signal";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
