@@ -483,14 +483,9 @@ fn known_authorization_operation(operation: &str) -> bool {
     {
         return false;
     }
-    let Ok(catalog) =
-        serde_json::from_str::<serde_json::Value>(include_str!("bin/cli/verbs-catalog.json"))
-    else {
-        return false;
-    };
-    catalog["verbs"]
-        .as_array()
-        .is_some_and(|rows| rows.iter().any(|row| row["name"] == operation))
+    crate::verb_catalog::VERBS
+        .iter()
+        .any(|row| row.name == operation)
 }
 
 fn only_store_arg(args: &[String]) -> Result<Option<PathBuf>, &'static str> {

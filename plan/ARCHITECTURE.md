@@ -800,23 +800,27 @@ architecture status is partial.
 ### CLI surface layout (`crates/agenterm-cu/src/bin/`)
 
 `src/bin/agenterm_cu.rs` only routes: the entry modes (`host`, `verbs`,
-`exec`, `help`), the global flags, then one verb-table lookup. Everything else
-lives in `src/bin/cli/`, bin-private (Cargo auto-discovers `src/bin/*.rs` as
-extra binaries, so the modules sit in a directory without `main.rs`):
+`exec`, `help`), the global flags, then one verb-table lookup. Argument parsers
+live in `src/bin/cli/`, bin-private (Cargo auto-discovers `src/bin/*.rs` as
+extra binaries, so the modules sit in a directory without `main.rs`). The typed
+verb truth is library-owned so CLI routing, persisted grants and the future
+qjswasm/MCP consumers cannot acquire separate catalogs:
 
 | File | Owns |
 |------|------|
-| `cli/verbs.rs` | the single static verb table `VERBS`: canonical name, reply command, aliases (including two-token forms such as `menu inspect`), scope, family, summary, usage, args, reference prose; `lookup` / `resolve` / `near_matches`; the `verbs --json` row type |
+| `src/verb_catalog.rs` | generated hot `VERBS` table plus compressed cold discovery/help projection; owns `lookup` / `resolve` / `near_matches` for all runtime consumers |
+| `cli/verbs-catalog.json` | checked-in declaration SSOT: canonical name, reply command, aliases, scope, family, summary, usage, args and reference prose; `build.rs` validates it and generates both projections |
+| `cli/verbs.rs` | bin-private re-export of the library catalog for the argument parser modules; contains no second declaration or embedded projection |
 | `cli/help.rs` | `--help` (grouped by family, one line per verb), `help <verb>` and `<verb> --help`, the ssh / vnc / rdp topics, `verbs [--json\|--text]`; every line is rendered from the table |
 | `cli/global.rs` | `--target` / `--ssh*` / `--vnc*` / `--rdp` / `--grant*` parsing, env fallbacks, combination refusals, authorization and `Executor` assembly (shared with `exec`) |
 | `cli/exec.rs` | the `exec --json` worker mode |
 | `cli/windows.rs`, `cli/a11y_observe.rs`, `cli/a11y_actuate.rs`, `cli/menu.rs`, `cli/browser.rs`, `cli/clipboard.rs`, `cli/placement.rs` | per-family argv → `Command` parsers; an `Err(String)` becomes the typed `usage` reply in one place. `cli/browser.rs` also owns the `browser` group word (`browser profiles` / `browser open`) and `tab close` |
 
-Rule: a new verb or alias is one row in `cli/verbs.rs` plus one arm in its
-family parser; no other file matches verb strings. Bin tests pin the
-surface: every alias resolves to its canonical verb, every verb has a usage
-line and `help <verb>`, `verbs --json` round-trips, and `--help` stays at or
-under 150 lines.
+Rule: a new verb or alias is one row in `cli/verbs-catalog.json` plus one arm in
+its family parser; no runtime consumer reparses or embeds that JSON. Catalog
+tests pin the surface: every alias resolves to its canonical verb, every verb
+has a usage line and `help <verb>`, `verbs --json` round-trips, and `--help`
+stays at or under 150 lines.
 
 The Windows accessibility call chain follows the same boundary:
 

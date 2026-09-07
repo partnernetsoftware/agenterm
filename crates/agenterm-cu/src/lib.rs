@@ -155,6 +155,7 @@ pub mod status_menu;
 pub mod tab_strip;
 pub mod target;
 pub mod target_binding;
+pub mod verb_catalog;
 pub mod vnc_transport;
 #[doc(hidden)]
 pub mod worker_wire;
