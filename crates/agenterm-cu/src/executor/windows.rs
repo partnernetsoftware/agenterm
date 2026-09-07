@@ -320,7 +320,7 @@ fn matching_app_identity_set(windows: &[WindowInfo], app: &str) -> Vec<(isize, u
     identities
 }
 
-fn focus_identity(focus: &observe::FocusResolution) -> (Option<isize>, Option<u32>) {
+pub(super) fn focus_identity(focus: &observe::FocusResolution) -> (Option<isize>, Option<u32>) {
     (
         focus.handle,
         focus.app.as_ref().map(|application| application.pid),

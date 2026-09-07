@@ -4477,6 +4477,14 @@ the existing `serde_json::json!` value is built: adding another arm inside an
 already recursion-limit-sensitive macro creates compile-time debt and is not
 authority to raise the crate-wide recursion limit.
 
+An app-global menu is not permission to choose the first vaguely matching
+window. On macOS, resolve a case-insensitive exact application name to one
+live process, bind its process start identity, and bracket the complete
+matching window set plus foreground around the AXMenuBar read. Keep Linux and
+Windows on their exact-window menu contracts until they expose an equivalent
+application-global owner; typed not-applicable is more truthful than a
+cross-platform-looking guess.
+
 A filtered accessibility watch must repeat the same bounded acquisition and
 predicate as the one-shot query; a generic accessibility notification stream
 is not a substitute for the caller's final matching row set. Treat failed

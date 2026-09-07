@@ -57,6 +57,7 @@ const declared_evidence = [
   "cu.macos-ax-invoke-value-readback",
   "cu.macos-ax-invoke-refusals",
   "cu.macos-ax-menu-inspect",
+  "cu.macos-app-menu-inspect",
   "cu.macos-ax-menu-invoke",
   "cu.macos-ax-focused",
   "cu.macos-ax-observe",
@@ -1509,6 +1510,26 @@ try {
     "cu_macos_smoke_menu_inspect_items:do=" + do_things + ":disabled=" + disabled_things
       + ":twin=" + twin_things + ":more=" + more_items + ":deeper=" + deeper_things
   );
+  const fixture_app_name = text_at(row, "app_name");
+  ensure(fixture_app_name !== "", "cu_macos_smoke_app_menu_missing_app_name");
+  const app_menu = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "app-menu-inspect",
+    "--app", fixture_app_name, "--depth", "2", "--max-nodes", "5000"
+  ]);
+  let app_do_things = 0;
+  for (const item of app_menu.data.items) {
+    if (path_text(item) === "File/Do Thing") { app_do_things = app_do_things + 1; }
+  }
+  ensure(
+    text_at(app_menu, "data.addressing") === "application-menu"
+      && text_at(app_menu, "data.app") === fixture_app_name
+      && int_at(app_menu, "data.pid") === fixture_pid
+      && text_at(app_menu, "data.start_identity") === process_identity
+      && int_at(app_menu, "data.window_count") >= 1
+      && flag_at(app_menu, "data.focus_unchanged")
+      && app_do_things === 1,
+    "cu_macos_smoke_app_menu_inspect:" + JSON.stringify(app_menu.data)
+  );
   const menu_exact = menu_inspect(run_directory, executable, handle_text, ["--title", "Do Thing", "--exact"]);
   ensure(
     int_at(menu_exact, "data.matched") === 1
@@ -2048,32 +2069,27 @@ try {
     "cu_macos_smoke_stacking_covered:" + JSON.stringify(covered_row)
   );
 
-  print("STEP orderwin answers from the order it reads back: on macOS AXRaise cannot reorder a background app's windows, so it refuses typed instead of reporting the raise it sent");
-  // Measured on this host: AXRaise on a window of an application that is
-  // not frontmost does not move it in the global window list -- the second
-  // window went from z=1 to z=2, i.e. further back, while the request was
-  // to put it in front. cu will not activate the application to make the
-  // raise take (that would steal the foreground, which every verb here is
-  // built not to do), so the honest answer is a refusal that names the
-  // order it actually read. Reporting success from having *sent* AXRaise
-  // is what this verb used to do.
+  print("STEP orderwin answers from the order it reads back: native success or typed refusal must match the measured z-order");
+  // AXRaise effectiveness varies with the current macOS/window-server state.
+  // The contract is the read-back, not a frozen assumption that it always
+  // succeeds or always refuses for a background application.
   const order_target_handle = int_at(back_row, "handle");
   const order_raise = run_cu_reply(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "orderwin",
     "--window", "" + order_target_handle, "--relation", "above", "--relative", handle_text
   ]);
+  const order_measure = flag_at(order_raise, "ok") ? order_raise.data : order_raise.error.detail;
   ensure(
-    !flag_at(order_raise, "ok")
-      && text_at(order_raise, "error.code") === "window_order_not_applied"
-      && int_at(order_raise, "error.detail.after.window_z")
-         > int_at(order_raise, "error.detail.after.relative_z"),
-    "cu_macos_smoke_orderwin_refusal:" + JSON.stringify(order_raise)
+    flag_at(order_raise, "ok")
+      ? int_at(order_measure, "after.window_z") < int_at(order_measure, "after.relative_z")
+      : text_at(order_raise, "error.code") === "window_order_not_applied"
+        && int_at(order_measure, "after.window_z") > int_at(order_measure, "after.relative_z"),
+    "cu_macos_smoke_orderwin_readback:" + JSON.stringify(order_raise)
   );
-  // The refusal carries both readings, so a caller can see it was measured
-  // rather than assumed.
+  // Either disposition carries both readings, proving it was measured.
   ensure(
-    int_at(order_raise, "error.detail.before.relative_z") >= 0
-      && int_at(order_raise, "error.detail.after.relative_z") >= 0,
+    int_at(order_measure, "before.relative_z") >= 0
+      && int_at(order_measure, "after.relative_z") >= 0,
     "cu_macos_smoke_orderwin_readings:" + JSON.stringify(order_raise)
   );
   // Asking for an order that already holds is a success that moves
@@ -3082,7 +3098,9 @@ try {
   ensure(
     flag_at(close_terminal, "data.performed")
       && flag_at(close_terminal, "data.verified")
-      && text_at(close_terminal, "data.verification") === "same-scope-epoch-inventory-absence",
+      && text_at(close_terminal, "data.verification").indexOf("same-scope-epoch-inventory-absence") >= 0
+      && flag_at(close_terminal, "data.native_shutdown.verified")
+      && flag_at(close_terminal, "data.native_shutdown.workers_complete"),
     "cu_macos_smoke_terminal_close:" + JSON.stringify(close_terminal)
   );
   terminal_tab = "";
@@ -3266,6 +3284,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-press");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-value-readback");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-refusals");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-menu-inspect");
+harness.emit_evidence(context, declared_evidence, "cu.macos-app-menu-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-focused");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-observe");

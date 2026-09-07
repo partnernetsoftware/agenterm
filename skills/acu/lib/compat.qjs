@@ -298,6 +298,42 @@ function known_dynamic_boundary(argv) {
       message: "page targets requires --port N or --pid PID; --match does not select an endpoint" };
   }
   if (verb === "menu" && !has_arg(argv, "--window")) {
+    if (sub === "inspect") {
+      const parsed = without_value_flags(argv, [
+        "depth", "scan-max", "title", "enabled", "offset", "max"
+      ]);
+      if (!parsed.ok) { return { kind: "usage", command: "menu", message: parsed.message }; }
+      const remaining = [];
+      let exact = false;
+      for (let i = 0; i < parsed.argv.length; i = i + 1) {
+        if (parsed.argv[i] === "--exact") {
+          if (exact) { return { kind: "usage", command: "menu", message: "menu inspect --exact may appear once" }; }
+          exact = true;
+        } else {
+          remaining.push(parsed.argv[i]);
+        }
+      }
+      const depth = optional_integer(parsed.values.depth, 0, "menu inspect --depth");
+      const max_nodes = optional_integer(parsed.values["scan-max"], 1, "menu inspect --scan-max");
+      const offset = optional_integer(parsed.values.offset, 0, "menu inspect --offset");
+      const max = optional_integer(parsed.values.max, 1, "menu inspect --max");
+      if (remaining.length === 3 && remaining[2].length > 0
+          && depth.ok && (depth.value === null || depth.value <= 8)
+          && max_nodes.ok && (max_nodes.value === null || max_nodes.value <= 5000)
+          && offset.ok && max.ok
+          && (parsed.values.enabled === null
+              || parsed.values.enabled === "true" || parsed.values.enabled === "false")) {
+        const native = ["app-menu-inspect", "--app", remaining[2]];
+        if (depth.value !== null) { append(native, ["--depth", "" + depth.value]); }
+        if (max_nodes.value !== null) { append(native, ["--max-nodes", "" + max_nodes.value]); }
+        if (parsed.values.title !== null) { append(native, ["--title", parsed.values.title]); }
+        if (exact) { native.push("--exact"); }
+        if (parsed.values.enabled !== null) { append(native, ["--enabled", parsed.values.enabled]); }
+        if (offset.value !== null) { append(native, ["--offset", "" + offset.value]); }
+        if (max.value !== null) { append(native, ["--max", "" + max.value]); }
+        return { kind: "exec", argv: native };
+      }
+    }
     return todo(sub === "inspect" ? "acu.dynamic.086" : "acu.dynamic.087", "menu",
       "app-global menu addressing needs an unambiguous typed target");
   }

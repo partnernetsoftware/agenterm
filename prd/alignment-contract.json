@@ -139,6 +139,7 @@
       "prd": "macOS `current` background verbs are live",
       "evidence_ids": [
         "cu.macos-ax-menu-inspect",
+        "cu.macos-app-menu-inspect",
         "cu.macos-ax-menu-invoke",
         "cu.macos-ax-focused",
         "cu.macos-ax-observe"

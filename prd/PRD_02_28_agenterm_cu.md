@@ -133,10 +133,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `6 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 27 resolved witnesses now have an executable disposition:
-  14 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 6 remaining
+  `5 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 28 resolved witnesses now have an executable disposition:
+  15 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 5 remaining
   dynamic-stay witness rows keep their stable repair identities. The `.050` witness now
   maps to native exact simulator app status, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
@@ -529,7 +529,10 @@ ACU-only cutover
 │  │  └─ valid `tree --max-value-bytes` remains typed TODO
 │  ├─ [~] acu.dynamic.084 · `--space` is evaluated inside every windows-watch poll;
 │  │  └─ qjs compatibility + native unit gates green, macOS live Space-transition court pending
-│  ├─ acu.dynamic.086 · app-global menu inspection without ambiguous window choice
+│  ├─ [x] acu.dynamic.086 · native macOS `app-menu-inspect` resolves an exact app + unique process;
+│  │  ├─ process start identity, complete matching window set and foreground are bracketed
+│  │  ├─ public owned qjswasm menu court is green without activation
+│  │  └─ Linux/Windows return `app_menu_platform_unsupported`; use exact-window menu there
 │  ├─ acu.dynamic.087 · app-global menu invocation without ambiguous window choice
 │  └─ acu.dynamic.095 · window-local background hover without moving the real cursor
 ├─ [ ] native/product TODO registry

@@ -499,6 +499,16 @@
           "note": "ACU intentionally binds the operation to a stable window instead of an ambiguous app name."
         },
         {
+          "id": "desktop.menu.app-global-inspect",
+          "mcu_shape": "menu inspect APP on macOS",
+          "acu_shape": "app-menu-inspect --app EXACT with bounded native inventory filters",
+          "state": "native",
+          "qualification": "macos-public-qjswasm-live-linux-windows-typed-not-applicable",
+          "evidence": ["cu.macos-app-menu-inspect"],
+          "next": "keep app-global menu invocation separate until its effect receipt brackets the same exact process and foreground identity",
+          "note": "The legacy app-global contract was macOS-only. ACU requires a case-insensitive exact application name resolving to one live process, brackets its start identity and complete matching window set, and never activates it. Linux and Windows retain the exact-window menu surface."
+        },
+        {
           "id": "desktop.app.lifecycle",
           "mcu_shape": "launch/quit/hide/show APP",
           "acu_shape": "app launch|quit|hide|show plus compatibility aliases",

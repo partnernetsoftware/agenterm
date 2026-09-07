@@ -69,6 +69,130 @@ pub(super) fn menu_inspect_payload(
     }))
 }
 
+/// Resolve the legacy macOS `menu inspect APP` shape without guessing one
+/// window across applications or processes. macOS exposes one application
+/// menu bar through any of that process's AX windows; other hosts never had
+/// this legacy app-global contract and fail typed instead of choosing a window.
+pub(super) fn app_menu_inspect_payload(
+    app: &str,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    filter: observe::MenuFilter,
+    offset: Option<usize>,
+    max: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, depth, max_nodes, filter, offset, max);
+        return Err(CuError::new(
+            "app_menu_platform_unsupported",
+            "application-global menu inspection is a macOS capability; use menu-inspect --window on this host",
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let app = app.trim();
+        if app.is_empty() {
+            return Err(invalid_input(
+                "app-menu-inspect --app must not be empty".into(),
+            ));
+        }
+        let mut before =
+            mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+        let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
+        let focus_before = super::windows::resolve_inventory_focus(&mut before, &stacking);
+        let mut matching = before
+            .iter()
+            .filter(|window| window.app_name.eq_ignore_ascii_case(app))
+            .cloned()
+            .collect::<Vec<_>>();
+        matching.sort_by_key(|window| (window.process_id, window.handle));
+        if matching.is_empty() {
+            return Err(CuError::new(
+                "a11y_app_not_found",
+                "no top-level window belongs to the exact requested application",
+            )
+            .with_detail(serde_json::json!({ "app": app })));
+        }
+        let pids = matching
+            .iter()
+            .map(|window| window.process_id)
+            .collect::<std::collections::BTreeSet<_>>();
+        if pids.len() != 1 {
+            return Err(CuError::new(
+                "a11y_app_ambiguous",
+                "the exact application name belongs to more than one live process",
+            )
+            .with_detail(serde_json::json!({ "app": app, "processes": pids.len() })));
+        }
+        let pid = matching[0].process_id;
+        let start_identity = match agenterm_platform::process::observe(pid) {
+            agenterm_platform::process::ProcessObservation::Live {
+                start_identity: Some(identity),
+            } => identity,
+            _ => {
+                return Err(CuError::new(
+                    "a11y_app_identity_unavailable",
+                    "the application process has no stable live start identity",
+                ));
+            }
+        };
+        let identities_before = matching
+            .iter()
+            .map(|window| (window.handle, window.process_id, window.app_name.clone()))
+            .collect::<Vec<_>>();
+        let selected = matching[0].handle;
+        let mut payload = menu_inspect_payload(selected, depth, max_nodes, filter, offset, max)?;
+
+        let process_stable = matches!(
+            agenterm_platform::process::observe(pid),
+            agenterm_platform::process::ProcessObservation::Live {
+                start_identity: Some(after),
+            } if after == start_identity
+        );
+        let mut after =
+            mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+        let stacking_after = mechanism::window_enumerate::stacking().unwrap_or_default();
+        let focus_after = super::windows::resolve_inventory_focus(&mut after, &stacking_after);
+        let mut identities_after = after
+            .iter()
+            .filter(|window| window.app_name.eq_ignore_ascii_case(app))
+            .map(|window| (window.handle, window.process_id, window.app_name.clone()))
+            .collect::<Vec<_>>();
+        identities_after.sort();
+        if !process_stable
+            || identities_before != identities_after
+            || super::windows::focus_identity(&focus_before)
+                != super::windows::focus_identity(&focus_after)
+        {
+            return Err(CuError::new(
+                "app_menu_inspection_changed",
+                "application identity, windows or foreground changed during menu inspection",
+            )
+            .with_detail(serde_json::json!({
+                "app": app,
+                "process_stable": process_stable,
+                "windows_before": identities_before.len(),
+                "windows_after": identities_after.len(),
+                "focus_before": focus_before.json(),
+                "focus_after": focus_after.json(),
+            })));
+        }
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("addressing".into(), serde_json::json!("application-menu"));
+            object.insert("app".into(), serde_json::json!(app));
+            object.insert("pid".into(), serde_json::json!(pid));
+            object.insert("start_identity".into(), serde_json::json!(start_identity));
+            object.insert(
+                "window_count".into(),
+                serde_json::json!(identities_before.len()),
+            );
+            object.insert("focus_unchanged".into(), serde_json::json!(true));
+        }
+        Ok(payload)
+    }
+}
+
 /// Press one menu item by exact title path in the background, verified by
 /// the item's mark read-back and a whole-window tree diff.
 pub(super) fn menu_invoke_payload(

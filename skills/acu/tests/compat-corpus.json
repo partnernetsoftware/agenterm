@@ -877,7 +877,7 @@
         "inspect",
         "Editor"
       ],
-      "classification": "dynamic-stay"
+      "classification": "resolved"
     },
     {
       "gap_id": "acu.dynamic.087",

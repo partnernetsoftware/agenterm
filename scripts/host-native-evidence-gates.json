@@ -64,6 +64,7 @@
         "cu.macos-ax-invoke-value-readback",
         "cu.macos-ax-invoke-refusals",
         "cu.macos-ax-menu-inspect",
+        "cu.macos-app-menu-inspect",
         "cu.macos-ax-menu-invoke",
         "cu.macos-ax-focused",
         "cu.macos-ax-observe",

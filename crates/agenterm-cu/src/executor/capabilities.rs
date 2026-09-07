@@ -927,6 +927,17 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "app-menu-inspect".into(),
+            serde_json::json!({
+                "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "group": "semantic",
+                "mode": "exact-app-global-menu-inventory",
+                "grant": "observe",
+                "identity_bracketed": true,
+                "platforms": ["macos"],
+            }),
+        );
+        verbs.insert(
             "doctor".into(),
             serde_json::json!({
                 "status": "available",

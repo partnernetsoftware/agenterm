@@ -1178,6 +1178,28 @@ impl Executor {
                 *offset,
                 *max,
             ),
+            Command::AppMenuInspect {
+                app,
+                depth,
+                max_nodes,
+                title,
+                exact,
+                enabled,
+                offset,
+                max,
+                ..
+            } => app_menu_inspect_payload(
+                app,
+                *depth,
+                *max_nodes,
+                observe::MenuFilter {
+                    title: title.clone(),
+                    exact: *exact,
+                    enabled: *enabled,
+                },
+                *offset,
+                *max,
+            ),
             Command::MenuInvoke { window, path, .. } => {
                 menu_invoke_payload(*window, path, &mut self.open_receipts(command.target())?)
             }

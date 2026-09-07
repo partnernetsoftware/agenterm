@@ -177,6 +177,7 @@ pub fn parse(
             })
         }
         "menu-inspect" => menu::parse(target, args),
+        "app-menu-inspect" => menu::parse_app_inspect(target, args),
         "get-text" => {
             let window = flag_window_opt(args);
             let name = flag_value(args, "--name");

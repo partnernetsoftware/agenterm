@@ -2460,6 +2460,27 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max: Option<usize>,
     },
+    /// Read one uniquely resolved macOS application's menu bar without
+    /// guessing a representative window. The Executor brackets the exact
+    /// process, matching window set and foreground identity around the read.
+    AppMenuInspect {
+        target: TargetRef,
+        app: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        exact: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<usize>,
+    },
     /// Press the menu item at `path` (menu title, then item titles, exact)
     /// in the background: every segment must resolve to exactly one
     /// enabled item before anything is pressed, the last must be a leaf,
@@ -4058,6 +4079,7 @@ impl Command {
             Self::Query { .. } => "query".into(),
             Self::Invoke { .. } => "invoke".into(),
             Self::MenuInspect { .. } => "menu-inspect".into(),
+            Self::AppMenuInspect { .. } => "app-menu-inspect".into(),
             Self::MenuInvoke { .. } => "menu-invoke".into(),
             Self::Focused { .. } => "focused".into(),
             Self::Observe { .. } => "observe".into(),
@@ -4454,6 +4476,7 @@ impl Command {
             | Self::Query { target, .. }
             | Self::Invoke { target, .. }
             | Self::MenuInspect { target, .. }
+            | Self::AppMenuInspect { target, .. }
             | Self::MenuInvoke { target, .. }
             | Self::Focused { target, .. }
             | Self::Observe { target, .. }
@@ -7282,6 +7305,19 @@ mod tests {
                 "depth": 2, "title": "Do", "enabled": true, "max": 20
             })
         );
+        let app_inspect = Command::AppMenuInspect {
+            target: TargetRef::Current,
+            app: "Editor".into(),
+            depth: Some(2),
+            max_nodes: Some(500),
+            title: None,
+            exact: false,
+            enabled: None,
+            offset: None,
+            max: None,
+        };
+        assert_eq!(app_inspect.verb(), "app-menu-inspect");
+        assert_eq!(app_inspect.required_grant(), Grant::Observe);
         let invoke = Command::MenuInvoke {
             target: TargetRef::Ssh,
             window: 7,
