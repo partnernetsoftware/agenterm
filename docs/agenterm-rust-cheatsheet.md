@@ -4595,6 +4595,30 @@ and asks polkit to authorize that exact `unix-process` subject only for a
 Missing request. Do not replace this with a world-readable ledger, a caller
 supplied uid/session, a parent-PID heuristic, a password bridge or a shell.
 
+Qualify replay-before-consent with broker-owned counters, not an observer's
+claim that no second dialog was visible. The court must distinguish replayed
+final state, retained unknown outcome, digest conflict, native authorization
+calls and effect attempts. Exercise concurrent duplicates and disconnects on
+both sides of durable reservation; a lost client is not permission to retry an
+effect. Native passwords and authentication responses stay inside the OS
+consent surface and never become fixtures, command input, logs or receipts.
+
+A graphical test bridge must preserve the filesystem, session and IPC semantics
+of the product it claims to qualify. Sandboxing the bridge with a read-only home
+or an unreadable root can manufacture product failures before the tested binary
+runs. Keep transport hardening such as `NoNewPrivileges` where it is neutral,
+but prove the test payload runs as the declared interactive uid with its actual
+display and session bus. Bind asynchronous job and result files to a fresh
+opaque job id so a timed-out invocation cannot satisfy a later court.
+
+Functional authorization and distributable size are separate courts. A direct
+D-Bus/polkit client can be correct yet pull an async runtime and protocol stack
+into every public CU binary. Measure the sealed executable against its existing
+budget; do not raise the budget to hide dependency growth. If the transport is
+too large, isolate it behind the already authenticated provider boundary or use
+a smaller native adapter, then rerun the same behavior court against the exact
+bytes intended for release.
+
 ## Freeze persisted grants to canonical operations
 
 Target, desktop session, scope, expiry and use count do not stop one broad

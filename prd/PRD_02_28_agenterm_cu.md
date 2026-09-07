@@ -1273,34 +1273,39 @@ flowchart LR
   retained effect once, publishes an immutable provider-owned receipt whose
   digest is the SHA-256 of its exact file bytes, and replays only that receipt;
   uncertain reservations retain their attempt identity and never become fresh.
-  Linux also has the first native-boundary substrate: a hidden provider mode
-  refuses non-root execution, derives the caller principal only from the
-  canonical `PKEXEC_UID` supplied by polkit's cleaned execution environment,
-  verifies that
-  `/proc/self/exe` is the same root-owned, non-writable inode installed at
-  `/usr/libexec/agenterm/agenterm-cu`, and keeps state in the protected
-  `/var/lib/agenterm/cu-privilege` root. Its polkit policy pins both that path
-  and the single provider argv. Its root installer must verify sealed provider
-  and policy digests and recover the prior pair after any interrupted
-  cross-directory replacement; this is not a claim of multi-file atomicity.
-  The public typed `privilege apply` path is now wired as a rehearsal boundary:
-  the planner returns canonical `request` + `approval` arguments, the CLI
-  decodes them into the closed plan union, requires ordinary request/session
-  identity plus `actuate`, and sends one bounded canonical request to the fixed
-  Linux provider without a shell. The provider ledger remains the sole root
-  effect idempotency owner; timeout, broken transport or an incomplete reply is
-  `privilege_outcome_unknown`, never an automatic retry. The Linux
-  archive/package still has to carry and install the provider, policy and final
-  broker units, then a real polkit court must pass. A one-shot `pkexec` launch performs
-  consent before the provider can inspect its root-only replay ledger, so the
-  replay-before-consent invariant remains open and requires a fixed,
-  authenticated broker boundary; a parent-PID check or world-readable ledger
-  is not an acceptable substitute. macOS app-bundle/SMAppService and Windows
-  protected-install/UAC transports remain explicit gaps; no shell, password
-  capture, worktree helper or hidden elevation substitutes for them.
+  Linux now has an experimental fixed-authority implementation, not the old
+  one-shot `pkexec` rehearsal. A systemd-owned Unix socket accepts one bounded
+  frame; the root broker derives the ordinary caller only from `SO_PEERCRED`,
+  brackets its `/proc` start identity, retains a pidfd, verifies the fixed
+  root-owned executable/socket ancestry, and consults its private replay ledger
+  before any native consent. Only `Missing` asks polkit about that exact
+  unix-process subject. Caller-selected uid/action/details, a shell, `pkexec`,
+  `pkcheck`, password capture and the former hidden provider argv are absent.
+  The provider package is a digest-sealed, crash-recoverable four-artifact
+  transaction: fixed binary, polkit policy, socket unit and service unit. It
+  enables only socket activation and restores both bytes and prior systemd
+  state after injected failure or interruption.
 
-  Linux broker promotion tree (the one-shot `pkexec` substrate is rehearsal,
-  not the final authority boundary). The frozen decision procedure is
+  The x86_64 UTM court has now proved the first real half of this boundary: an
+  unprivileged graphical-session client created an identity-bound plan for a
+  root-owned process, systemd activated the installed broker, polkit displayed
+  the fixed action/vendor prompt, explicit cancellation returned
+  `privilege_consent_canceled`, and the target remained live. A separately
+  approved request returned `completed + verified`, terminated its exact
+  root-owned fixture, and replay returned the identical immutable receipt in
+  0.13 seconds without repeating the effect. Counter-backed finalized/unknown/
+  conflict cases, lost reply, concurrent duplicate suppression, client-death
+  cancellation and the aarch64 court remain unproved; therefore the capability
+  is still `[~]` and not shipped. The current Linux release artifacts are also
+  over the governing `agenterm-cu` size budget after linking the polkit
+  transport, so qualification
+  cannot raise that budget or promote these bytes. The decisive experiment and
+  exact result ledger live in `plan/design-linux-privilege-broker-experiment.md`
+  and `research/linux-privilege-broker/RESULTS.md`. macOS app-bundle/
+  SMAppService and Windows protected-install/UAC transports remain explicit
+  gaps; no worktree helper or silent elevation substitutes for them.
+
+  Linux broker promotion tree. The frozen decision procedure is
   `plan/design-linux-privilege-broker-experiment.md`:
 
   ```text
@@ -1353,10 +1358,10 @@ flowchart LR
   write-ahead recovery journal, every required postcondition is bounded and
   pre-stopped members remain stopped on failed TERM. Fixture courts prove the
   one-attempt gate and recoverable tree core without claiming elevation. This
-  still does not close the privileged signal capability gap: only a
-  fixed-identity, protected native provider may
-  authenticate the peer, obtain OS consent, retain the exact process objects,
-  reserve provider-owned replay state before mutation and own read-back.
+  fixed Linux broker now reaches that effect core, but the capability gap stays
+  open until its approve/replay/race/client-death cases, both Linux ISAs and the
+  release-size court are green. macOS and Windows still require their own
+  protected native provider transports; a Linux result cannot qualify them.
 
 - [~] CoreSimulator now has a bounded macOS platform foundation rather than a
   shell-shaped MCU exception. It lists at most 200 devices by exact UDID,

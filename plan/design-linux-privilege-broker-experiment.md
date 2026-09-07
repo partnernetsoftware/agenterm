@@ -149,7 +149,10 @@ research/linux-privilege-broker/
 
 ## §8 · Result backfill
 
-Status: **specification frozen; experiment not yet executed**.
+Status: **experiment in progress; x86_64 approve/cancel/replay is green, but
+aarch64, counter-backed B1/B3–B5/C1/C2, the 20-run T1 sample and the release
+size court remain open**. Exact evidence and the recorded timebox deviation are
+in `research/linux-privilege-broker/RESULTS.md`.
 
 When complete, record the B1→B5/C1/C2/T1 table, the exact decision-tree path,
 all deviations, any result that overturned expectations, and this statement:

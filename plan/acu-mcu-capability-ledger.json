@@ -139,8 +139,8 @@
           "acu_shape": "privilege plan process.signal PID SIGNAL [--tree --max N] [--force] [--timeout-ms N] freezes exact process identity, parent edges, scheduler state, bounded scope and expiring digests without mutation",
           "state": "gap",
           "evidence": ["cu.privileged-signal-plan"],
-          "next": "replace the Linux pkexec rehearsal with the fixed pre-consent broker, carry it in the system install and run real consent courts, then add equivalent signed macOS and Windows providers",
-          "note": "Planning is public and read-only; it is not elevation. The shared provider protocol now has a closed priority/signal union, explicit one-shot/delegated authorization mode, a maximum-shape-tested 64 KiB wire ceiling, pre-consent replay lookup and contradiction-free terminal states. The provider coordinator owns one durable UUIDv4 attempt, retained exact objects, one effect attempt, exact-byte receipt digest and terminal replay. The public typed apply path now consumes the planner's canonical request+approval, requires ordinary request/session identity and actuate, bypasses the caller ledger so the provider remains the sole root effect owner, uses a fixed no-shell Linux invocation and maps every incomplete transport result to outcome_unknown. Linux also verifies a fixed root-owned installed inode, canonical PKEXEC_UID principal, protected state root and a path+argv-pinned polkit policy. This remains rehearsal: a one-shot pkexec launch consents before the provider can inspect its root-only ledger, so it cannot prove replay-before-consent; that invariant needs a systemd-activated root broker bound to kernel peer identity rather than a parent-PID guess or world-readable state. The gap remains until system install, real consent court and broker boundary are complete; macOS and Windows fixed signed providers remain absent."
+          "next": "finish the counter-backed Linux x86_64/aarch64 broker court and recover the 2 MiB release budget, then add equivalent signed macOS and Windows providers",
+          "note": "Planning is public and read-only; it is not elevation. Linux now routes apply through a fixed systemd socket broker that derives SO_PEERCRED plus process start identity, retains pidfd authority, checks the root-only replay ledger before polkit consent and executes through retained exact process objects. The old pkexec/PKEXEC_UID route is removed. A real x86_64 desktop court proved typed cancellation with no effect, approved completed+verified signal delivery and immutable terminal replay; a guest-local warm replay measured 0.13 seconds. This is not yet retirement evidence: broker-owned finalized/unknown/conflict and race counters, client-death behavior, aarch64 execution, release-size recovery, and protected macOS/Windows providers remain open."
         },
         {
           "id": "process.cwd",
@@ -1351,23 +1351,23 @@
           "mcu_shape": "privilege apply via typed sudo helper with preflight, identity recheck and post-state",
           "acu_shape": null,
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "provider-pending"},
-          "next": "minimal native helper validates its own root-owned bytes and one closed request, then returns structured evidence"
+          "platforms": {"macos": "gap", "linux": "x86_64-live-partial-aarch64-pending", "windows": "provider-pending"},
+          "next": "finish Linux counter-backed and aarch64 courts, then implement protected signed macOS/Windows providers"
         },
         {
           "id": "privilege.ttl-broker",
           "mcu_shape": "broker install|status|grant|execute|uninstall with UID-private channel, TTL and capability scope",
-          "acu_shape": null,
+          "acu_shape": "Linux fixed socket-activated broker with root-only replay, one fresh reservation/effect and immutable terminal receipts",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "provider-pending", "windows": "provider-pending"},
+          "platforms": {"macos": "gap", "linux": "implemented-qualification-pending", "windows": "provider-pending"},
           "next": "native service with short-lived least-authority grants, at-most-once mutation receipts and rollback-safe upgrades"
         },
         {
           "id": "privilege.native-consent",
           "mcu_shape": "platform administrator authentication UI, with explicit canceled result and no credential collection",
-          "acu_shape": null,
+          "acu_shape": "Linux broker calls polkit CheckAuthorization for the kernel-derived unix-process subject; canceled dialog is typed with no effect",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "polkit-pending", "windows": "UAC-pending"},
+          "platforms": {"macos": "gap", "linux": "x86_64-live-aarch64-pending", "windows": "UAC-pending"},
           "next": "invoke only the OS consent surface; passwords, MFA and biometric material never enter ACU"
         }
       ]

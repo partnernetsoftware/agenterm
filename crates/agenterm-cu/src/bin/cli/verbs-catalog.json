@@ -1108,7 +1108,7 @@
       ],
       "grant": "actuate",
       "family": "privilege",
-      "summary": "apply one typed plan through Linux native consent",
+      "summary": "apply one typed plan through the fixed Linux system broker and native consent",
       "usage": "privilege apply --request PLAN --approve DIGEST [--provider-timeout-ms N]",
       "args": [
         {
@@ -6205,7 +6205,7 @@
     },
     {
       "name": "privilege-apply",
-      "text": "agenterm-cu privilege-apply    (also: privilege apply)\n  scope: actuate    family: Privilege\n\nusage (after the global flags, including --request-id, --session and --session-lease):\n  privilege apply --request PLAN --approve DIGEST [--provider-timeout-ms N]\n\narguments:\n  --request PLAN                 bounded canonical base64url plan returned by privilege plan\n  --approve DIGEST               exact approval digest returned with that expiring plan\n  --provider-timeout-ms N        full provider deadline, 1..=600000 (default 120000)\n\nThe executor decodes PLAN into the closed typed priority/signal union, binds the\nordinary request and session identity, and requests OneShotNativeConsent only.\nOn Linux it invokes exactly /usr/bin/pkexec with the installed fixed provider\nargv, no shell, and sends the canonical request on stdin. The provider's private\nroot ledger is the sole at-most-once effect owner; an absent, malformed, timed\nout or transport-broken reply is outcome_unknown and is never retried. Explicit\npkexec cancellation is consent_canceled. This one-shot route does not prove\nprovider replay lookup occurs before consent; that requires a future fixed broker.\n"
+      "text": "agenterm-cu privilege-apply    (also: privilege apply)\n  scope: actuate    family: Privilege\n\nusage (after the global flags, including --request-id, --session and --session-lease):\n  privilege apply --request PLAN --approve DIGEST [--provider-timeout-ms N]\n\narguments:\n  --request PLAN                 bounded canonical base64url plan returned by privilege plan\n  --approve DIGEST               exact approval digest returned with that expiring plan\n  --provider-timeout-ms N        full native-consent/provider deadline, 1..=600000 ms (default 120000)\n\nThe executor decodes PLAN into the closed typed priority/signal union and binds\nthe ordinary request/session identity. On Linux it connects only to the fixed\nsystemd-owned Unix socket. The root broker derives the caller from SO_PEERCRED,\nretains its pidfd identity, checks the private replay ledger before consent, and\nasks polkit about that exact unix-process subject only for a fresh request. It\nuses no shell, pkexec, caller-supplied uid or password capture. A canceled native\ndialog is consent_canceled with no effect. Broken transport or an incomplete\nafter-effect reply is outcome_unknown and is never retried automatically. The\nfixed broker package and its platform courts remain a delivery qualification\nrequirement; catalog presence alone does not claim that elevation is shipped.\n"
     },
     {
       "name": "process-set-state",
