@@ -49,10 +49,17 @@ const children = [];
 let succeeded = 0;
 let failure = "";
 
+function windows_command_processor() {
+  const configured = rh.env_or("ComSpec", "");
+  if (configured !== "") { return configured; }
+  const system_root = rh.env_or("SystemRoot", "C:\\Windows");
+  return rh.join(system_root, "System32", "cmd.exe");
+}
+
 try {
   print("STEP start one owned process and observe its stable identity");
   const child = harness.start_child(context, harness.host_is_windows() ? {
-    program: "cmd.exe",
+    program: windows_command_processor(),
     args: ["/d", "/s", "/c", "ping -n 60 127.0.0.1 >nul"],
     current_dir: context.run_directory,
     timeout_ms: 90000
@@ -113,7 +120,7 @@ try {
 
   print("STEP bounded tree signal preserves exact members and postconditions");
   const tree_child = harness.start_child(context, harness.host_is_windows() ? {
-    program: "cmd.exe",
+    program: windows_command_processor(),
     args: ["/d", "/s", "/c", "ping -n 60 127.0.0.1 >nul"],
     current_dir: context.run_directory,
     timeout_ms: 90000
