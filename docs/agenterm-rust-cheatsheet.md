@@ -2067,6 +2067,15 @@ probe must bind its caller-supplied platform label to the native
 `capabilities.platform` field (`std::env::consts::OS`); a matrix cell name is
 not evidence of the binary that actually ran.
 
+Direct clipboard text must stay a distinct command source, not a path-shaped
+string and not a temporary file. Bound it to the native text read-back ceiling,
+reject embedded NUL where the host text contract cannot preserve it, publish
+through the clipboard facade, then verify byte length and SHA-256 through an
+independent native read. Receipts and audit records may carry those measurements
+but never the text. Any payload-bearing source type also needs a redacted
+`Debug` implementation; a clean JSON receipt is insufficient if a later error
+or diagnostic can format the command enum and expose its field.
+
 `copy --window HANDLE` without `--name` copies that same GetText path
 on the showing focused node — the same innermost `Text.GetText`
 candidate `get-text --window` reads — onto native CLIPBOARD

@@ -12,6 +12,9 @@ use crate::{
     target::TargetRef,
 };
 
+/// Cross-host logical type for direct UTF-8 clipboard text.
+pub const CLIPBOARD_UTF8_TEXT_TYPE: &str = "text/plain;charset=utf-8";
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -1187,6 +1190,27 @@ impl Expectation {
     /// WebArea title / Heading alias). State fields remain optional.
     pub fn has_page_identity(&self) -> bool {
         self.name.is_some()
+    }
+}
+
+/// Source bytes for `clipboard-write`.
+///
+/// The untagged string form preserves the ABI 1.24 `path` wire shape. Direct
+/// text is carried as a distinct object so it can never be mistaken for a
+/// filesystem path by the executor.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ClipboardWriteSource {
+    Path(String),
+    Text { text: String },
+}
+
+impl std::fmt::Debug for ClipboardWriteSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Path(path) => formatter.debug_tuple("Path").field(path).finish(),
+            Self::Text { .. } => formatter.write_str("Text { text: <redacted> }"),
+        }
     }
 }
 
@@ -2614,13 +2638,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replace: bool,
     },
-    /// MCU `clipboard write <type> <file>`: publish one native type from a
-    /// regular file (≤16 MiB) and read it back.
+    /// Publish one native type from either a regular file (≤16 MiB) or
+    /// bounded direct UTF-8 text, then read it back.
     ClipboardWrite {
         target: TargetRef,
         #[serde(rename = "type")]
         type_name: String,
-        path: String,
+        path: ClipboardWriteSource,
     },
     /// MCU `clipboard write-file <path>`: put a file reference on the
     /// clipboard, not the file's bytes.
@@ -8226,5 +8250,39 @@ mod tests {
             .authorization_operation(),
             None
         );
+    }
+
+    #[test]
+    fn clipboard_write_source_preserves_path_wire_and_carries_direct_text_distinctly() {
+        let path = serde_json::json!({
+            "verb": "clipboard-write",
+            "target": "current",
+            "type": "public.png",
+            "path": "image.png",
+        });
+        let path_command: Command = serde_json::from_value(path.clone()).expect("legacy path");
+        assert_eq!(
+            serde_json::to_value(path_command).expect("path encode"),
+            path
+        );
+
+        let text = serde_json::json!({
+            "verb": "clipboard-write",
+            "target": "current",
+            "type": CLIPBOARD_UTF8_TEXT_TYPE,
+            "path": { "text": "private 中🚀" },
+        });
+        let text_command: Command = serde_json::from_value(text.clone()).expect("direct text");
+        assert_eq!(
+            serde_json::to_value(text_command).expect("text encode"),
+            text
+        );
+
+        let source = ClipboardWriteSource::Text {
+            text: "private 中🚀".into(),
+        };
+        let debug = format!("{source:?}");
+        assert_eq!(debug, "Text { text: <redacted> }");
+        assert!(!debug.contains("private"));
     }
 }

@@ -1,7 +1,10 @@
 //! Clipboard: the native read / write / clear verbs, the MCU `clipboard`
 //! group word and `clip`, plus the a11y-addressed `copy` / `paste`.
 
-use agenterm_cu::{Command, TargetRef};
+use agenterm_cu::{
+    Command, TargetRef,
+    command::{CLIPBOARD_UTF8_TEXT_TYPE, ClipboardWriteSource},
+};
 
 use super::verbs::VerbSpec;
 use super::{flag_parsed, flag_text, flag_value, flag_window_opt, split_literal_tail, take_switch};
@@ -27,11 +30,21 @@ pub fn parse(
             }
         }
         "clip" => {
+            if args.len() == 1 && args[0] == "--" {
+                args.clear();
+            }
             if !args.is_empty() {
-                return Err(format!(
-                    "clip with no text is clipboard-read; unexpected {:?}",
-                    args[0]
-                ));
+                let text = if args.first().is_some_and(|arg| arg == "--") {
+                    args.remove(0);
+                    args.join(" ")
+                } else {
+                    std::mem::take(args).join(" ")
+                };
+                return Ok(Command::ClipboardWrite {
+                    target,
+                    type_name: CLIPBOARD_UTF8_TEXT_TYPE.to_owned(),
+                    path: ClipboardWriteSource::Text { text },
+                });
             }
             Ok(Command::ClipboardRead {
                 target,
@@ -152,21 +165,38 @@ fn read(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
 fn write(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let type_name = flag_text(args, "--type")?;
     let path = flag_text(args, "--path")?;
+    let text = flag_text(args, "--text")?;
     let type_name = type_name.or_else(|| positional(args));
-    let path = path.or_else(|| positional(args));
+    let path = if path.is_none() && text.is_none() {
+        positional(args)
+    } else {
+        path
+    };
     if !args.is_empty() {
         return Err(format!(
-            "clipboard-write accepts --type T --path P; unexpected {:?}",
+            "clipboard-write accepts --type T with exactly one of --path P or --text TEXT; unexpected {:?}",
             args[0]
         ));
     }
-    let (Some(type_name), Some(path)) = (type_name, path) else {
-        return Err("clipboard-write requires --type T --path P".into());
+    let Some(type_name) = type_name else {
+        return Err(
+            "clipboard-write requires --type T and exactly one of --path P or --text TEXT".into(),
+        );
+    };
+    let source = match (path, text) {
+        (Some(path), None) => ClipboardWriteSource::Path(path),
+        (None, Some(text)) => ClipboardWriteSource::Text { text },
+        (Some(_), Some(_)) => {
+            return Err("clipboard-write --path and --text are mutually exclusive".into());
+        }
+        (None, None) => {
+            return Err("clipboard-write requires exactly one of --path P or --text TEXT".into());
+        }
     };
     Ok(Command::ClipboardWrite {
         target,
         type_name,
-        path,
+        path: source,
     })
 }
 
@@ -194,4 +224,67 @@ fn clear(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         ));
     }
     Ok(Command::ClipboardClear { target, apply })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agenterm_cu::verb_catalog::resolve;
+
+    fn parse_clip(args: &[&str]) -> Command {
+        let spec = resolve("clip", None).expect("clip spec");
+        let mut args = args.iter().map(|arg| (*arg).to_owned()).collect();
+        parse(spec, "clip", TargetRef::Current, &mut args).expect("parse clip")
+    }
+
+    #[test]
+    fn clip_with_text_preserves_mcu_space_join_and_utf8() {
+        let command = parse_clip(&["alpha", "中🚀", "omega"]);
+        match command {
+            Command::ClipboardWrite {
+                type_name,
+                path: ClipboardWriteSource::Text { text },
+                ..
+            } => {
+                assert_eq!(type_name, CLIPBOARD_UTF8_TEXT_TYPE);
+                assert_eq!(text, "alpha 中🚀 omega");
+            }
+            _ => panic!("clip TEXT must become a direct clipboard write"),
+        }
+    }
+
+    #[test]
+    fn clip_empty_argument_is_a_write_but_no_arguments_is_a_read() {
+        assert!(matches!(parse_clip(&[]), Command::ClipboardRead { .. }));
+        assert!(matches!(parse_clip(&["--"]), Command::ClipboardRead { .. }));
+        assert!(matches!(
+            parse_clip(&[""]),
+            Command::ClipboardWrite {
+                path: ClipboardWriteSource::Text { text },
+                ..
+            } if text.is_empty()
+        ));
+    }
+
+    #[test]
+    fn clipboard_write_text_and_path_are_strictly_exclusive() {
+        let spec = resolve("clipboard-write", None).expect("clipboard-write spec");
+        let mut args = [
+            "--type",
+            CLIPBOARD_UTF8_TEXT_TYPE,
+            "--path",
+            "payload.bin",
+            "--text",
+            "private",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        let error = parse(spec, "clipboard-write", TargetRef::Current, &mut args)
+            .expect_err("mixed sources must fail");
+        assert_eq!(
+            error,
+            "clipboard-write --path and --text are mutually exclusive"
+        );
+        assert!(!error.contains("private"));
+    }
 }
