@@ -1,13 +1,17 @@
-//! Public typed privilege apply and the fixed Linux polkit launcher.
+//! Public typed privilege apply and the selected fixed native-consent launcher.
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", all(target_os = "macos", not(test))))]
 use std::time::Duration;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "macos", not(test)))]
+use agenterm_platform::privilege_authorization::{
+    PrivilegeAuthorizationErrorKind, acquire_macos_authorization_proof,
+};
+#[cfg(any(target_os = "linux", all(target_os = "macos", not(test))))]
 use agenterm_platform::system_broker::SystemBrokerStream;
 use serde_json::{Value, json};
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 use crate::privilege_apply::PrivilegeApplyReplyV1;
 use crate::{
     Command, CuError, CuReply,
@@ -94,11 +98,11 @@ fn privilege_apply_payload(
     // Reuse the provider decoder locally so the public process is guaranteed
     // to send exactly one protocol-valid bounded request.
     parse_apply_request(&canonical)?;
-    launch_linux_provider(&request, canonical, *provider_timeout_ms)
+    launch_native_provider(&request, canonical, *provider_timeout_ms)
 }
 
 #[cfg(target_os = "linux")]
-fn launch_linux_provider(
+fn launch_native_provider(
     request: &PrivilegeApplyRequestV1,
     canonical: Vec<u8>,
     timeout_ms: u64,
@@ -120,20 +124,102 @@ fn launch_linux_provider(
     project_reply(reply)
 }
 
-#[cfg(not(target_os = "linux"))]
-fn launch_linux_provider(
+#[cfg(all(target_os = "macos", not(test)))]
+fn launch_native_provider(
+    request: &PrivilegeApplyRequestV1,
+    canonical: Vec<u8>,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    use crate::privilege_broker_wire::{
+        MacosServerDisposition, read_macos_server_disposition, write_macos_authorization_proof,
+        write_macos_client_consent,
+    };
+
+    let timeout = Duration::from_millis(timeout_ms);
+    let mut stream = SystemBrokerStream::connect(timeout)
+        .map_err(|_| transport_not_performed("privilege_provider_unavailable", "connect"))?;
+    stream.set_io_timeout(timeout).map_err(|_| {
+        transport_not_performed("privilege_provider_transport_failed", "io-timeout")
+    })?;
+    crate::privilege_broker_wire::write_request(&mut stream, &canonical)
+        .map_err(|_| transport_unknown("request-write"))?;
+    match read_macos_server_disposition(&mut stream)
+        .map_err(|_| transport_unknown("server-disposition"))?
+    {
+        MacosServerDisposition::ReplyReady => {
+            stream
+                .shutdown_write()
+                .map_err(|_| transport_unknown("request-close"))?;
+        }
+        MacosServerDisposition::ConsentRequired => {
+            match acquire_macos_authorization_proof(timeout) {
+                Ok(mut proof) => {
+                    write_macos_authorization_proof(&mut stream, &mut proof)
+                        .map_err(|_| transport_unknown("proof-write"))?;
+                    stream
+                        .shutdown_write()
+                        .map_err(|_| transport_unknown("proof-close"))?;
+                    let reply = crate::privilege_broker_wire::read_reply(&mut stream)
+                        .map_err(|_| transport_unknown("reply"))?;
+                    validate_reply_binding(request, &reply)?;
+                    return project_reply(reply);
+                }
+                Err(error) => {
+                    write_macos_client_consent(&mut stream, macos_client_consent(error.kind()))
+                        .map_err(|_| transport_unknown("consent-write"))?;
+                    stream
+                        .shutdown_write()
+                        .map_err(|_| transport_unknown("consent-close"))?;
+                }
+            }
+        }
+    }
+    let reply = crate::privilege_broker_wire::read_reply(&mut stream)
+        .map_err(|_| transport_unknown("reply"))?;
+    validate_reply_binding(request, &reply)?;
+    project_reply(reply)
+}
+
+#[cfg(all(target_os = "macos", not(test)))]
+fn macos_client_consent(
+    kind: PrivilegeAuthorizationErrorKind,
+) -> crate::privilege_broker_wire::MacosClientConsent {
+    use crate::privilege_broker_wire::MacosClientConsent;
+    match kind {
+        PrivilegeAuthorizationErrorKind::AuthorizationCanceled => MacosClientConsent::Canceled,
+        PrivilegeAuthorizationErrorKind::NotAuthorized => MacosClientConsent::Denied,
+        PrivilegeAuthorizationErrorKind::TimedOut => MacosClientConsent::TimedOut,
+        _ => MacosClientConsent::Failed,
+    }
+}
+
+#[cfg(all(target_os = "macos", test))]
+fn launch_native_provider(
     _request: &PrivilegeApplyRequestV1,
     _canonical: Vec<u8>,
     _timeout_ms: u64,
 ) -> Result<Value, CuError> {
     Err(CuError::new(
         "privilege_provider_unsupported",
-        "the public native-consent privilege provider is currently available only on Linux",
+        "native macOS provider launch is disabled inside the unit-test process",
     )
     .with_detail(json!({"effect": "not_performed"})))
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn launch_native_provider(
+    _request: &PrivilegeApplyRequestV1,
+    _canonical: Vec<u8>,
+    _timeout_ms: u64,
+) -> Result<Value, CuError> {
+    Err(CuError::new(
+        "privilege_provider_unsupported",
+        "the public native-consent privilege provider is unavailable on this platform",
+    )
+    .with_detail(json!({"effect": "not_performed"})))
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn validate_reply_binding(
     request: &PrivilegeApplyRequestV1,
     reply: &PrivilegeApplyReplyV1,
@@ -148,7 +234,7 @@ fn validate_reply_binding(
     Ok(())
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn reply_identity(reply: &PrivilegeApplyReplyV1) -> (&str, &str, &str) {
     match reply {
         PrivilegeApplyReplyV1::Refused {
@@ -190,7 +276,7 @@ fn reply_identity(reply: &PrivilegeApplyReplyV1) -> (&str, &str, &str) {
     }
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn project_reply(reply: PrivilegeApplyReplyV1) -> Result<Value, CuError> {
     match &reply {
         PrivilegeApplyReplyV1::Completed { .. } => serde_json::to_value(reply).map_err(|_| {
@@ -232,7 +318,7 @@ fn project_reply(reply: PrivilegeApplyReplyV1) -> Result<Value, CuError> {
     }
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn provider_error(
     code: &str,
     message: &'static str,
@@ -245,7 +331,7 @@ fn provider_error(
     }))
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn transport_unknown(stage: &'static str) -> CuError {
     CuError::new(
         "privilege_outcome_unknown",
@@ -257,7 +343,7 @@ fn transport_unknown(stage: &'static str) -> CuError {
     }))
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 fn transport_not_performed(code: &'static str, stage: &'static str) -> CuError {
     CuError::new(
         code,

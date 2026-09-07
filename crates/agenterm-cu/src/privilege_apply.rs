@@ -336,7 +336,7 @@ pub struct AuthenticatedPrivilegePeer {
     provider_identity_digest: String,
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 impl AuthenticatedPrivilegePeer {
     pub(crate) fn from_native_provider(
         principal_digest: String,
@@ -364,7 +364,7 @@ pub struct NativeAuthorizationProof {
     authorization: PrivilegeAuthorizationV1,
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 impl NativeAuthorizationProof {
     pub(crate) fn from_native_provider(authorization: PrivilegeAuthorizationV1) -> Self {
         Self { authorization }

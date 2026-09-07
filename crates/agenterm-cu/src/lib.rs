@@ -113,19 +113,23 @@ pub mod observe;
 pub mod page_text;
 pub mod place;
 pub mod privilege_apply;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(crate) mod privilege_broker;
 #[cfg(any(target_os = "linux", test))]
 pub(crate) mod privilege_broker_metrics;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(crate) mod privilege_broker_wire;
 pub mod privilege_plan;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(crate) mod privilege_provider;
 #[cfg(target_os = "linux")]
 pub(crate) mod privilege_provider_linux;
+#[cfg(target_os = "macos")]
+pub(crate) mod privilege_provider_macos;
 #[cfg(target_os = "linux")]
 pub(crate) mod privilege_system_broker_linux;
+#[cfg(target_os = "macos")]
+pub(crate) mod privilege_system_broker_macos;
 
 #[doc(hidden)]
 pub const PRIVILEGE_BROKER_ARG: &str = "--agenterm-cu-internal-privilege-broker";
@@ -136,7 +140,11 @@ pub fn run_privilege_broker() -> i32 {
     {
         privilege_system_broker_linux::run_systemd()
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        privilege_system_broker_macos::run_launchd()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         2
     }
