@@ -143,7 +143,7 @@ AgenTerm — local agent & process fleet work OS
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 134 叶：
-│     │                       native 35 / delegated 31 / platform-limited 61 / gap 2 / retired 5
+│     │                       native 35 / delegated 31 / platform-limited 62 / gap 1 / retired 5
 │     │                       exact @tab 视口滚动与渲染 PNG 已走同一 control plane；
 │     │                       macOS qjswasm 黑盒已绿，Linux/Windows GUI court 待补
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
@@ -162,8 +162,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       同一公开 qjswasm court 已证后台 CDP 读写、指针/对话框/文件、
 │     │                       PNG 与 stat-only download；Lnx/Win 同源证据仍待补
 │     │                       window lifecycle 已由 typed MV3 window-open + exact state/read-back +
-│     │                       native focus settle/restore 在 macOS qjswasm court 晋级 native；closed-shadow
-│     │                       写入/调用/文件与 Linux/Windows 资格仍继续推进
+│     │                       native focus settle/restore 在 macOS qjswasm court 晋级 native；同一门已证
+│     │                       child-frame closed-shadow 的读/type/focus/press/files、secret-free receipt、
+│     │                       effect outcome-unknown 防重放；Linux/Windows owned-Profile 资格待补
 │     │                       macOS core 已证平台身份/显示/不读内容的剪贴板元数据/有界 shell 回收；
 │     │                       owned-process + owned-desktop 也已证，macOS vocabulary 完整；
 │     │                       Linux/Windows 同源回执未齐，故不改变跨平台 gap 判决

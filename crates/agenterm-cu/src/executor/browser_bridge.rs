@@ -8,9 +8,10 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     browser_bridge::{
-        BridgeRequest, BridgeStatus, ConnectionId, DebugReadRequest, ProfileInstanceId,
-        ReloadResult, TabsResult, install_for_current_user, list_live_connections,
-        send_to_connection, send_to_connection_with_timeout,
+        BridgeRequest, BridgeStatus, ConnectionId, DEBUG_FILES_MAX_FILES, DebugFile,
+        DebugFilesRequest, DebugInvokeRequest, DebugReadRequest, DebugTarget, DebugTypeRequest,
+        ProfileInstanceId, ReloadResult, TabsResult, install_for_current_user,
+        list_live_connections, send_to_connection, send_to_connection_with_timeout,
     },
     reply::CuError,
 };
@@ -80,6 +81,300 @@ pub(super) fn browser_bridge_debug_read_payload(
         ));
     };
     browser_bridge_request_payload(connection_id, "debug-read", args)
+}
+
+pub(super) fn browser_bridge_debug_invoke_payload(
+    request_context: &super::JobRequestContext<'_>,
+    connection_id: &ConnectionId,
+    request: DebugInvokeRequest,
+    lock_ttl_seconds: u64,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    execute_locked_debug_request(
+        request_context,
+        DebugRoute {
+            connection_id,
+            tab_id: request.tab_id,
+            target: &request.target,
+            command: "debug-invoke",
+            lock_ttl_seconds,
+            timeout_ms,
+        },
+        &request,
+    )
+}
+
+pub(super) fn browser_bridge_debug_type_payload(
+    request_context: &super::JobRequestContext<'_>,
+    connection_id: &ConnectionId,
+    tab_id: u32,
+    target: &DebugTarget,
+    text: &str,
+    lock_ttl_seconds: u64,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    let request = DebugTypeRequest {
+        tab_id,
+        target: target.clone(),
+        text: text.to_owned(),
+    };
+    execute_locked_debug_request(
+        request_context,
+        DebugRoute {
+            connection_id,
+            tab_id,
+            target,
+            command: "debug-type",
+            lock_ttl_seconds,
+            timeout_ms,
+        },
+        &request,
+    )
+}
+
+pub(super) fn browser_bridge_debug_files_payload(
+    request_context: &super::JobRequestContext<'_>,
+    connection_id: &ConnectionId,
+    tab_id: u32,
+    target: &DebugTarget,
+    paths: &[String],
+    lock_ttl_seconds: u64,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    let files = validate_debug_files(paths)?;
+    let request = DebugFilesRequest {
+        tab_id,
+        target: target.clone(),
+        files,
+    };
+    execute_locked_debug_request(
+        request_context,
+        DebugRoute {
+            connection_id,
+            tab_id,
+            target,
+            command: "debug-files",
+            lock_ttl_seconds,
+            timeout_ms,
+        },
+        &request,
+    )
+}
+
+fn validate_debug_files(paths: &[String]) -> Result<Vec<DebugFile>, CuError> {
+    const MAX_PATH_BYTES: usize = 4_096;
+    const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+    const MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+    if paths.is_empty() || paths.len() > DEBUG_FILES_MAX_FILES {
+        return Err(CuError::new(
+            "browser_bridge_debug_files_invalid",
+            "debug-files requires 1..=32 local files",
+        ));
+    }
+    let mut total = 0_u64;
+    let mut files = Vec::with_capacity(paths.len());
+    for raw in paths {
+        if raw.is_empty() || raw.len() > MAX_PATH_BYTES || raw.contains('\0') {
+            return Err(CuError::new(
+                "browser_bridge_debug_files_invalid",
+                "each file path must be 1..=4096 bytes without NUL",
+            ));
+        }
+        let path = std::path::Path::new(raw);
+        if !path.is_absolute() {
+            return Err(CuError::new(
+                "browser_bridge_debug_files_invalid",
+                "file paths must be absolute on the browser host",
+            ));
+        }
+        let metadata = std::fs::symlink_metadata(path).map_err(|_| {
+            CuError::new(
+                "browser_bridge_debug_file_unavailable",
+                "one local file could not be inspected",
+            )
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(CuError::new(
+                "browser_bridge_debug_file_invalid",
+                "debug-files accepts regular non-symlink files only",
+            ));
+        }
+        if metadata.len() > MAX_FILE_BYTES {
+            return Err(CuError::new(
+                "browser_bridge_debug_file_too_large",
+                "one local file exceeds the 10 GiB bound",
+            ));
+        }
+        total = total.checked_add(metadata.len()).ok_or_else(|| {
+            CuError::new(
+                "browser_bridge_debug_files_too_large",
+                "file byte total overflowed",
+            )
+        })?;
+        if total > MAX_TOTAL_BYTES {
+            return Err(CuError::new(
+                "browser_bridge_debug_files_too_large",
+                "local files exceed the 20 GiB aggregate bound",
+            ));
+        }
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CuError::new(
+                    "browser_bridge_debug_file_invalid",
+                    "each local file requires a UTF-8 basename",
+                )
+            })?;
+        files.push(DebugFile {
+            path: raw.clone(),
+            name: name.to_owned(),
+            size: metadata.len(),
+        });
+    }
+    if serde_json::to_vec(&files).map_or(true, |encoded| encoded.len() > 128 * 1024) {
+        return Err(CuError::new(
+            "browser_bridge_debug_files_too_large",
+            "encoded file descriptors exceed the 128 KiB request bound",
+        ));
+    }
+    Ok(files)
+}
+
+struct DebugRoute<'a> {
+    connection_id: &'a ConnectionId,
+    tab_id: u32,
+    target: &'a DebugTarget,
+    command: &'static str,
+    lock_ttl_seconds: u64,
+    timeout_ms: u64,
+}
+
+fn execute_locked_debug_request(
+    request_context: &super::JobRequestContext<'_>,
+    route: DebugRoute<'_>,
+    request: &impl serde::Serialize,
+) -> Result<Value, CuError> {
+    let DebugRoute {
+        connection_id,
+        tab_id,
+        target,
+        command,
+        lock_ttl_seconds,
+        timeout_ms,
+    } = route;
+    if lock_ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(LOCK_DEADLINE_MARGIN_MS) {
+        return Err(CuError::new(
+            "browser_bridge_lock_ttl_invalid",
+            "the tab lock TTL must cover the overall effect deadline plus 5000ms",
+        ));
+    }
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    let before_focus = desktop_focus_handle()?;
+    let before_status = bridge_status_until(connection_id, deadline)?;
+    let before_tab = exact_tab_until(connection_id, tab_id, deadline)?;
+    require_unique_profile_connection(connection_id, &before_status.profile_instance_id, deadline)?;
+    let lock_target = tab_lock_target(&before_status.profile_instance_id, tab_id);
+    let lock = super::runtime::lock_acquire_payload(
+        request_context.session_id,
+        request_context.session_lease,
+        &lock_target,
+        lock_ttl_seconds,
+    )?;
+    let after_lock_status = bridge_status_until(connection_id, deadline)?;
+    let after_lock_tab = exact_tab_until(connection_id, tab_id, deadline)?;
+    require_unique_profile_connection(connection_id, &before_status.profile_instance_id, deadline)?;
+    if after_lock_status.profile_instance_id != before_status.profile_instance_id
+        || !same_tab_identity_and_presentation(&before_tab, &after_lock_tab)
+    {
+        return Err(CuError::new(
+            "browser_bridge_debug_identity_changed",
+            "the exact profile connection or tab changed before effect delivery",
+        )
+        .with_detail(json!({ "effect": "not-performed" })));
+    }
+    if target.frame_id.is_empty() || target.backend_node_id == 0 {
+        return Err(CuError::new(
+            "browser_bridge_debug_target_invalid",
+            "the exact frame and backend node identities are required",
+        ));
+    }
+    let Value::Object(args) = serde_json::to_value(request).map_err(|_| {
+        CuError::new(
+            "browser_bridge_request_invalid",
+            "the closed-tree request could not be serialized",
+        )
+    })?
+    else {
+        return Err(CuError::new(
+            "browser_bridge_request_invalid",
+            "the closed-tree request was not an object",
+        ));
+    };
+    let result = browser_bridge_request_result_with_timeout(
+        connection_id,
+        command,
+        args,
+        remaining_bridge_timeout(deadline)?,
+    )?;
+    let postcheck = (|| {
+        let after_status = bridge_status_until(connection_id, deadline)?;
+        let after_tab = exact_tab_until(connection_id, tab_id, deadline)?;
+        require_unique_profile_connection(
+            connection_id,
+            &before_status.profile_instance_id,
+            deadline,
+        )?;
+        if after_status.profile_instance_id != before_status.profile_instance_id
+            || !same_tab_identity_and_presentation(&before_tab, &after_tab)
+        {
+            return Err(CuError::new(
+                "browser_bridge_debug_identity_changed",
+                "the exact profile connection or tab changed after effect delivery",
+            ));
+        }
+        let lock_after = super::runtime::lock_acquire_payload(
+            request_context.session_id,
+            request_context.session_lease,
+            &lock_target,
+            lock_ttl_seconds,
+        )?;
+        verify_focus_unchanged(before_focus, deadline)?;
+        Ok(lock_after)
+    })();
+    let lock_after = postcheck.map_err(debug_effect_unknown)?;
+    Ok(json!({
+        "connection_id": connection_id,
+        "tab": tab_identity(&before_tab),
+        "result": result,
+        "lock": public_lock(&lock),
+        "lock_after": public_lock(&lock_after),
+        "focus_changed": false,
+        "verified": true,
+    }))
+}
+
+fn public_lock(lock: &Value) -> Value {
+    json!({
+        "lock_id": lock.pointer("/lock/lock_id"),
+        "session_id": lock.pointer("/lock/session_id"),
+        "expires_at_utc_s": lock.pointer("/lock/expires_at_utc_s"),
+        "idempotent": lock.get("idempotent"),
+        "target_redacted": true,
+    })
+}
+
+fn debug_effect_unknown(cause: CuError) -> CuError {
+    CuError::new(
+        "browser_bridge_outcome_unknown",
+        "the browser effect completed but its exact postcondition could not be fully proved",
+    )
+    .with_detail(json!({
+        "effect": "unknown",
+        "retry_safe": false,
+        "cause": { "code": cause.code, "detail": cause.detail },
+    }))
 }
 
 const BRIDGE_REQUEST_MAX_TIMEOUT: Duration = Duration::from_secs(35);
@@ -561,14 +856,27 @@ fn browser_bridge_request_result_with_timeout(
     }
     .map_err(host_error)?;
     if let Some(error) = response.error {
+        let uncertain = error.effect.as_deref() == Some("unknown");
+        let cause = error.code.clone();
         let detail = json!({
             "connection_id": connection_id,
             "tab_id": error.tab_id,
             "detach": error.detach,
+            "effect": error.effect,
+            "cause": cause,
+            "retry_safe": !uncertain,
         });
         return Err(CuError::new(
-            error.code,
-            "the browser extension refused the typed bridge request",
+            if uncertain {
+                "browser_bridge_outcome_unknown".to_owned()
+            } else {
+                error.code
+            },
+            if uncertain {
+                "the browser effect may have been delivered but its postcondition or cleanup was not proved"
+            } else {
+                "the browser extension refused the typed bridge request"
+            },
         )
         .with_detail(detail));
     }
@@ -694,10 +1002,16 @@ fn request_id() -> Result<String, CuError> {
 }
 
 fn host_error(error: crate::browser_bridge::BridgeHostError) -> CuError {
-    CuError::new(
+    let uncertain = error.code == "browser_bridge_outcome_unknown";
+    let typed = CuError::new(
         error.code,
         "the exact browser bridge connection could not complete the request",
-    )
+    );
+    if uncertain {
+        typed.with_detail(json!({ "effect": "unknown", "retry_safe": false }))
+    } else {
+        typed
+    }
 }
 
 #[cfg(test)]

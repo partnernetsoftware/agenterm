@@ -1731,6 +1731,20 @@ and label the receipt `reload_scope=native-connection`. Loading updated
 extension code is a distinct setup/activation boundary and must never be
 implied by that receipt.
 
+Closed-shadow mutation needs two independently bounded replay barriers. The
+Native Messaging process may replay only a byte-identical request id within one
+connection, while the product executor must reserve the caller's durable
+request/session identity before the browser effect. Once an effect frame begins
+writing, write, flush, response, decode, detach or postcondition uncertainty is
+`outcome_unknown`; never describe it as retry-safe. Error replies for effect
+commands must carry the exact tab, detach outcome and `not-performed|unknown`
+effect state—generic `{code}` is invalid. Keep typed text, node labels and full
+file paths request-only. Bind mutation to exact Profile/tab/frame/backend-node
+plus role/name, and prove it in a real child-frame closed shadow fixture; a
+top-frame catalog test is not equivalent. Size the in-connection replay ledger
+from the complete public journey while retaining a hard bound: 32 entries was
+exhausted by one honest lifecycle, so protocol v3 uses 256.
+
 For an owned Chromium session, request `--remote-debugging-port=0` and read the
 bounded `DevToolsActivePort` file from that session's private profile. Require a
 nonzero decimal port and a `/devtools/browser/` websocket path; reject extra

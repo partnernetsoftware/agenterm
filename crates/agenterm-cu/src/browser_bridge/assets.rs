@@ -180,12 +180,12 @@ mod tests {
             "window-open",
             "window-state",
             "debug-read",
+            "debug-invoke",
+            "debug-type",
+            "debug-files",
             "reload",
         ] {
             assert!(source.contains(command));
-        }
-        for forbidden in ["debug-type", "debug-invoke", "debug-files"] {
-            assert!(!source.contains(forbidden));
         }
         for forbidden in [
             "DOM.getFlattenedDocument",

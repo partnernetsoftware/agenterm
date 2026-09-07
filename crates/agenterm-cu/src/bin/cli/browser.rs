@@ -56,6 +56,9 @@ pub fn parse(
             "browser-bridge-window-open" => browser_bridge(target, Some("window-open"), args),
             "browser-bridge-window-state" => browser_bridge(target, Some("window-state"), args),
             "browser-bridge-debug-read" => browser_bridge(target, Some("debug-read"), args),
+            "browser-bridge-debug-invoke" => browser_bridge(target, Some("debug-invoke"), args),
+            "browser-bridge-debug-type" => browser_bridge(target, Some("debug-type"), args),
+            "browser-bridge-debug-files" => browser_bridge(target, Some("debug-files"), args),
             other => Err(format!("unknown command '{other}'")),
         },
     }
@@ -977,7 +980,7 @@ fn browser_bridge(
     let action = match action {
         Some(action) => action,
         None => args.first().map(String::as_str).ok_or_else(|| {
-            "browser bridge requires setup | connections | status | tabs | attach | reload | windows | window-open | window-state | debug-read"
+            "browser bridge requires setup | connections | status | tabs | attach | reload | windows | window-open | window-state | debug-read | debug-invoke | debug-type | debug-files"
                 .to_owned()
         })?,
     }
@@ -992,9 +995,12 @@ fn browser_bridge(
         && action != "window-open"
         && action != "window-state"
         && action != "debug-read"
+        && action != "debug-invoke"
+        && action != "debug-type"
+        && action != "debug-files"
     {
         return Err(format!(
-            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | attach | reload | windows | window-open | window-state | debug-read"
+            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | attach | reload | windows | window-open | window-state | debug-read | debug-invoke | debug-type | debug-files"
         ));
     }
     if action.is_empty() {
@@ -1151,6 +1157,108 @@ fn browser_bridge(
                 max_scan,
                 max_results,
             })
+        }
+        "debug-invoke" | "debug-type" | "debug-files" => {
+            let connection_id = args
+                .first()
+                .filter(|value| !value.starts_with('-'))
+                .cloned()
+                .ok_or_else(|| format!("browser bridge {action} requires CONNECTION_ID"))?;
+            args.remove(0);
+            let connection_id = agenterm_cu::browser_bridge::ConnectionId::parse(&connection_id)
+                .map_err(|_| {
+                    "browser bridge connection id must be 64 lowercase hexadecimal characters"
+                        .to_owned()
+                })?;
+            let tab_id = flag_parsed::<u32>(args, "--tab-id")?
+                .filter(|value| *value > 0)
+                .ok_or_else(|| format!("browser bridge {action} requires --tab-id N"))?;
+            let frame_id = flag_text(args, "--frame-id")?
+                .ok_or_else(|| format!("browser bridge {action} requires --frame-id ID"))?;
+            let backend_node_id = flag_parsed::<u64>(args, "--backend-node-id")?
+                .filter(|value| *value > 0)
+                .ok_or_else(|| format!("browser bridge {action} requires --backend-node-id N"))?;
+            let role = flag_text(args, "--role")?
+                .ok_or_else(|| format!("browser bridge {action} requires --role ROLE"))?;
+            let name = flag_text(args, "--name")?
+                .ok_or_else(|| format!("browser bridge {action} requires --name NAME"))?;
+            let debug_target = agenterm_cu::browser_bridge::DebugTarget {
+                frame_id,
+                backend_node_id,
+                role,
+                name,
+            };
+            debug_target.validate().map_err(|error| error.message)?;
+            let lock_ttl_seconds = flag_parsed::<u64>(args, "--lock-ttl-seconds")?.unwrap_or(30);
+            let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(15_000);
+            if action == "debug-invoke" {
+                let action_name = flag_text(args, "--action")?.ok_or_else(|| {
+                    "browser bridge debug-invoke requires --action focus|press".to_owned()
+                })?;
+                let invoke_action = match action_name.as_str() {
+                    "focus" => agenterm_cu::browser_bridge::DebugInvokeAction::Focus,
+                    "press" => agenterm_cu::browser_bridge::DebugInvokeAction::Press,
+                    _ => {
+                        return Err(
+                            "browser bridge debug-invoke --action must be focus|press".into()
+                        );
+                    }
+                };
+                let expect_role = flag_text(args, "--expect-role")?.unwrap_or_default();
+                let expect_name = flag_text(args, "--expect-name")?.unwrap_or_default();
+                if !args.is_empty() {
+                    return Err(format!(
+                        "browser bridge debug-invoke has unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                let command = Command::BrowserBridgeDebugInvoke {
+                    target,
+                    connection_id,
+                    tab_id,
+                    debug_target,
+                    action: invoke_action,
+                    expect_role,
+                    expect_name,
+                    lock_ttl_seconds,
+                    timeout_ms,
+                };
+                command.validate().map_err(str::to_owned)?;
+                Ok(command)
+            } else if action == "debug-type" {
+                let text = flag_text(args, "--text")?
+                    .ok_or_else(|| "browser bridge debug-type requires --text TEXT".to_owned())?;
+                if !args.is_empty() {
+                    return Err(format!(
+                        "browser bridge debug-type has unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                let command = Command::BrowserBridgeDebugType {
+                    target,
+                    connection_id,
+                    tab_id,
+                    debug_target,
+                    text,
+                    lock_ttl_seconds,
+                    timeout_ms,
+                };
+                command.validate().map_err(str::to_owned)?;
+                Ok(command)
+            } else {
+                let files = std::mem::take(args);
+                let command = Command::BrowserBridgeDebugFiles {
+                    target,
+                    connection_id,
+                    tab_id,
+                    debug_target,
+                    files,
+                    lock_ttl_seconds,
+                    timeout_ms,
+                };
+                command.validate().map_err(str::to_owned)?;
+                Ok(command)
+            }
         }
         _ => unreachable!("action was checked against the closed bridge catalog"),
     }
@@ -1528,6 +1636,85 @@ mod tests {
                 timeout_ms: 9000,
                 ..
             })
+        ));
+
+        let common = [
+            id.as_str(),
+            "--tab-id",
+            "7",
+            "--frame-id",
+            "frame-1",
+            "--backend-node-id",
+            "9",
+            "--role",
+            "textbox",
+            "--name",
+            "Editor",
+        ];
+        let mut invoke = words(&[
+            common[0],
+            common[1],
+            common[2],
+            common[3],
+            common[4],
+            common[5],
+            common[6],
+            common[7],
+            common[8],
+            common[9],
+            common[10],
+            "--action",
+            "press",
+            "--expect-role",
+            "status",
+            "--expect-name",
+            "Saved",
+        ]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("debug-invoke"), &mut invoke),
+            Ok(Command::BrowserBridgeDebugInvoke {
+                tab_id: 7,
+                action: agenterm_cu::browser_bridge::DebugInvokeAction::Press,
+                ..
+            })
+        ));
+        let mut typed = words(&[
+            common[0],
+            common[1],
+            common[2],
+            common[3],
+            common[4],
+            common[5],
+            common[6],
+            common[7],
+            common[8],
+            common[9],
+            common[10],
+            "--text",
+            "replacement",
+        ]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("debug-type"), &mut typed),
+            Ok(Command::BrowserBridgeDebugType { tab_id: 7, .. })
+        ));
+        let mut files = words(&[
+            common[0],
+            common[1],
+            common[2],
+            common[3],
+            common[4],
+            common[5],
+            common[6],
+            common[7],
+            common[8],
+            common[9],
+            common[10],
+            "/synthetic/upload.txt",
+        ]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("debug-files"), &mut files),
+            Ok(Command::BrowserBridgeDebugFiles { tab_id: 7, ref files, .. })
+                if files == &["/synthetic/upload.txt"]
         ));
     }
 

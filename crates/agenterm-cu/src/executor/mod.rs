@@ -589,6 +589,7 @@ impl Executor {
                     | "device_owner_outcome_unknown"
                     | "terminal_input_outcome_unknown"
                     | "terminal_input_unverified"
+                    | "browser_bridge_outcome_unknown"
             )
         }) {
             let _ = store.mark_outcome_unknown(
@@ -914,7 +915,11 @@ impl Executor {
                 })
         } else if matches!(
             command,
-            Command::BrowserBridgeAttach { .. } | Command::BrowserBridgeReload { .. }
+            Command::BrowserBridgeAttach { .. }
+                | Command::BrowserBridgeReload { .. }
+                | Command::BrowserBridgeDebugInvoke { .. }
+                | Command::BrowserBridgeDebugType { .. }
+                | Command::BrowserBridgeDebugFiles { .. }
         ) {
             Some(browser_bridge_lock_audit_detail(reply))
         } else {
@@ -953,10 +958,17 @@ fn browser_bridge_lock_audit_detail(reply: &CuReply) -> serde_json::Value {
         "focus_changed": source.and_then(|value| value.get("focus_changed")),
         "focus_restored": source.and_then(|value| value.get("focus_restored")),
         "verified": source.and_then(|value| value.get("verified")),
+        "action": source.and_then(|value| value.pointer("/result/action")),
+        "text_utf8_bytes": source.and_then(|value| value.pointer("/result/text_utf8_bytes")),
+        "file_count": source.and_then(|value| value.pointer("/result/file_count")),
+        "retry_safe": source.and_then(|value| value.get("retry_safe")),
         "profile_identity_redacted": true,
         "connection_identity_redacted": true,
         "lock_target_redacted": true,
         "tab_content_redacted": true,
+        "node_content_redacted": true,
+        "text_payload_redacted": true,
+        "file_paths_redacted": true,
         "lease_redacted": true,
     })
 }
@@ -1326,6 +1338,57 @@ mod tests {
         assert_eq!(record["detail"]["window_id"], 11);
         assert_eq!(record["detail"]["tab_content_redacted"], true);
         assert_eq!(record["detail"]["lease_redacted"], true);
+        remove_audit_scratch(&path);
+    }
+
+    #[test]
+    fn browser_bridge_debug_audit_never_persists_text_node_or_file_material() {
+        let path = audit_scratch("browser-bridge-debug-redaction");
+        let mut audit = AuditLog::open_at(&path).expect("open isolated audit");
+        let command = Command::BrowserBridgeDebugType {
+            target: TargetRef::Current,
+            connection_id: crate::browser_bridge::ConnectionId::parse(&"cd".repeat(32))
+                .expect("connection id"),
+            tab_id: 7,
+            debug_target: crate::browser_bridge::DebugTarget {
+                frame_id: "private-frame".into(),
+                backend_node_id: 9,
+                role: "textbox".into(),
+                name: "private-node-name".into(),
+            },
+            text: "private-text-payload".into(),
+            lock_ttl_seconds: 30,
+            timeout_ms: 15_000,
+        };
+        let reply = CuReply::ok(
+            &command,
+            serde_json::json!({
+                "connection_id": "private-connection",
+                "tab": {"tab_id": 7, "window_id": 11, "active": false},
+                "result": {
+                    "action": "type",
+                    "target": {"frame_id": "private-frame", "name": "private-node-name"},
+                    "text_utf8_bytes": 20,
+                    "verified": true
+                },
+                "verified": true
+            }),
+        );
+        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        let text = std::fs::read_to_string(&path).expect("read audit");
+        for private in [
+            "private-frame",
+            "private-node-name",
+            "private-text-payload",
+            "private-connection",
+        ] {
+            assert!(!text.contains(private), "audit leaked {private}");
+        }
+        let record: serde_json::Value = serde_json::from_str(text.trim()).expect("audit JSON");
+        assert_eq!(record["detail"]["action"], "type");
+        assert_eq!(record["detail"]["text_utf8_bytes"], 20);
+        assert_eq!(record["detail"]["node_content_redacted"], true);
+        assert_eq!(record["detail"]["file_paths_redacted"], true);
         remove_audit_scratch(&path);
     }
 

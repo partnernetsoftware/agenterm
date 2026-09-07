@@ -4735,6 +4735,68 @@
       ]
     },
     {
+      "name": "browser-bridge-debug-invoke",
+      "command": "browser-bridge-debug-invoke",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "focus or press one exact closed-tree AX node in a background tab",
+      "usage": "browser-bridge-debug-invoke CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N --role ROLE --name NAME --action focus|press [--expect-role ROLE --expect-name NAME] [--lock-ttl-seconds N] [--timeout-ms N]",
+      "args": [
+        {"flag": "CONNECTION_ID", "value": "ID", "help": "exact bridge connection id"},
+        {"flag": "--tab-id", "value": "N", "help": "exact positive Chromium tab id"},
+        {"flag": "--frame-id", "value": "ID", "help": "exact frame id returned by debug-read"},
+        {"flag": "--backend-node-id", "value": "N", "help": "exact backend node id returned by debug-read"},
+        {"flag": "--role", "value": "ROLE", "help": "role guard returned by debug-read"},
+        {"flag": "--name", "value": "NAME", "help": "name guard returned by debug-read"},
+        {"flag": "--action", "value": "ACTION", "help": "closed action: focus or press"},
+        {"flag": "--expect-role", "value": "ROLE", "help": "mandatory exact postcondition role for press"},
+        {"flag": "--expect-name", "value": "NAME", "help": "mandatory exact postcondition name for press"},
+        {"flag": "--lock-ttl-seconds", "value": "N", "help": "profile/tab lock TTL, default 30"},
+        {"flag": "--timeout-ms", "value": "N", "help": "whole operation deadline, default 15000"}
+      ]
+    },
+    {
+      "name": "browser-bridge-debug-type",
+      "command": "browser-bridge-debug-type",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "replace one exact closed-tree editable value without exposing its text",
+      "usage": "browser-bridge-debug-type CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N --role ROLE --name NAME --text TEXT [--lock-ttl-seconds N] [--timeout-ms N]",
+      "args": [
+        {"flag": "CONNECTION_ID", "value": "ID", "help": "exact bridge connection id"},
+        {"flag": "--tab-id", "value": "N", "help": "exact positive Chromium tab id"},
+        {"flag": "--frame-id", "value": "ID", "help": "exact frame id returned by debug-read"},
+        {"flag": "--backend-node-id", "value": "N", "help": "exact backend node id returned by debug-read"},
+        {"flag": "--role", "value": "ROLE", "help": "role guard returned by debug-read"},
+        {"flag": "--name", "value": "NAME", "help": "name guard returned by debug-read"},
+        {"flag": "--text", "value": "TEXT", "help": "replacement text, at most 64 KiB UTF-8"},
+        {"flag": "--lock-ttl-seconds", "value": "N", "help": "profile/tab lock TTL, default 30"},
+        {"flag": "--timeout-ms", "value": "N", "help": "whole operation deadline, default 15000"}
+      ]
+    },
+    {
+      "name": "browser-bridge-debug-files",
+      "command": "browser-bridge-debug-files",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "browser",
+      "summary": "set one exact closed-tree file input with basename and size read-back",
+      "usage": "browser-bridge-debug-files CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N --role ROLE --name NAME FILE... [--lock-ttl-seconds N] [--timeout-ms N]",
+      "args": [
+        {"flag": "CONNECTION_ID", "value": "ID", "help": "exact bridge connection id"},
+        {"flag": "--tab-id", "value": "N", "help": "exact positive Chromium tab id"},
+        {"flag": "--frame-id", "value": "ID", "help": "exact frame id returned by debug-read"},
+        {"flag": "--backend-node-id", "value": "N", "help": "exact backend node id returned by debug-read"},
+        {"flag": "--role", "value": "ROLE", "help": "role guard returned by debug-read"},
+        {"flag": "--name", "value": "NAME", "help": "name guard returned by debug-read"},
+        {"flag": "FILE", "value": "PATH", "help": "1..=32 absolute regular non-symlink local files"},
+        {"flag": "--lock-ttl-seconds", "value": "N", "help": "profile/tab lock TTL, default 30"},
+        {"flag": "--timeout-ms", "value": "N", "help": "whole operation deadline, default 15000"}
+      ]
+    },
+    {
       "name": "browser-session-start",
       "command": "browser-session-start",
       "aliases": [
@@ -5951,7 +6013,7 @@
     },
     {
       "name": "browser-bridge-status",
-      "text": "agenterm-cu browser-bridge-status\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-status CONNECTION_ID\n  browser bridge status CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nRoutes the closed protocol-v2 status request only to that exact current-user and process-identity-bound connection. It returns the fixed extension version and persistent profile instance identity. A missing, stale, foreign or malformed identity fails typed.\n"
+      "text": "agenterm-cu browser-bridge-status\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-status CONNECTION_ID\n  browser bridge status CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nRoutes the closed protocol-v3 status request only to that exact current-user and process-identity-bound connection. It returns the fixed extension version, persistent profile instance identity and the exact supported command set. A missing, stale, foreign or malformed identity fails typed.\n"
     },
     {
       "name": "browser-bridge-tabs",
@@ -5980,6 +6042,18 @@
     {
       "name": "browser-bridge-debug-read",
       "text": "agenterm-cu browser-bridge-debug-read\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N]\n      [--max-scan N] [--max-results N]\n  browser bridge debug-read ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --tab-id N                    exact positive Chromium tab id from browser-bridge-tabs\n  --max-frames N                cross-frame bound, 1..=64 (default 64)\n  --max-depth N                 AX depth bound, 1..=20 (default 20)\n  --max-scan N                  AX nodes scanned, 1..=5000 (default 5000)\n  --max-results N               AX rows returned, 1..=1000 (default 1000)\n\nReads only bounded AX frame/node identity, role and name facts. Form/control values and arbitrary DOM attributes are excluded. Success requires unchanged tab activation and window focus plus proven debugger detach; every violation fails typed.\n"
+    },
+    {
+      "name": "browser-bridge-debug-invoke",
+      "text": "agenterm-cu browser-bridge-debug-invoke\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-debug-invoke CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N\n      --role ROLE --name NAME --action focus|press [--expect-role ROLE --expect-name NAME]\n      [--lock-ttl-seconds N] [--timeout-ms N]\n\narguments: CONNECTION_ID, --tab-id, --frame-id, --backend-node-id, --role, --name, --action, --expect-role, --expect-name, --lock-ttl-seconds, --timeout-ms.\n\nFocuses or presses one exact frame/backend-node identity from debug-read, guarded by its role and name. Press requires an exact role/name postcondition. The command requires global --request-id, --session and --session-lease, owns the canonical Profile/tab lock, preserves browser and desktop focus, and proves debugger detach. A delivered-but-unverified effect is outcome_unknown and is never replayed automatically.\n"
+    },
+    {
+      "name": "browser-bridge-debug-type",
+      "text": "agenterm-cu browser-bridge-debug-type\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-debug-type CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N\n      --role ROLE --name NAME --text TEXT [--lock-ttl-seconds N] [--timeout-ms N]\n\narguments: CONNECTION_ID, --tab-id, --frame-id, --backend-node-id, --role, --name, --text, --lock-ttl-seconds, --timeout-ms.\n\nReplaces one exact closed-tree editable value and verifies exact equality. The public result and persistent audit contain only the UTF-8 byte count, never the text. Global request identity, canonical Profile/tab ownership, unchanged presentation and proven debugger detach are mandatory.\n"
+    },
+    {
+      "name": "browser-bridge-debug-files",
+      "text": "agenterm-cu browser-bridge-debug-files\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-debug-files CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N\n      --role ROLE --name NAME FILE... [--lock-ttl-seconds N] [--timeout-ms N]\n\narguments: CONNECTION_ID, --tab-id, --frame-id, --backend-node-id, --role, --name, FILE, --lock-ttl-seconds, --timeout-ms.\n\nSets 1..=32 regular non-symlink files on one exact closed-tree input[type=file] without opening a picker. The renderer verifies FileList basename and size; public and persistent receipts omit local paths. Global request identity, canonical Profile/tab ownership, unchanged presentation and proven debugger detach are mandatory.\n"
     },
     {
       "name": "browser-session-start",

@@ -383,6 +383,7 @@
         "cu.browser-managed-profile.macos",
         "cu.browser-bridge-owned-profile.macos",
         "cu.browser-bridge-reload.macos",
+        "cu.browser-closed-tree.macos",
         "cu.browser-window-lifecycle.macos",
         "cu.browser-cdp-actuate.macos",
         "cu.browser-cdp-screenshot.macos",

@@ -160,7 +160,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measured 131 capabilities;
   after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger now measures 134 capabilities with 2 gaps, 61 platform-limited rows, zero static
+  ledger now measures 134 capabilities with 1 gap, 62 platform-limited rows, zero static
   adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
@@ -639,20 +639,21 @@ flowchart LR
   Existing browsers with an explicit startup
   endpoint remain borrow-only through `--pid`; existing browsers without one
   retain AX/tab-strip control. The authenticated-profile route is a separately
-  installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v2 core
+  installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v3 core
   now has bounded little-endian framing, split/combined-frame decoding, a
-  closed `status|tabs|windows|window-open|window-state|debug-read|reload` catalog,
+  closed `status|tabs|windows|window-open|window-state|debug-read|debug-invoke|debug-type|debug-files|reload` catalog,
   bounded request ids and typed
   malformed/oversize refusal. A fixed new ACU extension identity, embedded MV3
   assets, same-binary native-host manifest plan and current-user/exact-process
-  connection registry are present. Protocol v2 also publishes a persistent
+  connection registry are present. Protocol v3 also publishes a persistent
   random Profile instance identity. The same `agenterm-cu` executable now
   intercepts only that fixed extension origin before any ordinary CLI output,
   so Native Messaging stdout contains frames only; a foreign or malformed
   host invocation fails without stdout. Public typed commands install the
   current-user bundle, list bounded exact-process connections, and route
   `status`, `tabs`, `windows`, `window-open`, `window-state`, `debug-read`,
-  `attach`, or `reload` only through an exact 256-bit connection
+  `debug-invoke`, `debug-type`, `debug-files`, `attach`, or `reload` only
+  through an exact 256-bit connection
   id. Setup truthfully reports `extension_loaded=false` and
   `manual_activation_required=true`; it never claims Chromium loaded the
   unpacked extension. `debug-read` walks a
@@ -677,11 +678,19 @@ flowchart LR
   Profile/tab identity, unchanged desktop focus, and exact lock release at
   session end. The receipt says `reload_scope=native-connection`; extension-code
   update and activation remain a separate setup boundary. This promotes the
-  bridge slice on macOS only; it does not promote closed-shadow mutation or
-  Linux/Windows qualification. Unit, CLI, both Windows-ISA compile,
-  foreign-origin stdout, and empty exact-connection inventory evidence are
-  green. A loaded-extension real-profile closed-shadow journey is still the
-  promotion boundary; setup/catalog presence alone does not promote the route.
+  bridge slice on macOS only. The same public court now uses a child frame whose
+  controls live in a closed shadow root and proves bounded read, exact type,
+  focus, press and file injection by tab/frame/backend-node plus role/name. It
+  requires effect-specific postconditions, mandatory debugger detach, durable
+  request identity, independent business-state read-back and unchanged
+  background presentation. Typed text, node labels and complete local file
+  paths never enter persistent audit or public receipts. Once an effect frame
+  may have reached the extension, write/flush/read/malformed-response or later
+  verification loss becomes `outcome_unknown` and the durable request id cannot
+  replay it. This promotes closed-tree control from gap to platform-limited;
+  Linux/Windows native Profile courts remain pending. Unit, CLI, both
+  Windows-ISA compile, foreign-origin stdout, and empty exact-connection
+  inventory evidence are green.
 
 ```mermaid
 flowchart LR
@@ -694,12 +703,13 @@ flowchart LR
   C --> E["macOS lifecycle ✓<br/>Windows x86/ARM64 first-instruction Job proof ✓"]
   E --> W["Win ARM64 managed-Job Edge lifecycle ✓<br/>caller-job-fallback is explicit"]
   W --> P["pending: Linux lifecycle<br/>descendant cleanup courts"]
-  X --> R["protocol v2 + persistent Profile identity"]
+  X --> R["protocol v3 + persistent Profile identity"]
   R --> Y["session-owned exact-tab lock"]
   Y --> L["native-connection reload<br/>old gone · one same-profile replacement"]
   L --> F["same tab + unchanged native focus<br/>session-end lock cleanup"]
   F --> M["macOS public qjswasm ✓"]
-  M --> Z["closed-shadow mutation<br/>Linux/Windows courts pending"]
+  M --> Z["child-frame closed shadow ✓<br/>read · type · focus · press · files"]
+  Z --> Q["Linux/Windows owned-Profile<br/>native courts pending"]
 ```
 - [~] Browser download ownership is now a native `page-download` vertical
   slice rather than a successful `page-js` / `page-click` acknowledgement.

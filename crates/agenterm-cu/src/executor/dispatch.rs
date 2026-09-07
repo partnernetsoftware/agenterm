@@ -1565,6 +1565,63 @@ impl Executor {
                 *max_scan,
                 *max_results,
             ),
+            Command::BrowserBridgeDebugInvoke {
+                connection_id,
+                tab_id,
+                debug_target,
+                action,
+                expect_role,
+                expect_name,
+                lock_ttl_seconds,
+                timeout_ms,
+                ..
+            } => browser_bridge_debug_invoke_payload(
+                require_effect_request(job_request, "browser-bridge-debug-invoke")?,
+                connection_id,
+                crate::browser_bridge::DebugInvokeRequest {
+                    tab_id: *tab_id,
+                    target: debug_target.clone(),
+                    action: *action,
+                    expect_role: expect_role.clone(),
+                    expect_name: expect_name.clone(),
+                },
+                *lock_ttl_seconds,
+                *timeout_ms,
+            ),
+            Command::BrowserBridgeDebugType {
+                connection_id,
+                tab_id,
+                debug_target,
+                text,
+                lock_ttl_seconds,
+                timeout_ms,
+                ..
+            } => browser_bridge_debug_type_payload(
+                require_effect_request(job_request, "browser-bridge-debug-type")?,
+                connection_id,
+                *tab_id,
+                debug_target,
+                text,
+                *lock_ttl_seconds,
+                *timeout_ms,
+            ),
+            Command::BrowserBridgeDebugFiles {
+                connection_id,
+                tab_id,
+                debug_target,
+                files,
+                lock_ttl_seconds,
+                timeout_ms,
+                ..
+            } => browser_bridge_debug_files_payload(
+                require_effect_request(job_request, "browser-bridge-debug-files")?,
+                connection_id,
+                *tab_id,
+                debug_target,
+                files,
+                *lock_ttl_seconds,
+                *timeout_ms,
+            ),
             Command::App {
                 window,
                 action,
@@ -2054,6 +2111,18 @@ fn require_job_request<'a>(
     request.ok_or_else(|| {
         CuError::new(
             "managed_job_request_identity_required",
+            format!("{verb} requires request-id, session and session-lease"),
+        )
+    })
+}
+
+fn require_effect_request<'a>(
+    request: Option<&'a JobRequestContext<'_>>,
+    verb: &str,
+) -> Result<&'a JobRequestContext<'a>, CuError> {
+    request.ok_or_else(|| {
+        CuError::new(
+            "request_identity_required",
             format!("{verb} requires request-id, session and session-lease"),
         )
     })

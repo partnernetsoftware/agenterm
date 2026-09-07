@@ -217,8 +217,9 @@ MCU retirement blockers
 │  │  ├─ [x] public exact-connection setup/connections/status/tabs/windows/debug-read CLI
 │  │  ├─ [x] guarded exact `window-state`: closed state vocabulary + focus/tab read-back + rollback
 │  │  ├─ [x] macOS owned Profile loads exact extension; live connection + host EOF/TTL cleanup qjswasm court
+│  │  ├─ [x] child-frame closed shadow: exact read/type/focus/press/files + secret-free durable evidence
 │  │  ├─ [ ] native background-browser focus bridge for the no-focused-browser case
-│  │  └─ [ ] real-window state/closed-shadow court + Linux/Windows owned-Profile bridge courts
+│  │  └─ [ ] Linux/Windows owned-Profile bridge courts
 │  ├─ [~] privilege plan/broker/OS consent
 │  │  ├─ [x] read-only `process.set-priority` plan on macOS/Linux: exact start identity + before/after + expiry + dual digest
 │  │  ├─ [x] public qjswasm `cu.privilege-plan`; Windows names the semantic gap instead of fabricating Unix nice
@@ -819,7 +820,7 @@ Q4 browser and platform depth
 │  └─ [x] MCU --match: title+URL+description; unique or typed ambiguity; routed for lossless page shapes
 ├─ [~] browser control without a pre-opened CDP port
 │  ├─ [~] owned browser-session: public lifecycle + macOS live cleanup ✓; Windows exact-Job first instruction win-x86/ARM64 ✓; Win ARM64 managed-Job Edge ready→status→stopped→removed ✓; Linux + descendant-kill courts pending
-│  ├─ [~] MV3/Native Messaging: fixed assets + persistent Profile identity + session-owned exact-tab lock + unique native-connection reload; macOS public-qjswasm proves old-host exit, same Profile/tab, unchanged focus and lock cleanup; closed-shadow mutation and Linux/Windows courts pending
+│  ├─ [~] MV3/Native Messaging: fixed assets + persistent Profile identity + session-owned exact-tab lock + unique native-connection reload; macOS public-qjswasm also proves child-frame closed-shadow read/type/focus/press/files, secret-free receipts and unknown-outcome non-replay; Linux/Windows courts pending
 │  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
 ├─ [~] Simulator facade: public bounded device/app inventory + exact boot/launch/terminate routes
 │  ├─ [x] macOS qjswasm read-only court `cu.simulator-readonly`; app paths never leave the provider
@@ -840,7 +841,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 134 ledger capabilities
-currently include 2 `gap` and 61 `platform-limited` rows. The compatibility
+currently include 1 `gap` and 62 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
 still incomplete and dynamic fallback remains required. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was

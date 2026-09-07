@@ -30,8 +30,8 @@ pub use registry::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-pub const PROTOCOL_VERSION: u32 = 2;
-pub const BRIDGE_EXTENSION_VERSION: &str = "1.1.0";
+pub const PROTOCOL_VERSION: u32 = 3;
+pub const BRIDGE_EXTENSION_VERSION: &str = "1.2.0";
 pub const REQUEST_MAX_BYTES: usize = 1024 * 1024;
 pub const NATIVE_MESSAGE_MAX_BYTES: usize = REQUEST_MAX_BYTES;
 pub const ACU_NATIVE_HOST_NAME: &str = "software.partnernet.agenterm_acu.browser_bridge";
@@ -39,6 +39,7 @@ pub const ACU_EXTENSION_ID: &str = "knofdkmmpkbnjhdkcjddbakbpmgpmjpe";
 pub const DEBUG_READ_MAX_FRAMES: u16 = 64;
 pub const DEBUG_READ_MAX_DEPTH: u8 = 20;
 pub const DEBUG_READ_MAX_SCAN: u32 = 5_000;
+pub const DEBUG_FILES_MAX_FILES: usize = 32;
 pub const DEBUG_READ_MAX_RESULTS: u16 = 1_000;
 pub const TAB_MAX_RESULTS: usize = 512;
 pub const WINDOW_MAX_RESULTS: usize = 256;
@@ -46,7 +47,7 @@ pub const TAB_TITLE_MAX_BYTES: usize = 4 * 1024;
 pub const TAB_URL_MAX_BYTES: usize = 8 * 1024;
 /// One browser-created host retains at most this many terminal replies for
 /// exact replay. With the one-MiB frame ceiling this also bounds replay memory.
-pub const REQUEST_LEDGER_MAX_ENTRIES: usize = 32;
+pub const REQUEST_LEDGER_MAX_ENTRIES: usize = 256;
 const COMMANDS: &[&str] = &[
     "status",
     "tabs",
@@ -54,6 +55,9 @@ const COMMANDS: &[&str] = &[
     "window-open",
     "window-state",
     "debug-read",
+    "debug-invoke",
+    "debug-type",
+    "debug-files",
     "reload",
 ];
 
@@ -149,6 +153,12 @@ impl BridgeRequest {
                     })?;
                 req.validate()
             }
+            "debug-invoke" => parse_debug_request::<DebugInvokeRequest>(&self.args, "debug-invoke")
+                .and_then(|request| request.validate()),
+            "debug-type" => parse_debug_request::<DebugTypeRequest>(&self.args, "debug-type")
+                .and_then(|request| request.validate()),
+            "debug-files" => parse_debug_request::<DebugFilesRequest>(&self.args, "debug-files")
+                .and_then(|request| request.validate()),
             "reload" => {
                 let req: ReloadRequest = serde_json::from_value(Value::Object(self.args.clone()))
                     .map_err(|e| {
@@ -182,6 +192,18 @@ impl BridgeRequest {
             _ => Ok(()),
         }
     }
+}
+
+fn parse_debug_request<T: serde::de::DeserializeOwned>(
+    args: &Map<String, Value>,
+    command: &str,
+) -> Result<T, BridgeProtocolError> {
+    serde_json::from_value(Value::Object(args.clone())).map_err(|error| {
+        BridgeProtocolError::new(
+            "browser_bridge_args_invalid",
+            format!("{command} args are invalid: {error}"),
+        )
+    })
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -269,6 +291,158 @@ pub struct DebugReadNode {
     pub depth: u8,
     pub role: String,
     pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugTarget {
+    pub frame_id: String,
+    pub backend_node_id: u64,
+    pub role: String,
+    pub name: String,
+}
+
+impl DebugTarget {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        if self.backend_node_id == 0 || self.backend_node_id > 9_007_199_254_740_991 {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_debug_target_invalid",
+                "backend node id must be a positive JavaScript-safe integer",
+            ));
+        }
+        for (field, text, max, empty) in [
+            ("frame_id", self.frame_id.as_str(), 256, false),
+            ("role", self.role.as_str(), 256, false),
+            ("name", self.name.as_str(), 16 * 1024, true),
+        ] {
+            validate_text(text, max, empty, "browser_bridge_control_value", field)?;
+        }
+        if !self
+            .frame_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_debug_target_invalid",
+                "frame id contains a forbidden character",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DebugInvokeAction {
+    Focus,
+    Press,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugInvokeRequest {
+    pub tab_id: u32,
+    #[serde(flatten)]
+    pub target: DebugTarget,
+    pub action: DebugInvokeAction,
+    pub expect_role: String,
+    pub expect_name: String,
+}
+
+impl DebugInvokeRequest {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        bound(self.tab_id, 1, u32::MAX, "tab_id")?;
+        self.target.validate()?;
+        let expects = self.action == DebugInvokeAction::Press;
+        for (field, text, max) in [
+            ("expect_role", self.expect_role.as_str(), 256),
+            ("expect_name", self.expect_name.as_str(), 16 * 1024),
+        ] {
+            validate_text(text, max, !expects, "browser_bridge_control_value", field)?;
+        }
+        if !expects && (!self.expect_role.is_empty() || !self.expect_name.is_empty()) {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_debug_expectation_invalid",
+                "focus does not accept a press expectation",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugTypeRequest {
+    pub tab_id: u32,
+    #[serde(flatten)]
+    pub target: DebugTarget,
+    pub text: String,
+}
+
+impl DebugTypeRequest {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        bound(self.tab_id, 1, u32::MAX, "tab_id")?;
+        self.target.validate()?;
+        if self.text.len() > 65_536 {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_debug_text_invalid",
+                "debug-type text must be at most 65536 UTF-8 bytes",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugFile {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugFileObservation {
+    pub name: String,
+    pub size: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugFilesRequest {
+    pub tab_id: u32,
+    #[serde(flatten)]
+    pub target: DebugTarget,
+    pub files: Vec<DebugFile>,
+}
+
+impl DebugFilesRequest {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        bound(self.tab_id, 1, u32::MAX, "tab_id")?;
+        self.target.validate()?;
+        if self.files.is_empty() || self.files.len() > DEBUG_FILES_MAX_FILES {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_debug_files_invalid",
+                "debug-files requires 1..=32 files",
+            ));
+        }
+        for file in &self.files {
+            if file.path.is_empty() || file.path.len() > 4_096 || file.path.contains('\0') {
+                return Err(BridgeProtocolError::new(
+                    "browser_bridge_debug_files_invalid",
+                    "file paths must be 1..=4096 bytes without NUL",
+                ));
+            }
+            if file.name.is_empty() || file.name.len() > 16 * 1024 || file.name.contains('\0') {
+                return Err(BridgeProtocolError::new(
+                    "browser_bridge_debug_files_invalid",
+                    "file names must be 1..=16384 bytes without NUL",
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -580,6 +754,58 @@ pub struct DebugReadResult {
     pub detach: DetachOutcome,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugExpectation {
+    pub role: String,
+    pub name: String,
+    pub present: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugInvokeResult {
+    pub tab_id: u32,
+    pub target: DebugTarget,
+    pub action: DebugInvokeAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expectation: Option<DebugExpectation>,
+    pub performed: bool,
+    pub verified: bool,
+    pub presentation: PresentationObservation,
+    pub detach: DetachOutcome,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugTypeResult {
+    pub tab_id: u32,
+    pub target: DebugTarget,
+    pub action: String,
+    pub text_utf8_bytes: u64,
+    pub performed: bool,
+    pub verified: bool,
+    pub presentation: PresentationObservation,
+    pub detach: DetachOutcome,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugFilesResult {
+    pub tab_id: u32,
+    pub target: DebugTarget,
+    pub action: String,
+    pub file_count: usize,
+    pub files: Vec<DebugFileObservation>,
+    pub multiple: bool,
+    pub performed: bool,
+    pub verified: bool,
+    pub presentation: PresentationObservation,
+    pub detach: DetachOutcome,
+}
+
 /// Failure payload returned after an attach/read attempt. Keeping detachment
 /// beside the typed failure prevents callers from mistaking a failed read for
 /// proven cleanup.
@@ -608,6 +834,155 @@ impl DebugReadFailure {
             "failure code",
         )?;
         validate_detach(&self.detach)
+    }
+}
+
+struct DebugEffectObservation<'a> {
+    tab_id: u32,
+    target: &'a DebugTarget,
+    performed: bool,
+    verified: bool,
+    presentation: &'a PresentationObservation,
+    detach: &'a DetachOutcome,
+}
+
+fn validate_debug_effect(
+    actual: DebugEffectObservation<'_>,
+    expected_tab_id: u32,
+    expected_target: &DebugTarget,
+) -> Result<(), BridgeProtocolError> {
+    if actual.tab_id != expected_tab_id || actual.target != expected_target {
+        return Err(BridgeProtocolError::new(
+            "browser_bridge_debug_target_mismatch",
+            "debug actuation result does not belong to the exact requested target",
+        ));
+    }
+    actual.target.validate()?;
+    if !actual.performed || !actual.verified {
+        return Err(BridgeProtocolError::new(
+            "browser_bridge_debug_postcondition_invalid",
+            "debug actuation did not prove its requested effect",
+        ));
+    }
+    if actual.presentation.activation_requested
+        || actual.presentation.tab_active_before != actual.presentation.tab_active_after
+        || actual.presentation.window_focused_before != actual.presentation.window_focused_after
+    {
+        return Err(BridgeProtocolError::new(
+            "browser_bridge_debug_presentation_changed",
+            "debug actuation changed tab activation or browser-window focus",
+        ));
+    }
+    if matches!(actual.detach, DetachOutcome::Failed { .. }) {
+        return Err(BridgeProtocolError::new(
+            "browser_bridge_debug_detach_failed",
+            "successful debug actuation requires proven debugger detachment",
+        ));
+    }
+    validate_detach(actual.detach)
+}
+
+impl DebugInvokeResult {
+    pub fn validate_for(&self, request: &DebugInvokeRequest) -> Result<(), BridgeProtocolError> {
+        request.validate()?;
+        validate_debug_effect(
+            DebugEffectObservation {
+                tab_id: self.tab_id,
+                target: &self.target,
+                performed: self.performed,
+                verified: self.verified,
+                presentation: &self.presentation,
+                detach: &self.detach,
+            },
+            request.tab_id,
+            &request.target,
+        )?;
+        if self.action != request.action {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_debug_action_mismatch",
+                "debug-invoke result action differs from the request",
+            ));
+        }
+        match request.action {
+            DebugInvokeAction::Focus
+                if self.focused == Some(true) && self.expectation.is_none() =>
+            {
+                Ok(())
+            }
+            DebugInvokeAction::Press
+                if self.focused.is_none()
+                    && self.expectation
+                        == Some(DebugExpectation {
+                            role: request.expect_role.clone(),
+                            name: request.expect_name.clone(),
+                            present: true,
+                        }) =>
+            {
+                Ok(())
+            }
+            _ => Err(BridgeProtocolError::new(
+                "browser_bridge_debug_postcondition_invalid",
+                "debug-invoke result omitted or changed its exact postcondition",
+            )),
+        }
+    }
+}
+
+impl DebugTypeResult {
+    pub fn validate_for(&self, request: &DebugTypeRequest) -> Result<(), BridgeProtocolError> {
+        request.validate()?;
+        validate_debug_effect(
+            DebugEffectObservation {
+                tab_id: self.tab_id,
+                target: &self.target,
+                performed: self.performed,
+                verified: self.verified,
+                presentation: &self.presentation,
+                detach: &self.detach,
+            },
+            request.tab_id,
+            &request.target,
+        )?;
+        if self.action != "type" || self.text_utf8_bytes != request.text.len() as u64 {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_debug_postcondition_invalid",
+                "debug-type result does not prove the exact UTF-8 byte count",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl DebugFilesResult {
+    pub fn validate_for(&self, request: &DebugFilesRequest) -> Result<(), BridgeProtocolError> {
+        request.validate()?;
+        validate_debug_effect(
+            DebugEffectObservation {
+                tab_id: self.tab_id,
+                target: &self.target,
+                performed: self.performed,
+                verified: self.verified,
+                presentation: &self.presentation,
+                detach: &self.detach,
+            },
+            request.tab_id,
+            &request.target,
+        )?;
+        let expected = request
+            .files
+            .iter()
+            .map(|file| DebugFileObservation {
+                name: file.name.clone(),
+                size: file.size,
+            })
+            .collect::<Vec<_>>();
+        if self.action != "files" || self.file_count != expected.len() || self.files != expected {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_debug_postcondition_invalid",
+                "debug-files result does not prove exact basename and size read-back",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -681,6 +1056,22 @@ fn validate_detach(detach: &DetachOutcome) -> Result<(), BridgeProtocolError> {
         )?;
     }
     Ok(())
+}
+
+fn validate_debug_failure(
+    tab_id: u32,
+    code: &str,
+    detach: &DetachOutcome,
+) -> Result<(), BridgeProtocolError> {
+    bound(tab_id, 1, u32::MAX, "tab_id")?;
+    validate_text(
+        code,
+        96,
+        false,
+        "browser_bridge_control_value",
+        "failure code",
+    )?;
+    validate_detach(detach)
 }
 
 fn validate_text(
@@ -823,7 +1214,7 @@ mod tests {
         let mut reload = req("reload");
         reload.args.insert("tab_id".into(), json!(7));
         reload.validate().unwrap();
-        for command in ["read", "debug-invoke", "click", "type", "nav"] {
+        for command in ["read", "click", "type", "nav"] {
             assert_eq!(
                 req(command).validate().unwrap_err().code,
                 "browser_bridge_command_unknown"
@@ -916,6 +1307,109 @@ mod tests {
                 "browser_bridge_debug_read_limit_invalid"
             );
         }
+    }
+
+    fn debug_target() -> DebugTarget {
+        DebugTarget {
+            frame_id: "frame-1".into(),
+            backend_node_id: 9,
+            role: "textbox".into(),
+            name: "Editor".into(),
+        }
+    }
+
+    fn presentation() -> PresentationObservation {
+        PresentationObservation {
+            tab_active_before: false,
+            tab_active_after: false,
+            window_focused_before: false,
+            window_focused_after: false,
+            activation_requested: false,
+        }
+    }
+
+    #[test]
+    fn debug_effect_requests_and_results_are_exact_closed_and_redacted() {
+        let invoke = DebugInvokeRequest {
+            tab_id: 7,
+            target: debug_target(),
+            action: DebugInvokeAction::Press,
+            expect_role: "status".into(),
+            expect_name: "Saved".into(),
+        };
+        invoke.validate().unwrap();
+        DebugInvokeResult {
+            tab_id: 7,
+            target: debug_target(),
+            action: DebugInvokeAction::Press,
+            focused: None,
+            expectation: Some(DebugExpectation {
+                role: "status".into(),
+                name: "Saved".into(),
+                present: true,
+            }),
+            performed: true,
+            verified: true,
+            presentation: presentation(),
+            detach: DetachOutcome::Detached,
+        }
+        .validate_for(&invoke)
+        .unwrap();
+
+        let typed = DebugTypeRequest {
+            tab_id: 7,
+            target: debug_target(),
+            text: "private text".into(),
+        };
+        DebugTypeResult {
+            tab_id: 7,
+            target: debug_target(),
+            action: "type".into(),
+            text_utf8_bytes: typed.text.len() as u64,
+            performed: true,
+            verified: true,
+            presentation: presentation(),
+            detach: DetachOutcome::Detached,
+        }
+        .validate_for(&typed)
+        .unwrap();
+        let encoded = serde_json::to_value(DebugTypeResult {
+            tab_id: 7,
+            target: debug_target(),
+            action: "type".into(),
+            text_utf8_bytes: typed.text.len() as u64,
+            performed: true,
+            verified: true,
+            presentation: presentation(),
+            detach: DetachOutcome::Detached,
+        })
+        .unwrap();
+        assert!(!encoded.to_string().contains("private text"));
+
+        let mut malformed = serde_json::to_value(&invoke).unwrap();
+        malformed["value"] = json!("must not enter the closed request");
+        assert!(serde_json::from_value::<DebugInvokeRequest>(malformed).is_err());
+        let mut changed = invoke.clone();
+        changed.target.backend_node_id += 1;
+        let result = DebugInvokeResult {
+            tab_id: 7,
+            target: debug_target(),
+            action: DebugInvokeAction::Press,
+            focused: None,
+            expectation: Some(DebugExpectation {
+                role: "status".into(),
+                name: "Saved".into(),
+                present: true,
+            }),
+            performed: true,
+            verified: true,
+            presentation: presentation(),
+            detach: DetachOutcome::Detached,
+        };
+        assert_eq!(
+            result.validate_for(&changed).unwrap_err().code,
+            "browser_bridge_debug_target_mismatch"
+        );
     }
 
     fn result() -> DebugReadResult {

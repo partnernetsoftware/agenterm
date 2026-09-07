@@ -71,6 +71,7 @@ pub fn top_level_text() -> String {
     text = text.replace("\n\nUnmapped MCU groups", "\nUnmapped MCU groups");
     text = text.replace("\n\nClipboard", "\nClipboard");
     text = text.replace("\n\nNetwork", "\nNetwork");
+    text = text.replace("\n\nBrowser page & tabs", "\nBrowser page & tabs");
     text = text.replace(
         "  network-interfaces (network interfaces) observe  bounded native interface inventory",
         "  network-interfaces  observe addresses;  network-routes  observe routes;  network-dns  observe resolvers",
@@ -114,7 +115,7 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-watch  device-list  storage-devices  resource-status  power-status  runtime-status  device-claims\n  device-claim  device-status  device-read  device-write  device-renew  device-release\n  audio  service  login-session",
+            "  device-watch  device-list  storage-devices  resource-status  power-status  runtime-status  device-claims\n  device-claim  device-status  device-read  device-write  device-renew  device-release",
             1,
         );
     }
@@ -282,6 +283,10 @@ fn append_missing_top_level_rows(text: &mut String) {
         "process-threads",
         "process-set-state",
         "process-policy",
+        "audio",
+        "service",
+        "simulator-apps",
+        "simulator-boot",
     ];
     let compact_terminal = [
         "pty-start",
@@ -317,19 +322,16 @@ fn append_missing_top_level_rows(text: &mut String) {
         "browser-bridge-window-open",
         "browser-bridge-window-state",
         "browser-bridge-debug-read",
+        "browser-bridge-debug-invoke",
+        "browser-bridge-debug-type",
+        "browser-bridge-debug-files",
         "browser-session-start",
         "browser-session-list",
         "browser-session-status",
         "browser-session-stop",
         "browser-session-remove",
     ];
-    let compact_simulator = [
-        "simulator-devices",
-        "simulator-boot",
-        "simulator-apps",
-        "simulator-launch",
-        "simulator-terminate",
-    ];
+    let compact_simulator: [&str; 0] = [];
     let compact_runtime = [
         "host-open",
         "host-notify",
@@ -362,6 +364,10 @@ fn append_missing_top_level_rows(text: &mut String) {
         "file-move",
         "file-transaction",
         "privilege-plan",
+        "simulator-devices",
+        "simulator-launch",
+        "simulator-terminate",
+        "login-session",
     ];
     let mut missing = verbs::VERBS
         .iter()
@@ -392,7 +398,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-scroll  terminal-screenshot  terminal-events  terminal-output  pty-start  pty-list  pty-prune\n  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-signal  pty-stop  terminal-new  process-argv\n  process-cwd  process-environment  process-fds  process-maps  process-sockets  process-cgroup\n  process-threads  process-set-state  process-policy"
+            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-scroll  terminal-screenshot  terminal-events  terminal-output  pty-start  pty-list  pty-prune\n  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-signal  pty-stop  terminal-new  process-argv\n  process-cwd  process-environment  process-fds  process-maps  process-sockets  process-cgroup\n  process-threads  process-set-state  process-policy  audio  service  simulator-apps  simulator-boot"
                 .to_owned(),
         );
     }
@@ -401,16 +407,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-attach  browser-bridge-reload  browser-bridge-windows\n  browser-bridge-window-open  browser-bridge-window-state  browser-bridge-debug-read  browser-session-start\n  browser-session-list  browser-session-status  browser-session-stop  browser-session-remove"
-                .to_owned(),
-        );
-    }
-    if compact_simulator
-        .iter()
-        .any(|name| !text.contains(&format!("  {name}")))
-    {
-        missing.push(
-            "  simulator-devices  simulator-apps  simulator-boot  simulator-launch  simulator-terminate"
+            "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-attach  browser-bridge-reload  browser-bridge-windows\n  browser-bridge-window-open  browser-bridge-window-state  browser-bridge-debug-read\n  browser-bridge-debug-invoke  browser-bridge-debug-type  browser-bridge-debug-files\n  browser-session-start  browser-session-list  browser-session-status\n  browser-session-stop  browser-session-remove"
                 .to_owned(),
         );
     }
@@ -419,7 +416,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  host-open  host-notify  audit-query  audit-compact  session-start  session-list\n  session-status  session-renew  session-end  lock-acquire  lock-list  lock-release\n  job-spawn  job-adopt  job-list  job-status  job-prune  job-resources  job-priority\n  job-events  job-output  job-write  job-wait  job-set-state  job-signal  job-stop\n  job-renew  file-copy  file-move  file-transaction  privilege-plan"
+            "  host-open  host-notify  audit-query  audit-compact  session-start  session-list  simulator-launch\n  session-status  session-renew  session-end  lock-acquire  lock-list  lock-release  simulator-terminate\n  job-spawn  job-adopt  job-list  job-status  job-prune  job-resources  job-priority  login-session\n  job-events  job-output  job-write  job-wait  job-set-state  job-signal  job-stop\n  job-renew  file-copy  file-move  file-transaction  privilege-plan  simulator-devices"
                 .to_owned(),
         );
     }

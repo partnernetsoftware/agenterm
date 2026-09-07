@@ -14,6 +14,21 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+fn validate_browser_debug_deadline(
+    lock_ttl_seconds: u64,
+    timeout_ms: u64,
+) -> Result<(), &'static str> {
+    if !(500..=35_000).contains(&timeout_ms) {
+        return Err("browser bridge debug timeout_ms must be in 500..=35000");
+    }
+    if !(1..=600).contains(&lock_ttl_seconds)
+        || lock_ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(5_000)
+    {
+        return Err("browser bridge debug lock_ttl_seconds must cover timeout_ms plus 5000ms");
+    }
+    Ok(())
+}
+
 const fn service_scope_operation(scope: ServiceScope) -> &'static str {
     match scope {
         ServiceScope::User => "user",
@@ -3422,6 +3437,42 @@ pub enum Command {
         max_scan: u32,
         max_results: u16,
     },
+    /// Invoke one exact AX node exposed by the authenticated Chromium bridge.
+    /// The caller request identity and its runtime session own at-most-once
+    /// delivery and the stable profile/tab lock.
+    BrowserBridgeDebugInvoke {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        tab_id: u32,
+        debug_target: crate::browser_bridge::DebugTarget,
+        action: crate::browser_bridge::DebugInvokeAction,
+        expect_role: String,
+        expect_name: String,
+        lock_ttl_seconds: u64,
+        timeout_ms: u64,
+    },
+    /// Replace one exact closed-tree editable value without publishing it in
+    /// the public result or audit record.
+    BrowserBridgeDebugType {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        tab_id: u32,
+        debug_target: crate::browser_bridge::DebugTarget,
+        text: String,
+        lock_ttl_seconds: u64,
+        timeout_ms: u64,
+    },
+    /// Set one exact closed-tree file input from bounded regular files. Local
+    /// paths are request-only and never enter public or persistent receipts.
+    BrowserBridgeDebugFiles {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        tab_id: u32,
+        debug_target: crate::browser_bridge::DebugTarget,
+        files: Vec<String>,
+        lock_ttl_seconds: u64,
+        timeout_ms: u64,
+    },
     /// Re-read the window tree and report `ax` / `next_actions`.
     /// AXManualAccessibility poke is not mapped; empty-chrome is not an empty page.
     Unlock {
@@ -3897,6 +3948,9 @@ impl Command {
             Self::BrowserBridgeWindowOpen { .. } => "browser-bridge-window-open".into(),
             Self::BrowserBridgeWindowState { .. } => "browser-bridge-window-state".into(),
             Self::BrowserBridgeDebugRead { .. } => "browser-bridge-debug-read".into(),
+            Self::BrowserBridgeDebugInvoke { .. } => "browser-bridge-debug-invoke".into(),
+            Self::BrowserBridgeDebugType { .. } => "browser-bridge-debug-type".into(),
+            Self::BrowserBridgeDebugFiles { .. } => "browser-bridge-debug-files".into(),
             Self::Unlock { .. } => "unlock".into(),
             Self::Activate { .. } => "activate".into(),
             Self::Raise { .. } => "raise".into(),
@@ -4273,6 +4327,9 @@ impl Command {
             | Self::BrowserBridgeWindowOpen { target, .. }
             | Self::BrowserBridgeWindowState { target, .. }
             | Self::BrowserBridgeDebugRead { target, .. }
+            | Self::BrowserBridgeDebugInvoke { target, .. }
+            | Self::BrowserBridgeDebugType { target, .. }
+            | Self::BrowserBridgeDebugFiles { target, .. }
             | Self::Unlock { target, .. }
             | Self::Activate { target, .. }
             | Self::Raise { target, .. }
@@ -4388,6 +4445,9 @@ impl Command {
             | Self::BrowserBridgeSetup { .. }
             | Self::BrowserBridgeAttach { .. }
             | Self::BrowserBridgeReload { .. }
+            | Self::BrowserBridgeDebugInvoke { .. }
+            | Self::BrowserBridgeDebugType { .. }
+            | Self::BrowserBridgeDebugFiles { .. }
             | Self::BrowserBridgeWindowOpen { .. }
             | Self::BrowserBridgeWindowState { .. }
             | Self::SimulatorBoot { .. }
@@ -4475,6 +4535,71 @@ impl Command {
                     );
                 }
                 Ok(())
+            }
+            Self::BrowserBridgeDebugInvoke {
+                tab_id,
+                debug_target,
+                action,
+                expect_role,
+                expect_name,
+                lock_ttl_seconds,
+                timeout_ms,
+                ..
+            } => {
+                crate::browser_bridge::DebugInvokeRequest {
+                    tab_id: *tab_id,
+                    target: debug_target.clone(),
+                    action: *action,
+                    expect_role: expect_role.clone(),
+                    expect_name: expect_name.clone(),
+                }
+                .validate()
+                .map_err(|_| "browser bridge debug-invoke request is invalid")?;
+                validate_browser_debug_deadline(*lock_ttl_seconds, *timeout_ms)
+            }
+            Self::BrowserBridgeDebugType {
+                tab_id,
+                debug_target,
+                text,
+                lock_ttl_seconds,
+                timeout_ms,
+                ..
+            } => {
+                crate::browser_bridge::DebugTypeRequest {
+                    tab_id: *tab_id,
+                    target: debug_target.clone(),
+                    text: text.clone(),
+                }
+                .validate()
+                .map_err(|_| "browser bridge debug-type request is invalid")?;
+                validate_browser_debug_deadline(*lock_ttl_seconds, *timeout_ms)
+            }
+            Self::BrowserBridgeDebugFiles {
+                tab_id,
+                debug_target,
+                files,
+                lock_ttl_seconds,
+                timeout_ms,
+                ..
+            } => {
+                if files.is_empty() || files.len() > crate::browser_bridge::DEBUG_FILES_MAX_FILES {
+                    return Err("browser bridge debug-files requires 1..=32 local files");
+                }
+                crate::browser_bridge::DebugFilesRequest {
+                    tab_id: *tab_id,
+                    target: debug_target.clone(),
+                    files: files
+                        .iter()
+                        .map(|path| crate::browser_bridge::DebugFile {
+                            path: path.clone(),
+                            name: "pending-local-validation".into(),
+                            size: 0,
+                        })
+                        .collect(),
+                }
+                .validate()
+                .map_err(|_| "browser bridge debug-files request is invalid")?;
+                validate_browser_debug_deadline(*lock_ttl_seconds, *timeout_ms)
             }
             Self::AudioPlanVolume {
                 volume,
@@ -7691,6 +7816,50 @@ mod tests {
                 ..
             }
         ));
+
+        let debug_target = crate::browser_bridge::DebugTarget {
+            frame_id: "frame-1".into(),
+            backend_node_id: 9,
+            role: "textbox".into(),
+            name: "Editor".into(),
+        };
+        for effect in [
+            Command::BrowserBridgeDebugInvoke {
+                target: TargetRef::Current,
+                connection_id: ConnectionId::parse(&"2".repeat(64)).unwrap(),
+                tab_id: 7,
+                debug_target: debug_target.clone(),
+                action: crate::browser_bridge::DebugInvokeAction::Press,
+                expect_role: "status".into(),
+                expect_name: "Saved".into(),
+                lock_ttl_seconds: 30,
+                timeout_ms: 15_000,
+            },
+            Command::BrowserBridgeDebugType {
+                target: TargetRef::Current,
+                connection_id: ConnectionId::parse(&"2".repeat(64)).unwrap(),
+                tab_id: 7,
+                debug_target: debug_target.clone(),
+                text: "secret replacement".into(),
+                lock_ttl_seconds: 30,
+                timeout_ms: 15_000,
+            },
+            Command::BrowserBridgeDebugFiles {
+                target: TargetRef::Current,
+                connection_id: ConnectionId::parse(&"2".repeat(64)).unwrap(),
+                tab_id: 7,
+                debug_target,
+                files: vec!["/synthetic/upload.txt".into()],
+                lock_ttl_seconds: 30,
+                timeout_ms: 15_000,
+            },
+        ] {
+            assert_eq!(effect.required_grant(), Grant::Actuate);
+            effect.validate().unwrap();
+            let encoded = serde_json::to_value(&effect).unwrap();
+            let decoded: Command = serde_json::from_value(encoded).unwrap();
+            assert_eq!(decoded.verb(), effect.verb());
+        }
 
         let invalid = serde_json::json!({
             "verb": "browser-bridge-status",

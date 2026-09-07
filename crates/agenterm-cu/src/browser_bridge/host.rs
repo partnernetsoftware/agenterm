@@ -24,10 +24,12 @@ use sha2::{Digest, Sha256};
 
 use super::{
     ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME, BRIDGE_EXTENSION_VERSION, BridgeProtocolError,
-    BridgeRequest, ConnectionEndpoint, ConnectionEntry, ConnectionId, DebugReadFailure,
-    DebugReadRequest, DebugReadResult, NATIVE_MESSAGE_MAX_BYTES, PROTOCOL_VERSION, ProcessIdentity,
-    REQUEST_LEDGER_MAX_ENTRIES, ReloadResult, TabsResult, WindowOpenRequest, WindowOpenResult,
-    WindowStateRequest, WindowStateResult, WindowsResult, decode_request, encode_native_message,
+    BridgeRequest, ConnectionEndpoint, ConnectionEntry, ConnectionId, DebugFilesRequest,
+    DebugFilesResult, DebugInvokeRequest, DebugInvokeResult, DebugReadFailure, DebugReadRequest,
+    DebugReadResult, DebugTypeRequest, DebugTypeResult, NATIVE_MESSAGE_MAX_BYTES, PROTOCOL_VERSION,
+    ProcessIdentity, REQUEST_LEDGER_MAX_ENTRIES, ReloadResult, TabsResult, WindowOpenRequest,
+    WindowOpenResult, WindowStateRequest, WindowStateResult, WindowsResult, decode_request,
+    encode_native_message,
 };
 
 const CONNECTION_SCHEMA: u32 = 1;
@@ -56,6 +58,8 @@ pub struct BridgeWireError {
     pub tab_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detach: Option<super::DetachOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -100,6 +104,9 @@ impl BridgeResponse {
                             "window-open",
                             "window-state",
                             "debug-read",
+                            "debug-invoke",
+                            "debug-type",
+                            "debug-files",
                             "reload",
                         ]
                 {
@@ -143,6 +150,27 @@ impl BridgeResponse {
                     .validate_for(&args)
                     .map_err(BridgeHostError::protocol)?;
             }
+            "debug-invoke" => {
+                let args: DebugInvokeRequest = request_args(request)?;
+                serde_json::from_value::<DebugInvokeResult>(result)
+                    .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
+                    .validate_for(&args)
+                    .map_err(BridgeHostError::protocol)?;
+            }
+            "debug-type" => {
+                let args: DebugTypeRequest = request_args(request)?;
+                serde_json::from_value::<DebugTypeResult>(result)
+                    .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
+                    .validate_for(&args)
+                    .map_err(BridgeHostError::protocol)?;
+            }
+            "debug-files" => {
+                let args: DebugFilesRequest = request_args(request)?;
+                serde_json::from_value::<DebugFilesResult>(result)
+                    .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
+                    .validate_for(&args)
+                    .map_err(BridgeHostError::protocol)?;
+            }
             "reload" => {
                 let result: ReloadResult = serde_json::from_value(result)
                     .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?;
@@ -156,27 +184,62 @@ impl BridgeResponse {
     }
 }
 
+fn request_args<T: serde::de::DeserializeOwned>(
+    request: &BridgeRequest,
+) -> Result<T, BridgeHostError> {
+    serde_json::from_value(Value::Object(request.args.clone()))
+        .map_err(|_| BridgeHostError::new("browser_bridge_request_invalid"))
+}
+
 fn validate_wire_error(
     error: &BridgeWireError,
     request: &BridgeRequest,
 ) -> Result<(), BridgeHostError> {
-    if request.command == "debug-read" && (error.tab_id.is_some() || error.detach.is_some()) {
-        let args: DebugReadRequest = serde_json::from_value(Value::Object(request.args.clone()))
-            .map_err(|_| BridgeHostError::new("browser_bridge_request_invalid"))?;
-        DebugReadFailure {
-            tab_id: error
-                .tab_id
-                .ok_or_else(|| BridgeHostError::new("browser_bridge_response_invalid"))?,
-            code: error.code.clone(),
-            detach: error
-                .detach
-                .clone()
-                .ok_or_else(|| BridgeHostError::new("browser_bridge_response_invalid"))?,
+    let is_effect = matches!(
+        request.command.as_str(),
+        "debug-invoke" | "debug-type" | "debug-files"
+    );
+    if is_effect && (error.tab_id.is_none() || error.detach.is_none() || error.effect.is_none()) {
+        return Err(BridgeHostError::new("browser_bridge_response_invalid"));
+    }
+    if request.command.starts_with("debug-") && (error.tab_id.is_some() || error.detach.is_some()) {
+        let expected_tab_id = request
+            .args
+            .get("tab_id")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| BridgeHostError::new("browser_bridge_request_invalid"))?;
+        let actual_tab_id = error
+            .tab_id
+            .ok_or_else(|| BridgeHostError::new("browser_bridge_response_invalid"))?;
+        if actual_tab_id != expected_tab_id {
+            return Err(BridgeHostError::new("browser_bridge_debug_target_mismatch"));
         }
-        .validate_for(&args)
-        .map_err(BridgeHostError::protocol)
+        let detach = error
+            .detach
+            .clone()
+            .ok_or_else(|| BridgeHostError::new("browser_bridge_response_invalid"))?;
+        super::validate_debug_failure(expected_tab_id, &error.code, &detach)
+            .map_err(BridgeHostError::protocol)?;
+        if request.command == "debug-read" {
+            if error.effect.is_some() {
+                return Err(BridgeHostError::new("browser_bridge_response_invalid"));
+            }
+            let args: DebugReadRequest = request_args(request)?;
+            DebugReadFailure {
+                tab_id: actual_tab_id,
+                code: error.code.clone(),
+                detach,
+            }
+            .validate_for(&args)
+            .map_err(BridgeHostError::protocol)?;
+        } else if !matches!(error.effect.as_deref(), Some("not-performed" | "unknown")) {
+            return Err(BridgeHostError::new("browser_bridge_response_invalid"));
+        }
+        Ok(())
     } else if error.tab_id.is_none()
         && error.detach.is_none()
+        && error.effect.is_none()
         && !error.code.is_empty()
         && error.code.len() <= 96
         && !error.code.chars().any(char::is_control)
@@ -525,6 +588,7 @@ fn serve_local(
                 code: error.code,
                 tab_id: None,
                 detach: None,
+                effect: None,
             }),
         }),
     }
@@ -588,12 +652,48 @@ fn send_to_connection_at(
     stream
         .set_nonblocking(true)
         .map_err(|_| BridgeHostError::new("browser_bridge_deadline_setup_failed"))?;
-    write_all_with_deadline(&mut stream, &frame, deadline)?;
-    flush_with_deadline(&mut stream, deadline)?;
-    let response: BridgeResponse =
-        serde_json::from_value(read_frame_with_deadline(&mut stream, deadline)?)
-            .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?;
-    response.validate_for(request)?;
+    let is_effect = matches!(
+        request.command.as_str(),
+        "debug-invoke" | "debug-type" | "debug-files"
+    );
+    write_all_with_deadline(&mut stream, &frame, deadline).map_err(|error| {
+        if is_effect {
+            BridgeHostError::new("browser_bridge_outcome_unknown")
+        } else {
+            error
+        }
+    })?;
+    flush_with_deadline(&mut stream, deadline).map_err(|error| {
+        if is_effect {
+            BridgeHostError::new("browser_bridge_outcome_unknown")
+        } else {
+            error
+        }
+    })?;
+    let response_value = read_frame_with_deadline(&mut stream, deadline).map_err(|error| {
+        if matches!(
+            request.command.as_str(),
+            "debug-invoke" | "debug-type" | "debug-files"
+        ) {
+            BridgeHostError::new("browser_bridge_outcome_unknown")
+        } else {
+            error
+        }
+    })?;
+    let response: BridgeResponse = serde_json::from_value(response_value).map_err(|_| {
+        BridgeHostError::new(if is_effect {
+            "browser_bridge_outcome_unknown"
+        } else {
+            "browser_bridge_response_invalid"
+        })
+    })?;
+    response.validate_for(request).map_err(|error| {
+        if is_effect {
+            BridgeHostError::new("browser_bridge_outcome_unknown")
+        } else {
+            error
+        }
+    })?;
     Ok(response)
 }
 
@@ -911,7 +1011,7 @@ mod tests {
             "extension_id": ACU_EXTENSION_ID,
             "extension_version": BRIDGE_EXTENSION_VERSION,
             "profile_instance_id": "1234567890abcdef1234567890abcdef",
-            "commands": ["status","tabs","windows","window-open","window-state","debug-read","reload"]
+            "commands": ["status","tabs","windows","window-open","window-state","debug-read","debug-invoke","debug-type","debug-files","reload"]
         })
     }
 
@@ -976,6 +1076,39 @@ mod tests {
             "browser_bridge_request_uncertain"
         );
         assert_eq!(browser_out, sent_once);
+    }
+
+    #[test]
+    fn effect_wire_error_requires_explicit_delivery_and_detach_outcome() {
+        let mut effect = request("debug-invoke");
+        effect.args = serde_json::from_value(json!({
+            "tab_id": 7,
+            "frame_id": "child-frame",
+            "backend_node_id": 9,
+            "role": "button",
+            "name": "Commit",
+            "action": "press",
+            "expect_role": "button",
+            "expect_name": "Committed"
+        }))
+        .unwrap();
+        let generic = BridgeWireError {
+            code: "browser_bridge_debug_failed".into(),
+            tab_id: None,
+            detach: None,
+            effect: None,
+        };
+        assert_eq!(
+            validate_wire_error(&generic, &effect).unwrap_err().code,
+            "browser_bridge_response_invalid"
+        );
+        let explicit = BridgeWireError {
+            code: "browser_bridge_debug_target_missing".into(),
+            tab_id: Some(7),
+            detach: Some(super::super::DetachOutcome::AlreadyDetached),
+            effect: Some("not-performed".into()),
+        };
+        validate_wire_error(&explicit, &effect).unwrap();
     }
 
     #[test]

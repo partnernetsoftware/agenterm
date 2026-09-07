@@ -511,9 +511,13 @@
         {
           "id": "browser.closed-tree",
           "mcu_shape": "browser debug-read/debug-type/debug-invoke/debug-files across frames and closed shadow DOM",
-          "acu_shape": "browser-bridge-debug-read exact-connection route for exact-tab bounded cross-frame Accessibility.getFullAXTree projection with no form values, presentation invariance and mandatory detach evidence",
-          "state": "gap",
-          "next": "implement debug-type/debug-invoke/debug-files, then prove exact tab/frame/node identity, cross-frame closed-shadow read/write/invoke/file behavior, detach cleanup and secret-free receipts through a live Native Messaging court"
+          "acu_shape": "browser-bridge-debug-read/debug-type/debug-invoke/debug-files over one exact connection, profile, tab, child frame and backend node with role/name guards, bounded cross-frame AX projection, explicit detach, durable request identity and secret-free receipts",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
+          "qualification": "macos-owned-profile-cross-frame-closed-shadow-green-linux-windows-native-courts-pending",
+          "evidence": ["cu.browser-closed-tree.macos"],
+          "note": "The public macOS court reads and actuates controls inside a closed shadow root hosted in a child frame. Type, focus, press and file injection bind the exact tab/frame/backend-node plus role/name, preserve background presentation, require effect-specific postconditions and mandatory debugger detach, and independently verify business state through CDP. Text, node labels and complete local paths are absent from durable receipts and audit. Any transport or validation loss after effect delivery becomes outcome_unknown and cannot be replayed.",
+          "next": "run the same exact cross-frame closed-shadow court with ACU-owned native Chromium-family Profiles on Linux and Windows"
         },
         {
           "id": "browser.window-lifecycle",
