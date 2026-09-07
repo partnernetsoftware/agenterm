@@ -1421,6 +1421,7 @@ impl UiaSession {
             id,
             parent_id,
             role,
+            subrole: None,
             name,
             states,
             bounds,

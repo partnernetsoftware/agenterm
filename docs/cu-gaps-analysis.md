@@ -62,8 +62,10 @@ _agt_native_window_show/activate/move/rect/set_topmost/close/minimized
 
 ## 二、各符号状态表（声明 / 导出 / 实现）
 
-ABI 层：`crates/agenterm-abi/src/lib.rs`（版本 `abi_version!(1, 28)`，cu `EXPECTED_ABI_MAJOR=1` /
-`REQUIRED_ABI_MINOR=28`，**版本匹配**）。
+ABI 层在本文 2026-09-07 取证时为 `abi_version!(1, 28)`，cu 同时要求
+`EXPECTED_ABI_MAJOR=1` / `REQUIRED_ABI_MINOR=28`，当时**版本匹配**；当前版本只以
+`crates/agenterm-abi/src/lib.rs`、`include/agenterm.h` 与
+`crates/agenterm-cu/src/dynlib.rs` 为准，不把这份历史证据当活版本号。
 macOS 平台实现：`crates/agenterm-platform/src/adapters/macos/*.rs`，经 `src/selected.rs` 按 `target_os` +
 cargo feature 选择。abi crate 已对 platform 开启 `input-inject, window-enum, window-op, a11y-tree, screenshot`
 等 feature（见 `crates/agenterm-abi/Cargo.toml` 的 dependencies 行）。

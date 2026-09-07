@@ -499,6 +499,7 @@ mod tests {
             id: id.into(),
             parent_id: parent.map(str::to_owned),
             role: role.into(),
+            subrole: None,
             name: name.into(),
             states: states.iter().map(|s| (*s).to_owned()).collect(),
             bounds: A11yBounds {

@@ -545,6 +545,7 @@ mod tests {
             id: id.into(),
             parent_id: None,
             role: role.into(),
+            subrole: None,
             name: name.into(),
             states: states.iter().map(|state| (*state).into()).collect(),
             bounds: mechanism::A11yBounds {

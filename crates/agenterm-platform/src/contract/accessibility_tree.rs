@@ -33,6 +33,14 @@ pub struct AccessibilityNode {
     pub id: String,
     pub parent_id: Option<String>,
     pub role: String,
+    /// Backend-native role refinement when one exists (macOS `AXSubrole`).
+    /// `None` means the backend exposes no distinct refinement; callers must
+    /// not infer one from `role`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub subrole: Option<String>,
     pub name: String,
     /// Backend states, lower-case. Besides the observe vocabulary (`enabled`
     /// / `disabled`, `focusable`, `focused`, `showing`, `visible`,

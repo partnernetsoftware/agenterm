@@ -35,6 +35,7 @@ pub(super) fn node_at(id: &str, name: &str, role: &str, states: &[&str]) -> mech
         id: id.into(),
         parent_id: Some("/0".into()),
         role: role.into(),
+        subrole: None,
         name: name.into(),
         states: states.iter().map(|state| (*state).to_owned()).collect(),
         bounds: mechanism::A11yBounds {

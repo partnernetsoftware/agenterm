@@ -339,6 +339,9 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
     let role = flag_text(args, "--role")?
         .map(|raw| agenterm_cu::observe::parse_roles(&raw))
         .unwrap_or_default();
+    let subrole = flag_text(args, "--subrole")?
+        .map(|raw| agenterm_cu::observe::parse_roles(&raw))
+        .unwrap_or_default();
     let action = flag_text(args, "--action")?
         .map(|raw| agenterm_cu::observe::parse_roles(&raw))
         .unwrap_or_default();
@@ -391,7 +394,7 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
     let max_events = flag_parsed::<usize>(args, "--max-events")?;
     if !args.is_empty() {
         return Err(format!(
-            "{verb} accepts only --window H --depth N --max-nodes N --role R,R \
+            "{verb} accepts only --window H --depth N --max-nodes N --role R,R --subrole S,S \
              --action A,A --min-depth N --max-depth N \
              --text T | --text-exact T --identifier ID --actionable \
              --enabled true|false --focused true|false --selected true|false \
@@ -407,6 +410,7 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
         depth,
         max_nodes,
         role,
+        subrole,
         action,
         min_depth,
         max_depth,
@@ -737,6 +741,8 @@ mod tests {
             "Fixture#7".into(),
             "--role".into(),
             "button".into(),
+            "--subrole".into(),
+            "AXDialog".into(),
             "--action".into(),
             "Press,Focus".into(),
             "--min-depth".into(),
@@ -760,6 +766,7 @@ mod tests {
             parse(spec, "query", TargetRef::Current, &mut args).expect("query watch"),
             Command::Query {
                 window: 7,
+                ref subrole,
                 ref action,
                 min_depth: Some(1),
                 max_depth: Some(4),
@@ -770,7 +777,7 @@ mod tests {
                 interval_ms: Some(100),
                 max_events: Some(12),
                 ..
-            } if action == &["Press", "Focus"]
+            } if subrole == &["AXDialog"] && action == &["Press", "Focus"]
         ));
         let mut invalid = vec![
             "--window".into(),

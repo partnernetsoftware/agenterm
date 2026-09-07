@@ -184,6 +184,7 @@
       "prd": "Native browser Save Panel handling is a separate P0",
       "evidence_ids": [
         "cu.macos-save-panel-tree",
+        "cu.macos-save-panel-subrole",
         "cu.macos-save-panel-cancel",
         "cu.macos-save-panel-save",
         "cu.macos-save-panel-cleanup"

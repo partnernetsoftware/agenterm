@@ -2503,6 +2503,7 @@ fn read_node(
     budget.check()?;
     let role = attribute_string(element, "AXRole", budget)?.unwrap_or_default();
     let role = normalize_role(&role);
+    let subrole = attribute_string(element, "AXSubrole", budget)?.filter(|s| !s.is_empty());
     let identifier = attribute_string(element, "AXIdentifier", budget)?.filter(|s| !s.is_empty());
     let name = attribute_string(element, "AXTitle", budget)?
         .filter(|s| !s.is_empty())
@@ -2549,6 +2550,7 @@ fn read_node(
         id,
         parent_id,
         role,
+        subrole,
         name,
         states,
         bounds,

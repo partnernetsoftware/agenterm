@@ -39,12 +39,12 @@ extern "C" {
 /* ABI versioning contract (see crates/agenterm-abi/README.md):
  *   major: breaking change (signature change / symbol removal / semantic
  *          change). Consumers must reject a mismatched major.
- *   minor: additive export additions (a new mechanism); old consumers are
+ *   minor: additive capabilities, exports or fields; old consumers are
  *          unaffected.
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 28
+#define AGT_ABI_MINOR 29
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -419,7 +419,10 @@ typedef enum {
      * id, it is a wrong one: two nodes sharing the first 64 bytes become
      * the same node. Prefer these over the record's fixed fields. */
     AGT_A11Y_STR_ID = 5,
-    AGT_A11Y_STR_PARENT_ID = 6
+    AGT_A11Y_STR_PARENT_ID = 6,
+    /* ABI 1.29: backend-native role refinement (macOS AXSubrole); empty
+     * when this backend exposes no distinct refinement. */
+    AGT_A11Y_STR_SUBROLE = 7
 } agt_a11y_string_kind;
 
 typedef enum {

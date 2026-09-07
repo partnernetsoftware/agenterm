@@ -13,6 +13,7 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.macos-save-panel-tree",
+  "cu.macos-save-panel-subrole",
   "cu.macos-save-panel-cancel",
   "cu.macos-save-panel-save",
   "cu.macos-save-panel-cleanup"
@@ -201,6 +202,23 @@ function inspect_panel(run_directory, executable, handle, filename, directory_na
     name_fields === 1 && locations === 1 && cancels === 1 && saves === 1,
     "cu_macos_save_panel_controls:" + JSON.stringify(tree.data.nodes)
   );
+
+  const by_subrole = run_cu_ok(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "query",
+    "--window", "" + handle, "--role", "AXGroup", "--subrole", "AXDialog",
+    "--identifier", "fixture-subrole-dialog"
+  ]);
+  ensure(
+    int_at(by_subrole, "data.matched") === 1
+      && int_at(by_subrole, "data.returned") === 1
+      && text_at(by_subrole.data.nodes[0], "role") === "group"
+      && text_at(by_subrole.data.nodes[0], "subrole") === "AXDialog"
+      && text_at(by_subrole.data.nodes[0], "identifier") === "fixture-subrole-dialog",
+    "cu_macos_save_panel_subrole:" + JSON.stringify({
+      query: by_subrole.data,
+      root: tree.data.nodes[0]
+    })
+  );
 }
 
 function invoke_panel(run_directory, executable, handle, identifier) {
@@ -327,6 +345,7 @@ if (!succeeded) {
 
 ensure(remove_directory_bounded(run_directory), "cu_macos_save_panel_cleanup_locked");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-tree");
+harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-subrole");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-cancel");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-save");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-cleanup");

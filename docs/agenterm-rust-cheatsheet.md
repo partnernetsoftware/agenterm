@@ -5085,6 +5085,14 @@ silently diverge. An “actionable” filter includes known control roles as wel
 as nodes whose provider emitted an action list; cross-toolkit action lists are
 not complete enough to be the sole test.
 
+Role refinement is also three-state. Preserve a backend-native subrole through
+the platform contract and ABI as an optional field; when a backend exposes no
+separate refinement, publish no value and let a subrole filter produce no
+match. Never infer `dialog`, `sheet`, or another refinement from the normalized
+ordinary role. Adding a field kind to an existing caller-sized ABI getter is an
+additive minor bump; prove it with an owned native fixture that asserts both
+the ordinary role and the refinement in one bounded query.
+
 ## Large transient pixel frames
 
 On macOS a full 960×600 logical Retina XRGB frame is 8.79 MiB. Freeing a

@@ -12,6 +12,11 @@ kill / self pid；6 = 结构化 accessibility-tree 观察与节点动作（`agt_
 UIA / macOS AX / Linux AT-SPI2）藏在 `agenterm-platform` 适配器后，C 头文件只
 描述机制。
 
+ABI 1.29 在 1.28 之后，不新增导出，而是在既有
+`agt_a11y_node_string` 增加 `AGT_A11Y_STR_SUBROLE = 7`。macOS 返回真实
+`AXSubrole`；未发布独立 refinement 的后端返回空串，调用方不得从普通
+`role` 推断或伪造 subrole。旧消费者不请求新 kind，行为保持不变。
+
 ABI 1.10 新增 `agt_window_placement_query` 与
 `AGT_CAP_WINDOW_PLACEMENT_INSPECT`：调用者传入原生窗口句柄、预期 PID 和
 caller-sized v1 记录，得到 role、movable/resizable 三态与显式/应用强制/未知
@@ -291,7 +296,7 @@ profile 下构建出的库没有任何 `catch_unwind` 保护，**只允许**这�
 
 - **major**：只在**破坏性变更**时递增——改签名、删符号、改语义。
   消费者必须拒绝不匹配的 major（`v >> 16 != AGT_ABI_MAJOR` 即视为不兼容）。
-- **minor**：**新增导出**时递增（新增机制、纯增量），老消费者不受影响，
+- **minor**：新增 ABI 能力、导出或字段时递增（纯增量），老消费者不受影响，
   无需重新编译。
 
 当前 minor 以 `src/lib.rs` 的 `ABI_MINOR` 与 `include/agenterm.h` 的
@@ -319,6 +324,11 @@ ABI 1.14 增加后台三件：`agt_a11y_menu_snapshot`（按窗口所属 App 的
 `AXPress` 前拒绝，回传按前后的勾选标记）、`agt_a11y_focused_snapshot`
 （App 自己的 `AXFocusedUIElement` 作为单节点快照，id 是它在该窗口树里的
 子索引路径，不要求 App 在前台）。
+
+ABI 1.29 不增加新导出，而是在既有 `agt_a11y_node_string` 上增加
+`AGT_A11Y_STR_SUBROLE = 7`：macOS 返回真实 `AXSubrole`，没有独立 refinement
+的后端返回空串。消费者不得从普通 `role` 猜造 subrole；旧消费者不请求新 kind，
+因此行为不变。
 
 `agt_build_id()` 返回 `<crate 版本>+abi.<major>.<minor>`
 （例如 `0.1.16+abi.1.1`），在**编译期**由 `CARGO_PKG_VERSION` 与

@@ -632,6 +632,7 @@ mod tests {
             id: id.into(),
             parent_id: None,
             role: role.into(),
+            subrole: None,
             name: name.into(),
             states: vec!["showing".into(), "visible".into()],
             bounds: mechanism::A11yBounds {

@@ -273,6 +273,7 @@ mod tests {
             id: id.into(),
             parent_id: id.rsplit_once('/').map(|(parent, _)| parent.to_owned()),
             role: role.into(),
+            subrole: None,
             name: name.into(),
             states: states.iter().map(|s| (*s).to_owned()).collect(),
             bounds: A11yBounds {

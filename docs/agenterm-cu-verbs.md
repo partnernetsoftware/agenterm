@@ -3048,7 +3048,7 @@ windows refuses rather than returning a partial inventory.
 ### `query`
 
 ```text
-query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]
+query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R] [--subrole S,S]
       [--action A,A] [--min-depth N] [--max-depth N]
       [--text T | --text-exact T] [--identifier ID] [--actionable]
       [--enabled true|false] [--focused true|false] [--selected true|false]
@@ -3063,7 +3063,7 @@ agenterm-cu query    (also: inspect, find, read)
   scope: observe    family: Accessibility: observe
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]
+  query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R] [--subrole S,S]
         [--action A,A] [--min-depth N] [--max-depth N]
         [--text T | --text-exact T] [--identifier ID] [--actionable]
         [--enabled true|false] [--focused true|false] [--selected true|false]
@@ -3076,6 +3076,7 @@ arguments:
   --depth N                     walk depth (root = 0, at most 64)
   --max-nodes N                 node budget while the platform walks (1..20000)
   --role R,R                    roles to keep (AXTextArea or text-area spellings)
+  --subrole S,S                 backend-native role refinements; absent stays unknown
   --action A,A                  case-insensitive exact action names
   --min-depth N                minimum node depth (root = 0, at most 64)
   --max-depth N                maximum node depth (>= min-depth, at most 64)

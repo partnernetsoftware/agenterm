@@ -213,6 +213,8 @@ pub const AGT_A11Y_STR_IDENTIFIER: i32 = 4;
 /// not a short one: two nodes sharing the first 64 bytes become one.
 pub const AGT_A11Y_STR_ID: i32 = 5;
 pub const AGT_A11Y_STR_PARENT_ID: i32 = 6;
+/// ABI 1.29: backend-native role refinement; empty when absent.
+pub const AGT_A11Y_STR_SUBROLE: i32 = 7;
 
 /// `agt_a11y_tree_snapshot_bounded` sentinels: keep the adapter default.
 pub const AGT_A11Y_DEPTH_DEFAULT: i32 = -1;
@@ -253,7 +255,7 @@ pub const AGT_NATIVE_WINDOW_RESTORE: i32 = 4;
 /// EXPECTED_ABI_MAJOR`, so this value cannot drift from the library without
 /// that gate failing first.
 const EXPECTED_ABI_MAJOR: u16 = 1;
-const REQUIRED_ABI_MINOR: u16 = POINTER_SCROLL_ABI_MINOR;
+const REQUIRED_ABI_MINOR: u16 = A11Y_SUBROLE_ABI_MINOR;
 pub const WINDOW_PLACEMENT_ABI_MINOR: u16 = 10;
 pub const POINTER_POSITION_ABI_MINOR: u16 = 11;
 /// ABI 1.12: `agt_a11y_tree_snapshot_bounded`, snapshot meta fields
@@ -300,6 +302,8 @@ pub const WINDOW_ACTIVATE_ABI_MINOR: u16 = 26;
 pub const SHOW_MENU_ABI_MINOR: u16 = 27;
 /// ABI 1.28: bounded desktop wheel injection at the current pointer location.
 pub const POINTER_SCROLL_ABI_MINOR: u16 = 28;
+/// ABI 1.29: `AGT_A11Y_STR_SUBROLE` through the existing node-string export.
+pub const A11Y_SUBROLE_ABI_MINOR: u16 = 29;
 
 /// `agt_a11y_observe_event_string` field kinds.
 pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;

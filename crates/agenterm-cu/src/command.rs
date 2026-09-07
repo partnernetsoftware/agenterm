@@ -2341,6 +2341,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         role: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        subrole: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         action: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         min_depth: Option<u32>,
@@ -7029,6 +7031,7 @@ mod tests {
             depth: Some(12),
             max_nodes: Some(500),
             role: vec!["AXTextArea".into(), "button".into()],
+            subrole: vec!["AXDialog".into()],
             action: vec!["press".into()],
             min_depth: Some(1),
             max_depth: Some(4),
@@ -7059,7 +7062,7 @@ mod tests {
             serde_json::json!({
                 "verb": "query", "target": "vnc", "window": 14278,
                 "depth": 12, "max_nodes": 500,
-                "role": ["AXTextArea", "button"], "action": ["press"],
+                "role": ["AXTextArea", "button"], "subrole": ["AXDialog"], "action": ["press"],
                 "min_depth": 1, "max_depth": 4, "text": "Fixture",
                 "actionable": true, "enabled": true, "focused": false,
                 "checked": false, "within": [0, 0, 900, 700],

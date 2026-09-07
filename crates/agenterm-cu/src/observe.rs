@@ -304,6 +304,8 @@ pub fn parse_within(raw: &str) -> Result<[i32; 4], String> {
 pub struct NodeFilter {
     /// Normalized with [`normalize_role`]; empty means any role.
     pub roles: Vec<String>,
+    /// Normalized backend-native refinements; empty means any subrole.
+    pub subroles: Vec<String>,
     /// Case-insensitive exact action names; any requested action may match.
     pub actions: Vec<String>,
     pub min_depth: Option<u32>,
@@ -338,6 +340,14 @@ impl NodeFilter {
         {
             return Err("--max-depth must be greater than or equal to --min-depth".into());
         }
+        if self.subroles.len() > 64
+            || self
+                .subroles
+                .iter()
+                .any(|subrole| subrole.is_empty() || subrole.len() > 256)
+        {
+            return Err("--subrole must contain 1..64 values of at most 256 bytes each".into());
+        }
         if self.actions.len() > 64
             || self
                 .actions
@@ -359,6 +369,7 @@ impl NodeFilter {
     ) -> Self {
         Self {
             roles: roles.iter().map(|role| normalize_role(role)).collect(),
+            subroles: Vec::new(),
             actions: Vec::new(),
             min_depth: None,
             max_depth: None,
@@ -398,6 +409,14 @@ impl NodeFilter {
         self
     }
 
+    pub fn with_subroles(mut self, subroles: &[String]) -> Self {
+        self.subroles = subroles
+            .iter()
+            .map(|subrole| normalize_role(subrole))
+            .collect();
+        self
+    }
+
     pub fn matches(&self, node: &A11yNode) -> bool {
         let depth = node_depth(&node.id);
         if self.min_depth.is_some_and(|minimum| depth < minimum)
@@ -408,6 +427,14 @@ impl NodeFilter {
         if !self.roles.is_empty() {
             let role = normalize_role(&node.role);
             if !self.roles.iter().any(|wanted| wanted == &role) {
+                return false;
+            }
+        }
+        if !self.subroles.is_empty() {
+            let Some(subrole) = node.subrole.as_deref().map(normalize_role) else {
+                return false;
+            };
+            if !self.subroles.iter().any(|wanted| wanted == &subrole) {
                 return false;
             }
         }
@@ -2743,6 +2770,7 @@ mod tests {
             id: id.to_owned(),
             parent_id: None,
             role: "AXGroup".to_owned(),
+            subrole: None,
             name: id.to_owned(),
             states: Vec::new(),
             bounds: A11yBounds {
@@ -2786,6 +2814,7 @@ mod tests {
             id: id.to_owned(),
             parent_id: None,
             role: "AXGroup".to_owned(),
+            subrole: None,
             name: id.to_owned(),
             states: Vec::new(),
             bounds: A11yBounds {
@@ -2813,6 +2842,7 @@ mod tests {
             id: "/0/1".to_owned(),
             parent_id: None,
             role: "AXCell".to_owned(),
+            subrole: None,
             name: "cell".to_owned(),
             states: Vec::new(),
             bounds: A11yBounds {
@@ -2843,6 +2873,7 @@ mod tests {
             id: id.to_owned(),
             parent_id: None,
             role: role.to_owned(),
+            subrole: None,
             name: name.to_owned(),
             states: Vec::new(),
             bounds: A11yBounds {
@@ -2960,6 +2991,7 @@ mod tests {
     #[test]
     fn filters_are_and_terms_over_the_same_nodes() {
         let mut focused = node("/0/0/0", "text-area", "", &["focus"]);
+        focused.subrole = Some("AXDialog".into());
         focused.text = Some("345AXTREE".into());
         focused.identifier = Some("editor".into());
         let nodes = vec![
@@ -2979,6 +3011,15 @@ mod tests {
         assert_eq!(counts.matched, 1);
         assert_eq!(counts.returned, 1);
         assert!(!counts.truncated);
+
+        let by_subrole = NodeFilter::default().with_subroles(&["dialog".into()]);
+        let (hits, _) = query(&flat, &by_subrole, page, false);
+        assert_eq!(
+            hits.iter().map(|hit| hit.index).collect::<Vec<_>>(),
+            vec![2]
+        );
+        let absent_subrole = NodeFilter::default().with_subroles(&["AXSheet".into()]);
+        assert!(query(&flat, &absent_subrole, page, false).0.is_empty());
 
         let by_text = NodeFilter::from_parts(&[], Some("fixture"), None, None, false, None);
         let (hits, _) = query(&flat, &by_text, page, false);

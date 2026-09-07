@@ -299,7 +299,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 28);
+abi_version!(1, 29);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -3069,6 +3069,8 @@ const AGT_A11Y_STR_IDENTIFIER: i32 = 4;
 /// through the same two-stage reader the other strings use.
 const AGT_A11Y_STR_ID: i32 = 5;
 const AGT_A11Y_STR_PARENT_ID: i32 = 6;
+/// ABI 1.29: backend-native role refinement (macOS `AXSubrole`), empty when absent.
+const AGT_A11Y_STR_SUBROLE: i32 = 7;
 
 /// `agt_a11y_tree_snapshot_bounded` sentinels: "keep the adapter default".
 const AGT_A11Y_DEPTH_DEFAULT: i32 = -1;
@@ -3997,6 +3999,7 @@ pub extern "C" fn agt_a11y_node_string(
                 AGT_A11Y_STR_PARENT_ID => {
                     node.parent_id.as_deref().unwrap_or("").as_bytes().to_vec()
                 }
+                AGT_A11Y_STR_SUBROLE => node.subrole.as_deref().unwrap_or("").as_bytes().to_vec(),
                 AGT_A11Y_STR_IDENTIFIER => {
                     node.identifier.as_deref().unwrap_or("").as_bytes().to_vec()
                 }
@@ -7260,8 +7263,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn abi_1_28_maps_show_menu_without_a_value() {
-        assert_eq!(ABI_MINOR, 28);
+    fn current_abi_maps_show_menu_without_a_value() {
+        assert_eq!(ABI_MINOR, 29);
         assert_eq!(
             a11y_action_from_abi(AGT_A11Y_ACTION_SHOW_MENU, None),
             Ok(AccessibilityNodeAction::ShowMenu)

@@ -31,6 +31,8 @@ pub struct A11yNode {
     pub id: String,
     pub parent_id: Option<String>,
     pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subrole: Option<String>,
     pub name: String,
     pub states: Vec<String>,
     pub bounds: A11yBounds,
@@ -2236,6 +2238,8 @@ fn read_node(index: usize, with_identifier: bool) -> Result<A11yNode, MechanismE
         Some(fixed_field(&record.parent_id, record.parent_id_len))
     };
     let role = read_node_string(index, dynlib::AGT_A11Y_STR_ROLE)?;
+    let subrole_raw = read_node_string(index, dynlib::AGT_A11Y_STR_SUBROLE)?;
+    let subrole = (!subrole_raw.is_empty()).then_some(subrole_raw);
     let name = read_node_string(index, dynlib::AGT_A11Y_STR_NAME)?;
     let text_raw = read_node_string(index, dynlib::AGT_A11Y_STR_TEXT)?;
     let text = if text_raw.is_empty() {
@@ -2263,6 +2267,7 @@ fn read_node(index: usize, with_identifier: bool) -> Result<A11yNode, MechanismE
         id,
         parent_id,
         role,
+        subrole,
         name,
         states,
         bounds: A11yBounds {

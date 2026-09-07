@@ -187,6 +187,7 @@
       "platform": "macos",
       "evidence": [
         "cu.macos-save-panel-tree",
+        "cu.macos-save-panel-subrole",
         "cu.macos-save-panel-cancel",
         "cu.macos-save-panel-save",
         "cu.macos-save-panel-cleanup"

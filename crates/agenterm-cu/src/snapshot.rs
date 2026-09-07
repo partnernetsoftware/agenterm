@@ -594,6 +594,7 @@ mod tests {
             id: id.into(),
             parent_id: None,
             role: role.into(),
+            subrole: None,
             name: name.into(),
             states: vec!["showing".into()],
             bounds: A11yBounds {

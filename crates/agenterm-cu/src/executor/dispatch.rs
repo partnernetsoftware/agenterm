@@ -1074,6 +1074,7 @@ impl Executor {
                 depth,
                 max_nodes,
                 role,
+                subrole,
                 action,
                 min_depth,
                 max_depth,
@@ -1110,7 +1111,8 @@ impl Executor {
                 .with_native_filters(
                     action, *min_depth, *max_depth, *enabled, *focused, *selected, *checked,
                     *expanded,
-                ),
+                )
+                .with_subroles(subrole),
                 text.is_some() && text_exact.is_some(),
                 *offset,
                 *max,

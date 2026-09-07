@@ -2409,6 +2409,7 @@ async fn read_node(
         id,
         parent_id,
         role,
+        subrole: None,
         name,
         states,
         bounds,
@@ -3896,6 +3897,7 @@ fn window_frame_tree(identity: &WindowIdentity) -> AccessibilityTree {
             id: "/0".to_owned(),
             parent_id: None,
             role: "frame".to_owned(),
+            subrole: None,
             name: identity.title.clone(),
             states: vec![
                 "enabled".to_owned(),

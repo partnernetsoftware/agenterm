@@ -133,10 +133,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `8 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 25 resolved witnesses now have an executable disposition:
-  12 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 8 remaining
+  `7 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 26 resolved witnesses now have an executable disposition:
+  13 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 7 remaining
   dynamic-stay witness rows keep their stable repair identities. The `.050` witness now
   maps to native exact simulator app status, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
@@ -463,7 +463,7 @@ binary without its matching dylib is inert.
   into the bundle / onto `PATH`, copy the same-build `abi-release`
   `libagenterm.dylib` next to it (or set `AGENTERM_ABI_LIB`), and assert
   `agt_abi_version()` matches cu's `EXPECTED_ABI_MAJOR` / `REQUIRED_ABI_MINOR`
-  (currently `1` / `28`, library reports `1.28`) at package time. This is the
+  (currently `1` / `29`, library reports `1.29`) at package time. This is the
   precondition for cu being usable out of the box on a user's machine; no new
   platform code is required.
 - [~] **P1 — macOS TCC consent gates (runtime prerequisite, not a code
@@ -516,7 +516,8 @@ ACU-only cutover
 │  ├─ acu.dynamic.074 · window-local scroll without physical-pointer movement
 │  ├─ acu.dynamic.075 · browser tabs selected by profile/application
 │  ├─ acu.dynamic.076 · multi-window `inspect --app`
-│  ├─ acu.dynamic.077 · missing lossless query predicates such as subrole
+│  ├─ [x] acu.dynamic.077 · native `query --subrole` preserves macOS `AXSubrole` through ABI 1.29;
+│  │  └─ public owned Save Panel qjswasm court proves a deterministic `AXDialog` accessory probe
 │  ├─ [~] acu.dynamic.078 · invalid legacy `tree --page` is closed usage;
 │  │  └─ valid `tree --max-value-bytes` remains typed TODO
 │  ├─ [~] acu.dynamic.084 · `--space` is evaluated inside every windows-watch poll;

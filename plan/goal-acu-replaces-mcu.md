@@ -76,9 +76,9 @@ ACU replaces MCU
 │  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
-│  │  all 8 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
+│  │  all 7 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
 │  │  `.084` Space filtering executes natively while its remaining filter shapes keep that typed TODO;
-│  │  all 25 resolved witnesses have a checked disposition (12 exec · 8 compound · 5 usage · 0 TODO);
+│  │  all 26 resolved witnesses have a checked disposition (13 exec · 8 compound · 5 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
 │  │  external wrapper now execs that entry; remaining dynamic mappings, broader MCP, native courts and physical archive remain
@@ -902,15 +902,15 @@ defaults, geometry and legacy alias results; correcting those differences now
 precedes adding more flags. Browser profile-wide tabs are separately frozen to
 the MV3 bridge: a one-window AX tab strip is never an acceptable fallback.
 
-The compatibility adapter now has zero static STAY spellings and 8 dynamic
+The compatibility adapter now has zero static STAY spellings and 7 dynamic
 STAY witnesses after lossless projections for exact simulator application status,
 `resource top`, focused
 PID, observe role, wait absence, platform-default-shell PTY, selector-rooted
 trees, bounded filtered query watch, and Space filtering evaluated inside every
 window-watch poll. The frozen `tree --page` witness is now a closed local usage
 result because archived MCU never accepted that tree shape. The tree/query debt
-remains because MCU-only filters including `--max-value-bytes`,
-`--subrole` and state/action predicates remain under the same argument-sensitive
+remains because MCU-only filters including `--max-value-bytes` and state/action
+predicates remain under the same argument-sensitive
 gap ids. The archived tmux provider is a permanent scope rejection, while a
 native wait shaped as `literal.*` reduces exactly to loss-aware substring search;
 irreducible regex remains `.067`. Watch control itself now routes through ACU. The tree witness count
@@ -921,7 +921,11 @@ shell and the public `cu-pty-smoke` proves that path; MCU string-eval
 reduced by reclassifying useful MCU behavior as a permanent rejection: tmux
 PTY, bounded pattern wait, app/signing observation, app-global menus and
 window-local pointer movement remain real ACU gaps until a typed replacement
-and public evidence exist. ABI 1.28 now supplies the bounded three-host desktop wheel mechanism.
+and public evidence exist. ABI 1.28 supplies the bounded three-host desktop wheel mechanism;
+ABI 1.29 carries backend-native accessibility subroles without guessing them on backends
+that do not expose one. The owned macOS Save Panel qjswasm court proves one exact
+`AXDialog` accessory refinement through the public query; the panel root itself remains
+truthfully absent rather than being inferred from its `sheet` role.
 Its reply deliberately retains `delivery_verified=false`; the separate owned
 qjswasm content-movement court is green on macOS and must still pass Linux X11
 and Windows before the adapter may map MCU `scroll --to desktop`. Window-local hover/wheel is still separate

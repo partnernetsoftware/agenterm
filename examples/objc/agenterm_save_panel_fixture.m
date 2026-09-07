@@ -18,6 +18,27 @@ static void handle_terminate(int signal_number) {
     _exit(0);
 }
 
+@interface AgentermSubroleProbeView : NSView
+@end
+
+@implementation AgentermSubroleProbeView
+- (BOOL)isAccessibilityElement {
+    return YES;
+}
+- (NSString *)accessibilityRole {
+    return NSAccessibilityGroupRole;
+}
+- (NSString *)accessibilitySubrole {
+    return @"AXDialog";
+}
+- (NSString *)accessibilityIdentifier {
+    return @"fixture-subrole-dialog";
+}
+- (NSString *)accessibilityLabel {
+    return @"Owned subrole probe";
+}
+@end
+
 int main(int argc, const char *argv[]) {
     if (argc != 4 || strcmp(argv[1], "--save-panel") != 0) {
         fprintf(stderr, "usage: agenterm_save_panel_fixture --save-panel DIRECTORY FILENAME\n");
@@ -60,6 +81,9 @@ int main(int argc, const char *argv[]) {
         [panel setNameFieldStringValue:filename];
         [panel setCanCreateDirectories:NO];
         [panel setShowsTagField:NO];
+        AgentermSubroleProbeView *subrole_probe = [[AgentermSubroleProbeView alloc]
+            initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 24.0)];
+        [panel setAccessoryView:subrole_probe];
         [panel beginSheetModalForWindow:owner completionHandler:^(NSModalResponse response) {
             if (response == NSModalResponseOK) {
                 NSData *payload = [@"agenterm-save-panel-smoke\n"

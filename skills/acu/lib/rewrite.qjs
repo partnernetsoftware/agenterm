@@ -4,7 +4,7 @@
 import * as legacy from "agenterm:acu/legacy-args";
 
 const QUERY_TODO_FLAGS = [
-  "subrole", "text", "selector", "within", "text-match", "descendant-text-depth",
+  "text", "selector", "within", "text-match", "descendant-text-depth",
   "title", "value", "description", "help", "placeholder", "required",
   "max-value-bytes", "meta"
 ];

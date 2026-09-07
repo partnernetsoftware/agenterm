@@ -625,6 +625,7 @@ fn query_once_payload(
         "budget": budget_json(depth, max_nodes),
         "filter": {
             "role": filter.roles,
+            "subrole": filter.subroles,
             "action": filter.actions,
             "min_depth": filter.min_depth,
             "max_depth": filter.max_depth,
@@ -1209,6 +1210,7 @@ mod tests {
                 id: id.into(),
                 parent_id: parent_id.map(str::to_owned),
                 role: role.into(),
+                subrole: None,
                 name: name.into(),
                 states: vec!["showing".into()],
                 bounds: mechanism::A11yBounds {
@@ -1447,6 +1449,7 @@ mod tests {
                     depth: None,
                     max_nodes: None,
                     role: Vec::new(),
+                    subrole: Vec::new(),
                     action: Vec::new(),
                     min_depth: None,
                     max_depth: None,
@@ -1527,6 +1530,7 @@ mod tests {
             id: "/0/1".into(),
             parent_id: None,
             role: "AXWebArea".into(),
+            subrole: None,
             name: "Nepal floods latest: Head teacher".into(),
             states: vec!["showing".into()],
             bounds: mechanism::A11yBounds {
