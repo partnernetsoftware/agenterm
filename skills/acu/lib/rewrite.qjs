@@ -151,6 +151,73 @@ function normalize_bool(flags, name) {
   return false;
 }
 
+function utf8_length(text) {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i = i + 1) {
+    const code = text.charCodeAt(i);
+    if (code <= 0x7f) { bytes = bytes + 1; }
+    else if (code <= 0x7ff) { bytes = bytes + 2; }
+    else if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length
+        && text.charCodeAt(i + 1) >= 0xdc00 && text.charCodeAt(i + 1) <= 0xdfff) {
+      bytes = bytes + 4;
+      i = i + 1;
+    } else { bytes = bytes + 3; }
+  }
+  return bytes;
+}
+
+function expectation_envelope(raw) {
+  if (utf8_length(raw) > 65536) {
+    return { ok: false, message: "expectation exceeds 65536 bytes" };
+  }
+  let parsed = null;
+  try { parsed = JSON.parse(raw); }
+  catch (error) { return { ok: false, message: "expectation is not valid JSON: " + error }; }
+  if (Array.isArray(parsed)) { return { ok: true, value: raw }; }
+  if (parsed === null || typeof parsed !== "object") {
+    return { ok: false, message: "expectation must be an array or {present,absent}" };
+  }
+  const envelope_keys = Object.keys(parsed);
+  for (let i = 0; i < envelope_keys.length; i = i + 1) {
+    if (envelope_keys[i] !== "present" && envelope_keys[i] !== "absent") {
+      return { ok: false, message: "unknown expectation envelope field " + envelope_keys[i] };
+    }
+  }
+  const present = parsed.present === undefined ? [] : parsed.present;
+  const absent = parsed.absent === undefined ? [] : parsed.absent;
+  if (!Array.isArray(present) || !Array.isArray(absent)) {
+    return { ok: false, message: "present and absent must be arrays" };
+  }
+  const rows = [];
+  const groups = [present, absent];
+  for (let group = 0; group < groups.length; group = group + 1) {
+    const values = groups[group];
+    const exists = group === 0;
+    for (let index = 0; index < values.length; index = index + 1) {
+      const value = values[index];
+      if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        return { ok: false, message: (exists ? "present" : "absent")
+          + "[" + index + "] must be an object" };
+      }
+      if (value.exists !== undefined && value.exists !== exists) {
+        return { ok: false, message: (exists ? "present" : "absent")
+          + "[" + index + "].exists conflicts with envelope" };
+      }
+      const row = {};
+      const keys = Object.keys(value);
+      for (let key_index = 0; key_index < keys.length; key_index = key_index + 1) {
+        row[keys[key_index]] = value[keys[key_index]];
+      }
+      row.exists = exists;
+      rows.push(row);
+    }
+  }
+  if (rows.length < 1 || rows.length > 128) {
+    return { ok: false, message: "expectation must contain 1..128 predicates" };
+  }
+  return { ok: true, value: JSON.stringify(rows) };
+}
+
 function query(rest, flags) {
   const names = Object.keys(flags);
   for (let i = 0; i < names.length; i = i + 1) {
@@ -249,8 +316,9 @@ function window_action(verb, rest, flags) {
 function observe_window(verb, rest, flags) {
   if ((verb === "verify" || verb === "wait") && typeof flags.expect === "string"
       && flags.expect.trim().startsWith("{")) {
-    return todo("acu.dynamic.083", verb,
-      "expectation envelopes need the shared typed normalizer before dispatch");
+    const normalized = expectation_envelope(flags.expect);
+    if (normalized.ok !== true) { return usage(verb, normalized.message); }
+    flags.expect = normalized.value;
   }
   if (verb === "observe" && flags.role !== undefined) {
     return todo("acu.dynamic.081", verb,

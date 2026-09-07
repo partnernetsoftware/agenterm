@@ -3406,7 +3406,7 @@ reply payload. Missing Text typed-fails (a11y_caret_unavailable).
 
 ```text
 wait --timeout-ms MS (--window-count-gte N | --window-title-contains PAT | --focused-handle HANDLE
-                      | --window HANDLE --expect JSON
+                      | --window HANDLE --expect JSON [--absent]
                       | --node-name-contains PAT [--node-role ROLE] [--window HANDLE]
                       | --text-equals TEXT --name PAT [--role ROLE] --window HANDLE
                       | --text-contains SUB --name PAT [--role ROLE] --window HANDLE) [-- TEXT]
@@ -3418,7 +3418,7 @@ agenterm-cu wait
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
   wait --timeout-ms MS (--window-count-gte N | --window-title-contains PAT | --focused-handle HANDLE
-                        | --window HANDLE --expect JSON
+                        | --window HANDLE --expect JSON [--absent]
                         | --node-name-contains PAT [--node-role ROLE] [--window HANDLE]
                         | --text-equals TEXT --name PAT [--role ROLE] --window HANDLE
                         | --text-contains SUB --name PAT [--role ROLE] --window HANDLE) [-- TEXT]
@@ -3429,6 +3429,7 @@ arguments:
   --window-title-contains PAT   some window title contains PAT
   --focused-handle HANDLE       that window holds focus
   --expect JSON                 same matcher as verify; polls until every item is met
+  --absent                      with --expect, wait until every listed item is absent
   --node-name-contains PAT      a showing node's name contains PAT (--node-role narrows)
   --text-equals TEXT            independent Text.GetText on --name equals TEXT
   --text-contains SUB           independent Text.GetText on --name contains SUB
@@ -3438,7 +3439,8 @@ arguments:
 
 --window HANDLE --expect JSON uses the same matcher as verify: polls
 until every item is met, ambiguity / unobservable state fail at once,
-timeout is typed with the last observation.
+timeout is typed with the last observation. --absent reverses that one
+closed expectation and waits until every listed item is absent.
 --text-equals / --node-text-equals and --text-contains / --node-text-contains
 poll AT-SPI Text.GetText on the unique showing named node until that
 independent text equals TEXT or contains SUB. send-text / paste / copy

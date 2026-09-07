@@ -74,6 +74,13 @@ exact(rewrite.rewrite(["windows"]), ["windows"], "windows");
 exact(rewrite.rewrite(["apps"]), ["apps"], "apps");
 exact(rewrite.rewrite(["verify", "41", "--expect", "[{\"role\":\"Button\"}]"]),
   ["verify", "--window", "41", "--expect", "[{\"role\":\"Button\"}]"], "verify");
+exact(rewrite.rewrite(["verify", "41", "--expect",
+  "{\"present\":[{\"role\":\"Button\"}],\"absent\":[{\"name\":\"Busy\"}]}"]),
+  ["verify", "--window", "41", "--expect",
+    "[{\"role\":\"Button\",\"exists\":true},{\"name\":\"Busy\",\"exists\":false}]"],
+  "verify envelope");
+kind(rewrite.rewrite(["verify", "41", "--expect", "{\"present\":[]}"]),
+  "usage", "verify empty envelope");
 exact(rewrite.rewrite(["wait", "41", "--expect", "[{\"role\":\"Button\"}]"]),
   ["wait", "--window", "41", "--expect", "[{\"role\":\"Button\"}]"], "wait");
 exact(rewrite.rewrite(["observe", "41", "--duration", "1.5"]),
