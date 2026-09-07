@@ -1,0 +1,14 @@
+[Unit]
+Description=AgenTerm computer-use privilege broker socket
+
+[Socket]
+ListenStream=/run/agenterm/cu-privilege.sock
+SocketMode=0666
+SocketUser=root
+SocketGroup=root
+DirectoryMode=0755
+RemoveOnStop=yes
+Accept=no
+
+[Install]
+WantedBy=sockets.target

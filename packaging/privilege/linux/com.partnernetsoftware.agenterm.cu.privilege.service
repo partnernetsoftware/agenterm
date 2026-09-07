@@ -1,0 +1,19 @@
+[Unit]
+Description=AgenTerm computer-use privilege broker
+Requires=com.partnernetsoftware.agenterm.cu.privilege.socket
+After=polkit.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/libexec/agenterm/agenterm-cu --agenterm-cu-internal-privilege-broker
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/agenterm/cu-privilege
+RestrictAddressFamilies=AF_UNIX
+Restart=no
