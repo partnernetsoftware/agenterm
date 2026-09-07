@@ -3560,7 +3560,7 @@
     },
     {
       "id": "acu-retirement-readiness",
-      "description": "Measure the one fail-closed ACU retirement contract: capability/evidence ledger, three-host task registration, six-cell Candidate wiring, production Bun/MCU dependencies and the temporary adapter report. Remaining blockers are successful audit output, never hidden green retirement.",
+      "description": "Measure the one fail-closed ACU retirement contract: capability/evidence ledger, frozen engine-neutral compatibility corpus, three-host task registration, six-cell Candidate wiring and production Bun/MCU dependencies. Remaining blockers are successful audit output, never hidden green retirement.",
       "entry": "scripts/qjs/acu-retirement-court.qjs",
       "profile": "tool",
       "cwd": ".",

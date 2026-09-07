@@ -134,9 +134,9 @@ AgenTerm — local agent & process fleet work OS
 │
 ├─ agenterm-cu（computer-use 子树 · partial；六格 execute-only Candidate court 已接线、待首跑）
 │  └─ 28 agenterm-cu            自有 computer-use 底座：定义、边界、不变量、晋升门
-│     ├─ transition             `acu.ts` 只做旧 argv 映射、binary 发现与 stdio/exit 转发
-│     │                       2026-09-07 起立即 ACU-only：未实现形状返回 `acu_todo` ALERT，
-│     │                       旧 MCU 仅作归档参考且永不运行时回退；完整 TODO 树归口 PRD 28
+│     ├─ transition [x]         生产入口已切至内嵌 `acu.qjs → agenterm:acu`；外部 `acu`/`mcu`
+│     │                       薄壳只 exec `agenterm cli acu`，无 Bun/MCU fallback。历史 `acu.ts`
+│     │                       已移入只读归档；未实现形状返回稳定 `acu_todo` ALERT
 │     ├─ convergence            `agenterm:acu.call/argv` typed door、library-owned argv parser
 │     │                       与同一 Executor adapter 已落地；版本化 envelope 仍兼容旧 Command
 │     │                       静态 provider 因 Windows PE 3.73→8.87 MiB 被淘汰，固定同目录
@@ -145,16 +145,16 @@ AgenTerm — local agent & process fleet work OS
 │     │                       dynamic load 已在本机 macOS 经 qjs/MCP 实跑；MCP 目前仅 capabilities
 │     │                       只读纵切片，三主机与六格原生运行庭仍待完成，不能冒充全平台 evidence
 │     ├─ Bun-free bridge [~]     `skills/acu/acu.qjs` 已以 bounded argv helper +
-│     │                       `agenterm:acu.argv` 跑通 native spelling；无 Bun、binary lookup、
-│     │                       child process 或 MCU fallback。冻结 42 个合法 legacy probe 已全部
+│     │                       `agenterm:acu.argv` 跑通 native spelling；QJS→CU Executor 之间无
+│     │                       shell/child/fallback（公共 CLI 仍用通用 Script Worker 隔离）。冻结 42 个合法 legacy probe 已全部
 │     │                       映射；`kill PID` 仍以 process-state → identity-bound process-kill 两段
-│     │                       typed 调用执行。95 条动态 witness 的 29 条 resolved 已全部清账：
-│     │                       16 exec + 8 compound + 5 usage；4 条 dynamic-stay witness 继续按稳定
+│     │                       typed 调用执行。95 条动态 witness 的 30 条 resolved 已全部清账：
+│     │                       17 exec + 8 compound + 5 usage；3 条 dynamic-stay witness 继续按稳定
 │     │                       gap_id 修复；tmux provider 是显式产品边界，通用 regex wait 仍是 TODO
 │     ├─ retirement             MCU 立即退出生产入口；TODO 动态补 ACU。调用者迁到 typed
 │     │                       `acu` 对象后，过渡 `acu.qjs` 也可归档
-│     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 136 叶：
-│     │                       native 36 / delegated 31 / platform-limited 63 / gap 1 / retired 5
+│     ├─ active frontier        先补齐 MCU 必需能力与原生证据；实时数量只认
+│     │                       `plan/acu-mcu-capability-ledger.json`，不在根索引复制易漂移快照
 │     │                       平台资格用 schema-2 三主机矩阵；每格必须绑定完整 evidence-token 集，
 │     │                       旧散文、pending 或只证复合能力一半的单 token 一律不能晋级
 │     │                       exact @tab 视口滚动与渲染 PNG 已走同一 control plane；
@@ -273,7 +273,7 @@ flowchart LR
   CLI["Public control<br/>CLI · mux · MCP"]
   SCRIPT["Script runtime<br/>qjswasm + tinyvm"]
   CU["agenterm-cu<br/>typed machine control · agenterm:acu"]
-  ACTS["temporary acu.ts<br/>argv mapping · binary discovery<br/>no product effects"]
+  ACTS["archived acu.ts oracle<br/>frozen migration reference<br/>never runtime"]
   ACUOBJ["agenterm:acu.call/argv<br/>one parser · Executor · receipts"]
   ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
   ACUDYN["fixed sibling provider<br/>ABI checked · no fallback<br/>separate signed artifact"]
@@ -290,8 +290,8 @@ flowchart LR
 
   U --> TERM --> FLEET --> CLI
   PLATFORM --> TERM & CU
-  ACTS -->|lossless shape| CU
-  ACTS -->|missing shape| TODO
+  ACTS -. corpus provenance .-> ACUQJS
+  ACUQJS -->|missing shape| TODO
   TODO -->|implementation reference only| MCUARC
   MCUARC -. never execute .-> TODO
   CU --> REFRESH

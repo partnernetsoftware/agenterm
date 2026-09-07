@@ -39,7 +39,8 @@ pub fn execute_command(executor: &Executor, command: &Command) -> CuReply {
 ///
 /// This is the AgenTerm qjswasm embedder's composition callback. It preserves
 /// fail-closed authorization and the full `CuReply`, including `ok:false`, as
-/// ordinary data. MCP is not wired to this adapter yet.
+/// ordinary data. MCP uses the closed `mcp_call` route in
+/// [`execute_request_from_environment`] rather than this naked-Command helper.
 pub fn execute_json_from_environment(command_json: &str) -> CuReply {
     let command = match serde_json::from_str::<Command>(command_json) {
         Ok(command) => command,

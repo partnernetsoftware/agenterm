@@ -2,7 +2,7 @@
   "schema": "agenterm.acu.compat-corpus.v1",
   "sources": [
     {
-      "blob": "moltbaby:skills/acu/acu.ts",
+      "blob": "moltbaby@fbfda6294:skills/acu/acu.ts",
       "sha256": "b1c32623bac746b88757e64dca9e91e428b33c32297eafaf25dac40d4b9a32de",
       "exports": [
         "DYNAMIC_STAY_CORPUS",
@@ -10,7 +10,7 @@
       ]
     },
     {
-      "blob": "moltbaby:skills/acu/acu.test.ts",
+      "blob": "moltbaby@fbfda6294:skills/acu/acu.test.ts",
       "sha256": "e9e19692f5c4388a4207b544e2c0f0872bc4252daba217cd07c19f3c423ae211",
       "declaration": "PREFERRED_PROBE"
     }

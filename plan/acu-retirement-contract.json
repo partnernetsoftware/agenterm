@@ -2,6 +2,7 @@
   "schema": 1,
   "platform_qualification_schema": 2,
   "ledger": "plan/acu-mcu-capability-ledger.json",
+  "compatibility_corpus": "skills/acu/tests/compat-corpus.json",
   "final_states": ["native", "delegated", "platform-limited", "retired"],
   "evidence_required_states": ["native", "delegated", "platform-limited"],
   "required_host_tasks": [

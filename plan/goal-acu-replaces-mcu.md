@@ -69,7 +69,7 @@ ACU replaces MCU
 │  └─ [ ] explicit audible apply/readback/rollback court; keep platform-limited
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
-│  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
+│  ├─ phase 1 [x]: production entry switched from `acu.ts` to embedded `acu.qjs`; external wrappers only exec `agenterm cli acu`
 │  ├─ phase 2 [~]: bounded `agenterm:acu.call/argv` + fixed-sibling provider + shared argv parser are green;
 │  │  MCP read-only capabilities uses the same adapter, while broader MCP/native courts remain
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
@@ -81,7 +81,7 @@ ACU replaces MCU
 │  │  all 30 resolved witnesses have a checked disposition (17 exec · 8 compound · 5 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
-│  │  external wrapper now execs that entry; remaining dynamic mappings, broader MCP, native courts and physical archive remain
+│  │  external wrapper now execs that entry; remaining dynamic mappings, broader MCP and native courts remain
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency
@@ -96,9 +96,9 @@ ACU replaces MCU
 └─ retirement
    ├─ [x] default compatibility command resolves to ACU
    ├─ [x] no production fallback executes MCU
-   ├─ [~] Bun remains only in the temporary argv adapter
+   ├─ [x] Bun and `acu.ts` are absent from production ACU execution
    ├─ [~] every known stay is an explicit TODO, repaired dynamically
-   └─ [~] qjswasm object door exists; size-compliant provider + MCP + acu.qjs must remove final Bun adapter
+   └─ [~] qjswasm object door + size-compliant provider + acu.qjs are live; broader MCP and native courts remain
 ```
 
 ## Mermaid flowchart memory palace
@@ -176,16 +176,16 @@ behavior. A group or verb appearing in `capabilities` does not make it shipped.
 
 Runtime retirement is complete: supported `mcu` and `acu` entrypoints both
 execute ACU, and the adapter reports `mcu_required=false` with fallback disabled.
-The remaining frontier is dynamic TODO closure plus removal of the temporary
-Bun argv adapter; missing behavior is visible debt, not authority to revive MCU.
+The remaining frontier is dynamic TODO closure and native qualification. The
+historical TypeScript oracle is archived and absent from runtime/qualification;
+missing behavior is visible debt, not authority to revive MCU.
 
-The compatibility migration has three explicit phases. Today `acu.ts` may
-only perform lossless legacy argv projection and binary discovery; it cannot
-own a second implementation. The embedder-provided qjswasm `agenterm:acu`
-object (available to qjs as `acu`) lands next and is the convergence owner.
-Only after its typed parity, the zero-STAY ledger and MCU-absent courts are
-green may `acu.qjs` replace the Bun shell while keeping only compatibility
-mapping:
+The compatibility migration has three explicit phases. Production execution
+already uses the embedded qjswasm `agenterm:acu` object (available to qjs as
+`acu`) through the Bun-free `acu.qjs`; the historical `acu.ts` is a read-only
+archive reference, never a runtime or qualification fallback. The remaining
+work is to close stable dynamic TODOs, widen MCP deliberately and prove the
+dynamic provider in native courts; immutable Git blob ids preserve corpus provenance:
 CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical
 deadlines, cleanup, errors and receipts. Moving TypeScript logic line-for-line
 into qjswasm would preserve the duplication and is explicitly rejected.
@@ -902,8 +902,8 @@ defaults, geometry and legacy alias results; correcting those differences now
 precedes adding more flags. Browser profile-wide tabs are separately frozen to
 the MV3 bridge: a one-window AX tab strip is never an acceptable fallback.
 
-The compatibility adapter now has zero static STAY spellings and 7 dynamic
-STAY witnesses after lossless projections for exact simulator application status,
+The compatibility corpus now has zero static STAY spellings and 3 dynamic TODO
+witnesses after lossless projections for exact simulator application status,
 `resource top`, focused
 PID, observe role, wait absence, platform-default-shell PTY, selector-rooted
 trees, bounded filtered query watch, and Space filtering evaluated inside every
@@ -1017,12 +1017,12 @@ operation mismatch, zero consumption, exact intended consumption and durable
 revocation. Windows still needs the exact public rerun, while Linux needs its
 sealed current-session identity provider before this row can become native.
 
-`moltbaby/skills/mcu/acu.ts` is only the transition router. Its `stay` result
-means “ACU cannot yet express this exact public shape; use MCU temporarily,”
-not “this capability belongs to MCU forever.” A same-named command also stays
-when forwarding would silently change meaning, such as window activation vs.
-node focus or shell execution vs. one JSON CU command. The ledger and queues
-above turn every such honest refusal into owned removal work.
+The historical TypeScript oracle is not a transition router or runtime. A
+remaining `acu_todo` means “ACU cannot yet express this exact public shape;
+implement the named gap,” never “run MCU temporarily.” A same-named command
+also returns that stable TODO when forwarding would silently change meaning,
+such as window activation vs. node focus or shell execution vs. one JSON CU
+command. The ledger and queues above turn every honest refusal into owned work.
 
 The first query correctness tranche now composes exact action names, bounded
 minimum/maximum depth, five explicit tri-state filters and actionable-role

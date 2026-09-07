@@ -90,11 +90,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
 - [x] `agenterm-cu` is the only product executable. CLI and desktop-host modes
   share that binary; an executable named `cu` is not a compatibility surface.
-- [~] The temporary `skills/mcu/acu.ts` adapter owns only lossless legacy argv
-  projection, ACU binary discovery, and explicit `acu_todo` publication. Since
-  the immediate cutover, no `STAY` executes MCU: useful missing shapes remain
-  named TODOs while the adapter is rewritten as `acu.qjs` so daily
-  compatibility no longer requires Bun. That is an intermediate shell, not a second product
+- [~] Production compatibility is now the embedded Bun-free `skills/acu/acu.qjs`
+  path. External `acu` and `mcu` wrappers only exec `agenterm cli acu`; the
+  historical `acu.ts` is now a read-only archive reference and never executes
+  in production or qualification. No `STAY` executes MCU: useful missing shapes
+  remain named TODOs. The qjs entry is an intermediate shell, not a second product
   implementation: no native mechanism, authority policy or postcondition may
   be copied from the Rust owner into qjswasm. The converged API is an
   embedder-provided `agenterm:acu` object (exposed to qjs as `acu`) whose qjs
@@ -104,9 +104,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   ```text
   compatibility-shell lifecycle
-  ├─ now: acu.ts = legacy argv projection + ACU binary discovery + TODO publication
-  │  ├─ no product mechanism
-  │  ├─ no independent authority or postcondition
+  ├─ [x] production cutover = embedded acu.qjs → agenterm:acu
+  │  ├─ external wrappers only exec `agenterm cli acu`
+  │  ├─ historical acu.ts is read-only archive input, never product runtime or qualification
   │  └─ every unresolved known shape is `acu_todo`; MCU fallback is disabled
   ├─ convergence owner: agenterm:acu = stable typed embedder object
   │  ├─ implemented before the compatibility-shell switch
@@ -117,7 +117,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  └─ consumed directly by CLI, MCP and qjswasm
   ├─ [~] acu.qjs = Bun-free syntax adapter
   │  ├─ [x] bounded host argv + global normalization + direct native spelling → agenterm:acu.argv
-  │  ├─ [x] no Bun / binary lookup / child process / MCU fallback
+  │  ├─ [x] no Bun / binary lookup / CU child process / MCU fallback; public CLI still uses the common Script Worker isolation process
   │  ├─ [x] freeze the engine-neutral compatibility oracle: 42 positive probes + 95 dynamic witnesses
   │  ├─ [x] 42/42 positive probes map to in-process typed calls; 8 are one call and legacy kill keeps the
   │  │      two-call identity bracket (process-state → process-kill with the exact start identity)
@@ -186,7 +186,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   ```mermaid
   flowchart LR
-    TS["acu.ts today<br/>argv projection · binary discovery"]
+    TS["archived acu.ts oracle<br/>frozen migration provenance"]
     OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
     OBJ["agenterm:acu.call/argv<br/>one parser · one Executor"]
     PROVIDER["fixed sibling dynamic provider<br/>ABI checked · bounded · no fallback"]
@@ -196,7 +196,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]
     OWNER --> OBJ --> PROVIDER --> USERS
-    TS --> GATE
+    TS -. corpus provenance .-> GATE
     OWNER --> GATE
     PROVIDER --> GATE
     GATE -->|red| DEBT --> OWNER
@@ -208,14 +208,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   rejects every `gap`, requires public evidence for available or
   platform-limited claims, verifies the three native host tasks and six-cell
   task registration, checks Candidate execution wiring, scans production
-  automation for Bun/MCU dependencies, and consumes the temporary adapter's
-  machine report. Report mode succeeds only as an audit and emits
-  `cu.retirement-readiness`; its first baseline measured 131 capabilities;
-  after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger now measures 134 capabilities with 1 gap, 62 platform-limited rows,
-  zero static adapter stays and a complete argument-sensitive dynamic parity
-  corpus. The report still requires MCU while any capability, evidence or
-  native-qualification blocker remains. Only `enforce-absent` may emit
+  automation for Bun/MCU dependencies, and consumes the frozen compatibility
+  accounting report. Report mode succeeds only as an audit and emits
+  `cu.retirement-readiness`; live capability totals belong exclusively to
+  `plan/acu-mcu-capability-ledger.json`, while the argument-sensitive corpus
+  owns its own counts. Blockers never authorize MCU runtime fallback. Only
+  `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
 - [~] Platform-limited leaves no longer pass because a free-text

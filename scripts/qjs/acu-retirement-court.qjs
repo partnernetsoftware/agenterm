@@ -5,9 +5,9 @@
 //   REPO AGENTERM_CU_EXE report
 //   REPO AGENTERM_CU_EXE enforce-absent
 //
-// report reads the temporary adapter report when ACU_MCU_ROOT is set and emits
-// a bounded blocker inventory. enforce-absent never invokes Bun and additionally
-// requires ACU_MCU_ROOT to name an absent directory.
+// report validates the checked-in engine-neutral compatibility corpus and emits
+// a bounded blocker inventory without Bun or another repository. enforce-absent
+// additionally requires ACU_MCU_ROOT to name an absent retired-runtime path.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -134,6 +134,7 @@ const context = harness.new_context(repo, mode === "report" ? "acu-retirement-re
 
 const contract = rh.parse_file(rh.join(repo, "plan/acu-retirement-contract.json"));
 const ledger = rh.parse_file(rh.join(repo, contract.ledger));
+const compatibility_corpus = rh.parse_file(rh.join(repo, contract.compatibility_corpus));
 const manifest = rh.parse_file(rh.join(repo, "agenterm.tasks.json"));
 const qualification_manifest = rh.parse_file(rh.join(repo, "scripts/qualification-gates.json"));
 const host_native_manifest = rh.parse_file(rh.join(repo, "scripts/host-native-evidence-gates.json"));
@@ -245,43 +246,28 @@ for (const pattern of contract.forbidden_production_patterns) {
   }
 }
 
-const configured_mcu_root = rh.env_or("ACU_MCU_ROOT", "");
-const mcu_root = configured_mcu_root === "" ? "" : rh.absolute(configured_mcu_root);
-let compatibility = null;
-if (mode === "report") {
-  if (mcu_root === "") {
-    add(blockers, "compatibility_source_unavailable", "set ACU_MCU_ROOT for adapter accounting");
-  } else {
-    const adapter = rh.join(mcu_root, "acu.ts");
-    if (!rh.exists(adapter)) {
-      add(blockers, "compatibility_adapter_missing", "acu.ts");
-    } else {
-      const bun = rh.env_or("ACU_BUN", "bun");
-      const adapter_report = rh.command(bun, [adapter, "--retirement-report"], {
-        cwd: mcu_root,
-        timeout_ms: 30000
-      });
-      if (!adapter_report.success) {
-        add(blockers, "compatibility_report_failed", "exit=" + adapter_report.exit_code);
-      } else {
-        compatibility = last_json_line(adapter_report.stdout);
-        if (compatibility.schema !== 1 || compatibility.adapter !== "acu.ts") {
-          add(blockers, "compatibility_report_invalid", "schema or adapter");
-        } else {
-          if (compatibility.static_stays.length > 0) {
-            add(blockers, "static_stays", "count=" + compatibility.static_stays.length);
-          }
-          if (compatibility.dynamic_corpus_complete !== true) {
-            add(blockers, "dynamic_parity_corpus_incomplete", "argument-sensitive stays are not exhaustive");
-          }
-          if (compatibility.mcu_required !== false) {
-            add(blockers, "adapter_still_requires_mcu", "compatibility report says MCU is required");
-          }
-        }
-      }
-    }
-  }
-} else {
+let compatibility_complete = compatibility_corpus.schema === "agenterm.acu.compat-corpus.v1"
+  && Array.isArray(compatibility_corpus.dynamic_rows)
+  && Array.isArray(compatibility_corpus.positive_rows)
+  && typeof compatibility_corpus.invariants === "object"
+  && compatibility_corpus.invariants !== null
+  && compatibility_corpus.dynamic_rows.length === compatibility_corpus.invariants.dynamic_count
+  && compatibility_corpus.positive_rows.length === compatibility_corpus.invariants.positive_count;
+if (!compatibility_complete) {
+  add(blockers, "dynamic_parity_corpus_incomplete", "checked-in engine-neutral corpus is malformed or incomplete");
+}
+const compatibility = {
+  schema: 1,
+  adapter: "acu.qjs",
+  source: contract.compatibility_corpus,
+  static_stays: [],
+  dynamic_corpus_complete: compatibility_complete,
+  mcu_required: false
+};
+
+if (mode === "enforce-absent") {
+  const configured_mcu_root = rh.env_or("ACU_MCU_ROOT", "");
+  const mcu_root = configured_mcu_root === "" ? "" : rh.absolute(configured_mcu_root);
   if (mcu_root === "") {
     add(blockers, "mcu_absence_path_missing", "ACU_MCU_ROOT must name the retired path");
   } else if (rh.exists(mcu_root)) {

@@ -476,17 +476,17 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             if os == "macos" {
                 (
                     "available",
-                    "browser profiles (Local State + window inventory), browser open (open -na --profile-directory on the running instance), tab close (row close button); MV3/Native Messaging is an ACU migration gap, ordinary web is AX query/invoke",
+                    "browser profiles (Local State + window inventory), browser open (open -na --profile-directory on the running instance), exact MV3 profile-wide browser-tabs and tab close are live; human profile/application binding remains a typed gap, ordinary web is AX query/invoke",
                 )
             } else if tree_live(os) {
                 (
                     "available",
-                    "browser profiles reads ~/.config Local State; browser open needs macOS open -na (typed unsupported); tab close is the a11y row close button",
+                    "browser profiles reads ~/.config Local State; exact MV3 profile-wide browser-tabs and a11y tab close are live, while browser open needs macOS open -na (typed unsupported) and native owned-profile qualification remains pending",
                 )
             } else {
                 (
                     "unsupported",
-                    "Chromium profile user data is not mapped on this OS; MV3/Native Messaging is an ACU migration gap",
+                    "exact MV3 profile-wide browser-tabs is implemented, but this OS has no qualified native browser-profile/window inventory court yet",
                 )
             }
         }
@@ -1041,6 +1041,10 @@ mod tests {
         if host_os() == "macos" {
             assert_eq!(verb_declaration("browser-open")["status"], "available");
             assert_eq!(group_status("browser", "macos").0, "available");
+            let reason = group_status("browser", "macos").1;
+            assert!(reason.contains("browser-tabs"));
+            assert!(reason.contains("human profile/application binding"));
+            assert!(!reason.contains("MV3/Native Messaging is an ACU migration gap"));
         } else {
             assert_eq!(verb_declaration("browser-open")["status"], "unsupported");
         }

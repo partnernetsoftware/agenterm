@@ -48,7 +48,7 @@ agenterm-qjswasm
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
 │  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
 │  │  ├─ [x] raw bounded door + non-shadowable qjs module + shared Command/Executor/CuReply adapter
-│  │  ├─ [x] versioned `command|argv` envelope; library-owned argv parser, no child process
+│  │  ├─ [x] versioned `command|argv` envelope; library-owned argv parser; qjs→CU has no child process, while public CLI keeps common Script Worker isolation
 │  │  ├─ [x] fixed-sibling dynamic provider; Windows exact release PE 3,738,112 B ≤ 4 MiB
 │  │  │  ├─ separate ABI-versioned artifact; Win/macOS packaging and signing fail closed if absent
 │  │  │  ├─ public `acu-provider-smoke` executes typed command + argv capabilities in-process
@@ -60,10 +60,10 @@ agenterm-qjswasm
 │  │  │  ├─ 42/42 positive legacy probes execute in-process; kill preserves its two-call identity bracket
 │  │  │  ├─ 95 dynamic witnesses remain frozen with source digests and redacted argv as the
 │  │  │  │  explicit gap/typed-rejection queue; no MCU fallback exists
-│  │  │  ├─ all 13 dynamic-stay rows retain their exact gap id; the permanent-scope row rejects locally
-│  │  │  ├─ 21 historical resolved rows: 9 exec · 8 compound · 4 usage · 0 TODO
+│  │  │  ├─ all 3 dynamic-stay rows retain their exact gap id; two permanent-scope rows reject locally
+│  │  │  ├─ 30 historical resolved rows: 17 exec · 8 compound · 5 usage · 0 TODO
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
-│  │  │  └─ no Bun, executable discovery, child process, repository cwd or MCU fallback
+│  │  │  └─ no Bun, executable discovery, CU child process, repository cwd or MCU fallback
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism
 │  │  ├─ MCU-absent black-box parity precedes switching the default entry
 │  │  └─ generic tinyvm remains free of AgenTerm machine-control authority
@@ -126,9 +126,9 @@ flowchart LR
   ACUOBJ["agenterm:acu embedder object<br/>shared schema · Executor · failures · receipts"]
   ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
   ACUDYN["fixed sibling dynamic provider<br/>ABI checked · bounded · serialized<br/>separate signed artifact"]
-  TS["temporary acu.ts<br/>legacy argv + binary discovery only"]
+  TS["archived acu.ts reference<br/>immutable Git provenance"]
   ABSENT{"zero STAY + MCU absent<br/>black-box parity"}
-  COMPAT["temporary acu.qjs<br/>legacy mapping only · no Bun"]
+  COMPAT["embedded acu.qjs<br/>legacy mapping only · no Bun"]
   ACUCLI["ACU consumers<br/>CLI · MCP · qjs"]
   QPTY["ACU headless PTY journey<br/>snapshot/diff · verified resize · send/wait · events · restart refusal"]
   RECEIPT["typed value / stdout / steps<br/>or named failure"]
@@ -246,11 +246,11 @@ The ACU convergence follows the same boundary. `agenterm:acu` is an AgenTerm
 embedder object, not a tinyvm builtin: generic tinyvm validates and executes
 Wasm, while the AgenTerm embedder supplies the versioned machine-control host
 contract. CLI, MCP and qjswasm must enter the same Rust schema and `Executor`;
-none may own a second implementation. The embedder object must exist and pass
-parity before the compatibility entry switches: `acu.ts` first shrinks to zero
-useful fallbacks, `acu.qjs` then removes Bun while preserving only legacy
-argument mapping against that object, and that shell retires after its callers
-migrate to typed calls. This does not rewrite CU in JavaScript or move native
+none may own a second implementation. That cutover is now live: embedded
+`acu.qjs` preserves legacy argument mapping against the object, while the
+historical `acu.ts` is only a read-only archive reference with immutable Git
+provenance. The qjs shell
+retires after its callers migrate to typed calls. This does not rewrite CU in JavaScript or move native
 machine-control effects into generic qjswasm/tinyvm.
 The owning retirement gates and public behavior remain in
 [PRD 28](PRD_02_28_agenterm_cu.md); this module owns only the qjswasm host-door
