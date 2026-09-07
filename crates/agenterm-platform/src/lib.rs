@@ -350,6 +350,9 @@ pub mod filesystem_usage;
 #[cfg(feature = "file-identity")]
 pub mod file_identity;
 
+#[cfg(feature = "file-attributes")]
+pub mod file_attributes;
+
 #[cfg(feature = "locking")]
 pub mod locking;
 
@@ -503,6 +506,12 @@ pub mod system_broker;
     any(target_os = "linux", target_os = "macos")
 ))]
 pub mod privilege_authorization;
+
+/// Explicit lifecycle for a bundled macOS privilege service and its exact
+/// operation-scoped Authorization Services right. Non-macOS hosts expose the
+/// same typed facade and return `Unsupported`.
+#[cfg(feature = "privilege-service-lifecycle")]
+pub mod privilege_service;
 
 mod selected;
 

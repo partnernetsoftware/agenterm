@@ -4663,6 +4663,26 @@ label; a broker for that right must reject every other plan before replay,
 consent or provider execution. Unsigned and ad-hoc bundles may be packaging
 rehearsals, but must remain explicitly non-deployable.
 
+Treat `SMAppService` registration and the Authorization Services right as one
+ordered lifecycle, but do not collapse their states. `RequiresApproval` is an
+observable intermediate state, never `Enabled`. Registration installs only an
+absent exact operation-scoped right before registering the daemon; a conflicting
+right is preserved and refused. Unregistration must first prove the daemon is
+fully unregistered and only then remove the still-exact right. A failed
+registration may roll back only the right created by that attempt and only if
+it has not drifted. Status remains read-only and must report the fixed executable
+location independently from service/right state.
+
+File metadata transactions have the same path-race boundary as content
+publication. `symlink_metadata` followed by a path-based mutation is not a
+sufficient guard because the directory entry can change between observations.
+Open the entry with no-follow semantics, compare that native object identity to
+the caller's already-open handle, and perform mode/xattr work only through that
+handle. Revalidate the exact old state before mutation, independently read back
+the effect, and return a state-bound rollback plan. Windows ACLs/attributes are
+not Unix modes/xattrs; an absent provider must return typed unsupported rather
+than inventing cross-platform parity.
+
 Give every fresh provider attempt a durable random UUIDv4 before its replay
 reservation. Keep that attempt record only while the outcome can be uncertain;
 terminal ledger records point to an immutable receipt and its SHA-256 over the

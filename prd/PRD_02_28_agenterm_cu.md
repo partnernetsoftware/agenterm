@@ -1335,8 +1335,13 @@ flowchart LR
   root:wheel, non-relocatable, script-free `/Applications` payload, and
   publishes without overwrite. Its fixture mode cannot emit a deployable
   package. The package itself must still be notarized before release, and no
-  provider registration, AuthorizationRight lifecycle or signed live court has
-  passed yet. Windows protected-install/UAC remains an explicit gap; no
+  signed live court has passed yet. The platform mechanism now exposes typed,
+  read-only status plus explicit register/unregister: it preserves
+  `RequiresApproval` as an intermediate state, installs only an absent exact
+  operation right before daemon registration, unregisters the daemon before
+  removing that right, and refuses conflicts or non-fixed executable paths.
+  This mechanism is not yet a public `agenterm-cu` verb and has not performed a
+  real registration. Windows protected-install/UAC remains an explicit gap; no
   worktree helper or silent elevation substitutes for either host.
 
   Linux broker promotion tree. The frozen decision procedure is
@@ -1705,14 +1710,19 @@ flowchart LR
   ledger is `platform-limited`, not yet promoted to native or removed from the
   overall storage family. The exact inventory spelling already routes through
   ACU; mutation and volume sub-shapes remain dynamic compatibility fallbacks.
-  Unix modes/xattrs and Windows ACLs/attributes remain typed platform-specific
-  contracts rather than a false cross-platform spelling match.
+  The platform mechanism now implements identity-bound Unix mode/xattr
+  inspect-plan-apply-readback-rollback, including macOS quarantine removal.
+  It binds a no-follow opened directory entry to the caller's existing handle
+  before any operation; Windows returns typed unsupported rather than
+  pretending ACL/attribute equivalence. These mechanisms are not yet public CU
+  verbs and have no Linux/Windows runtime evidence.
   The MCU-shaped compatibility entry routes `acu file inspect PATH`, file copy,
   status, and explicit `--apply` rollback/recover/finalize to these typed ACU
   facades. Move uses the same native recoverable transaction; mode and xattr
-  mutation remain explicit MCU fallbacks. The MCU
-  plan-wrapper form of transaction actions without `--apply` also stays rather
-  than accidentally performing the mutation.
+  remain MCU fallbacks until the new platform mechanisms have public typed CU
+  commands and courts. The legacy transaction action without `--apply` is now
+  rejected locally: observation uses status and mutation must be explicit; it
+  no longer falls back to a second plan owner.
 - [~] Network replacement is classified into interfaces, routes, active DNS,
   sockets and DNS+TCP probes. `network-interfaces` is now the bounded Observe
   facade for native address inventory: `getifaddrs` plus ifindex on Unix and
