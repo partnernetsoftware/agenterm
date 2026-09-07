@@ -48,11 +48,13 @@ agenterm-qjswasm
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
 │  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
 │  │  ├─ [x] raw bounded door + non-shadowable qjs module + shared Command/Executor/CuReply adapter
+│  │  ├─ [x] versioned `command|argv` envelope; library-owned argv parser, no child process
 │  │  ├─ [x] fixed-sibling dynamic provider; Windows exact release PE 3,738,112 B ≤ 4 MiB
 │  │  │  ├─ separate ABI-versioned artifact; Win/macOS packaging and signing fail closed if absent
-│  │  │  ├─ public `acu-provider-smoke` executes capabilities through the in-process object
+│  │  │  ├─ public `acu-provider-smoke` executes typed command + argv capabilities in-process
 │  │  │  └─ no path search, static implementation, child process or MCU fallback
 │  │  ├─ [ ] MCP consumes the same adapter (current MCP surface remains separate and read-only)
+│  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
 │  │  ├─ `acu.qjs` is only a temporary Bun-free legacy-syntax adapter
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism

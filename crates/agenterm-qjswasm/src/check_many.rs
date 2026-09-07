@@ -6,7 +6,7 @@
 //! entry and then at the declared project root.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -19,18 +19,32 @@ pub use agenterm_script_common::check_many::{
 
 pub const QJS_CHECK_MANIFEST_KIND: &str = "agenterm-qjs-check-manifest";
 pub const IMPORT_MODULES_MAX: usize = 1_024;
+pub type BuiltinModuleResolver = fn(&str) -> Option<&'static str>;
 
 pub fn read_manifest(path: &Path) -> Result<CheckManyManifest, String> {
     check_many::read_manifest(path, &[QJS_CHECK_MANIFEST_KIND])
 }
 
 pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) -> CheckManyReport {
+    run_check_many_with_builtins(manifest, options, |_| None)
+}
+
+/// Check many entries with the product host's non-shadowable built-in module
+/// set. The same source must be supplied by the runtime resolver; this hook
+/// keeps compile-only validation honest without making qjswasm own product
+/// module names.
+pub fn run_check_many_with_builtins(
+    manifest: CheckManyManifest,
+    options: CheckManyOptions,
+    builtin: BuiltinModuleResolver,
+) -> CheckManyReport {
     let deadline = Instant::now() + Duration::from_millis(options.wall_time_ms);
     let per_source_max = options.source_bytes;
     let aggregate_source_max = check_many::TOTAL_SOURCE_MAX_BYTES;
     let mut compile_source_bytes = 0_usize;
     let mut imported_modules = 0_usize;
     let resolved_modules = Rc::new(RefCell::new(HashMap::<PathBuf, String>::new()));
+    let resolved_builtins = Rc::new(RefCell::new(HashSet::<String>::new()));
     check_many::run_check_many(
         manifest,
         options,
@@ -72,6 +86,8 @@ pub fn run_check_many(manifest: CheckManyManifest, options: CheckManyOptions) ->
                 &roots,
                 Rc::clone(&resolver_state),
                 Rc::clone(&resolved_modules),
+                Rc::clone(&resolved_builtins),
+                builtin,
             );
             let is_library = source
                 .lines()
@@ -133,6 +149,8 @@ fn resolver(
     roots: &[PathBuf],
     state: Rc<RefCell<ResolverState>>,
     resolved_modules: Rc<RefCell<HashMap<PathBuf, String>>>,
+    resolved_builtins: Rc<RefCell<HashSet<String>>>,
+    builtin: BuiltinModuleResolver,
 ) -> impl Fn(&str) -> Option<String> + use<> {
     let mut canonical = Vec::new();
     for root in roots {
@@ -153,6 +171,36 @@ fn resolver(
                 "limit",
             ));
             return None;
+        }
+        if let Some(source) = builtin(specifier) {
+            if !resolved_builtins.borrow().contains(specifier) {
+                let mut budget = state.borrow_mut();
+                if source.len() > budget.per_source_max
+                    || budget.compile_source_bytes.saturating_add(source.len())
+                        > budget.aggregate_source_max
+                {
+                    budget.failure = Some(CheckFailure::new(
+                        "limit_import_source_bytes",
+                        format!("built-in module {specifier:?} exceeds the source budget"),
+                        "limit",
+                    ));
+                    return None;
+                }
+                if budget.imported_modules >= IMPORT_MODULES_MAX {
+                    budget.failure = Some(CheckFailure::new(
+                        "limit_import_modules",
+                        format!("recursive imports exceed {IMPORT_MODULES_MAX} resolved modules"),
+                        "limit",
+                    ));
+                    return None;
+                }
+                budget.compile_source_bytes =
+                    budget.compile_source_bytes.saturating_add(source.len());
+                budget.imported_modules += 1;
+                drop(budget);
+                resolved_builtins.borrow_mut().insert(specifier.to_owned());
+            }
+            return Some(source.to_owned());
         }
         for root in &canonical {
             let mut candidate = root.join(specifier);
@@ -342,7 +390,13 @@ mod tests {
             failure: None,
         }));
         let modules = Rc::new(RefCell::new(HashMap::new()));
-        let resolve = resolver(&[root], Rc::clone(&state), Rc::clone(&modules));
+        let resolve = resolver(
+            &[root],
+            Rc::clone(&state),
+            Rc::clone(&modules),
+            Rc::new(RefCell::new(HashSet::new())),
+            |_| None,
+        );
         assert_eq!(resolve("one"), Some("export const one = 1;".to_owned()));
         assert_eq!(state.borrow().imported_modules, IMPORT_MODULES_MAX);
         assert_eq!(resolve("one"), Some("export const one = 1;".to_owned()));
@@ -371,6 +425,8 @@ mod tests {
             &[root],
             Rc::clone(&state),
             Rc::new(RefCell::new(HashMap::new())),
+            Rc::new(RefCell::new(HashSet::new())),
+            |_| None,
         );
         assert_eq!(resolve("late"), None);
         let failure = state.borrow().failure.clone().expect("typed deadline");
@@ -398,5 +454,94 @@ mod tests {
             },
         );
         assert!(report.ok, "{report:?}");
+    }
+
+    #[test]
+    fn product_builtin_is_checked_without_a_filesystem_shadow() {
+        fn builtin(specifier: &str) -> Option<&'static str> {
+            (specifier == "product-typed").then_some("export const value = 42;")
+        }
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("entry.qjs"),
+            "import * as typed from \"product-typed\"; return typed.value;",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("product-typed.qjs"),
+            "this filesystem shadow must not compile",
+        )
+        .unwrap();
+        let report = run_check_many_with_builtins(
+            CheckManyManifest {
+                schema_version: 1,
+                kind: QJS_CHECK_MANIFEST_KIND.to_owned(),
+                files: vec!["entry.qjs".to_owned()],
+            },
+            CheckManyOptions {
+                project_root: dir.path().to_path_buf(),
+                ..Default::default()
+            },
+            builtin,
+        );
+        assert!(report.ok, "{report:?}");
+    }
+
+    #[test]
+    fn builtin_is_counted_once_and_obeys_source_budget() {
+        fn builtin(specifier: &str) -> Option<&'static str> {
+            (specifier == "product-typed").then_some("export const value = 42;")
+        }
+
+        let state = Rc::new(RefCell::new(ResolverState {
+            deadline: Instant::now() + Duration::from_secs(1),
+            per_source_max: 1_024,
+            aggregate_source_max: 1_024,
+            compile_source_bytes: 10,
+            imported_modules: 7,
+            failure: None,
+        }));
+        let resolve = resolver(
+            &[],
+            Rc::clone(&state),
+            Rc::new(RefCell::new(HashMap::new())),
+            Rc::new(RefCell::new(HashSet::new())),
+            builtin,
+        );
+        assert_eq!(
+            resolve("product-typed"),
+            Some("export const value = 42;".to_owned())
+        );
+        let first_bytes = state.borrow().compile_source_bytes;
+        assert_eq!(state.borrow().imported_modules, 8);
+        assert!(resolve("product-typed").is_some());
+        assert_eq!(state.borrow().compile_source_bytes, first_bytes);
+        assert_eq!(state.borrow().imported_modules, 8);
+
+        let limited = Rc::new(RefCell::new(ResolverState {
+            deadline: Instant::now() + Duration::from_secs(1),
+            per_source_max: 4,
+            aggregate_source_max: 1_024,
+            compile_source_bytes: 0,
+            imported_modules: 0,
+            failure: None,
+        }));
+        let resolve = resolver(
+            &[],
+            Rc::clone(&limited),
+            Rc::new(RefCell::new(HashMap::new())),
+            Rc::new(RefCell::new(HashSet::new())),
+            builtin,
+        );
+        assert_eq!(resolve("product-typed"), None);
+        assert_eq!(
+            limited
+                .borrow()
+                .failure
+                .as_ref()
+                .map(|failure| failure.code.as_str()),
+            Some("limit_import_source_bytes")
+        );
     }
 }

@@ -1438,7 +1438,13 @@ fn run_script_check_many(arguments: &[String]) -> i32 {
         let outcome = agenterm_script_common::cli::run_check_many_command(
             &arguments[2..],
             |path| agenterm_qjswasm::check_many::read_manifest(path),
-            agenterm_qjswasm::check_many::run_check_many,
+            |manifest, options| {
+                agenterm_qjswasm::check_many::run_check_many_with_builtins(
+                    manifest,
+                    options,
+                    qjs_check_builtin_module,
+                )
+            },
         );
         match outcome {
             Ok(code) => i32::from(code),
@@ -1453,6 +1459,14 @@ fn run_script_check_many(arguments: &[String]) -> i32 {
         let _ = arguments;
         cli_eprintln!("script check-many requires the script-qjswasm feature");
         2
+    }
+}
+
+#[cfg(feature = "script-qjswasm")]
+fn qjs_check_builtin_module(specifier: &str) -> Option<&'static str> {
+    match specifier {
+        "agenterm:acu" => Some(crate::script_engine::AGENTERM_ACU_MODULE_SOURCE),
+        _ => None,
     }
 }
 
@@ -4854,6 +4868,16 @@ mod tests {
         parse_terminal_grid, render_script_value, run_wait_ui, script_worker_executable,
         validate_fleet_parameters,
     };
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn check_many_uses_the_exact_runtime_acu_builtin_source() {
+        assert_eq!(
+            super::qjs_check_builtin_module("agenterm:acu"),
+            Some(crate::script_engine::AGENTERM_ACU_MODULE_SOURCE)
+        );
+        assert_eq!(super::qjs_check_builtin_module("agenterm:unknown"), None);
+    }
 
     /// Every `value_type` the catalog declares must have a real arm in the
     /// validator. This is the class-level version of a bug that shipped: the

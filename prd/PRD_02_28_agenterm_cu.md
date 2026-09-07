@@ -147,15 +147,18 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   3,738,112 bytes, below the unchanged 4 MiB court, while carrying ACU in a
   separately versioned artifact. All six targets build that artifact; Windows
   signing and macOS bundle signing now derive or validate it explicitly.
-  The public `acu-provider-smoke` proves one in-process capabilities call and
-  the missing-sibling path fails typed. Three-host runtime evidence and the
-  library-owned argv adapter remain open.
+  The ordinary CLI parser and its catalog are now library-owned. The versioned
+  provider envelope accepts either one typed `Command` or bounded argv, and
+  both end at the same `Executor`; a legacy naked `Command` remains compatible.
+  The public `acu-provider-smoke` proves both in-process paths and the
+  missing-sibling path fails typed. Six-target build/package coverage is not
+  six-target dynamic-load evidence: native runtime courts and MCP remain open.
 
   ```mermaid
   flowchart LR
     TS["acu.ts today<br/>argv projection · binary discovery"]
     OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
-    OBJ["agenterm:acu<br/>embedder object library"]
+    OBJ["agenterm:acu.call/argv<br/>one parser · one Executor"]
     PROVIDER["fixed sibling dynamic provider<br/>ABI checked · bounded · no fallback"]
     GATE{"typed-object parity · TODO-aware<br/>MCU-absent black box"}
     QJS["acu.qjs transition<br/>Bun-free legacy mapping"]

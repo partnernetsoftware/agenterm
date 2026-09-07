@@ -20,7 +20,7 @@ use std::{
 
 /// Native provider ABI implemented by this artifact.
 pub const ABI_VERSION: u32 = 1;
-/// Maximum opaque command JSON accepted at the native boundary.
+/// Maximum opaque request JSON accepted at the native boundary.
 pub const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 /// Maximum encoded `CuReply` accepted at the native boundary.
 pub const MAX_REPLY_BYTES: usize = 4 * 1024 * 1024;
@@ -52,7 +52,7 @@ pub extern "C" fn agenterm_cu_provider_abi_version() -> u32 {
     ABI_VERSION
 }
 
-/// Execute one opaque command and copy one complete opaque `CuReply` JSON.
+/// Execute one opaque request and copy one complete opaque `CuReply` JSON.
 ///
 /// `STATUS_OK` describes boundary success, including a legal `CuReply` whose
 /// `ok` field is false. Every nonzero status is a raw provider-boundary failure
@@ -137,7 +137,7 @@ unsafe fn call_inner(
         panic!("test-only provider panic");
     }
 
-    let response = agenterm_cu::embedder::execute_json_from_environment(request);
+    let response = agenterm_cu::embedder::execute_request_from_environment(request);
     let Ok(encoded) = serde_json::to_vec(&response) else {
         return STATUS_SERIALIZE_FAILED;
     };
@@ -265,9 +265,10 @@ mod tests {
     fn legal_ok_false_is_status_zero_and_exact_existing_reply_json() {
         let _guard = isolate();
         let request = b"{";
-        let expected =
-            serde_json::to_vec(&agenterm_cu::embedder::execute_json_from_environment("{"))
-                .expect("existing CuReply serializes");
+        let expected = serde_json::to_vec(
+            &agenterm_cu::embedder::execute_request_from_environment("{"),
+        )
+        .expect("existing CuReply serializes");
         let mut reply = vec![0_u8; MAX_REPLY_BYTES];
         let mut reply_len = 0;
         assert_eq!(call(request, &mut reply, &mut reply_len), STATUS_OK);
@@ -296,9 +297,10 @@ mod tests {
     fn request_and_reply_may_alias() {
         let _guard = isolate();
         let request = b"{";
-        let expected =
-            serde_json::to_vec(&agenterm_cu::embedder::execute_json_from_environment("{"))
-                .expect("existing CuReply serializes");
+        let expected = serde_json::to_vec(
+            &agenterm_cu::embedder::execute_request_from_environment("{"),
+        )
+        .expect("existing CuReply serializes");
         let mut shared = vec![0_u8; MAX_REPLY_BYTES];
         shared[..request.len()].copy_from_slice(request);
         let mut reply_len = 0;
@@ -315,6 +317,19 @@ mod tests {
         };
         assert_eq!(status, STATUS_OK);
         assert_eq!(&shared[..reply_len], expected);
+    }
+
+    #[test]
+    fn versioned_argv_is_executed_through_the_provider() {
+        let _guard = isolate();
+        let request = br#"{"acu_request":1,"kind":"argv","argv":["--target","current","--grant","observe","capabilities"]}"#;
+        let mut reply = vec![0_u8; MAX_REPLY_BYTES];
+        let mut reply_len = 0;
+        assert_eq!(call(request, &mut reply, &mut reply_len), STATUS_OK);
+        let value: serde_json::Value =
+            serde_json::from_slice(&reply[..reply_len]).expect("CuReply JSON");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["command"], "capabilities");
     }
 
     #[test]

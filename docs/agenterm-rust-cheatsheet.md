@@ -4072,6 +4072,23 @@ Keep the checked-in verb catalog beside the library parser; leaving its truth
 source under `src/bin/` recreates binary ownership even if generated tables are
 later re-exported by the library.
 
+When one native JSON door carries both typed commands and argv, use an explicit
+version plus kind and a closed field set. Its typed command payload must equal
+the canonical serialized `Command`; this rejects unknown fields and noncanonical
+explicit defaults without imposing the stricter rule on legacy naked commands.
+Once the version marker is present, an unknown version, kind, wrong type or
+extra field must fail as an envelope error; never retry it as a legacy command
+through an untagged deserializer.
+Legacy naked commands can remain compatible without making malformed new
+messages ambiguous.
+
+Non-shadowable built-in qjs modules must share one source between execution,
+single-file checking and bounded `check-many`. A runtime-only resolver makes a
+valid public script fail repository lint; a checker-only stub can accept a
+module the product does not execute. Let the generic engine accept an
+embedder-supplied built-in resolver, account each resolved source against the
+same bytes/module/deadline ledger, and resolve it before filesystem modules.
+
 ## Measure guest allocation below the page granularity
 
 Linear-memory pages are a budget receipt, not an allocation-lifetime trace: a

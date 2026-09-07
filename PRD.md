@@ -137,10 +137,12 @@ AgenTerm — local agent & process fleet work OS
 │     ├─ transition             `acu.ts` 只做旧 argv 映射、binary 发现与 stdio/exit 转发
 │     │                       2026-09-07 起立即 ACU-only：未实现形状返回 `acu_todo` ALERT，
 │     │                       旧 MCU 仅作归档参考且永不运行时回退；完整 TODO 树归口 PRD 28
-│     ├─ convergence            `agenterm:acu` typed door 与同一 Executor adapter 已落地；
+│     ├─ convergence            `agenterm:acu.call/argv` typed door、library-owned argv parser
+│     │                       与同一 Executor adapter 已落地；版本化 envelope 仍兼容旧 Command
 │     │                       静态 provider 因 Windows PE 3.73→8.87 MiB 被淘汰，固定同目录
 │     │                       dynamic provider 已进入六格构建与 Win/macOS 发布链；Windows
-│     │                       exact release 主程序 3,738,112 B ≤ 4 MiB。MCP/原生运行庭仍待完成
+│     │                       exact release 主程序 3,738,112 B ≤ 4 MiB。六格目前只证构建/打包，
+│     │                       dynamic load、MCP 与原生运行庭仍待完成，不能冒充 execute evidence
 │     ├─ Bun-free bridge         先切断 MCU runtime；过渡 `acu.ts` 的 Bun 尾账随后由
 │     │                       `agenterm:acu` + `acu.qjs` 接替，它只保留旧语法兼容
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
@@ -267,7 +269,7 @@ flowchart LR
   SCRIPT["Script runtime<br/>qjswasm + tinyvm"]
   CU["agenterm-cu<br/>typed machine control · agenterm:acu"]
   ACTS["temporary acu.ts<br/>argv mapping · binary discovery<br/>no product effects"]
-  ACUOBJ["agenterm:acu object<br/>one schema · Executor · receipts"]
+  ACUOBJ["agenterm:acu.call/argv<br/>one parser · Executor · receipts"]
   ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
   ACUDYN["fixed sibling provider<br/>ABI checked · no fallback<br/>separate signed artifact"]
   ACUQJS["temporary acu.qjs<br/>Bun-free legacy mapping"]

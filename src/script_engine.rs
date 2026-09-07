@@ -462,6 +462,23 @@ fn compile_qjs_for(
 ///   absolute path alike. The check is on the **canonical** path, because a
 ///   textual one is defeated by any of the three;
 /// * a file that is not there or is not UTF-8.
+pub(crate) const AGENTERM_ACU_MODULE_SOURCE: &str = r#"
+function request(payload) {
+  const status = acu_call(JSON.stringify(payload));
+  const result = acu_result();
+  if (status !== 0) { throw "agenterm:acu bridge status " + status + ": " + result; }
+  return JSON.parse(result);
+}
+
+export function call(command) {
+  return request({acu_request: 1, kind: "command", command: command});
+}
+
+export function argv(args) {
+  return request({acu_request: 1, kind: "argv", argv: args});
+}
+"#;
+
 fn qjs_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + use<> {
     // Roots in order of preference, each confined to itself; the first that
     // has the file answers. Duplicates (the usual case: the entry's directory
@@ -478,17 +495,7 @@ fn qjs_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + u
         // Product-owned built-in: resolve before the filesystem so a project
         // cannot shadow the typed ACU adapter with a same-named file.
         if specifier == "agenterm:acu" {
-            return Some(
-                r#"
-export function call(command) {
-  const status = acu_call(JSON.stringify(command));
-  const result = acu_result();
-  if (status !== 0) { throw "agenterm:acu bridge status " + status + ": " + result; }
-  return JSON.parse(result);
-}
-"#
-                .to_owned(),
-            );
+            return Some(AGENTERM_ACU_MODULE_SOURCE.to_owned());
         }
         canonical.iter().find_map(|root| {
             let mut candidate = root.join(specifier);
@@ -1086,9 +1093,9 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
 #[cfg(feature = "script-qjswasm")]
 fn qjs_host_bridges(fleet: Option<ScriptFleetBridgeFn>) -> agenterm_qjswasm::HostBridges {
     #[cfg(feature = "script-acu-embedder")]
-    let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|command_json| {
-        serde_json::to_string(&agenterm_cu::embedder::execute_json_from_environment(
-            command_json,
+    let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|request_json| {
+        serde_json::to_string(&agenterm_cu::embedder::execute_request_from_environment(
+            request_json,
         ))
         .map_err(|error| format!("serializing ACU reply: {error}"))
     });
@@ -1727,10 +1734,27 @@ return "ok=" + reply.ok + ";code=" + reply.error.code;
         assert!(text.is_some_and(|text| text.starts_with("ok=false;code=")));
     }
 
+    #[cfg(feature = "script-acu-embedder")]
+    #[test]
+    fn agenterm_acu_argv_uses_the_same_library_parser_without_a_child_process() {
+        let _guard = ENV_LOCK.lock().expect("lock");
+        let _backend = EnvGuard::set("qjswasm");
+        let source = r#"
+import * as acu from "agenterm:acu";
+const reply = acu.argv(["--target", "current", "--grant", "observe", "capabilities"]);
+return reply.ok + ":" + reply.command;
+"#;
+        let result = QjswasmEngineBackend
+            .execute(source, &ScriptInvocationOptions::default(), None)
+            .expect("argv request runs through the in-process adapter");
+        assert_eq!(result.value, Some(serde_json::json!("true:capabilities")));
+    }
+
     #[cfg(feature = "script-qjswasm")]
     #[test]
     fn filesystem_cannot_shadow_agenterm_acu_module() {
         let root = tempfile::tempdir().expect("tempdir");
+        #[cfg(not(windows))]
         std::fs::write(
             root.path().join("agenterm:acu.qjs"),
             "this is not valid qjs",
@@ -1739,6 +1763,8 @@ return "ok=" + reply.ok + ";code=" + reply.error.code;
         let resolve = qjs_module_resolver(&[root.path().to_path_buf()]);
         let built_in = resolve("agenterm:acu").expect("built-in");
         assert!(built_in.contains("acu_call"));
+        assert!(built_in.contains("export function argv"));
+        assert!(built_in.contains("acu_request: 1"));
         assert!(!built_in.contains("not valid"));
     }
 

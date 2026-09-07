@@ -19,5 +19,15 @@ if (reply.data === null || typeof reply.data !== "object") {
   throw "acu_provider_capabilities_data";
 }
 
-print("PASS: agenterm:acu fixed-sibling provider executed capabilities in-process");
+const argv_reply = acu.argv([
+  "--target", "current", "--grant", "observe", "capabilities"
+]);
+if (argv_reply === null || typeof argv_reply !== "object") {
+  throw "acu_provider_argv_reply_shape";
+}
+if (argv_reply.ok !== true || argv_reply.command !== "capabilities") {
+  throw "acu_provider_argv_failed:" + JSON.stringify(argv_reply);
+}
+
+print("PASS: agenterm:acu fixed-sibling provider executed typed command and argv in-process");
 return;

@@ -70,7 +70,7 @@ ACU replaces MCU
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
-│  ├─ phase 2 [~]: bounded `agenterm:acu` door + fixed-sibling dynamic provider are green; argv adapter and MCP remain
+│  ├─ phase 2 [~]: bounded `agenterm:acu.call/argv` + fixed-sibling provider + shared argv parser are green; MCP/native courts remain
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  ├─ phase 3: after object parity + TODO-aware MCU-absent court, `acu.qjs` removes Bun while retaining only compatibility mapping
