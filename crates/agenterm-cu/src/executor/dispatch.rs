@@ -1843,6 +1843,9 @@ impl Executor {
                 agenterm_platform::simulator::SimulatorAppAction::Terminate,
             ),
             Command::PointerMove { x, y, .. } => pointer_move(*x, *y),
+            Command::PointerScroll { dx, dy, .. } => {
+                pointer_scroll(*dx, *dy, &mut self.open_receipts(command.target())?)
+            }
             Command::PointerPosition { .. } => pointer_position(),
             Command::Click { .. } => {
                 click_command(command, &mut self.open_receipts(command.target())?)

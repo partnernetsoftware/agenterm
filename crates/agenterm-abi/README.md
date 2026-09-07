@@ -18,6 +18,12 @@ caller-sized v1 记录，得到 role、movable/resizable 三态与显式/应用�
 尺寸约束。未知值必须按未知处理，不能降级成普通、可自由调整的窗口；句柄复用
 或 PID 不匹配以稳定的 `window_stale` 失败返回。
 
+ABI 1.28 在 1.27 之后，纯增量增加 `agt_input_pointer_scroll(dx, dy)`：在
+真实指针当前位置投递有界桌面滚轮量，但不移动指针；至少一轴非零且每轴只能为
+`-100..=100`；正 `dy` 向上、负 `dy` 向下，正 `dx` 向左、负 `dx` 向右。
+非法参数在任何平台调用前以 `bad_scroll_delta` 拒绝。平台没有该
+机制时返回 typed unsupported，不伪装成成功。
+
 ABI 1.27 在 1.26 的 `agt_native_window_activate` 之后，纯增量增加
 `AGT_A11Y_ACTION_SHOW_MENU = 12`：macOS 精确执行节点发布的 `AXShowMenu`；
 不映射成主按钮 press 或右键点击，其他后端返回 typed unsupported。

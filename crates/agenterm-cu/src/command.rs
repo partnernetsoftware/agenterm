@@ -2610,6 +2610,15 @@ pub enum Command {
         x: i32,
         y: i32,
     },
+    /// Emit one bounded desktop-level wheel delta at the current pointer
+    /// location without moving the physical pointer or changing foreground
+    /// ownership. This is not window-local addressing and mechanism acceptance
+    /// is not proof that application content scrolled.
+    PointerScroll {
+        target: TargetRef,
+        dx: i32,
+        dy: i32,
+    },
     /// Observe the pointer's current absolute target-session screen
     /// coordinates without injecting input.
     PointerPosition {
@@ -3993,6 +4002,7 @@ impl Command {
             Self::SimulatorLaunch { .. } => "simulator-launch".into(),
             Self::SimulatorTerminate { .. } => "simulator-terminate".into(),
             Self::PointerMove { .. } => "pointer-move".into(),
+            Self::PointerScroll { .. } => "pointer-scroll".into(),
             Self::PointerPosition { .. } => "pointer-position".into(),
             Self::Click { .. } => "click".into(),
             Self::Focus { .. } => "focus".into(),
@@ -4386,6 +4396,7 @@ impl Command {
             | Self::SimulatorLaunch { target, .. }
             | Self::SimulatorTerminate { target, .. }
             | Self::PointerMove { target, .. }
+            | Self::PointerScroll { target, .. }
             | Self::PointerPosition { target, .. }
             | Self::Click { target, .. }
             | Self::Focus { target, .. }
@@ -4493,6 +4504,7 @@ impl Command {
             | Self::ServiceTransact { .. }
             | Self::LoginSessionApplyLock { .. }
             | Self::PointerMove { .. }
+            | Self::PointerScroll { .. }
             | Self::AuditCompact { apply: true, .. }
             | Self::JobPrune { apply: true, .. }
             | Self::SessionStart { .. }
@@ -6841,6 +6853,36 @@ mod tests {
                 target: TargetRef::Ssh,
                 x: -320,
                 y: 1440
+            }
+        ));
+    }
+
+    #[test]
+    fn pointer_scroll_is_target_neutral_bounded_desktop_actuation() {
+        let command = Command::PointerScroll {
+            target: TargetRef::Ssh,
+            dx: 12,
+            dy: -100,
+        };
+        assert_eq!(command.verb(), "pointer-scroll");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Actuate);
+        let json = serde_json::to_value(&command).expect("serialize");
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "verb": "pointer-scroll",
+                "target": "ssh",
+                "dx": 12,
+                "dy": -100
+            })
+        );
+        assert!(matches!(
+            serde_json::from_value::<Command>(json).expect("deserialize"),
+            Command::PointerScroll {
+                target: TargetRef::Ssh,
+                dx: 12,
+                dy: -100
             }
         ));
     }

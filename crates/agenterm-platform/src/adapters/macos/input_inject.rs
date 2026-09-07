@@ -32,6 +32,7 @@ use std::ffi::c_void;
 use crate::CapabilityStatus;
 use crate::contract::input_inject::{
     InputInjectError, MAX_POINTER_DRAG_STEPS, PointerButton, PointerPosition,
+    validate_pointer_scroll,
 };
 
 type CfTypeRef = *const c_void;
@@ -65,6 +66,13 @@ unsafe extern "C" {
         virtual_key: u16,
         key_down: bool,
     ) -> CgEventRef;
+    fn CGEventCreateScrollWheelEvent(
+        source: CgEventSourceRef,
+        units: u32,
+        wheel_count: u32,
+        wheel1: i32,
+        ...
+    ) -> CgEventRef;
     fn CGEventKeyboardSetUnicodeString(event: CgEventRef, length: usize, string: *const u16);
     fn CGEventSetFlags(event: CgEventRef, flags: u64);
     fn CGEventSetIntegerValueField(event: CgEventRef, field: u32, value: i64);
@@ -75,6 +83,9 @@ unsafe extern "C" {
 /// `kCGHIDEventTap`: the injection point a physical device would use, so
 /// the whole system sees the event exactly as it would a real one.
 const CG_HID_EVENT_TAP: u32 = 0;
+/// `kCGScrollEventUnitLine`: the portable contract is expressed in bounded
+/// wheel detents, not device pixels.
+const CG_SCROLL_EVENT_UNIT_LINE: u32 = 1;
 const CG_EVENT_MOUSE_MOVED: u32 = 5;
 const CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
 const CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
@@ -190,6 +201,20 @@ pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
         x: point.x.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32,
         y: point.y.round().clamp(i32::MIN as f64, i32::MAX as f64) as i32,
     })
+}
+
+/// Post line-based wheel detents at the current pointer location. Quartz
+/// scroll events carry no pointer position and therefore cannot move it.
+pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
+    validate_pointer_scroll(dx, dy)?;
+    let event = OwnedEvent::new(
+        unsafe {
+            CGEventCreateScrollWheelEvent(std::ptr::null(), CG_SCROLL_EVENT_UNIT_LINE, 2, dy, dx)
+        },
+        "CGEventCreateScrollWheelEvent",
+    )?;
+    unsafe { CGEventPost(CG_HID_EVENT_TAP, event.as_ptr()) };
+    Ok(())
 }
 
 /// Press and release at `position`, `clicks` times. The click state field
@@ -536,6 +561,16 @@ mod tests {
         let at = PointerPosition { x: 10, y: 10 };
         assert!(pointer_click(at, PointerButton::Left, 0).is_err());
         assert!(pointer_click(at, PointerButton::Left, MAX_CLICKS + 1).is_err());
+    }
+
+    #[test]
+    fn invalid_pointer_scroll_is_refused_before_any_event() {
+        for (dx, dy) in [(0, 0), (101, 0), (0, -101), (i32::MIN, 0)] {
+            assert!(matches!(
+                pointer_scroll(dx, dy),
+                Err(InputInjectError::Failed { ref code, .. }) if code == "invalid_input"
+            ));
+        }
     }
 
     /// The whole point of validating first: a rejected `steps` must not have

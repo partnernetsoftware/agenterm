@@ -182,6 +182,25 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         mechanism::Capability::InputInject,
         serde_json::json!({ "scope": "desktop", "group": "pointer" }),
     );
+    let pointer_scroll_verb = capability_verb(
+        mechanism::Capability::InputInject,
+        serde_json::json!({
+            "scope": "desktop-at-current-pointer",
+            "group": "pointer",
+            "grant": "actuate",
+            "mode": "bounded-wheel-delta",
+            "delta_range": [-100, 100],
+            "directions": {
+                "dx_positive": "left",
+                "dx_negative": "right",
+                "dy_positive": "up",
+                "dy_negative": "down",
+            },
+            "window_local": false,
+            "invariants": ["pointer-unchanged", "focused-window-unchanged"],
+            "delivery_verified": false,
+        }),
+    );
     // `zoom` is a clip of the same window capture `screenshot` takes, so it
     // lives or dies with that mechanism.
     let zoom_verb = {
@@ -835,6 +854,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("diff".into(), tree_verb.clone());
         verbs.insert("zoom".into(), zoom_verb);
         verbs.insert("drag".into(), drag_verb);
+        verbs.insert("pointer-scroll".into(), pointer_scroll_verb);
         verbs.insert(
             "device-list".into(),
             serde_json::json!({
@@ -1435,6 +1455,7 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("send-keys", "actuate"),
             ("send-text", "actuate"),
             ("pointer-move", "actuate"),
+            ("pointer-scroll", "actuate"),
             ("unlock", "actuate"),
             ("close", "actuate"),
             ("orderwin", "actuate"),

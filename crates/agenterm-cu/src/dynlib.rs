@@ -253,7 +253,7 @@ pub const AGT_NATIVE_WINDOW_RESTORE: i32 = 4;
 /// EXPECTED_ABI_MAJOR`, so this value cannot drift from the library without
 /// that gate failing first.
 const EXPECTED_ABI_MAJOR: u16 = 1;
-const REQUIRED_ABI_MINOR: u16 = SHOW_MENU_ABI_MINOR;
+const REQUIRED_ABI_MINOR: u16 = POINTER_SCROLL_ABI_MINOR;
 pub const WINDOW_PLACEMENT_ABI_MINOR: u16 = 10;
 pub const POINTER_POSITION_ABI_MINOR: u16 = 11;
 /// ABI 1.12: `agt_a11y_tree_snapshot_bounded`, snapshot meta fields
@@ -298,6 +298,8 @@ pub const WINDOW_MINIMIZED_ABI_MINOR: u16 = 25;
 pub const WINDOW_ACTIVATE_ABI_MINOR: u16 = 26;
 /// ABI 1.27: exact native show-menu action kind.
 pub const SHOW_MENU_ABI_MINOR: u16 = 27;
+/// ABI 1.28: bounded desktop wheel injection at the current pointer location.
+pub const POINTER_SCROLL_ABI_MINOR: u16 = 28;
 
 /// `agt_a11y_observe_event_string` field kinds.
 pub const AGT_A11Y_EVENT_STR_NOTIFICATION: i32 = 0;
@@ -392,6 +394,7 @@ const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[
     b"agt_native_window_minimized",
     b"agt_native_window_close",
     b"agt_input_pointer_move",
+    b"agt_input_pointer_scroll",
     b"agt_input_pointer_position",
     b"agt_input_pointer_click",
     b"agt_input_pointer_drag",

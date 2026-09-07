@@ -78,6 +78,7 @@ agt_native_window_close
 agt_native_window_minimized
 agt_input_pointer_position
 agt_input_pointer_move
+agt_input_pointer_scroll
 agt_input_pointer_click
 agt_input_pointer_drag
 agt_input_type_text

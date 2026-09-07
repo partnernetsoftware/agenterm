@@ -1,6 +1,6 @@
 //! Accessibility actuation: invoke / menu invoke / click / focus, the text
 //! and key writers, the AT-SPI setters, and the pointer verbs
-//! `pointer-move` and `drag`.
+//! `pointer-move`, `pointer-scroll`, and `drag`.
 
 use agenterm_cu::{Command, PointerButton, TargetRef, command::InvokeAction};
 
@@ -128,6 +128,7 @@ pub fn parse(
             })
         }
         "pointer-move" => pointer_move(target, args),
+        "pointer-scroll" => pointer_scroll(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
 }
@@ -358,15 +359,86 @@ fn pointer_move(target: TargetRef, args: &mut Vec<String>) -> Result<Command, St
     Ok(Command::PointerMove { target, x, y })
 }
 
+fn pointer_scroll(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let Some(to) = flag_text(args, "--to")? else {
+        return Err("pointer-scroll requires --to desktop".into());
+    };
+    if to != "desktop" {
+        return Err(
+            "pointer-scroll supports only --to desktop; window-local scrolling is not mapped"
+                .into(),
+        );
+    }
+    let dx = required_pointer_i32_flag(args, "pointer-scroll", "--dx")?;
+    let dy = required_pointer_i32_flag(args, "pointer-scroll", "--dy")?;
+    validate_scroll_delta(dx, dy)?;
+    if !args.is_empty() {
+        return Err("pointer-scroll accepts only --to desktop --dx <i32> --dy <i32>".into());
+    }
+    Ok(Command::PointerScroll { target, dx, dy })
+}
+
+fn validate_scroll_delta(dx: i32, dy: i32) -> Result<(), String> {
+    if dx == 0 && dy == 0 {
+        return Err("pointer-scroll requires at least one non-zero axis".into());
+    }
+    if dx.unsigned_abs() > 100 || dy.unsigned_abs() > 100 {
+        return Err("pointer-scroll requires each axis to be within -100..=100".into());
+    }
+    Ok(())
+}
+
 fn required_i32_flag(args: &mut Vec<String>, flag: &'static str) -> Result<i32, String> {
+    required_pointer_i32_flag(args, "pointer-move", flag)
+}
+
+fn required_pointer_i32_flag(
+    args: &mut Vec<String>,
+    verb: &'static str,
+    flag: &'static str,
+) -> Result<i32, String> {
     let Some(index) = args.iter().position(|arg| arg == flag) else {
-        return Err(format!("pointer-move requires {flag} <i32>"));
+        return Err(format!("{verb} requires {flag} <i32>"));
     };
     args.remove(index);
     if index >= args.len() {
-        return Err(format!("pointer-move requires {flag} <i32>"));
+        return Err(format!("{verb} requires {flag} <i32>"));
     }
     let raw = args.remove(index);
     raw.parse::<i32>()
-        .map_err(|_| format!("pointer-move {flag} must be a signed 32-bit integer"))
+        .map_err(|_| format!("{verb} {flag} must be a signed 32-bit integer"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    #[test]
+    fn pointer_scroll_parser_is_closed_bounded_and_desktop_only() {
+        let command = pointer_scroll(
+            TargetRef::Current,
+            &mut args(&["--to", "desktop", "--dx", "25", "--dy", "-100"]),
+        )
+        .expect("parse");
+        assert!(matches!(
+            command,
+            Command::PointerScroll {
+                dx: 25,
+                dy: -100,
+                ..
+            }
+        ));
+        for words in [
+            &["--to", "desktop", "--dx", "0", "--dy", "0"][..],
+            &["--to", "desktop", "--dx", "101", "--dy", "0"][..],
+            &["--to", "App#7", "--dx", "0", "--dy", "-1"][..],
+            &["--to", "desktop", "--dx", "0", "--dy", "-1", "extra"][..],
+        ] {
+            assert!(pointer_scroll(TargetRef::Current, &mut args(words)).is_err());
+        }
+    }
 }

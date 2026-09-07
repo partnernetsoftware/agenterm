@@ -644,6 +644,14 @@ Use the smallest authoritative evidence first:
 step invokes that path, run an explicit `cargo build -p PACKAGE --bin NAME` and
 record the product binary as the evidence subject.
 
+The same stale-artifact trap applies to `libagenterm`: an `abi-dev` build
+refreshes `target/abi-dev/libagenterm.*`, while an integration-test executable
+may still open `target/debug/libagenterm.*`. If a new export is present in the
+`abi-dev` symbol table but a dynamic sweep reports it missing, inspect the
+actually loaded library path, then copy the just-built `abi-dev` library into
+the test profile directory before rerunning. A source-compiled test harness is
+not evidence that the sibling dynamic library was refreshed.
+
 When a Script task summarizes a large filesystem tree, do not issue one host
 call per entry or return a whole directory listing through a bounded bridge.
 Put the neutral bounded walk in `agenterm-platform`, require an explicit entry

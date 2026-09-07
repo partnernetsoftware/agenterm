@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 27
+#define AGT_ABI_MINOR 28
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -994,6 +994,15 @@ agt_status agt_input_pointer_position(int32_t* x, int32_t* y);
 
 /* Move the pointer to absolute screen coordinates. */
 agt_status agt_input_pointer_move(int32_t x, int32_t y);
+
+/* ABI 1.28: deliver a bounded desktop wheel delta at the pointer's current
+ * location without moving the pointer. At least one axis must be non-zero and
+ * each axis must be in -100..=100. Positive dy means up, negative dy means
+ * down; positive dx means left, negative dx means right. Invalid deltas return
+ * AGT_FAILED{code="bad_scroll_delta"} before any platform call. Mechanism
+ * absent -> AGT_UNSUPPORTED; platform failure ->
+ * AGT_FAILED{code="input_failed"}. */
+agt_status agt_input_pointer_scroll(int32_t dx, int32_t dy);
 
 /* Click a pointer button at absolute screen coordinates. button:
  * 0=Left 1=Right 2=Middle; any other value ->

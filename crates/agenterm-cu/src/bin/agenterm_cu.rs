@@ -1874,6 +1874,7 @@ mod surface_tests {
                 "send-text" => vec!["--window", "1", "hello"],
                 "send-keys" => vec!["--window", "1", "enter"],
                 "pointer-move" => vec!["--to", "desktop", "--x", "0", "--y", "0"],
+                "pointer-scroll" => vec!["--to", "desktop", "--dx", "0", "--dy", "-1"],
                 "process-kill" => vec![
                     "4294967295",
                     "--start-identity",

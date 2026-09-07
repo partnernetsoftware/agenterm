@@ -84,7 +84,7 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "input-global",
-        verbs: &["pointer-move"],
+        verbs: &["pointer-move", "pointer-scroll", "wheel"],
     },
     Group {
         id: "page-js",
@@ -361,11 +361,14 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         "input-global" => {
             if os == "linux" {
                 (
-                    "unsupported",
-                    "global pointer on Wayland is session-global; --to desktop is explicit or refused",
+                    "available",
+                    "desktop pointer injection is available on X11; Wayland is refused by the native adapter",
                 )
             } else {
-                ("available", "pointer-move --to desktop is explicit global")
+                (
+                    "available",
+                    "pointer-move and pointer-scroll require explicit --to desktop",
+                )
             }
         }
         "page-js" => (
@@ -1047,6 +1050,9 @@ mod tests {
         assert_eq!(merged["tab-select"]["group"], "semantic");
         assert_eq!(merged["page-targets"]["group"], "page-js");
         assert_eq!(group_id_for_verb("drag"), "input-local");
+        assert_eq!(group_id_for_verb("pointer-scroll"), "input-global");
+        assert_eq!(group_id_for_verb("wheel"), "input-global");
+        assert_eq!(verb_declaration("pointer-scroll")["status"], "available");
         // The desktop-ring absorption turned these eight into live verbs
         // with their own parse arms, so they must NOT be typed-only any
         // more -- and `capabilities` must still declare every one of them.

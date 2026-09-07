@@ -1165,7 +1165,7 @@ recorded above as unproven rather than claimed.
   `LeftMouseUp` with the real pointer unmoved, and its button never fires,
   because AppKit has no window to route through (setting
   `kCGMouseEventWindowUnderMousePointer` does not change that). There is
-  therefore **no window-local pointer route on macOS**, so
+  therefore **no supported public window-local pointer route on macOS**, so
   `pointer-move --to <handle>` is refused typed rather than approximated
   by a global move that would aim somewhere else. What is wired is the HID
   tap: `pointer_move`, `pointer_click` (with the click-state field, so a
@@ -1184,6 +1184,18 @@ recorded above as unproven rather than claimed.
   (window scope, missing `--to`, observe-only grant) each leave it
   untouched. Nothing is clicked or typed in the journey: a global click
   lands in whatever is frontmost, which a hermetic journey does not own.
+- [~] ABI 1.28 and `pointer-scroll --to desktop --dx DX --dy DY` add a
+  bounded, signed wheel mechanism at the real pointer's current desktop
+  location on macOS, Windows and Linux X11. Validation rejects zero or an
+  axis outside `-100..=100` before native dispatch; the durable receipt reads
+  back that the pointer and focused top-level window did not change. This is
+  **mechanism-complete but not retirement evidence**: `delivery_verified`
+  remains false until an owned public qjswasm court independently observes
+  application content movement on the three hosts. Linux Wayland refuses
+  typed. Window-local hover/wheel remains a separate gap; the private
+  SkyLight candidate is governed by
+  `plan/design-skylight-window-local-pointer-experiment.md` and cannot be
+  promoted from source presence or mechanism acceptance.
 - [x] web content on `current` through the system AX tree (cut 3.53), with
   its own owned page rather than the user's browser:
   `examples/objc/agenterm_web_fixture.m` is an accessory-policy window

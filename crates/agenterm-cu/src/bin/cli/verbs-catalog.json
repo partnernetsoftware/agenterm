@@ -3623,6 +3623,34 @@
       ]
     },
     {
+      "name": "pointer-scroll",
+      "command": "pointer-scroll",
+      "aliases": [
+        "wheel"
+      ],
+      "grant": "actuate",
+      "family": "a11y-actuate",
+      "summary": "emit a bounded desktop wheel delta at the current pointer",
+      "usage": "pointer-scroll --to desktop --dx DX --dy DY\nwheel ...                                           (alias)",
+      "args": [
+        {
+          "flag": "--to",
+          "value": "desktop",
+          "help": "explicit desktop-level delivery; window-local scrolling is not mapped"
+        },
+        {
+          "flag": "--dx",
+          "value": "DX",
+          "help": "horizontal delta -100..=100; positive is left, negative is right"
+        },
+        {
+          "flag": "--dy",
+          "value": "DY",
+          "help": "vertical delta -100..=100; positive is up, negative is down"
+        }
+      ]
+    },
+    {
       "name": "page-js",
       "command": "page-js",
       "aliases": [
@@ -6034,6 +6062,10 @@
     {
       "name": "pointer-move",
       "text": "agenterm-cu pointer-move    (also: move)\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  pointer-move --to desktop --x X --y Y\n  move ...                                            (alias)\n\narguments:\n  --to desktop                  explicit global coordinates; --to <handle> answers typed unsupported\n  --x X                         signed 32-bit screen x\n  --y Y                         signed 32-bit screen y\n\nMoves to absolute screen coordinates without any press / release / click\n/ drag / wheel side effect. Window-local pointer is not mapped: use click\n--window. `move` is the MCU spelling.\n"
+    },
+    {
+      "name": "pointer-scroll",
+      "text": "agenterm-cu pointer-scroll    (also: wheel)\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  pointer-scroll --to desktop --dx DX --dy DY\n  wheel ...                                           (alias)\n\narguments:\n  --to desktop                  desktop-level delivery at the current pointer; window-local is not mapped\n  --dx DX                       -100..=100; positive is left, negative is right\n  --dy DY                       -100..=100; positive is up, negative is down\n\nEmits one bounded wheel delta at the current pointer without moving the\nphysical pointer or changing the focused top-level window. At least one axis\nmust be non-zero. A successful reply proves mechanism acceptance and those\ntwo invariants only; delivery_verified remains false until an owning public\nblack-box court observes application content movement. Receipt reserved before\ndispatch and closed after invariant read-back.\n"
     },
     {
       "name": "page-js",

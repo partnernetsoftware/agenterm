@@ -15,7 +15,9 @@ use x11rb::{
 };
 
 use crate::CapabilityStatus;
-use crate::contract::input_inject::{InputInjectError, PointerButton, PointerPosition};
+use crate::contract::input_inject::{
+    InputInjectError, PointerButton, PointerPosition, validate_pointer_scroll,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionKind {
@@ -253,6 +255,32 @@ pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
     })
 }
 
+pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
+    validate_pointer_scroll(dx, dy)?;
+    let context = connect()?;
+    // X11's conventional wheel buttons: 4/5 are vertical up/down and 6/7
+    // are horizontal left/right. Posting button pairs at (0, 0) retains the
+    // current pointer location; unlike MOTION_NOTIFY no coordinate is applied.
+    for button in wheel_buttons(dx, dy) {
+        xtest_input(&context, BUTTON_PRESS_EVENT, button, 0, 0)?;
+        xtest_input(&context, BUTTON_RELEASE_EVENT, button, 0, 0)?;
+    }
+    Ok(())
+}
+
+fn wheel_buttons(dx: i32, dy: i32) -> Vec<u8> {
+    let mut buttons = Vec::with_capacity((dx.unsigned_abs() + dy.unsigned_abs()) as usize);
+    buttons.extend(std::iter::repeat_n(
+        if dy > 0 { 4 } else { 5 },
+        dy.unsigned_abs() as usize,
+    ));
+    buttons.extend(std::iter::repeat_n(
+        if dx > 0 { 6 } else { 7 },
+        dx.unsigned_abs() as usize,
+    ));
+    buttons
+}
+
 pub(crate) fn pointer_click(
     position: PointerPosition,
     button: PointerButton,
@@ -342,5 +370,21 @@ mod tests {
         assert_eq!(keysym_for_token("é"), Some(0x00e9));
         assert_eq!(keysym_for_token("中"), Some(0x0100_4e2d));
         assert_ne!(keysym_for_token("中"), Some(0x2d));
+    }
+
+    #[test]
+    fn invalid_pointer_scroll_is_refused_before_opening_a_display() {
+        for (dx, dy) in [(0, 0), (101, 0), (0, -101), (i32::MIN, 0)] {
+            assert!(matches!(
+                pointer_scroll(dx, dy),
+                Err(InputInjectError::Failed { ref code, .. }) if code == "invalid_input"
+            ));
+        }
+    }
+
+    #[test]
+    fn signed_scroll_axes_map_to_x11_wheel_buttons() {
+        assert_eq!(wheel_buttons(2, -3), [5, 5, 5, 6, 6]);
+        assert_eq!(wheel_buttons(-1, 1), [4, 7]);
     }
 }

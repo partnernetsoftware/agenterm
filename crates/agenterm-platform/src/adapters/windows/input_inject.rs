@@ -1,11 +1,12 @@
 //! Windows input injection (user32 FFI): pointer + Unicode keyboard.
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN,
-    MOUSEEVENTF_RIGHTUP, SendInput, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_F1,
-    VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12, VK_LEFT,
-    VK_LWIN, VK_MENU, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP, mouse_event,
+    INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+    MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
+    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL,
+    MOUSEINPUT, SendInput, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_F1, VK_F2, VK_F3,
+    VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12, VK_LEFT, VK_LWIN, VK_MENU,
+    VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP, mouse_event,
 };
 use windows_sys::Win32::{
     Foundation::POINT,
@@ -13,7 +14,13 @@ use windows_sys::Win32::{
 };
 
 use crate::CapabilityStatus;
-use crate::contract::input_inject::{InputInjectError, PointerButton, PointerPosition};
+use crate::contract::input_inject::{
+    InputInjectError, PointerButton, PointerPosition, validate_pointer_scroll,
+};
+
+/// One Windows wheel detent. `windows-sys` does not expose the WinUser.h
+/// `WHEEL_DELTA` macro as a Rust constant.
+const WHEEL_DELTA: i32 = 120;
 
 pub(crate) fn capability_status() -> CapabilityStatus {
     CapabilityStatus::Available
@@ -43,6 +50,39 @@ pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
         x: point.x,
         y: point.y,
     })
+}
+
+pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
+    validate_pointer_scroll(dx, dy)?;
+    send_batch(&wheel_inputs(dx, dy))
+}
+
+fn wheel_inputs(dx: i32, dy: i32) -> Vec<INPUT> {
+    let mut inputs = Vec::with_capacity(2);
+    if dy != 0 {
+        inputs.push(mouse_wheel_input(MOUSEEVENTF_WHEEL, dy));
+    }
+    if dx != 0 {
+        // Windows defines a positive horizontal wheel delta as right. The
+        // portable contract follows the established MCU/Quartz convention:
+        // positive dx is left, so invert only at this adapter boundary.
+        inputs.push(mouse_wheel_input(MOUSEEVENTF_HWHEEL, -dx));
+    }
+    inputs
+}
+
+fn mouse_wheel_input(flags: u32, detents: i32) -> INPUT {
+    let mut input: INPUT = unsafe { std::mem::zeroed() };
+    input.r#type = INPUT_MOUSE;
+    input.Anonymous.mi = MOUSEINPUT {
+        dx: 0,
+        dy: 0,
+        mouseData: detents.saturating_mul(WHEEL_DELTA) as u32,
+        dwFlags: flags,
+        time: 0,
+        dwExtraInfo: 0,
+    };
+    input
 }
 
 pub(crate) fn pointer_click(
@@ -249,7 +289,42 @@ fn send_batch(inputs: &[INPUT]) -> Result<(), InputInjectError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, type_text_inputs, virtual_key_for_character};
+    use super::*;
+
+    #[test]
+    fn invalid_pointer_scroll_is_refused_before_send_input() {
+        for (dx, dy) in [(0, 0), (101, 0), (0, -101), (i32::MIN, 0)] {
+            assert!(matches!(
+                pointer_scroll(dx, dy),
+                Err(InputInjectError::Failed { ref code, .. }) if code == "invalid_input"
+            ));
+        }
+    }
+
+    #[test]
+    fn wheel_inputs_preserve_signed_detents_without_motion_flags() {
+        for (flags, detents) in [(MOUSEEVENTF_WHEEL, -3), (MOUSEEVENTF_HWHEEL, 4)] {
+            let input = mouse_wheel_input(flags, detents);
+            assert_eq!(input.r#type, INPUT_MOUSE);
+            let mouse = unsafe { input.Anonymous.mi };
+            assert_eq!(mouse.dx, 0);
+            assert_eq!(mouse.dy, 0);
+            assert_eq!(mouse.dwFlags, flags);
+            assert_eq!(
+                i32::from_ne_bytes(mouse.mouseData.to_ne_bytes()),
+                detents * WHEEL_DELTA
+            );
+        }
+        let horizontal = wheel_inputs(2, 0);
+        assert_eq!(horizontal.len(), 1);
+        let mouse = unsafe { horizontal[0].Anonymous.mi };
+        assert_eq!(mouse.dwFlags, MOUSEEVENTF_HWHEEL);
+        assert_eq!(
+            i32::from_ne_bytes(mouse.mouseData.to_ne_bytes()),
+            -2 * WHEEL_DELTA,
+            "portable positive dx means left, while Windows positive means right"
+        );
+    }
 
     #[test]
     fn physical_ascii_keys_map_to_windows_virtual_keys() {

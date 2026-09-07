@@ -1,4 +1,4 @@
-//! `pointer-move` / `pointer-position` / `drag`: the pointer verbs.
+//! `pointer-move` / `pointer-scroll` / `pointer-position` / `drag`: the pointer verbs.
 
 use super::*;
 
@@ -10,6 +10,161 @@ pub(super) fn pointer_move(x: i32, y: i32) -> Result<serde_json::Value, CuError>
 
 pub(super) fn pointer_position() -> Result<serde_json::Value, CuError> {
     pointer_position_with(|| mechanism::input_inject::pointer_position().map_err(map_mechanism_err))
+}
+
+const MAX_SCROLL_DELTA: u32 = 100;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+struct FocusedWindowIdentity {
+    handle: isize,
+    process_id: u32,
+}
+
+fn validate_pointer_scroll(dx: i32, dy: i32) -> Result<(), CuError> {
+    if dx == 0 && dy == 0 {
+        return Err(invalid_input(
+            "pointer-scroll requires at least one non-zero axis".into(),
+        ));
+    }
+    if dx.unsigned_abs() > MAX_SCROLL_DELTA || dy.unsigned_abs() > MAX_SCROLL_DELTA {
+        return Err(invalid_input(format!(
+            "pointer-scroll requires each axis to be within -{MAX_SCROLL_DELTA}..={MAX_SCROLL_DELTA}"
+        )));
+    }
+    Ok(())
+}
+
+fn focused_window_identity() -> Result<Option<FocusedWindowIdentity>, CuError> {
+    let mut windows =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
+    resolve_inventory_focus(&mut windows, &stacking);
+    focused_window_identity_from(&windows)
+}
+
+fn focused_window_identity_from(
+    windows: &[WindowInfo],
+) -> Result<Option<FocusedWindowIdentity>, CuError> {
+    let mut focused = windows.iter().filter(|row| row.focused);
+    let identity = focused.next().map(|row| FocusedWindowIdentity {
+        handle: row.handle,
+        process_id: row.process_id,
+    });
+    if focused.next().is_some() {
+        return Err(CuError::new(
+            "focused_window_ambiguous",
+            "more than one top-level window reports focused; pointer-scroll was not dispatched",
+        ));
+    }
+    Ok(identity)
+}
+
+pub(super) fn pointer_scroll(
+    dx: i32,
+    dy: i32,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    pointer_scroll_with(
+        dx,
+        dy,
+        receipts,
+        || mechanism::input_inject::pointer_position().map_err(map_mechanism_err),
+        focused_window_identity,
+        |dx, dy| mechanism::input_inject::pointer_scroll(dx, dy).map_err(map_mechanism_err),
+    )
+}
+
+fn pointer_scroll_with(
+    dx: i32,
+    dy: i32,
+    receipts: &mut ReceiptLog,
+    mut observe_pointer: impl FnMut() -> Result<(i32, i32), CuError>,
+    mut observe_focus: impl FnMut() -> Result<Option<FocusedWindowIdentity>, CuError>,
+    inject_once: impl FnOnce(i32, i32) -> Result<(), CuError>,
+) -> Result<serde_json::Value, CuError> {
+    validate_pointer_scroll(dx, dy)?;
+    let pointer_before = observe_pointer()?;
+    let focus_before = observe_focus()?;
+    let ticket = receipts.reserve(
+        "pointer-scroll",
+        0,
+        serde_json::json!({
+            "action": "pointer-scroll",
+            "addressing": "desktop-at-current-pointer",
+            "delta": { "dx": dx, "dy": dy },
+            "before": { "pointer": [pointer_before.0, pointer_before.1], "focused_window": focus_before },
+        }),
+    )?;
+    let mechanism_error = inject_once(dx, dy).err();
+    let pointer_after_result = observe_pointer();
+    let focus_after_result = observe_focus();
+    let pointer_after = pointer_after_result.as_ref().ok().copied();
+    let focus_after = focus_after_result.as_ref().ok().copied().flatten();
+    let pointer_unchanged = matches!(&pointer_after_result, Ok(value) if *value == pointer_before);
+    let focus_unchanged = matches!(&focus_after_result, Ok(value) if *value == focus_before);
+    let invariants_verified = mechanism_error.is_none() && pointer_unchanged && focus_unchanged;
+    let failure_reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if pointer_after.is_none() {
+        Some("pointer_readback_unavailable")
+    } else if focus_after_result.is_err() {
+        Some("focused_window_readback_unavailable")
+    } else if !pointer_unchanged {
+        Some("pointer_moved")
+    } else if !focus_unchanged {
+        Some("focused_window_changed")
+    } else {
+        None
+    };
+    receipts.complete(
+        &ticket,
+        "pointer-scroll",
+        0,
+        invariants_verified,
+        serde_json::json!({
+            "performed": mechanism_error.is_none(),
+            "invariants_verified": invariants_verified,
+            "delivery_verified": false,
+            "after": {
+                "pointer": pointer_after.map(|(x, y)| [x, y]),
+                "focused_window": focus_after,
+            },
+            "verification": {
+                "pointer_unchanged": pointer_unchanged,
+                "focused_window_unchanged": focus_unchanged,
+                "reason": failure_reason,
+            },
+            "error": mechanism_error.as_ref().map(error_payload),
+            "readback_error": pointer_after_result.as_ref().err().or_else(|| focus_after_result.as_ref().err()).map(error_payload),
+        }),
+    )?;
+    let payload = serde_json::json!({
+        "addressing": "desktop-at-current-pointer",
+        "mechanism": "libagenterm",
+        "delta": { "dx": dx, "dy": dy },
+        "performed": mechanism_error.is_none(),
+        "invariants_verified": invariants_verified,
+        "delivery_verified": false,
+        "pointer_before": [pointer_before.0, pointer_before.1],
+        "pointer_after": pointer_after.map(|(x, y)| [x, y]),
+        "focused_window_before": focus_before,
+        "focused_window_after": focus_after,
+        "receipt": ticket.json(),
+    });
+    if let Some(error) = mechanism_error {
+        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+    }
+    if !invariants_verified {
+        return Err(CuError::new(
+            "pointer_scroll_unverified",
+            "the wheel event was accepted but pointer/focus invariants could not be verified",
+        )
+        .with_detail(serde_json::json!({
+            "reason": failure_reason,
+            "receipt": payload,
+        })));
+    }
+    Ok(payload)
 }
 
 pub(super) fn pointer_position_with(
@@ -238,6 +393,10 @@ pub(super) fn drag_payload(
 mod tests {
     use super::*;
 
+    fn focused(handle: isize, process_id: u32) -> Option<FocusedWindowIdentity> {
+        Some(FocusedWindowIdentity { handle, process_id })
+    }
+
     #[test]
     fn pointer_move_calls_only_move_once_and_returns_bounded_typed_reply() {
         let mut calls = Vec::new();
@@ -277,6 +436,78 @@ mod tests {
         );
         assert!(validate_drag_steps(Some(0)).is_err());
         assert!(validate_drag_steps(Some(MAX_DRAG_STEPS + 1)).is_err());
+    }
+
+    #[test]
+    fn pointer_scroll_closes_receipt_after_invariant_readback() {
+        let scratch = audit_scratch("pointer-scroll-success");
+        let directory = scratch.parent().expect("scratch parent");
+        let mut receipts = ReceiptLog::open_in(directory, TargetRef::Current).expect("receipt");
+        let mut pointers = [(40, 80), (40, 80)].into_iter();
+        let mut focuses = [focused(7, 99), focused(7, 99)].into_iter();
+        let mut injected = Vec::new();
+        let reply = pointer_scroll_with(
+            25,
+            -100,
+            &mut receipts,
+            || Ok(pointers.next().expect("bounded pointer observation")),
+            || Ok(focuses.next().expect("bounded focus observation")),
+            |dx, dy| {
+                injected.push((dx, dy));
+                Ok(())
+            },
+        )
+        .expect("bounded scroll");
+        assert_eq!(injected, [(25, -100)]);
+        assert_eq!(reply["performed"], true);
+        assert_eq!(reply["invariants_verified"], true);
+        assert_eq!(reply["delivery_verified"], false);
+        let (lines, total) = receipt::list_file(receipts.path(), None, 10).expect("list");
+        assert_eq!(total, 2);
+        assert_eq!(lines[0]["phase"], "reserved");
+        assert_eq!(lines[1]["phase"], "completed");
+        drop(receipts);
+        remove_audit_scratch(&scratch);
+    }
+
+    #[test]
+    fn pointer_scroll_closes_failed_receipt_when_pointer_moves() {
+        let scratch = audit_scratch("pointer-scroll-unverified");
+        let directory = scratch.parent().expect("scratch parent");
+        let mut receipts = ReceiptLog::open_in(directory, TargetRef::Current).expect("receipt");
+        let mut pointers = [(40, 80), (41, 80)].into_iter();
+        let mut focuses = [focused(7, 99), focused(7, 99)].into_iter();
+        let error = pointer_scroll_with(
+            0,
+            -1,
+            &mut receipts,
+            || Ok(pointers.next().expect("bounded pointer observation")),
+            || Ok(focuses.next().expect("bounded focus observation")),
+            |_, _| Ok(()),
+        )
+        .expect_err("moved pointer is unverified");
+        assert_eq!(error.code, "pointer_scroll_unverified");
+        let (lines, total) = receipt::list_file(receipts.path(), None, 10).expect("list");
+        assert_eq!(total, 2);
+        assert_eq!(lines[1]["phase"], "failed");
+        assert_eq!(lines[1]["verification"]["reason"], "pointer_moved");
+        drop(receipts);
+        remove_audit_scratch(&scratch);
+    }
+
+    #[test]
+    fn pointer_scroll_rejects_unbounded_or_empty_delta_before_injection() {
+        let before = mechanism::write_ledger::attempts();
+        for (dx, dy) in [(0, 0), (101, 0), (0, -101), (i32::MIN, 1)] {
+            let reply = actuate_executor().execute(&Command::PointerScroll {
+                target: TargetRef::Current,
+                dx,
+                dy,
+            });
+            assert!(!reply.ok);
+            assert_eq!(reply.error.expect("typed refusal").code, "invalid_input");
+        }
+        assert_eq!(mechanism::write_ledger::attempts(), before);
     }
 
     /// Every refusal `drag` can make happens before the mechanism, so the

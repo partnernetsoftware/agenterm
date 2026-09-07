@@ -95,6 +95,10 @@ pub fn top_level_text() -> String {
         "  clipboard-write-file             actuate  put a file reference on clipboard",
     );
     text = text.replace(
+        "  pointer-move (move)               actuate  move the pointer to absolute screen coordinates",
+        "  pointer-move (move) actuate absolute;  pointer-scroll (wheel) actuate bounded desktop wheel",
+    );
+    text = text.replace(
         "Unmapped MCU groups answer typed unsupported; `capabilities` lists them per target.\n",
         "",
     );
@@ -271,6 +275,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "device-release",
         "audio",
         "service",
+        "pointer-scroll",
     ];
     let compact_process = [
         "process-argv",

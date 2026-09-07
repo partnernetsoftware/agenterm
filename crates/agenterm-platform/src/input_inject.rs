@@ -2,7 +2,8 @@
 
 use crate::CapabilityStatus;
 pub use crate::contract::input_inject::{
-    InputInjectError, MAX_POINTER_DRAG_STEPS, PointerButton, PointerPosition,
+    InputInjectError, MAX_POINTER_DRAG_STEPS, MAX_POINTER_SCROLL_DETENTS, PointerButton,
+    PointerPosition,
 };
 
 pub fn capability_status() -> CapabilityStatus {
@@ -17,6 +18,16 @@ pub fn pointer_move(position: PointerPosition) -> Result<(), InputInjectError> {
 /// coordinates without injecting an event.
 pub fn pointer_position() -> Result<PointerPosition, InputInjectError> {
     crate::selected::input_inject::pointer_position()
+}
+
+/// Post signed wheel detents at the real pointer's current desktop location
+/// without moving the pointer. Positive `dx` scrolls left and positive `dy`
+/// scrolls up; negative values scroll right/down. At least one axis must be
+/// non-zero and each magnitude is bounded
+/// by [`MAX_POINTER_SCROLL_DETENTS`].
+pub fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
+    crate::contract::input_inject::validate_pointer_scroll(dx, dy)?;
+    crate::selected::input_inject::pointer_scroll(dx, dy)
 }
 
 pub fn pointer_click(

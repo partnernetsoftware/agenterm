@@ -873,6 +873,32 @@ pub mod input_inject {
         map_status("agt_input_pointer_move", status)
     }
 
+    /// Deliver a bounded desktop wheel delta at the pointer's current
+    /// location without moving the pointer (ABI 1.28).
+    pub fn pointer_scroll(dx: i32, dy: i32) -> Result<(), MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        require_pointer_scroll_abi((u32::from(major) << 16) | u32::from(minor))?;
+        let f = super::call_sym::<super::PointerScroll>(b"agt_input_pointer_scroll")?;
+        super::write_ledger::note();
+        let status = unsafe { f(dx, dy) };
+        map_status("agt_input_pointer_scroll", status)
+    }
+
+    pub(super) fn require_pointer_scroll_abi(version: u32) -> Result<(), MechanismError> {
+        let major = version >> 16;
+        let minor = (version & 0xffff) as u16;
+        if major == 1 && minor >= dynlib::POINTER_SCROLL_ABI_MINOR {
+            Ok(())
+        } else {
+            Err(MechanismError::Unsupported {
+                reason: format!(
+                    "pointer scroll requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    dynlib::POINTER_SCROLL_ABI_MINOR
+                ),
+            })
+        }
+    }
+
     /// Read absolute screen coordinates without injecting input.
     pub fn pointer_position() -> Result<(i32, i32), MechanismError> {
         let lib = dynlib::load().map_err(|error| MechanismError::Failed {
@@ -2464,6 +2490,7 @@ type WindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
 type WindowClose = unsafe extern "C" fn(isize) -> i32;
 type WindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type PointerMove = unsafe extern "C" fn(i32, i32) -> i32;
+type PointerScroll = unsafe extern "C" fn(i32, i32) -> i32;
 type PointerPosition = unsafe extern "C" fn(*mut i32, *mut i32) -> i32;
 type PointerClick = unsafe extern "C" fn(i32, i32, i32, u32) -> i32;
 type PointerDrag = unsafe extern "C" fn(i32, i32, i32, i32, i32, u32) -> i32;
@@ -2648,6 +2675,14 @@ mod tests {
         let error = input_inject::require_pointer_position_abi((1 << 16) | 10).unwrap_err();
         assert!(matches!(error, MechanismError::Unsupported { .. }));
         assert!(input_inject::require_pointer_position_abi((1 << 16) | 11).is_ok());
+    }
+
+    #[test]
+    fn pointer_scroll_old_minor_is_typed_unsupported() {
+        let error = input_inject::require_pointer_scroll_abi((1 << 16) | 27).unwrap_err();
+        assert!(matches!(error, MechanismError::Unsupported { .. }));
+        assert!(input_inject::require_pointer_scroll_abi((1 << 16) | 28).is_ok());
+        assert!(input_inject::require_pointer_scroll_abi((2 << 16) | 28).is_err());
     }
 
     #[cfg(windows)]

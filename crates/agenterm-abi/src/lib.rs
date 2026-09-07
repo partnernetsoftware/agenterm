@@ -111,8 +111,9 @@ use agenterm_platform::input::{
     KeyPressState, LogicalKey, ModifierState, NamedKey, NormalizedKeyEvent, PhysicalKeyCode,
 };
 use agenterm_platform::input_inject::{
-    MAX_POINTER_DRAG_STEPS, PointerButton as InjectPointerButton, PointerPosition, pointer_click,
-    pointer_drag, pointer_move, pointer_position, send_keys, type_text,
+    MAX_POINTER_DRAG_STEPS, MAX_POINTER_SCROLL_DETENTS, PointerButton as InjectPointerButton,
+    PointerPosition, pointer_click, pointer_drag, pointer_move, pointer_position, pointer_scroll,
+    send_keys, type_text,
 };
 use agenterm_platform::parent_console::{write_stderr, write_stdout};
 use agenterm_platform::process::{kill, list};
@@ -298,7 +299,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 27);
+abi_version!(1, 28);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -6965,6 +6966,62 @@ pub extern "C" fn agt_input_pointer_move(x: i32, y: i32) -> agt_status {
     }
 }
 
+const MAX_POINTER_SCROLL_DELTA: i32 = MAX_POINTER_SCROLL_DETENTS as i32;
+
+/// ABI 1.28: deliver a bounded desktop wheel delta at the pointer's current
+/// location without moving the pointer. Both zero and either axis outside
+/// `-100..=100` are rejected before capability discovery or platform dispatch.
+/// Positive `dy` means up and negative means down; positive `dx` means left
+/// and negative means right.
+/// Mechanism absent -> `AGT_UNSUPPORTED`; platform failure ->
+/// `AGT_FAILED{code="input_failed"}`.
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_input_pointer_scroll(dx: i32, dy: i32) -> agt_status {
+    fn inner(dx: i32, dy: i32) -> agt_status {
+        if (dx == 0 && dy == 0)
+            || !(-MAX_POINTER_SCROLL_DELTA..=MAX_POINTER_SCROLL_DELTA).contains(&dx)
+            || !(-MAX_POINTER_SCROLL_DELTA..=MAX_POINTER_SCROLL_DELTA).contains(&dy)
+        {
+            record_error(
+                c"agt_input_pointer_scroll",
+                c"bad_scroll_delta",
+                format!(
+                    "at least one axis must be non-zero and each axis must be in -{MAX_POINTER_SCROLL_DELTA}..={MAX_POINTER_SCROLL_DELTA}; got dx={dx}, dy={dy}"
+                ),
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if !input_inject_available() {
+            return agt_status::AGT_UNSUPPORTED;
+        }
+        match pointer_scroll(dx, dy) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(agenterm_platform::input_inject::InputInjectError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(error) => {
+                record_error(
+                    c"agt_input_pointer_scroll",
+                    c"input_failed",
+                    format!("{error:?}"),
+                );
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(dx, dy))) {
+        Ok(status) => status,
+        Err(_) => {
+            record_error(
+                c"agt_input_pointer_scroll",
+                c"panic",
+                "panic in agt_input_pointer_scroll",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
 /// `button` codes for `agt_input_pointer_click`.
 const AGT_INPUT_BUTTON_LEFT: i32 = 0;
 const AGT_INPUT_BUTTON_RIGHT: i32 = 1;
@@ -7203,8 +7260,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn abi_1_27_maps_show_menu_without_a_value() {
-        assert_eq!(ABI_MINOR, 27);
+    fn abi_1_28_maps_show_menu_without_a_value() {
+        assert_eq!(ABI_MINOR, 28);
         assert_eq!(
             a11y_action_from_abi(AGT_A11Y_ACTION_SHOW_MENU, None),
             Ok(AccessibilityNodeAction::ShowMenu)
@@ -7256,6 +7313,28 @@ mod tests {
             agt_input_pointer_drag(0, 0, 10, 10, 0, MAX_POINTER_DRAG_STEPS + 1),
             agt_status::AGT_FAILED
         );
+    }
+
+    /// Every rejection is resolved before capability discovery and therefore
+    /// before the platform adapter can emit a wheel event. This test is safe
+    /// on a live desktop: none of these calls can scroll it.
+    #[test]
+    fn pointer_scroll_rejects_zero_and_out_of_range_deltas_before_injecting() {
+        for (dx, dy) in [
+            (0, 0),
+            (MAX_POINTER_SCROLL_DELTA + 1, 0),
+            (-MAX_POINTER_SCROLL_DELTA - 1, 0),
+            (0, MAX_POINTER_SCROLL_DELTA + 1),
+            (0, -MAX_POINTER_SCROLL_DELTA - 1),
+            (i32::MIN, 0),
+            (0, i32::MAX),
+        ] {
+            assert_eq!(
+                agt_input_pointer_scroll(dx, dy),
+                agt_status::AGT_FAILED,
+                "dx={dx}, dy={dy} must be rejected"
+            );
+        }
     }
 
     /// A zero handle and a null out pointer are both refused before the

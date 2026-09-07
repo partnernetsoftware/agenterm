@@ -871,7 +871,12 @@ focused PID, observe role and wait absence). The count is deliberately not
 reduced by reclassifying useful MCU behavior as a permanent rejection: tmux
 PTY, bounded pattern wait, app/signing observation, app-global menus and native
 wheel input remain real ACU gaps until a typed replacement and public evidence
-exist. The only reviewed permanent retirement in this cut is the login-service
+exist. ABI 1.28 now supplies the bounded three-host desktop wheel mechanism,
+but it remains a retirement blocker while `delivery_verified=false`; an owned
+qjswasm content-movement court must close that evidence gap before the adapter
+may map MCU `scroll --to desktop`. Window-local hover/wheel is still separate
+and stays behind `plan/design-skylight-window-local-pointer-experiment.md`.
+The only reviewed permanent retirement in this cut is the login-service
 query for MCU's removed global daemon object.
 
 The previous `terminal.agenterm.viewport-image` gap incorrectly collapsed two

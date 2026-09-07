@@ -209,6 +209,7 @@ type NativeWindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
 type NativeWindowClose = unsafe extern "C" fn(isize) -> i32;
 type InputPointerPosition = unsafe extern "C" fn(*mut i32, *mut i32) -> i32;
 type InputPointerMove = unsafe extern "C" fn(i32, i32) -> i32;
+type InputPointerScroll = unsafe extern "C" fn(i32, i32) -> i32;
 type InputPointerClick = unsafe extern "C" fn(i32, i32, i32, u32) -> i32;
 type InputPointerDrag = unsafe extern "C" fn(i32, i32, i32, i32, i32, u32) -> i32;
 type InputText = unsafe extern "C" fn(*const u8, usize) -> i32;
@@ -517,6 +518,13 @@ fn input_pointer_position_null(lib: &Library) -> i32 {
 fn input_pointer_click_bad_button(lib: &Library) -> i32 {
     let f: Symbol<InputPointerClick> = unsafe { sym(lib, b"agt_input_pointer_click") };
     unsafe { f(0, 0, 99, 1) }
+}
+
+/// A zero delta is always invalid and is rejected before any platform call,
+/// so this can safely exercise the real dynamic export on a live desktop.
+fn input_pointer_scroll_zero_delta(lib: &Library) -> i32 {
+    let f: Symbol<InputPointerScroll> = unsafe { sym(lib, b"agt_input_pointer_scroll") };
+    unsafe { f(0, 0) }
 }
 
 fn input_pointer_drag_bad_button(lib: &Library) -> i32 {
@@ -1215,6 +1223,11 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| CallResult::Status(input_pointer_click_bad_button(lib))),
         },
         SweepCase {
+            label: "agt_input_pointer_scroll[dx=0,dy=0]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(input_pointer_scroll_zero_delta(lib))),
+        },
+        SweepCase {
             label: "agt_input_pointer_drag[x0=0,y0=0,x1=1,y1=1,button=99,steps=1]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(input_pointer_drag_bad_button(lib))),
@@ -1836,7 +1849,8 @@ fn sweep_covers_every_export_in_exports_txt() {
 ///   implementation, so NULL input answers `AGT_UNSUPPORTED` when the a11y
 ///   stack is absent and `AGT_FAILED` (bad_pointer) when present.
 /// - `agt_native_window_*` (handle 0), `agt_input_pointer_click` (invalid
-///   button) and `agt_input_type_text` / `agt_input_send_keys` (NULL text):
+///   button), `agt_input_pointer_scroll` (zero delta) and
+///   `agt_input_type_text` / `agt_input_send_keys` (NULL text):
 ///   argument validation PRECEDES the mechanism check, so they answer
 ///   `AGT_FAILED` on every host — the null-sweep cases exercise the real
 ///   validation path even headless, never a vacuous pass.
@@ -1944,6 +1958,10 @@ fn computer_use_sweep_capability_guards() {
         (
             "agt_input_pointer_click",
             input_pointer_click_bad_button as fn(&Library) -> i32,
+        ),
+        (
+            "agt_input_pointer_scroll",
+            input_pointer_scroll_zero_delta as fn(&Library) -> i32,
         ),
         (
             "agt_input_pointer_drag",
