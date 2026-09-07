@@ -29,6 +29,189 @@ struct ScopedFlatNode<'a> {
     node: &'a mechanism::A11yNode,
 }
 
+fn selector_segment_has_index(raw: &str) -> bool {
+    raw.split_once('@')
+        .map_or(raw, |(before_title, _)| before_title)
+        .contains('[')
+}
+
+fn selector_node_matches(node: &mechanism::A11yNode, segment: &observe::SelectorSegment) -> bool {
+    if let Some(role) = segment.role.as_deref()
+        && observe::normalize_role(&node.role) != observe::normalize_role(role)
+    {
+        return false;
+    }
+    if let Some(title) = segment.title.as_deref()
+        && !node.name.contains(title)
+        && !node
+            .identifier
+            .as_deref()
+            .is_some_and(|identifier| identifier.contains(title))
+    {
+        return false;
+    }
+    if let Some(description) = segment.description.as_deref()
+        && !node.name.contains(description)
+        && !node
+            .identifier
+            .as_deref()
+            .is_some_and(|identifier| identifier.contains(description))
+    {
+        return false;
+    }
+    true
+}
+
+struct TreeIndex<'a> {
+    by_id: std::collections::HashMap<&'a str, &'a mechanism::A11yNode>,
+    children: std::collections::HashMap<&'a str, Vec<&'a mechanism::A11yNode>>,
+}
+
+fn index_tree(tree: &mechanism::A11yTree) -> Result<TreeIndex<'_>, CuError> {
+    let mut by_id = std::collections::HashMap::with_capacity(tree.nodes.len());
+    let mut children = std::collections::HashMap::new();
+    for node in &tree.nodes {
+        if by_id.insert(node.id.as_str(), node).is_some() {
+            return Err(CuError::new(
+                "a11y_tree_invalid",
+                format!("accessibility tree repeats node id {:?}", node.id),
+            ));
+        }
+        if let Some(parent_id) = node.parent_id.as_deref() {
+            children
+                .entry(parent_id)
+                .or_insert_with(Vec::new)
+                .push(node);
+        }
+    }
+    Ok(TreeIndex { by_id, children })
+}
+
+fn resolve_tree_selector<'a>(
+    tree: &'a mechanism::A11yTree,
+    index: &TreeIndex<'a>,
+    root_id: &str,
+    selector: &str,
+) -> Result<&'a mechanism::A11yNode, CuError> {
+    let path = observe::parse_selector(selector).map_err(invalid_input)?;
+    let raw_segments = selector
+        .split('/')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty());
+    let mut current = index.by_id.get(root_id).copied().ok_or_else(|| {
+        CuError::new(
+            "a11y_node_not_found",
+            "the bounded accessibility tree did not contain its declared root",
+        )
+    })?;
+    for (position, (segment, raw)) in path.iter().zip(raw_segments).enumerate() {
+        let matches = index
+            .children
+            .get(current.id.as_str())
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|node| selector_node_matches(node, segment))
+            .collect::<Vec<_>>();
+        if matches.is_empty() || segment.index >= matches.len() {
+            return Err(CuError::new(
+                "a11y_node_not_found",
+                format!(
+                    "tree --selector {selector:?} matched no node at segment {}",
+                    position + 1
+                ),
+            )
+            .with_detail(serde_json::json!({
+                "selector": selector,
+                "segment": position + 1,
+                "matches": matches.len(),
+            })));
+        }
+        if !selector_segment_has_index(raw) && matches.len() != 1 {
+            return Err(CuError::new(
+                "a11y_node_ambiguous",
+                format!(
+                    "tree --selector {selector:?} matched {} sibling nodes at segment {}; add an explicit [index]",
+                    matches.len(),
+                    position + 1
+                ),
+            )
+            .with_count(matches.len())
+            .with_detail(serde_json::json!({
+                "selector": selector,
+                "segment": position + 1,
+                "matches": matches.len(),
+            })));
+        }
+        current = matches[segment.index];
+    }
+    let resolved = observe::walk_selector(tree, selector)
+        .map_err(invalid_input)?
+        .ok_or_else(|| {
+            CuError::new(
+                "a11y_node_not_found",
+                format!("tree --selector {selector:?} matched no node"),
+            )
+        })?;
+    if resolved.id != current.id {
+        return Err(CuError::new(
+            "a11y_tree_invalid",
+            "selector uniqueness check disagreed with the shared selector resolver",
+        ));
+    }
+    Ok(resolved)
+}
+
+fn subtree_ids(
+    index: &TreeIndex<'_>,
+    root_id: &str,
+) -> Result<std::collections::HashSet<String>, CuError> {
+    let mut ids = std::collections::HashSet::from([root_id.to_owned()]);
+    let mut pending = vec![root_id.to_owned()];
+    while let Some(parent_id) = pending.pop() {
+        for child in index.children.get(parent_id.as_str()).into_iter().flatten() {
+            if !ids.insert(child.id.clone()) {
+                return Err(CuError::new(
+                    "a11y_tree_invalid",
+                    format!(
+                        "accessibility tree repeats or cycles through node {:?}",
+                        child.id
+                    ),
+                ));
+            }
+            pending.push(child.id.clone());
+        }
+    }
+    Ok(ids)
+}
+
+fn nested_subtree_node(
+    index: &TreeIndex<'_>,
+    node: &mechanism::A11yNode,
+    remaining: &mut std::collections::HashSet<String>,
+) -> Result<serde_json::Value, CuError> {
+    if !remaining.remove(&node.id) {
+        return Err(CuError::new(
+            "a11y_tree_invalid",
+            format!("accessibility subtree repeats node {:?}", node.id),
+        ));
+    }
+    let children = index
+        .children
+        .get(node.id.as_str())
+        .into_iter()
+        .flatten()
+        .map(|child| nested_subtree_node(index, child, remaining))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut value =
+        serde_json::to_value(node).map_err(|error| CuError::new("serialize", error.to_string()))?;
+    value
+        .as_object_mut()
+        .expect("A11yNode serializes as an object")
+        .insert("children".into(), serde_json::Value::Array(children));
+    Ok(value)
+}
+
 pub(super) fn tree_payload(
     window: Option<isize>,
     depth: Option<u32>,
@@ -49,18 +232,44 @@ fn scoped_tree_payload(
     selector: Option<&str>,
 ) -> Result<serde_json::Value, CuError> {
     let all_flat = observe::flatten(&tree);
-    let scoped = if let Some(selector) = selector {
-        let scoped =
-            observe::query_selector_scope(&tree, &all_flat, selector).map_err(invalid_input)?;
-        if scoped.is_empty() {
+    let (scoped, nested_root) = if let Some(selector) = selector {
+        // Parse first so malformed input remains invalid_input even if the
+        // provider also hit a walk budget.
+        observe::parse_selector(selector).map_err(invalid_input)?;
+        if tree.truncated {
             return Err(CuError::new(
-                "a11y_node_not_found",
-                format!("tree --selector {selector:?} matched no node in the bounded walk"),
-            ));
+                "a11y_tree_truncated",
+                "tree --selector requires a complete bounded window-root walk; increase --depth or --max-nodes",
+            )
+            .with_detail(serde_json::json!({
+                "selector": selector,
+                "budget": budget_json(depth, max_nodes),
+                "visited": tree.visited,
+                "returned": tree.returned,
+            })));
         }
-        scoped
+        let index = index_tree(&tree)?;
+        let selected = resolve_tree_selector(&tree, &index, &tree.root_id, selector)?;
+        let mut ids = subtree_ids(&index, &selected.id)?;
+        let scoped = all_flat
+            .iter()
+            .filter(|entry| ids.contains(&entry.node.id))
+            .collect::<Vec<_>>();
+        let nested = if flat {
+            None
+        } else {
+            let root = nested_subtree_node(&index, selected, &mut ids)?;
+            if !ids.is_empty() {
+                return Err(CuError::new(
+                    "a11y_tree_invalid",
+                    "accessibility subtree contains nodes unreachable from its selected root",
+                ));
+            }
+            Some(root)
+        };
+        (scoped, nested)
     } else {
-        all_flat.iter().collect()
+        (all_flat.iter().collect(), None)
     };
     let selected_root_id = scoped
         .first()
@@ -78,8 +287,10 @@ fn scoped_tree_payload(
                 })
                 .collect::<Vec<_>>(),
         )
-    } else {
+    } else if selector.is_none() {
         serde_json::to_value(scoped.iter().map(|entry| entry.node).collect::<Vec<_>>())
+    } else {
+        Ok(serde_json::Value::Null)
     }
     .map_err(|error| CuError::new("serialize", error.to_string()))?;
     let ax = observe::classify_ax_tree(&tree);
@@ -98,8 +309,12 @@ fn scoped_tree_payload(
         "returned": scoped.len(),
         "ax": ax.as_str(),
         "next_actions": observe::empty_chrome_next_actions(ax, &app),
-        "nodes": nodes,
     });
+    if flat || selector.is_none() {
+        payload["nodes"] = nodes;
+    } else if let Some(root) = nested_root {
+        payload["root"] = root;
+    }
     if let Some(selector) = selector {
         payload["selector"] = selector.into();
         payload["selector_root_depth"] = selected_root_depth.into();
@@ -1016,22 +1231,36 @@ mod tests {
                 node("/0/0/0", Some("/0/0"), "button", "inside"),
                 node("/0/1", Some("/0"), "group", "second"),
             ],
-            truncated: true,
-            visited: 9,
+            truncated: false,
+            visited: 4,
             returned: 4,
         }
     }
 
     #[test]
-    fn tree_selector_returns_only_the_deterministic_subtree_without_hiding_scan_truth() {
+    fn tree_selector_returns_a_real_nested_subtree_and_a_flat_projection_on_request() {
+        let nested =
+            scoped_tree_payload(selector_tree(), Some(4), Some(20), false, Some("Group[0]"))
+                .expect("selected nested subtree");
+        assert_eq!(nested["selector"], "Group[0]");
+        assert_eq!(nested["root_id"], "/0/0");
+        assert_eq!(nested["returned"], 2);
+        assert!(nested.get("nodes").is_none());
+        assert_eq!(nested["root"]["id"], "/0/0");
+        assert_eq!(nested["root"]["children"][0]["id"], "/0/0/0");
+        assert_eq!(
+            nested["root"]["children"][0]["children"],
+            serde_json::json!([])
+        );
+
         let payload =
             scoped_tree_payload(selector_tree(), Some(4), Some(20), true, Some("Group[0]"))
                 .expect("selected subtree");
         assert_eq!(payload["selector"], "Group[0]");
         assert_eq!(payload["root_id"], "/0/0");
         assert_eq!(payload["returned"], 2);
-        assert_eq!(payload["visited"], 9);
-        assert_eq!(payload["truncated"], true);
+        assert_eq!(payload["visited"], 4);
+        assert_eq!(payload["truncated"], false);
         assert_eq!(payload["nodes"][0]["id"], "/0/0");
         assert_eq!(payload["nodes"][0]["index"], 1);
         assert_eq!(payload["nodes"][0]["depth"], 0);
@@ -1047,10 +1276,29 @@ mod tests {
     }
 
     #[test]
-    fn tree_selector_miss_is_typed_instead_of_an_empty_success() {
+    fn tree_selector_requires_a_unique_unindexed_match() {
+        let error = scoped_tree_payload(selector_tree(), None, None, false, Some("Group"))
+            .expect_err("unindexed repeated role must be ambiguous");
+        assert_eq!(error.code, "a11y_node_ambiguous");
+        assert_eq!(error.count, Some(2));
+        let payload = scoped_tree_payload(selector_tree(), None, None, false, Some("Group[1]"))
+            .expect("explicit sibling index is deterministic");
+        assert_eq!(payload["root"]["id"], "/0/1");
+    }
+
+    #[test]
+    fn tree_selector_miss_and_incomplete_walk_are_typed_failures() {
         let error = scoped_tree_payload(selector_tree(), None, None, false, Some("Button[9]"))
             .expect_err("selector miss");
         assert_eq!(error.code, "a11y_node_not_found");
+
+        let mut truncated = selector_tree();
+        truncated.truncated = true;
+        truncated.visited = 9;
+        let error = scoped_tree_payload(truncated, Some(1), Some(4), false, Some("Group[0]"))
+            .expect_err("a partial acquisition cannot prove a complete subtree");
+        assert_eq!(error.code, "a11y_tree_truncated");
+        assert_eq!(error.detail.as_ref().unwrap()["visited"], 9);
     }
 
     #[test]

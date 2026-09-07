@@ -250,6 +250,33 @@ function choose_indexed_sibling(nodes, tree_root_id) {
   throw "cu_tree_selector_fixture_has_no_indexed_sibling";
 }
 
+function ambiguous_selector_for(nodes, tree_root_id, node) {
+  const parent_id = text_at(node, "parent_id");
+  const parent = node_by_id(nodes, parent_id);
+  ensure(parent !== null, "cu_tree_selector_ambiguous_parent_missing");
+  const role = text_at(node, "role");
+  let count = 0;
+  for (const sibling of nodes) {
+    if (text_at(sibling, "parent_id") === parent_id && text_at(sibling, "role") === role) {
+      count = count + 1;
+    }
+  }
+  ensure(count > 1, "cu_tree_selector_ambiguous_fixture_not_repeated");
+  const prefix = parent_id === tree_root_id ? "" : selector_for(nodes, tree_root_id, parent);
+  return prefix === "" ? role : prefix + "/" + role;
+}
+
+function flatten_nested(root) {
+  const rows = [];
+  function visit(node) {
+    rows.push(node);
+    ensure(Array.isArray(node.children), "cu_tree_selector_nested_children_missing");
+    for (const child of node.children) { visit(child); }
+  }
+  visit(root);
+  return rows;
+}
+
 function choose_first_root_child(nodes, tree_root_id) {
   for (const node of nodes) {
     if (text_at(node, "parent_id") === tree_root_id
@@ -339,6 +366,23 @@ try {
   ensure(int_at(selected.data.nodes[0], "depth") === 0,
     "cu_tree_selector_root_depth_not_zero");
 
+  print("STEP non-flat selector reply is a recursive subtree rooted at the exact match");
+  const nested = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", selector, "--depth", "64", "--max-nodes", "5000"
+  ]);
+  ensure(nested.ok === true
+      && nested.data.nodes === undefined
+      && text_at(nested, "data.root.id") === selected_id,
+    "cu_tree_selector_nested_root:" + JSON.stringify(nested.data));
+  const nested_nodes = flatten_nested(nested.data.root);
+  ensure(nested_nodes.length === expected.length,
+    "cu_tree_selector_nested_count:" + nested_nodes.length + ":" + expected.length);
+  for (const original of expected) {
+    ensure(node_by_id(nested_nodes, text_at(original, "id")) !== null,
+      "cu_tree_selector_nested_identity:" + text_at(original, "id"));
+  }
+
   print("STEP sibling index deterministically selects one repeated-role node");
   const indexed_node = choose_indexed_sibling(baseline_nodes, tree_root_id);
   const indexed_selector = selector_for(baseline_nodes, tree_root_id, indexed_node);
@@ -352,7 +396,18 @@ try {
       && int_at(indexed.data.nodes[0], "depth") === 0,
     "cu_tree_selector_indexed_sibling:" + JSON.stringify(indexed.data));
 
-  print("STEP the window-root budget remains honest while a visible selected root is scoped");
+  print("STEP an unindexed repeated sibling selector fails typed ambiguous");
+  const ambiguous_selector = ambiguous_selector_for(baseline_nodes, tree_root_id, indexed_node);
+  const ambiguous = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", ambiguous_selector, "--depth", "64", "--max-nodes", "5000"
+  ]);
+  ensure(ambiguous.ok === false
+      && text_at(ambiguous, "error.code") === "a11y_node_ambiguous"
+      && int_at(ambiguous, "error.count") > 1,
+    "cu_tree_selector_ambiguity_not_typed:" + JSON.stringify(ambiguous));
+
+  print("STEP incomplete max-nodes and depth budgets fail closed");
   const bounded_node = choose_first_root_child(baseline_nodes, tree_root_id);
   const bounded_selector = selector_for(baseline_nodes, tree_root_id, bounded_node);
   const bounded_scan_nodes = int_at(bounded_node, "index") + 1;
@@ -362,14 +417,16 @@ try {
     "--target", "current", "--grant", "observe", "tree", "--window", handle,
     "--selector", bounded_selector, "--max-nodes", "" + bounded_scan_nodes, "--flat"
   ]);
-  ensure(bounded.ok === true
-      && flag_at(bounded, "data.truncated")
-      && int_at(bounded, "data.returned") === 1
-      && int_at(bounded, "data.visited") >= bounded_scan_nodes
-      && text_at(bounded, "data.root_id") === text_at(bounded_node, "id")
-      && text_at(bounded.data.nodes[0], "id") === text_at(bounded_node, "id")
-      && int_at(bounded.data.nodes[0], "depth") === 0,
-    "cu_tree_selector_bounded_truth:" + JSON.stringify(bounded.data));
+  ensure(bounded.ok === false
+      && text_at(bounded, "error.code") === "a11y_tree_truncated"
+      && int_at(bounded, "error.detail.visited") >= bounded_scan_nodes,
+    "cu_tree_selector_max_nodes_not_closed:" + JSON.stringify(bounded));
+  const shallow = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "tree", "--window", handle,
+    "--selector", bounded_selector, "--depth", "0", "--max-nodes", "5000"
+  ]);
+  ensure(shallow.ok === false && text_at(shallow, "error.code") === "a11y_tree_truncated",
+    "cu_tree_selector_depth_not_closed:" + JSON.stringify(shallow));
 
   print("STEP selector miss, invalid grammar and invalid budget fail typed");
   const missing = run_cu(context, executable, [
@@ -408,5 +465,5 @@ harness.complete(context, children, succeeded, failure);
 if (!succeeded) { throw failure; }
 harness.emit_evidence(context, declared_evidence, "cu.tree-selector-subtree");
 harness.remove_run(context);
-print("PASS: tree selector returns one bounded subtree with stable original identities and typed misses");
+print("PASS: tree selector returns one complete nested subtree with stable identities and typed ambiguity/budget failures");
 return;

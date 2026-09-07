@@ -106,6 +106,21 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         }
         declaration
     };
+    let tree_snapshot_verb = {
+        let mut declaration = tree_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert(
+                "selector_result".into(),
+                serde_json::json!("nested-root-or-flat-projection"),
+            );
+            object.insert("selector_unique".into(), serde_json::json!(true));
+            object.insert(
+                "selector_incomplete_walk".into(),
+                serde_json::json!("typed-failure"),
+            );
+        }
+        declaration
+    };
     // The destructive verb rides the platform's own close control on all
     // three hosts now: macOS AX `AXCloseButton`, Windows `WM_CLOSE`, and
     // Linux the EWMH `_NET_CLOSE_WINDOW` request. All three are requests,
@@ -422,7 +437,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "command_plaintext_returned": false,
                 "migration_gaps": [],
             },
-            "tree": tree_verb,
+            "tree": tree_snapshot_verb,
             "query": tree_verb,
             "inspect": crate::mcu_surface::verb_declaration("inspect"),
             "find": crate::mcu_surface::verb_declaration("find"),
@@ -1593,6 +1608,15 @@ mod tests {
         assert_eq!(data["verbs"]["page-dialog"]["grant"], "actuate");
         assert_eq!(data["verbs"]["page-files"]["grant"], "actuate");
         assert_eq!(data["verbs"]["page-find"]["grant"], "observe");
+        assert_eq!(
+            data["verbs"]["tree"]["selector_result"],
+            "nested-root-or-flat-projection"
+        );
+        assert_eq!(data["verbs"]["tree"]["selector_unique"], true);
+        assert_eq!(
+            data["verbs"]["tree"]["selector_incomplete_walk"],
+            "typed-failure"
+        );
         assert_eq!(
             data["verbs"]["invoke"]["actions"]["set-selection"],
             "mapped"

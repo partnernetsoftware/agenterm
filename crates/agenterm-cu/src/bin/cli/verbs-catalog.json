@@ -2135,7 +2135,7 @@
         {
           "flag": "--selector",
           "value": "PATH",
-          "help": "return the selected node and descendants from the bounded walk"
+          "help": "return one unique complete nested subtree (or its --flat projection)"
         }
       ]
     },
@@ -5926,7 +5926,7 @@
     },
     {
       "name": "tree",
-      "text": "agenterm-cu tree    (also: elements)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat] [--selector PATH]\n  elements [--window HANDLE] [--depth N] [--max-nodes N] [--selector PATH]     (alias of tree --flat)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --flat                        number nodes (index, depth) in walk order\n  --selector PATH               return that MCU selector node and its descendants\n\nDepth (root=0, <=64) and node budget (1..20000) apply while the platform\nwalks; the reply carries truncated / visited / returned. --flat numbers nodes\nwith selector-relative depth while retaining the original flatten index.\n--selector scopes the already bounded window-root walk; it does not claim a\nsecond backend walk. `elements` is the MCU spelling of tree --flat.\n"
+      "text": "agenterm-cu tree    (also: elements)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat] [--selector PATH]\n  elements [--window HANDLE] [--depth N] [--max-nodes N] [--selector PATH]     (alias of tree --flat)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --flat                        number nodes (index, depth) in walk order\n  --selector PATH               return one unique complete nested subtree\n\nDepth (root=0, <=64) and node budget (1..20000) apply while the platform\nwalks. Without --flat, --selector returns `root` with recursive `children`;\n--flat instead numbers the same subtree in walk order, with selector-relative\ndepth and original flatten indices. An unindexed segment that matches siblings\nfails `a11y_node_ambiguous`; add `[index]`. A miss fails\n`a11y_node_not_found`. If depth or max-nodes truncates the window-root walk,\nselection fails `a11y_tree_truncated` because uniqueness and complete\ndescendants are unproven. No second backend walk is claimed. `elements` is the\nMCU spelling of tree --flat.\n"
     },
     {
       "name": "desktop-state",

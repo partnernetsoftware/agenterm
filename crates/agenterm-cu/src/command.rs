@@ -2297,9 +2297,10 @@ pub enum Command {
         max_nodes: Option<usize>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         flat: bool,
-        /// MCU path: select one node from the bounded window-root walk and
-        /// return only that node and its descendants. The platform budget
-        /// still applies to the original window-root walk.
+        /// MCU path: select exactly one node from the bounded window-root walk
+        /// and return it as a nested subtree root (or a flat projection when
+        /// `flat` is set). An incomplete budgeted walk fails typed because it
+        /// cannot prove either selector uniqueness or complete descendants.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         selector: Option<String>,
     },

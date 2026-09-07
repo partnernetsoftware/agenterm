@@ -321,7 +321,10 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         }
         "snapshot" => {
             if tree_live(os) {
-                ("available", "tree/query live via libagenterm a11y")
+                (
+                    "available",
+                    "tree/query live via libagenterm a11y; tree --selector returns a unique complete nested subtree or typed-fails",
+                )
             } else {
                 ("unsupported", "a11y tree not mapped on this OS")
             }
