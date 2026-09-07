@@ -45,6 +45,43 @@ function exit_code(reply) {
   return 1;
 }
 
+function append_argv(out, values) {
+  for (let i = 0; i < values.length; i = i + 1) { out.push(values[i]); }
+}
+
+function acu_error(command, code, message) {
+  return {
+    ok: false,
+    target: "",
+    command: command,
+    data: null,
+    error: { code: code, message: message }
+  };
+}
+
+function execute_identity_kill(request) {
+  const observe_argv = [];
+  append_argv(observe_argv, request.globals);
+  append_argv(observe_argv, ["process-state", "--pid", request.pid]);
+  const observed = acu.argv(observe_argv);
+  if (observed.ok !== true || observed.data === null || observed.data === undefined
+      || observed.data.state !== "live"
+      || typeof observed.data.start_identity !== "string"
+      || observed.data.start_identity.length === 0) {
+    return acu_error("kill", "process_not_live",
+      "target process is not live with a verified start identity");
+  }
+  const effect_argv = [];
+  append_argv(effect_argv, request.globals);
+  append_argv(effect_argv, [
+    "process-kill", "--pid", request.pid,
+    "--start-identity", observed.data.start_identity,
+    "--mode", request.mode, "--timeout-ms", request.timeoutMs,
+    "--expect", "exited"
+  ]);
+  return acu.argv(effect_argv);
+}
+
 const input = argv_lib.from_host();
 if (input.length === 1 && input[0] === "--retirement-report") {
   print(JSON.stringify({
@@ -73,7 +110,9 @@ if (canonical.kind === "todo") {
   print(JSON.stringify(todo(canonical.command, canonical.message)));
   return 2;
 }
-let reply = acu.argv(canonical.argv);
+let reply = canonical.kind === "identity-kill"
+  ? execute_identity_kill(canonical)
+  : acu.argv(canonical.argv);
 if (reply.ok !== true && reply.error !== null && reply.error !== undefined
     && reply.error.code === "usage" && input.length > 0
     && compat.LEGACY_TOP_LEVEL.includes(input[0])

@@ -119,16 +119,20 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  ├─ [x] bounded host argv + global normalization + direct native spelling → agenterm:acu.argv
   │  ├─ [x] no Bun / binary lookup / child process / MCU fallback
   │  ├─ [x] freeze the engine-neutral compatibility oracle: 42 positive probes + 95 dynamic witnesses
-  │  ├─ [~] 33/42 positive probes map to one in-process argv call; the remaining 9 fail as stable typed TODOs
+  │  ├─ [x] 42/42 positive probes map to in-process typed calls; 8 are one call and legacy kill keeps the
+  │  │      two-call identity bracket (process-state → process-kill with the exact start identity)
   │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
-  │  └─ [ ] close those 9 mappings, switch the external compatibility wrapper, and prove MCU-absent courts
+  │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
+  │  └─ [ ] close the named dynamic sub-shapes, MCP adapter, native courts and physical reference archive
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
   └─ acu.qjs retires when legacy MCU syntax has no retained callers
   ```
 
   The frozen corpus records source digests and normalized, redacted argv; its
-  qjswasm court currently proves exactly `33 exec / 9 typed TODO / 95 frozen`.
+  qjswasm court currently proves exactly `42 positive exec / 0 positive TODO / 95 dynamic frozen`.
+  This closes the valid top-level compatibility set, not the dynamic debt: every unsupported
+  sub-shape still returns its stable `acu_todo`/usage result and never falls back to MCU.
   A TODO is visible progress, not parity: no row may be called migrated until
   its expected argv and public behavior both pass without Bun or a child
   process.
@@ -173,7 +177,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     OBJ["agenterm:acu.call/argv<br/>one parser · one Executor"]
     PROVIDER["fixed sibling dynamic provider<br/>ABI checked · bounded · no fallback"]
     GATE{"typed-object parity · TODO-aware<br/>MCU-absent black box"}
-    QJS["acu.qjs [~]<br/>Bun-free native path<br/>legacy corpus pending"]
+    QJS["acu.qjs [~]<br/>Bun-free native path<br/>42/42 positive · dynamic queue remains"]
     USERS["typed consumers<br/>CLI · MCP · qjs"]
     LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]

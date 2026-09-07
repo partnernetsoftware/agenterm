@@ -70,4 +70,27 @@ exact(rewrite.rewrite(["snapshot", "41"]), ["snapshot", "--window", "41"], "snap
 exact(rewrite.rewrite(["diff", "41", "--base", "snap-1"]),
   ["diff", "--window", "41", "--base", "snap-1"], "diff");
 
+exact(rewrite.rewrite(["windows"]), ["windows"], "windows");
+exact(rewrite.rewrite(["apps"]), ["apps"], "apps");
+exact(rewrite.rewrite(["verify", "41", "--expect", "[{\"role\":\"Button\"}]"]),
+  ["verify", "--window", "41", "--expect", "[{\"role\":\"Button\"}]"], "verify");
+exact(rewrite.rewrite(["wait", "41", "--expect", "[{\"role\":\"Button\"}]"]),
+  ["wait", "--window", "41", "--expect", "[{\"role\":\"Button\"}]"], "wait");
+exact(rewrite.rewrite(["observe", "41", "--duration", "1.5"]),
+  ["observe", "--window", "41", "--duration-ms", "1500"], "observe");
+exact(rewrite.rewrite(["focused", "--window", "41"]),
+  ["focused", "--window", "41"], "focused");
+exact(rewrite.rewrite(["dclick", "--window", "41", "--name", "OK"]),
+  ["dclick", "--window", "41", "--name", "OK"], "dclick");
+exact(rewrite.rewrite(["clip"]), ["clip"], "clip read");
+exact(rewrite.rewrite(["clip", "hello", "world"]),
+  ["clipboard-write", "--type", "text/plain;charset=utf-8", "--text", "hello world"],
+  "clip text");
+const kill = rewrite.rewrite(["kill", "42", "--timeout", "1.25"]);
+require(kill.kind === "identity-kill", "kill kind");
+require(kill.pid === "42", "kill pid");
+require(kill.mode === "graceful", "kill mode");
+require(kill.timeoutMs === "1250", "kill timeout");
+kind(rewrite.rewrite(["kill", "0"]), "usage", "kill pid bound");
+
 "rewrite.qjs PASS";

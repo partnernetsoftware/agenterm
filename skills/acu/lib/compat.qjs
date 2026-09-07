@@ -14,11 +14,6 @@ export const LEGACY_TOP_LEVEL = [
   "launch", "quit", "hide", "show", "ps", "kill", "doctor", "permissions"
 ];
 
-const DEFERRED = [
-  "windows", "apps", "verify", "wait", "observe", "focused", "dclick",
-  "clip", "kill"
-];
-
 function contains(values, wanted) {
   for (let i = 0; i < values.length; i = i + 1) {
     if (values[i] === wanted) { return true; }
@@ -49,15 +44,17 @@ export function canonicalize(input) {
   if (!contains(LEGACY_TOP_LEVEL, entry)) {
     return exec_with_prefix(extracted.prefix, command_args);
   }
-  if (contains(DEFERRED, entry)) {
+  const mapped = rewrite.rewrite(command_args);
+  if (mapped.kind === "identity-kill") {
     return {
-      kind: "todo",
-      gap_id: "acu.argv." + entry,
-      command: entry,
-      message: "legacy command requires a native typed compatibility mapping"
+      kind: mapped.kind,
+      command: mapped.command,
+      pid: mapped.pid,
+      mode: mapped.mode,
+      timeoutMs: mapped.timeoutMs,
+      globals: extracted.prefix
     };
   }
-  const mapped = rewrite.rewrite(command_args);
   if (mapped.kind !== "exec") { return mapped; }
   return exec_with_prefix(extracted.prefix, mapped.argv);
 }

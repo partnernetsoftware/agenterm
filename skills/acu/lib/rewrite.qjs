@@ -14,7 +14,7 @@ const INVOKE_ACTIONS = [
   "cancel", "show-default-ui", "show-menu"
 ];
 const DIRECT_VERBS = [
-  "doctor", "permissions", "displays", "spaces", "cursor", "frame",
+  "windows", "apps", "doctor", "permissions", "displays", "spaces", "cursor", "frame",
   "movewin", "resize", "maximize", "launch", "quit", "hide", "show", "ps"
 ];
 
@@ -246,6 +246,55 @@ function window_action(verb, rest, flags) {
   return exec(joined([target_verb, "--window", handle], flags, rest));
 }
 
+function observe_window(verb, rest, flags) {
+  if ((verb === "verify" || verb === "wait") && typeof flags.expect === "string"
+      && flags.expect.trim().startsWith("{")) {
+    return todo("acu.dynamic.083", verb,
+      "expectation envelopes need the shared typed normalizer before dispatch");
+  }
+  if (verb === "observe" && flags.role !== undefined) {
+    return todo("acu.dynamic.081", verb,
+      "observe role filtering needs typed reply projection after dispatch");
+  }
+  if (!seconds_to_ms(flags, "timeout", "timeout-ms")
+      || !seconds_to_ms(flags, "duration", "duration-ms")
+      || !seconds_to_ms(flags, "interval", "interval-ms")) {
+    return usage(verb, verb + " seconds flags require non-negative finite decimals");
+  }
+  const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
+  flags.window = undefined;
+  if (handle === null) { return usage(verb, verb + " needs HANDLE or --window"); }
+  return exec(joined([verb, "--window", handle], flags, rest));
+}
+
+function legacy_kill(rest, flags) {
+  const pid = take_first(rest);
+  if (pid === undefined || rest_length(rest) !== 0 || !digits_only(pid) || pid === "0") {
+    return usage("kill", "kill needs exactly one positive PID");
+  }
+  const names = Object.keys(flags);
+  for (let i = 0; i < names.length; i = i + 1) {
+    if (names[i] !== "force" && names[i] !== "timeout") {
+      return usage("kill", "kill does not accept --" + names[i]);
+    }
+  }
+  let timeout_ms = "30000";
+  if (flags.timeout !== undefined) {
+    const parsed = milliseconds("" + flags.timeout);
+    if (parsed === null || parsed < 1 || parsed > 86400000) {
+      return usage("kill", "kill --timeout must be in (0, 86400] seconds");
+    }
+    timeout_ms = "" + parsed;
+  }
+  return {
+    kind: "identity-kill",
+    command: "kill",
+    pid: pid,
+    mode: legacy.flagTruthy(flags.force) ? "forceful" : "graceful",
+    timeoutMs: timeout_ms
+  };
+}
+
 function click(verb, rest, flags) {
   if (typeof flags.at === "string") {
     const handle = "" + flags.at;
@@ -350,6 +399,14 @@ export function rewrite(input) {
 
   if (verb === "query") { return query(rest, flags); }
   if (verb === "invoke") { return invoke(rest, flags); }
+  if (verb === "verify" || verb === "wait" || verb === "observe" || verb === "focused") {
+    if (verb === "focused" && flags.window === undefined && rest_length(rest) > 0
+        && digits_only(rest_at(rest, 0))) {
+      return todo("acu.dynamic.080", verb,
+        "focused PID needs typed window identity projection before dispatch");
+    }
+    return observe_window(verb, rest, flags);
+  }
   if (verb === "unlock") { return window_action(verb, rest, flags); }
   if (verb === "close") {
     const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
@@ -358,7 +415,13 @@ export function rewrite(input) {
       ? joined(["close"], flags, rest)
       : joined(["close", "--window", handle], flags, rest));
   }
-  if (verb === "click" || verb === "rclick") { return click(verb, rest, flags); }
+  if (verb === "click" || verb === "dclick" || verb === "rclick") {
+    if (verb === "dclick" && typeof flags.at === "string") {
+      return todo("acu.dynamic.093", verb,
+        "selector double-click needs typed selector-to-node projection before dispatch");
+    }
+    return click(verb, rest, flags);
+  }
   if (verb === "type" || verb === "key") { return keyboard(verb, rest, flags); }
   if (verb === "move") {
     if (flags.to === "desktop" && rest_length(rest) === 2) {
@@ -376,6 +439,18 @@ export function rewrite(input) {
     return exec(joined(["shot"], flags, rest));
   }
   if (verb === "clipboard") { return clipboard(rest, flags); }
+  if (verb === "clip") {
+    if (rest_length(rest) === 0) { return exec(joined(["clip"], flags, rest)); }
+    let text = "";
+    while (rest_length(rest) > 0) {
+      if (text.length > 0) { text = text + " "; }
+      text = text + take_first(rest);
+    }
+    return exec(joined([
+      "clipboard-write", "--type", "text/plain;charset=utf-8", "--text", text
+    ], flags, empty_rest()));
+  }
+  if (verb === "kill") { return legacy_kill(rest, flags); }
   if (verb === "orderwin") {
     if (flags.window !== undefined || flags.relation !== undefined || flags.relative !== undefined) {
       return exec(joined(["orderwin"], flags, rest));

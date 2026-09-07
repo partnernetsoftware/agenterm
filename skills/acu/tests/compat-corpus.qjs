@@ -25,13 +25,21 @@ for (let i = 0; i < corpus.positive_rows.length; i = i + 1) {
     require(row.expected.kind === "exec", row.verb + " expected kind");
     same_argv(mapped.argv, row.expected.argv, row.verb);
     executable = executable + 1;
+  } else if (mapped.kind === "identity-kill") {
+    require(row.expected.kind === "identity-kill", row.verb + " identity expected kind");
+    require(mapped.command === row.expected.command, row.verb + " identity command");
+    require(mapped.pid === row.expected.pid, row.verb + " identity pid");
+    require(mapped.mode === row.expected.mode, row.verb + " identity mode");
+    require(mapped.timeoutMs === row.expected.timeoutMs, row.verb + " identity timeout");
+    same_argv(mapped.globals, row.expected.globals, row.verb + " identity globals");
+    executable = executable + 1;
   } else {
     require(mapped.kind === "todo", row.verb + " must be exec or typed todo");
     require(mapped.gap_id === "acu.argv." + row.verb, row.verb + " stable gap id");
     explicit_todo = explicit_todo + 1;
   }
 }
-require(executable === 33, "first compatibility tranche must execute 33 rows");
-require(explicit_todo === 9, "deferred compatibility tranche must expose 9 TODO rows");
+require(executable === 42, "compatibility corpus must execute all 42 positive rows");
+require(explicit_todo === 0, "positive compatibility corpus must expose no TODO rows");
 
-"compat-corpus.qjs PASS 33 exec / 9 typed TODO / 95 dynamic frozen";
+"compat-corpus.qjs PASS 42 exec / 0 typed TODO / 95 dynamic frozen";

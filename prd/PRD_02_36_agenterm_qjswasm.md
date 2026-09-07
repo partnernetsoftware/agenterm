@@ -57,8 +57,9 @@ agenterm-qjswasm
 │  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
 │  │  ├─ [~] `skills/acu/acu.qjs`: bounded argv/native path + frozen compatibility court are green
-│  │  │  ├─ 33/42 legacy probes execute through one in-process argv call; 9 are stable typed TODOs
-│  │  │  ├─ 95 dynamic witnesses are frozen with source digests and redacted argv
+│  │  │  ├─ 42/42 positive legacy probes execute in-process; kill preserves its two-call identity bracket
+│  │  │  ├─ 95 dynamic witnesses remain frozen with source digests and redacted argv as the
+│  │  │  │  explicit gap/typed-rejection queue; no MCU fallback exists
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
 │  │  │  └─ no Bun, executable discovery, child process, repository cwd or MCU fallback
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism
