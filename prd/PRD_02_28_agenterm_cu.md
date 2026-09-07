@@ -1300,7 +1300,8 @@ flowchart LR
   capture, worktree helper or hidden elevation substitutes for them.
 
   Linux broker promotion tree (the one-shot `pkexec` substrate is rehearsal,
-  not the final authority boundary):
+  not the final authority boundary). The frozen decision procedure is
+  `plan/design-linux-privilege-broker-experiment.md`:
 
   ```text
   privilege.apply.linux
