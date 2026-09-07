@@ -44,6 +44,78 @@ function todo(gap_id, command, message) {
   return { kind: "todo", gap_id: gap_id, command: command, message: message };
 }
 
+function copy(values) {
+  const out = [];
+  append(out, values);
+  return out;
+}
+
+function copy_from(values, start) {
+  const out = [];
+  for (let i = start; i < values.length; i = i + 1) { out.push(values[i]); }
+  return out;
+}
+
+function value_flag(argv, name) {
+  const prefix = "--" + name + "=";
+  let found = null;
+  for (let i = 0; i < argv.length; i = i + 1) {
+    if (argv[i] === "--" + name) {
+      if (found !== null || i + 1 >= argv.length || argv[i + 1].startsWith("--")) {
+        return { ok: false, message: "--" + name + " requires one unambiguous value" };
+      }
+      found = { value: argv[i + 1], index: i, consumed: 2 };
+      i = i + 1;
+    } else if (argv[i].startsWith(prefix)) {
+      if (found !== null) {
+        return { ok: false, message: "--" + name + " may be specified only once" };
+      }
+      found = { value: argv[i].slice(prefix.length), index: i, consumed: 1 };
+    }
+  }
+  return found === null ? { ok: true, present: false, value: null }
+    : { ok: true, present: true, value: found.value, index: found.index, consumed: found.consumed };
+}
+
+function without_value_flags(argv, names) {
+  const removed = {};
+  const skips = {};
+  for (let n = 0; n < names.length; n = n + 1) {
+    const flag = value_flag(argv, names[n]);
+    if (!flag.ok) { return flag; }
+    removed[names[n]] = flag.present ? flag.value : null;
+    if (flag.present) {
+      skips["" + flag.index] = true;
+      if (flag.consumed === 2) { skips["" + (flag.index + 1)] = true; }
+    }
+  }
+  const remaining = [];
+  for (let i = 0; i < argv.length; i = i + 1) {
+    if (skips["" + i] !== true) { remaining.push(argv[i]); }
+  }
+  return { ok: true, values: removed, argv: remaining };
+}
+
+function optional_integer(raw, minimum, label) {
+  if (raw === null) { return { ok: true, value: null }; }
+  if (raw.length === 0) { return { ok: false, message: label + " must be an integer" }; }
+  for (let i = 0; i < raw.length; i = i + 1) {
+    const code = raw.charCodeAt(i);
+    if (code < 48 || code > 57) {
+      return { ok: false, message: label + " must be an integer" };
+    }
+  }
+  const value = Number(raw);
+  if (value < minimum) { return { ok: false, message: label + " is outside its bound" }; }
+  return { ok: true, value: value };
+}
+
+function compound_plan(kind, command, fields) {
+  fields.kind = kind;
+  fields.command = command;
+  return fields;
+}
+
 // Stable guards for legacy shapes whose typed ACU behavior is deliberately
 // still absent. Keep these before generic native forwarding: a parser error is
 // not an acceptable substitute for the repair queue's machine-readable id.
@@ -68,21 +140,39 @@ function known_dynamic_boundary(argv) {
   }
   if (verb === "job" && (sub === "output" || sub === "events" || sub === "wait")
       && !has_arg(argv, "--generation")) {
-    const gap_id = sub === "output" ? "acu.dynamic.019"
-      : sub === "events" ? "acu.dynamic.020" : "acu.dynamic.023";
-    return todo(gap_id, "job", "legacy job operation needs a typed generation lookup before dispatch");
+    if (argv.length < 3 || argv[2].startsWith("--")) {
+      return { kind: "usage", command: "job", message: "job operation needs JOB_ID" };
+    }
+    return compound_plan("job-generation", "job", {
+      job_id: argv[2], native_verb: "job-" + sub, tail: copy_from(argv, 3)
+    });
   }
   if (verb === "job" && sub === "events" && has_arg(argv, "--generation")
       && has_arg(argv, "--max-bytes")) {
-    return todo("acu.dynamic.021", "job",
-      "legacy odd-byte event pagination needs a typed bounded reply projection");
+    const parsed = without_value_flags(argv, ["generation"]);
+    if (!parsed.ok) { return { kind: "usage", command: "job", message: parsed.message }; }
+    if (parsed.argv.length < 3 || parsed.values.generation === null) {
+      return { kind: "usage", command: "job", message: "job events needs JOB_ID and GENERATION" };
+    }
+    const native = ["job-events", parsed.argv[2], parsed.values.generation];
+    append(native, copy_from(parsed.argv, 3));
+    return { kind: "exec", argv: native };
   }
   if (verb === "apps" && (sub === "inspect" || sub === "watch" || sub === "provisioning")) {
     return todo("acu.dynamic.072", "apps", "application inspection and signing facts need a typed provider");
   }
   if (verb === "apps" && (has_arg(argv, "--match") || has_arg(argv, "--offset")
       || has_arg(argv, "--max"))) {
-    return todo("acu.dynamic.073", "apps", "legacy application filtering needs typed reply projection");
+    const parsed = without_value_flags(argv, ["match", "offset", "max"]);
+    if (!parsed.ok) { return { kind: "usage", command: "apps", message: parsed.message }; }
+    const offset = optional_integer(parsed.values.offset, 0, "apps --offset");
+    const max = optional_integer(parsed.values.max, 1, "apps --max");
+    if (!offset.ok || !max.ok) {
+      return { kind: "usage", command: "apps", message: !offset.ok ? offset.message : max.message };
+    }
+    return compound_plan("apps-page", "apps", {
+      argv: parsed.argv, match: parsed.values.match, offset: offset.value, max: max.value
+    });
   }
   if (verb === "scroll" && has_arg(argv, "--to")) {
     return todo("acu.dynamic.074", "scroll", "window-local wheel delivery needs a typed mechanism");
@@ -104,7 +194,17 @@ function known_dynamic_boundary(argv) {
     return todo("acu.dynamic.084", "windows", "window-watch filters must run inside its poll");
   }
   if (verb === "windows" && sub !== "watch" && has_arg(argv, "--space")) {
-    return todo("acu.dynamic.085", "windows", "Space filtering needs typed inventory projection");
+    const parsed = without_value_flags(argv, ["space", "offset", "max"]);
+    if (!parsed.ok) { return { kind: "usage", command: "windows", message: parsed.message }; }
+    const offset = optional_integer(parsed.values.offset, 0, "windows --offset");
+    const max = optional_integer(parsed.values.max, 1, "windows --max");
+    if (parsed.values.space === null || !offset.ok || !max.ok) {
+      return { kind: "usage", command: "windows", message: parsed.values.space === null
+        ? "windows --space requires a value" : (!offset.ok ? offset.message : max.message) };
+    }
+    return compound_plan("windows-space-page", "windows", {
+      argv: parsed.argv, space: parsed.values.space, offset: offset.value, max: max.value
+    });
   }
   if (verb === "privilege" && sub === "apply"
       && (!has_arg(argv, "--request") || !has_arg(argv, "--approve"))) {
@@ -133,7 +233,13 @@ export function canonicalize(input) {
     return { kind: "exec", argv: command_args };
   }
   const boundary = known_dynamic_boundary(command_args);
-  if (boundary !== null) { return boundary; }
+  if (boundary !== null) {
+    if (boundary.kind === "exec") { return exec_with_prefix(extracted.prefix, boundary.argv); }
+    if (boundary.kind !== "usage" && boundary.kind !== "todo") {
+      boundary.globals = copy(extracted.prefix);
+    }
+    return boundary;
+  }
   if (!contains(LEGACY_TOP_LEVEL, entry)) {
     return exec_with_prefix(extracted.prefix, command_args);
   }
@@ -147,6 +253,11 @@ export function canonicalize(input) {
       timeoutMs: mapped.timeoutMs,
       globals: extracted.prefix
     };
+  }
+  if (mapped.kind === "focused-pid" || mapped.kind === "observe-roles"
+      || mapped.kind === "selector-dclick") {
+    mapped.globals = copy(extracted.prefix);
+    return mapped;
   }
   if (mapped.kind !== "exec") { return mapped; }
   return exec_with_prefix(extracted.prefix, mapped.argv);

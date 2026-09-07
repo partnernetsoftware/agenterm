@@ -2644,6 +2644,40 @@
       "evidence": [
         "task.cu-windows-browser-smoke"
       ]
+    },
+    "acu-compat-corpus": {
+      "inputs": [
+        "acu-compatibility-corpus"
+      ],
+      "outputs": [
+        "acu-compatibility-dispositions"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-compat-corpus"
+      ]
+    },
+    "acu-compound-projection": {
+      "inputs": [
+        "acu-compound-fixtures"
+      ],
+      "outputs": [
+        "acu-compound-projection-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-compound-projection"
+      ]
     }
   },
   "tasks": [
@@ -5386,6 +5420,36 @@
         "artifact_write",
         "process_spawn"
       ]
+    },
+    {
+      "id": "acu-compat-corpus",
+      "description": "Freeze every legacy ACU compatibility disposition: executable mappings, compound projections, stable acu_todo gap ids and permanent local refusals.",
+      "entry": "skills/acu/tests/compat-corpus.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
+    },
+    {
+      "id": "acu-compound-projection",
+      "description": "Prove Bun-free compound ACU projections preserve typed failures, exact identities, bounded paging and normalized role filtering without host effects.",
+      "entry": "skills/acu/tests/compound.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
     },
     {
       "id": "lua-check",

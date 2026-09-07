@@ -320,10 +320,8 @@ function observe_window(verb, rest, flags) {
     if (normalized.ok !== true) { return usage(verb, normalized.message); }
     flags.expect = normalized.value;
   }
-  if (verb === "observe" && flags.role !== undefined) {
-    return todo("acu.dynamic.081", verb,
-      "observe role filtering needs typed reply projection after dispatch");
-  }
+  const roles = verb === "observe" && flags.role !== undefined ? "" + flags.role : null;
+  if (roles !== null) { flags.role = undefined; }
   if (!seconds_to_ms(flags, "timeout", "timeout-ms")
       || !seconds_to_ms(flags, "duration", "duration-ms")
       || !seconds_to_ms(flags, "interval", "interval-ms")) {
@@ -332,6 +330,10 @@ function observe_window(verb, rest, flags) {
   const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
   flags.window = undefined;
   if (handle === null) { return usage(verb, verb + " needs HANDLE or --window"); }
+  if (roles !== null) {
+    return { kind: "observe-roles", command: verb, roles: roles,
+      argv: joined([verb, "--window", handle], flags, rest) };
+  }
   return exec(joined([verb, "--window", handle], flags, rest));
 }
 
@@ -501,8 +503,11 @@ export function rewrite(input) {
   if (verb === "verify" || verb === "wait" || verb === "observe" || verb === "focused") {
     if (verb === "focused" && flags.window === undefined && rest_length(rest) > 0
         && digits_only(rest_at(rest, 0))) {
-      return todo("acu.dynamic.080", verb,
-        "focused PID needs typed window identity projection before dispatch");
+      const pid = Number(take_first(rest));
+      if (rest_length(rest) !== 0 || flag_pairs(flags, []).length !== 0 || pid <= 0) {
+        return usage(verb, "focused PID accepts exactly one positive PID");
+      }
+      return { kind: "focused-pid", command: verb, pid: pid };
     }
     return observe_window(verb, rest, flags);
   }
@@ -516,8 +521,14 @@ export function rewrite(input) {
   }
   if (verb === "click" || verb === "dclick" || verb === "rclick") {
     if (verb === "dclick" && typeof flags.at === "string") {
-      return todo("acu.dynamic.093", verb,
-        "selector double-click needs typed selector-to-node projection before dispatch");
+      const handle = "" + flags.at;
+      flags.at = undefined;
+      const selector = take_first(rest);
+      if (selector === undefined || rest_length(rest) !== 0 || flag_pairs(flags, []).length !== 0) {
+        return usage(verb, "dclick --at requires exactly HANDLE SELECTOR");
+      }
+      return { kind: "selector-dclick", command: verb,
+        window: handle, selector: selector };
     }
     return click(verb, rest, flags);
   }

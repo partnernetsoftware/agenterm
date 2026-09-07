@@ -20,7 +20,9 @@ let executable = 0;
 let explicit_todo = 0;
 for (let i = 0; i < corpus.positive_rows.length; i = i + 1) {
   const row = corpus.positive_rows[i];
-  const mapped = compat.canonicalize(row.argv);
+  let mapped = null;
+  try { mapped = compat.canonicalize(row.argv); }
+  catch (error) { throw row.verb + " canonicalize: " + error; }
   if (mapped.kind === "exec") {
     require(row.expected.kind === "exec", row.verb + " expected kind");
     same_argv(mapped.argv, row.expected.argv, row.verb);
@@ -44,27 +46,37 @@ require(explicit_todo === 0, "positive compatibility corpus must expose no TODO 
 
 let dynamic_stays = 0;
 let permanent_rejections = 0;
-const resolved_exec = ["acu.dynamic.003", "acu.dynamic.051", "acu.dynamic.079",
-  "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092", "acu.dynamic.096"];
-const resolved_todo = ["acu.dynamic.019", "acu.dynamic.020", "acu.dynamic.021",
-  "acu.dynamic.023", "acu.dynamic.066", "acu.dynamic.073", "acu.dynamic.080",
-  "acu.dynamic.081", "acu.dynamic.085", "acu.dynamic.093"];
+const resolved_exec = ["acu.dynamic.003", "acu.dynamic.021", "acu.dynamic.051",
+  "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
+  "acu.dynamic.096"];
+const resolved_todo = ["acu.dynamic.066"];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.083", "acu.dynamic.088",
   "acu.dynamic.094"];
+const resolved_compound = {
+  "acu.dynamic.019": "job-generation",
+  "acu.dynamic.020": "job-generation",
+  "acu.dynamic.023": "job-generation",
+  "acu.dynamic.073": "apps-page",
+  "acu.dynamic.080": "focused-pid",
+  "acu.dynamic.081": "observe-roles",
+  "acu.dynamic.085": "windows-space-page",
+  "acu.dynamic.093": "selector-dclick"
+};
 let resolved_checked = 0;
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   const row = corpus.dynamic_rows[i];
+  let mapped = null;
+  try { mapped = compat.canonicalize(row.argv); }
+  catch (error) { throw row.gap_id + " canonicalize: " + error; }
   if (row.classification === "dynamic-stay") {
-    const mapped = compat.canonicalize(row.argv);
     require(mapped.kind === "todo", row.gap_id + " must remain a typed TODO");
     require(mapped.gap_id === row.gap_id, row.gap_id + " stable dynamic id");
     dynamic_stays = dynamic_stays + 1;
   } else if (row.classification === "permanent-scope-rejection") {
-    require(compat.canonicalize(row.argv).kind === "usage",
+    require(mapped.kind === "usage",
       row.gap_id + " permanent rejection must remain local");
     permanent_rejections = permanent_rejections + 1;
   } else if (row.classification === "resolved") {
-    const mapped = compat.canonicalize(row.argv);
     if (resolved_exec.includes(row.gap_id)) {
       require(mapped.kind === "exec", row.gap_id + " resolved exec");
     } else if (resolved_todo.includes(row.gap_id)) {
@@ -72,6 +84,9 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
       require(mapped.gap_id === row.gap_id, row.gap_id + " pending compound id");
     } else if (resolved_usage.includes(row.gap_id)) {
       require(mapped.kind === "usage", row.gap_id + " resolved local rejection");
+    } else if (resolved_compound[row.gap_id] !== undefined) {
+      require(mapped.kind === resolved_compound[row.gap_id],
+        row.gap_id + " resolved compound kind=" + mapped.kind);
     } else { throw row.gap_id + " missing resolved disposition"; }
     resolved_checked = resolved_checked + 1;
   }
@@ -80,4 +95,4 @@ require(dynamic_stays === 13, "dynamic stay corpus count");
 require(permanent_rejections === 1, "permanent rejection corpus count");
 require(resolved_checked === 21, "resolved dynamic corpus count");
 
-"compat-corpus.qjs PASS 42 positive exec / 21 resolved dispositions / 13 dynamic TODO / 1 permanent rejection / 95 frozen";
+"compat-corpus.qjs PASS 42 positive exec / 21 resolved dispositions (8 compound) / 13 dynamic TODO / 1 permanent rejection / 95 frozen";

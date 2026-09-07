@@ -3,6 +3,7 @@
 import * as acu from "agenterm:acu";
 import * as argv_lib from "agenterm:acu/argv";
 import * as compat from "agenterm:acu/compat";
+import * as compound from "agenterm:acu/compound";
 
 function usage(command, message) {
   return {
@@ -81,6 +82,66 @@ function execute_identity_kill(request) {
   return acu.argv(effect_argv);
 }
 
+function prefixed(globals, command) {
+  const out = [];
+  append_argv(out, globals);
+  append_argv(out, command);
+  return out;
+}
+
+function projected_reply(command, reply, projection) {
+  if (projection.ok !== true) {
+    return acu_error(command, projection.code, projection.message);
+  }
+  reply.data = projection.value;
+  return reply;
+}
+
+function execute_compound(request) {
+  if (request.kind === "job-generation") {
+    const status = acu.argv(prefixed(request.globals, ["job-status", request.job_id]));
+    const generation = compound.job_generation(status, request.job_id);
+    if (!generation.ok) { return acu_error(request.command, generation.code, generation.message); }
+    const operation = [request.native_verb, request.job_id, "" + generation.value];
+    append_argv(operation, request.tail);
+    return acu.argv(prefixed(request.globals, operation));
+  }
+  if (request.kind === "apps-page") {
+    const reply = acu.argv(prefixed(request.globals, request.argv));
+    return projected_reply(request.command, reply,
+      compound.apps_page(reply, request.match, request.offset, request.max));
+  }
+  if (request.kind === "windows-space-page") {
+    const reply = acu.argv(prefixed(request.globals, request.argv));
+    return projected_reply(request.command, reply,
+      compound.windows_space_page(reply, request.space, request.offset, request.max));
+  }
+  if (request.kind === "focused-pid") {
+    const windows = acu.argv(prefixed(request.globals,
+      ["windows", "--pid", "" + request.pid, "--max", "2"]));
+    const selected = compound.single_window(windows, request.pid);
+    if (!selected.ok) { return acu_error(request.command, selected.code, selected.message); }
+    return acu.argv(prefixed(request.globals,
+      ["focused", "--window", "" + selected.value.handle]));
+  }
+  if (request.kind === "observe-roles") {
+    const reply = acu.argv(prefixed(request.globals, request.argv));
+    return projected_reply(request.command, reply, compound.observe_roles(reply, request.roles));
+  }
+  if (request.kind === "selector-dclick") {
+    const query = acu.argv(prefixed(request.globals, [
+      "query", "--window", request.window, "--selector", request.selector, "--max", "2"
+    ]));
+    const selected = compound.single_node_id(query);
+    if (!selected.ok) { return acu_error(request.command, selected.code, selected.message); }
+    return acu.argv(prefixed(request.globals, [
+      "click", "--window", request.window, "--node", selected.value, "--clicks", "2"
+    ]));
+  }
+  return acu_error(request.command, "acu_compound_kind_unknown",
+    "compatibility plan names an unknown compound operation");
+}
+
 const input = argv_lib.from_host();
 if (input.length === 1 && input[0] === "--retirement-report") {
   print(JSON.stringify({
@@ -111,7 +172,7 @@ if (canonical.kind === "todo") {
 }
 let reply = canonical.kind === "identity-kill"
   ? execute_identity_kill(canonical)
-  : acu.argv(canonical.argv);
+  : canonical.kind === "exec" ? acu.argv(canonical.argv) : execute_compound(canonical);
 if (reply.ok !== true && reply.error !== null && reply.error !== undefined
     && reply.error.code === "usage" && input.length > 0
     && compat.LEGACY_TOP_LEVEL.includes(input[0])

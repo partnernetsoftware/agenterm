@@ -1,0 +1,112 @@
+import * as compound from "skills/acu/lib/compound";
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function ok(result, message) {
+  require(result.ok === true, message + ": " + result.code + " " + result.message);
+  return result.value;
+}
+
+function fails(result, code, message) {
+  require(result.ok === false, message + " unexpectedly succeeded");
+  require(result.code === code, message + " code=" + result.code);
+  require(typeof result.message === "string" && result.message.length > 0,
+    message + " missing message");
+}
+
+const generation = ok(compound.job_generation({
+  ok: true, data: { job_id: "job-1", generation: 7 }
+}, "job-1"), "job generation");
+require(generation === 7, "generation changed");
+fails(compound.job_generation({
+  ok: true, data: { job_id: "job-2", generation: 7 }
+}, "job-1"), "acu_compound_job_status_invalid", "job identity");
+fails(compound.job_generation({
+  ok: true, data: { job_id: "job-1", generation: 0 }
+}, "job-1"), "acu_compound_job_status_invalid", "zero generation");
+
+const window_reply = { ok: true, data: {
+  matched: 1,
+  windows: [{ handle: 91, process_id: 42, title: "Editor" }]
+} };
+const window = ok(compound.single_window(window_reply, 42), "single window");
+require(window.handle === 91 && window.process_id === 42, "window identity changed");
+window.handle = 1;
+require(window_reply.data.windows[0].handle === 91, "single window aliases reply");
+fails(compound.single_window({ ok: true, data: { windows: [] } }, 42),
+  "acu_compound_window_ambiguous", "missing window");
+fails(compound.single_window({ ok: true, data: {
+  windows: [{ handle: 91, process_id: 43 }]
+} }, 42), "acu_compound_window_invalid", "window pid");
+
+require(ok(compound.single_node_id({ ok: true, data: {
+  nodes: [{ id: "/0/3", role: "AXButton" }]
+} }), "single node") === "/0/3", "node id changed");
+fails(compound.single_node_id({ ok: true, data: { nodes: [{ id: "a" }, { id: "b" }] } }),
+  "acu_compound_node_ambiguous", "multiple nodes");
+
+const apps_reply = { ok: true, data: {
+  mechanism: "libagenterm",
+  running_only: true,
+  apps: [
+    { app_name: "Editor Pro", pids: [1] },
+    { app_name: "Terminal", pids: [2] },
+    { app_name: "editor helper", pids: [3] }
+  ]
+} };
+const apps = ok(compound.apps_page(apps_reply, "EDITOR", 1, 1), "apps page");
+require(apps.apps.length === 1 && apps.apps[0].app_name === "editor helper", "apps match/page");
+require(apps.visited === 3 && apps.matched === 2 && apps.returned === 1,
+  "apps counts");
+require(apps.offset === 1 && apps.truncated === false, "apps page metadata");
+require(apps_reply.data.apps.length === 3, "apps projection mutated reply");
+fails(compound.apps_page(apps_reply, "", -1, 1),
+  "acu_compound_page_invalid", "apps offset");
+
+const windows_reply = { ok: true, data: [
+  { handle: 1, process_id: 10, spaces: ["1", "2"] },
+  { handle: 2, process_id: 11, spaces: [2] },
+  { handle: 3, process_id: 12, spaces: ["2"] },
+  { handle: 4, process_id: 13 }
+] };
+const windows = ok(compound.windows_space_page(windows_reply, "2", 1, 1), "space page");
+require(windows.windows.length === 1 && windows.windows[0].handle === 2, "space match/page");
+require(windows.visited === 4 && windows.matched === 3 && windows.returned === 1,
+  "space counts");
+require(windows.offset === 1 && windows.truncated === true, "space page metadata");
+require(windows.filter.space === "2", "space filter metadata");
+
+require(compound.normalize_role("AXText Area") === "textarea", "AX normalization");
+require(compound.normalize_role("push-button") === "button", "role synonym");
+const observe_reply = { ok: true, data: {
+  mode: "poll-diff",
+  emitted: 4,
+  filtered: 2,
+  events: [
+    { seq: 0, node: { id: "a", role: "AXButton" } },
+    { seq: 1, node: { id: "b", role: "text-area" } },
+    { seq: 2, node: { id: "c", role: "Push Button" } },
+    { seq: 3, node: { id: "d", role: "link" } }
+  ]
+} };
+const observed = ok(compound.observe_roles(observe_reply, " button, AXTextArea,button "),
+  "observe roles");
+require(observed.events.length === 3, "observe filter count");
+require(observed.events[0].node.id === "a" && observed.events[2].node.id === "c",
+  "observe filter order");
+require(observed.roles.length === 2 && observed.roles[0] === "button"
+  && observed.roles[1] === "textarea", "observe normalized roles");
+require(observed.emitted === 3 && observed.filtered === 3, "observe counters");
+require(observe_reply.data.events.length === 4, "observe projection mutated reply");
+
+fails(compound.observe_roles({ ok: true, data: { events: [{ node: {} }] } }, "button"),
+  "acu_compound_observe_invalid", "observe malformed event");
+fails(compound.apps_page({ ok: false, error: {
+  code: "denied", message: "grant missing"
+} }, "x", 0, 1), "denied", "typed CuReply failure");
+fails(compound.single_node_id({ ok: false, error: null }),
+  "acu_compound_reply_invalid", "untyped CuReply failure");
+
+"compound.qjs PASS";

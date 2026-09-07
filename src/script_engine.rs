@@ -486,6 +486,8 @@ pub(crate) const AGENTERM_ACU_LEGACY_ARGS_SOURCE: &str =
     include_str!("../skills/acu/lib/legacy_args.qjs");
 pub(crate) const AGENTERM_ACU_REWRITE_SOURCE: &str = include_str!("../skills/acu/lib/rewrite.qjs");
 pub(crate) const AGENTERM_ACU_COMPAT_SOURCE: &str = include_str!("../skills/acu/lib/compat.qjs");
+pub(crate) const AGENTERM_ACU_COMPOUND_SOURCE: &str =
+    include_str!("../skills/acu/lib/compound.qjs");
 
 /// Product-owned qjswasm modules. This is the one registry used by runtime,
 /// single-file checking and bounded check-many, so a built-in cannot resolve
@@ -497,6 +499,7 @@ pub(crate) fn qjs_builtin_module_source(specifier: &str) -> Option<&'static str>
         "agenterm:acu/legacy-args" => Some(AGENTERM_ACU_LEGACY_ARGS_SOURCE),
         "agenterm:acu/rewrite" => Some(AGENTERM_ACU_REWRITE_SOURCE),
         "agenterm:acu/compat" => Some(AGENTERM_ACU_COMPAT_SOURCE),
+        "agenterm:acu/compound" => Some(AGENTERM_ACU_COMPOUND_SOURCE),
         _ => None,
     }
 }
@@ -1799,6 +1802,7 @@ return reply.ok + ":" + reply.command;
             "agenterm:acu/legacy-args",
             "agenterm:acu/rewrite",
             "agenterm:acu/compat",
+            "agenterm:acu/compound",
         ] {
             assert!(
                 qjs_builtin_module_source(specifier).is_some(),

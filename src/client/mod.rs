@@ -4917,6 +4917,7 @@ mod tests {
             "agenterm:acu/legacy-args",
             "agenterm:acu/rewrite",
             "agenterm:acu/compat",
+            "agenterm:acu/compound",
         ] {
             assert_eq!(
                 super::qjs_check_builtin_module(specifier),
