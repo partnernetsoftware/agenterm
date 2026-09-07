@@ -877,11 +877,13 @@ source identity.
 Platform qualification is machine data, not prose. Every
 `platform-limited` leaf must carry a schema-versioned macOS/Linux/Windows
 matrix. A cell qualifies only through a registered public gate and its exact
-evidence as native behavior, an intentional typed retirement, or a typed
+nonempty evidence-token set as native behavior, an intentional typed retirement, or a typed
 not-applicable result. Pending cells and legacy free-text qualification always
 block retirement; a typed retirement or not-applicable cell additionally owns
 an exact error code and rationale. This prevents a sentence containing
-“pending” from accidentally becoming a green release gate.
+“pending” from accidentally becoming a green release gate, and prevents one
+token from falsely satisfying a composite capability whose court owns several
+independent behavioral claims.
 
 The owned browser-session row is no longer a capability gap. Its macOS public
 qjswasm court proves exact owner/browser identities, generation-preserving

@@ -144,6 +144,8 @@ AgenTerm — local agent & process fleet work OS
 │     ├─ retirement             调用者迁到 typed `acu` 对象后，`acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 134 叶：
 │     │                       native 35 / delegated 31 / platform-limited 62 / gap 1 / retired 5
+│     │                       平台资格用 schema-2 三主机矩阵；每格必须绑定完整 evidence-token 集，
+│     │                       旧散文、pending 或只证复合能力一半的单 token 一律不能晋级
 │     │                       exact @tab 视口滚动与渲染 PNG 已走同一 control plane；
 │     │                       macOS qjswasm 黑盒已绿，Linux/Windows GUI court 待补
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；

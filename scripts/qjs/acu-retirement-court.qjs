@@ -90,9 +90,13 @@ function platform_qualification_error(capability) {
         && cell.result !== "not-applicable") {
       return platform + ":result";
     }
-    if (!has_text(cell.gate) || !has_text(cell.evidence)
-        || !gate_proves(cell.gate, cell.evidence, platform)) {
+    if (!has_text(cell.gate) || !has_rows(cell.evidence)) {
       return platform + ":gate_evidence";
+    }
+    for (const evidence_id of cell.evidence) {
+      if (!has_text(evidence_id) || !gate_proves(cell.gate, evidence_id, platform)) {
+        return platform + ":gate_evidence";
+      }
     }
     if (cell.result === "native-qualified" && !has_text(capability.acu_shape)) {
       return platform + ":native_without_acu_shape";
@@ -138,7 +142,7 @@ const counts = { total: 0, native: 0, delegated: 0, gap: 0, platform_limited: 0,
 const registered_evidence = {};
 
 harness.require(contract.schema === 1 && ledger.schema === 1, "retirement_contract_schema");
-harness.require(contract.platform_qualification_schema === 1,
+harness.require(contract.platform_qualification_schema === 2,
   "retirement_platform_qualification_schema");
 harness.require(Array.isArray(ledger.family_order) && ledger.family_order.length === 13, "retirement_family_order");
 harness.require(qualification_manifest.schema_version === 1, "retirement_qualification_schema");
