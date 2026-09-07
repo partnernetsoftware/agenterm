@@ -18,8 +18,8 @@ macro_rules! cli_eprintln {
 
 use crate::script_protocol::{
     SCRIPT_API_VERSION, SCRIPT_ENVELOPE_VERSION, ScriptBrokerError, ScriptBrokerRequest,
-    ScriptBrokerResponse, ScriptBudgets, ScriptExitClass, ScriptInvocation, ScriptOperation,
-    ScriptProfile,
+    ScriptBrokerResponse, ScriptBudgets, ScriptExitClass, ScriptFailure, ScriptFailureCategory,
+    ScriptInvocation, ScriptOperation, ScriptProfile,
 };
 use crate::{
     build_identity::BuildIdentity,
@@ -319,7 +319,7 @@ fn script_help_text() -> &'static str {
            agenterm cli script api [MODULE] [--status STATE] [--tree|--json]\n\
            agenterm cli script check [OPTIONS] FILE.qjs|-\n\
            agenterm cli script eval [OPTIONS] EXPRESSION|-- FILE.qjs [--] [ARGS...]\n\
-           agenterm cli script run [OPTIONS] FILE.qjs|- [--] [ARGS...]\n\
+           agenterm cli script run [OPTIONS] [--exit-code-from-value] FILE.qjs|- [--] [ARGS...]\n\
            agenterm cli script task list [--manifest PATH] [--json]\n\
            agenterm cli script task show TASK [--manifest PATH] [--json]\n\
            agenterm cli script task check [TASK] [--manifest PATH] [--json]\n\
@@ -1661,6 +1661,20 @@ fn render_script_value(value: &serde_json::Value) -> String {
     }
 }
 
+fn append_script_run_value(
+    output: &mut String,
+    value: Option<&serde_json::Value>,
+    exit_code_from_value: bool,
+) {
+    if exit_code_from_value {
+        return;
+    }
+    if let Some(value) = value {
+        output.push_str(&render_script_value(value));
+        output.push('\n');
+    }
+}
+
 /// Why an engine has no artifact face, said once so the four verbs agree.
 fn no_artifact_face(backend: &str, what: &str) -> String {
     format!(
@@ -1913,6 +1927,15 @@ fn run_script_command_with_context(
             return 2;
         }
     };
+    let exit_code_from_value = has_option(arguments, "--exit-code-from-value");
+    if exit_code_from_value && operation != ScriptOperation::Run {
+        cli_eprintln!("script --exit-code-from-value is available only for script run");
+        return 2;
+    }
+    if exit_code_from_value && has_option(arguments, "--json") {
+        cli_eprintln!("script --exit-code-from-value cannot be combined with --json");
+        return 2;
+    }
     let api_view = if operation == ScriptOperation::Api {
         match parse_script_api_view(arguments) {
             Ok(view) => Some(view),
@@ -2380,6 +2403,26 @@ fn run_script_command_with_context(
         );
         return 1;
     }
+    let completion_exit_code = if exit_code_from_value && result.ok {
+        match exit_code_from_script_value(result.value.as_ref()) {
+            Ok(code) => Some(code),
+            Err(message) => {
+                result.ok = false;
+                result.exit_class = ScriptExitClass::Script;
+                result.failure = Some(ScriptFailure {
+                    code: "script_exit_code_value".to_owned(),
+                    message,
+                    category: ScriptFailureCategory::Script,
+                    cost: result.cost.map(Box::new),
+                    stdout: String::new(),
+                });
+                result.value = None;
+                None
+            }
+        }
+    } else {
+        None
+    };
     if let Some(view) = api_view.as_ref() {
         let Some(catalog) = result.value.as_mut() else {
             let audit_outcome = AuditOutcome {
@@ -2437,9 +2480,9 @@ fn run_script_command_with_context(
                 output.push('\n');
             }
         }
-        if let Some(value) = result.value {
-            if operation == ScriptOperation::Api {
-                match render_script_api_tree(&value) {
+        if operation == ScriptOperation::Api {
+            if let Some(value) = result.value.as_ref() {
+                match render_script_api_tree(value) {
                     Ok(tree) => {
                         output.push_str(&tree);
                         output.push('\n');
@@ -2452,15 +2495,9 @@ fn run_script_command_with_context(
                         return 1;
                     }
                 }
-            } else if let Some(value) = value.as_str() {
-                output.push_str(value);
-                output.push('\n');
-            } else {
-                output.push_str(
-                    &serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
-                );
-                output.push('\n');
             }
+        } else if result.value.is_some() {
+            append_script_run_value(&mut output, result.value.as_ref(), exit_code_from_value);
         } else if operation == ScriptOperation::Check {
             output.push_str("OK\n");
         }
@@ -2495,7 +2532,7 @@ fn run_script_command_with_context(
         return code;
     }
     if result.ok {
-        0
+        completion_exit_code.map_or(0, i32::from)
     } else {
         match result.exit_class.as_str() {
             "configuration" => 2,
@@ -3987,11 +4024,33 @@ fn script_operand(arguments: &[String]) -> Option<&str> {
             | "--cwd"
             | "--project-root"
             | "--manifest" => position += 2,
-            "--json" => position += 1,
+            "--json" | "--exit-code-from-value" => position += 1,
             value => return Some(value),
         }
     }
     None
+}
+
+fn exit_code_from_script_value(
+    value: Option<&serde_json::Value>,
+) -> std::result::Result<u8, String> {
+    let Some(value) = value else {
+        return Err(
+            "script run --exit-code-from-value requires an integer completion value from 0 to 255; the script completed without a value"
+                .to_owned(),
+        );
+    };
+    let Some(value) = value.as_u64() else {
+        return Err(format!(
+            "script run --exit-code-from-value requires an integer completion value from 0 to 255; got {}",
+            render_script_value(value)
+        ));
+    };
+    u8::try_from(value).map_err(|_| {
+        format!(
+            "script run --exit-code-from-value requires an integer completion value from 0 to 255; got {value}"
+        )
+    })
 }
 
 fn run_wait_events(arguments: &[String]) -> i32 {
@@ -4790,9 +4849,10 @@ fn print_mux_compatibility(json: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        HostedSubcommand, hosted_subcommand, non_text_script_hint, normalize_script_source,
-        parse_loopback_ipc_address, parse_terminal_grid, render_script_value, run_wait_ui,
-        script_worker_executable, validate_fleet_parameters,
+        HostedSubcommand, append_script_run_value, exit_code_from_script_value, hosted_subcommand,
+        non_text_script_hint, normalize_script_source, parse_loopback_ipc_address,
+        parse_terminal_grid, render_script_value, run_wait_ui, script_worker_executable,
+        validate_fleet_parameters,
     };
 
     /// Every `value_type` the catalog declares must have a real arm in the
@@ -4982,6 +5042,46 @@ mod tests {
             render_script_value(&serde_json::json!({"a": 1})),
             "{\n  \"a\": 1\n}"
         );
+    }
+
+    #[test]
+    fn exit_code_mode_accepts_the_complete_byte_range() {
+        for code in [0_u8, 1, 2, 255] {
+            assert_eq!(
+                exit_code_from_script_value(Some(&serde_json::json!(code))),
+                Ok(code)
+            );
+        }
+    }
+
+    #[test]
+    fn exit_code_mode_rejects_absent_non_integer_and_out_of_range_values() {
+        assert!(exit_code_from_script_value(None).is_err());
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!("1"),
+            serde_json::json!(true),
+            serde_json::json!(1.5),
+            serde_json::json!(-1),
+            serde_json::json!(256),
+        ] {
+            let error = exit_code_from_script_value(Some(&value)).unwrap_err();
+            assert!(error.contains("integer completion value from 0 to 255"));
+        }
+    }
+
+    #[test]
+    fn exit_code_mode_keeps_printed_stdout_but_suppresses_the_completion_value() {
+        let mut output = "printed\n".to_owned();
+        append_script_run_value(&mut output, Some(&serde_json::json!(7)), true);
+        assert_eq!(output, "printed\n");
+    }
+
+    #[test]
+    fn ordinary_run_still_prints_the_completion_value() {
+        let mut output = "printed\n".to_owned();
+        append_script_run_value(&mut output, Some(&serde_json::json!(7)), false);
+        assert_eq!(output, "printed\n7\n");
     }
 
     /// Exactly one engine reads `source` as a path, and the CLI's branch asks

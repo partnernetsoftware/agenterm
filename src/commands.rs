@@ -664,7 +664,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
              corpus-scan [--dir DIR] | hash FILE | version | \
              pack build FILE --dir OUT | pack load ARTIFACT | run-smoke ARTIFACT | \
              qualify FILE --dir OUT | \
-             repl [--fail-fast] [--json] | run FILE|- \
+             repl [--fail-fast] [--json] | run [--exit-code-from-value] FILE|- \
              [--cwd DIR] [--project-root DIR] [-- ARGS...] | \
             task list|show|run [TASK] [--manifest FILE] [--json]",
             &[
@@ -690,7 +690,7 @@ fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
                 "--dir",
                 "--status",
             ][..],
-            &["--tree", "--json", "--fail-fast"][..],
+            &["--tree", "--json", "--fail-fast", "--exit-code-from-value"][..],
             false,
         ),
         "read-events" => (
@@ -1569,6 +1569,21 @@ mod tests {
         assert!(
             validate_control_command(&args(&[
                 "script", "api", "std::fs", "--status", "shipped", "--json",
+            ]))
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn script_run_accepts_exit_code_from_value_as_a_flag() {
+        assert!(
+            validate_control_command(&args(&[
+                "script",
+                "run",
+                "--exit-code-from-value",
+                "gate.qjs",
+                "--",
+                "child-argument",
             ]))
             .is_ok()
         );
