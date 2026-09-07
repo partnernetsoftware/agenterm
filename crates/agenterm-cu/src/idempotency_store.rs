@@ -650,14 +650,14 @@ fn validate_outcome(outcome: &FinalOutcome) -> Result<(), CuError> {
         validate_digest(digest, "request_outcome_invalid")?;
     }
     if let Some(replay) = &outcome.replay {
-        if outcome.kind != FinalOutcomeKind::Succeeded {
-            return Err(CuError::new(
-                "request_outcome_invalid",
-                "failed outcomes cannot carry successful replay data",
-            ));
-        }
         match replay {
             FinalReplay::JobSpawn { job_id, generation } => {
+                if outcome.kind != FinalOutcomeKind::Succeeded {
+                    return Err(CuError::new(
+                        "request_outcome_invalid",
+                        "failed outcomes cannot carry job replay data",
+                    ));
+                }
                 if *generation == 0 || !is_lowercase_uuid_v4(job_id) {
                     return Err(CuError::new(
                         "request_outcome_invalid",
@@ -669,6 +669,12 @@ fn validate_outcome(outcome: &FinalOutcome) -> Result<(), CuError> {
                 lease_id,
                 generation,
             } => {
+                if outcome.kind != FinalOutcomeKind::Succeeded {
+                    return Err(CuError::new(
+                        "request_outcome_invalid",
+                        "failed outcomes cannot carry device replay data",
+                    ));
+                }
                 if *generation == 0 || !is_lowercase_uuid_v4(lease_id) {
                     return Err(CuError::new(
                         "request_outcome_invalid",
@@ -677,6 +683,12 @@ fn validate_outcome(outcome: &FinalOutcome) -> Result<(), CuError> {
                 }
             }
             FinalReplay::PrivilegeApply { receipt_id } => {
+                if outcome.receipt_sha256.is_none() {
+                    return Err(CuError::new(
+                        "request_outcome_invalid",
+                        "privilege replay requires a receipt digest",
+                    ));
+                }
                 if !is_lowercase_uuid_v4(receipt_id) {
                     return Err(CuError::new(
                         "request_outcome_invalid",
@@ -1116,6 +1128,33 @@ mod tests {
         assert_eq!(
             store.reserve("req", &digest, 999, 0).unwrap_err().code,
             "request_retention_ttl_invalid"
+        );
+
+        let receipt_id = "12345678-1234-4123-8123-123456789abc".to_owned();
+        let receipt_sha256 = Some("a".repeat(64));
+        assert!(
+            FinalOutcome::new(
+                FinalOutcomeKind::Failed,
+                "privilege_effect_failed",
+                receipt_sha256.clone(),
+            )
+            .unwrap()
+            .with_replay(FinalReplay::PrivilegeApply {
+                receipt_id: receipt_id.clone(),
+            })
+            .is_ok(),
+            "a failed privileged effect retains its immutable replay receipt"
+        );
+        assert_eq!(
+            FinalOutcome::new(FinalOutcomeKind::Failed, "job_failed", receipt_sha256)
+                .unwrap()
+                .with_replay(FinalReplay::JobSpawn {
+                    job_id: receipt_id,
+                    generation: 1,
+                })
+                .unwrap_err()
+                .code,
+            "request_outcome_invalid"
         );
     }
 

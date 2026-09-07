@@ -32,6 +32,9 @@ agenterm-platform = { path = "../agenterm-platform", default-features = false, f
 [target.'cfg(windows)'.dependencies]
 agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["native-messaging-registry"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 # These feature lists must stay complete on their own. Until milestone 46 the
 # crate also depended on `agenterm-platform`, whose winit tree enabled
 # `NSRunningApplication` and `NSThread` for us; Cargo feature unification made

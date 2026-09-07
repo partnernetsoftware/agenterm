@@ -98,6 +98,7 @@ version = "0.1.16"
 dependencies = [
  "agenterm-control-client",
  "agenterm-platform",
+ "libc",
  "libloading 0.8.9",
  "miniz_oxide",
  "objc2 0.5.2",

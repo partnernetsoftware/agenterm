@@ -1255,8 +1255,8 @@ flowchart LR
   Authorization Services, polkit or UAC must authenticate the peer and consent
   out of band; the privileged provider must then revalidate, reserve before the
   effect, own postcondition read-back, and return completed or outcome-unknown.
-  The provider-side replay ledger is now implemented as a path-injected store
-  for the eventual protected helper: its opaque key binds fixed provider
+  The provider-side replay ledger is now implemented behind a fixed-authority
+  coordinator: its opaque key binds fixed provider
   namespace, OS-principal digest and request id; it retains only canonical
   request/receipt digests and bounded outcome tokens. Exact completion replays
   without mutation, a changed request conflicts, and either a live reservation
@@ -1268,9 +1268,30 @@ flowchart LR
   execution reservation. Effect code therefore cannot discard preparation and
   reopen mutable numeric PIDs without crossing the typed boundary. The
   `process.set-priority` branch fails closed before reservation because no
-  retained-object priority mutation primitive exists yet.
-  Provider installation, native consent and real apply remain explicit gaps;
-  no shell, password capture or hidden elevation substitutes for them.
+  retained-object priority mutation primitive exists yet. The coordinator now
+  binds one durable random UUIDv4 attempt before reservation, consumes the
+  retained effect once, publishes an immutable provider-owned receipt whose
+  digest is the SHA-256 of its exact file bytes, and replays only that receipt;
+  uncertain reservations retain their attempt identity and never become fresh.
+  Linux also has the first native-boundary substrate: a hidden provider mode
+  refuses non-root execution, derives the caller principal only from the
+  canonical `PKEXEC_UID` supplied by polkit's cleaned execution environment,
+  verifies that
+  `/proc/self/exe` is the same root-owned, non-writable inode installed at
+  `/usr/libexec/agenterm/agenterm-cu`, and keeps state in the protected
+  `/var/lib/agenterm/cu-privilege` root. Its polkit policy pins both that path
+  and the single provider argv. Its root installer must verify sealed provider
+  and policy digests and recover the prior pair after any interrupted
+  cross-directory replacement; this is not a claim of multi-file atomicity.
+  This is not yet public apply:
+  the Linux archive/package still has to carry and install the policy/provider,
+  then a real polkit court must pass. A one-shot `pkexec` launch performs
+  consent before the provider can inspect its root-only replay ledger, so the
+  replay-before-consent invariant remains open and requires a fixed,
+  authenticated broker boundary; a parent-PID check or world-readable ledger
+  is not an acceptable substitute. macOS app-bundle/SMAppService and Windows
+  protected-install/UAC transports remain explicit gaps; no shell, password
+  capture, worktree helper or hidden elevation substitutes for them.
 
 - [~] The same read-only boundary now covers `privilege plan process.signal`.
   It freezes one exact process or a tree of at most 128 descendants, including

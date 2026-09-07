@@ -190,8 +190,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       Linux/Windows 待原生复跑；audio 状态/计划已由 macOS CoreAudio 原生承接，
 │     │                       Linux/Windows typed unsupported，真实声音变更 court 待跑；service 已有
 │     │                       macOS/Linux 原生 inventory/status + user plan/apply、防重放与 qjswasm 只读 court，
-│     │                       one-call 已绑定 request/session + target lock，静态 STAY 清零；system privilege provider、
-│     │                       动态 gap、跨平台 mutation court 与 MCU-absent 总门仍未收口，故 MCU 继续保留
+│     │                       one-call 已绑定 request/session + target lock，静态 STAY 清零；privilege provider
+│     │                       core + Linux fixed-polkit substrate 已落，但 public install/apply、真实 consent、
+│     │                       OSX/Win provider、跨平台 mutation court 与 MCU-absent 总门未绿，故 MCU 继续保留
 │     │                       managed job 的 Unix STOP/CONT 已绑定 owning session + generation + durable root，
 │     │                       复用 crash-recoverable exact-tree 日志并逐成员读回；非幂等 signal 在 request-id
 │     │                       replay 落地前拒绝，Windows 不采用未公开 Job Object freeze class

@@ -4556,6 +4556,28 @@ Use fixed-width integers in cross-ISA protocol fields and restrict native start
 identities to their actual prefix-plus-decimal grammar so JSON escaping cannot
 silently invalidate the byte proof.
 
+A fixed provider is more than an elevated process. Bind the running executable
+object back to a protected installed identity: on Linux, require a root-owned,
+non-group/world-writable path with no symlink components, compare its device
+and inode to `/proc/self/exe`, hash that running inode, verify the live parent is
+and derive the principal from canonical `PKEXEC_UID` only after effective uid
+is root. Do not verify `pkexec` through the provider's parent PID: `pkexec`
+replaces itself with the authorized program, so the provider retains the
+original caller as its parent. A polkit action must pin both executable path
+and the one closed provider argv; never enable GUI environment inheritance for
+a headless effect provider. Provider state needs the same treatment: fixed
+root-owned ancestry plus owner-only leaf directories, not a request-selected
+path that an elevated process merely chmods after opening.
+
+Give every fresh provider attempt a durable random UUIDv4 before its replay
+reservation. Keep that attempt record only while the outcome can be uncertain;
+terminal ledger records point to an immutable receipt and its SHA-256 over the
+exact receipt bytes, after which the temporary attempt mapping can be removed.
+If the effect or finalization crosses an uncertain boundary, preserve both the
+ledger reservation and attempt identity. This avoids inventing a different
+receipt id on retry and avoids an unbounded second index of already-finalized
+requests.
+
 ## Freeze persisted grants to canonical operations
 
 Target, desktop session, scope, expiry and use count do not stop one broad

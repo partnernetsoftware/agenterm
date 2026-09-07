@@ -114,6 +114,25 @@ pub mod page_text;
 pub mod place;
 pub mod privilege_apply;
 pub mod privilege_plan;
+#[cfg(any(target_os = "linux", test))]
+pub(crate) mod privilege_provider;
+#[cfg(target_os = "linux")]
+pub(crate) mod privilege_provider_linux;
+
+#[doc(hidden)]
+pub const PRIVILEGE_PROVIDER_ARG: &str = "--agenterm-cu-internal-privilege-provider";
+
+#[doc(hidden)]
+pub fn run_privilege_provider() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        privilege_provider_linux::run_stdio()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        2
+    }
+}
 pub mod pty_snapshot;
 pub mod rdp_transport;
 pub mod receipt;

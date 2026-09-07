@@ -230,9 +230,39 @@ pub struct AuthenticatedPrivilegePeer {
     provider_identity_digest: String,
 }
 
+#[cfg(any(target_os = "linux", test))]
+impl AuthenticatedPrivilegePeer {
+    pub(crate) fn from_native_provider(
+        principal_digest: String,
+        provider_identity_digest: String,
+    ) -> Result<Self, CuError> {
+        let peer = Self {
+            principal_digest,
+            provider_identity_digest,
+        };
+        validate_authenticated_peer(&peer)?;
+        Ok(peer)
+    }
+
+    pub(crate) fn principal_digest(&self) -> &str {
+        &self.principal_digest
+    }
+
+    pub(crate) fn provider_identity_digest(&self) -> &str {
+        &self.provider_identity_digest
+    }
+}
+
 #[derive(Debug)]
 pub struct NativeAuthorizationProof {
     authorization: PrivilegeAuthorizationV1,
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl NativeAuthorizationProof {
+    pub(crate) fn from_native_provider(authorization: PrivilegeAuthorizationV1) -> Self {
+        Self { authorization }
+    }
 }
 
 pub struct PreparedProcessSignalEffect {
@@ -391,6 +421,7 @@ pub enum PrivilegeProviderFinalOutcome {
     },
     FailedAfterEffect {
         outcome_code: String,
+        receipt_id: String,
         receipt_sha256: String,
     },
 }
@@ -504,8 +535,10 @@ impl PrivilegeProviderLedger {
             }
             PrivilegeProviderFinalOutcome::FailedAfterEffect {
                 outcome_code,
+                receipt_id,
                 receipt_sha256,
-            } => FinalOutcome::new(FinalOutcomeKind::Failed, outcome_code, Some(receipt_sha256))?,
+            } => FinalOutcome::new(FinalOutcomeKind::Failed, outcome_code, Some(receipt_sha256))?
+                .with_replay(FinalReplay::PrivilegeApply { receipt_id })?,
         };
         self.store.finalize(
             &execution.reservation.provider_key,
@@ -1505,6 +1538,48 @@ mod tests {
                 assert_eq!(receipt_sha256.as_deref(), Some(receipt.as_str()));
             }
             other => panic!("expected finalized replay, got {other:?}"),
+        }
+
+        let mut failed_request = request.clone();
+        failed_request.request_id = "request-03".into();
+        let failed_validated =
+            parse_apply_request(&serde_json::to_vec(&failed_request).unwrap()).unwrap();
+        let failed = match ledger
+            .reserve_authorized(authorize(failed_validated), 1_007)
+            .unwrap()
+        {
+            PrivilegeProviderReserveDecision::Fresh(reservation) => reservation,
+            other => panic!("expected fresh reservation, got {other:?}"),
+        };
+        let failed_receipt = sha256_hex(b"fixture-failed-receipt");
+        let failed_receipt_id = "12345678-1234-4234-9234-123456789abc".to_owned();
+        ledger
+            .finalize(
+                failed,
+                PrivilegeProviderFinalOutcome::FailedAfterEffect {
+                    outcome_code: "privilege_effect_failed".into(),
+                    receipt_id: failed_receipt_id.clone(),
+                    receipt_sha256: failed_receipt.clone(),
+                },
+                1_008,
+            )
+            .unwrap();
+        let failed_validated =
+            parse_apply_request(&serde_json::to_vec(&failed_request).unwrap()).unwrap();
+        match ledger
+            .lookup_before_consent(&failed_validated, &peer(), 1_009)
+            .unwrap()
+        {
+            PrivilegeProviderLookupDecision::ReplayFinalized {
+                outcome_code,
+                receipt_id,
+                receipt_sha256,
+            } => {
+                assert_eq!(outcome_code, "privilege_effect_failed");
+                assert_eq!(receipt_id.as_deref(), Some(failed_receipt_id.as_str()));
+                assert_eq!(receipt_sha256.as_deref(), Some(failed_receipt.as_str()));
+            }
+            other => panic!("expected failed-after-effect replay, got {other:?}"),
         }
 
         let mut changed = completed_request.clone();
