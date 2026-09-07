@@ -1,0 +1,15 @@
+[workspace]
+members = ["provider", "loader-probe", "empty-probe"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+
+[profile.release]
+opt-level = "z"
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+strip = true
