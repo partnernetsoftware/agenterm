@@ -795,4 +795,14 @@ mod tests {
         assert!(terminal_role("Terminal"));
         assert!(!terminal_role("button"));
     }
+
+    #[test]
+    fn public_patterns_retain_the_complete_unicode_grammar() {
+        let expression = Regex::new(r"(?i)^\p{Script=Han}+\s+\p{Greek}+$").unwrap();
+        assert!(expression.is_match("终端 ΒΗΤΑ"));
+        assert!(!expression.is_match("terminal ΒΗΤΑ"));
+
+        let word = Regex::new(r"\b\w+\b").unwrap();
+        assert_eq!(word.find("…控制台…").unwrap().as_str(), "控制台");
+    }
 }

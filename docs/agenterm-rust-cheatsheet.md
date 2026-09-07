@@ -4010,6 +4010,16 @@ and 398,368 bytes from Linux aarch64 under the same release profile. The raw
 known/unknown operation validation remained exact. This is a measured duplicate
 removal, not evidence that either artifact has reached its total size ceiling.
 
+Cold regex use should preserve the public grammar without automatically linking
+every throughput engine. CU's external-terminal wait/send surface remains on
+the complete Unicode feature set, while disabling the cache, hybrid DFA,
+one-pass and bounded-backtracker feature families that its bounded cold matcher
+does not require. Unicode script/category/case/word-boundary tests preserve the
+grammar. Same-profile release ELFs fell another 196,184 bytes on Linux x86_64
+and 151,240 bytes on Linux aarch64. This is accepted as a size result; it is not
+a claim that the overall CU budget passed, and a future hot-regex consumer must
+bring its own latency evidence before re-enabling an engine family.
+
 Measure growth as well as today's file size. The CU catalog court showed that
 0/16/32 synthetic metadata rows can average 64 bytes per row even though the
 first conversion saved only 47,616 bytes and did not by itself reach the 2 MiB

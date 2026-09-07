@@ -26,7 +26,15 @@ miniz_oxide = "0.8"
 # actuation continues to load libagenterm dynamically.
 libloading = "0.8"
 sha2 = { version = "0.11", default-features = false }
-regex = "1"
+# Preserve the complete Unicode grammar while keeping the cold external-terminal
+# matcher off the DFA/one-pass/cache engine families. Public parity tests own
+# syntax and result semantics; final artifacts own the size decision.
+regex = { version = "1", default-features = false, features = [
+    "std",
+    "perf-inline",
+    "perf-literal",
+    "unicode",
+] }
 agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "ipc", "locking", "process", "process-spawn", "contained-process-spawn", "filesystem", "filesystem-entry", "filesystem-open", "filesystem-publish", "file-identity", "network-interfaces", "network-routes", "network-dns", "device-capture", "device-inventory", "device-io", "host-open", "host-notification", "permission-settings", "serde", "simulator", "host-boot-identity", "host-resource-snapshot", "storage-device-inventory", "audio", "service", "login-session", "system-broker", "privilege-authorization"] }
 
 [target.'cfg(windows)'.dependencies]
