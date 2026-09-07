@@ -4393,6 +4393,15 @@ end in the explicit handle list—the parent writer must stay non-inheritable—
 EOF can never arrive. Stop and expiry terminate/reap containment first, then
 join the writer and both output drains.
 
+An accessibility wait can prove absence only from a complete, non-truncated
+acquisition in which every closed expectation is known not to match. A missing
+node is explicit absence; ambiguity, an unobservable state, a failed tree read
+or a truncated walk is not. Freeze the exact desktop foreground identity before
+polling and compare it after every complete observation, because disappearance
+caused by observing another application is not a valid result. Preserve the
+last complete observation at timeout and never turn an incomplete read into an
+absence receipt.
+
 ## External terminal input is an attributed foreground transaction
 
 An accessibility window handle is not an AgenTerm scope/epoch/tab identity.

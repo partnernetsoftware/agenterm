@@ -9,8 +9,12 @@ pub(super) fn wait(
     condition: &WaitCondition,
 ) -> Result<serde_json::Value, CuError> {
     match condition {
-        WaitCondition::Expect { window, expect } => {
-            return wait_expect(timeout_ms, *window, expect);
+        WaitCondition::Expect {
+            window,
+            expect,
+            absent,
+        } => {
+            return wait_expect(timeout_ms, *window, expect, *absent);
         }
         WaitCondition::NodeNameContains {
             pattern,
@@ -325,6 +329,7 @@ pub(super) fn wait_expect(
     timeout_ms: u64,
     window: isize,
     expect: &[crate::command::Expectation],
+    absent: bool,
 ) -> Result<serde_json::Value, CuError> {
     if window == 0 {
         return Err(invalid_input(
@@ -339,41 +344,37 @@ pub(super) fn wait_expect(
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
     let poll = Duration::from_millis(50);
     let mut polls = 0usize;
-    let mut last;
+    let mut last_complete: Option<serde_json::Value> = None;
+    let foreground = absent.then(current_foreground_identity).transpose()?;
     loop {
         polls += 1;
         match mechanism::tree_for_window(Some(window)) {
             Ok(tree) => {
+                require_complete_absence_observation(absent, window, tree.visited, tree.truncated)?;
                 let flat = observe::flatten(&tree);
-                let mut results = Vec::with_capacity(expect.len());
-                let mut all_met = true;
-                for expectation in expect {
-                    let verdict = check_one(&flat, expectation)?;
-                    if verdict.unknown {
-                        return Err(CuError::new(
-                            "unsupported",
-                            "an expected state is not observable on its node; more polling cannot make it so",
-                        )
-                        .with_detail(serde_json::json!({ "reason": "state_unobservable", "item": verdict.item })));
-                    }
-                    all_met &= verdict.met;
-                    results.push(verdict.item);
+                let (results, goal_met) = evaluate_expectations(&flat, expect, absent)?;
+                if let Some(before) = foreground.as_ref() {
+                    let after = current_foreground_identity()?;
+                    require_same_foreground(before, &after)?;
                 }
-                last = serde_json::json!({
+                let observation = serde_json::json!({
                     "backend": tree.backend,
                     "visited": tree.visited,
                     "truncated": tree.truncated,
                     "results": results,
                 });
-                if all_met {
+                last_complete = Some(observation.clone());
+                if goal_met {
                     return Ok(serde_json::json!({
                         "met": true,
                         "verified": true,
+                        "absent": absent,
                         "addressing": "accessibility-tree",
                         "mechanism": "libagenterm",
                         "window": window,
                         "polls": polls,
-                        "observation": last,
+                        "foreground_unchanged": absent.then_some(true),
+                        "observation": observation,
                     }));
                 }
             }
@@ -387,7 +388,10 @@ pub(super) fn wait_expect(
                 if error.code == "denied" {
                     return Err(error);
                 }
-                last = serde_json::json!({ "tree_error": error_payload(&error) });
+                if !absent {
+                    last_complete =
+                        Some(serde_json::json!({ "tree_error": error_payload(&error) }));
+                }
             }
         }
         if Instant::now() >= deadline {
@@ -397,14 +401,279 @@ pub(super) fn wait_expect(
     }
     Err(CuError::new(
         "timeout",
-        format!("expectations not met after {timeout_ms}ms ({polls} polls)"),
+        format!(
+            "expectations did not become {} after {timeout_ms}ms ({polls} polls)",
+            if absent { "absent" } else { "met" }
+        ),
     )
-    .with_detail(serde_json::json!({ "observation": last })))
+    .with_detail(serde_json::json!({
+        "absent": absent,
+        "observation": last_complete,
+    })))
+}
+
+fn require_complete_absence_observation(
+    absent: bool,
+    window: isize,
+    visited: usize,
+    truncated: bool,
+) -> Result<(), CuError> {
+    if !absent || !truncated {
+        return Ok(());
+    }
+    Err(CuError::new(
+        "unverified",
+        "wait --absent requires a complete accessibility-tree observation",
+    )
+    .with_detail(serde_json::json!({
+        "reason": "observation_truncated",
+        "window": window,
+        "visited": visited,
+        "truncated": true,
+    })))
+}
+
+fn evaluate_expectations(
+    flat: &[observe::FlatNode<'_>],
+    expect: &[crate::command::Expectation],
+    absent: bool,
+) -> Result<(Vec<serde_json::Value>, bool), CuError> {
+    let mut results = Vec::with_capacity(expect.len());
+    let mut goal_met = true;
+    for expectation in expect {
+        let verdict = check_one(flat, expectation)?;
+        if verdict.unknown {
+            return Err(CuError::new(
+                "unsupported",
+                "an expected state is not observable on its node; more polling cannot make it so",
+            )
+            .with_detail(
+                serde_json::json!({ "reason": "state_unobservable", "item": verdict.item }),
+            ));
+        }
+        goal_met &= if absent { !verdict.met } else { verdict.met };
+        results.push(verdict.item);
+    }
+    Ok((results, goal_met))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ForegroundIdentity {
+    window_handle: isize,
+    process_id: u32,
+    app_name: String,
+    app: Option<observe::FrontmostApp>,
+}
+
+fn current_foreground_identity() -> Result<ForegroundIdentity, CuError> {
+    let mut rows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
+    let focus = windows::resolve_inventory_focus(&mut rows, &stacking);
+    let handle = focus.handle.ok_or_else(|| {
+        CuError::new(
+            "unverified",
+            "wait --absent requires one exact observable foreground window",
+        )
+        .with_detail(serde_json::json!({
+            "reason": "foreground_unobservable",
+            "focus": focus.json(),
+        }))
+    })?;
+    let window = rows
+        .into_iter()
+        .find(|row| row.handle == handle)
+        .ok_or_else(|| {
+            CuError::new(
+                "unverified",
+                "resolved foreground window was absent from its inventory",
+            )
+            .with_detail(serde_json::json!({ "reason": "foreground_unobservable" }))
+        })?;
+    if focus
+        .app
+        .as_ref()
+        .is_some_and(|app| app.pid != window.process_id)
+    {
+        return Err(CuError::new(
+            "unverified",
+            "foreground application and window identities disagree",
+        )
+        .with_detail(serde_json::json!({ "reason": "foreground_ambiguous" })));
+    }
+    Ok(ForegroundIdentity {
+        window_handle: window.handle,
+        process_id: window.process_id,
+        app_name: window.app_name,
+        app: focus.app,
+    })
+}
+
+fn require_same_foreground(
+    before: &ForegroundIdentity,
+    after: &ForegroundIdentity,
+) -> Result<(), CuError> {
+    if before == after {
+        return Ok(());
+    }
+    Err(CuError::new(
+        "foreground_changed",
+        "desktop foreground identity changed while wait --absent was observing",
+    )
+    .with_detail(serde_json::json!({
+        "before": foreground_json(before),
+        "after": foreground_json(after),
+    })))
+}
+
+fn foreground_json(identity: &ForegroundIdentity) -> serde_json::Value {
+    serde_json::json!({
+        "window": {
+            "handle": identity.window_handle,
+            "process_id": identity.process_id,
+            "app_name": identity.app_name,
+        },
+        "app": identity.app.as_ref().map(observe::FrontmostApp::json),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn a11y_node(id: &str, name: &str, role: &str, states: &[&str]) -> mechanism::A11yNode {
+        mechanism::A11yNode {
+            id: id.into(),
+            parent_id: None,
+            role: role.into(),
+            name: name.into(),
+            states: states.iter().map(|state| (*state).into()).collect(),
+            bounds: mechanism::A11yBounds {
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            actions: Vec::new(),
+            text: None,
+            identifier: None,
+        }
+    }
+
+    fn foreground(handle: isize, pid: u32, app_name: &str) -> ForegroundIdentity {
+        ForegroundIdentity {
+            window_handle: handle,
+            process_id: pid,
+            app_name: app_name.into(),
+            app: None,
+        }
+    }
+
+    #[test]
+    fn absent_requires_every_expectation_to_be_explicitly_unsatisfied() {
+        let mut present = a11y_node("/0/1", "Gone", "button", &["showing", "checked"]);
+        present.identifier = Some("gone".into());
+        let nodes = [present];
+        let flat = nodes
+            .iter()
+            .enumerate()
+            .map(|(index, node)| observe::FlatNode {
+                index,
+                depth: 1,
+                node,
+            })
+            .collect::<Vec<_>>();
+        let matching = crate::command::Expectation {
+            identifier: Some("gone".into()),
+            checked: Some(true),
+            ..Default::default()
+        };
+        let missing = crate::command::Expectation {
+            identifier: Some("missing".into()),
+            name: Some("Missing".into()),
+            ..Default::default()
+        };
+        let mismatched = crate::command::Expectation {
+            identifier: Some("gone".into()),
+            checked: Some(false),
+            ..Default::default()
+        };
+
+        assert!(
+            !evaluate_expectations(&flat, std::slice::from_ref(&matching), true)
+                .unwrap()
+                .1
+        );
+        assert!(
+            evaluate_expectations(&flat, &[missing, mismatched], true)
+                .unwrap()
+                .1
+        );
+        assert!(evaluate_expectations(&flat, &[matching], false).unwrap().1);
+    }
+
+    #[test]
+    fn absent_refuses_ambiguous_and_unobservable_matches() {
+        let nodes = [
+            a11y_node("/0/1", "Duplicate", "button", &["showing"]),
+            a11y_node("/0/2", "Duplicate", "button", &["showing"]),
+        ];
+        let flat = nodes
+            .iter()
+            .enumerate()
+            .map(|(index, node)| observe::FlatNode {
+                index,
+                depth: 1,
+                node,
+            })
+            .collect::<Vec<_>>();
+        let ambiguous = crate::command::Expectation {
+            name: Some("Duplicate".into()),
+            checked: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            evaluate_expectations(&flat, &[ambiguous], true)
+                .unwrap_err()
+                .code,
+            "ambiguous"
+        );
+
+        let unobservable = crate::command::Expectation {
+            node: Some("/0/1".into()),
+            checked: Some(true),
+            ..Default::default()
+        };
+        let error = evaluate_expectations(&flat, &[unobservable], true).unwrap_err();
+        assert_eq!(error.code, "unsupported");
+        assert_eq!(error.detail.unwrap()["reason"], "state_unobservable");
+    }
+
+    #[test]
+    fn absent_refuses_truncated_acquisition_while_positive_wait_stays_compatible() {
+        let error = require_complete_absence_observation(true, 7, 1000, true)
+            .expect_err("partial tree cannot prove absence");
+        assert_eq!(error.code, "unverified");
+        assert_eq!(error.detail.unwrap()["reason"], "observation_truncated");
+        assert!(require_complete_absence_observation(false, 7, 1000, true).is_ok());
+        assert!(require_complete_absence_observation(true, 7, 12, false).is_ok());
+    }
+
+    #[test]
+    fn absent_binds_exact_foreground_identity_but_not_mutable_window_content() {
+        let before = foreground(7, 42, "Fixture");
+        assert!(require_same_foreground(&before, &before).is_ok());
+
+        for changed in [
+            foreground(8, 42, "Fixture"),
+            foreground(7, 43, "Fixture"),
+            foreground(7, 42, "Other"),
+        ] {
+            let error = require_same_foreground(&before, &changed)
+                .expect_err("identity drift must fail typed");
+            assert_eq!(error.code, "foreground_changed");
+            assert_eq!(error.detail.unwrap()["before"]["window"]["handle"], 7);
+        }
+    }
 
     #[test]
     fn node_wait_timeout_is_a_typed_failure() {

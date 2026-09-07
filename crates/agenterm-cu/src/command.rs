@@ -3686,6 +3686,10 @@ pub enum WaitCondition {
     Expect {
         window: isize,
         expect: Vec<Expectation>,
+        /// Wait until every complete, unambiguous expectation is known not
+        /// to match.  Omitted/false preserves the original positive wait.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        absent: bool,
     },
     WindowTitleContains {
         pattern: String,
@@ -7190,6 +7194,7 @@ mod tests {
                     value: Some("pressed 1".into()),
                     ..Expectation::default()
                 }],
+                absent: false,
             },
         };
         assert_eq!(wait.required_grant(), Grant::Observe);
@@ -7199,6 +7204,28 @@ mod tests {
                 "verb": "wait", "target": "current", "timeout_ms": 500,
                 "wait": "expect", "window": 3,
                 "expect": [{ "node": "/0/1", "value": "pressed 1" }]
+            })
+        );
+
+        let absent = Command::Wait {
+            target: TargetRef::Current,
+            timeout_ms: 500,
+            condition: WaitCondition::Expect {
+                window: 3,
+                expect: vec![Expectation {
+                    identifier: Some("gone-node".into()),
+                    name: Some("Gone".into()),
+                    ..Expectation::default()
+                }],
+                absent: true,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&absent).expect("serialize absent wait"),
+            serde_json::json!({
+                "verb": "wait", "target": "current", "timeout_ms": 500,
+                "wait": "expect", "window": 3, "absent": true,
+                "expect": [{ "identifier": "gone-node", "name": "Gone" }]
             })
         );
     }

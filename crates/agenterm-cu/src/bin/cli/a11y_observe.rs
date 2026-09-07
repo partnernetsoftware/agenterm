@@ -432,6 +432,10 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     // `--` ends flag parsing so --text-equals / --text-contains may start with a dash.
     let literal_text = split_literal_tail(args, " ");
     let expect_present = args.iter().any(|arg| arg == "--expect");
+    let absent = take_switch(args, "--absent");
+    if absent && !expect_present {
+        return Err("wait --absent requires --expect JSON".into());
+    }
     // `--expect` is a closed shape, so its timeout value is consumed (the
     // older conditions' lenient `flag_u64` leaves it in place).
     let timeout_ms = if expect_present {
@@ -457,11 +461,15 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         };
         if !args.is_empty() {
             return Err(format!(
-                "wait --expect accepts only --timeout-ms MS --window H --expect JSON; unexpected {:?}",
+                "wait --expect accepts only --timeout-ms MS --window H --expect JSON [--absent]; unexpected {:?}",
                 args[0]
             ));
         }
-        WaitCondition::Expect { window, expect }
+        WaitCondition::Expect {
+            window,
+            expect,
+            absent,
+        }
     } else if text_equals_present {
         let expected = flag_value(args, "--text-equals")
             .or_else(|| flag_value(args, "--node-text-equals"))
@@ -657,5 +665,37 @@ mod tests {
         ));
         let mut stray = vec!["--unknown".into()];
         assert!(parse(spec, "state", TargetRef::Current, &mut stray).is_err());
+    }
+
+    #[test]
+    fn wait_absent_is_closed_and_requires_expect() {
+        let spec = verbs::lookup("wait").expect("wait verb");
+        let mut args = vec![
+            "--window".into(),
+            "Fixture#7".into(),
+            "--expect".into(),
+            r#"[{"identifier":"gone","name":"Gone"}]"#.into(),
+            "--absent".into(),
+            "--timeout-ms".into(),
+            "25".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "wait", TargetRef::Current, &mut args).unwrap(),
+            Command::Wait {
+                timeout_ms: 25,
+                condition: WaitCondition::Expect {
+                    window: 7,
+                    absent: true,
+                    ..
+                },
+                ..
+            }
+        ));
+
+        let mut absent_only = vec!["--absent".into(), "--window-count-gte".into(), "1".into()];
+        assert_eq!(
+            parse(spec, "wait", TargetRef::Current, &mut absent_only).unwrap_err(),
+            "wait --absent requires --expect JSON"
+        );
     }
 }
