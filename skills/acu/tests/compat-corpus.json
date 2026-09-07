@@ -542,7 +542,7 @@
         "--device",
         "2D62E897-1CDC-477B-AFB8-ECD4B202D944"
       ],
-      "classification": "dynamic-stay"
+      "classification": "resolved"
     },
     {
       "gap_id": "acu.dynamic.051",

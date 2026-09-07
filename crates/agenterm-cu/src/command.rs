@@ -2634,6 +2634,13 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_simulator_max")]
         max: usize,
     },
+    SimulatorStatus {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_simulator_udid")]
+        udid: String,
+        #[serde(deserialize_with = "deserialize_simulator_bundle_id")]
+        bundle_id: String,
+    },
     SimulatorLaunch {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_simulator_udid")]
@@ -4056,6 +4063,7 @@ impl Command {
             Self::SimulatorDevices { .. } => "simulator-devices".into(),
             Self::SimulatorBoot { .. } => "simulator-boot".into(),
             Self::SimulatorApps { .. } => "simulator-apps".into(),
+            Self::SimulatorStatus { .. } => "simulator-status".into(),
             Self::SimulatorLaunch { .. } => "simulator-launch".into(),
             Self::SimulatorTerminate { .. } => "simulator-terminate".into(),
             Self::PointerMove { .. } => "pointer-move".into(),
@@ -4450,6 +4458,7 @@ impl Command {
             | Self::SimulatorDevices { target, .. }
             | Self::SimulatorBoot { target, .. }
             | Self::SimulatorApps { target, .. }
+            | Self::SimulatorStatus { target, .. }
             | Self::SimulatorLaunch { target, .. }
             | Self::SimulatorTerminate { target, .. }
             | Self::PointerMove { target, .. }
@@ -5302,6 +5311,12 @@ impl Command {
             Self::SimulatorApps { udid, max, .. } => {
                 validate_simulator_udid(udid)?;
                 validate_simulator_max(*max)
+            }
+            Self::SimulatorStatus {
+                udid, bundle_id, ..
+            } => {
+                validate_simulator_udid(udid)?;
+                validate_simulator_bundle_id(bundle_id)
             }
             Self::SimulatorLaunch {
                 udid,
@@ -8425,6 +8440,17 @@ mod tests {
         };
         assert_eq!(apps.required_grant(), Grant::Observe);
         assert_eq!(apps.target(), TargetRef::Ssh);
+        let status = Command::SimulatorStatus {
+            target: TargetRef::Current,
+            udid: udid.into(),
+            bundle_id: "com.example.app".into(),
+        };
+        assert_eq!(status.required_grant(), Grant::Observe);
+        status.validate().unwrap();
+        let status_wire = serde_json::to_value(&status).unwrap();
+        assert_eq!(status_wire["verb"], "simulator-status");
+        assert_eq!(status_wire["bundle_id"], "com.example.app");
+        let _: Command = serde_json::from_value(status_wire).unwrap();
 
         for command in [
             Command::SimulatorBoot {

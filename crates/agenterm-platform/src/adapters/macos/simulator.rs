@@ -5,12 +5,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::contained_process::{ContainedChild, ContainedHeadlessCommand};
+use crate::process;
 use crate::process_spawn::ProcessExit;
 
 use super::super::{
-    SimulatorAppAction, SimulatorAppLifecycleReceipt, SimulatorAppList, SimulatorBootReceipt,
-    SimulatorDevice, SimulatorDeviceList, SimulatorError, SimulatorErrorKind, parse_app_list,
-    parse_device_list,
+    SimulatorAppAction, SimulatorAppLifecycleReceipt, SimulatorAppList, SimulatorAppProcess,
+    SimulatorAppStatus, SimulatorBootReceipt, SimulatorDevice, SimulatorDeviceList, SimulatorError,
+    SimulatorErrorKind, parse_app_executable, parse_app_list, parse_device_list,
+    parse_process_ids_for_executable,
 };
 
 const XCRUN: &str = "/usr/bin/xcrun";
@@ -96,6 +98,167 @@ pub(crate) fn list_apps(udid: &str, max: usize) -> Result<SimulatorAppList, Simu
     let apps = list_apps_until(udid, max, deadline)?;
     verify_same_booted_device(&before, deadline)?;
     Ok(apps)
+}
+
+pub(crate) fn app_status(
+    udid: &str,
+    bundle_id: &str,
+) -> Result<SimulatorAppStatus, SimulatorError> {
+    let deadline = Instant::now()
+        .checked_add(LIST_TIMEOUT)
+        .ok_or_else(|| SimulatorError::new(SimulatorErrorKind::Timeout, "deadline overflow"))?;
+    let before = require_booted_device(udid, deadline)?;
+    let apps = list_apps_until(udid, super::super::MAX_VISITED_APPS, deadline)?;
+    let installed_count = apps
+        .apps
+        .iter()
+        .filter(|app| app.bundle_id == bundle_id)
+        .count();
+    if installed_count > 1 {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::InvalidJson,
+            "simctl repeated the exact application bundle identity",
+        ));
+    }
+    if installed_count == 0 {
+        verify_same_booted_device(&before, deadline)?;
+        return Ok(SimulatorAppStatus {
+            device_udid: before.udid,
+            bundle_id: bundle_id.to_owned(),
+            installed: false,
+            running: false,
+            processes: Vec::new(),
+        });
+    }
+
+    let executable = app_executable_until(udid, bundle_id, deadline)?;
+
+    let process_output = run_xcrun(
+        &["simctl", "spawn", udid, "/bin/ps", "-axo", "pid=,comm="],
+        deadline,
+    )?;
+    if !matches!(process_output.exit, ProcessExit::Code(0)) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Unavailable,
+            "simctl could not inspect the simulator process inventory",
+        ));
+    }
+    let candidates =
+        parse_process_ids_for_executable(&process_output.stdout, &executable.full_path)?;
+    let mut processes = Vec::new();
+    for host_pid in candidates {
+        if Instant::now() >= deadline {
+            return Err(SimulatorError::new(
+                SimulatorErrorKind::Timeout,
+                "simulator process identity join exceeded its deadline",
+            ));
+        }
+        if let Some(host_start_identity) = process_exact_simulator_identity(host_pid, udid)? {
+            processes.push(SimulatorAppProcess {
+                host_pid,
+                host_start_identity,
+            });
+        }
+    }
+    if Instant::now() >= deadline {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Timeout,
+            "simulator process identity join exceeded its deadline",
+        ));
+    }
+    let after_executable = app_executable_until(udid, bundle_id, deadline)?;
+    if after_executable != executable {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Changed,
+            "the application executable identity changed during process inspection",
+        ));
+    }
+    verify_same_booted_device(&before, deadline)?;
+    Ok(SimulatorAppStatus {
+        device_udid: before.udid,
+        bundle_id: bundle_id.to_owned(),
+        installed: true,
+        running: !processes.is_empty(),
+        processes,
+    })
+}
+
+fn app_executable_until(
+    udid: &str,
+    bundle_id: &str,
+    deadline: Instant,
+) -> Result<super::super::SimulatorAppExecutable, SimulatorError> {
+    let app_info = run_xcrun(&["simctl", "appinfo", udid, bundle_id], deadline)?;
+    if !matches!(app_info.exit, ProcessExit::Code(0)) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Changed,
+            "the installed application disappeared before identity inspection",
+        ));
+    }
+    let open_step = String::from_utf8(app_info.stdout).map_err(|_| {
+        SimulatorError::new(
+            SimulatorErrorKind::InvalidJson,
+            "simctl appinfo output is not UTF-8",
+        )
+    })?;
+    let json = run_plutil(open_step, deadline)?;
+    if !matches!(json.exit, ProcessExit::Code(0)) {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::InvalidJson,
+            "system plutil rejected simctl appinfo output",
+        ));
+    }
+    parse_app_executable(&json.stdout, bundle_id)
+}
+
+fn process_exact_simulator_identity(
+    pid: u32,
+    udid: &str,
+) -> Result<Option<String>, SimulatorError> {
+    let before = process::start_identity(pid).map_err(|_| {
+        SimulatorError::new(
+            SimulatorErrorKind::Changed,
+            "a matching simulator process changed before identity inspection",
+        )
+    })?;
+    let environment = process::environment_snapshot(pid).map_err(|_| {
+        SimulatorError::new(
+            SimulatorErrorKind::Unavailable,
+            "a matching simulator process environment could not be inspected",
+        )
+    })?;
+    let after = process::start_identity(pid).map_err(|_| {
+        SimulatorError::new(
+            SimulatorErrorKind::Changed,
+            "a matching simulator process changed during identity inspection",
+        )
+    })?;
+    if before != after {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Changed,
+            "a matching simulator PID changed identity during inspection",
+        ));
+    }
+    let matches = matching_simulator_environment_entries(&environment, udid);
+    if matches > 1 {
+        return Err(SimulatorError::new(
+            SimulatorErrorKind::Changed,
+            "a matching simulator process published an ambiguous device identity",
+        ));
+    }
+    Ok((matches == 1).then_some(before))
+}
+
+fn matching_simulator_environment_entries(
+    environment: &process::ProcessEnvironmentSnapshot,
+    udid: &str,
+) -> usize {
+    let expected = format!("SIMULATOR_UDID={udid}");
+    environment
+        .entries
+        .iter()
+        .filter(|entry| entry.bytes.as_slice() == expected.as_bytes())
+        .count()
 }
 
 pub(crate) fn launch_exact(
@@ -570,6 +733,7 @@ fn join(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process::ProcessEnvironmentEntry;
 
     #[test]
     fn already_booted_receipt_is_idempotent() {
@@ -599,5 +763,29 @@ mod tests {
                 SimulatorErrorKind::Unavailable
             );
         }
+    }
+
+    #[test]
+    fn simulator_environment_join_requires_one_exact_udid() {
+        let udid = "12345678-1234-1234-1234-123456789ABC";
+        let snapshot = process::ProcessEnvironmentSnapshot {
+            entries: vec![
+                ProcessEnvironmentEntry {
+                    bytes: format!("SIMULATOR_UDID={udid}").into_bytes(),
+                },
+                ProcessEnvironmentEntry {
+                    bytes: b"SIMULATOR_DEVICE_NAME=Phone".to_vec(),
+                },
+            ],
+            source_bytes: 80,
+        };
+        assert_eq!(matching_simulator_environment_entries(&snapshot, udid), 1);
+        assert_eq!(
+            matching_simulator_environment_entries(
+                &snapshot,
+                "ABCDEF12-3456-7890-ABCD-EF1234567890"
+            ),
+            0
+        );
     }
 }

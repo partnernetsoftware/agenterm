@@ -4,6 +4,7 @@ use agenterm_platform::simulator::{
     self, SimulatorAppAction, SimulatorAppLifecycleReceipt, SimulatorBootReceipt, SimulatorError,
 };
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 
 use crate::{
     command::{
@@ -92,6 +93,47 @@ pub(super) fn simulator_apps_payload(udid: &str, max: usize) -> Result<Value, Cu
         "visited": inventory.visited,
         "truncated": inventory.truncated,
     }))
+}
+
+pub(super) fn simulator_status_payload(udid: &str, bundle_id: &str) -> Result<Value, CuError> {
+    validate_simulator_udid(udid).map_err(udid_error)?;
+    validate_simulator_bundle_id(bundle_id).map_err(bundle_id_error)?;
+    let status = simulator::app_status(udid, bundle_id).map_err(platform_error)?;
+    if status.device_udid != udid || status.bundle_id != bundle_id {
+        return Err(CuError::new(
+            "simulator_device_changed",
+            "CoreSimulator returned status for a different device or application identity",
+        ));
+    }
+    if status.running != !status.processes.is_empty() || (!status.installed && status.running) {
+        return Err(CuError::new(
+            "simulator_status_invalid",
+            "CoreSimulator returned internally inconsistent application status",
+        ));
+    }
+    Ok(json!({
+        "device_udid": status.device_udid,
+        "bundle_id": status.bundle_id,
+        "installed": status.installed,
+        "running": status.running,
+        "processes": status.processes.into_iter().map(|process| json!({
+            "host_pid": process.host_pid,
+            "start_identity_sha256": simulator_process_identity_digest(
+                &process.host_start_identity,
+            ),
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+fn simulator_process_identity_digest(identity: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"agenterm-cu:simulator-host-process-start:v1\0");
+    digest.update(identity.as_bytes());
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 pub(super) fn simulator_app_lifecycle_payload(
@@ -230,6 +272,12 @@ mod tests {
             .code,
             "simulator_expectation_required"
         );
+        assert_eq!(
+            simulator_status_payload(UDID, "not dotted")
+                .unwrap_err()
+                .code,
+            "simulator_bundle_id_invalid"
+        );
     }
 
     #[test]
@@ -321,10 +369,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn simulator_process_identity_digest_is_domain_separated_and_stable() {
+        let first = simulator_process_identity_digest("start:42");
+        assert_eq!(first.len(), 64);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(first, simulator_process_identity_digest("start:42"));
+        assert_ne!(first, simulator_process_identity_digest("start:43"));
+    }
+
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn non_macos_is_typed_unsupported_after_validation() {
         let error = simulator_devices_payload(1).unwrap_err();
         assert_eq!(error.code, "simulator_unsupported");
+        assert_eq!(
+            simulator_status_payload(UDID, "com.example.app")
+                .unwrap_err()
+                .code,
+            "simulator_unsupported"
+        );
     }
 }

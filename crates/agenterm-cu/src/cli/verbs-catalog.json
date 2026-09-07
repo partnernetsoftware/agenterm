@@ -3181,6 +3181,34 @@
       ]
     },
     {
+      "name": "simulator-status",
+      "command": "simulator-status",
+      "aliases": [
+        "simulator status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "inspect exact simulator app status and host processes",
+      "usage": "simulator status BUNDLE_ID --device UDID\nsimulator-status UDID BUNDLE_ID",
+      "args": [
+        {
+          "flag": "UDID",
+          "value": "",
+          "help": "exact 36-character simulator device UDID"
+        },
+        {
+          "flag": "BUNDLE_ID",
+          "value": "",
+          "help": "exact dotted application bundle identifier"
+        },
+        {
+          "flag": "--device",
+          "value": "UDID",
+          "help": "grouped-form exact simulator device identity"
+        }
+      ]
+    },
+    {
       "name": "simulator-launch",
       "command": "simulator-launch",
       "aliases": [
@@ -6081,6 +6109,10 @@
     {
       "name": "simulator-apps",
       "text": "agenterm-cu simulator-apps    (also: simulator apps)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  simulator apps UDID [--max N]\n  simulator-apps UDID [--max N]\n\narguments:\n  UDID                          exact 36-character simulator device UDID\n  --max N                       application result bound, 1..200 (default 200)\n\nLists installed application identities on the exact simulator. Identity and\nbounds are validated before platform dispatch. On non-macOS hosts this\ntyped-fails as simulator_unsupported.\n"
+    },
+    {
+      "name": "simulator-status",
+      "text": "agenterm-cu simulator-status    (also: simulator status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  simulator status BUNDLE_ID --device UDID\n  simulator-status UDID BUNDLE_ID\n\narguments:\n  UDID                          exact 36-character simulator device UDID\n  BUNDLE_ID                     exact dotted application bundle identifier\n  --device UDID                 grouped-form exact simulator device identity\n\nReports installation and running state for the exact app on an already-Booted\nCoreSimulator device. Process rows contain host_pid plus a domain-separated\nstart_identity_sha256; raw identity, executable paths and environment values\nare never published. Device, app executable and process identity joins are\nbracketed and bounded. On non-macOS hosts this typed-fails as\nsimulator_unsupported.\n"
     },
     {
       "name": "simulator-launch",

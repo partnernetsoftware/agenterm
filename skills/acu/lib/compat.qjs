@@ -138,7 +138,13 @@ function known_dynamic_boundary(argv) {
   const verb = argv[0];
   const sub = argv.length > 1 ? argv[1] : undefined;
   if (verb === "simulator" && sub === "status") {
-    return todo("acu.dynamic.050", "simulator", "simulator application status needs a typed provider");
+    const parsed = without_value_flags(argv, ["device"]);
+    if (!parsed.ok) { return { kind: "usage", command: "simulator", message: parsed.message }; }
+    if (parsed.values.device === null || parsed.argv.length !== 3) {
+      return { kind: "usage", command: "simulator",
+        message: "simulator status requires BUNDLE_ID and --device UDID" };
+    }
+    return { kind: "exec", argv: ["simulator-status", parsed.values.device, parsed.argv[2]] };
   }
   if (verb === "daemon" && sub === "service") {
     return { kind: "usage", command: "daemon",

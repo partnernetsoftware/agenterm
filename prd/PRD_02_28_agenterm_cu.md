@@ -133,11 +133,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `9 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 24 resolved witnesses now have an executable disposition:
-  11 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 9 remaining
-  dynamic-stay witness rows keep their stable repair identities. The `.084` witness now
+  `8 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 25 resolved witnesses now have an executable disposition:
+  12 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 8 remaining
+  dynamic-stay witness rows keep their stable repair identities. The `.050` witness now
+  maps to native exact simulator app status, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
   asserted as the same typed TODO until their per-poll semantics exist.
   This closes the valid top-level compatibility set, not the dynamic debt: every unsupported
@@ -505,7 +506,9 @@ ACU-only cutover
 ├─ [x] dynamic TODO registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green,
 │  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
-│  ├─ acu.dynamic.050 · simulator application status
+│  ├─ [~] acu.dynamic.050 · exact simulator application status is native and Bun-free;
+│  │  └─ bounded macOS read-only court proves installed/non-running truth; a pre-existing
+│  │     running fixture must still prove the host-PID/start-identity/device join
 │  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
 │  ├─ [~] acu.dynamic.067 · `literal.*` reduces exactly to native loss-aware substring wait;
 │  │  └─ general bounded linear-time regex remains typed TODO

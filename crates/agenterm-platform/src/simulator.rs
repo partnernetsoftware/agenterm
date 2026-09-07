@@ -62,6 +62,34 @@ pub struct SimulatorAppList {
     pub truncated: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatorAppProcess {
+    /// Host-global PID reported by the simulator's `ps` process view. It is
+    /// observation-only and carries no mutation authority.
+    pub host_pid: u32,
+    /// Opaque native start identity. Product callers must hash this before it
+    /// crosses a public reply boundary.
+    pub host_start_identity: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatorAppStatus {
+    pub device_udid: String,
+    pub bundle_id: String,
+    pub installed: bool,
+    pub running: bool,
+    pub processes: Vec<SimulatorAppProcess>,
+}
+
+/// Transient provider identity used only by the macOS adapter to join an
+/// installed bundle to the simulator process inventory. It must never cross
+/// the public CU reply boundary.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SimulatorAppExecutable {
+    pub(crate) full_path: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SimulatorAppAction {
     Launch,
@@ -179,6 +207,15 @@ pub fn list_apps(exact_udid: &str, max: usize) -> Result<SimulatorAppList, Simul
     validate_udid(exact_udid)?;
     validate_app_limit(max)?;
     selected::list_apps(exact_udid, max)
+}
+
+/// Observe installation and running-process state for one exact app on one
+/// exact already-Booted simulator. Runtime paths and process environments are
+/// consumed only inside the native adapter and are never returned.
+pub fn app_status(exact_udid: &str, bundle_id: &str) -> Result<SimulatorAppStatus, SimulatorError> {
+    validate_udid(exact_udid)?;
+    validate_bundle_id(bundle_id)?;
+    selected::app_status(exact_udid, bundle_id)
 }
 
 pub fn launch_exact(
@@ -314,6 +351,117 @@ pub(crate) fn parse_app_list(
         return Err(invalid_json("trailing bytes after app root object"));
     }
     Ok(result)
+}
+
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn parse_app_executable(
+    bytes: &[u8],
+    bundle_id: &str,
+) -> Result<SimulatorAppExecutable, SimulatorError> {
+    validate_bundle_id(bundle_id)?;
+    let mut parser = JsonParser::new(bytes);
+    parser.whitespace();
+    parser.expect(b'{')?;
+    let mut declared_id = None;
+    let mut path = None;
+    let mut executable = None;
+    parser.object_fields(|parser, key| match key.as_str() {
+        "CFBundleIdentifier" => {
+            parse_unique_string(parser, &mut declared_id, "duplicate app bundle id")
+        }
+        "Path" => parse_unique_string(parser, &mut path, "duplicate app path"),
+        "CFBundleExecutable" => {
+            parse_unique_string(parser, &mut executable, "duplicate app executable")
+        }
+        _ => parser.skip_value(1),
+    })?;
+    parser.whitespace();
+    if parser.position != bytes.len() {
+        return Err(invalid_json("trailing bytes after app info object"));
+    }
+    if declared_id.as_deref() != Some(bundle_id) {
+        return Err(invalid_json(
+            "app info bundle identity differs from request",
+        ));
+    }
+    let path = path.ok_or_else(|| invalid_json("app info is missing Path"))?;
+    let executable = executable.ok_or_else(|| invalid_json("app info is missing executable"))?;
+    if path.len() > 8_192
+        || !path.starts_with('/')
+        || path.ends_with('/')
+        || path.chars().any(char::is_control)
+        || executable.is_empty()
+        || executable.len() > 255
+        || executable == "."
+        || executable == ".."
+        || executable.contains('/')
+        || executable.chars().any(char::is_control)
+    {
+        return Err(invalid_json("app executable identity is invalid"));
+    }
+    let full_path = format!("{path}/{executable}");
+    if full_path.len() > 8_448 {
+        return Err(invalid_json("app executable path exceeds bound"));
+    }
+    Ok(SimulatorAppExecutable { full_path })
+}
+
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn parse_process_ids_for_executable(
+    bytes: &[u8],
+    executable_path: &str,
+) -> Result<Vec<u32>, SimulatorError> {
+    const MAX_PROCESS_ROWS: usize = 5_000;
+    if executable_path.is_empty()
+        || executable_path.len() > 8_448
+        || !executable_path.starts_with('/')
+        || executable_path.chars().any(char::is_control)
+    {
+        return Err(invalid_json("expected app executable path is invalid"));
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| invalid_json("simulator process inventory is not UTF-8"))?;
+    let mut visited = 0usize;
+    let mut matches = Vec::new();
+    for raw_line in text.lines() {
+        if raw_line.trim().is_empty() {
+            continue;
+        }
+        visited = visited
+            .checked_add(1)
+            .ok_or_else(|| invalid_json("simulator process row count overflow"))?;
+        if visited > MAX_PROCESS_ROWS {
+            return Err(invalid_json(
+                "simulator process inventory exceeds row bound",
+            ));
+        }
+        let line = raw_line.trim_start_matches(char::is_whitespace);
+        let split = line
+            .find(char::is_whitespace)
+            .ok_or_else(|| invalid_json("simulator process row is missing executable"))?;
+        let pid_text = &line[..split];
+        let path = line[split..].trim_start_matches(char::is_whitespace);
+        if pid_text.is_empty()
+            || !pid_text.bytes().all(|byte| byte.is_ascii_digit())
+            || path.is_empty()
+            || path.chars().any(char::is_control)
+        {
+            return Err(invalid_json("simulator process row is malformed"));
+        }
+        let pid = pid_text
+            .parse::<u32>()
+            .ok()
+            .filter(|pid| *pid != 0)
+            .ok_or_else(|| invalid_json("simulator process PID is invalid"))?;
+        if path == executable_path {
+            if matches.contains(&pid) {
+                return Err(invalid_json("simulator process inventory repeats a PID"));
+            }
+            matches.push(pid);
+        }
+    }
+    matches.sort_unstable();
+    Ok(matches)
 }
 
 fn invalid_json(message: &'static str) -> SimulatorError {
@@ -855,6 +1003,60 @@ mod tests {
     }
 
     #[test]
+    fn app_executable_parser_binds_exact_bundle_without_publishing_other_fields() {
+        let parsed = parse_app_executable(
+            br#"{
+              "CFBundleIdentifier":"com.example.app",
+              "Path":"/synthetic/Runtime Root/Applications/Example.app",
+              "CFBundleExecutable":"Example",
+              "DataContainer":"/synthetic/private/container"
+            }"#,
+            "com.example.app",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.full_path,
+            "/synthetic/Runtime Root/Applications/Example.app/Example"
+        );
+        for invalid in [
+            br#"{"CFBundleIdentifier":"com.other.app","Path":"/A.app","CFBundleExecutable":"A"}"#.as_slice(),
+            br#"{"CFBundleIdentifier":"com.example.app","Path":"relative/A.app","CFBundleExecutable":"A"}"#,
+            br#"{"CFBundleIdentifier":"com.example.app","Path":"/A.app","CFBundleExecutable":"../A"}"#,
+        ] {
+            assert_eq!(
+                parse_app_executable(invalid, "com.example.app")
+                    .unwrap_err()
+                    .kind,
+                SimulatorErrorKind::InvalidJson
+            );
+        }
+    }
+
+    #[test]
+    fn process_parser_preserves_full_paths_with_spaces_and_rejects_bad_rows() {
+        let path = "/synthetic/Runtime Root/Applications/Example.app/Example";
+        let rows =
+            format!("    1 /sbin/launchd\n  4242 {path}\n  4343 /synthetic/Other.app/Other\n");
+        assert_eq!(
+            parse_process_ids_for_executable(rows.as_bytes(), path).unwrap(),
+            vec![4242]
+        );
+        for invalid in [
+            b"not-a-pid /synthetic/A".as_slice(),
+            b"42".as_slice(),
+            b"0 /synthetic/A".as_slice(),
+            b"42 /synthetic/A\n42 /synthetic/A".as_slice(),
+        ] {
+            assert_eq!(
+                parse_process_ids_for_executable(invalid, "/synthetic/A")
+                    .unwrap_err()
+                    .kind,
+                SimulatorErrorKind::InvalidJson
+            );
+        }
+    }
+
+    #[test]
     fn json_string_parser_handles_surrogate_pairs_and_rejects_broken_ones() {
         let mut parser = JsonParser::new(br#""\uD83D\uDE80""#);
         assert_eq!(parser.string().unwrap(), "🚀");
@@ -878,6 +1080,10 @@ mod tests {
         );
         assert_eq!(
             list_apps(UDID_1, 1).unwrap_err().kind,
+            SimulatorErrorKind::Unsupported
+        );
+        assert_eq!(
+            app_status(UDID_1, "com.example.app").unwrap_err().kind,
             SimulatorErrorKind::Unsupported
         );
         assert_eq!(

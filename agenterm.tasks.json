@@ -3510,7 +3510,7 @@
     },
     {
       "id": "cu-simulator-readonly-smoke",
-      "description": "Prove the macOS public CoreSimulator CLI has bounded device and already-booted app inventories, hides app paths, rejects invalid bounds, and refuses mutation without actuate; the court never boots or changes an app.",
+      "description": "Prove the macOS public CoreSimulator CLI has bounded device, app inventory and exact app-status identity joins, hides paths and raw process identity, rejects invalid bounds, and refuses mutation without actuate; the court never boots or changes an app.",
       "entry": "scripts/qjs/cu-simulator-readonly-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

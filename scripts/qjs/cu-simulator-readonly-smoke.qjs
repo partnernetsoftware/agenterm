@@ -99,6 +99,27 @@ try {
       ensure(typeof app.bundle_id === "string" && app.bundle_id.includes("."), "cu_simulator_app_bundle");
       ensure(app.path === undefined && app.data_path === undefined, "cu_simulator_app_path_leak");
     }
+    const bundle_id = apps.data.apps.length > 0
+      ? apps.data.apps[0].bundle_id : "com.example.agenterm.absent";
+    print("STEP exact app status brackets installation, process and device identity");
+    const status = invoke(context.run_directory, executable, [
+      "--target", "current", "--grant", "observe", "simulator-status", booted.udid, bundle_id
+    ], true);
+    ensure(status.command === "simulator-status", "cu_simulator_status_identity");
+    ensure(status.data.device_udid === booted.udid, "cu_simulator_status_device");
+    ensure(status.data.bundle_id === bundle_id, "cu_simulator_status_bundle");
+    ensure(typeof status.data.installed === "boolean", "cu_simulator_status_installed");
+    ensure(typeof status.data.running === "boolean", "cu_simulator_status_running");
+    ensure(Array.isArray(status.data.processes), "cu_simulator_status_processes");
+    ensure(status.data.running === (status.data.processes.length > 0), "cu_simulator_status_consistency");
+    ensure(status.data.installed || !status.data.running, "cu_simulator_status_not_installed_running");
+    for (const process of status.data.processes) {
+      ensure(Number.isInteger(process.host_pid) && process.host_pid > 0, "cu_simulator_status_pid");
+      ensure(typeof process.start_identity_sha256 === "string"
+        && process.start_identity_sha256.length === 64, "cu_simulator_status_start_identity");
+      ensure(process.path === undefined && process.environment === undefined
+        && process.start_identity === undefined, "cu_simulator_status_private_identity_leak");
+    }
   } else {
     print("STEP no device is already booted; mutation remains intentionally untested");
   }
@@ -124,7 +145,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.simulator-readonly");
   harness.remove_run(context);
-  print("PASS: bounded read-only CoreSimulator public contract");
+  print("PASS: bounded read-only CoreSimulator inventory and app-status contract");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

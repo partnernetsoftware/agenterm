@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use super::{
-    SimulatorAppLifecycleReceipt, SimulatorAppList, SimulatorBootReceipt, SimulatorDeviceList,
-    SimulatorError,
+    SimulatorAppLifecycleReceipt, SimulatorAppList, SimulatorAppStatus, SimulatorBootReceipt,
+    SimulatorDeviceList, SimulatorError,
 };
 
 #[cfg(all(target_os = "macos", feature = "simulator"))]
@@ -25,6 +25,14 @@ pub(super) fn boot_exact(
 #[cfg(all(target_os = "macos", feature = "simulator"))]
 pub(super) fn list_apps(udid: &str, max: usize) -> Result<SimulatorAppList, SimulatorError> {
     platform::list_apps(udid, max)
+}
+
+#[cfg(all(target_os = "macos", feature = "simulator"))]
+pub(super) fn app_status(
+    udid: &str,
+    bundle_id: &str,
+) -> Result<SimulatorAppStatus, SimulatorError> {
+    platform::app_status(udid, bundle_id)
 }
 
 #[cfg(all(target_os = "macos", feature = "simulator"))]
@@ -70,6 +78,14 @@ pub(super) fn boot_exact(
 #[cfg(not(all(target_os = "macos", feature = "simulator")))]
 pub(super) fn list_apps(_udid: &str, _max: usize) -> Result<SimulatorAppList, SimulatorError> {
     let _portable_parser = super::parse_app_list;
+    Err(unsupported())
+}
+
+#[cfg(not(all(target_os = "macos", feature = "simulator")))]
+pub(super) fn app_status(
+    _udid: &str,
+    _bundle_id: &str,
+) -> Result<SimulatorAppStatus, SimulatorError> {
     Err(unsupported())
 }
 

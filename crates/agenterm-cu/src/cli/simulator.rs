@@ -22,7 +22,9 @@ pub fn parse(
         .ok_or_else(|| format!("unknown command '{}'", spec.name))?;
     if spelled == "simulator" {
         if args.first().map(String::as_str) != Some(action) {
-            return Err("simulator requires devices | boot | apps | launch | terminate".to_owned());
+            return Err(
+                "simulator requires devices | boot | apps | status | launch | terminate".to_owned(),
+            );
         }
         args.remove(0);
     }
@@ -30,10 +32,34 @@ pub fn parse(
         "devices" => devices(target, args),
         "boot" => boot(target, args),
         "apps" => apps(target, args),
+        "status" => status(target, args, spelled == "simulator"),
         "launch" => lifecycle(target, args, true),
         "terminate" => lifecycle(target, args, false),
         _ => Err(format!("unknown simulator action {action:?}")),
     }
+}
+
+fn status(target: TargetRef, args: &mut Vec<String>, grouped: bool) -> Result<Command, String> {
+    let (udid, bundle_id) = if grouped {
+        let udid = flag_text(args, "--device")?
+            .ok_or_else(|| "simulator status requires --device UDID".to_owned())?;
+        let bundle_id = one_bundle_id_positional("simulator status", args)?;
+        (udid, bundle_id)
+    } else {
+        if args.len() != 2 || args.iter().any(|arg| arg.starts_with('-')) {
+            return Err(
+                "simulator-status requires exact UDID and BUNDLE_ID positionals".to_owned(),
+            );
+        }
+        (args.remove(0), args.remove(0))
+    };
+    validate_simulator_udid(&udid).map_err(str::to_owned)?;
+    validate_simulator_bundle_id(&bundle_id).map_err(str::to_owned)?;
+    Ok(Command::SimulatorStatus {
+        target,
+        udid,
+        bundle_id,
+    })
 }
 
 fn devices(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -131,6 +157,13 @@ fn one_positional(verb: &str, args: &mut Vec<String>) -> Result<String, String> 
     Ok(args.remove(0))
 }
 
+fn one_bundle_id_positional(verb: &str, args: &mut Vec<String>) -> Result<String, String> {
+    if args.len() != 1 || args[0].starts_with('-') {
+        return Err(format!("{verb} requires exactly one BUNDLE_ID positional"));
+    }
+    Ok(args.remove(0))
+}
+
 fn no_extra(verb: &str, args: &[String]) -> Result<(), String> {
     if let Some(unexpected) = args.first() {
         Err(format!("{verb} received unexpected {unexpected:?}"))
@@ -156,6 +189,26 @@ mod tests {
         assert!(matches!(
             parse_words("simulator-devices", "simulator-devices", &[]),
             Ok(Command::SimulatorDevices { max: 200, .. })
+        ));
+        assert!(matches!(
+            parse_words(
+                "simulator-status",
+                "simulator",
+                &["status", "com.example.app", "--device", UDID]
+            ),
+            Ok(Command::SimulatorStatus {
+                ref udid,
+                ref bundle_id,
+                ..
+            }) if udid == UDID && bundle_id == "com.example.app"
+        ));
+        assert!(matches!(
+            parse_words(
+                "simulator-status",
+                "simulator-status",
+                &[UDID, "com.example.app"]
+            ),
+            Ok(Command::SimulatorStatus { .. })
         ));
         assert!(matches!(
             parse_words(
@@ -187,6 +240,10 @@ mod tests {
             (
                 "simulator-launch",
                 vec![UDID, "com.example.app", "--expect", "running"],
+            ),
+            (
+                "simulator-status",
+                vec!["com.example.app", "--device", "fuzzy"],
             ),
             (
                 "simulator-terminate",

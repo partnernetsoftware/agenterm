@@ -137,7 +137,7 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(&format!("{row}\n"), "", 1);
     }
-    while text.lines().count() > 165 {
+    while text.lines().count() > 166 {
         let Some(blank) = text.find("\n\n") else {
             break;
         };
@@ -308,6 +308,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "audio",
         "service",
         "simulator-apps",
+        "simulator-status",
         "simulator-boot",
     ];
     let compact_terminal = [
@@ -422,7 +423,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-scroll  terminal-screenshot  terminal-events  terminal-output  pty-start  pty-list  pty-prune\n  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-signal  pty-stop  terminal-new  process-argv\n  process-cwd  process-environment  process-fds  process-maps  process-sockets  process-cgroup\n  process-threads  process-set-state  process-policy  audio  service  simulator-apps  simulator-boot"
+            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-scroll  terminal-screenshot  terminal-events  terminal-output  pty-start  pty-list  pty-prune\n  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-signal  pty-stop  terminal-new  process-argv\n  process-cwd  process-environment  process-fds  process-maps  process-sockets  process-cgroup\n  process-threads  process-set-state  process-policy  audio  service\n  simulator-apps  simulator-status  simulator-boot"
                 .to_owned(),
         );
     }
@@ -449,7 +450,7 @@ fn append_missing_top_level_rows(text: &mut String) {
     }
     // Insert at the blank line immediately before the fallback paragraph.
     // Reuse that separator instead of adding another line: every new verb gets
-    // one discoverable row without letting whitespace consume the 160-line
+    // one discoverable row without letting whitespace consume the 166-line
     // top-level help budget.
     let block = missing.join("\n");
     if let Some(at) = text.find("\nMCU-aligned verbs") {
@@ -457,7 +458,7 @@ fn append_missing_top_level_rows(text: &mut String) {
     } else {
         text.push_str(&block);
     }
-    while text.lines().count() > 165 {
+    while text.lines().count() > 166 {
         let Some(blank) = text.find("\n\n") else {
             break;
         };
@@ -473,7 +474,7 @@ mod tests {
     fn top_level_help_is_scannable() {
         let text = top_level_text();
         let lines = text.lines().count();
-        assert!(lines <= 165, "--help is {lines} lines; keep it under 165");
+        assert!(lines <= 166, "--help is {lines} lines; keep it under 166");
         for header in [
             "System & permissions",
             "Windows & apps",

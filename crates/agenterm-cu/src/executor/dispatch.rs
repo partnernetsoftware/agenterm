@@ -1839,6 +1839,9 @@ impl Executor {
                 ..
             } => simulator_boot_payload(udid, *timeout_ms, *expect_booted),
             Command::SimulatorApps { udid, max, .. } => simulator_apps_payload(udid, *max),
+            Command::SimulatorStatus {
+                udid, bundle_id, ..
+            } => simulator_status_payload(udid, bundle_id),
             Command::SimulatorLaunch {
                 udid,
                 bundle_id,

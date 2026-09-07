@@ -76,9 +76,9 @@ ACU replaces MCU
 │  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
-│  │  all 9 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
+│  │  all 8 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
 │  │  `.084` Space filtering executes natively while its remaining filter shapes keep that typed TODO;
-│  │  all 24 resolved witnesses have a checked disposition (11 exec · 8 compound · 5 usage · 0 TODO);
+│  │  all 25 resolved witnesses have a checked disposition (12 exec · 8 compound · 5 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
 │  │  external wrapper now execs that entry; remaining dynamic mappings, broader MCP, native courts and physical archive remain
@@ -902,8 +902,9 @@ defaults, geometry and legacy alias results; correcting those differences now
 precedes adding more flags. Browser profile-wide tabs are separately frozen to
 the MV3 bridge: a one-window AX tab strip is never an acceptable fallback.
 
-The compatibility adapter now has zero static STAY spellings and 9 dynamic
-STAY witnesses after lossless projections for `resource top`, focused
+The compatibility adapter now has zero static STAY spellings and 8 dynamic
+STAY witnesses after lossless projections for exact simulator application status,
+`resource top`, focused
 PID, observe role, wait absence, platform-default-shell PTY, selector-rooted
 trees, bounded filtered query watch, and Space filtering evaluated inside every
 window-watch poll. The frozen `tree --page` witness is now a closed local usage

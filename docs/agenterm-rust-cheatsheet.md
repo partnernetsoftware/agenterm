@@ -5132,3 +5132,16 @@ application data: MCP returns it as structured content with `isError: true`.
 Only load/ABI/panic/encoding failure is a transport error. This distinction
 preserves typed failure and existing receipts without accidental translation,
 retry, or fallback at a new protocol boundary.
+
+## Join CoreSimulator apps to host processes without identity leaks
+
+`simctl spawn <UDID> ps` reports host-global PIDs, and executable paths can be
+shared across simulator instances. Never infer device ownership from PID or
+path alone. Bracket each candidate with the native process start identity,
+require exactly one initial environment entry equal to the requested
+`SIMULATOR_UDID`, then re-read both the app executable identity and the exact
+Booted device identity before publishing a result. Keep the executable path,
+environment and raw start identity inside the platform adapter; a public
+observation may expose only the host PID and a domain-separated digest of the
+start identity. Bound app rows, process rows, captured bytes and the entire
+multi-command deadline, and fail closed when any identity changes.
