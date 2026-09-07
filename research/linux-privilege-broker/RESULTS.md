@@ -84,12 +84,13 @@ public session lock.
 
 ## Size court — blocking
 
-The current stripped dynamically linked release artifacts are approximately
-10 MiB on Linux x86_64 and 7.7 MiB on Linux aarch64. They exceed the governing
-2 MiB `agenterm-cu` release budget after the polkit transport became live.
-The budget is not raised. This generation cannot be promoted even if functional
-criteria later pass; the implementation must recover the size through a typed
-architecture change and rerun the exact courts.
+The current stripped dynamically linked release artifacts are 10,525,176 bytes
+on Linux x86_64 and 8,069,168 bytes on Linux aarch64. They exceed the governing
+4,194,304-byte Linux `agenterm-cu` release budget after the system-broker path
+became live. The budget is not raised. This generation cannot be promoted even
+if functional criteria later pass; the implementation must recover the size
+through a typed architecture change and rerun the exact courts. The separate
+2,097,152-byte court applies to Windows `agenterm-cu.exe`, not these ELF files.
 
 ## Protocol/court findings
 
