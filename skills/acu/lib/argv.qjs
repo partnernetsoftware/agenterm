@@ -1,0 +1,168 @@
+// Pure argv helpers for the standalone ACU compatibility shell.
+//
+// This module owns no process, filesystem, binary discovery, CU mechanism, or
+// authority policy. `from_host` only reads the qjswasm tool door's immutable
+// argv snapshot; every other function operates on an explicit string array.
+
+export const MAX_ARGV_COUNT = 4096;
+export const MAX_ARGV_CODE_UNITS = 1048576;
+export const MAX_FLAG_NAME_CODE_UNITS = 64;
+export const MAX_DECIMAL_CODE_UNITS = 64;
+
+function fail(code, detail) {
+  throw code + (detail === "" ? "" : ":" + detail);
+}
+
+function validate_array(values) {
+  if (!Array.isArray(values)) {
+    fail("acu_argv_not_array", "expected an argv array");
+  }
+  if (values.length < 0 || values.length > MAX_ARGV_COUNT) {
+    fail("acu_argv_count", "maximum=" + MAX_ARGV_COUNT);
+  }
+  const out = [];
+  let total = 0;
+  for (let i = 0; i < values.length; i = i + 1) {
+    const value = values[i];
+    if (typeof value !== "string") {
+      fail("acu_argv_value", "index=" + i);
+    }
+    total = total + value.length + 1;
+    if (total > MAX_ARGV_CODE_UNITS) {
+      fail("acu_argv_size", "maximum=" + MAX_ARGV_CODE_UNITS);
+    }
+    out.push(value);
+  }
+  return out;
+}
+
+export function from_array(values) {
+  return validate_array(values);
+}
+
+export function from_host() {
+  const count = arg_count();
+  if (count < 0 || count > MAX_ARGV_COUNT) {
+    fail("acu_argv_count", "maximum=" + MAX_ARGV_COUNT);
+  }
+  const values = [];
+  for (let i = 0; i < count; i = i + 1) {
+    if (arg(i) !== 0) { fail("acu_argv_read", tool_result()); }
+    values.push(tool_result());
+  }
+  return validate_array(values);
+}
+
+function validate_flag_name(name) {
+  if (typeof name !== "string" || !name.startsWith("--") || name === "--") {
+    fail("acu_argv_flag_name", "expected --name");
+  }
+  if (name.length > MAX_FLAG_NAME_CODE_UNITS || name.indexOf("=") !== -1) {
+    fail("acu_argv_flag_name", "invalid or oversized flag name");
+  }
+}
+
+// Finds one value flag before the first `--`. Both `--name value` and
+// `--name=value` preserve the value exactly, including an empty string.
+export function flag(argv, name) {
+  const values = validate_array(argv);
+  validate_flag_name(name);
+  const prefix = name + "=";
+  let found = null;
+  for (let i = 0; i < values.length; i = i + 1) {
+    const current = values[i];
+    if (current === "--") { break; }
+    let value = null;
+    let consumed = 1;
+    if (current === name) {
+      if (i + 1 >= values.length || values[i + 1].startsWith("--")) {
+        fail("acu_argv_flag_value", name);
+      }
+      value = values[i + 1];
+      consumed = 2;
+    } else if (current.startsWith(prefix)) {
+      value = current.slice(prefix.length);
+    }
+    if (value !== null) {
+      if (found !== null) { fail("acu_argv_flag_duplicate", name); }
+      found = { present: true, value: value, index: i, consumed: consumed };
+      if (consumed === 2) { i = i + 1; }
+    }
+  }
+  return found === null
+    ? { present: false, value: "", index: -1, consumed: 0 }
+    : found;
+}
+
+export function switch_flag(argv, name) {
+  const values = validate_array(argv);
+  validate_flag_name(name);
+  let found = -1;
+  for (let i = 0; i < values.length; i = i + 1) {
+    const current = values[i];
+    if (current === "--") { break; }
+    if (current === name) {
+      if (found !== -1) { fail("acu_argv_flag_duplicate", name); }
+      found = i;
+    } else if (current.startsWith(name + "=")) {
+      fail("acu_argv_switch_value", name);
+    }
+  }
+  return { present: found !== -1, index: found };
+}
+
+export function parse_decimal(raw, minimum, maximum, label) {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > MAX_DECIMAL_CODE_UNITS) {
+    fail("acu_argv_decimal", label);
+  }
+  let index = 0;
+  let sign = 1;
+  if (raw.charAt(0) === "-") { sign = -1; index = 1; }
+  else if (raw.charAt(0) === "+") { index = 1; }
+  let value = 0;
+  let fraction = 0;
+  let divisor = 1;
+  let seen_digit = false;
+  let seen_dot = false;
+  for (; index < raw.length; index = index + 1) {
+    const character = raw.charAt(index);
+    if (character === "." && !seen_dot) { seen_dot = true; continue; }
+    if (character < "0" || character > "9") { fail("acu_argv_decimal", label); }
+    seen_digit = true;
+    const digit = character.charCodeAt(0) - 48;
+    if (seen_dot) {
+      divisor = divisor * 10;
+      fraction = fraction + digit / divisor;
+    } else {
+      value = value * 10 + digit;
+    }
+  }
+  if (!seen_digit) { fail("acu_argv_decimal", label); }
+  value = sign * (value + fraction);
+  if (value < minimum || value > maximum) {
+    fail("acu_argv_decimal_range", label);
+  }
+  return value;
+}
+
+export function decimal_flag(argv, name, minimum, maximum) {
+  const found = flag(argv, name);
+  return found.present
+    ? { present: true, value: parse_decimal(found.value, minimum, maximum, name) }
+    : { present: false, value: 0 };
+}
+
+export function parse_bool(raw, label) {
+  if (typeof raw !== "string" || raw.length > 5) { fail("acu_argv_bool", label); }
+  const value = raw.toLowerCase();
+  if (value === "true" || value === "1" || value === "yes" || value === "on") { return true; }
+  if (value === "false" || value === "0" || value === "no" || value === "off") { return false; }
+  fail("acu_argv_bool", label);
+}
+
+export function bool_flag(argv, name) {
+  const found = flag(argv, name);
+  return found.present
+    ? { present: true, value: parse_bool(found.value, name) }
+    : { present: false, value: false };
+}

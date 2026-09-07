@@ -1,0 +1,10 @@
+import * as argv from "skills/acu/lib/argv";
+
+const values = argv.from_host();
+if (values.length !== 4) { throw "host argv count"; }
+if (values[0] !== "") { throw "host empty string"; }
+if (values[1] !== "  ") { throw "host spaces"; }
+if (values[2] !== "line one\nline two") { throw "host newline"; }
+if (values[3] !== "--") { throw "host separator"; }
+
+"argv-host.qjs PASS";

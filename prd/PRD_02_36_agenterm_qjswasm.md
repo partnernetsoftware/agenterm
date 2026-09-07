@@ -56,7 +56,8 @@ agenterm-qjswasm
 │  │  ├─ [ ] MCP consumes the same adapter (current MCP surface remains separate and read-only)
 │  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
-│  │  ├─ `acu.qjs` is only a temporary Bun-free legacy-syntax adapter
+│  │  ├─ [~] `skills/acu/acu.qjs`: bounded argv/native path is green; legacy corpus/entry switch pending
+│  │  │  └─ no Bun, executable discovery, child process or MCU fallback
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism
 │  │  ├─ MCU-absent black-box parity precedes switching the default entry
 │  │  └─ generic tinyvm remains free of AgenTerm machine-control authority

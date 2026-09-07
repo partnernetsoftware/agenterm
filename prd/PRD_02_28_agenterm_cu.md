@@ -115,7 +115,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │  ├─ no path search, static/child/MCU fallback or malformed JSON acceptance
   │  │  └─ provider panic serializes and permanently latches failure
   │  └─ consumed directly by CLI, MCP and qjswasm
-  ├─ after object parity + TODO-aware MCU-absent courts: acu.qjs = Bun-free syntax adapter
+  ├─ [~] acu.qjs = Bun-free syntax adapter
+  │  ├─ [x] bounded host argv + global normalization + direct native spelling → agenterm:acu.argv
+  │  ├─ [x] no Bun / binary lookup / child process / MCU fallback
+  │  └─ [ ] migrate 42 legacy verbs, freeze 95 dynamic TODO witnesses, switch public entry
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
   └─ acu.qjs retires when legacy MCU syntax has no retained callers
@@ -161,7 +164,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     OBJ["agenterm:acu.call/argv<br/>one parser · one Executor"]
     PROVIDER["fixed sibling dynamic provider<br/>ABI checked · bounded · no fallback"]
     GATE{"typed-object parity · TODO-aware<br/>MCU-absent black box"}
-    QJS["acu.qjs transition<br/>Bun-free legacy mapping"]
+    QJS["acu.qjs [~]<br/>Bun-free native path<br/>legacy corpus pending"]
     USERS["typed consumers<br/>CLI · MCP · qjs"]
     LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]

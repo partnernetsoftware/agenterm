@@ -1,0 +1,52 @@
+import * as argv from "skills/acu/lib/argv";
+
+function require(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function must_throw(code, action) {
+  let caught = "";
+  try { action(); } catch (error) { caught = "" + error; }
+  require(caught.startsWith(code), "expected " + code + ", got " + caught);
+}
+
+const exact = ["", "  ", "line one\nline two", "--", "--after", "value"];
+const copied = argv.from_array(exact);
+require(copied.length === exact.length, "copy count");
+for (let i = 0; i < exact.length; i = i + 1) {
+  require(copied[i] === exact[i], "copy changed index " + i);
+}
+copied[0] = "changed";
+require(exact[0] === "", "copy aliases input");
+
+const spaced = argv.flag(["--name", "  keep \n exact  "], "--name");
+require(spaced.present && spaced.value === "  keep \n exact  ", "spaced flag");
+const empty = argv.flag(["--name="], "--name");
+require(empty.present && empty.value === "", "empty flag");
+const stopped = argv.flag(["--", "--name", "hidden"], "--name");
+require(!stopped.present, "separator did not stop flags");
+require(argv.switch_flag(["--verbose", "--", "--verbose"], "--verbose").present, "switch");
+must_throw("acu_argv_flag_duplicate", function() {
+  argv.flag(["--name", "one", "--name=two"], "--name");
+});
+must_throw("acu_argv_flag_value", function() {
+  argv.flag(["--name", "--other"], "--name");
+});
+must_throw("acu_argv_not_array", function() {
+  argv.from_array({ length: 0 });
+});
+
+require(argv.parse_decimal("-12.5", -20, 20, "amount") === -12.5, "decimal");
+require(argv.decimal_flag(["--limit=64"], "--limit", 1, 64).value === 64, "decimal flag");
+must_throw("acu_argv_decimal_range", function() {
+  argv.parse_decimal("65", 1, 64, "limit");
+});
+must_throw("acu_argv_decimal", function() {
+  argv.parse_decimal("1e3", 0, 2000, "limit");
+});
+
+require(argv.parse_bool("TRUE", "enabled") === true, "true bool");
+require(argv.bool_flag(["--enabled", "off"], "--enabled").value === false, "false bool");
+must_throw("acu_argv_bool", function() { argv.parse_bool("maybe", "enabled"); });
+
+"argv.qjs PASS";

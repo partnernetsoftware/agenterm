@@ -143,9 +143,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       dynamic provider 已进入六格构建与 Win/macOS 发布链；Windows
 │     │                       exact release 主程序 3,738,112 B ≤ 4 MiB。六格目前只证构建/打包，
 │     │                       dynamic load、MCP 与原生运行庭仍待完成，不能冒充 execute evidence
-│     ├─ Bun-free bridge         先切断 MCU runtime；过渡 `acu.ts` 的 Bun 尾账随后由
-│     │                       `agenterm:acu` + `acu.qjs` 接替，它只保留旧语法兼容
-│     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
+│     ├─ Bun-free bridge [~]     `skills/acu/acu.qjs` 已以 bounded argv helper +
+│     │                       `agenterm:acu.argv` 跑通 native spelling；无 Bun、binary lookup、
+│     │                       child process 或 MCU fallback。旧 42-verb 映射/corpus 与正式入口切换待收口
 │     ├─ retirement             MCU 立即退出生产入口；TODO 动态补 ACU。调用者迁到 typed
 │     │                       `acu` 对象后，过渡 `acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 135 叶：
@@ -272,7 +272,7 @@ flowchart LR
   ACUOBJ["agenterm:acu.call/argv<br/>one parser · Executor · receipts"]
   ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
   ACUDYN["fixed sibling provider<br/>ABI checked · no fallback<br/>separate signed artifact"]
-  ACUQJS["temporary acu.qjs<br/>Bun-free legacy mapping"]
+  ACUQJS["acu.qjs [~]<br/>Bun-free argv foundation<br/>legacy corpus pending"]
   TODO["acu_todo ALERT<br/>stable gap id · explicit missing behavior"]
   MCUARC["archived MCU source<br/>read-only implementation reference"]
   BRIDGE["stable MV3 profile<br/>exact-tab lock · unique reconnect"]
