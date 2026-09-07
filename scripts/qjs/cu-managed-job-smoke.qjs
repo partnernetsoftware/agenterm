@@ -419,7 +419,10 @@ try {
     ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30"]
     : ["/bin/sh", "-c", "trap 'printf signal-usr1\\n' USR1; printf 'signal-ready\\n'; while :; do :; done"];
   const second_spawn_args = mutation_prefix(request_root + "-spawn-stop", session_id, session_lease);
-  append_all(second_spawn_args, ["job-spawn", "--ttl-seconds", "2", "--"]);
+  // Full-system x86 emulation can spend several seconds in each independent
+  // priority/policy/state assertion. Keep this owned fixture alive for the
+  // complete court; explicit job-stop and harness cleanup still prove reaping.
+  append_all(second_spawn_args, ["job-spawn", "--ttl-seconds", "60", "--"]);
   append_all(second_spawn_args, long_command);
   const second_spawned = invoke_cu(run_directory, executable, second_spawn_args, "job-spawn");
   second_job = { job_id: text_of(second_spawned.job_id), generation: second_spawned.generation };
@@ -610,6 +613,17 @@ try {
       "cu_managed_job_user_signal_replay_contract"
     );
   }
+  const cleanup_renew_args = mutation_prefix(
+    request_root + "-renew-for-cleanup", session_id, session_lease
+  );
+  append_all(cleanup_renew_args, [
+    "job-renew", second_job.job_id, "" + second_job.generation, "--ttl-seconds", "1"
+  ]);
+  const cleanup_renewed = invoke_cu(
+    run_directory, executable, cleanup_renew_args, "job-renew"
+  );
+  ensure(cleanup_renewed.renewed_ttl_ms === 1000,
+    "cu_managed_job_cleanup_renew_contract");
   const stopped = stop_owned_job(
     run_directory, executable, session_id, session_lease,
     request_root + "-stop", second_job

@@ -189,6 +189,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   qjswasm journey proves enforcement, status, exact request replay, clear and
   explicit resume. Linux and Windows qualification remains open, so the ledger
   row is `platform-limited`, not cross-platform complete.
+- [x] The managed-job public court no longer couples fixture lifetime to host
+  speed. Full-system x86 emulation proved that a two-second owner TTL could
+  expire during otherwise valid priority/policy/state assertions and surface
+  as `process_tree_root_missing`. The fixture now owns a 60-second execution
+  lease, shortens it to one second immediately before explicit stop, and then
+  proves bounded resident-owner cleanup. Native behavior was unchanged; the
+  court now distinguishes product failure from an under-budgeted fixture.
 - [~] Runtime capability probing has left the hard-gap set. The shared
   qjswasm core is live on macOS, Windows ARM64 and Linux ARM64; a same-source
   Linux x86_64/X11 court additionally passed all 33 declared process,
