@@ -1,0 +1,1837 @@
+{
+  "schema": "agenterm.acu.compat-corpus.v1",
+  "sources": [
+    {
+      "blob": "moltbaby:skills/acu/acu.ts",
+      "sha256": "b1c32623bac746b88757e64dca9e91e428b33c32297eafaf25dac40d4b9a32de",
+      "exports": [
+        "DYNAMIC_STAY_CORPUS",
+        "ACU_COMPATIBILITY_VERBS"
+      ]
+    },
+    {
+      "blob": "moltbaby:skills/acu/acu.test.ts",
+      "sha256": "e9e19692f5c4388a4207b544e2c0f0872bc4252daba217cd07c19f3c423ae211",
+      "declaration": "PREFERRED_PROBE"
+    }
+  ],
+  "normalization": {
+    "absolute_probe_arguments": "fixture-<basename>"
+  },
+  "invariants": {
+    "dynamic_count": 95,
+    "positive_count": 42,
+    "dynamic_gap_ids_unique": true,
+    "dynamic_argv_unique": true,
+    "positive_verbs_unique": true,
+    "positive_argv_unique": true
+  },
+  "dynamic_rows": [
+    {
+      "gap_id": "acu.dynamic.001",
+      "argv": [
+        "query",
+        "Window#1",
+        "--sudo"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.002",
+      "argv": [
+        "setup",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.003",
+      "argv": [
+        "snapshot",
+        "Window#1",
+        "--shot"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.004",
+      "argv": [
+        "drag"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.005",
+      "argv": [
+        "zoom"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.006",
+      "argv": [
+        "job",
+        "unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.007",
+      "argv": [
+        "job",
+        "list",
+        "--lease",
+        "lease-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.009",
+      "argv": [
+        "job",
+        "list",
+        "--request-id",
+        "request-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.010",
+      "argv": [
+        "job",
+        "spawn",
+        "--",
+        "true"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.011",
+      "argv": [
+        "job",
+        "list",
+        "--request-id",
+        "request-1",
+        "--session",
+        "session-1",
+        "--session-lease",
+        "lease-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.012",
+      "argv": [
+        "job",
+        "spawn",
+        "--unsupported",
+        "--request-id",
+        "request-1",
+        "--session",
+        "session-1",
+        "--session-lease",
+        "lease-1",
+        "--",
+        "true"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.013",
+      "argv": [
+        "job",
+        "spawn",
+        "--expiry",
+        "detach",
+        "--request-id",
+        "request-1",
+        "--session",
+        "session-1",
+        "--session-lease",
+        "lease-1",
+        "--",
+        "true"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.014",
+      "argv": [
+        "job",
+        "list",
+        "extra"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.015",
+      "argv": [
+        "job",
+        "prune",
+        "extra"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.016",
+      "argv": [
+        "job",
+        "status",
+        "job-1",
+        "extra"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.017",
+      "argv": [
+        "job",
+        "policy",
+        "job-1",
+        "unsupported",
+        "--generation",
+        "1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.018",
+      "argv": [
+        "job",
+        "resources",
+        "job-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.019",
+      "argv": [
+        "job",
+        "output",
+        "job-1"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.020",
+      "argv": [
+        "job",
+        "events",
+        "job-1"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.021",
+      "argv": [
+        "job",
+        "events",
+        "job-1",
+        "--generation",
+        "1",
+        "--max-bytes",
+        "3"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.022",
+      "argv": [
+        "job",
+        "write",
+        "job-1",
+        "text",
+        "--request-id",
+        "request-1",
+        "--session",
+        "session-1",
+        "--session-lease",
+        "lease-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.023",
+      "argv": [
+        "job",
+        "wait",
+        "job-1"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.024",
+      "argv": [
+        "job",
+        "set-state",
+        "job-1",
+        "paused",
+        "--generation",
+        "1",
+        "--request-id",
+        "request-1",
+        "--session",
+        "session-1",
+        "--session-lease",
+        "lease-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.025",
+      "argv": [
+        "job",
+        "signal",
+        "job-1",
+        "TERM",
+        "--request-id",
+        "request-1",
+        "--session",
+        "session-1",
+        "--session-lease",
+        "lease-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.008",
+      "argv": [
+        "job",
+        "renew",
+        "job-1",
+        "legacy-lease"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.027",
+      "argv": [
+        "job",
+        "renew",
+        "job-1",
+        "--request-id",
+        "request-1",
+        "--session",
+        "session-1",
+        "--session-lease",
+        "lease-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.028",
+      "argv": [
+        "job",
+        "stop",
+        "job-1",
+        "--force",
+        "--request-id",
+        "request-1",
+        "--session",
+        "session-1",
+        "--session-lease",
+        "lease-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.029",
+      "argv": [
+        "process",
+        "set-state",
+        "42",
+        "running",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.030",
+      "argv": [
+        "process",
+        "watch",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.031",
+      "argv": [
+        "process",
+        "watch",
+        "--max-events",
+        "4097"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.032",
+      "argv": [
+        "process",
+        "wait",
+        "42",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.033",
+      "argv": [
+        "process",
+        "usage",
+        "42",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.034",
+      "argv": [
+        "process",
+        "unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.035",
+      "argv": [
+        "file",
+        "inspect",
+        "file.txt",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.036",
+      "argv": [
+        "file",
+        "copy",
+        "a",
+        "b",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.037",
+      "argv": [
+        "file",
+        "status",
+        "transaction-1",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.038",
+      "argv": [
+        "file",
+        "rollback",
+        "transaction-1"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.039",
+      "argv": [
+        "file",
+        "unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.040",
+      "argv": [
+        "network",
+        "interfaces",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.041",
+      "argv": [
+        "network",
+        "routes",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.042",
+      "argv": [
+        "network",
+        "dns",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.043",
+      "argv": [
+        "network",
+        "probe",
+        "localhost",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.044",
+      "argv": [
+        "network",
+        "unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.045",
+      "argv": [
+        "kill",
+        "42",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.046",
+      "argv": [
+        "simulator",
+        "devices",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.047",
+      "argv": [
+        "simulator",
+        "apps",
+        "--device",
+        "device-1",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.048",
+      "argv": [
+        "simulator",
+        "apps"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.049",
+      "argv": [
+        "simulator",
+        "boot",
+        "--device",
+        "00000000-0000-0000-0000-000000000000",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.050",
+      "argv": [
+        "simulator",
+        "status",
+        "com.example.fixture",
+        "--device",
+        "2D62E897-1CDC-477B-AFB8-ECD4B202D944"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.051",
+      "argv": [
+        "resource",
+        "top"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.052",
+      "argv": [
+        "device",
+        "list",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.053",
+      "argv": [
+        "device",
+        "watch",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.054",
+      "argv": [
+        "device",
+        "status"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.055",
+      "argv": [
+        "daemon",
+        "service",
+        "status"
+      ],
+      "classification": "permanent-scope-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.056",
+      "argv": [
+        "storage",
+        "devices",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.057",
+      "argv": [
+        "storage",
+        "volumes"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.058",
+      "argv": [
+        "privilege",
+        "apply"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.059",
+      "argv": [
+        "privilege",
+        "plan",
+        "process.set-priority",
+        "42",
+        "0",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.060",
+      "argv": [
+        "pty",
+        "unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.061",
+      "argv": [
+        "pty",
+        "list",
+        "--provider",
+        "tmux"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.062",
+      "argv": [
+        "pty",
+        "list",
+        "extra"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.063",
+      "argv": [
+        "pty",
+        "prune"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.064",
+      "argv": [
+        "pty",
+        "prune",
+        "job-1",
+        "extra",
+        "--expect",
+        "stale"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.065",
+      "argv": [
+        "pty",
+        "status",
+        "job-1",
+        "extra"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.066",
+      "argv": [
+        "pty",
+        "start",
+        "job-1",
+        "--provider",
+        "native"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.067",
+      "argv": [
+        "pty",
+        "wait",
+        "job-1",
+        "text.*",
+        "--provider",
+        "native"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.068",
+      "argv": [
+        "signal",
+        "42",
+        "TERM",
+        "--unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.069",
+      "argv": [
+        "signal",
+        "42",
+        "TERM",
+        "--force"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.070",
+      "argv": [
+        "power",
+        "sleep"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.072",
+      "argv": [
+        "apps",
+        "inspect",
+        "Editor"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.073",
+      "argv": [
+        "apps",
+        "--match",
+        "Editor"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.074",
+      "argv": [
+        "scroll",
+        "down",
+        "3",
+        "--to",
+        "Window#1",
+        "--x",
+        "10",
+        "--y",
+        "20"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.075",
+      "argv": [
+        "browser",
+        "tabs"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.076",
+      "argv": [
+        "inspect",
+        "--app",
+        "Editor"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.077",
+      "argv": [
+        "query",
+        "Window#1",
+        "--subrole",
+        "AXDialog"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.078",
+      "argv": [
+        "tree",
+        "Window#1",
+        "--page",
+        "2"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.079",
+      "argv": [
+        "invoke",
+        "Window#1",
+        "Button",
+        "show-menu"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.080",
+      "argv": [
+        "focused",
+        "42"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.081",
+      "argv": [
+        "observe",
+        "Window#1",
+        "--role",
+        "Button"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.082",
+      "argv": [
+        "wait",
+        "Window#1",
+        "--absent",
+        "--expect",
+        "[{\"titleIncludes\":\"Busy\"}]"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.083",
+      "argv": [
+        "verify",
+        "Window#1",
+        "--expect",
+        "{\"present\":[]}"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.084",
+      "argv": [
+        "windows",
+        "watch",
+        "--space",
+        "1"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.085",
+      "argv": [
+        "windows",
+        "--space",
+        "1"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.086",
+      "argv": [
+        "menu",
+        "inspect",
+        "Editor"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.087",
+      "argv": [
+        "menu",
+        "Editor",
+        "--path",
+        "File/Open"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.088",
+      "argv": [
+        "page",
+        "targets",
+        "--match",
+        "Editor"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.089",
+      "argv": [
+        "page",
+        "click"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.090",
+      "argv": [
+        "page",
+        "unsupported"
+      ],
+      "classification": "typed-rejection"
+    },
+    {
+      "gap_id": "acu.dynamic.091",
+      "argv": [
+        "clip",
+        "text"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.092",
+      "argv": [
+        "rclick",
+        "--at",
+        "Window#1",
+        "Button"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.093",
+      "argv": [
+        "dclick",
+        "--at",
+        "Window#1",
+        "Button"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.094",
+      "argv": [
+        "click",
+        "10",
+        "20"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.095",
+      "argv": [
+        "move",
+        "10",
+        "20",
+        "--to",
+        "Window#1"
+      ],
+      "classification": "dynamic-stay"
+    },
+    {
+      "gap_id": "acu.dynamic.096",
+      "argv": [
+        "type",
+        "text",
+        "--to",
+        "desktop"
+      ],
+      "classification": "resolved"
+    },
+    {
+      "gap_id": "acu.dynamic.097",
+      "argv": [
+        "unknown-verb"
+      ],
+      "classification": "typed-rejection"
+    }
+  ],
+  "positive_rows": [
+    {
+      "verb": "windows",
+      "argv": [
+        "windows"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "windows"
+        ]
+      }
+    },
+    {
+      "verb": "apps",
+      "argv": [
+        "apps"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "apps"
+        ]
+      }
+    },
+    {
+      "verb": "query",
+      "argv": [
+        "query",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "query",
+          "--window",
+          "App#1",
+          "--depth",
+          "12",
+          "--max-nodes",
+          "5000",
+          "--max",
+          "500"
+        ]
+      }
+    },
+    {
+      "verb": "invoke",
+      "argv": [
+        "invoke",
+        "App#1",
+        "AXButton[0]",
+        "press"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "invoke",
+          "--window",
+          "App#1",
+          "--selector",
+          "AXButton[0]",
+          "press"
+        ]
+      }
+    },
+    {
+      "verb": "verify",
+      "argv": [
+        "verify",
+        "App#1",
+        "--expect",
+        "[{\"role\":\"Button\"}]"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "verify",
+          "--window",
+          "App#1",
+          "--expect",
+          "[{\"role\":\"Button\"}]"
+        ]
+      }
+    },
+    {
+      "verb": "wait",
+      "argv": [
+        "wait",
+        "App#1",
+        "--expect",
+        "[{\"role\":\"Button\"}]"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "wait",
+          "--window",
+          "App#1",
+          "--expect",
+          "[{\"role\":\"Button\"}]"
+        ]
+      }
+    },
+    {
+      "verb": "unlock",
+      "argv": [
+        "unlock",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "unlock",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "observe",
+      "argv": [
+        "observe",
+        "App#1",
+        "--duration",
+        "1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "observe",
+          "--window",
+          "App#1",
+          "--duration-ms",
+          "1000"
+        ]
+      }
+    },
+    {
+      "verb": "focused",
+      "argv": [
+        "focused",
+        "--window",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "focused",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "click",
+      "argv": [
+        "click",
+        "--at",
+        "App#1",
+        "AXButton[0]"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "invoke",
+          "--window",
+          "App#1",
+          "--selector",
+          "AXButton[0]",
+          "press"
+        ]
+      }
+    },
+    {
+      "verb": "dclick",
+      "argv": [
+        "dclick",
+        "--window",
+        "App#1",
+        "--name",
+        "OK"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "dclick",
+          "--window",
+          "App#1",
+          "--name",
+          "OK"
+        ]
+      }
+    },
+    {
+      "verb": "rclick",
+      "argv": [
+        "rclick",
+        "--window",
+        "App#1",
+        "--name",
+        "OK"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "rclick",
+          "--window",
+          "App#1",
+          "--name",
+          "OK"
+        ]
+      }
+    },
+    {
+      "verb": "type",
+      "argv": [
+        "type",
+        "--to",
+        "App#1",
+        "hello"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "type",
+          "--window",
+          "App#1",
+          "hello"
+        ]
+      }
+    },
+    {
+      "verb": "key",
+      "argv": [
+        "key",
+        "--to",
+        "App#1",
+        "cmd+a"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "key",
+          "--window",
+          "App#1",
+          "cmd+a"
+        ]
+      }
+    },
+    {
+      "verb": "move",
+      "argv": [
+        "move",
+        "10",
+        "20",
+        "--to",
+        "desktop"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "pointer-move",
+          "--to",
+          "desktop",
+          "--x",
+          "10",
+          "--y",
+          "20"
+        ]
+      }
+    },
+    {
+      "verb": "shot",
+      "argv": [
+        "shot"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "shot"
+        ]
+      }
+    },
+    {
+      "verb": "clip",
+      "argv": [
+        "clip"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "clip"
+        ]
+      }
+    },
+    {
+      "verb": "clipboard",
+      "argv": [
+        "clipboard",
+        "inspect"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "clipboard-read"
+        ]
+      }
+    },
+    {
+      "verb": "displays",
+      "argv": [
+        "displays"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "displays"
+        ]
+      }
+    },
+    {
+      "verb": "spaces",
+      "argv": [
+        "spaces"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "spaces"
+        ]
+      }
+    },
+    {
+      "verb": "cursor",
+      "argv": [
+        "cursor"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "cursor"
+        ]
+      }
+    },
+    {
+      "verb": "frame",
+      "argv": [
+        "frame",
+        "App#1",
+        "0",
+        "0",
+        "100",
+        "100"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "frame",
+          "App#1",
+          "0",
+          "0",
+          "100",
+          "100"
+        ]
+      }
+    },
+    {
+      "verb": "movewin",
+      "argv": [
+        "movewin",
+        "App#1",
+        "0",
+        "0"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "movewin",
+          "App#1",
+          "0",
+          "0"
+        ]
+      }
+    },
+    {
+      "verb": "resize",
+      "argv": [
+        "resize",
+        "App#1",
+        "100",
+        "100"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "resize",
+          "App#1",
+          "100",
+          "100"
+        ]
+      }
+    },
+    {
+      "verb": "maximize",
+      "argv": [
+        "maximize",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "maximize",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "close",
+      "argv": [
+        "close",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "close",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "orderwin",
+      "argv": [
+        "orderwin",
+        "1",
+        "above",
+        "2"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "orderwin",
+          "--window",
+          "1",
+          "--relation",
+          "above",
+          "--relative",
+          "2"
+        ]
+      }
+    },
+    {
+      "verb": "focus",
+      "argv": [
+        "focus",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "activate",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "raise",
+      "argv": [
+        "raise",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "raise",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "minimize",
+      "argv": [
+        "minimize",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "minimize",
+          "--window",
+          "App#1",
+          "--expect",
+          "minimized"
+        ]
+      }
+    },
+    {
+      "verb": "restore",
+      "argv": [
+        "restore",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "restore",
+          "--window",
+          "App#1",
+          "--expect",
+          "restored"
+        ]
+      }
+    },
+    {
+      "verb": "hit",
+      "argv": [
+        "hit",
+        "App#1",
+        "10",
+        "20"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "hit",
+          "--window",
+          "App#1",
+          "--x",
+          "10",
+          "--y",
+          "20"
+        ]
+      }
+    },
+    {
+      "verb": "snapshot",
+      "argv": [
+        "snapshot",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "snapshot",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "diff",
+      "argv": [
+        "diff",
+        "App#1",
+        "--advance"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "diff",
+          "--window",
+          "App#1",
+          "--advance"
+        ]
+      }
+    },
+    {
+      "verb": "launch",
+      "argv": [
+        "launch",
+        "fixture-Safari.app"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "launch",
+          "fixture-Safari.app"
+        ]
+      }
+    },
+    {
+      "verb": "quit",
+      "argv": [
+        "quit",
+        "--window",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "quit",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "hide",
+      "argv": [
+        "hide",
+        "--window",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "hide",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "show",
+      "argv": [
+        "show",
+        "--window",
+        "App#1"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "show",
+          "--window",
+          "App#1"
+        ]
+      }
+    },
+    {
+      "verb": "ps",
+      "argv": [
+        "ps"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "ps"
+        ]
+      }
+    },
+    {
+      "verb": "kill",
+      "argv": [
+        "kill",
+        "42"
+      ],
+      "expected": {
+        "kind": "identity-kill",
+        "command": "kill",
+        "pid": "42",
+        "mode": "graceful",
+        "timeoutMs": "30000",
+        "globals": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate"
+        ]
+      }
+    },
+    {
+      "verb": "doctor",
+      "argv": [
+        "doctor"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "doctor"
+        ]
+      }
+    },
+    {
+      "verb": "permissions",
+      "argv": [
+        "permissions"
+      ],
+      "expected": {
+        "kind": "exec",
+        "argv": [
+          "--target",
+          "current",
+          "--grant",
+          "observe,actuate",
+          "permissions"
+        ]
+      }
+    }
+  ]
+}

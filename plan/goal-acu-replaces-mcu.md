@@ -73,8 +73,9 @@ ACU replaces MCU
 │  ├─ phase 2 [~]: bounded `agenterm:acu.call/argv` + fixed-sibling provider + shared argv parser are green; MCP/native courts remain
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
-│  ├─ phase 3 [~]: `skills/acu/acu.qjs` native-spelling path + bounded argv helpers are green;
-│  │  legacy 42-verb mapping, 95-case TODO corpus, public entry switch and MCU-absent court remain
+│  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
+│  │  33/42 legacy probes execute, 9 publish stable TODOs, 95 dynamic witnesses are frozen;
+│  │  remaining mappings, embedded public entry and MCU-absent court remain
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency

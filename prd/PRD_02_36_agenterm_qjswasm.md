@@ -56,8 +56,10 @@ agenterm-qjswasm
 │  │  ├─ [ ] MCP consumes the same adapter (current MCP surface remains separate and read-only)
 │  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
-│  │  ├─ [~] `skills/acu/acu.qjs`: bounded argv/native path is green; legacy corpus/entry switch pending
-│  │  │  └─ no Bun, executable discovery, child process or MCU fallback
+│  │  ├─ [~] `skills/acu/acu.qjs`: bounded argv/native path + frozen compatibility court are green
+│  │  │  ├─ 33/42 legacy probes execute through one in-process argv call; 9 are stable typed TODOs
+│  │  │  ├─ 95 dynamic witnesses are frozen with source digests and redacted argv
+│  │  │  └─ no Bun, executable discovery, child process or MCU fallback; embedded public entry pending
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism
 │  │  ├─ MCU-absent black-box parity precedes switching the default entry
 │  │  └─ generic tinyvm remains free of AgenTerm machine-control authority

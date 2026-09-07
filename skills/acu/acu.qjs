@@ -2,23 +2,7 @@
 // effects and receipts remain owned by agenterm-cu through `agenterm:acu`.
 import * as acu from "agenterm:acu";
 import * as argv_lib from "lib/argv";
-
-const LEGACY_TOP_LEVEL = [
-  "windows", "apps", "query", "invoke", "verify", "wait", "unlock",
-  "observe", "focused", "click", "dclick", "rclick", "type", "key",
-  "move", "shot", "clip", "clipboard", "displays", "spaces", "cursor",
-  "frame", "movewin", "resize", "maximize", "close", "orderwin",
-  "focus", "raise", "minimize", "restore", "hit", "snapshot", "diff",
-  "launch", "quit", "hide", "show", "ps", "kill", "doctor",
-  "permissions"
-];
-
-const GLOBAL_VALUE_FLAGS = [
-  "--target", "--ssh", "--ssh-port", "--ssh-identity", "--ssh-cu",
-  "--ssh-env", "--vnc", "--vnc-port", "--vnc-cu", "--vnc-env", "--rdp",
-  "--grant", "--grant-id", "--grant-store", "--request-id", "--session",
-  "--session-lease"
-];
+import * as compat from "lib/compat";
 
 function usage(message) {
   return {
@@ -52,72 +36,6 @@ function todo(verb, message) {
   };
 }
 
-function is_global_value_flag(value) {
-  for (let i = 0; i < GLOBAL_VALUE_FLAGS.length; i = i + 1) {
-    if (value === GLOBAL_VALUE_FLAGS[i]) { return true; }
-  }
-  return false;
-}
-
-function append(values, value) {
-  values[values.length] = value;
-}
-
-function canonical_argv(input) {
-  const globals = [];
-  const command_args = [];
-  let target_present = false;
-  let authority_present = false;
-  let separated = false;
-  for (let i = 0; i < input.length; i = i + 1) {
-    const value = input[i];
-    if (separated) { append(command_args, value); continue; }
-    if (value === "--") {
-      separated = true;
-      append(command_args, value);
-      continue;
-    }
-    if (value === "--json" || value.startsWith("--json=")) { continue; }
-    let name = value;
-    let inline_value = null;
-    const equals = value.indexOf("=");
-    if (equals > 0) {
-      name = value.slice(0, equals);
-      inline_value = value.slice(equals + 1);
-    }
-    if (is_global_value_flag(name)) {
-      let flag_value = inline_value;
-      if (flag_value === null) {
-        if (i + 1 >= input.length || input[i + 1].startsWith("--")) {
-          return { ok: false, reply: usage(name + " requires a value"), argv: [] };
-        }
-        i = i + 1;
-        flag_value = input[i];
-      }
-      append(globals, name);
-      append(globals, flag_value);
-      if (name === "--target" || name === "--ssh" || name === "--vnc" || name === "--rdp") {
-        target_present = true;
-      }
-      if (name === "--grant" || name === "--grant-id") { authority_present = true; }
-      continue;
-    }
-    append(command_args, value);
-  }
-  if (command_args.length === 0) { return { ok: true, argv: ["--help"], reply: null }; }
-  const entry = command_args[0];
-  if (entry === "grant" || entry === "verbs" || entry === "help" || entry === "host"
-      || entry === "--help" || entry === "-h") {
-    return { ok: true, argv: command_args, reply: null };
-  }
-  const out = [];
-  if (!target_present) { append(out, "--target"); append(out, "current"); }
-  if (!authority_present) { append(out, "--grant"); append(out, "observe,actuate"); }
-  for (let i = 0; i < globals.length; i = i + 1) { append(out, globals[i]); }
-  for (let i = 0; i < command_args.length; i = i + 1) { append(out, command_args[i]); }
-  return { ok: true, argv: out, reply: null };
-}
-
 function exit_code(reply) {
   if (reply.ok === true) { return 0; }
   if (reply.error !== null && reply.error !== undefined
@@ -140,15 +58,25 @@ if (input.length === 1 && input[0] === "--retirement-report") {
   return 0;
 }
 
-const canonical = canonical_argv(input);
-if (!canonical.ok) {
-  print(JSON.stringify(canonical.reply));
+let canonical = null;
+try {
+  canonical = compat.canonicalize(input);
+} catch (error) {
+  print(JSON.stringify(usage("" + error)));
+  return 2;
+}
+if (canonical.kind === "usage") {
+  print(JSON.stringify(usage(canonical.message)));
+  return 2;
+}
+if (canonical.kind === "todo") {
+  print(JSON.stringify(todo(canonical.command, canonical.message)));
   return 2;
 }
 let reply = acu.argv(canonical.argv);
 if (reply.ok !== true && reply.error !== null && reply.error !== undefined
     && reply.error.code === "usage" && input.length > 0
-    && LEGACY_TOP_LEVEL.includes(input[0])
+    && compat.LEGACY_TOP_LEVEL.includes(input[0])
     && reply.error.message.startsWith("unknown command")) {
   reply = todo(input[0], "legacy command has no native ACU mapping yet");
 }

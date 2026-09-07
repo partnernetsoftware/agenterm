@@ -118,11 +118,19 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   ├─ [~] acu.qjs = Bun-free syntax adapter
   │  ├─ [x] bounded host argv + global normalization + direct native spelling → agenterm:acu.argv
   │  ├─ [x] no Bun / binary lookup / child process / MCU fallback
-  │  └─ [ ] migrate 42 legacy verbs, freeze 95 dynamic TODO witnesses, switch public entry
+  │  ├─ [x] freeze the engine-neutral compatibility oracle: 42 positive probes + 95 dynamic witnesses
+  │  ├─ [~] 33/42 positive probes map to one in-process argv call; the remaining 9 fail as stable typed TODOs
+  │  └─ [ ] close those 9 mappings, embed the entry, and switch the public command
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
   └─ acu.qjs retires when legacy MCU syntax has no retained callers
   ```
+
+  The frozen corpus records source digests and normalized, redacted argv; its
+  qjswasm court currently proves exactly `33 exec / 9 typed TODO / 95 frozen`.
+  A TODO is visible progress, not parity: no row may be called migrated until
+  its expected argv and public behavior both pass without Bun or a child
+  process.
 
   This boundary is enforceable, not aspirational:
 

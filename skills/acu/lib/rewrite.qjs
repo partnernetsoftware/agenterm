@@ -1,0 +1,412 @@
+// Pure first-wave compatibility rewrites. Input has already had global flags
+// removed; output is one typed argv call or an explicit local refusal.
+
+import * as legacy from "skills/acu/lib/legacy_args";
+
+const QUERY_TODO_FLAGS = [
+  "subrole", "text", "selector", "within", "text-match", "descendant-text-depth",
+  "title", "value", "description", "help", "placeholder", "required",
+  "max-value-bytes", "meta"
+];
+const INVOKE_ACTIONS = [
+  "press", "set-value", "select-option", "set-checked", "set-expanded",
+  "increment", "decrement", "set-selected", "set-selection", "scroll-to",
+  "cancel", "show-default-ui", "show-menu"
+];
+const DIRECT_VERBS = [
+  "doctor", "permissions", "displays", "spaces", "cursor", "frame",
+  "movewin", "resize", "maximize", "launch", "quit", "hide", "show", "ps"
+];
+
+function contains(values, wanted) {
+  for (let i = 0; i < values.length; i = i + 1) {
+    if (values[i] === wanted) { return true; }
+  }
+  return false;
+}
+
+function usage(command, message) {
+  return { kind: "usage", command: command, message: message };
+}
+
+function todo(gap_id, command, message) {
+  return { kind: "todo", gap_id: gap_id, command: command, message: message };
+}
+
+function exec(argv) {
+  return { kind: "exec", argv: argv };
+}
+
+function append(out, values) {
+  for (let i = 0; i < values.length; i = i + 1) { out.push(values[i]); }
+  return out;
+}
+
+function copy_from(values, start) {
+  const out = [];
+  for (let i = start; i < values.length; i = i + 1) { out.push(values[i]); }
+  return out;
+}
+
+function take_first(values) {
+  if (rest_length(values) === 0) { return undefined; }
+  const first = values.items[values.index];
+  values.index = values.index + 1;
+  return first;
+}
+
+function rest_length(rest) {
+  return rest.items.length - rest.index;
+}
+
+function rest_at(rest, offset) {
+  return rest.items[rest.index + offset];
+}
+
+function append_rest(out, rest) {
+  for (let i = rest.index; i < rest.items.length; i = i + 1) {
+    out.push(rest.items[i]);
+  }
+}
+
+function empty_rest() {
+  return { items: [], index: 0 };
+}
+
+function joined(prefix, flags, rest) {
+  const out = copy_from(prefix, 0);
+  append(out, flag_pairs(flags, []));
+  append_rest(out, rest);
+  return out;
+}
+
+function digits_only(raw) {
+  if (raw.length === 0) { return false; }
+  for (let i = 0; i < raw.length; i = i + 1) {
+    const code = raw.charCodeAt(i);
+    if (code < 48 || code > 57) { return false; }
+  }
+  return true;
+}
+
+function milliseconds(raw) {
+  let text = raw;
+  if (text.startsWith("+")) { text = text.slice(1); }
+  const parts = text.split(".");
+  if (parts.length > 2 || !digits_only(parts[0])) { return null; }
+  let fraction = parts.length === 2 ? parts[1] : "";
+  if (fraction.length > 3 || (fraction.length > 0 && !digits_only(fraction))) { return null; }
+  while (fraction.length < 3) { fraction = fraction + "0"; }
+  return Number(parts[0]) * 1000 + (fraction.length === 0 ? 0 : Number(fraction));
+}
+
+function take_handle(rest) {
+  if (rest_length(rest) === 0 || rest_at(rest, 0).startsWith("-")) { return null; }
+  return take_first(rest);
+}
+
+function flag_pairs(flags, skipped) {
+  const out = [];
+  const names = Object.keys(flags);
+  for (let i = 0; i < names.length; i = i + 1) {
+    const name = names[i];
+    if (contains(skipped, name)) { continue; }
+    const value = flags[name];
+    if (value === undefined) { continue; }
+    if (value === true) { out.push("--" + name); }
+    else if (value !== false) { out.push("--" + name); out.push("" + value); }
+  }
+  return out;
+}
+
+function seconds_to_ms(flags, from, to) {
+  if (typeof flags[from] !== "string" || flags[to] !== undefined) { return true; }
+  const value = milliseconds(flags[from]);
+  if (value === null) { return false; }
+  flags[to] = "" + value;
+  flags[from] = undefined;
+  return true;
+}
+
+function bounded_integer(flags, name, minimum, maximum) {
+  if (flags[name] === undefined) { return true; }
+  if (typeof flags[name] !== "string" || !digits_only(flags[name])) { return false; }
+  const value = Number(flags[name]);
+  return value >= minimum && value <= maximum;
+}
+
+function normalize_bool(flags, name) {
+  if (flags[name] === undefined) { return true; }
+  if (flags[name] === true) { return false; }
+  const raw = "" + flags[name];
+  const lower = raw.toLowerCase();
+  if (lower === "true" || lower === "1" || lower === "yes" || lower === "on") {
+    flags[name] = "true";
+    return true;
+  }
+  if (lower === "false" || lower === "0" || lower === "no" || lower === "off") {
+    flags[name] = "false";
+    return true;
+  }
+  return false;
+}
+
+function query(rest, flags) {
+  const names = Object.keys(flags);
+  for (let i = 0; i < names.length; i = i + 1) {
+    if (contains(QUERY_TODO_FLAGS, names[i])) {
+      return todo("acu.dynamic.077", "query", "query predicate requires a later typed adapter");
+    }
+  }
+  if (!seconds_to_ms(flags, "watch", "watch-ms")
+      || !seconds_to_ms(flags, "interval", "interval-ms")) {
+    return usage("query", "query seconds flags require non-negative finite decimals");
+  }
+  const integer_bounds = [
+    ["depth", 0, 32], ["min-depth", 0, 32], ["max-depth", 0, 32],
+    ["scan-max", 1, 20000], ["offset", 0, 100000], ["max", 1, 5000]
+  ];
+  for (let i = 0; i < integer_bounds.length; i = i + 1) {
+    const row = integer_bounds[i];
+    if (!bounded_integer(flags, row[0], row[1], row[2])) {
+      return usage("query", "query --" + row[0] + " is outside its bound");
+    }
+  }
+  if (flags["min-depth"] !== undefined && flags["max-depth"] !== undefined
+      && Number(flags["max-depth"]) < Number(flags["min-depth"])) {
+    return usage("query", "query --max-depth must be at least --min-depth");
+  }
+  const bools = ["enabled", "focused", "selected", "checked", "expanded"];
+  for (let i = 0; i < bools.length; i = i + 1) {
+    if (!normalize_bool(flags, bools[i])) {
+      return usage("query", "query --" + bools[i] + " requires explicit true or false");
+    }
+  }
+  if (flags.actionable !== undefined) {
+    if (flags.actionable === true) { flags.actionable = true; }
+    else if (legacy.flagIsFalse(flags.actionable)) { flags.actionable = undefined; }
+    else if (legacy.flagTruthy(flags.actionable)) { flags.actionable = true; }
+    else { return usage("query", "query --actionable requires true or false"); }
+  }
+  if (flags["scan-max"] !== undefined) {
+    flags["max-nodes"] = flags["scan-max"];
+    flags["scan-max"] = undefined;
+  }
+  if (flags.depth === undefined) { flags.depth = "12"; }
+  if (flags["max-nodes"] === undefined) { flags["max-nodes"] = "5000"; }
+  if (flags.max === undefined) { flags.max = "500"; }
+  const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
+  flags.window = undefined;
+  flags.app = undefined;
+  if (handle === null) { return usage("query", "query needs HANDLE or --window"); }
+  return exec(joined(["query", "--window", handle], flags, rest));
+}
+
+function invoke(rest, flags) {
+  const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
+  flags.window = undefined;
+  if (handle === null) { return usage("invoke", "invoke needs HANDLE or --window"); }
+  let selector = flags.selector !== undefined ? "" + flags.selector : null;
+  flags.selector = undefined;
+  let action = null;
+  let value = null;
+  if (flags.index !== undefined) {
+    action = take_first(rest);
+    value = take_first(rest);
+  } else {
+    if (selector === null) { selector = take_first(rest); }
+    action = take_first(rest);
+    value = take_first(rest);
+  }
+  if (action !== undefined && action !== null && !contains(INVOKE_ACTIONS, action)) {
+    return todo("acu.dynamic.079", "invoke", "invoke action is not in the typed action set");
+  }
+  const out = ["invoke", "--window", handle];
+  if (flags.index !== undefined) {
+    out.push("--index"); out.push("" + flags.index); flags.index = undefined;
+  } else if (selector !== undefined && selector !== null) {
+    out.push("--selector"); out.push(selector);
+  }
+  const pairs = flag_pairs(flags, []);
+  for (let i = 0; i < pairs.length; i = i + 1) { out.push(pairs[i]); }
+  if (action !== undefined && action !== null) { out.push(action); }
+  if (value !== undefined && value !== null) { out.push(value); }
+  append_rest(out, rest);
+  return exec(out);
+}
+
+function window_action(verb, rest, flags) {
+  const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
+  flags.window = undefined;
+  if (handle === null) { return usage(verb, verb + " needs HANDLE or --window"); }
+  if ((verb === "minimize" || verb === "restore") && flags.expect === undefined) {
+    flags.expect = verb === "minimize" ? "minimized" : "restored";
+  }
+  const target_verb = verb === "focus" ? "activate" : verb;
+  return exec(joined([target_verb, "--window", handle], flags, rest));
+}
+
+function click(verb, rest, flags) {
+  if (typeof flags.at === "string") {
+    const handle = "" + flags.at;
+    flags.at = undefined;
+    const selector = take_first(rest);
+    if (selector === undefined || rest_length(rest) !== 0 || flag_pairs(flags, []).length !== 0) {
+      return usage(verb, verb + " --at requires exactly HANDLE SELECTOR");
+    }
+    return exec(["invoke", "--window", handle, "--selector", selector,
+      verb === "rclick" ? "show-menu" : "press"]);
+  }
+  if (flags.to !== undefined || rest_length(rest) >= 2) {
+    const target = flags.to;
+    flags.to = undefined;
+    if (target === undefined) {
+      return usage(verb, verb + " pixel coordinates require --to desktop");
+    }
+    const lower = ("" + target).toLowerCase();
+    if (!contains(["desktop", "screen", "global", "all"], lower)) {
+      return todo("acu.dynamic.094", verb, "window-local pixel delivery needs a typed mechanism");
+    }
+    const x = take_first(rest);
+    const y = take_first(rest);
+    if (x === undefined || y === undefined || rest_length(rest) !== 0) {
+      return usage(verb, verb + " pixel form requires exactly X Y");
+    }
+    const out = ["click", "--coords", x + "," + y, "--degraded"];
+    if (verb === "rclick") { out.push("--button"); out.push("right"); }
+    const pairs = flag_pairs(flags, ["button", "clicks"]);
+    if (flags.button !== undefined) { out.push("--button"); out.push("" + flags.button); }
+    if (flags.clicks !== undefined) { out.push("--clicks"); out.push("" + flags.clicks); }
+    for (let i = 0; i < pairs.length; i = i + 1) { out.push(pairs[i]); }
+    return exec(out);
+  }
+  return exec(joined([verb], flags, rest));
+}
+
+function keyboard(verb, rest, flags) {
+  if (flags.to === "desktop") {
+    flags.to = undefined;
+    if (rest_length(rest) !== 1 || flag_pairs(flags, []).length !== 0) {
+      return usage(verb, verb + " --to desktop requires exactly one payload");
+    }
+    return exec([verb === "type" ? "send-text" : "send-keys", "--", rest_at(rest, 0)]);
+  }
+  if (typeof flags.to === "string") {
+    const handle = "" + flags.to;
+    flags.to = undefined;
+    return exec(joined([verb, "--window", handle], flags, rest));
+  }
+  return exec(joined([verb], flags, rest));
+}
+
+function clipboard(rest, flags) {
+  const sub = rest_at(rest, 0);
+  if (sub === "inspect") {
+    take_first(rest); flags["max-items"] = undefined; flags["max-types"] = undefined;
+    return exec(joined(["clipboard-read"], flags, rest));
+  }
+  if (sub === "read") {
+    take_first(rest);
+    const type = flags.type !== undefined ? "" + flags.type : take_first(rest);
+    flags.type = undefined;
+    const out = ["clipboard-read"];
+    if (type !== undefined) { out.push("--type"); out.push(type); }
+    return exec(joined(out, flags, rest));
+  }
+  if (sub === "write") {
+    take_first(rest);
+    const type = flags.type !== undefined ? "" + flags.type : take_first(rest);
+    const path = flags.path !== undefined ? "" + flags.path : take_first(rest);
+    flags.type = undefined; flags.path = undefined;
+    if (type === undefined || path === undefined || rest_length(rest) !== 0) {
+      return usage("clipboard", "clipboard write needs TYPE PATH");
+    }
+    return exec(joined(["clipboard-write", "--type", type, "--path", path], flags, empty_rest()));
+  }
+  if (sub === "write-file") {
+    take_first(rest);
+    const path = flags.path !== undefined ? "" + flags.path : take_first(rest);
+    flags.path = undefined;
+    if (path === undefined || rest_length(rest) !== 0) {
+      return usage("clipboard", "clipboard write-file needs PATH");
+    }
+    return exec(joined(["clipboard-write-file", "--path", path], flags, empty_rest()));
+  }
+  if (sub === "clear") {
+    take_first(rest);
+    return exec(joined(["clipboard-clear"], flags, rest));
+  }
+  return exec(joined(["clipboard-read"], flags, rest));
+}
+
+export function rewrite(input) {
+  const parsed = legacy.parseArgs(input);
+  const verb = parsed._[0];
+  if (verb === undefined) { return usage("", "missing command"); }
+  const rest = { items: copy_from(parsed._, 1), index: 0 };
+  const flags = parsed.flags;
+
+  if (contains(DIRECT_VERBS, verb)) { return exec(joined([verb], flags, rest)); }
+
+  if (verb === "query") { return query(rest, flags); }
+  if (verb === "invoke") { return invoke(rest, flags); }
+  if (verb === "unlock") { return window_action(verb, rest, flags); }
+  if (verb === "close") {
+    const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
+    flags.window = undefined;
+    return exec(handle === null
+      ? joined(["close"], flags, rest)
+      : joined(["close", "--window", handle], flags, rest));
+  }
+  if (verb === "click" || verb === "rclick") { return click(verb, rest, flags); }
+  if (verb === "type" || verb === "key") { return keyboard(verb, rest, flags); }
+  if (verb === "move") {
+    if (flags.to === "desktop" && rest_length(rest) === 2) {
+      flags.to = undefined;
+      return exec(joined(["pointer-move", "--to", "desktop", "--x", rest_at(rest, 0),
+        "--y", rest_at(rest, 1)], flags, empty_rest()));
+    }
+    if (flags.to !== undefined) {
+      return todo("acu.dynamic.095", "move", "window-local hover needs a typed mechanism");
+    }
+    return exec(joined(["move"], flags, rest));
+  }
+  if (verb === "shot") {
+    if (typeof flags.handle === "string") { flags.window = flags.handle; flags.handle = undefined; }
+    return exec(joined(["shot"], flags, rest));
+  }
+  if (verb === "clipboard") { return clipboard(rest, flags); }
+  if (verb === "orderwin") {
+    if (flags.window !== undefined || flags.relation !== undefined || flags.relative !== undefined) {
+      return exec(joined(["orderwin"], flags, rest));
+    }
+    const target = take_handle(rest);
+    const relation = take_first(rest);
+    const relative = take_first(rest);
+    if (target === null || relative === undefined || !contains(["above", "below"], relation)) {
+      return usage("orderwin", "orderwin needs TARGET above|below RELATIVE");
+    }
+    return exec(joined(["orderwin", "--window", target, "--relation", relation,
+      "--relative", relative], flags, rest));
+  }
+  if (contains(["focus", "raise", "minimize", "restore"], verb)) {
+    return window_action(verb, rest, flags);
+  }
+  if (verb === "hit") {
+    const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
+    const x = flags.x !== undefined ? "" + flags.x : take_first(rest);
+    const y = flags.y !== undefined ? "" + flags.y : take_first(rest);
+    flags.window = undefined; flags.x = undefined; flags.y = undefined;
+    if (handle === null || x === undefined || y === undefined) {
+      return usage("hit", "hit needs HANDLE X Y");
+    }
+    return exec(joined(["hit", "--window", handle, "--x", x, "--y", y], flags, rest));
+  }
+  if (verb === "snapshot" || verb === "diff") {
+    const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
+    flags.window = undefined;
+    if (handle === null) { return usage(verb, verb + " needs HANDLE or --window"); }
+    return exec(joined([verb, "--window", handle], flags, rest));
+  }
+  return todo("acu.rewrite.unassigned", verb, "legacy shape is not in the first rewrite wave");
+}

@@ -1,0 +1,73 @@
+import * as rewrite from "skills/acu/lib/rewrite";
+
+function require(condition, message) { if (!condition) { throw message; } }
+function exact(actual, expected, message) {
+  require(actual.kind === "exec", message + " kind=" + actual.kind);
+  require(actual.argv.length === expected.length, message + " length");
+  for (let i = 0; i < expected.length; i = i + 1) {
+    require(actual.argv[i] === expected[i], message + " index=" + i);
+  }
+}
+function kind(actual, expected, message) {
+  require(actual.kind === expected, message + " kind=" + actual.kind);
+}
+
+exact(rewrite.rewrite(["query", "41", "--watch", "1.5", "--interval=0.25"]), [
+  "query", "--window", "41", "--watch-ms", "1500", "--interval-ms", "250",
+  "--depth", "12", "--max-nodes", "5000", "--max", "500"
+], "query defaults");
+kind(rewrite.rewrite(["query", "41", "--selector", "button"]), "todo", "query todo");
+kind(rewrite.rewrite(["query", "--window", "41", "--depth", "33"]), "usage", "query bound");
+
+exact(rewrite.rewrite(["invoke", "41", "Button", "press"]),
+  ["invoke", "--window", "41", "--selector", "Button", "press"], "invoke");
+kind(rewrite.rewrite(["invoke", "41", "Button", "unsupported-action"]), "todo", "invoke todo");
+exact(rewrite.rewrite(["unlock", "41"]), ["unlock", "--window", "41"], "unlock");
+exact(rewrite.rewrite(["close"]), ["close"], "close all");
+exact(rewrite.rewrite(["close", "41"]), ["close", "--window", "41"], "close one");
+
+exact(rewrite.rewrite(["click", "--at", "41", "Button"]),
+  ["invoke", "--window", "41", "--selector", "Button", "press"], "click at");
+exact(rewrite.rewrite(["rclick", "--at", "41", "Button"]),
+  ["invoke", "--window", "41", "--selector", "Button", "show-menu"], "rclick at");
+exact(rewrite.rewrite(["click", "10", "20", "--to", "desktop"]),
+  ["click", "--coords", "10,20", "--degraded"], "click desktop");
+exact(rewrite.rewrite(["rclick", "10", "20", "--to", "desktop"]),
+  ["click", "--coords", "10,20", "--degraded", "--button", "right"], "rclick desktop");
+kind(rewrite.rewrite(["click", "10", "20", "--to", "41"]), "todo", "click local todo");
+
+exact(rewrite.rewrite(["type", "a b\nc", "--to", "desktop"]),
+  ["send-text", "--", "a b\nc"], "type desktop");
+exact(rewrite.rewrite(["key", "ctrl+a", "--to", "41"]),
+  ["key", "--window", "41", "ctrl+a"], "key window");
+exact(rewrite.rewrite(["move", "10", "20", "--to", "desktop"]),
+  ["pointer-move", "--to", "desktop", "--x", "10", "--y", "20"], "move desktop");
+kind(rewrite.rewrite(["move", "10", "20", "--to", "41"]), "todo", "move local todo");
+exact(rewrite.rewrite(["shot", "out.png", "--handle", "41"]),
+  ["shot", "--window", "41", "out.png"], "shot handle");
+
+exact(rewrite.rewrite(["clipboard", "inspect", "--max-items", "4"]),
+  ["clipboard-read"], "clipboard inspect");
+exact(rewrite.rewrite(["clipboard", "read", "public.utf8-plain-text"]),
+  ["clipboard-read", "--type", "public.utf8-plain-text"], "clipboard read");
+exact(rewrite.rewrite(["clipboard", "write", "text/plain", "payload.bin"]),
+  ["clipboard-write", "--type", "text/plain", "--path", "payload.bin"], "clipboard write");
+exact(rewrite.rewrite(["clipboard", "write-file", "payload.txt"]),
+  ["clipboard-write-file", "--path", "payload.txt"], "clipboard write-file");
+exact(rewrite.rewrite(["clipboard", "clear"]), ["clipboard-clear"], "clipboard clear");
+
+exact(rewrite.rewrite(["orderwin", "41", "above", "42"]),
+  ["orderwin", "--window", "41", "--relation", "above", "--relative", "42"], "orderwin");
+exact(rewrite.rewrite(["focus", "41"]), ["activate", "--window", "41"], "focus");
+exact(rewrite.rewrite(["raise", "41"]), ["raise", "--window", "41"], "raise");
+exact(rewrite.rewrite(["minimize", "41"]),
+  ["minimize", "--window", "41", "--expect", "minimized"], "minimize");
+exact(rewrite.rewrite(["restore", "41"]),
+  ["restore", "--window", "41", "--expect", "restored"], "restore");
+exact(rewrite.rewrite(["hit", "41", "10", "20"]),
+  ["hit", "--window", "41", "--x", "10", "--y", "20"], "hit");
+exact(rewrite.rewrite(["snapshot", "41"]), ["snapshot", "--window", "41"], "snapshot");
+exact(rewrite.rewrite(["diff", "41", "--base", "snap-1"]),
+  ["diff", "--window", "41", "--base", "snap-1"], "diff");
+
+"rewrite.qjs PASS";

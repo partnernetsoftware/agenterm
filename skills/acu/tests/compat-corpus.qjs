@@ -1,0 +1,37 @@
+import * as compat from "skills/acu/lib/compat";
+
+function require(condition, message) { if (!condition) { throw message; } }
+
+function same_argv(actual, expected, label) {
+  require(actual.length === expected.length, label + " length");
+  for (let i = 0; i < expected.length; i = i + 1) {
+    require(actual[i] === expected[i], label + " argv[" + i + "]");
+  }
+}
+
+const path = "skills/acu/tests/compat-corpus.json";
+require(fs_read_to_string(path) === 0, "compat corpus unreadable: " + tool_result());
+const corpus = JSON.parse(tool_result());
+require(corpus.schema === "agenterm.acu.compat-corpus.v1", "compat corpus schema");
+require(corpus.dynamic_rows.length === 95, "dynamic corpus count");
+require(corpus.positive_rows.length === 42, "positive corpus count");
+
+let executable = 0;
+let explicit_todo = 0;
+for (let i = 0; i < corpus.positive_rows.length; i = i + 1) {
+  const row = corpus.positive_rows[i];
+  const mapped = compat.canonicalize(row.argv);
+  if (mapped.kind === "exec") {
+    require(row.expected.kind === "exec", row.verb + " expected kind");
+    same_argv(mapped.argv, row.expected.argv, row.verb);
+    executable = executable + 1;
+  } else {
+    require(mapped.kind === "todo", row.verb + " must be exec or typed todo");
+    require(mapped.gap_id === "acu.argv." + row.verb, row.verb + " stable gap id");
+    explicit_todo = explicit_todo + 1;
+  }
+}
+require(executable === 33, "first compatibility tranche must execute 33 rows");
+require(explicit_todo === 9, "deferred compatibility tranche must expose 9 TODO rows");
+
+"compat-corpus.qjs PASS 33 exec / 9 typed TODO / 95 dynamic frozen";
