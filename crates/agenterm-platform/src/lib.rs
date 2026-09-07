@@ -494,6 +494,10 @@ pub mod screenshot;
 #[cfg(all(feature = "system-broker", target_os = "linux"))]
 pub mod system_broker;
 
+/// Linux polkit authorization for the kernel-authenticated system-broker peer.
+#[cfg(all(feature = "privilege-authorization", target_os = "linux"))]
+pub mod privilege_authorization;
+
 mod selected;
 
 #[cfg(test)]
