@@ -115,6 +115,8 @@ pub mod place;
 pub mod privilege_apply;
 #[cfg(any(target_os = "linux", test))]
 pub(crate) mod privilege_broker;
+#[cfg(any(target_os = "linux", test))]
+pub(crate) mod privilege_broker_wire;
 pub mod privilege_plan;
 #[cfg(any(target_os = "linux", test))]
 pub(crate) mod privilege_provider;
