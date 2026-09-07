@@ -60,6 +60,7 @@ agenterm-qjswasm
 │  │  │  ├─ 42/42 positive legacy probes execute in-process; kill preserves its two-call identity bracket
 │  │  │  ├─ 95 dynamic witnesses remain frozen with source digests and redacted argv as the
 │  │  │  │  explicit gap/typed-rejection queue; no MCU fallback exists
+│  │  │  ├─ all 13 dynamic-stay rows retain their exact gap id; the permanent-scope row rejects locally
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
 │  │  │  └─ no Bun, executable discovery, child process, repository cwd or MCU fallback
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism

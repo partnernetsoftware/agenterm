@@ -32,6 +32,68 @@ function exec_with_prefix(prefix, argv) {
   return { kind: "exec", argv: out };
 }
 
+function has_arg(argv, wanted) {
+  for (let i = 0; i < argv.length; i = i + 1) {
+    if (argv[i] === wanted || argv[i].startsWith(wanted + "=")) { return true; }
+  }
+  return false;
+}
+
+function todo(gap_id, command, message) {
+  return { kind: "todo", gap_id: gap_id, command: command, message: message };
+}
+
+// Stable guards for legacy shapes whose typed ACU behavior is deliberately
+// still absent. Keep these before generic native forwarding: a parser error is
+// not an acceptable substitute for the repair queue's machine-readable id.
+function known_dynamic_boundary(argv) {
+  const verb = argv[0];
+  const sub = argv.length > 1 ? argv[1] : undefined;
+  if (verb === "simulator" && sub === "status") {
+    return todo("acu.dynamic.050", "simulator", "simulator application status needs a typed provider");
+  }
+  if (verb === "daemon" && sub === "service") {
+    return { kind: "usage", command: "daemon",
+      message: "daemon service is permanently retired; use the on-demand ACU runtime" };
+  }
+  if (verb === "pty" && has_arg(argv, "--provider")) {
+    if (sub === "wait") {
+      return todo("acu.dynamic.067", "pty", "legacy regex wait needs a bounded linear-time matcher");
+    }
+    if (sub === "start") {
+      return todo("acu.dynamic.066", "pty", "legacy default-shell start needs a typed native shape");
+    }
+    return todo("acu.dynamic.061", "pty", "tmux provider and multi-pane inventory are not typed yet");
+  }
+  if (verb === "apps" && (sub === "inspect" || sub === "watch" || sub === "provisioning")) {
+    return todo("acu.dynamic.072", "apps", "application inspection and signing facts need a typed provider");
+  }
+  if (verb === "scroll" && has_arg(argv, "--to")) {
+    return todo("acu.dynamic.074", "scroll", "window-local wheel delivery needs a typed mechanism");
+  }
+  if (verb === "browser" && sub === "tabs") {
+    return todo("acu.dynamic.075", "browser", "profile-selected browser tab inventory is not typed yet");
+  }
+  if (verb === "inspect" && has_arg(argv, "--app")) {
+    return todo("acu.dynamic.076", "inspect", "multi-window application inspection is not typed yet");
+  }
+  if (verb === "tree" && (has_arg(argv, "--page") || has_arg(argv, "--max-value-bytes"))) {
+    return todo("acu.dynamic.078", "tree", "paged or value-bounded tree compatibility is not typed yet");
+  }
+  if (verb === "windows" && sub === "watch" && (has_arg(argv, "--space")
+      || has_arg(argv, "--ax-meta") || has_arg(argv, "--ax-role")
+      || has_arg(argv, "--ax-subrole") || has_arg(argv, "--ax-identifier")
+      || has_arg(argv, "--ax-scan-max") || has_arg(argv, "--onscreen")
+      || has_arg(argv, "--occluded") || has_arg(argv, "--type"))) {
+    return todo("acu.dynamic.084", "windows", "window-watch filters must run inside its poll");
+  }
+  if (verb === "menu" && !has_arg(argv, "--window")) {
+    return todo(sub === "inspect" ? "acu.dynamic.086" : "acu.dynamic.087", "menu",
+      "app-global menu addressing needs an unambiguous typed target");
+  }
+  return null;
+}
+
 export function canonicalize(input) {
   const extracted = legacy.extractGlobals(input);
   const command_args = extracted.argv;
@@ -41,6 +103,8 @@ export function canonicalize(input) {
       || entry === "--help" || entry === "-h") {
     return { kind: "exec", argv: command_args };
   }
+  const boundary = known_dynamic_boundary(command_args);
+  if (boundary !== null) { return boundary; }
   if (!contains(LEGACY_TOP_LEVEL, entry)) {
     return exec_with_prefix(extracted.prefix, command_args);
   }

@@ -42,4 +42,22 @@ for (let i = 0; i < corpus.positive_rows.length; i = i + 1) {
 require(executable === 42, "compatibility corpus must execute all 42 positive rows");
 require(explicit_todo === 0, "positive compatibility corpus must expose no TODO rows");
 
-"compat-corpus.qjs PASS 42 exec / 0 typed TODO / 95 dynamic frozen";
+let dynamic_stays = 0;
+let permanent_rejections = 0;
+for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
+  const row = corpus.dynamic_rows[i];
+  if (row.classification === "dynamic-stay") {
+    const mapped = compat.canonicalize(row.argv);
+    require(mapped.kind === "todo", row.gap_id + " must remain a typed TODO");
+    require(mapped.gap_id === row.gap_id, row.gap_id + " stable dynamic id");
+    dynamic_stays = dynamic_stays + 1;
+  } else if (row.classification === "permanent-scope-rejection") {
+    require(compat.canonicalize(row.argv).kind === "usage",
+      row.gap_id + " permanent rejection must remain local");
+    permanent_rejections = permanent_rejections + 1;
+  }
+}
+require(dynamic_stays === 13, "dynamic stay corpus count");
+require(permanent_rejections === 1, "permanent rejection corpus count");
+
+"compat-corpus.qjs PASS 42 positive exec / 13 dynamic TODO / 1 permanent rejection / 95 frozen";

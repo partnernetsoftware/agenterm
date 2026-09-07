@@ -4,18 +4,17 @@ import * as acu from "agenterm:acu";
 import * as argv_lib from "agenterm:acu/argv";
 import * as compat from "agenterm:acu/compat";
 
-function usage(message) {
+function usage(command, message) {
   return {
     ok: false,
     target: "",
-    command: "acu.qjs",
+    command: command,
     data: null,
     error: { code: "usage", message: message }
   };
 }
 
-function todo(verb, message) {
-  const gap_id = "acu.argv." + verb;
+function todo(gap_id, verb, message) {
   return {
     ok: false,
     target: "",
@@ -99,15 +98,15 @@ let canonical = null;
 try {
   canonical = compat.canonicalize(input);
 } catch (error) {
-  print(JSON.stringify(usage("" + error)));
+  print(JSON.stringify(usage("acu.qjs", "" + error)));
   return 2;
 }
 if (canonical.kind === "usage") {
-  print(JSON.stringify(usage(canonical.message)));
+  print(JSON.stringify(usage(canonical.command, canonical.message)));
   return 2;
 }
 if (canonical.kind === "todo") {
-  print(JSON.stringify(todo(canonical.command, canonical.message)));
+  print(JSON.stringify(todo(canonical.gap_id, canonical.command, canonical.message)));
   return 2;
 }
 let reply = canonical.kind === "identity-kill"
@@ -117,7 +116,7 @@ if (reply.ok !== true && reply.error !== null && reply.error !== undefined
     && reply.error.code === "usage" && input.length > 0
     && compat.LEGACY_TOP_LEVEL.includes(input[0])
     && reply.error.message.startsWith("unknown command")) {
-  reply = todo(input[0], "legacy command has no native ACU mapping yet");
+  reply = todo("acu.argv." + input[0], input[0], "legacy command has no native ACU mapping yet");
 }
 print(JSON.stringify(reply));
 return exit_code(reply);
