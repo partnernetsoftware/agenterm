@@ -45,6 +45,22 @@ pub(crate) struct FixedProviderAuthority {
     peer: AuthenticatedPrivilegePeer,
 }
 
+/// Result of the provider-owned replay lookup that must happen before native
+/// consent.  The `Missing` value is deliberately non-serializable: only the
+/// fixed provider can carry it across the native authorization boundary.
+pub(crate) enum PreConsentDecision {
+    Missing(PendingPrivilegeRequest),
+    Reply(PrivilegeApplyReplyV1),
+}
+
+/// A structurally valid request whose provider-private ledger has proved that
+/// no earlier terminal or uncertain attempt exists.  This is intent, not
+/// authorization; only [`execute_after_native_consent`] may consume it.
+pub(crate) struct PendingPrivilegeRequest {
+    validated: crate::privilege_apply::ValidatedPrivilegeRequestV1,
+    ledger: PrivilegeProviderLedger,
+}
+
 impl FixedProviderAuthority {
     pub(crate) fn from_native_boundary(
         namespace: PrivilegeProviderNamespace,
@@ -118,11 +134,29 @@ pub(crate) fn execute_one_shot(
     request_bytes: &[u8],
     now_utc_ms: i64,
 ) -> Result<PrivilegeApplyReplyV1, CuError> {
+    match lookup_before_native_consent(authority, request_bytes, now_utc_ms)? {
+        PreConsentDecision::Reply(reply) => Ok(reply),
+        PreConsentDecision::Missing(pending) => {
+            execute_after_native_consent(authority, pending, now_utc_ms)
+        }
+    }
+}
+
+/// Parse the closed request and consult the root/provider-owned replay ledger
+/// before any native authorization UI is opened.
+pub(crate) fn lookup_before_native_consent(
+    authority: &FixedProviderAuthority,
+    request_bytes: &[u8],
+    now_utc_ms: i64,
+) -> Result<PreConsentDecision, CuError> {
     prepare_state_root(&authority.state_root)?;
     let validated = parse_apply_request(request_bytes)?;
     let request = validated.request();
     if request.authorization != PrivilegeAuthorizationV1::OneShotNativeConsent {
-        return Ok(refused(request, "privilege_delegated_grant_unavailable"));
+        return Ok(PreConsentDecision::Reply(refused(
+            request,
+            "privilege_delegated_grant_unavailable",
+        )));
     }
     let ledger = PrivilegeProviderLedger::open_at(
         authority.state_root.join("replay.json"),
@@ -140,15 +174,34 @@ pub(crate) fn execute_one_shot(
                 &outcome_code,
                 receipt_id.as_deref(),
                 receipt_sha256.as_deref(),
-            );
+            )
+            .map(PreConsentDecision::Reply);
         }
         PrivilegeProviderLookupDecision::OutcomeUnknown => {
             let attempt = load_attempt(authority, validated.fingerprint())?;
-            return Ok(outcome_unknown(request, &attempt));
+            return Ok(PreConsentDecision::Reply(outcome_unknown(
+                request, &attempt,
+            )));
         }
-        PrivilegeProviderLookupDecision::Missing => {}
+        PrivilegeProviderLookupDecision::Missing => {
+            Ok(PreConsentDecision::Missing(PendingPrivilegeRequest {
+                validated,
+                ledger,
+            }))
+        }
     }
+}
 
+/// Consume a provider-private pending request only after native consent has
+/// succeeded.  This performs exact-object preparation, the second atomic
+/// replay check/reservation, one effect attempt, and durable finalization.
+pub(crate) fn execute_after_native_consent(
+    authority: &FixedProviderAuthority,
+    pending: PendingPrivilegeRequest,
+    now_utc_ms: i64,
+) -> Result<PrivilegeApplyReplyV1, CuError> {
+    let PendingPrivilegeRequest { validated, ledger } = pending;
+    let request = validated.request();
     let prepared = match prepare_privilege_effect(&validated) {
         Ok(prepared) => prepared,
         Err(error) => return Ok(failed_before(request, &error.code)),
@@ -743,7 +796,12 @@ mod tests {
             root.clone(),
             digest(b"fixture-provider-upgraded"),
         );
-        let second = execute_one_shot(&upgraded, &bytes, 1_002).unwrap();
+        let second = match lookup_before_native_consent(&upgraded, &bytes, 1_002).unwrap() {
+            PreConsentDecision::Reply(reply) => reply,
+            PreConsentDecision::Missing(_) => {
+                panic!("a finalized request must replay before native consent")
+            }
+        };
         let PrivilegeApplyReplyV1::Completed {
             receipt_id: replay_id,
             receipt_sha256: replay_sha,
