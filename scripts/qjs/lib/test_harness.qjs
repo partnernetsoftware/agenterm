@@ -559,7 +559,7 @@ export function process_present(pid) {
     // is in the output. `/NH` drops the header, which would otherwise be
     // the only thing to match against.
     const out = run_spec({
-      program: "tasklist",
+      program: windows_system_executable("tasklist.exe"),
       args: ["/FI", "PID eq " + text, "/NH"],
       timeout_ms: 10000
     });
@@ -568,6 +568,16 @@ export function process_present(pid) {
   const spec = { program: "ps", args: ["-p", text, "-o", "pid="], timeout_ms: 5000 };
   const code = process_status(JSON.stringify(spec));
   return code === 0 ? 1 : 0;
+}
+
+/// Resolve a Windows inbox executable without trusting PATH. Scheduled-task
+/// and service courts commonly inherit a deliberately narrow PATH even though
+/// System32 is present and usable.
+export function windows_system_executable(name) {
+  const root = env_has("SystemRoot") === 1
+    ? door(env_get("SystemRoot"), "env_get SystemRoot")
+    : "C:\\Windows";
+  return join(join(root, "System32"), name);
 }
 
 // Run a full spec (env_remove, timeout_ms) to completion: rh's
