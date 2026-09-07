@@ -2481,6 +2481,16 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max: Option<usize>,
     },
+    /// Press an exact path in one uniquely resolved macOS application's
+    /// global menu. The Executor freezes the application/process/window-set
+    /// identity before reserving the receipt and never turns a successful
+    /// delivery into a false failure merely because the action removes its
+    /// source window.
+    AppMenuInvoke {
+        target: TargetRef,
+        app: String,
+        path: Vec<String>,
+    },
     /// Press the menu item at `path` (menu title, then item titles, exact)
     /// in the background: every segment must resolve to exactly one
     /// enabled item before anything is pressed, the last must be a leaf,
@@ -4080,6 +4090,7 @@ impl Command {
             Self::Invoke { .. } => "invoke".into(),
             Self::MenuInspect { .. } => "menu-inspect".into(),
             Self::AppMenuInspect { .. } => "app-menu-inspect".into(),
+            Self::AppMenuInvoke { .. } => "app-menu-invoke".into(),
             Self::MenuInvoke { .. } => "menu-invoke".into(),
             Self::Focused { .. } => "focused".into(),
             Self::Observe { .. } => "observe".into(),
@@ -4477,6 +4488,7 @@ impl Command {
             | Self::Invoke { target, .. }
             | Self::MenuInspect { target, .. }
             | Self::AppMenuInspect { target, .. }
+            | Self::AppMenuInvoke { target, .. }
             | Self::MenuInvoke { target, .. }
             | Self::Focused { target, .. }
             | Self::Observe { target, .. }
@@ -4664,6 +4676,7 @@ impl Command {
             | Self::TermSend { .. }
             | Self::Invoke { .. }
             | Self::MenuInvoke { .. }
+            | Self::AppMenuInvoke { .. }
             | Self::Click { .. }
             | Self::Focus { .. }
             | Self::SendText { .. }
@@ -7318,6 +7331,20 @@ mod tests {
         };
         assert_eq!(app_inspect.verb(), "app-menu-inspect");
         assert_eq!(app_inspect.required_grant(), Grant::Observe);
+        let app_invoke = Command::AppMenuInvoke {
+            target: TargetRef::Current,
+            app: "Editor".into(),
+            path: vec!["File".into(), "Do Thing".into()],
+        };
+        assert_eq!(app_invoke.verb(), "app-menu-invoke");
+        assert_eq!(app_invoke.required_grant(), Grant::Actuate);
+        assert_eq!(
+            serde_json::to_value(&app_invoke).expect("serialize"),
+            serde_json::json!({
+                "verb": "app-menu-invoke", "target": "current", "app": "Editor",
+                "path": ["File", "Do Thing"]
+            })
+        );
         let invoke = Command::MenuInvoke {
             target: TargetRef::Ssh,
             window: 7,

@@ -333,6 +333,15 @@ function known_dynamic_boundary(argv) {
         if (max.value !== null) { append(native, ["--max", "" + max.value]); }
         return { kind: "exec", argv: native };
       }
+    } else {
+      const parsed = without_value_flags(argv, ["path"]);
+      if (!parsed.ok) { return { kind: "usage", command: "menu", message: parsed.message }; }
+      if (parsed.argv.length === 2 && parsed.argv[1].length > 0
+          && parsed.values.path !== null) {
+        return { kind: "exec", argv: [
+          "app-menu-invoke", "--app", parsed.argv[1], "--path", parsed.values.path
+        ] };
+      }
     }
     return todo(sub === "inspect" ? "acu.dynamic.086" : "acu.dynamic.087", "menu",
       "app-global menu addressing needs an unambiguous typed target");

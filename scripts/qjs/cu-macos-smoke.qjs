@@ -58,6 +58,7 @@ const declared_evidence = [
   "cu.macos-ax-invoke-refusals",
   "cu.macos-ax-menu-inspect",
   "cu.macos-app-menu-inspect",
+  "cu.macos-app-menu-invoke",
   "cu.macos-ax-menu-invoke",
   "cu.macos-ax-focused",
   "cu.macos-ax-observe",
@@ -1589,6 +1590,36 @@ try {
   verify_ok(run_directory, executable, handle_text, [
     { identifier: "fixture-menu-label", role: "AXStaticText", value: "did thing 1" }
   ]);
+  const app_did_thing = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "app-menu-invoke",
+    "--app", fixture_app_name, "--path", "File/Do Thing"
+  ]);
+  ensure(
+    text_at(app_did_thing, "data.addressing") === "application-menu"
+      && text_at(app_did_thing, "data.app") === fixture_app_name
+      && int_at(app_did_thing, "data.pid") === fixture_pid
+      && text_at(app_did_thing, "data.start_identity") === process_identity
+      && int_at(app_did_thing, "data.window_count_before") >= 1
+      && flag_at(app_did_thing, "data.performed")
+      && flag_at(app_did_thing, "data.delivery_verified")
+      && flag_at(app_did_thing, "data.effect_verified")
+      && flag_at(app_did_thing, "data.verified")
+      && flag_at(app_did_thing, "data.foreground_unchanged")
+      && text_at(app_did_thing, "data.receipt.id") !== "",
+    "cu_macos_smoke_app_menu_invoke:" + JSON.stringify(app_did_thing.data)
+  );
+  verify_ok(run_directory, executable, handle_text, [
+    { identifier: "fixture-menu-label", role: "AXStaticText", value: "did thing 2" }
+  ]);
+  const app_menu_observe_refusal = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "app-menu-invoke",
+    "--app", fixture_app_name, "--path", "File/Do Thing"
+  ]);
+  ensure(
+    !flag_at(app_menu_observe_refusal, "ok")
+      && text_at(app_menu_observe_refusal, "error.code") === "refused",
+    "cu_macos_smoke_app_menu_invoke_scope:" + JSON.stringify(app_menu_observe_refusal)
+  );
   const deeper = menu_invoke_reply(
     run_directory, executable, "actuate", handle_text, "[\"File\",\"More\",\"Deeper Thing\"]"
   );
@@ -3285,6 +3316,7 @@ harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-value-read
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-invoke-refusals");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-menu-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.macos-app-menu-inspect");
+harness.emit_evidence(context, declared_evidence, "cu.macos-app-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-focused");
 harness.emit_evidence(context, declared_evidence, "cu.macos-ax-observe");

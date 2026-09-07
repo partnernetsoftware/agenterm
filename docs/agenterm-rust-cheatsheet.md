@@ -4485,6 +4485,16 @@ Windows on their exact-window menu contracts until they expose an equivalent
 application-global owner; typed not-applicable is more truthful than a
 cross-platform-looking guess.
 
+For an app-global mutation, freeze that identity tuple before reserving the
+receipt, then distinguish native delivery from business-effect read-back. Once
+the platform action reports accepted, a rebuilt or removed source window is a
+post-observation limitation, not proof that delivery failed. Close the durable
+receipt as completed delivery with `effect_verified: false` when no stable
+mark/tree remains; never leave an ordinary post-action disappearance as a lone
+`reserved` crash signature. Conversely, native acceptance alone is not an
+effect claim: keep the public `verified` bit false unless an independent mark
+or tree diff proves the result.
+
 A filtered accessibility watch must repeat the same bounded acquisition and
 predicate as the one-shot query; a generic accessibility notification stream
 is not a substitute for the caller's final matching row set. Treat failed

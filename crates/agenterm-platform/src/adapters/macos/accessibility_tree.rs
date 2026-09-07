@@ -1089,10 +1089,15 @@ pub(crate) fn invoke_menu_path(
     perform_named_action(item.as_ax(), "AXPress", &mut budget)?;
     // Re-resolve rather than trust the pressed element: a menu that
     // rebuilt itself publishes fresh elements.
-    let mark_after = match resolve_menu_path(bar.as_ax(), path, &mut budget) {
-        Ok(again) => menu_mark(again.as_ax(), &mut budget)?,
-        Err(_) => None,
-    };
+    // Once AXPress returns success, later accessibility invalidation is a
+    // post-observation gap, not proof that delivery failed. Menu actions can
+    // legitimately rebuild or remove their menu/window. Preserve the known
+    // performed outcome and leave the mark absent when either re-resolution
+    // or its optional mark read-back is no longer available.
+    let mark_after = resolve_menu_path(bar.as_ax(), path, &mut budget)
+        .ok()
+        .and_then(|again| menu_mark(again.as_ax(), &mut budget).ok())
+        .flatten();
     Ok(AccessibilityMenuReceipt {
         mark_before,
         mark_after,

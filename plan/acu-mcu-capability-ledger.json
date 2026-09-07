@@ -505,8 +505,18 @@
           "state": "native",
           "qualification": "macos-public-qjswasm-live-linux-windows-typed-not-applicable",
           "evidence": ["cu.macos-app-menu-inspect"],
-          "next": "keep app-global menu invocation separate until its effect receipt brackets the same exact process and foreground identity",
+          "next": "keep extending optional legacy filters only when they retain the same bounded exact-app identity contract",
           "note": "The legacy app-global contract was macOS-only. ACU requires a case-insensitive exact application name resolving to one live process, brackets its start identity and complete matching window set, and never activates it. Linux and Windows retain the exact-window menu surface."
+        },
+        {
+          "id": "desktop.menu.app-global-invoke",
+          "mcu_shape": "menu APP --path on macOS",
+          "acu_shape": "app-menu-invoke --app EXACT --path PATH",
+          "state": "native",
+          "qualification": "macos-public-qjswasm-live-linux-windows-typed-not-applicable",
+          "evidence": ["cu.macos-app-menu-invoke"],
+          "next": "optional mark/window expectations remain explicit compatibility extensions, never grounds for reviving MCU",
+          "note": "The exact application resolves to one live process before receipt reservation. Native delivery and business-effect read-back are separate, so an accepted menu action cannot become a false failure merely because it removes or rebuilds the source window."
         },
         {
           "id": "desktop.app.lifecycle",

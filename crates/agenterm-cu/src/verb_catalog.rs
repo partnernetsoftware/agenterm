@@ -280,6 +280,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 97, "{actuate:?}");
+        assert_eq!(actuate.len(), 98, "{actuate:?}");
     }
 }

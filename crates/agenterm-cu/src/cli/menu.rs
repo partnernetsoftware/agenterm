@@ -47,6 +47,27 @@ pub fn parse_app_inspect(target: TargetRef, args: &mut Vec<String>) -> Result<Co
     })
 }
 
+pub fn parse_app_invoke(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let app = flag_text(args, "--app")?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "app-menu-invoke requires --app <exact-name>".to_owned())?;
+    let path = match flag_text(args, "--path")? {
+        Some(raw) => agenterm_cu::observe::parse_menu_path(&raw)?,
+        None => {
+            return Err(
+                "app-menu-invoke requires --path 'Menu/Item' (or a JSON array of titles)".into(),
+            );
+        }
+    };
+    if !args.is_empty() {
+        return Err(format!(
+            "app-menu-invoke accepts only --app EXACT --path PATH; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::AppMenuInvoke { target, app, path })
+}
+
 pub fn parse(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let Some(sub) = args.first().cloned() else {
         return Err("menu requires a subcommand: inspect | invoke".into());
@@ -157,5 +178,21 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn app_global_invocation_has_one_exact_path_shape() {
+        let mut args = vec![
+            "--app".into(),
+            "Editor".into(),
+            "--path".into(),
+            "File/Save".into(),
+        ];
+        assert!(matches!(
+            parse_app_invoke(TargetRef::Current, &mut args).unwrap(),
+            Command::AppMenuInvoke { app, path, .. }
+                if app == "Editor" && path == ["File", "Save"]
+        ));
+        assert!(parse_app_invoke(TargetRef::Current, &mut Vec::new()).is_err());
     }
 }

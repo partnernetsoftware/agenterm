@@ -887,7 +887,7 @@
         "--path",
         "File/Open"
       ],
-      "classification": "dynamic-stay"
+      "classification": "resolved"
     },
     {
       "gap_id": "acu.dynamic.088",

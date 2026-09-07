@@ -1200,6 +1200,9 @@ impl Executor {
                 *offset,
                 *max,
             ),
+            Command::AppMenuInvoke { app, path, .. } => {
+                app_menu_invoke_payload(app, path, &mut self.open_receipts(command.target())?)
+            }
             Command::MenuInvoke { window, path, .. } => {
                 menu_invoke_payload(*window, path, &mut self.open_receipts(command.target())?)
             }

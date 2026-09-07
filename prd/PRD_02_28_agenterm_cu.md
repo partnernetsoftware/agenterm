@@ -133,10 +133,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `5 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 28 resolved witnesses now have an executable disposition:
-  15 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 5 remaining
+  `4 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 29 resolved witnesses now have an executable disposition:
+  16 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 4 remaining
   dynamic-stay witness rows keep their stable repair identities. The `.050` witness now
   maps to native exact simulator app status, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
@@ -533,7 +533,11 @@ ACU-only cutover
 │  │  ├─ process start identity, complete matching window set and foreground are bracketed
 │  │  ├─ public owned qjswasm menu court is green without activation
 │  │  └─ Linux/Windows return `app_menu_platform_unsupported`; use exact-window menu there
-│  ├─ acu.dynamic.087 · app-global menu invocation without ambiguous window choice
+│  ├─ [x] acu.dynamic.087 · native macOS `app-menu-invoke` freezes exact app/process/window identity;
+│  │  ├─ reserve precedes AXPress; delivery and business-effect verification remain separate
+│  │  ├─ source-window disappearance after accepted delivery cannot become a false failure
+│  │  ├─ public owned qjswasm menu court proves mark/tree read-back and unchanged foreground
+│  │  └─ Linux/Windows typed-not-applicable; exact-window `menu-invoke` remains available
 │  └─ acu.dynamic.095 · window-local background hover without moving the real cursor
 ├─ [ ] native/product TODO registry
 │  ├─ capability truth and platform status → `plan/acu-mcu-capability-ledger.json`

@@ -3169,7 +3169,7 @@
     },
     {
       "id": "cu-macos-smoke",
-      "description": "Prove the macOS agenterm-cu loop on owned fixtures: identity-bound process argv/usage/wait/kill, network and file observation, terminal control, bounded tree/query, exact-app global menu inspection, semantic writes, background input, geometry, screenshot, snapshot/diff, window lifecycle, receipts and owned cleanup.",
+      "description": "Prove the macOS agenterm-cu loop on owned fixtures: identity-bound process argv/usage/wait/kill, network and file observation, terminal control, bounded tree/query, exact-app global menu inspection/invocation, semantic writes, background input, geometry, screenshot, snapshot/diff, window lifecycle, receipts and owned cleanup.",
       "entry": "scripts/qjs/cu-macos-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

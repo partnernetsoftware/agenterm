@@ -20,6 +20,28 @@ pub(super) fn menu_budget(
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn app_menu_effect_verification(
+    target_disappeared: bool,
+    foreground_unchanged: bool,
+    window_set_unchanged: bool,
+    mark_changed: bool,
+    tree_changed: bool,
+    source_addressable: bool,
+) -> (bool, &'static str) {
+    if target_disappeared {
+        (true, "application-disappeared-after-press")
+    } else if foreground_unchanged && window_set_unchanged && mark_changed {
+        (true, "mark-readback")
+    } else if foreground_unchanged && window_set_unchanged && tree_changed {
+        (true, "tree-diff")
+    } else if !source_addressable {
+        (false, "source-no-longer-addressable")
+    } else {
+        (false, "no-observable-change")
+    }
+}
+
 /// Background menu inventory: the application's menu bar walked under a
 /// menu-level / node budget, flattened to items with exact title paths.
 pub(super) fn menu_inspect_payload(
@@ -193,6 +215,217 @@ pub(super) fn app_menu_inspect_payload(
     }
 }
 
+/// Press one exact path in a uniquely resolved macOS application menu.
+/// Delivery and business-effect verification are deliberately separate: once
+/// AXPress succeeds, a menu action may rebuild or remove the source window, so
+/// a missing post-action tree is evidence availability, not retroactive proof
+/// that the action failed.
+pub(super) fn app_menu_invoke_payload(
+    app: &str,
+    path: &[String],
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let app = app.trim();
+    if app.is_empty() {
+        return Err(invalid_input(
+            "app-menu-invoke --app must not be empty".into(),
+        ));
+    }
+    if path.len() < 2 || path.iter().any(String::is_empty) {
+        return Err(invalid_input(
+            "app-menu-invoke needs --path with a menu title and at least one non-empty item title"
+                .into(),
+        ));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = receipts;
+        return Err(CuError::new(
+            "app_menu_platform_unsupported",
+            "application-global menu invocation is a macOS capability; use menu-invoke --window on this host",
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut inventory_before =
+            mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+        let stacking_before = mechanism::window_enumerate::stacking().unwrap_or_default();
+        let focus_before =
+            super::windows::resolve_inventory_focus(&mut inventory_before, &stacking_before);
+        let mut matching = inventory_before
+            .iter()
+            .filter(|window| window.app_name.eq_ignore_ascii_case(app))
+            .cloned()
+            .collect::<Vec<_>>();
+        matching.sort_by_key(|window| (window.process_id, window.handle));
+        if matching.is_empty() {
+            return Err(CuError::new(
+                "a11y_app_not_found",
+                "no top-level window belongs to the exact requested application",
+            )
+            .with_detail(serde_json::json!({ "app": app })));
+        }
+        let pids = matching
+            .iter()
+            .map(|window| window.process_id)
+            .collect::<std::collections::BTreeSet<_>>();
+        if pids.len() != 1 {
+            return Err(CuError::new(
+                "a11y_app_ambiguous",
+                "the exact application name belongs to more than one live process",
+            )
+            .with_detail(serde_json::json!({ "app": app, "processes": pids.len() })));
+        }
+        let pid = matching[0].process_id;
+        let start_identity = match agenterm_platform::process::observe(pid) {
+            agenterm_platform::process::ProcessObservation::Live {
+                start_identity: Some(identity),
+            } => identity,
+            _ => {
+                return Err(CuError::new(
+                    "a11y_app_identity_unavailable",
+                    "the application process has no stable live start identity",
+                ));
+            }
+        };
+        let windows_before = matching
+            .iter()
+            .map(|window| (window.handle, window.process_id, window.app_name.clone()))
+            .collect::<Vec<_>>();
+        let window = matching[0].handle;
+        let tree_before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+        let ticket = receipts.reserve(
+            "app-menu-invoke",
+            window,
+            serde_json::json!({
+                "addressing": "application-menu",
+                "app": app,
+                "app_pid": pid,
+                "app_start_identity": start_identity,
+                "windows_before": windows_before,
+                "foreground_before": focus_before.json(),
+                "path": path,
+                "action": "press",
+                "before": { "nodes": tree_before.returned },
+            }),
+        )?;
+        let native = match mechanism::invoke_menu_path(Some(window), path) {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                let error = map_mechanism_err(error);
+                receipts.complete(
+                    &ticket,
+                    "app-menu-invoke",
+                    window,
+                    false,
+                    serde_json::json!({
+                        "performed": false,
+                        "delivery_verified": false,
+                        "effect_verified": false,
+                        "error": error_payload(&error),
+                    }),
+                )?;
+                return Err(error.with_detail(serde_json::json!({ "receipt": ticket.json() })));
+            }
+        };
+
+        // Everything below is post-observation. None of it may turn the
+        // already accepted AXPress into an error response.
+        let tree_after = mechanism::tree_for_window(Some(window)).ok();
+        let tree_changed = tree_after
+            .as_ref()
+            .is_some_and(|after| observe::tree_changed(&tree_before, after));
+        let mark_changed = native.mark_before != native.mark_after;
+        let process_state = match agenterm_platform::process::observe(pid) {
+            agenterm_platform::process::ProcessObservation::Live {
+                start_identity: Some(after),
+            } if after == start_identity => "same-identity",
+            agenterm_platform::process::ProcessObservation::Dead { .. } => "exited",
+            _ => "changed-or-unavailable",
+        };
+        let mut windows_after = None;
+        let mut focus_after_json = serde_json::Value::Null;
+        let mut foreground_unchanged = false;
+        if let Ok(mut inventory_after) = mechanism::window_enumerate::enumerate_top_level() {
+            let stacking_after = mechanism::window_enumerate::stacking().unwrap_or_default();
+            let focus_after =
+                super::windows::resolve_inventory_focus(&mut inventory_after, &stacking_after);
+            foreground_unchanged = focus_before.app.as_ref().map(|value| value.pid)
+                == focus_after.app.as_ref().map(|value| value.pid);
+            focus_after_json = focus_after.json();
+            let mut identities = inventory_after
+                .iter()
+                .filter(|entry| entry.app_name.eq_ignore_ascii_case(app))
+                .map(|entry| (entry.handle, entry.process_id, entry.app_name.clone()))
+                .collect::<Vec<_>>();
+            identities.sort();
+            windows_after = Some(identities);
+        }
+        let target_disappeared = process_state == "exited"
+            && windows_after
+                .as_ref()
+                .is_some_and(|identities| identities.is_empty());
+        let window_set_unchanged = windows_after
+            .as_ref()
+            .is_some_and(|identities| identities == &windows_before);
+        let (effect_verified, verification_method) = app_menu_effect_verification(
+            target_disappeared,
+            foreground_unchanged,
+            window_set_unchanged,
+            mark_changed,
+            tree_changed,
+            tree_after.is_some(),
+        );
+        let close_body = serde_json::json!({
+            "performed": true,
+            "delivery_verified": true,
+            "effect_verified": effect_verified,
+            "verification": { "method": verification_method },
+            "mark_before": native.mark_before,
+            "mark_after": native.mark_after,
+            "tree_changed": tree_changed,
+            "nodes_after": tree_after.as_ref().map(|tree| tree.returned),
+            "process_after": process_state,
+            "windows_after": windows_after,
+            "window_set_unchanged": window_set_unchanged,
+            "target_disappeared": target_disappeared,
+            "foreground_after": focus_after_json,
+            "foreground_unchanged": foreground_unchanged,
+        });
+        if effect_verified {
+            receipts.complete(&ticket, "app-menu-invoke", window, true, close_body.clone())?;
+        } else {
+            receipts.delivered(&ticket, "app-menu-invoke", window, close_body.clone())?;
+        }
+        Ok(serde_json::json!({
+            "addressing": "application-menu",
+            "mechanism": "libagenterm",
+            "backend": tree_before.backend,
+            "app": app,
+            "pid": pid,
+            "start_identity": start_identity,
+            "window": window,
+            "window_count_before": windows_before.len(),
+            "path": path,
+            "action": "press",
+            "performed": true,
+            "delivery_verified": true,
+            "verified": effect_verified,
+            "effect_verified": effect_verified,
+            "verification": { "method": verification_method },
+            "mark_before": native.mark_before,
+            "mark_after": native.mark_after,
+            "tree_changed": tree_changed,
+            "process_after": process_state,
+            "window_set_unchanged": window_set_unchanged,
+            "target_disappeared": target_disappeared,
+            "foreground_unchanged": foreground_unchanged,
+            "post_observation_complete": tree_after.is_some() && windows_after.is_some(),
+            "receipt": ticket.json(),
+        }))
+    }
+}
+
 /// Press one menu item by exact title path in the background, verified by
 /// the item's mark read-back and a whole-window tree diff.
 pub(super) fn menu_invoke_payload(
@@ -283,4 +516,33 @@ pub(super) fn menu_invoke_payload(
         "nodes_after": after.returned,
         "receipt": ticket.json(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::app_menu_effect_verification;
+
+    #[test]
+    fn app_menu_effect_never_confuses_delivery_with_readback() {
+        assert_eq!(
+            app_menu_effect_verification(true, false, false, false, false, false),
+            (true, "application-disappeared-after-press")
+        );
+        assert_eq!(
+            app_menu_effect_verification(false, true, true, true, false, true),
+            (true, "mark-readback")
+        );
+        assert_eq!(
+            app_menu_effect_verification(false, true, true, false, true, true),
+            (true, "tree-diff")
+        );
+        assert_eq!(
+            app_menu_effect_verification(false, true, true, false, false, false),
+            (false, "source-no-longer-addressable")
+        );
+        assert_eq!(
+            app_menu_effect_verification(false, false, true, true, true, true),
+            (false, "no-observable-change")
+        );
+    }
 }

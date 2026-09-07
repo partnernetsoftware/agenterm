@@ -744,6 +744,19 @@
       ]
     },
     {
+      "name": "app-menu-invoke",
+      "command": "app-menu-invoke",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "a11y-actuate",
+      "summary": "press one exact path in a uniquely resolved macOS application menu",
+      "usage": "app-menu-invoke --app EXACT --path PATH",
+      "args": [
+        { "flag": "--app", "value": "EXACT", "help": "case-insensitive exact application name; required and unique by process" },
+        { "flag": "--path", "value": "PATH", "help": "slash-delimited path or JSON string array; at least menu/item" }
+      ]
+    },
+    {
       "name": "ps",
       "command": "ps",
       "aliases": [],
@@ -5844,6 +5857,10 @@
     {
       "name": "app-menu-inspect",
       "text": "agenterm-cu app-menu-inspect\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  app-menu-inspect --app EXACT [--depth N] [--max-nodes N]\n                   [--title T [--exact]] [--enabled true|false] [--offset N] [--max N]\n\nResolves one running macOS application by case-insensitive exact name and unique\nprocess identity, then reads its application-global AX menu bar without choosing\na representative window. The process start identity, complete matching window set\nand foreground identity are bracketed around the bounded read. Linux and Windows\nreturn app_menu_platform_unsupported; use menu-inspect --window there.\n"
+    },
+    {
+      "name": "app-menu-invoke",
+      "text": "agenterm-cu app-menu-invoke\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  app-menu-invoke --app EXACT --path PATH\n\nResolves one running macOS application by case-insensitive exact name and unique\nprocess identity, freezes its complete window set and foreground identity, reserves\na durable receipt, and presses one exact enabled leaf menu path without activation.\nDelivery and business-effect read-back are separate: a successful native press stays\nperformed even if the action removes the source window; the reply then states whether\nthe mark/tree effect was independently verified. Linux and Windows return the typed\napp_menu_platform_unsupported result; use menu-invoke --window there.\n"
     },
     {
       "name": "ps",

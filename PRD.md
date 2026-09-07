@@ -148,13 +148,13 @@ AgenTerm — local agent & process fleet work OS
 │     │                       `agenterm:acu.argv` 跑通 native spelling；无 Bun、binary lookup、
 │     │                       child process 或 MCU fallback。冻结 42 个合法 legacy probe 已全部
 │     │                       映射；`kill PID` 仍以 process-state → identity-bound process-kill 两段
-│     │                       typed 调用执行。95 条动态 witness 的 28 条 resolved 已全部清账：
-│     │                       15 exec + 8 compound + 5 usage；5 条 dynamic-stay witness 继续按稳定
+│     │                       typed 调用执行。95 条动态 witness 的 29 条 resolved 已全部清账：
+│     │                       16 exec + 8 compound + 5 usage；4 条 dynamic-stay witness 继续按稳定
 │     │                       gap_id 修复；tmux provider 是显式产品边界，通用 regex wait 仍是 TODO
 │     ├─ retirement             MCU 立即退出生产入口；TODO 动态补 ACU。调用者迁到 typed
 │     │                       `acu` 对象后，过渡 `acu.qjs` 也可归档
-│     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 135 叶：
-│     │                       native 35 / delegated 31 / platform-limited 63 / gap 1 / retired 5
+│     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 136 叶：
+│     │                       native 36 / delegated 31 / platform-limited 63 / gap 1 / retired 5
 │     │                       平台资格用 schema-2 三主机矩阵；每格必须绑定完整 evidence-token 集，
 │     │                       旧散文、pending 或只证复合能力一半的单 token 一律不能晋级
 │     │                       exact @tab 视口滚动与渲染 PNG 已走同一 control plane；
@@ -277,7 +277,7 @@ flowchart LR
   ACUOBJ["agenterm:acu.call/argv<br/>one parser · Executor · receipts"]
   ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
   ACUDYN["fixed sibling provider<br/>ABI checked · no fallback<br/>separate signed artifact"]
-  ACUQJS["agenterm cli acu [~]<br/>embedded · Bun-free · any cwd<br/>42/42 positive · 28 resolved · 5 TODO"]
+  ACUQJS["agenterm cli acu [~]<br/>embedded · Bun-free · any cwd<br/>42/42 positive · 29 resolved · 4 TODO"]
   TODO["acu_todo ALERT<br/>stable gap id · explicit missing behavior"]
   MCUARC["archived MCU source<br/>read-only implementation reference"]
   BRIDGE["stable MV3 profile<br/>exact-tab lock · unique reconnect"]

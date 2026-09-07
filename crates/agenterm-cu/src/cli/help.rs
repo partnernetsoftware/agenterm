@@ -78,7 +78,7 @@ pub fn top_level_text() -> String {
     );
     text = text.replace(
         "  apps                              observe  running apps from top-level windows; --all adds installed",
-        "  apps observe running/installed;  app-inspect observe app windows;  app-menu-inspect observe macOS menu",
+        "  apps observe;  app-inspect observe;  app-menu-inspect observe;  app-menu-invoke actuate macOS",
     );
     text = text.replace("\nshell-exec", "\n  shell-exec");
     text = text.replace(
@@ -299,6 +299,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "pointer-scroll",
         "app-inspect",
         "app-menu-inspect",
+        "app-menu-invoke",
     ];
     let compact_process = [
         "process-argv",

@@ -23,6 +23,7 @@ pub fn parse(
     match spec.name {
         "invoke" => invoke(target, args),
         "menu-invoke" => menu::parse(target, args),
+        "app-menu-invoke" => menu::parse_app_invoke(target, args),
         "click" => click(spelled, target, args),
         "drag" => drag(target, args),
         "focus" => {

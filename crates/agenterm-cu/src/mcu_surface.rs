@@ -60,6 +60,7 @@ pub const GROUPS: &[Group] = &[
             "wait",
             "menu-inspect",
             "app-menu-inspect",
+            "app-menu-invoke",
             "menu-invoke",
             "unlock",
             "tab-list",

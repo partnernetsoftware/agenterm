@@ -8,8 +8,11 @@
 //! 1. `reserved` — written **before** the mechanism is touched: target,
 //!    window, node, action, value, the `before` state and (for a
 //!    destructive verb) the prior snapshot;
-//! 2. `completed` / `failed` — written after the read-back: `after`,
-//!    `verified`, the verification method and reason, or the typed error.
+//! 2. `completed` / `failed` — written after delivery/read-back: `after`,
+//!    `verified`, the verification method and reason, or the typed error. A
+//!    completed line may carry `verified:false` only when native delivery is
+//!    known but the action legitimately removed its own read-back surface;
+//!    the verb must label delivery and business-effect evidence separately.
 //!
 //! A receipt that has a `reserved` line and no second line is the crash
 //! signature: the process died between reserving and reading back, so the
@@ -138,8 +141,9 @@ impl ReceiptLog {
         })
     }
 
-    /// Append the closing line (`completed` when the effect was read back
-    /// as intended, `failed` otherwise) and flush it.
+    /// Append the ordinary closing line (`completed` when the effect was read
+    /// back as intended, `failed` otherwise) and flush it. Use `delivered`
+    /// only for the narrower accepted-delivery / unavailable-effect case.
     pub fn complete(
         &mut self,
         ticket: &ReceiptTicket,
@@ -158,6 +162,33 @@ impl ReceiptLog {
                 "verb": verb,
                 "window": window,
                 "verified": verified,
+            }),
+            body,
+        );
+        self.append(&line)
+    }
+
+    /// Close a receipt after the native mechanism has positively accepted
+    /// the action but no stable business-state read-back remains. This is a
+    /// completed delivery with `verified: false`, not a failed action and not
+    /// a dangling/uncertain reservation.
+    pub fn delivered(
+        &mut self,
+        ticket: &ReceiptTicket,
+        verb: &str,
+        window: isize,
+        body: serde_json::Value,
+    ) -> Result<(), CuError> {
+        let line = merged(
+            serde_json::json!({
+                "receipt_id": ticket.id,
+                "phase": "completed",
+                "ts_ms": now_ms(),
+                "pid": std::process::id(),
+                "target": self.target.as_str(),
+                "verb": verb,
+                "window": window,
+                "verified": false,
             }),
             body,
         );
@@ -348,6 +379,34 @@ mod tests {
         let error = list_file(&path, None, 5).expect_err("torn line");
         assert_eq!(error.code, "receipt_corrupt");
         assert!(error.message.contains("line 2"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn accepted_delivery_can_close_without_claiming_effect_readback() {
+        let dir = scratch_dir("delivered");
+        let mut log = ReceiptLog::open_in(&dir, TargetRef::Current).expect("open");
+        let ticket = log
+            .reserve(
+                "app-menu-invoke",
+                7,
+                serde_json::json!({ "action": "press" }),
+            )
+            .expect("reserve");
+        log.delivered(
+            &ticket,
+            "app-menu-invoke",
+            7,
+            serde_json::json!({ "performed": true, "effect_verified": false }),
+        )
+        .expect("delivered");
+        let (lines, total) = log.list(Some(7), 10).expect("list");
+        assert_eq!(total, 2);
+        assert_eq!(lines[1]["phase"], "completed");
+        assert_eq!(lines[1]["verified"], false);
+        assert_eq!(lines[1]["performed"], true);
+        assert_eq!(lines[1]["effect_verified"], false);
+        drop(log);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

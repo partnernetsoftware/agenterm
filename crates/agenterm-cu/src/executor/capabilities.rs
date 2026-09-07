@@ -938,6 +938,18 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "app-menu-invoke".into(),
+            serde_json::json!({
+                "status": if cfg!(target_os = "macos") { "available" } else { "not-applicable" },
+                "group": "semantic",
+                "mode": "exact-app-global-menu-effect",
+                "grant": "actuate",
+                "identity_bracketed": true,
+                "delivery_and_effect_verification_separate": true,
+                "platforms": ["macos"],
+            }),
+        );
+        verbs.insert(
             "doctor".into(),
             serde_json::json!({
                 "status": "available",
