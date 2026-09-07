@@ -44,8 +44,8 @@ fn main() {
     if matches!(args.as_slice(), [arg] if arg == agenterm_cu::DEVICE_LEASE_OWNER_ARG) {
         std::process::exit(agenterm_cu::run_device_lease_owner());
     }
-    if matches!(args.as_slice(), [arg] if arg == agenterm_cu::PRIVILEGE_PROVIDER_ARG) {
-        std::process::exit(agenterm_cu::run_privilege_provider());
+    if matches!(args.as_slice(), [arg] if arg == agenterm_cu::PRIVILEGE_BROKER_ARG) {
+        std::process::exit(agenterm_cu::run_privilege_broker());
     }
     if args.first().map(String::as_str) == Some(agenterm_cu::DEVICE_IO_FIXTURE_ARG) {
         std::process::exit(agenterm_cu::run_device_io_test_fixture(&args[1..]));

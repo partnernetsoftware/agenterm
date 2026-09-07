@@ -122,15 +122,17 @@ pub mod privilege_plan;
 pub(crate) mod privilege_provider;
 #[cfg(target_os = "linux")]
 pub(crate) mod privilege_provider_linux;
+#[cfg(target_os = "linux")]
+pub(crate) mod privilege_system_broker_linux;
 
 #[doc(hidden)]
-pub const PRIVILEGE_PROVIDER_ARG: &str = "--agenterm-cu-internal-privilege-provider";
+pub const PRIVILEGE_BROKER_ARG: &str = "--agenterm-cu-internal-privilege-broker";
 
 #[doc(hidden)]
-pub fn run_privilege_provider() -> i32 {
+pub fn run_privilege_broker() -> i32 {
     #[cfg(target_os = "linux")]
     {
-        privilege_provider_linux::run_stdio()
+        privilege_system_broker_linux::run_systemd()
     }
     #[cfg(not(target_os = "linux"))]
     {

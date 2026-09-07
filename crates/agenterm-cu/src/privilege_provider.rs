@@ -135,6 +135,7 @@ struct ProviderReceipt {
 /// The platform launcher must complete native consent before constructing the
 /// authority. This coordinator accepts only one-shot consent until a native
 /// delegated-grant verifier is implemented by the same fixed provider.
+#[cfg(test)]
 pub(crate) fn execute_one_shot(
     authority: &FixedProviderAuthority,
     request_bytes: &[u8],
@@ -173,21 +174,19 @@ pub(crate) fn lookup_before_native_consent(
             outcome_code,
             receipt_id,
             receipt_sha256,
-        } => {
-            return replay_finalized(
-                authority,
-                request,
-                &outcome_code,
-                receipt_id.as_deref(),
-                receipt_sha256.as_deref(),
-            )
-            .map(PreConsentDecision::Reply);
-        }
+        } => replay_finalized(
+            authority,
+            request,
+            &outcome_code,
+            receipt_id.as_deref(),
+            receipt_sha256.as_deref(),
+        )
+        .map(PreConsentDecision::Reply),
         PrivilegeProviderLookupDecision::OutcomeUnknown => {
             let attempt = load_attempt(authority, validated.fingerprint())?;
-            return Ok(PreConsentDecision::Reply(outcome_unknown(
+            Ok(PreConsentDecision::Reply(outcome_unknown(
                 request, &attempt,
-            )));
+            )))
         }
         PrivilegeProviderLookupDecision::Missing => {
             Ok(PreConsentDecision::Missing(PendingPrivilegeRequest {

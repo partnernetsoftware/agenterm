@@ -1,24 +1,21 @@
-//! Linux polkit boundary for the fixed ACU privilege provider.
+//! Linux fixed-identity boundary for the ACU privilege provider.
 //!
-//! `pkexec` authenticates the user session and starts the root-owned installed
-//! copy. This entry refuses every development/worktree copy, authenticates the
-//! invoking uid from `PKEXEC_UID`, hashes the running inode through
-//! `/proc/self/exe`, and only then enters the shared provider coordinator.
+//! The system broker authenticates callers through kernel peer credentials,
+//! refuses development/worktree copies, hashes the running inode via
+//! `/proc/self/exe`, and enters the provider-private replay coordinator.
 
 use std::{
     fs::{self, File, Metadata},
-    io::{Read, Write},
+    io::Read,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use sha2::{Digest, Sha256};
 
 use crate::{
-    CuError,
-    privilege_apply::{MAX_REQUEST_BYTES, PrivilegeProviderNamespace},
-    privilege_provider::{FixedProviderAuthority, execute_one_shot},
+    CuError, privilege_apply::PrivilegeProviderNamespace,
+    privilege_provider::FixedProviderAuthority,
 };
 
 pub const INSTALLED_PROVIDER_PATH: &str = "/usr/libexec/agenterm/agenterm-cu";
@@ -27,71 +24,46 @@ const SELF_EXE_PATH: &str = "/proc/self/exe";
 const PRINCIPAL_DOMAIN: &[u8] = b"agenterm-cu/linux-polkit-principal/v1\0";
 const PROVIDER_DOMAIN: &[u8] = b"agenterm-cu/linux-polkit-provider/v1\0";
 
-pub(crate) fn run_stdio() -> i32 {
-    match run_stdio_result() {
-        Ok(reply) => write_reply(&reply).unwrap_or(5),
-        Err(error) => {
-            let value = serde_json::json!({
-                "ok": false,
-                "error": { "code": error.code, "message": error.message }
-            });
-            write_reply(&value).unwrap_or(5).max(1)
-        }
-    }
-}
-
-fn run_stdio_result() -> Result<serde_json::Value, CuError> {
-    let authority = native_authority()?;
-    let mut request = Vec::new();
-    std::io::stdin()
-        .take((MAX_REQUEST_BYTES + 1) as u64)
-        .read_to_end(&mut request)
-        .map_err(|error| {
-            CuError::new(
-                "privilege_request_unavailable",
-                format!("provider could not read its bounded request: {error}"),
-            )
-        })?;
-    if request.len() > MAX_REQUEST_BYTES {
+/// Construct provider authority for a UID already authenticated by the Linux
+/// system-broker platform boundary. No wire request or environment value can
+/// call this function directly.
+pub(crate) fn authority_for_uid(invoking_uid: u32) -> Result<FixedProviderAuthority, CuError> {
+    require_elevated_provider()?;
+    if invoking_uid == 0 {
         return Err(CuError::new(
-            "privilege_request_size_invalid",
-            "privilege apply request exceeds its byte budget",
+            "privilege_origin_invalid",
+            "the Linux privilege broker requires an ordinary-user peer",
         ));
     }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| {
-            CuError::new(
-                "privilege_provider_clock_invalid",
-                "provider clock is before the Unix epoch",
-            )
-        })?
-        .as_millis();
-    let now = i64::try_from(now).map_err(|_| {
-        CuError::new(
-            "privilege_provider_clock_invalid",
-            "provider clock exceeds the supported millisecond range",
-        )
-    })?;
-    serde_json::to_value(execute_one_shot(&authority, &request, now)?).map_err(|error| {
-        CuError::new(
-            "privilege_reply_invalid",
-            format!("provider could not serialize its closed reply: {error}"),
-        )
-    })
+    validate_provider_identity()?;
+    let provider_binary_digest = hash_file(Path::new(SELF_EXE_PATH))?;
+    let principal_digest = digest_parts(PRINCIPAL_DOMAIN, &[&invoking_uid.to_string()]);
+    let provider_identity_digest = digest_parts(
+        PROVIDER_DOMAIN,
+        &[INSTALLED_PROVIDER_PATH, &provider_binary_digest],
+    );
+    FixedProviderAuthority::from_native_boundary(
+        PrivilegeProviderNamespace::LinuxPolkit,
+        PathBuf::from(PROVIDER_STATE_ROOT),
+        principal_digest,
+        provider_identity_digest,
+    )
 }
 
-fn native_authority() -> Result<FixedProviderAuthority, CuError> {
+fn require_elevated_provider() -> Result<(), CuError> {
     // SAFETY: libc exposes these process attributes without pointers or
     // ownership transfer. The fixed helper is required to run as root.
     let effective_uid = unsafe { libc::geteuid() };
     if effective_uid != 0 {
         return Err(CuError::new(
             "privilege_provider_not_elevated",
-            "the Linux privilege provider must be started by polkit as root",
+            "the Linux privilege provider must run as the fixed root service",
         ));
     }
-    let invoking_uid = parse_pkexec_uid()?;
+    Ok(())
+}
+
+fn validate_provider_identity() -> Result<(), CuError> {
     let installed = Path::new(INSTALLED_PROVIDER_PATH);
     validate_fixed_path(installed)?;
     prepare_and_validate_state_root()?;
@@ -105,18 +77,7 @@ fn native_authority() -> Result<FixedProviderAuthority, CuError> {
             "the running provider is not the root-owned installed executable",
         ));
     }
-    let provider_binary_digest = hash_file(Path::new(SELF_EXE_PATH))?;
-    let principal_digest = digest_parts(PRINCIPAL_DOMAIN, &[&invoking_uid.to_string()]);
-    let provider_identity_digest = digest_parts(
-        PROVIDER_DOMAIN,
-        &[INSTALLED_PROVIDER_PATH, &provider_binary_digest],
-    );
-    FixedProviderAuthority::from_native_boundary(
-        PrivilegeProviderNamespace::LinuxPolkit,
-        PathBuf::from(PROVIDER_STATE_ROOT),
-        principal_digest,
-        provider_identity_digest,
-    )
+    Ok(())
 }
 
 fn prepare_and_validate_state_root() -> Result<(), CuError> {
@@ -150,34 +111,6 @@ fn prepare_and_validate_state_root() -> Result<(), CuError> {
         )?;
     }
     Ok(())
-}
-
-fn parse_pkexec_uid() -> Result<u32, CuError> {
-    let raw = std::env::var("PKEXEC_UID").map_err(|_| {
-        CuError::new(
-            "privilege_origin_unavailable",
-            "polkit did not identify the invoking uid",
-        )
-    })?;
-    if raw.is_empty() || !raw.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(CuError::new(
-            "privilege_origin_invalid",
-            "polkit invoking uid is not canonical decimal",
-        ));
-    }
-    let uid = raw.parse::<u32>().map_err(|_| {
-        CuError::new(
-            "privilege_origin_invalid",
-            "polkit invoking uid is outside the native uid range",
-        )
-    })?;
-    if uid.to_string() != raw {
-        return Err(CuError::new(
-            "privilege_origin_invalid",
-            "polkit invoking uid must not contain leading zeroes",
-        ));
-    }
-    Ok(uid)
 }
 
 fn validate_fixed_path(file: &Path) -> Result<(), CuError> {
@@ -262,43 +195,10 @@ fn provider_identity_error(error: impl std::fmt::Display) -> CuError {
     )
 }
 
-fn write_reply(value: &serde_json::Value) -> Result<i32, ()> {
-    let mut stdout = std::io::stdout().lock();
-    serde_json::to_writer(&mut stdout, value).map_err(|_| ())?;
-    stdout.write_all(b"\n").map_err(|_| ())?;
-    stdout.flush().map_err(|_| ())?;
-    Ok(
-        if value.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
-            1
-        } else {
-            0
-        },
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-
-    #[test]
-    fn pkexec_uid_parser_is_canonical_and_bounded() {
-        // SAFETY: this test serializes its environment changes inside the
-        // process through one mutex and restores the prior value.
-        static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = ENV.lock().unwrap();
-        let before = std::env::var_os("PKEXEC_UID");
-        unsafe { std::env::set_var("PKEXEC_UID", "501") };
-        assert_eq!(parse_pkexec_uid().unwrap(), 501);
-        for invalid in ["", "0501", "-1", "1x", "4294967296"] {
-            unsafe { std::env::set_var("PKEXEC_UID", invalid) };
-            assert!(parse_pkexec_uid().is_err(), "accepted {invalid:?}");
-        }
-        match before {
-            Some(value) => unsafe { std::env::set_var("PKEXEC_UID", value) },
-            None => unsafe { std::env::remove_var("PKEXEC_UID") },
-        }
-    }
 
     #[test]
     fn fixed_component_rejects_writable_or_non_executable_files() {
@@ -332,18 +232,20 @@ mod tests {
     }
 
     #[test]
-    fn polkit_policy_binds_the_fixed_path_and_only_provider_mode() {
+    fn polkit_policy_and_service_bind_the_fixed_broker_without_pkexec() {
         let policy = include_str!(
             "../../../packaging/privilege/linux/com.partnernetsoftware.agenterm.cu.privilege.policy"
         );
+        let service = include_str!(
+            "../../../packaging/privilege/linux/com.partnernetsoftware.agenterm.cu.privilege.service"
+        );
         assert!(policy.contains("<allow_active>auth_admin</allow_active>"));
-        assert!(policy.contains(&format!(
-            "<annotate key=\"org.freedesktop.policykit.exec.path\">{INSTALLED_PROVIDER_PATH}</annotate>"
+        assert!(!policy.contains("org.freedesktop.policykit.exec."));
+        assert!(service.contains(&format!(
+            "ExecStart={INSTALLED_PROVIDER_PATH} {}",
+            crate::PRIVILEGE_BROKER_ARG
         )));
-        assert!(policy.contains(&format!(
-            "<annotate key=\"org.freedesktop.policykit.exec.argv1\">{}</annotate>",
-            crate::PRIVILEGE_PROVIDER_ARG
-        )));
+        assert!(!service.contains("StandardInput=socket"));
         assert!(!policy.contains("allow_gui"));
     }
 }

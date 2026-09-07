@@ -1,17 +1,10 @@
 //! Public typed privilege apply and the fixed Linux polkit launcher.
 
 #[cfg(target_os = "linux")]
-use std::{
-    io::Read,
-    thread,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 #[cfg(target_os = "linux")]
-use agenterm_platform::{
-    contained_process::{ContainedChild, ContainedHeadlessCommand},
-    process_spawn::ProcessExit,
-};
+use agenterm_platform::system_broker::SystemBrokerStream;
 use serde_json::{Value, json};
 
 #[cfg(any(target_os = "linux", test))]
@@ -26,15 +19,6 @@ use crate::{
 };
 
 use super::{Executor, RequestIdentity};
-
-#[cfg(target_os = "linux")]
-const PKEXEC: &str = "/usr/bin/pkexec";
-#[cfg(target_os = "linux")]
-const PROVIDER: &str = "/usr/libexec/agenterm/agenterm-cu";
-#[cfg(target_os = "linux")]
-const POLL_INTERVAL: Duration = Duration::from_millis(5);
-#[cfg(target_os = "linux")]
-const CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 impl Executor {
     pub(super) fn execute_privilege_with_request_identity(
@@ -119,78 +103,21 @@ fn launch_linux_provider(
     canonical: Vec<u8>,
     timeout_ms: u64,
 ) -> Result<Value, CuError> {
-    let canonical = String::from_utf8(canonical).map_err(|_| {
-        CuError::new(
-            "privilege_request_invalid",
-            "canonical privilege request was not UTF-8",
-        )
-    })?;
-    let mut command = ContainedHeadlessCommand::new(PKEXEC);
-    command
-        .args([PROVIDER, crate::PRIVILEGE_PROVIDER_ARG])
-        .stdin_text(canonical)
-        .capture_output();
-    let mut child = command.spawn().map_err(|_| transport_unknown("spawn"))?;
-    let stdout = take_stream(&mut child, true)?;
-    let stderr = take_stream(&mut child, false)?;
-    let stdout_thread = drain_bounded(stdout);
-    let stderr_thread = drain_bounded(stderr);
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    let exit = loop {
-        match child.try_wait() {
-            Ok(Some(exit)) => break exit,
-            Ok(None) if Instant::now() < deadline => thread::sleep(POLL_INTERVAL),
-            Ok(None) => {
-                if cleanup(&mut child) {
-                    let _ = stdout_thread.join();
-                    let _ = stderr_thread.join();
-                }
-                return Err(transport_unknown("timeout"));
-            }
-            Err(_) => {
-                if cleanup(&mut child) {
-                    let _ = stdout_thread.join();
-                    let _ = stderr_thread.join();
-                }
-                return Err(transport_unknown("wait"));
-            }
-        }
-    };
-    // The root may exit while a descendant retains a pipe. Reap the complete
-    // containment before joining either concurrent drain.
-    if child.terminate_and_wait(CLEANUP_TIMEOUT).is_err() {
-        return Err(transport_unknown("cleanup"));
-    }
-    let stdout = stdout_thread
-        .join()
-        .map_err(|_| transport_unknown("stdout-drain"))?
-        .map_err(|_| transport_unknown("stdout-read"))?;
-    let stderr = stderr_thread
-        .join()
-        .map_err(|_| transport_unknown("stderr-drain"))?
-        .map_err(|_| transport_unknown("stderr-read"))?;
-
-    // A complete tagged reply is the business result regardless of the root
-    // exit status. The sole status exception is pkexec's documented explicit
-    // user-cancellation code, and only when no reply bytes were emitted.
-    if !stdout.exceeded
-        && let Ok(reply) = crate::privilege_apply::parse_apply_reply(&stdout.bytes)
-    {
-        validate_reply_binding(request, &reply)?;
-        return project_reply(reply);
-    }
-    if matches!(exit, ProcessExit::Code(126)) && stdout.bytes.is_empty() && !stderr.exceeded {
-        return Err(CuError::new(
-            "privilege_consent_canceled",
-            "native privilege consent was canceled",
-        )
-        .with_detail(json!({"effect": "not_performed"})));
-    }
-    Err(transport_unknown(if stdout.exceeded || stderr.exceeded {
-        "output-limit"
-    } else {
-        "reply"
-    }))
+    let timeout = Duration::from_millis(timeout_ms);
+    let mut stream =
+        SystemBrokerStream::connect(timeout).map_err(|_| transport_unknown("connect"))?;
+    stream
+        .set_io_timeout(timeout)
+        .map_err(|_| transport_unknown("io-timeout"))?;
+    crate::privilege_broker_wire::write_request(&mut stream, &canonical)
+        .map_err(|_| transport_unknown("request-write"))?;
+    stream
+        .shutdown_write()
+        .map_err(|_| transport_unknown("request-close"))?;
+    let reply = crate::privilege_broker_wire::read_reply(&mut stream)
+        .map_err(|_| transport_unknown("reply"))?;
+    validate_reply_binding(request, &reply)?;
+    project_reply(reply)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -204,59 +131,6 @@ fn launch_linux_provider(
         "the public native-consent privilege provider is currently available only on Linux",
     )
     .with_detail(json!({"effect": "not_performed"})))
-}
-
-#[cfg(target_os = "linux")]
-fn take_stream(
-    child: &mut ContainedChild,
-    stdout: bool,
-) -> Result<impl Read + Send + 'static, CuError> {
-    let stream = if stdout {
-        child.take_stdout()
-    } else {
-        child.take_stderr()
-    };
-    stream.ok_or_else(|| {
-        let _ = cleanup(child);
-        transport_unknown(if stdout {
-            "stdout-capture"
-        } else {
-            "stderr-capture"
-        })
-    })
-}
-
-#[cfg(target_os = "linux")]
-struct BoundedOutput {
-    bytes: Vec<u8>,
-    exceeded: bool,
-}
-
-#[cfg(target_os = "linux")]
-fn drain_bounded(
-    mut stream: impl Read + Send + 'static,
-) -> thread::JoinHandle<std::io::Result<BoundedOutput>> {
-    thread::spawn(move || {
-        let mut bytes = Vec::with_capacity(crate::privilege_apply::MAX_REPLY_BYTES.min(4096));
-        let mut exceeded = false;
-        let mut buffer = [0_u8; 4096];
-        loop {
-            let read = stream.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            let remaining = crate::privilege_apply::MAX_REPLY_BYTES.saturating_sub(bytes.len());
-            let accepted = remaining.min(read);
-            bytes.extend_from_slice(&buffer[..accepted]);
-            exceeded |= accepted != read;
-        }
-        Ok(BoundedOutput { bytes, exceeded })
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn cleanup(child: &mut ContainedChild) -> bool {
-    child.terminate_and_wait(CLEANUP_TIMEOUT).is_ok()
 }
 
 #[cfg(any(target_os = "linux", test))]
