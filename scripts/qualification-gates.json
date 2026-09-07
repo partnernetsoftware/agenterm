@@ -415,6 +415,10 @@
       ]
     },
     {
+      "id": "cu-file-attributes-smoke",
+      "evidence": ["cu.file-xattr-inspect.macos"]
+    },
+    {
       "id": "cu-file-move-transaction-smoke",
       "evidence": ["cu.file-move-transaction"]
     },

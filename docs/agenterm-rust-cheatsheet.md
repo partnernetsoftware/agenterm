@@ -4681,7 +4681,11 @@ the caller's already-open handle, and perform mode/xattr work only through that
 handle. Revalidate the exact old state before mutation, independently read back
 the effect, and return a state-bound rollback plan. Windows ACLs/attributes are
 not Unix modes/xattrs; an absent provider must return typed unsupported rather
-than inventing cross-platform parity.
+than inventing cross-platform parity. Attribute inspection is itself a data
+disclosure boundary: default public receipts should expose bounded names,
+lengths and digests, while raw values require an explicit opt-in and a lossless
+encoding. A successful open is not enough to accept a final symlink; bind the
+opened handle back to the caller path before publishing even read-only results.
 
 Give every fresh provider attempt a durable random UUIDv4 before its replay
 reservation. Keep that attempt record only while the outcome can be uncertain;

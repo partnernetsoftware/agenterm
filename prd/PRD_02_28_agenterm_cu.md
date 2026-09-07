@@ -1689,6 +1689,17 @@ flowchart LR
   `cu.file-copy-transaction` journey proves plan/apply/status/rollback/finalize
   and refusal without disclosing contents on macOS; Linux and Windows native
   court evidence is still pending through the independent `utm-court` service.
+  ACU now also exposes `file-attributes PATH [--include-values]` for one opened
+  non-symlink regular file. The default receipt returns stable object identity,
+  bounded attribute names, namespaces, byte lengths and SHA-256 digests without
+  values; raw values appear only after the explicit disclosure flag and are
+  encoded losslessly as hexadecimal. The public macOS qjswasm journey
+  `cu.file-xattr-inspect.macos` proves a real native xattr, digest-only default,
+  explicit disclosure and final-symlink refusal. Linux shares the native
+  mechanism but still needs its public court; Windows returns typed unsupported
+  because alternate data streams and ACLs are not equivalent to Unix xattrs.
+  Mode and xattr mutation remain separate identity-bound plan/apply leaves and
+  are not implied by this observer.
   `file-move SOURCE DEST [--replace --apply]` now composes the same hardened
   copy publication with a recoverable source retirement. It atomically refuses
   occupied backup names, locks source and destination path namespaces in

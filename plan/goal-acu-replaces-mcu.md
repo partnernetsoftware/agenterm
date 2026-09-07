@@ -788,6 +788,12 @@ Q3 owned runtime facades
    │  ├─ [x] qjswasm public macOS journey `cu.file-copy-transaction`
    │  ├─ [x] MCU adapter routes copy and explicit applied transaction actions
    │  └─ [ ] Linux + Windows native public journeys through independent `utm-court`
+   ├─ [~] bounded file-attribute inspection: identity-bound and disclosure-explicit
+   │  ├─ [x] public `file-attributes PATH [--include-values]` plus `file attributes` alias
+   │  ├─ [x] default receipt exposes names/lengths/SHA-256, never raw values
+   │  ├─ [x] macOS qjswasm public journey `cu.file-xattr-inspect.macos`
+   │  ├─ [ ] Linux native public court
+   │  └─ [x] Windows typed unsupported; ADS/ACL never masquerade as Unix xattrs
    ├─ [~] recoverable file-move transaction: copy then retire with two retained backups
    │  ├─ [x] both path locks + atomic no-replace marker/backup publication
    │  ├─ [x] rollback/finalize + installed/retirement crash recovery

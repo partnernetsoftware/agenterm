@@ -897,10 +897,14 @@
         {
           "id": "file.xattr.inspect",
           "mcu_shape": "file xattrs PATH [--values --max N] with byte counts and digests",
-          "acu_shape": null,
+          "acu_shape": "file-attributes PATH [--include-values] (alias: file attributes) with opened-object identity, bounded names/values, digest-only default and explicit hexadecimal disclosure",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "alternate-streams-not-equivalent"},
-          "next": "define an attribute namespace and bounded value disclosure per platform; never relabel Windows alternate streams as Unix xattrs"
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "native-implementation-court-pending", "windows": "typed-unsupported-alternate-streams-not-equivalent"},
+          "qualification": "macos-public-qjswasm-live-linux-public-court-pending-windows-not-applicable",
+          "evidence": ["cu.file-xattr-inspect.macos"],
+          "declared_evidence": ["cu.file-xattr-inspect.macos"],
+          "next": "run the same public journey on a native Linux court; keep Windows typed unsupported because alternate streams and ACLs are not Unix xattrs",
+          "note": "The public observer opens one regular file, rejects a final symlink, binds path and handle identity, and applies fixed count/name/per-value/aggregate ceilings. Default output contains attribute name, namespace, byte length and SHA-256 only; --include-values is the explicit disclosure boundary and returns hexadecimal rather than lossy text. The macOS public qjswasm journey is green. Mode and xattr mutation remain separate plan/apply gaps."
         },
         {
           "id": "file.mode.mutate",

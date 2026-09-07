@@ -469,6 +469,11 @@ impl Executor {
                     })
                 }
             }
+            Command::FileAttributes {
+                path,
+                include_values,
+                ..
+            } => super::files::file_attributes_payload(path, *include_values),
             Command::FileMove {
                 source,
                 destination,

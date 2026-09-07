@@ -101,8 +101,8 @@ pub fn top_level_text() -> String {
     append_missing_top_level_rows(&mut text);
     text = text.replace("Transports\n  exec", "Transports  exec");
     text = text.replace(
-        "  file-inspect                      observe  inspect one final filesystem entry without following it\n  process-signal                    actuate  deliver one closed signal through exact native process objects\n  term-read                         observe  read one exact external terminal window's bounded accessibility buffer\n  term-send                         actuate  send to one exact external terminal with independent buffer verification\n  term-wait                         observe  wait for a regex in one exact external terminal without leaking timeout content",
-        "  file-inspect observe final entry;  process-signal actuate exact native process\n  term-read observe;  term-send actuate;  term-wait observe — exact external terminal window",
+        "  file-inspect                      observe  inspect one final filesystem entry without following it\n  file-attributes                   observe  inspect bounded extended-attribute metadata for one regular file\n  process-signal                    actuate  deliver one closed signal through exact native process objects\n  term-read                         observe  read one exact external terminal window's bounded accessibility buffer\n  term-send                         actuate  send to one exact external terminal with independent buffer verification\n  term-wait                         observe  wait for a regex in one exact external terminal without leaking timeout content",
+        "  file-inspect observe final entry;  file-attributes observe bounded xattrs\n  process-signal actuate exact process;  term-read observe;  term-send actuate;  term-wait observe",
     );
     text = text.replace(
         "  simulator-devices  simulator-apps  simulator-boot\n  simulator-launch  simulator-terminate",

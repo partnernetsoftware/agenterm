@@ -1,6 +1,6 @@
 //! Filesystem observations composed from product-neutral platform facades.
 
-use std::path::Path;
+use std::{fs::OpenOptions, path::Path};
 
 use super::*;
 
@@ -76,6 +76,74 @@ pub(super) fn file_inspect_payload(path: &str) -> Result<serde_json::Value, CuEr
     }))
 }
 
+pub(super) fn file_attributes_payload(
+    path: &str,
+    include_values: bool,
+) -> Result<serde_json::Value, CuError> {
+    let path = Path::new(path);
+    let file = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .map_err(|error| CuError::new("file_attributes_open_failed", error.to_string()))?;
+    let binding = agenterm_platform::file_attributes::bind_regular_file(path, &file)
+        .map_err(map_file_attribute_error)?;
+    let observations = agenterm_platform::file_attributes::inspect_xattrs(
+        &file,
+        binding,
+        agenterm_platform::file_attributes::XattrInspectLimits {
+            include_values,
+            ..Default::default()
+        },
+    )
+    .map_err(map_file_attribute_error)?;
+    let identity = binding.identity();
+    Ok(serde_json::json!({
+        "path": path.to_string_lossy(),
+        "identity": {
+            "filesystem_id": identity.filesystem_id.to_string(),
+            "object_id": identity.object_id.to_string(),
+            "hard_link_count": identity.hard_link_count.to_string(),
+        },
+        "include_values": include_values,
+        "attributes": observations.into_iter().map(|item| serde_json::json!({
+            "name": item.name,
+            "namespace": item.namespace,
+            "value_bytes": item.value_bytes.to_string(),
+            "value_sha256": item.value_sha256,
+            "value_hex": item.value.map(|value| hex_encode(&value)),
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+fn map_file_attribute_error(
+    error: agenterm_platform::file_attributes::FileAttributeError,
+) -> CuError {
+    use agenterm_platform::file_attributes::FileAttributeErrorKind;
+    let code = match error.kind {
+        FileAttributeErrorKind::Unsupported => "file_attributes_unsupported",
+        FileAttributeErrorKind::NotRegularFile => "file_attributes_not_regular",
+        FileAttributeErrorKind::IdentityChanged => "file_attributes_identity_changed",
+        FileAttributeErrorKind::InvalidName => "file_attributes_invalid_name",
+        FileAttributeErrorKind::InvalidMode => "file_attributes_invalid_mode",
+        FileAttributeErrorKind::BudgetExceeded => "file_attributes_budget_exceeded",
+        FileAttributeErrorKind::PreconditionChanged => "file_attributes_precondition_changed",
+        FileAttributeErrorKind::ReadbackMismatch => "file_attributes_readback_mismatch",
+        FileAttributeErrorKind::Native => "file_attributes_native_failed",
+        _ => "file_attributes_failed",
+    };
+    CuError::new(code, error.to_string())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +194,29 @@ mod tests {
         ));
         let error = file_inspect_payload(missing.to_str().unwrap()).unwrap_err();
         assert_eq!(error.code, "file_inspect_failed");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn file_attributes_default_does_not_disclose_values() {
+        let root = std::env::temp_dir().join(format!(
+            "agenterm-cu-file-attributes-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let file = root.join("item");
+        std::fs::write(&file, b"hello").unwrap();
+        let value = file_attributes_payload(file.to_str().unwrap(), false).unwrap();
+        assert_eq!(value["include_values"], false);
+        assert!(value["identity"]["object_id"].is_string());
+        assert!(
+            value["attributes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["value_hex"].is_null())
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

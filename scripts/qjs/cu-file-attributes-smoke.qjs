@@ -1,0 +1,110 @@
+// macOS public black-box journey for bounded xattr inspection.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.file-xattr-inspect.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments, expected_error) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe"
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_file_attributes_invalid_reply"; }
+  ensure(reply.command === "file-attributes", "cu_file_attributes_wrong_command");
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_file_attributes_expected_failure");
+    ensure(reply.error.code === expected_error, "cu_file_attributes_wrong_error");
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true, "cu_file_attributes_failed");
+  return reply.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_file_attributes_executable_missing");
+
+const context = harness.new_context(repo, "cu-file-attributes");
+const run_directory = context.run_directory;
+const fixture = rh.join(run_directory, "fixture.bin");
+const attribute_name = "com.partnernetsoftware.agenterm.cu.fixture";
+const attribute_value = "attribute-value";
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.write_text(fixture, "file-body-must-not-be-returned");
+  const prepared = rh.command("/usr/bin/xattr", [
+    "-w", attribute_name, attribute_value, fixture
+  ], {cwd: run_directory, timeout_ms: 30000});
+  ensure(prepared.success === true, "cu_file_attributes_fixture_setup_failed");
+
+  print("STEP default xattr inspection returns metadata and digests without values");
+  const metadata = invoke(run_directory, executable, ["file-attributes", fixture]);
+  ensure(metadata.include_values === false, "cu_file_attributes_default_disclosure");
+  ensure(metadata.identity.object_id.length > 0, "cu_file_attributes_identity_missing");
+  const rows = metadata.attributes;
+  ensure(rows.length === 1, "cu_file_attributes_wrong_count");
+  ensure(rows[0].name === attribute_name, "cu_file_attributes_wrong_name");
+  ensure(rows[0].value_bytes === "15", "cu_file_attributes_wrong_size");
+  ensure(rows[0].value_sha256.length === 64, "cu_file_attributes_digest_missing");
+  ensure(rows[0].value_hex === null, "cu_file_attributes_value_leaked");
+
+  print("STEP explicit value disclosure is bounded and lossless");
+  const disclosed = invoke(run_directory, executable, [
+    "file-attributes", fixture, "--include-values"
+  ]);
+  ensure(disclosed.attributes[0].value_hex === "6174747269627574652d76616c7565",
+    "cu_file_attributes_disclosure_mismatch");
+
+  print("STEP final symlinks are refused rather than followed");
+  const link = rh.join(run_directory, "fixture-link");
+  const linked = rh.command("/bin/ln", ["-s", fixture, link], {
+    cwd: run_directory,
+    timeout_ms: 30000
+  });
+  ensure(linked.success === true, "cu_file_attributes_link_setup_failed");
+  invoke(run_directory, executable, ["file-attributes", link], "file_attributes_not_regular");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: agenterm-cu bounded xattr inspection is identity-bound and disclosure-explicit");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

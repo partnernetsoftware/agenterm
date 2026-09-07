@@ -492,6 +492,29 @@
       ]
     },
     {
+      "name": "file-attributes",
+      "command": "file-attributes",
+      "aliases": [
+        "file attributes"
+      ],
+      "grant": "observe",
+      "family": "file",
+      "summary": "inspect bounded extended-attribute metadata for one regular file",
+      "usage": "file-attributes PATH [--include-values]\nfile attributes PATH [--include-values]",
+      "args": [
+        {
+          "flag": "PATH",
+          "value": "",
+          "help": "one existing non-symlink regular file"
+        },
+        {
+          "flag": "--include-values",
+          "value": "",
+          "help": "explicitly disclose bounded values as hexadecimal; default returns only names, lengths, and SHA-256"
+        }
+      ]
+    },
+    {
       "name": "file-move",
       "command": "file-move",
       "aliases": [
@@ -5595,6 +5618,10 @@
     {
       "name": "file-inspect",
       "text": "agenterm-cu file-inspect    (also: file inspect)\n  scope: observe    family: Filesystem\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  file-inspect PATH\n  file inspect PATH\n\narguments:\n  PATH                          one file, directory, or link-like entry\n\nReads bounded metadata for exactly the final entry without following a final\nlink. The reply carries kind, lossless decimal size and timestamps, readonly\nstate, platform metadata, and a stable opened-object identity for ordinary\nfiles and directories. Link-object identity is available from Unix metadata;\nWindows reports that identity as typed unavailable instead of following the\nlink. No file contents are read.\n"
+    },
+    {
+      "name": "file-attributes",
+      "text": "agenterm-cu file-attributes    (also: file attributes)\n  scope: observe    family: Filesystem\n\nusage (after the global flags):\n  file-attributes PATH [--include-values]\n  file attributes PATH [--include-values]\n\nInspects bounded extended-attribute metadata for one opened non-symlink regular file. The default reply exposes only attribute names, namespaces, byte lengths, SHA-256 digests, and stable object identity. --include-values explicitly discloses bounded values as hexadecimal. Linux and macOS use native xattrs; Windows returns typed unsupported instead of pretending ADS or ACLs are equivalent.\n"
     },
     {
       "name": "file-copy",

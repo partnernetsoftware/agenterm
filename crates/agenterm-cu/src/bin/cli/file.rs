@@ -21,6 +21,18 @@ pub fn parse(
                 path: args.remove(0),
             })
         }
+        "file-attributes" => {
+            consume_group_subcommand(spelled, args, "attributes")?;
+            let include_values = take_switch(args, "--include-values");
+            if args.len() != 1 || args[0].is_empty() {
+                return Err("file-attributes requires PATH [--include-values]".into());
+            }
+            Ok(Command::FileAttributes {
+                target,
+                path: args.remove(0),
+                include_values,
+            })
+        }
         "file-copy" => {
             consume_group_subcommand(spelled, args, "copy")?;
             let replace = take_switch(args, "--replace");
@@ -139,6 +151,17 @@ mod tests {
         let spec = crate::cli::verbs::lookup("file-move").unwrap();
         let mut short = vec!["only-source".into()];
         assert!(parse(spec, "file-move", TargetRef::Current, &mut short).is_err());
+
+        let spec = crate::cli::verbs::lookup("file-attributes").unwrap();
+        let mut attributes = vec!["item".into(), "--include-values".into()];
+        assert!(matches!(
+            parse(spec, "file-attributes", TargetRef::Current, &mut attributes).unwrap(),
+            Command::FileAttributes {
+                path,
+                include_values: true,
+                ..
+            } if path == "item"
+        ));
 
         let spec = crate::cli::verbs::resolve("file", Some("rollback")).unwrap();
         let mut rollback = vec!["rollback".into(), "fixture-id".into()];

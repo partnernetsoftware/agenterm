@@ -716,6 +716,23 @@
         "task.cu-file-transaction-smoke"
       ]
     },
+    "cu-file-attributes-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-file-attributes-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-file-attributes-smoke"
+      ]
+    },
     "cu-file-move-transaction-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3126,6 +3143,25 @@
       "platforms": [
         "windows",
         "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-file-attributes-smoke",
+      "description": "Prove bounded identity-bound xattr inspection, digest-only default output, explicit value disclosure and final-symlink refusal through the public agenterm-cu CLI.",
+      "entry": "scripts/qjs/cu-file-attributes-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
         "macos"
       ],
       "side_effects": [

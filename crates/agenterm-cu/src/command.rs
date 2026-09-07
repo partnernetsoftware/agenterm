@@ -2002,6 +2002,14 @@ pub enum Command {
         target: TargetRef,
         path: String,
     },
+    /// Inspect bounded extended-attribute metadata for one opened regular
+    /// file. Raw values are returned only after an explicit disclosure flag.
+    FileAttributes {
+        target: TargetRef,
+        path: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        include_values: bool,
+    },
     /// Plan or apply one recoverable regular-file copy. Planning is
     /// observation-only; `apply` persists the recovery receipt before the
     /// first filesystem mutation.
@@ -3924,6 +3932,7 @@ impl Command {
             Self::NetworkDns { .. } => "network-dns".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
+            Self::FileAttributes { .. } => "file-attributes".into(),
             Self::FileCopy { .. } => "file-copy".into(),
             Self::FileMove { .. } => "file-move".into(),
             Self::FileTransaction { .. } => "file-transaction".into(),
@@ -4316,6 +4325,7 @@ impl Command {
             | Self::NetworkDns { target, .. }
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
+            | Self::FileAttributes { target, .. }
             | Self::FileCopy { target, .. }
             | Self::FileMove { target, .. }
             | Self::FileTransaction { target, .. }
