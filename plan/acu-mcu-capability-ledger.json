@@ -153,7 +153,34 @@
             "macos": "native",
             "windows": "typed-unsupported"
           },
-          "qualification": "macos-public-cli-live-linux-journey-windows-refusal-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-linux-smoke",
+                "evidence": [
+                  "cu.linux-process-cwd"
+                ]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-macos-smoke",
+                "evidence": [
+                  "cu.macos-process-cwd"
+                ]
+              },
+              "windows": {
+                "result": "typed-intentional-retirement",
+                "gate": "cu-windows-smoke",
+                "evidence": [
+                  "cu.windows-process-cwd-refusal"
+                ],
+                "error_code": "process_cwd_unsupported",
+                "rationale": "Windows exposes no stable public arbitrary-process cwd API; undocumented remote PEB reads are not accepted as parity."
+              }
+            }
+          },
           "evidence": ["cu.macos-process-cwd"],
           "declared_evidence": [
             "cu.macos-process-cwd",
@@ -186,7 +213,34 @@
             "macos": "native",
             "windows": "typed-unsupported"
           },
-          "qualification": "macos-public-cli-live-linux-journey-windows-refusal-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-linux-smoke",
+                "evidence": [
+                  "cu.linux-process-environment"
+                ]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-macos-smoke",
+                "evidence": [
+                  "cu.macos-process-environment"
+                ]
+              },
+              "windows": {
+                "result": "typed-intentional-retirement",
+                "gate": "cu-windows-smoke",
+                "evidence": [
+                  "cu.windows-process-environment-refusal"
+                ],
+                "error_code": "process_environment_unsupported",
+                "rationale": "Windows exposes no stable public arbitrary-process initial-environment API; undocumented remote PEB reads are not accepted as parity."
+              }
+            }
+          },
           "evidence": ["cu.macos-process-environment"],
           "declared_evidence": [
             "cu.macos-process-environment",
