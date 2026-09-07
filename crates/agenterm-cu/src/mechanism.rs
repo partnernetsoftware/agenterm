@@ -91,6 +91,7 @@ pub enum NodeAction {
     SetSelected(bool),
     Cancel,
     ShowDefaultUi,
+    ShowMenu,
 }
 
 impl NodeAction {
@@ -109,6 +110,7 @@ impl NodeAction {
             Self::SetSelected(_) => "set-selected",
             Self::Cancel => "cancel",
             Self::ShowDefaultUi => "show-default-ui",
+            Self::ShowMenu => "show-menu",
         }
     }
 
@@ -138,6 +140,7 @@ impl NodeAction {
             ),
             Self::Cancel => (dynlib::AGT_A11Y_ACTION_CANCEL, None),
             Self::ShowDefaultUi => (dynlib::AGT_A11Y_ACTION_SHOW_DEFAULT_UI, None),
+            Self::ShowMenu => (dynlib::AGT_A11Y_ACTION_SHOW_MENU, None),
         }
     }
 }

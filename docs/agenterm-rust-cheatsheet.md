@@ -2625,6 +2625,15 @@ what each action means. Keep these recurring rules together:
   this proves dispatch without moving the user's window, and catches a host
   path that silently reimplements command meaning or bypasses authorization.
 
+A semantic accessibility action must stay exact across every layer. In
+particular, `show-menu` maps only to a node-offered native menu action such as
+macOS `AXShowMenu`; never substitute primary press, right-click, coordinates or
+keys. Gate on the node's published actions before dispatch, then verify the
+effect through an independent post-action observation (for example, a newly
+visible menu in the same bound window tree). If the native call returns but the
+effect is not observable, retain `performed=true, verified=false` in the audit
+receipt and fail typed rather than reporting replacement-level success.
+
 ## Bounded child capture must publish loss, including JSON-envelope loss
 
 A pipe drainer that keeps only N bytes must retain a per-stream truncation bit;

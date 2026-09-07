@@ -767,6 +767,7 @@ pub enum InvokeAction {
     ScrollTo,
     Cancel,
     ShowDefaultUi,
+    ShowMenu,
 }
 
 /// What `app` does to the application owning the named window.
@@ -1081,7 +1082,7 @@ pub enum InvokeValueKind {
 }
 
 impl InvokeAction {
-    pub const ALL: [InvokeAction; 12] = [
+    pub const ALL: [InvokeAction; 13] = [
         Self::Press,
         Self::SetValue,
         Self::SelectOption,
@@ -1094,6 +1095,7 @@ impl InvokeAction {
         Self::ScrollTo,
         Self::Cancel,
         Self::ShowDefaultUi,
+        Self::ShowMenu,
     ];
 
     pub fn parse(raw: &str) -> Option<Self> {
@@ -1116,6 +1118,7 @@ impl InvokeAction {
             Self::ScrollTo => "scroll-to",
             Self::Cancel => "cancel",
             Self::ShowDefaultUi => "show-default-ui",
+            Self::ShowMenu => "show-menu",
         }
     }
 
@@ -1126,7 +1129,8 @@ impl InvokeAction {
             | Self::Decrement
             | Self::ScrollTo
             | Self::Cancel
-            | Self::ShowDefaultUi => InvokeValueKind::None,
+            | Self::ShowDefaultUi
+            | Self::ShowMenu => InvokeValueKind::None,
             Self::SetValue | Self::SelectOption | Self::SetSelection => InvokeValueKind::Text,
             Self::SetChecked | Self::SetExpanded | Self::SetSelected => InvokeValueKind::Flag,
         }
@@ -4150,6 +4154,7 @@ impl Command {
                     InvokeAction::ScrollTo => "scroll-to",
                     InvokeAction::Cancel => "cancel",
                     InvokeAction::ShowDefaultUi => "show-default-ui",
+                    InvokeAction::ShowMenu => "show-menu",
                 }
             ),
             Self::App { action, .. } => format!(
@@ -6956,6 +6961,11 @@ mod tests {
             InvokeAction::parse("set-selected"),
             Some(InvokeAction::SetSelected)
         );
+        assert_eq!(
+            InvokeAction::parse("show-menu"),
+            Some(InvokeAction::ShowMenu)
+        );
+        assert_eq!(InvokeAction::ShowMenu.value_kind(), InvokeValueKind::None);
         assert_eq!(InvokeAction::Press.value_kind(), InvokeValueKind::None);
         assert_eq!(InvokeAction::SetValue.value_kind(), InvokeValueKind::Text);
         assert_eq!(

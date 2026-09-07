@@ -62,6 +62,7 @@ pub(super) fn invoke_action(
         InvokeAction::SetSelected => mechanism::NodeAction::SetSelected(flag),
         InvokeAction::Cancel => mechanism::NodeAction::Cancel,
         InvokeAction::ShowDefaultUi => mechanism::NodeAction::ShowDefaultUi,
+        InvokeAction::ShowMenu => mechanism::NodeAction::ShowMenu,
     })
 }
 
@@ -73,6 +74,7 @@ pub(super) fn required_node_action(action: InvokeAction) -> Option<&'static str>
         InvokeAction::Press | InvokeAction::SetChecked | InvokeAction::SetExpanded => Some("click"),
         InvokeAction::Increment => Some("increment"),
         InvokeAction::Decrement => Some("decrement"),
+        InvokeAction::ShowMenu => Some("show-menu"),
         InvokeAction::SetValue
         | InvokeAction::SelectOption
         | InvokeAction::SetSelected
@@ -418,6 +420,13 @@ pub(super) fn invoke_payload(
     if let Some(error) = mechanism_error {
         return Err(error.with_detail(serde_json::json!({ "receipt": receipt })));
     }
+    if action == InvokeAction::ShowMenu && !verified {
+        return Err(CuError::new(
+            "a11y_action_unverified",
+            "the native show-menu action returned, but no new menu was observable in the bound window tree",
+        )
+        .with_detail(serde_json::json!({ "receipt": receipt })));
+    }
     Ok(receipt)
 }
 
@@ -589,14 +598,112 @@ fn invoke_verification(
             let proof = observe::verify_press(target, now, before, after);
             (proof.verified, proof.method, proof.reason)
         }
+        (mechanism::NodeAction::ShowMenu, _) => {
+            let hit = newly_observed_menu(before, after);
+            (
+                hit,
+                "menu-tree-diff",
+                if hit { None } else { Some("menu_not_observed") },
+            )
+        }
         (_, None) => (false, "node-readback", Some("node_gone")),
         _ => (false, "none", Some("unverifiable_action")),
     }
 }
 
+fn newly_observed_menu(before: &mechanism::A11yTree, after: &mechanism::A11yTree) -> bool {
+    after.nodes.iter().any(|candidate| {
+        matches!(candidate.role.as_str(), "menu" | "context-menu")
+            && !before.nodes.iter().any(|previous| {
+                matches!(previous.role.as_str(), "menu" | "context-menu")
+                    && previous.id == candidate.id
+                    && previous.identifier == candidate.identifier
+                    && previous.name == candidate.name
+            })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn node(id: &str, role: &str, name: &str) -> mechanism::A11yNode {
+        mechanism::A11yNode {
+            id: id.into(),
+            parent_id: None,
+            role: role.into(),
+            name: name.into(),
+            states: vec!["showing".into(), "visible".into()],
+            bounds: mechanism::A11yBounds {
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            actions: Vec::new(),
+            text: None,
+            identifier: None,
+        }
+    }
+
+    fn tree(nodes: Vec<mechanism::A11yNode>) -> mechanism::A11yTree {
+        mechanism::A11yTree {
+            backend: "ax".into(),
+            window_handle: Some(7),
+            root_id: "/0".into(),
+            returned: nodes.len(),
+            visited: nodes.len(),
+            truncated: false,
+            nodes,
+        }
+    }
+
+    #[test]
+    fn show_menu_is_exact_and_requires_the_offered_action() {
+        assert_eq!(
+            invoke_action(InvokeAction::ShowMenu, None).unwrap(),
+            mechanism::NodeAction::ShowMenu
+        );
+        assert_eq!(
+            required_node_action(InvokeAction::ShowMenu),
+            Some("show-menu")
+        );
+        assert_eq!(
+            invoke_action(InvokeAction::ShowMenu, Some("ignored"))
+                .unwrap_err()
+                .code,
+            "invalid_input"
+        );
+    }
+
+    #[test]
+    fn show_menu_verification_requires_a_new_menu_in_the_after_tree() {
+        let target = node("/0/1", "menu-button", "Options");
+        let before = tree(vec![target.clone()]);
+        let unchanged = tree(vec![target.clone()]);
+        assert_eq!(
+            invoke_verification(
+                &mechanism::NodeAction::ShowMenu,
+                &target,
+                Some(&target),
+                &before,
+                &unchanged,
+            ),
+            (false, "menu-tree-diff", Some("menu_not_observed"))
+        );
+
+        let after = tree(vec![target.clone(), node("/0/1/0", "menu", "Options")]);
+        assert_eq!(
+            invoke_verification(
+                &mechanism::NodeAction::ShowMenu,
+                &target,
+                Some(&target),
+                &before,
+                &after,
+            ),
+            (true, "menu-tree-diff", None)
+        );
+    }
 
     #[test]
     fn invoke_scroll_to_is_not_unmapped_spelling() {

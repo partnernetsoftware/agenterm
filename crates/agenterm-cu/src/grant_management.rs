@@ -408,6 +408,7 @@ fn known_authorization_operation(operation: &str) -> bool {
                     | "scroll-to"
                     | "cancel"
                     | "show-default-ui"
+                    | "show-menu"
             ]
         )
         || matches!(

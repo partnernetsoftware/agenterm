@@ -298,7 +298,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 26);
+abi_version!(1, 27);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -3088,6 +3088,8 @@ const AGT_A11Y_ACTION_DECREMENT: i32 = 8;
 const AGT_A11Y_ACTION_SET_SELECTED: i32 = 9;
 const AGT_A11Y_ACTION_CANCEL: i32 = 10;
 const AGT_A11Y_ACTION_SHOW_DEFAULT_UI: i32 = 11;
+/// ABI 1.27: exact macOS `AXShowMenu`; other backends answer unsupported.
+const AGT_A11Y_ACTION_SHOW_MENU: i32 = 12;
 
 /// Map an action kind plus optional value payload to the contract action.
 /// `Err` carries the `agt_last_error` code and message.
@@ -3132,6 +3134,7 @@ fn a11y_action_from_abi(
         }
         AGT_A11Y_ACTION_CANCEL => AccessibilityNodeAction::Cancel,
         AGT_A11Y_ACTION_SHOW_DEFAULT_UI => AccessibilityNodeAction::ShowDefaultUi,
+        AGT_A11Y_ACTION_SHOW_MENU => AccessibilityNodeAction::ShowMenu,
         _ => return Err((c"bad_action", "unknown action kind".to_owned())),
     })
 }
@@ -7198,6 +7201,16 @@ pub extern "C" fn agt_input_send_keys(shortcut: *const u8, len: usize) -> agt_st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn abi_1_27_maps_show_menu_without_a_value() {
+        assert_eq!(ABI_MINOR, 27);
+        assert_eq!(
+            a11y_action_from_abi(AGT_A11Y_ACTION_SHOW_MENU, None),
+            Ok(AccessibilityNodeAction::ShowMenu)
+        );
+        assert_eq!(a11y_action_from_abi(13, None).unwrap_err().0, c"bad_action");
+    }
 
     #[test]
     fn inaccessible_window_code_survives_the_abi_boundary() {

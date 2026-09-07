@@ -1227,6 +1227,11 @@ pub(crate) fn perform_node_action(
             "AXShowDefaultUI",
             &mut budget,
         )),
+        AccessibilityNodeAction::ShowMenu => named(perform_named_action(
+            element.as_ax(),
+            "AXShowMenu",
+            &mut budget,
+        )),
         // The contract is `non_exhaustive`; a variant this adapter does not
         // know is typed, not silently mapped to something else.
         #[allow(unreachable_patterns)]

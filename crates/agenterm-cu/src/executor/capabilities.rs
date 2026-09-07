@@ -1468,6 +1468,7 @@ fn attach_invoke_actions(payload: &mut serde_json::Value) {
                 "set-selected": "mapped",
                 "cancel": "mapped",
                 "show-default-ui": "mapped",
+                "show-menu": "mapped",
             }),
         );
     }
@@ -1584,6 +1585,7 @@ mod tests {
             data["verbs"]["invoke"]["actions"]["show-default-ui"],
             "mapped"
         );
+        assert_eq!(data["verbs"]["invoke"]["actions"]["show-menu"], "mapped");
         assert_eq!(data["verbs"]["displays"]["group"], "geometry");
         assert_eq!(data["verbs"]["displays"]["status"], "available");
         assert_eq!(data["verbs"]["spaces"]["group"], "geometry");

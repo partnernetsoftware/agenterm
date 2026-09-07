@@ -18,6 +18,10 @@ caller-sized v1 记录，得到 role、movable/resizable 三态与显式/应用�
 尺寸约束。未知值必须按未知处理，不能降级成普通、可自由调整的窗口；句柄复用
 或 PID 不匹配以稳定的 `window_stale` 失败返回。
 
+ABI 1.27 在 1.26 的 `agt_native_window_activate` 之后，纯增量增加
+`AGT_A11Y_ACTION_SHOW_MENU = 12`：macOS 精确执行节点发布的 `AXShowMenu`；
+不映射成主按钮 press 或右键点击，其他后端返回 typed unsupported。
+
 ABI 1.26 新增 `agt_native_window_activate`：调用者提供一个枚举所得的精确
 原生窗口句柄，请求把它变为桌面前台窗口。它不复用 `show`，因为显示/应用内
 抬升与改变全局前台所有者是不同机制；调用方仍须通过窗口枚举独立回读

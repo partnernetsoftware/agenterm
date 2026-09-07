@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 26
+#define AGT_ABI_MINOR 27
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -442,7 +442,10 @@ typedef enum {
      * AGT_UNSUPPORTED. */
     AGT_A11Y_ACTION_SET_SELECTED = 9,
     AGT_A11Y_ACTION_CANCEL = 10,
-    AGT_A11Y_ACTION_SHOW_DEFAULT_UI = 11
+    AGT_A11Y_ACTION_SHOW_DEFAULT_UI = 11,
+    /* ABI 1.27: exact macOS AXShowMenu. No press/right-click fallback;
+     * backends without that native action answer AGT_UNSUPPORTED. */
+    AGT_A11Y_ACTION_SHOW_MENU = 12
 } agt_a11y_action_kind;
 
 /* Capture a flattened accessibility tree for the host OS accessibility stack

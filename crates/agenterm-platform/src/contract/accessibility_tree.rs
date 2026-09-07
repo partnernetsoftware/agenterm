@@ -216,6 +216,9 @@ pub enum AccessibilityNodeAction {
     /// which is what a toolkit exposes for "show me what this normally
     /// shows". Rarely published; refused typed when it is not.
     ShowDefaultUi,
+    /// Reveal the node's contextual menu (macOS `AXShowMenu`). This is a
+    /// distinct native action, never a right-click or primary-press fallback.
+    ShowMenu,
 }
 
 impl AccessibilityNodeAction {
@@ -234,6 +237,7 @@ impl AccessibilityNodeAction {
             Self::SetSelected(_) => "set-selected",
             Self::Cancel => "cancel",
             Self::ShowDefaultUi => "show-default-ui",
+            Self::ShowMenu => "show-menu",
         }
     }
 }
