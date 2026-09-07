@@ -180,9 +180,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   missing-sibling path fails typed. The same fixed-sibling boundary now serves
   MCP's read-only `agenterm_acu_capabilities` tool: its tool schema is owned in
   `agenterm-cu`, and its `CuReply` passes through unchanged as MCP structured
-  content. A macOS public stdio black box has executed this path; six-target
-  build/package coverage is still not six-target dynamic-load evidence, and
-  broader MCP verbs plus native runtime courts remain open.
+  content. A macOS public stdio black box has executed this path. The Candidate
+  six-cell runtime job now hashes the public launcher and fixed-name provider,
+  executes both `agenterm:acu.call` and `.argv` through `agenterm cli acu`, and
+  seals that result in schema-4 per-cell receipts. The first exact-SHA remote
+  execution is still pending, so this is wired evidence rather than six-target
+  qualification; broader MCP verbs remain open.
 
   ```mermaid
   flowchart LR
@@ -190,15 +193,16 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
     OBJ["agenterm:acu.call/argv<br/>one parser · one Executor"]
     PROVIDER["fixed sibling dynamic provider<br/>ABI checked · bounded · no fallback"]
+    COURT["six native Candidate cells [~]<br/>dynamic load · schema-4 receipt"]
     GATE{"typed-object parity · TODO-aware<br/>MCU-absent black box"}
     QJS["acu.qjs [~]<br/>Bun-free native path<br/>42/42 positive · dynamic queue remains"]
     USERS["typed consumers<br/>CLI · MCP · qjs"]
     LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]
     OWNER --> OBJ --> PROVIDER --> USERS
+    PROVIDER --> COURT --> GATE
     TS -. corpus provenance .-> GATE
     OWNER --> GATE
-    PROVIDER --> GATE
     GATE -->|red| DEBT --> OWNER
     GATE -->|green| QJS --> LEGACY
     OBJ -->|typed calls only| QJS

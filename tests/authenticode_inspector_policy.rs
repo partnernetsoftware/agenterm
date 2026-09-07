@@ -63,6 +63,7 @@ fn public_policy_names_the_signed_boundary_and_authority_split() {
         "agenterm.com",
         "agenterm-cc.exe",
         "agenterm-cu.exe",
+        "agenterm-cu-provider.dll",
         "agenterm.dll",
         "Promotion publishes those bytes",
         "Linux signing and Apple Developer ID/notarization are separate policy lanes",

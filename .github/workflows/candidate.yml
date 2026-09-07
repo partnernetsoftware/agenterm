@@ -86,6 +86,7 @@ jobs:
           name: candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             scripts/qjs/cu-retirement-cell-smoke.qjs
+            scripts/qjs/acu-provider-smoke.qjs
             scripts/qjs/cu-setup-cli-smoke.qjs
             scripts/qjs/cu-setup-runtime-refresh-smoke.qjs
             scripts/qjs/lib/rh_compat.qjs
@@ -865,7 +866,7 @@ jobs:
             }
           }
 
-      - name: Verify exact unsigned inputs and prepare ten-file catalog
+      - name: Verify exact unsigned inputs and prepare twelve-file catalog
         shell: pwsh
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -894,7 +895,7 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Sign exact ten Windows files with Azure Artifact Signing
+      - name: Sign exact twelve Windows files with Azure Artifact Signing
         uses: Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba # v2.0.0
         with:
           endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
@@ -1019,7 +1020,7 @@ jobs:
           $platform = @($manifest.platforms | Where-Object { $_.os -eq 'windows' -and $_.arch -eq $arch })
           if ($platform.Count -ne 1) { throw "Windows artifact manifest cell mismatch: $arch" }
           $names = @($platform[0].executables.name) + @($platform[0].libraries.name)
-          if ($names.Count -ne 5 -or @($names | Sort-Object -Unique).Count -ne 5) {
+          if ($names.Count -ne 6 -or @($names | Sort-Object -Unique).Count -ne 6) {
             throw "Windows signature allowlist mismatch: $arch"
           }
           foreach ($name in $names) {
@@ -1131,25 +1132,32 @@ jobs:
             windows)
               archive_sha256="$(sha256sum "$archive" | cut -d' ' -f1)"
               launcher="runtime/agenterm.com"
+              consumer="runtime/agenterm.exe"
               cu="runtime/agenterm-cu.exe"
+              provider="runtime/agenterm-cu-provider.dll"
               abi="runtime/agenterm.dll"
               ;;
             linux)
               archive_sha256="$(sha256sum "$archive" | cut -d' ' -f1)"
               launcher="runtime/agenterm"
+              consumer="runtime/agenterm"
               cu="runtime/agenterm-cu"
+              provider="runtime/agenterm-cu-provider.so"
               abi="runtime/libagenterm.so"
               chmod +x "$launcher" "$cu"
               ;;
             macos)
               archive_sha256="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
               launcher="runtime/agenterm"
+              consumer="runtime/agenterm"
               cu="runtime/agenterm-cu"
+              provider="runtime/agenterm-cu-provider.dylib"
               abi="runtime/libagenterm.dylib"
               chmod +x "$launcher" "$cu"
               ;;
           esac
-          test -f "$launcher" && test -f "$cu" && test -f "$abi"
+          test -f "$launcher" && test -f "$consumer" && test -f "$cu" \
+            && test -f "$provider" && test -f "$abi"
           mkdir -p runtime-evidence
           AGENTERM_NO_ACTIVATE=1 "$launcher" cli script run --profile tool \
             --timeout-ms 120000 --max-operations 100000000 \
@@ -1163,11 +1171,13 @@ jobs:
             "$PWD" "$cu" "runtime-evidence/setup-refresh-$PLATFORM_ID.json" "$PLATFORM_ID"
           AGENTERM_NO_ACTIVATE=1 "$launcher" cli script run --profile tool \
             runtime-control/cu-retirement-cell-smoke.qjs -- \
-            "$cu" "$abi" "$PLATFORM_ID" "$SOURCE_SHA" "$archive_sha256" \
+            "$launcher" "$consumer" "$cu" "$provider" "$abi" \
+            "$PLATFORM_ID" "$SOURCE_SHA" "$archive_sha256" \
             "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
             "runtime-evidence/$PLATFORM_ID.json" \
             "runtime-evidence/setup-$PLATFORM_ID.json" \
-            "runtime-evidence/setup-refresh-$PLATFORM_ID.json"
+            "runtime-evidence/setup-refresh-$PLATFORM_ID.json" \
+            "runtime-control/acu-provider-smoke.qjs"
 
       - name: Upload ACU native runtime receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

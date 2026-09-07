@@ -33,10 +33,11 @@ eligibility; it is not signature or release evidence.
 
 ## Signed boundary and byte identity
 
-Each Windows architecture archive contains the five entries declared in
+Each Windows architecture archive contains the six entries declared in
 `scripts/artifacts.json`: `agenterm.exe`, `agenterm.com`, `agenterm-cc.exe`,
-`agenterm-cu.exe`, and `agenterm.dll`. All ten files across x86_64 and aarch64
-must be signed together; handwritten globs and partial signing are rejected.
+`agenterm-cu.exe`, `agenterm-cu-provider.dll`, and `agenterm.dll`. All twelve
+files across x86_64 and aarch64 must be signed together; handwritten globs and
+partial signing are rejected.
 
 Signing is a Candidate transformation, not a Promotion operation:
 

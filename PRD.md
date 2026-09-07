@@ -142,8 +142,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       静态 provider 因 Windows PE 3.73→8.87 MiB 被淘汰，固定同目录
 │     │                       dynamic provider 已进入六格构建与 Win/macOS 发布链；Windows
 │     │                       exact release 主程序 3,738,112 B ≤ 4 MiB。六格目前只证构建/打包，
-│     │                       dynamic load 已在本机 macOS 经 qjs/MCP 实跑；MCP 目前仅 capabilities
-│     │                       只读纵切片，三主机与六格原生运行庭仍待完成，不能冒充全平台 evidence
+│     │                       dynamic load 已在本机 macOS 经 qjs/MCP 实跑；六格 Candidate 已把
+│     │                       fixed-sibling 动态加载写入每格硬门，待首个 exact-SHA 远程实跑；MCP
+│     │                       目前仅 capabilities 只读纵切片，未首跑前不能冒充全平台 evidence
 │     ├─ Bun-free bridge [~]     `skills/acu/acu.qjs` 已以 bounded argv helper +
 │     │                       `agenterm:acu.argv` 跑通 native spelling；QJS→CU Executor 之间无
 │     │                       shell/child/fallback（公共 CLI 仍用通用 Script Worker 隔离）。冻结 42 个合法 legacy probe 已全部

@@ -3,15 +3,17 @@ use std::collections::BTreeSet;
 const ROOT_BUILD: &str = include_str!("../build.rs");
 const ABI_BUILD: &str = include_str!("../crates/agenterm-abi/build.rs");
 const CU_BUILD: &str = include_str!("../crates/agenterm-cu/build.rs");
+const CU_PROVIDER_BUILD: &str = include_str!("../crates/agenterm-cu-provider/build.rs");
 const CANDIDATE: &str = include_str!("../.github/workflows/candidate.yml");
 
 #[test]
-fn windows_signing_allowlist_is_five_pe_files_on_both_isas() {
+fn windows_signing_allowlist_is_six_pe_files_on_both_isas() {
     let manifest: serde_json::Value =
         serde_json::from_str(include_str!("../scripts/artifacts.json")).unwrap();
     let expected = BTreeSet::from([
         "agenterm-cc.exe",
         "agenterm-cu.exe",
+        "agenterm-cu-provider.dll",
         "agenterm.com",
         "agenterm.dll",
         "agenterm.exe",
@@ -33,6 +35,14 @@ fn windows_signing_allowlist_is_five_pe_files_on_both_isas() {
             .collect::<BTreeSet<_>>();
         assert_eq!(actual, expected, "Windows {arch} signing allowlist drift");
     }
+}
+
+#[test]
+fn provider_resource_is_cdylib_only_and_carries_public_identity() {
+    assert!(CU_PROVIDER_BUILD.contains("ProductName"));
+    assert!(CU_PROVIDER_BUILD.contains("ProductVersion"));
+    assert!(CU_PROVIDER_BUILD.contains("OriginalFilename\", \"agenterm-cu-provider.dll"));
+    assert!(CU_PROVIDER_BUILD.contains("cargo:rustc-cdylib-link-arg={resource_path}"));
 }
 
 #[test]

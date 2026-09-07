@@ -159,10 +159,20 @@ export function validate_cu_runtime_summary(summary, source_sha, run_id, run_att
   for (let i = 0; i < expected.length; i = i + 1) {
     const cell = cells[i];
     const cell_run = child(cell, "run");
+    const agenterm_launcher = child(cell, "agenterm_launcher");
+    const agenterm_consumer = child(cell, "agenterm_consumer");
     const agenterm_cu = child(cell, "agenterm_cu");
     const libagenterm = child(cell, "libagenterm");
+    const acu_provider = child(cell, "acu_provider");
+    const launcher_name = expected[i].os === "windows" ? "agenterm.com" : "agenterm";
+    const consumer_name = expected[i].os === "windows" ? "agenterm.exe" : "agenterm";
+    const cu_name = expected[i].os === "windows" ? "agenterm-cu.exe" : "agenterm-cu";
+    const abi_name = expected[i].os === "windows" ? "agenterm.dll"
+      : (expected[i].os === "macos" ? "libagenterm.dylib" : "libagenterm.so");
+    const provider_name = expected[i].os === "windows" ? "agenterm-cu-provider.dll"
+      : (expected[i].os === "macos" ? "agenterm-cu-provider.dylib" : "agenterm-cu-provider.so");
     rh.require(
-      cell.schema_version === 3
+      cell.schema_version === 4
         && cell.kind === "agenterm-cu-runtime-cell"
         && cell.source_sha === source_sha
         && text(cell_run.id) === text(run_id)
@@ -171,13 +181,22 @@ export function validate_cu_runtime_summary(summary, source_sha, run_id, run_att
         && cell.os === expected[i].os
         && cell.arch === expected[i].arch
         && valid_sha256(text(cell.archive_sha256))
+        && agenterm_launcher.name === launcher_name
+        && valid_sha256(text(agenterm_launcher.sha256))
+        && agenterm_consumer.name === consumer_name
+        && valid_sha256(text(agenterm_consumer.sha256))
+        && agenterm_cu.name === cu_name
         && valid_sha256(text(agenterm_cu.sha256))
+        && libagenterm.name === abi_name
         && valid_sha256(text(libagenterm.sha256))
+        && acu_provider.name === provider_name
+        && acu_provider.abi_version === 1
+        && valid_sha256(text(acu_provider.sha256))
         && cell.owned_ephemeral_cleanup === "complete"
         && cell.persistent_mutation_performed === false
         && cell.result === "passed"
         && exact_values(
-          ["cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status", "cu.setup-cli-entrypoint", "cu.setup-runtime-refresh-owned-job"],
+          ["cu.retirement-cell.acu-provider", "cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status", "cu.setup-cli-entrypoint", "cu.setup-runtime-refresh-owned-job"],
           list(cell, "evidence")
         ),
       "candidate_cu_runtime_cell:" + expected[i].platform_id

@@ -71,7 +71,8 @@ ACU replaces MCU
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1 [x]: production entry switched from `acu.ts` to embedded `acu.qjs`; external wrappers only exec `agenterm cli acu`
 │  ├─ phase 2 [~]: bounded `agenterm:acu.call/argv` + fixed-sibling provider + shared argv parser are green;
-│  │  MCP read-only capabilities uses the same adapter, while broader MCP/native courts remain
+│  │  MCP read-only capabilities uses the same adapter; six-cell dynamic-load court is wired and
+│  │  locally green, with first exact-SHA remote execution and broader MCP still pending
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
@@ -98,7 +99,8 @@ ACU replaces MCU
    ├─ [x] no production fallback executes MCU
    ├─ [x] Bun and `acu.ts` are absent from production ACU execution
    ├─ [~] every known stay is an explicit TODO, repaired dynamically
-   └─ [~] qjswasm object door + size-compliant provider + acu.qjs are live; broader MCP and native courts remain
+   └─ [~] qjswasm object door + size-compliant provider + acu.qjs are live; six-cell provider court is wired,
+      first exact-SHA remote execution and broader MCP remain
 ```
 
 ## Mermaid flowchart memory palace
@@ -185,7 +187,10 @@ already uses the embedded qjswasm `agenterm:acu` object (available to qjs as
 `acu`) through the Bun-free `acu.qjs`; the historical `acu.ts` is a read-only
 archive reference, never a runtime or qualification fallback. The remaining
 work is to close stable dynamic TODOs, widen MCP deliberately and prove the
-dynamic provider in native courts; immutable Git blob ids preserve corpus provenance:
+dynamic provider in native courts. The Candidate six-cell job now executes and
+hash-binds that provider in schema-4 cell receipts; local macOS is green and the
+first exact-SHA remote run remains the qualification frontier. Immutable Git
+blob ids preserve corpus provenance:
 CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical
 deadlines, cleanup, errors and receipts. Moving TypeScript logic line-for-line
 into qjswasm would preserve the duplication and is explicitly rejected.

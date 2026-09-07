@@ -17,6 +17,9 @@ static CANDIDATE_AGGREGATE_QJS: LazyLock<String> =
 static RELEASE_CANDIDATE_QJS: LazyLock<String> = LazyLock::new(|| {
     include_str!("../scripts/qjs/lib/release_candidate.qjs").replace("\r\n", "\n")
 });
+static CU_RETIREMENT_CELL_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/cu-retirement-cell-smoke.qjs").replace("\r\n", "\n")
+});
 static ARTIFACTS: LazyLock<serde_json::Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../scripts/artifacts.json"))
         .expect("scripts/artifacts.json must remain valid JSON")
@@ -285,15 +288,16 @@ fn windows_release_smokes_have_no_live_qjs_migration_gap() {
     assert!(!cu_entry.contains("dist/agenterm.dll"));
     assert!(!cu_entry.contains("agenterm_plain_window.c"));
     assert!(CU_WINDOWS_SMOKE_QJS.contains(
-        "const fixture_source = csc_path(rh.join(repo, \"examples/csharp/agenterm_uia_fixture.cs\"));"
-    ));
-    assert!(CU_WINDOWS_SMOKE_QJS.contains(
-        "const fixture_executable = csc_path(rh.join(run_directory, \"agenterm-uia-fixture.exe\"));"
+        "const fixture_template = rh.join(repo, \"examples/csharp/agenterm_uia_fixture.cs\");"
     ));
     assert!(
-        CU_WINDOWS_SMOKE_QJS
-            .contains("args: [\"/d\", \"/c\", \"ping.exe\", \"-n\", \"2\", \"127.0.0.1\"]")
+        CU_WINDOWS_SMOKE_QJS.contains(
+            "const fixture_source = rh.join(run_directory, \"agenterm-uia-fixture.cs\");"
+        )
     );
+    assert!(CU_WINDOWS_SMOKE_QJS.contains("csc_path(fixture_source)"));
+    assert!(CU_WINDOWS_SMOKE_QJS.contains("program: windows_inbox(\"ping.exe\")"));
+    assert!(CU_WINDOWS_SMOKE_QJS.contains("args: [\"-n\", \"3\", \"127.0.0.1\"]"));
     assert!(CU_WINDOWS_SMOKE_QJS.contains("if (short_child >= 0 && !short_reaped)"));
     assert!(CU_WINDOWS_FIXTURE_CS.contains("[STAThread]"));
     assert!(CU_WINDOWS_FIXTURE_CS.contains("public static void Main()"));
@@ -714,12 +718,48 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     assert!(runtime.contains("name: cu-retirement-cell-smoke"));
     assert!(CANDIDATE.contains("Upload exact-source ACU runtime control"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-retirement-cell-smoke.qjs"));
+    assert!(CANDIDATE.contains("scripts/qjs/acu-provider-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-setup-cli-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-setup-runtime-refresh-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/lib/test_harness.qjs"));
     assert!(runtime.contains("runtime-control/cu-setup-cli-smoke.qjs"));
     assert!(runtime.contains("runtime-control/cu-setup-runtime-refresh-smoke.qjs"));
     assert!(runtime.contains("runtime-control/cu-retirement-cell-smoke.qjs"));
+    assert!(runtime.contains("\"$provider\" \"$abi\""));
+    for provider in [
+        "runtime/agenterm-cu-provider.dll",
+        "runtime/agenterm-cu-provider.so",
+        "runtime/agenterm-cu-provider.dylib",
+    ] {
+        assert!(
+            runtime.contains(provider),
+            "missing ACU provider court: {provider}"
+        );
+    }
+    for contract in [
+        "schema_version: 4",
+        "AGENTERM_CU_GRANT: \"observe\"",
+        "acu_provider: {",
+        "abi_version: 1",
+        "cu.retirement-cell.acu-provider",
+    ] {
+        assert!(
+            CU_RETIREMENT_CELL_QJS.contains(contract),
+            "missing ACU runtime receipt contract: {contract}"
+        );
+    }
+    for contract in [
+        "cell.schema_version === 4",
+        "agenterm_consumer.name === consumer_name",
+        "acu_provider.name === provider_name",
+        "acu_provider.abi_version === 1",
+        "cu.retirement-cell.acu-provider",
+    ] {
+        assert!(
+            RELEASE_CANDIDATE_QJS.contains(contract),
+            "missing ACU runtime validator contract: {contract}"
+        );
+    }
     assert!(runtime.contains(
         "candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}"
     ));
@@ -770,14 +810,13 @@ fn candidate_windows_signing_is_policy_selected_and_precedes_runtime() {
         "Get-AuthenticodeSignature",
         "ProductName",
         "ProductVersion",
-        "expected five PE inputs",
         "archive required payload missing",
         "archive payload is not allowlisted",
         "payload_files = $actual",
         "input is already signed",
         "signing did not change bytes",
         "windows-signing-receipt.json",
-        "asset_count = 10",
+        "asset_count = @($receiptAssets.Keys).Count",
     ] {
         assert!(
             WINDOWS_SIGNING_SCRIPT.contains(contract),
@@ -800,7 +839,7 @@ fn candidate_windows_signing_is_policy_selected_and_precedes_runtime() {
             );
         }
     }
-    assert!(RELEASE_CANDIDATE_QJS.contains("receipt.asset_count === 10"));
+    assert!(RELEASE_CANDIDATE_QJS.contains("receipt.asset_count === receipt_asset_names.length"));
     assert!(RELEASE_CANDIDATE_QJS.contains("receipt.platform_count === 2"));
 }
 

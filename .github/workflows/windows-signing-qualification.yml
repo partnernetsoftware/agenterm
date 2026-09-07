@@ -137,7 +137,7 @@ jobs:
             }
           }
 
-      - name: Verify exact unsigned inputs and prepare ten-file catalog
+      - name: Verify exact unsigned inputs and prepare twelve-file catalog
         shell: pwsh
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -170,7 +170,7 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Sign exact ten Windows files with Azure Artifact Signing
+      - name: Sign exact twelve Windows files with Azure Artifact Signing
         uses: Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba # v2.0.0
         with:
           endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
@@ -273,7 +273,7 @@ jobs:
           grep -Fq "$EXPECTED_VERSION" <<<"$output"
           echo "ARCHIVE_SHA256=$actual_hash" >>"$GITHUB_ENV"
           echo "PASS ${{ matrix.platform_id }} $output"
-      - name: Verify all five signatures
+      - name: Verify all six signatures
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -282,7 +282,7 @@ jobs:
           $platform = @($manifest.platforms | Where-Object { $_.os -eq 'windows' -and $_.arch -eq $arch })
           if ($platform.Count -ne 1) { throw "Windows artifact manifest cell mismatch: $arch" }
           $names = @($platform[0].executables.name) + @($platform[0].libraries.name)
-          if ($names.Count -ne 5 -or @($names | Sort-Object -Unique).Count -ne 5) {
+          if ($names.Count -ne 6 -or @($names | Sort-Object -Unique).Count -ne 6) {
             throw "Windows signature allowlist mismatch: $arch"
           }
           foreach ($name in $names) {
