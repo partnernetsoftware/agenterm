@@ -136,9 +136,11 @@
         {
           "id": "process.signal.privileged",
           "mcu_shape": "signal --sudo|--broker",
-          "acu_shape": null,
+          "acu_shape": "privilege plan process.signal PID SIGNAL [--tree --max N] [--force] [--timeout-ms N] freezes exact process identity, parent edges, scheduler state, bounded scope and expiring digests without mutation",
           "state": "gap",
-          "next": "native consent provider with the same exact-object single/tree contract"
+          "evidence": ["cu.privileged-signal-plan"],
+          "next": "fixed-identity native consent provider with provider-owned replay state and the same exact-object single/tree contract",
+          "note": "Planning is public and read-only; it is not elevation. The gap remains until a protected provider authenticates the caller, obtains native consent out of band, revalidates and retains every exact native process object, reserves before effect, performs at most once and owns postcondition read-back."
         },
         {
           "id": "process.cwd",

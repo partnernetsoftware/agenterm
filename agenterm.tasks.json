@@ -1062,6 +1062,23 @@
         "task.cu-privilege-plan-smoke"
       ]
     },
+    "cu-privileged-signal-plan-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-privileged-signal-plan-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-privileged-signal-plan-smoke"
+      ]
+    },
     "cu-persisted-grant-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3476,6 +3493,27 @@
       "id": "cu-privilege-plan-smoke",
       "description": "Prove the public read-only process.set-priority plan is identity-bound, expiring, digest-sealed and mutation-free; Windows must fail with its typed semantic gap.",
       "entry": "scripts/qjs/cu-privilege-plan-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-privileged-signal-plan-smoke",
+      "description": "Prove the public privileged signal plan freezes one exact process or a 128-descendant tree without consent or mutation; unsupported Windows semantics fail typed.",
+      "entry": "scripts/qjs/cu-privileged-signal-plan-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

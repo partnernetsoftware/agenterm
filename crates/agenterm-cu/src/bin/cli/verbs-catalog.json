@@ -1056,7 +1056,7 @@
       "grant": "observe",
       "family": "privilege",
       "summary": "prepare an expiring identity-bound privileged-operation plan",
-      "usage": "privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\nprivilege plan process.set-priority PID|self NICE [--ttl-seconds N]",
+      "usage": "privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\nprivilege-plan process.signal PID SIGNAL [--tree --max N] [--force] [--timeout-ms N] [--ttl-seconds N]\nprivilege plan OPERATION ...",
       "args": [
         {
           "flag": "process.set-priority",
@@ -1072,6 +1072,26 @@
           "flag": "NICE",
           "value": "",
           "help": "requested Unix nice value in -20..=20"
+        },
+        {
+          "flag": "process.signal",
+          "value": "PID SIGNAL",
+          "help": "freeze one exact process or a bounded descendant tree without mutation"
+        },
+        {
+          "flag": "--tree --max",
+          "value": "N",
+          "help": "bind the complete tree with at most 128 descendants"
+        },
+        {
+          "flag": "--force",
+          "value": "",
+          "help": "required exactly for SIGKILL"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "future provider read-back limit in 1..=60000 ms (default 5000)"
         },
         {
           "flag": "--ttl-seconds",
@@ -6153,7 +6173,7 @@
     },
     {
       "name": "privilege-plan",
-      "text": "agenterm-cu privilege-plan    (also: privilege plan)\n  scope: observe    family: Privilege\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\n  privilege plan process.set-priority PID|self NICE [--ttl-seconds N]\n\narguments:\n  process.set-priority           the closed operation in this first slice\n  PID|self                       positive process id, or the planner process\n  NICE                           requested Unix nice value in -20..=20\n  --ttl-seconds N                approval lifetime, 1..=600 (default 120)\n\nObserves the exact process start identity and current nice value twice, then\nreturns a canonical expiring plan with contract_digest and approval_digest.\nIt never changes priority, starts a broker, invokes a shell, or opens consent.\nWindows returns privilege_operation_unsupported until a semantically equivalent\npriority-class contract exists; it never pretends Unix nice is portable there.\n"
+      "text": "agenterm-cu privilege-plan    (also: privilege plan)\n  scope: observe    family: Privilege\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\n  privilege-plan process.signal PID SIGNAL [--tree --max N] [--force]\n                 [--timeout-ms N] [--ttl-seconds N]\n  privilege plan OPERATION ...\n\narguments:\n  process.set-priority           bind exact identity/current and requested Unix nice\n  process.signal PID SIGNAL      bind one exact process and scheduler state\n  --tree --max N                 bind at most 128 exact descendants and parent edges\n  --force                        required exactly for SIGKILL\n  --timeout-ms N                 provider read-back limit, 1..=60000 (default 5000)\n  --ttl-seconds N                approval lifetime, 1..=600 (default 120)\n\nPlanning observes a stable exact identity and before state twice, then returns a\ncanonical expiring plan with separate contract_digest and approval_digest. A\ntree plan also freezes every pid, parent edge, depth, start identity and prior\nstopped state. Planning never mutates, starts a provider, invokes a shell, or\nopens consent. Windows keeps unsupported scheduler/signal semantics typed.\n"
     },
     {
       "name": "process-set-state",

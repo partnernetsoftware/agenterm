@@ -1848,6 +1848,21 @@ pub enum Command {
         nice: i32,
         ttl_seconds: u64,
     },
+    /// Prepare a canonical, expiring, identity- and tree-bound signal plan.
+    /// Planning is read-only; a distinct installed provider owns consent and
+    /// any later privileged effect.
+    PrivilegePlanProcessSignal {
+        target: TargetRef,
+        pid: u32,
+        signal: ProcessSignalKind,
+        #[serde(default)]
+        force: bool,
+        #[serde(default)]
+        tree: bool,
+        timeout_ms: u64,
+        max_descendants: u32,
+        ttl_seconds: u64,
+    },
     /// Observe a bounded process-set lifecycle. Every row is keyed by pid and
     /// start identity so pid reuse becomes one exit plus one start instead of
     /// silently changing the watched object.
@@ -3819,7 +3834,9 @@ impl Command {
             Self::ProcessSetState { .. } => "process-set-state".into(),
             Self::ProcessPolicy { .. } => "process-policy".into(),
             Self::ProcessSignal { .. } => "process-signal".into(),
-            Self::PrivilegePlanProcessPriority { .. } => "privilege-plan".into(),
+            Self::PrivilegePlanProcessPriority { .. } | Self::PrivilegePlanProcessSignal { .. } => {
+                "privilege-plan".into()
+            }
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::ShellExec { .. } => "shell-exec".into(),
             Self::NetworkInterfaces { .. } => "network-interfaces".into(),
@@ -4199,6 +4216,7 @@ impl Command {
             | Self::ProcessPolicy { target, .. }
             | Self::ProcessSignal { target, .. }
             | Self::PrivilegePlanProcessPriority { target, .. }
+            | Self::PrivilegePlanProcessSignal { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::ShellExec { target, .. }
             | Self::NetworkInterfaces { target, .. }
@@ -6369,6 +6387,33 @@ mod tests {
                 "pid": 42,
                 "nice": 10,
                 "ttl_seconds": 120,
+            })
+        );
+
+        let signal = Command::PrivilegePlanProcessSignal {
+            target: TargetRef::Current,
+            pid: 43,
+            signal: ProcessSignalKind::Stop,
+            force: false,
+            tree: true,
+            timeout_ms: 5_000,
+            max_descendants: 128,
+            ttl_seconds: 60,
+        };
+        assert_eq!(signal.verb(), "privilege-plan");
+        assert_eq!(signal.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&signal).expect("serialize"),
+            serde_json::json!({
+                "verb": "privilege-plan-process-signal",
+                "target": "current",
+                "pid": 43,
+                "signal": "SIGSTOP",
+                "force": false,
+                "tree": true,
+                "timeout_ms": 5_000,
+                "max_descendants": 128,
+                "ttl_seconds": 60,
             })
         );
     }

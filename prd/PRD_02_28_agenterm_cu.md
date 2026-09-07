@@ -1255,6 +1255,18 @@ flowchart LR
   Provider installation, native consent and real apply remain explicit gaps;
   no shell, password capture or hidden elevation substitutes for them.
 
+- [~] The same read-only boundary now covers `privilege plan process.signal`.
+  It freezes one exact process or a tree of at most 128 descendants, including
+  every start identity, parent edge, depth and observed scheduler state. KILL
+  requires explicit force, the effect timeout and plan lifetime are bounded,
+  and the stable contract digest is separate from the expiring approval
+  digest. The public qjswasm court `cu.privileged-signal-plan` proves that
+  planning leaves the process tree unchanged and malformed KILL intent fails
+  before observation or effect. This does not close the privileged signal
+  capability gap: only a fixed-identity, protected native provider may
+  authenticate the peer, obtain OS consent, retain the exact process objects,
+  reserve provider-owned replay state before mutation and own read-back.
+
 - [~] CoreSimulator now has a bounded macOS platform foundation rather than a
   shell-shaped MCU exception. It lists at most 200 devices by exact UDID,
   runtime, device type and state, and lists installed apps on one exact already

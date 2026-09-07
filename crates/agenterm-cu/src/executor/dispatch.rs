@@ -778,6 +778,24 @@ impl Executor {
                 ttl_seconds,
                 ..
             } => crate::privilege_plan::process_priority_plan_now(*pid, *nice, *ttl_seconds),
+            Command::PrivilegePlanProcessSignal {
+                pid,
+                signal,
+                force,
+                tree,
+                timeout_ms,
+                max_descendants,
+                ttl_seconds,
+                ..
+            } => crate::privilege_plan::process_signal_plan_now(
+                *pid,
+                *signal,
+                *force,
+                *tree,
+                *timeout_ms,
+                *max_descendants,
+                *ttl_seconds,
+            ),
             Command::ProcessWatch {
                 pid,
                 parent,

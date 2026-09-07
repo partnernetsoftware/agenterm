@@ -1,0 +1,158 @@
+// Public black-box contract for a mutation-free privileged signal plan.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.privileged-signal-plan"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_privileged_signal_plan_executable_missing");
+
+const context = harness.new_context(repo, "cu-privileged-signal-plan");
+const children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  const audit_path = rh.join(context.run_directory, "audit.jsonl");
+  function invoke(argv, expected_error) {
+    const command = ["--target", "current", "--grant", "observe"];
+    for (let index = 0; index < argv.length; index = index + 1) { command.push(argv[index]); }
+    const output = rh.command(executable, command, {
+      cwd: context.run_directory,
+      env: { AGENTERM_CU_AUDIT_PATH: audit_path },
+      timeout_ms: 30000
+    });
+    const text = output.stdout.trim();
+    ensure(text !== "", "cu_privileged_signal_plan_empty:" + output.stderr);
+    const reply = JSON.parse(text);
+    if (expected_error !== undefined) {
+      ensure(output.success !== true && reply.ok !== true, "cu_privileged_signal_plan_false_success");
+      ensure(reply.error.code === expected_error,
+        "cu_privileged_signal_plan_error:" + JSON.stringify(reply));
+      return reply;
+    }
+    ensure(output.success === true && reply.ok === true,
+      "cu_privileged_signal_plan_failed:" + JSON.stringify(reply));
+    return reply;
+  }
+
+  print("STEP start one disposable tree whose scheduler state must remain unchanged");
+  const child = harness.start_child(context, harness.host_is_windows() ? {
+    program: "cmd.exe",
+    args: ["/d", "/s", "/c", "ping -n 60 127.0.0.1 >nul"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000
+  } : {
+    program: "/bin/sh",
+    args: ["-c", "sleep 60 & sleep 60 & wait"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000
+  });
+  children.push(child);
+  const pid = child.pid;
+
+  if (harness.host_is_windows()) {
+    print("STEP Windows refuses unsupported POSIX scheduler semantics before consent");
+    invoke(["privilege-plan", "process.signal", "" + pid, "STOP"],
+      "privilege_operation_unsupported");
+    ensure(harness.process_present(pid) !== 0, "cu_privileged_signal_plan_windows_mutated");
+  } else {
+    print("STEP single-process plan binds exact identity, state and two digest scopes");
+    const first = invoke([
+      "privilege-plan", "process.signal", "" + pid, "STOP",
+      "--timeout-ms", "5000", "--ttl-seconds", "60"
+    ]).data;
+    ensure(first.operation === "process.signal" && first.schema_version === 1,
+      "cu_privileged_signal_plan_schema");
+    ensure(first.target.pid === pid && first.target.start_identity.length > 0,
+      "cu_privileged_signal_plan_identity");
+    ensure(first.scope === "single" && first.members.length === 1,
+      "cu_privileged_signal_plan_single");
+    ensure(first.members[0].pid === pid && first.members[0].parent_pid === null,
+      "cu_privileged_signal_plan_root");
+    ensure(first.signal === "SIGSTOP" && first.force === false,
+      "cu_privileged_signal_plan_signal");
+    ensure(first.consent_requested === false && first.mutation_performed === false,
+      "cu_privileged_signal_plan_mutated");
+    ensure(first.contract_digest.length === 64 && first.approval_digest.length === 64,
+      "cu_privileged_signal_plan_digest");
+    ensure(first.expires_at_utc_ms - first.issued_at_utc_ms === 60000,
+      "cu_privileged_signal_plan_expiry");
+
+    const repeated = invoke([
+      "privilege", "plan", "process.signal", "" + pid, "STOP",
+      "--timeout-ms", "5000", "--ttl-seconds", "60"
+    ]).data;
+    ensure(repeated.contract_digest === first.contract_digest,
+      "cu_privileged_signal_plan_contract_drift");
+    ensure(repeated.approval_digest !== first.approval_digest,
+      "cu_privileged_signal_plan_approval_not_expiring");
+
+    print("STEP bounded tree plan freezes every parent edge and remains observation-only");
+    let tree = null;
+    let attempts = 0;
+    while (tree === null && attempts < 20) {
+      const candidate = invoke([
+        "privilege-plan", "process.signal", "" + pid, "CONT",
+        "--tree", "--max", "16", "--timeout-ms", "5000", "--ttl-seconds", "60"
+      ]).data;
+      if (candidate.members.length >= 3) { tree = candidate; }
+      attempts = attempts + 1;
+      if (tree === null) { rh.sleep_ms(25); }
+    }
+    ensure(tree !== null, "cu_privileged_signal_plan_tree_not_ready");
+    ensure(tree.scope === "tree" && tree.max_descendants === 16,
+      "cu_privileged_signal_plan_tree_scope");
+    ensure(tree.contract_digest !== first.contract_digest,
+      "cu_privileged_signal_plan_tree_digest");
+    ensure(tree.consent_requested === false && tree.mutation_performed === false,
+      "cu_privileged_signal_plan_tree_mutated");
+    for (let index = 0; index < tree.members.length; index = index + 1) {
+      const member = tree.members[index];
+      if (member.depth === 0) {
+        ensure(member.parent_pid === null, "cu_privileged_signal_plan_root_parent");
+      } else {
+        ensure(member.parent_pid > 1, "cu_privileged_signal_plan_child_parent");
+      }
+    }
+    ensure(harness.process_present(pid) !== 0, "cu_privileged_signal_plan_tree_mutated_target");
+
+    print("STEP incoherent KILL intent fails before any observation or effect");
+    invoke(["privilege-plan", "process.signal", "" + pid, "KILL"], "usage");
+    ensure(harness.process_present(pid) !== 0, "cu_privileged_signal_plan_kill_mutated");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.privileged-signal-plan");
+  harness.remove_run(context);
+  print("PASS: privileged signal planning is exact, bounded, expiring and mutation-free");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

@@ -4525,6 +4525,17 @@ break. Likewise, reading the same process identity before and after a PID-only
 Unix syscall does not turn that syscall into exact-object authority; retain the
 typed platform gap until the native mutation primitive itself is identity-safe.
 
+For a privileged process-tree effect, freeze topology as well as membership:
+every plan row needs the exact parent edge, depth, process-start identity and
+relevant before-state. A flat PID/depth list can be rearranged between planning
+and consent without changing its apparent member set. Bound the accepted tree
+to a size the provider protocol can always carry, and test the serialized worst
+case before advertising the planner. Keep two public courts: an ordinary
+qjswasm court that proves planning is mutation-free, and a native provider
+court that proves real consent, retained-object mutation, provider-owned replay
+behavior and postcondition read-back. The first can never stand in for the
+second.
+
 ## Freeze persisted grants to canonical operations
 
 Target, desktop session, scope, expiry and use count do not stop one broad

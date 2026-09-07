@@ -374,6 +374,10 @@
       "evidence": ["cu.privilege-plan"]
     },
     {
+      "id": "cu-privileged-signal-plan-smoke",
+      "evidence": ["cu.privileged-signal-plan"]
+    },
+    {
       "id": "cu-persisted-grant-smoke",
       "evidence": ["cu.persisted-grant-operation-binding.macos"]
     },

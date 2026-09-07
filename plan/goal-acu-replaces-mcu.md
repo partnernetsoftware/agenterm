@@ -314,7 +314,12 @@ intent is cleaned up with explicit ownership-ambiguous evidence rather than
 hidden as a verified effect. The public qjswasm court kills the exact ACU owner
 while the transaction is still stabilizing, then proves exact-member recovery,
 terminal receipt closure and no frozen orphan. Sudo and broker shapes remain on
-MCU until the native consent contract lands.
+MCU until the native consent contract lands. Their read-only precursor no
+longer needs MCU: `privilege plan process.signal` freezes the exact root,
+bounded descendants, parent edges, scheduler state, signal, timeout and
+expiry, and its public qjswasm court proves zero mutation. The leaf remains a
+gap until the fixed-identity provider owns consent, provider-side reservation,
+retained-object effect and postcondition read-back.
 
 The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
 public shapes now rewrite onto the native ACU runtime spine. `audit compact`
@@ -790,8 +795,9 @@ Q3 owned runtime facades
    │  └─ [ ] Linux + Windows native public journeys through independent `utm-court`
    ├─ [~] privilege plan: read-only closed operation before any administrator boundary
    │  ├─ [x] `process.set-priority` binds exact process start identity and two stable priority reads
+   │  ├─ [x] `process.signal` binds exact root/tree identities, parent edges, state, signal and timeout
    │  ├─ [x] contract digest excludes time; approval digest binds issue/expiry; mutation is always false
-   │  ├─ [x] macOS public qjswasm journey `cu.privilege-plan`
+   │  ├─ [x] macOS public qjswasm journeys `cu.privilege-plan` and `cu.privileged-signal-plan`
    │  ├─ [x] provider wire rejects unknown fields, digest tamper, expiry and non-current scope before consent
    │  ├─ [x] provider-owned replay court: exact completion replays; reserved/unknown never dispatches twice; changed fingerprint conflicts
    │  └─ [ ] native consent/apply provider + Linux/Windows public courts; Windows nice mapping remains typed unavailable

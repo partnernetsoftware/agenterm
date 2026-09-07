@@ -273,6 +273,7 @@ const evidence_suites = {
   "cu-resource-status-smoke": true,
   "cu-storage-devices-smoke": true,
   "cu-privilege-plan-smoke": true,
+  "cu-privileged-signal-plan-smoke": true,
   "cu-persisted-grant-smoke": true,
   "cu-browser-session-smoke": true,
   "cu-terminal-viewport-smoke": true,

@@ -259,6 +259,7 @@
         "cu.resource-status",
         "cu.storage-devices",
         "cu.privilege-plan",
+        "cu.privileged-signal-plan",
         "cu.persisted-grant-operation-binding.macos",
         "cu.browser-managed-profile.macos",
         "cu.browser-bridge-owned-profile.macos",

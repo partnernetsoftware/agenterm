@@ -2269,7 +2269,8 @@ Runs one host-shell command through /bin/sh on Unix or PowerShell on Windows. Th
 
 ```text
 privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]
-privilege plan process.set-priority PID|self NICE [--ttl-seconds N]
+privilege-plan process.signal PID SIGNAL [--tree --max N] [--force] [--timeout-ms N] [--ttl-seconds N]
+privilege plan OPERATION ...
 ```
 
 ```text
@@ -2278,19 +2279,23 @@ agenterm-cu privilege-plan    (also: privilege plan)
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
   privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]
-  privilege plan process.set-priority PID|self NICE [--ttl-seconds N]
+  privilege-plan process.signal PID SIGNAL [--tree --max N] [--force]
+                 [--timeout-ms N] [--ttl-seconds N]
+  privilege plan OPERATION ...
 
 arguments:
-  process.set-priority           the closed operation in this first slice
-  PID|self                       positive process id, or the planner process
-  NICE                           requested Unix nice value in -20..=20
+  process.set-priority           bind exact identity/current and requested Unix nice
+  process.signal PID SIGNAL      bind one exact process and scheduler state
+  --tree --max N                 bind at most 128 exact descendants and parent edges
+  --force                        required exactly for SIGKILL
+  --timeout-ms N                 provider read-back limit, 1..=60000 (default 5000)
   --ttl-seconds N                approval lifetime, 1..=600 (default 120)
 
-Observes the exact process start identity and current nice value twice, then
-returns a canonical expiring plan with contract_digest and approval_digest.
-It never changes priority, starts a broker, invokes a shell, or opens consent.
-Windows returns privilege_operation_unsupported until a semantically equivalent
-priority-class contract exists; it never pretends Unix nice is portable there.
+Planning observes a stable exact identity and before state twice, then returns a
+canonical expiring plan with separate contract_digest and approval_digest. A
+tree plan also freezes every pid, parent edge, depth, start identity and prior
+stopped state. Planning never mutates, starts a provider, invokes a shell, or
+opens consent. Windows keeps unsupported scheduler/signal semantics typed.
 ```
 
 
