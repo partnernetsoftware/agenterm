@@ -1,4 +1,4 @@
-//! Typed boundary for the Linux system-activated privilege broker.
+//! Typed boundary for the system-activated privilege broker.
 //!
 //! Production callers cannot choose an endpoint or an activation descriptor.
 //! The fixed socket and kernel-derived peer identity are part of the authority
@@ -10,11 +10,24 @@ use std::{
     time::Duration,
 };
 
-#[path = "adapters/linux/system_broker.rs"]
+#[cfg_attr(target_os = "linux", path = "adapters/linux/system_broker.rs")]
+#[cfg_attr(target_os = "macos", path = "adapters/macos/system_broker.rs")]
 mod native;
 
 /// The sole production endpoint accepted by the system broker carrier.
+#[cfg(target_os = "linux")]
 pub const SYSTEM_BROKER_SOCKET: &str = "/run/agenterm/cu-privilege.sock";
+/// The sole production endpoint accepted by the macOS system broker carrier.
+#[cfg(target_os = "macos")]
+pub const SYSTEM_BROKER_SOCKET: &str = "/private/var/run/agenterm/cu-privilege.sock";
+
+/// Fixed launchd `Sockets` dictionary key owned by the installed helper.
+#[cfg(target_os = "macos")]
+pub const SYSTEM_BROKER_LAUNCHD_SOCKET: &std::ffi::CStr = c"SystemBroker";
+/// Exact launchd `SockPathMode`. Connect permission is public, while the
+/// protected root-owned parent alone owns the endpoint name.
+#[cfg(target_os = "macos")]
+pub const SYSTEM_BROKER_SOCKET_MODE: u32 = 0o666;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -86,8 +99,9 @@ pub type SystemBrokerResult<T> = Result<T, SystemBrokerError>;
 
 /// Kernel-derived identity for the process on the other end of a connection.
 ///
-/// `start_ticks` is Linux `/proc/<pid>/stat` field 22 and is bracketed around
-/// opening the retained pidfd. The pidfd itself remains private to the stream.
+/// `start_ticks` is the platform process-generation number: Linux
+/// `/proc/<pid>/stat` field 22 or the macOS audit-token pidversion. The exact
+/// retained pidfd/audit token remains private to the stream.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SystemBrokerPeerFacts {
     pub process_id: u32,
@@ -96,13 +110,20 @@ pub struct SystemBrokerPeerFacts {
     pub start_ticks: u64,
 }
 
-/// Listener adopted from systemd's sole activation descriptor.
+/// Listener adopted from the selected system manager's sole fixed socket.
 pub struct SystemBrokerListener(native::SystemBrokerListener);
 
 impl SystemBrokerListener {
     /// Adopt and verify systemd descriptor 3 for the fixed production socket.
+    #[cfg(target_os = "linux")]
     pub fn from_systemd_activation() -> SystemBrokerResult<Self> {
         native::SystemBrokerListener::from_systemd_activation().map(Self)
+    }
+
+    /// Adopt and verify the sole descriptor for the fixed launchd socket key.
+    #[cfg(target_os = "macos")]
+    pub fn from_launchd_activation() -> SystemBrokerResult<Self> {
+        native::SystemBrokerListener::from_launchd_activation().map(Self)
     }
 
     /// Accept one ordinary-user peer and retain its exact process identity.
@@ -111,8 +132,8 @@ impl SystemBrokerListener {
     }
 }
 
-/// One authenticated broker stream. The retained pidfd prevents liveness
-/// checks from accidentally following later PID reuse.
+/// One authenticated broker stream. The retained native process generation
+/// prevents liveness checks from accidentally following later PID reuse.
 pub struct SystemBrokerStream(native::SystemBrokerStream);
 
 impl SystemBrokerStream {

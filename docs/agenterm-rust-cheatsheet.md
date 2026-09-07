@@ -4596,6 +4596,21 @@ a headless effect provider. Provider state needs the same treatment: fixed
 root-owned ancestry plus owner-only leaf directories, not a request-selected
 path that an elevated process merely chmods after opening.
 
+On macOS, adopt the broker listener only through one fixed
+`launch_activate_socket` dictionary key, then independently validate the
+root-owned real socket path, exact mode, stream type and descriptor identity.
+Darwin `AF_UNIX` reports `ENOPROTOOPT` for `SO_ACCEPTCONN`, so that option is
+not a valid listener-provenance check there. Nor can descriptor `fstat`
+device/inode be compared with the filesystem socket vnode: Darwin exposes
+different identities for those two kernel objects. Listener provenance must
+therefore remain the fixed launchd key plus an exact `getsockname` path and a
+root-owned, non-writable ancestry whose endpoint metadata is stable across
+validation; do not pretend an inode comparison closes that boundary.
+Authenticate each stream with both `LOCAL_PEERTOKEN` and `getpeereid`, reject
+disagreement, and retain the audit-token pidversion for exact liveness instead
+of following a recycled numeric PID. Failure to inspect a live task token is
+typed unavailable, never guessed as process exit.
+
 Give every fresh provider attempt a durable random UUIDv4 before its replay
 reservation. Keep that attempt record only while the outcome can be uncertain;
 terminal ledger records point to an immutable receipt and its SHA-256 over the
