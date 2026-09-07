@@ -10,7 +10,7 @@ use crate::{
     privilege_apply::{PrivilegeApplyReplyV1, PrivilegeApplyRequestV1},
     privilege_provider::{
         FixedProviderAuthority, PreConsentDecision, cancel_before_effect,
-        execute_after_native_consent, lookup_before_native_consent, refuse_before_effect,
+        execute_after_native_consent_observed, lookup_before_native_consent, refuse_before_effect,
     },
 };
 
@@ -21,27 +21,102 @@ pub(crate) enum NativeConsentDecision {
     Refused { error_code: String },
 }
 
+/// Broker-owned milestones used by native courts and protected operational
+/// metrics.  Observers run before the named boundary; refusing to persist an
+/// event fails closed before consent or effect rather than fabricating proof.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PrivilegeBrokerEvent {
+    RequestAccepted,
+    ReplayFinalized,
+    ReplayOutcomeUnknown,
+    RequestConflict,
+    NativeConsentStarted,
+    EffectAttemptStarted,
+    ReplyCompleted,
+    ReplyConsentCanceled,
+    ReplyRefused,
+    ReplyFailedBeforeEffect,
+    ReplyFailedAfterEffect,
+    ReplyOutcomeUnknown,
+    #[cfg(target_os = "linux")]
+    ReplyWriteFailed,
+}
+
 /// Process one authenticated request. The callback is never invoked for a
 /// finalized replay, uncertain reservation, malformed request, or fingerprint
 /// conflict; those paths are decided from provider-private state first.
+#[cfg(test)]
 pub(crate) fn process_authenticated_request(
     authority: &FixedProviderAuthority,
     request_bytes: &[u8],
     now_utc_ms: i64,
     consent: impl FnOnce(&PrivilegeApplyRequestV1) -> Result<NativeConsentDecision, CuError>,
 ) -> Result<PrivilegeApplyReplyV1, CuError> {
-    match lookup_before_native_consent(authority, request_bytes, now_utc_ms)? {
-        PreConsentDecision::Reply(reply) => Ok(reply),
-        PreConsentDecision::Missing(pending) => match consent(pending.request())? {
-            NativeConsentDecision::Authorized => {
-                execute_after_native_consent(authority, pending, now_utc_ms)
+    process_authenticated_request_observed(
+        authority,
+        request_bytes,
+        now_utc_ms,
+        consent,
+        |_| Ok(()),
+    )
+}
+
+pub(crate) fn process_authenticated_request_observed(
+    authority: &FixedProviderAuthority,
+    request_bytes: &[u8],
+    now_utc_ms: i64,
+    consent: impl FnOnce(&PrivilegeApplyRequestV1) -> Result<NativeConsentDecision, CuError>,
+    mut observe: impl FnMut(PrivilegeBrokerEvent) -> Result<(), CuError>,
+) -> Result<PrivilegeApplyReplyV1, CuError> {
+    observe(PrivilegeBrokerEvent::RequestAccepted)?;
+    let decision = match lookup_before_native_consent(authority, request_bytes, now_utc_ms) {
+        Ok(decision) => decision,
+        Err(error) => {
+            if error.code == "request_id_conflict" {
+                observe(PrivilegeBrokerEvent::RequestConflict)?;
             }
-            NativeConsentDecision::Canceled => Ok(cancel_before_effect(pending)),
-            NativeConsentDecision::Refused { error_code } => {
-                Ok(refuse_before_effect(pending, &error_code))
+            return Err(error);
+        }
+    };
+    let reply = match decision {
+        PreConsentDecision::Reply(reply) => {
+            match &reply {
+                PrivilegeApplyReplyV1::OutcomeUnknown { .. } => {
+                    observe(PrivilegeBrokerEvent::ReplayOutcomeUnknown)?;
+                }
+                _ => observe(PrivilegeBrokerEvent::ReplayFinalized)?,
             }
-        },
-    }
+            reply
+        }
+        PreConsentDecision::Missing(pending) => {
+            observe(PrivilegeBrokerEvent::NativeConsentStarted)?;
+            match consent(pending.request())? {
+                NativeConsentDecision::Authorized => execute_after_native_consent_observed(
+                    authority,
+                    pending,
+                    now_utc_ms,
+                    &mut observe,
+                )?,
+                NativeConsentDecision::Canceled => cancel_before_effect(pending),
+                NativeConsentDecision::Refused { error_code } => {
+                    refuse_before_effect(pending, &error_code)
+                }
+            }
+        }
+    };
+    observe(match &reply {
+        PrivilegeApplyReplyV1::Completed { .. } => PrivilegeBrokerEvent::ReplyCompleted,
+        PrivilegeApplyReplyV1::ConsentCanceled { .. } => PrivilegeBrokerEvent::ReplyConsentCanceled,
+        PrivilegeApplyReplyV1::Refused { .. } => PrivilegeBrokerEvent::ReplyRefused,
+        PrivilegeApplyReplyV1::FailedBeforeEffect { .. } => {
+            PrivilegeBrokerEvent::ReplyFailedBeforeEffect
+        }
+        PrivilegeApplyReplyV1::FailedAfterEffect { .. } => {
+            PrivilegeBrokerEvent::ReplyFailedAfterEffect
+        }
+        PrivilegeApplyReplyV1::OutcomeUnknown { .. } => PrivilegeBrokerEvent::ReplyOutcomeUnknown,
+    })?;
+    Ok(reply)
 }
 
 #[cfg(test)]
@@ -125,21 +200,58 @@ mod tests {
         let bytes = request(&child, "broker-replay");
         let calls = AtomicUsize::new(0);
 
-        let first = process_authenticated_request(&authority, &bytes, 1_001, |_| {
-            calls.fetch_add(1, Ordering::Relaxed);
-            Ok(NativeConsentDecision::Authorized)
-        })
+        let mut first_events = Vec::new();
+        let first = process_authenticated_request_observed(
+            &authority,
+            &bytes,
+            1_001,
+            |_| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Ok(NativeConsentDecision::Authorized)
+            },
+            |event| {
+                first_events.push(event);
+                Ok(())
+            },
+        )
         .unwrap();
         assert!(matches!(first, PrivilegeApplyReplyV1::Completed { .. }));
         assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            first_events,
+            [
+                PrivilegeBrokerEvent::RequestAccepted,
+                PrivilegeBrokerEvent::NativeConsentStarted,
+                PrivilegeBrokerEvent::EffectAttemptStarted,
+                PrivilegeBrokerEvent::ReplyCompleted,
+            ]
+        );
 
-        let replay = process_authenticated_request(&authority, &bytes, 1_002, |_| {
-            calls.fetch_add(1, Ordering::Relaxed);
-            Ok(NativeConsentDecision::Authorized)
-        })
+        let mut replay_events = Vec::new();
+        let replay = process_authenticated_request_observed(
+            &authority,
+            &bytes,
+            1_002,
+            |_| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Ok(NativeConsentDecision::Authorized)
+            },
+            |event| {
+                replay_events.push(event);
+                Ok(())
+            },
+        )
         .unwrap();
         assert_eq!(first, replay);
         assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            replay_events,
+            [
+                PrivilegeBrokerEvent::RequestAccepted,
+                PrivilegeBrokerEvent::ReplayFinalized,
+                PrivilegeBrokerEvent::ReplyCompleted,
+            ]
+        );
 
         let reference =
             agenterm_platform::process_reference::ProcessReference::open_for_termination(
@@ -187,6 +299,108 @@ mod tests {
         assert!(matches!(retried, PrivilegeApplyReplyV1::Completed { .. }));
 
         terminate(child);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn observer_failure_before_consent_or_effect_fails_closed() {
+        let root = fixture_root();
+        let authority = FixedProviderAuthority::fixture(root.clone());
+        let child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let bytes = request(&child, "broker-observer-failure");
+        let consent_calls = AtomicUsize::new(0);
+
+        let error = process_authenticated_request_observed(
+            &authority,
+            &bytes,
+            1_001,
+            |_| {
+                consent_calls.fetch_add(1, Ordering::Relaxed);
+                Ok(NativeConsentDecision::Authorized)
+            },
+            |event| {
+                if event == PrivilegeBrokerEvent::NativeConsentStarted {
+                    return Err(CuError::new("fixture_counter_failed", "fixture"));
+                }
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "fixture_counter_failed");
+        assert_eq!(consent_calls.load(Ordering::Relaxed), 0);
+
+        let error = process_authenticated_request_observed(
+            &authority,
+            &bytes,
+            1_002,
+            |_| {
+                consent_calls.fetch_add(1, Ordering::Relaxed);
+                Ok(NativeConsentDecision::Authorized)
+            },
+            |event| {
+                if event == PrivilegeBrokerEvent::EffectAttemptStarted {
+                    return Err(CuError::new("fixture_counter_failed", "fixture"));
+                }
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "fixture_counter_failed");
+        assert_eq!(consent_calls.load(Ordering::Relaxed), 1);
+        assert!(!agenterm_platform::process_metrics::is_stopped(child.id()).unwrap());
+
+        let replay = process_authenticated_request(&authority, &bytes, 1_003, |_| {
+            panic!("an uncertain reservation must not reopen native consent")
+        })
+        .unwrap();
+        assert!(matches!(
+            replay,
+            PrivilegeApplyReplyV1::OutcomeUnknown { .. }
+        ));
+
+        terminate(child);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn conflicting_request_is_counted_before_consent_and_never_mutates() {
+        let root = fixture_root();
+        let authority = FixedProviderAuthority::fixture(root.clone());
+        let first_child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let second_child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let first = request(&first_child, "broker-conflict");
+        let conflicting = request(&second_child, "broker-conflict");
+
+        process_authenticated_request(&authority, &first, 1_001, |_| {
+            Ok(NativeConsentDecision::Authorized)
+        })
+        .unwrap();
+        let mut events = Vec::new();
+        let error = process_authenticated_request_observed(
+            &authority,
+            &conflicting,
+            1_002,
+            |_| panic!("a conflicting fingerprint must not request consent"),
+            |event| {
+                events.push(event);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "request_id_conflict");
+        assert_eq!(
+            events,
+            [
+                PrivilegeBrokerEvent::RequestAccepted,
+                PrivilegeBrokerEvent::RequestConflict,
+            ]
+        );
+        assert!(!agenterm_platform::process_metrics::is_stopped(second_child.id()).unwrap());
+
+        terminate(first_child);
+        terminate(second_child);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

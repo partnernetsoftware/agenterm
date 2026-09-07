@@ -710,7 +710,12 @@ fn socket_path(fd: RawFd) -> SystemBrokerResult<PathBuf> {
         .iter()
         .position(|byte| *byte == 0)
         .unwrap_or(raw_path.len());
-    let bytes: Vec<u8> = raw_path[..end].iter().map(|byte| *byte as u8).collect();
+    // libc::c_char is signed on x86_64 and unsigned on aarch64. Converting its
+    // native byte representation avoids an ISA-dependent cast/lint split.
+    let bytes: Vec<u8> = raw_path[..end]
+        .iter()
+        .map(|byte| byte.to_ne_bytes()[0])
+        .collect();
     Ok(PathBuf::from(std::ffi::OsStr::from_bytes(&bytes)))
 }
 

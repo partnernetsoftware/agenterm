@@ -200,10 +200,20 @@ pub(crate) fn lookup_before_native_consent(
 /// Consume a provider-private pending request only after native consent has
 /// succeeded.  This performs exact-object preparation, the second atomic
 /// replay check/reservation, one effect attempt, and durable finalization.
+#[cfg(test)]
 pub(crate) fn execute_after_native_consent(
     authority: &FixedProviderAuthority,
     pending: PendingPrivilegeRequest,
     now_utc_ms: i64,
+) -> Result<PrivilegeApplyReplyV1, CuError> {
+    execute_after_native_consent_observed(authority, pending, now_utc_ms, &mut |_| Ok(()))
+}
+
+pub(crate) fn execute_after_native_consent_observed(
+    authority: &FixedProviderAuthority,
+    pending: PendingPrivilegeRequest,
+    now_utc_ms: i64,
+    observe: &mut impl FnMut(crate::privilege_broker::PrivilegeBrokerEvent) -> Result<(), CuError>,
 ) -> Result<PrivilegeApplyReplyV1, CuError> {
     let PendingPrivilegeRequest { validated, ledger } = pending;
     let request = validated.request();
@@ -241,6 +251,8 @@ pub(crate) fn execute_after_native_consent(
             return Ok(outcome_unknown(request, &attempt));
         }
     };
+
+    observe(crate::privilege_broker::PrivilegeBrokerEvent::EffectAttemptStarted)?;
 
     match execute_reserved_signal(&mut execution, &authority.state_root) {
         PrivilegeSignalEffectOutcome::Completed { evidence, verified } => {

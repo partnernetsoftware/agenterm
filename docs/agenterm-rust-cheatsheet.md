@@ -108,6 +108,12 @@ Native calls belong behind typed platform contracts. A sound adapter states:
 - what cleanup runs on every partial-failure path;
 - whether success means visibility, atomic replacement, or durable storage.
 
+Do not cast `libc::c_char` directly to `u8` in target-portable adapters. Its
+signedness differs by target (notably x86_64 versus aarch64), so a cast that is
+needed on one ISA becomes a denied redundant-cast lint on another. Recover the
+stored byte with `c_char::to_ne_bytes()[0]`, then validate the resulting byte
+sequence. Cross-target Clippy is part of the proof, not merely host tests.
+
 For a host callback table borrowed during construction but invoked later,
 separate the two lifetimes explicitly. Copy or own descriptor names before the
 constructor returns, retain callback contexts until the native handle is closed,

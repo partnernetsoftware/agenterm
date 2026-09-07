@@ -11,7 +11,10 @@ use agenterm_platform::{
 
 use crate::{
     CuError,
-    privilege_broker::{NativeConsentDecision, process_authenticated_request},
+    privilege_broker::{
+        NativeConsentDecision, PrivilegeBrokerEvent, process_authenticated_request_observed,
+    },
+    privilege_broker_metrics::PrivilegeBrokerMetricsStore,
     privilege_broker_wire::{read_request, write_reply},
     privilege_provider_linux::authority_for_uid,
 };
@@ -57,9 +60,13 @@ fn process_connection(stream: &mut SystemBrokerStream) -> Result<(), CuError> {
         ));
     }
     let authority = authority_for_uid(stream.peer().effective_user_id)?;
+    let metrics = PrivilegeBrokerMetricsStore::fixed();
     let now_utc_ms = current_time_ms()?;
-    let reply = process_authenticated_request(&authority, &request, now_utc_ms, |_| {
-        match authorize_user_initiated(stream, CONNECTION_DEADLINE) {
+    let reply = process_authenticated_request_observed(
+        &authority,
+        &request,
+        now_utc_ms,
+        |_| match authorize_user_initiated(stream, CONNECTION_DEADLINE) {
             Ok(PrivilegeAuthorizationDecision::Authorized) => Ok(NativeConsentDecision::Authorized),
             Ok(PrivilegeAuthorizationDecision::Denied) => Ok(NativeConsentDecision::Refused {
                 error_code: "privilege_consent_denied".into(),
@@ -74,9 +81,13 @@ fn process_connection(stream: &mut SystemBrokerStream) -> Result<(), CuError> {
             Err(error) => Ok(NativeConsentDecision::Refused {
                 error_code: consent_error_code(error.kind()).into(),
             }),
-        }
-    })?;
-    write_reply(&mut *stream, &reply)?;
+        },
+        |event| metrics.record(event),
+    )?;
+    if let Err(error) = write_reply(&mut *stream, &reply) {
+        metrics.record(PrivilegeBrokerEvent::ReplyWriteFailed)?;
+        return Err(error);
+    }
     stream.shutdown_write().map_err(platform_error)
 }
 
