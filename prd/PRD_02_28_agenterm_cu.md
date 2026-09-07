@@ -80,9 +80,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   session end, expiry sweep and bounded audit retention. Exact source
   `d9252a07` emitted all three declared identities and is retained in
   [`evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json`](../evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json).
-  Windows ARM64 correctly refused `managed_job_detach_unavailable` because the
-  current Scheduled Task court forbids Job breakaway; that is a court/session
-  provider gap, not authority to weaken the independent-owner contract.
+  The Windows court launcher has since moved from the Scheduled Task shape to
+  a WTS/CreateProcessAsUser session process with Job breakaway, and its
+  no-console PowerShell runner fixture is green. The exact-source ARM64 rerun
+  did not reach this product journey: the interactive agent failed to claim
+  its readiness nonce within 180 seconds. That is a court startup/restore
+  blocker and yields no managed-job product verdict; it is not authority to
+  weaken the independent-owner contract.
 
 - [x] `agenterm-cu` is the only product executable. CLI and desktop-host modes
   share that binary; an executable named `cu` is not a compatibility surface.

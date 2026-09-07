@@ -174,7 +174,7 @@ MCU retirement blockers
 │  ├─ [x] runtime-status + daemon status/caps aliases report truthful topology without publishing state
 │  ├─ [x] setup refresh: stable admission fence + resident-owner snapshot; never recreate global daemon lifecycle
 │  ├─ [x] daemon start/restart/stop are typed retirements and never fall back to MCU
-│  └─ [ ] daemon service/login lifecycle remains a real native-provider gap
+│  └─ [x] daemon service/login alias retires with the removed global MCU daemon; arbitrary OS services remain owned by the typed service facade
 ├─ [~] managed job facade
 │  ├─ [x] private crash-safe identity/state registry; no command/env/lease persistence
 │  ├─ [x] contained owner core + dual bounded stdout/stderr cursor rings
@@ -864,6 +864,15 @@ removed; release authority and dispatch remain owned by the release skill and
 GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
+
+The compatibility adapter now has zero static STAY spellings and 15 dynamic
+STAY witnesses on macOS after four lossless projections (`resource top`,
+focused PID, observe role and wait absence). The count is deliberately not
+reduced by reclassifying useful MCU behavior as a permanent rejection: tmux
+PTY, bounded pattern wait, app/signing observation, app-global menus and native
+wheel input remain real ACU gaps until a typed replacement and public evidence
+exist. The only reviewed permanent retirement in this cut is the login-service
+query for MCU's removed global daemon object.
 
 The previous `terminal.agenterm.viewport-image` gap incorrectly collapsed two
 product-level behaviors into MCU's already-covered PTY screen parity. It is now
