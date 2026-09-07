@@ -633,11 +633,12 @@
         },
         {
           "id": "browser.tab.accessibility",
-          "mcu_shape": "browser tabs plus tab activation/close",
-          "acu_shape": "tab-list/tab-select/tab-close bound to a stable browser window",
+          "mcu_shape": "profile-wide browser tabs plus tab activation/close",
+          "acu_shape": "browser-tabs over one exact unique MV3 profile connection, plus tab-list/tab-select/tab-close bound to a stable browser window",
           "state": "delegated",
           "qualification": "windows-public-qjswasm-browser-journey-registered-native-run-pending",
-          "evidence": ["cu.windows-browser-tab-list", "cu.windows-browser-tab-select"]
+          "evidence": ["cu.browser-profile-tabs.macos", "cu.windows-browser-tab-list", "cu.windows-browser-tab-select"],
+          "note": "browser-tabs retains stable ids and URLs for background tabs and rejects incomplete or ambiguous bridge inventories; the frozen no-argument witness is resolved, while human profile/application binding remains stable TODO acu.dynamic.075.profile-name-binding and native Linux/Windows owned-profile qualification remains"
         },
         {
           "id": "browser.profile.inventory-open",

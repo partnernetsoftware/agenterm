@@ -1516,6 +1516,7 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("page-nav", "actuate"),
             ("tab-list", "observe"),
             ("browser-profiles", "observe"),
+            ("browser-tabs", "observe"),
             ("click", "actuate"),
             ("tab-select", "actuate"),
             ("tab-close", "actuate"),

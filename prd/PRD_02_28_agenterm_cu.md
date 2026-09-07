@@ -133,10 +133,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `4 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 29 resolved witnesses now have an executable disposition:
-  16 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 4 remaining
+  `3 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 30 resolved witnesses now have an executable disposition:
+  17 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 3 remaining
   dynamic-stay witness rows keep their stable repair identities. The `.050` witness now
   maps to native exact simulator app status, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
@@ -517,7 +517,12 @@ ACU-only cutover
 │  │  ├─ acu.native.app.lifecycle-watch · bounded application process lifecycle
 │  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
 │  ├─ acu.dynamic.074 · window-local scroll without physical-pointer movement
-│  ├─ acu.dynamic.075 · browser tabs selected by profile/application
+│  ├─ [~] acu.dynamic.075 · native `browser-tabs` resolves one exact MV3 profile connection;
+│  │  ├─ complete profile-wide background tabs retain stable tab/window ids, title and URL
+│  │  ├─ truncated/ambiguous connection or tab inventories fail typed; no AX/CDP heuristic fallback
+│  │  ├─ the frozen no-argument witness is resolved; this does not close every legacy option
+│  │  ├─ [ ] acu.dynamic.075.profile-name-binding · human `--profile` / `--app` stays typed TODO
+│  │  └─ owned-profile macOS qjswasm court is wired; Linux/Windows native courts remain
 │  ├─ [x] acu.dynamic.076 · `inspect --app` maps to native bounded `app-inspect`;
 │  │  ├─ whole matching window set + foreground identity are bracketed as one observation
 │  │  ├─ truncated non-content trees are `inconclusive-truncated`, never false empty
@@ -771,13 +776,18 @@ flowchart LR
   three-host owned-fixture court with query watch. This does not promote the
   remaining aliases or cross-field text/region semantics; those stay typed
   migration debt until their complete contracts exist.
-- [~] Profile-wide browser tab inventory must use the fixed MV3 bridge and its
-  complete/truncated connection truth. `tab-list --window` is a visible native
-  tab-strip for one window, lacks profile-wide background tabs and URLs, and
-  must never silently substitute. A missing, truncated or ambiguous bridge
-  inventory is typed unavailable/uncertain; the first delivery should resolve
-  one exact profile instance or one uniquely live connection before adding
-  human profile-name aliases.
+- [~] Profile-wide browser tab inventory now uses `browser-tabs` over the fixed
+  MV3 bridge. It accepts one exact/unique-prefix profile instance or one exact
+  connection, proves that the profile has exactly one live connection, rejects
+  truncated inventories, preserves stable ids and URLs for background tabs,
+  and brackets desktop focus through a settle window. `tab-list --window` and
+  CDP title joins remain separate visible/heuristic tools and are never silent
+  fallbacks. Human profile-name / application aliases remain excluded until a
+  verifiable binding to the extension profile identity exists; the stable
+  `acu.dynamic.075.profile-name-binding` TODO makes that missing sub-shape
+  visible instead of misclassifying it as usage or treating the frozen
+  no-argument witness as full closure. The macOS owned
+  profile court is wired; Linux and Windows native qualification remains.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
   gated `minimize`/`restore` are live in the macOS Cocoa/AX public journey.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;

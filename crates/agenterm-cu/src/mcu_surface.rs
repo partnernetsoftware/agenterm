@@ -221,7 +221,12 @@ pub const GROUPS: &[Group] = &[
     },
     Group {
         id: "browser",
-        verbs: &["browser-profiles", "browser-open", "tab-close"],
+        verbs: &[
+            "browser-profiles",
+            "browser-tabs",
+            "browser-open",
+            "tab-close",
+        ],
     },
 ];
 

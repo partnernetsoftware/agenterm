@@ -40,6 +40,7 @@ pub fn parse(
             "tab-select" => tab(target, Some("select"), args),
             "tab-close" => tab(target, Some("close"), args),
             "browser-profiles" => browser(target, Some("profiles"), args),
+            "browser-tabs" => browser(target, Some("tabs"), args),
             "browser-open" => browser(target, Some("open"), args),
             "browser-session-start" => browser(target, Some("session-start"), args),
             "browser-session-list" => browser(target, Some("session-list"), args),
@@ -848,7 +849,7 @@ fn browser(
         None => {
             let Some(sub) = args.first().cloned() else {
                 return Err(
-                    "browser requires a subcommand: profiles | open | session-start | session-list | session-status | session-stop | session-remove | bridge"
+                    "browser requires a subcommand: profiles | tabs | open | session-start | session-list | session-status | session-stop | session-remove | bridge"
                         .into(),
                 );
             };
@@ -869,6 +870,46 @@ fn browser(
                 ));
             }
             Ok(Command::BrowserProfiles { target, app })
+        }
+        "tabs" => {
+            let profile_instance_id = flag_text(args, "--profile-instance-id")?;
+            if profile_instance_id.as_deref().is_some_and(str::is_empty) {
+                return Err("browser tabs --profile-instance-id must not be empty".into());
+            }
+            let connection_id = flag_text(args, "--connection-id")?
+                .map(|encoded| {
+                    agenterm_cu::browser_bridge::ConnectionId::parse(&encoded).map_err(|_| {
+                        "browser tabs --connection-id must be exactly 64 lowercase hexadecimal characters and nonzero".to_owned()
+                    })
+                })
+                .transpose()?;
+            if profile_instance_id.is_some() && connection_id.is_some() {
+                return Err(
+                    "browser tabs takes at most one of --profile-instance-id and --connection-id"
+                        .into(),
+                );
+            }
+            let match_text = flag_text(args, "--match")?;
+            let tab_id = flag_parsed::<u32>(args, "--tab-id")?;
+            if match_text.is_some() && tab_id.is_some() {
+                return Err("browser tabs takes at most one of --match and --tab-id".into());
+            }
+            if tab_id == Some(0) {
+                return Err("browser tabs --tab-id must be positive".into());
+            }
+            if !args.is_empty() {
+                return Err(format!(
+                    "browser tabs accepts only [--profile-instance-id ID | --connection-id ID] [--match SUB | --tab-id N]; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::BrowserTabs {
+                target,
+                profile_instance_id,
+                connection_id,
+                match_text,
+                tab_id,
+            })
         }
         "open" => {
             let Some(profile) = flag_text(args, "--profile")? else {
@@ -967,7 +1008,7 @@ fn browser(
         }
         "bridge" => browser_bridge(target, None, args),
         other => Err(format!(
-            "unknown browser subcommand {other:?}; expected profiles | open | session-start | session-list | session-status | session-stop | session-remove | bridge"
+            "unknown browser subcommand {other:?}; expected profiles | tabs | open | session-start | session-list | session-status | session-stop | session-remove | bridge"
         )),
     }
 }

@@ -882,6 +882,23 @@ mod tests {
             profiles.error.as_ref().map(|e| e.code.as_str()),
             Some("usage")
         );
+        let tabs = run(&[
+            "--target", "current", "--grant", "observe", "browser", "tabs", "--match", "guide",
+        ]);
+        assert_eq!(tabs.command, "browser-tabs");
+        assert_ne!(tabs.error.as_ref().map(|e| e.code.as_str()), Some("usage"));
+        let tabs_conflict = run(&[
+            "--target",
+            "current",
+            "--grant",
+            "observe",
+            "browser-tabs",
+            "--match",
+            "guide",
+            "--tab-id",
+            "7",
+        ]);
+        assert_eq!(tabs_conflict.error.expect("usage").code, "usage");
         let filtered = run(&[
             "--target",
             "current",

@@ -1564,6 +1564,18 @@ impl Executor {
                 &mut self.open_receipts(command.target())?,
             ),
             Command::BrowserProfiles { app, .. } => browser_profiles_payload(app.as_deref()),
+            Command::BrowserTabs {
+                profile_instance_id,
+                connection_id,
+                match_text,
+                tab_id,
+                ..
+            } => browser_tabs_payload(
+                profile_instance_id.as_deref(),
+                connection_id.as_ref(),
+                match_text.as_deref(),
+                *tab_id,
+            ),
             Command::BrowserOpen {
                 profile,
                 url,

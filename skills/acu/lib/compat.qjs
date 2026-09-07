@@ -110,6 +110,15 @@ function optional_integer(raw, minimum, label) {
   return { ok: true, value: value };
 }
 
+function lower_hex_prefix(raw) {
+  if (typeof raw !== "string" || raw.length < 1 || raw.length > 32) { return false; }
+  for (let i = 0; i < raw.length; i = i + 1) {
+    const code = raw.charCodeAt(i);
+    if (!((code >= 48 && code <= 57) || (code >= 97 && code <= 102))) { return false; }
+  }
+  return true;
+}
+
 function reducible_wait_literal(pattern) {
   if (typeof pattern !== "string" || pattern.length < 1 || pattern.length > 512
       || pattern.indexOf("\0") >= 0) {
@@ -233,7 +242,34 @@ function known_dynamic_boundary(argv) {
     return todo("acu.dynamic.074", "scroll", "window-local wheel delivery needs a typed mechanism");
   }
   if (verb === "browser" && sub === "tabs") {
-    return todo("acu.dynamic.075", "browser", "profile-selected browser tab inventory is not typed yet");
+    const parsed = without_value_flags(argv, ["profile", "connection-id", "match", "tab-id", "app"]);
+    if (!parsed.ok) { return { kind: "usage", command: "browser", message: parsed.message }; }
+    if (parsed.argv.length !== 2) {
+      return { kind: "usage", command: "browser", message: "browser tabs accepts no positional arguments" };
+    }
+    if (parsed.values.app !== null) {
+      return todo("acu.dynamic.075.profile-name-binding", "browser",
+        "browser tabs --app needs a verified application-to-MV3-profile binding");
+    }
+    const tab_id = optional_integer(parsed.values["tab-id"], 1, "browser tabs --tab-id");
+    if (!tab_id.ok) { return { kind: "usage", command: "browser", message: tab_id.message }; }
+    if (parsed.values.match !== null && tab_id.value !== null) {
+      return { kind: "usage", command: "browser", message: "browser tabs takes at most one of --match and --tab-id" };
+    }
+    const native = ["browser-tabs"];
+    if (parsed.values.profile !== null) {
+      if (!lower_hex_prefix(parsed.values.profile)) {
+        return todo("acu.dynamic.075.profile-name-binding", "browser",
+          "browser tabs human profile names need a verified MV3 profile identity binding");
+      }
+      append(native, ["--profile-instance-id", parsed.values.profile]);
+    }
+    if (parsed.values["connection-id"] !== null) {
+      append(native, ["--connection-id", parsed.values["connection-id"]]);
+    }
+    if (parsed.values.match !== null) { append(native, ["--match", parsed.values.match]); }
+    if (tab_id.value !== null) { append(native, ["--tab-id", "" + tab_id.value]); }
+    return { kind: "exec", argv: native };
   }
   if (verb === "inspect" && has_arg(argv, "--app")) {
     const parsed = without_value_flags(argv, ["app", "depth"]);

@@ -16,7 +16,7 @@ use crate::{
     reply::CuError,
 };
 
-use super::{map_mechanism_err, windows::resolve_inventory_focus};
+use super::{error_payload, map_mechanism_err, windows::resolve_inventory_focus};
 
 pub(super) fn browser_bridge_setup_payload() -> Result<Value, CuError> {
     let executable = std::env::current_exe().map_err(|_| {
@@ -48,6 +48,182 @@ pub(super) fn browser_bridge_connections_payload() -> Result<Value, CuError> {
             "the bounded browser bridge connection inventory could not be serialized",
         )
     })
+}
+
+/// Profile-wide tab inventory through the one exact live MV3 connection.
+/// This is deliberately stricter than `browser-bridge-tabs CONNECTION_ID`:
+/// it proves profile-connection uniqueness, rejects truncated inventories,
+/// preserves background-tab URLs, and brackets desktop focus.
+pub(super) fn browser_tabs_payload(
+    profile_selector: Option<&str>,
+    requested_connection: Option<&ConnectionId>,
+    match_text: Option<&str>,
+    tab_id: Option<u32>,
+) -> Result<Value, CuError> {
+    // The focus bracket owns the complete bridge interaction, including the
+    // connection/status scan. Taking it later could hide a presentation change
+    // caused by profile discovery itself.
+    let focus_before = desktop_focus_handle()?;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let inventory = list_live_connections().map_err(host_error)?;
+    if inventory.truncated {
+        return Err(CuError::new(
+            "browser_bridge_connection_inventory_truncated",
+            "the live bridge connection inventory is incomplete; profile uniqueness cannot be proven",
+        ));
+    }
+    if inventory.connections.is_empty() {
+        return Err(CuError::new(
+            "browser_bridge_profile_connection_not_found",
+            "no live browser profile bridge connection is available",
+        ));
+    }
+    let selector = profile_selector.map(str::trim);
+    if selector.is_some_and(|value| {
+        value.is_empty()
+            || value.len() > 32
+            || value
+                .bytes()
+                .any(|byte| !byte.is_ascii_digit() && !(b'a'..=b'f').contains(&byte))
+    }) {
+        return Err(CuError::new(
+            "browser_bridge_profile_identity_invalid",
+            "profile instance selector must be a 1..=32 lowercase hexadecimal prefix",
+        ));
+    }
+    let mut statuses = Vec::with_capacity(inventory.connections.len());
+    for entry in &inventory.connections {
+        let raw = browser_bridge_request_result_with_timeout(
+            &entry.connection_id,
+            "status",
+            Map::new(),
+            remaining_bridge_timeout(deadline)?,
+        )
+        .map_err(|cause| {
+            CuError::new(
+                "browser_bridge_profile_inventory_unverified",
+                "one live connection did not publish a verifiable profile identity",
+            )
+            .with_detail(json!({
+                "connection_id": entry.connection_id,
+                "cause": error_payload(&cause),
+            }))
+        })?;
+        let status: BridgeStatus = serde_json::from_value(raw).map_err(|_| {
+            CuError::new(
+                "browser_bridge_profile_inventory_unverified",
+                "one live connection returned an invalid profile status",
+            )
+        })?;
+        statuses.push((entry.connection_id.clone(), status));
+    }
+    let selected = select_profile_connection(&statuses, selector, requested_connection)?;
+    // A direct connection id is not enough authority to hide another live
+    // connection for the same profile instance.
+    let same_profile = statuses
+        .iter()
+        .filter(|(_, status)| status.profile_instance_id == selected.1.profile_instance_id)
+        .count();
+    if same_profile != 1 {
+        return Err(CuError::new(
+            "browser_bridge_profile_connection_ambiguous",
+            "the selected profile instance has more than one live native connection",
+        )
+        .with_count(same_profile));
+    }
+
+    let raw_tabs = browser_bridge_request_result_with_timeout(
+        &selected.0,
+        "tabs",
+        Map::new(),
+        remaining_bridge_timeout(deadline)?,
+    )?;
+    let result: TabsResult = serde_json::from_value(raw_tabs).map_err(|_| {
+        CuError::new(
+            "browser_bridge_response_invalid",
+            "the selected profile returned an invalid bounded tab inventory",
+        )
+    })?;
+    result
+        .validate()
+        .map_err(|error| CuError::new(error.code, error.message))?;
+    if result.truncated {
+        return Err(CuError::new(
+            "browser_bridge_tabs_inventory_truncated",
+            "the selected profile has more tabs than the complete inventory bound",
+        ));
+    }
+    require_unique_profile_connection(&selected.0, &selected.1.profile_instance_id, deadline)?;
+    verify_focus_unchanged(focus_before, deadline)?;
+
+    let tabs = filter_profile_tabs(result.tabs, match_text, tab_id);
+    Ok(json!({
+        "mechanism": "mv3-native-messaging",
+        "connection_id": selected.0,
+        "profile_instance_id": selected.1.profile_instance_id,
+        "selection": {
+            "profile_instance_id": selector,
+            "connection_id": requested_connection,
+            "match": match_text,
+            "tab_id": tab_id,
+        },
+        "returned": tabs.len(),
+        "truncated": false,
+        "tabs": tabs,
+        "focus_changed": false,
+        "verified": true,
+    }))
+}
+
+fn select_profile_connection<'a>(
+    statuses: &'a [(ConnectionId, BridgeStatus)],
+    selector: Option<&str>,
+    requested_connection: Option<&ConnectionId>,
+) -> Result<&'a (ConnectionId, BridgeStatus), CuError> {
+    let candidates: Vec<_> = statuses
+        .iter()
+        .filter(|(connection_id, status)| {
+            requested_connection.is_none_or(|wanted| wanted == connection_id)
+                && selector
+                    .is_none_or(|wanted| status.profile_instance_id.as_str().starts_with(wanted))
+        })
+        .collect();
+    match candidates.as_slice() {
+        [one] => Ok(*one),
+        [] => Err(CuError::new(
+            "browser_bridge_profile_connection_not_found",
+            "no live connection matches the requested browser profile identity",
+        )
+        .with_detail(json!({
+            "profile_instance_id": selector,
+            "connection_id": requested_connection,
+        }))),
+        many => Err(CuError::new(
+            "browser_bridge_profile_connection_ambiguous",
+            "more than one live connection matches the browser profile; refusing to guess",
+        )
+        .with_count(many.len())
+        .with_detail(json!({
+            "profile_instance_id": selector,
+            "connections": many.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+        }))),
+    }
+}
+
+fn filter_profile_tabs(
+    tabs: Vec<crate::browser_bridge::BrowserTab>,
+    match_text: Option<&str>,
+    tab_id: Option<u32>,
+) -> Vec<crate::browser_bridge::BrowserTab> {
+    let wanted = match_text.map(str::to_lowercase);
+    tabs.into_iter()
+        .filter(|tab| tab_id.is_none_or(|wanted| tab.tab_id == wanted))
+        .filter(|tab| {
+            wanted.as_deref().is_none_or(|needle| {
+                tab.title.to_lowercase().contains(needle) || tab.url.to_lowercase().contains(needle)
+            })
+        })
+        .collect()
 }
 
 pub(super) fn browser_bridge_debug_read_payload(
@@ -515,14 +691,27 @@ fn require_unique_profile_connection(
     deadline: Instant,
 ) -> Result<(), CuError> {
     let (matches, _) = profile_connections_until(expected_profile, deadline, None)?;
-    if matches.len() != 1 || matches.first() != Some(expected_connection) {
-        return Err(CuError::new(
-            "browser_bridge_profile_connection_ambiguous",
-            "the Profile instance must have exactly one live Native Messaging connection",
+    match matches.as_slice() {
+        [only] if only == expected_connection => Ok(()),
+        [] => Err(CuError::new(
+            "browser_bridge_profile_connection_not_found",
+            "the selected profile connection disappeared before verification",
         )
-        .with_detail(json!({ "matching_connections": matches })));
+        .with_detail(json!({ "matching_connections": matches }))),
+        [_] => Err(CuError::new(
+            "browser_bridge_profile_connection_changed",
+            "the selected profile identity moved to a different native connection",
+        )
+        .with_detail(json!({
+            "expected_connection": expected_connection,
+            "matching_connections": matches,
+        }))),
+        _ => Err(CuError::new(
+            "browser_bridge_profile_connection_ambiguous",
+            "the profile instance has more than one live Native Messaging connection",
+        )
+        .with_detail(json!({ "matching_connections": matches }))),
     }
-    Ok(())
 }
 
 fn tab_lock_target(profile: &ProfileInstanceId, tab_id: u32) -> String {
@@ -1017,6 +1206,81 @@ fn host_error(error: crate::browser_bridge::BridgeHostError) -> CuError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn connection(hex_pair: &str) -> ConnectionId {
+        ConnectionId::parse(&hex_pair.repeat(32)).unwrap()
+    }
+
+    fn status(profile: &str) -> BridgeStatus {
+        BridgeStatus {
+            protocol: crate::browser_bridge::PROTOCOL_VERSION,
+            extension_id: crate::browser_bridge::ACU_EXTENSION_ID.into(),
+            extension_version: crate::browser_bridge::BRIDGE_EXTENSION_VERSION.into(),
+            profile_instance_id: crate::browser_bridge::ProfileInstanceId::parse(profile).unwrap(),
+            commands: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn profile_tab_selection_is_exact_unique_and_filtering_keeps_urls() {
+        let first = connection("12");
+        let second = connection("34");
+        let statuses = vec![
+            (first.clone(), status("abcdef1234567890abcdef1234567890")),
+            (second.clone(), status("1234567890abcdef1234567890abcdef")),
+        ];
+        assert_eq!(
+            select_profile_connection(&statuses, Some("abcdef"), None)
+                .unwrap()
+                .0,
+            first
+        );
+        assert_eq!(
+            select_profile_connection(&statuses, None, Some(&second))
+                .unwrap()
+                .1
+                .profile_instance_id
+                .as_str(),
+            "1234567890abcdef1234567890abcdef"
+        );
+        assert_eq!(
+            select_profile_connection(&statuses, None, None)
+                .unwrap_err()
+                .code,
+            "browser_bridge_profile_connection_ambiguous"
+        );
+        assert_eq!(
+            select_profile_connection(&statuses, Some("ffff"), None)
+                .unwrap_err()
+                .code,
+            "browser_bridge_profile_connection_not_found"
+        );
+
+        let tabs = vec![
+            crate::browser_bridge::BrowserTab {
+                tab_id: 7,
+                window_id: 2,
+                active: false,
+                title: "Background docs".into(),
+                url: "https://example.com/Guide".into(),
+            },
+            crate::browser_bridge::BrowserTab {
+                tab_id: 8,
+                window_id: 2,
+                active: true,
+                title: "Inbox".into(),
+                url: "https://mail.example/".into(),
+            },
+        ];
+        let by_url = filter_profile_tabs(tabs.clone(), Some("EXAMPLE.COM/GUIDE"), None);
+        assert_eq!(by_url.len(), 1);
+        assert_eq!(by_url[0].tab_id, 7);
+        assert!(!by_url[0].active);
+        assert_eq!(
+            filter_profile_tabs(tabs, None, Some(8))[0].url,
+            "https://mail.example/"
+        );
+    }
 
     fn tab(title: &str, url: &str) -> crate::browser_bridge::BrowserTab {
         crate::browser_bridge::BrowserTab {

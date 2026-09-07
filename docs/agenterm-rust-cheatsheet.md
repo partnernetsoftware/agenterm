@@ -1694,6 +1694,17 @@ the result: detach failure makes the read fail even when data was obtained.
 Bound tab inventory separately so a browser with many tabs cannot bypass the
 native-message response budget.
 
+A profile-wide tab facade must resolve identity before reading data. Enumerate
+the complete live connection registry, query every candidate's authenticated
+profile instance, and require exactly one connection for the selected profile;
+an exact connection id alone does not prove profile uniqueness. Reject a
+truncated connection or tab inventory instead of returning a plausible prefix.
+Keep stable tab/window ids and URLs from MV3: a desktop tab strip or CDP
+title-join loses profile-wide background identity and is never an automatic
+fallback. Bracket native desktop focus through a short settle window even for
+read-only extension calls, because “query only” at one layer does not prove the
+composed provider preserved presentation.
+
 Treat one exact Native Messaging connection as the authenticated Profile
 capability handle. Browser window ids are stable only inside that connection;
 return state, focus, bounds, tab count and active-tab identity together, and do

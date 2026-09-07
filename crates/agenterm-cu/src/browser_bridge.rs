@@ -470,6 +470,8 @@ impl TabsResult {
                 "tab inventory exceeds its fixed result bound",
             ));
         }
+        let mut tab_ids = std::collections::BTreeSet::new();
+        let mut active_by_window = std::collections::BTreeMap::<u32, usize>::new();
         for tab in &self.tabs {
             if tab.tab_id == 0 || tab.window_id == 0 {
                 return Err(BridgeProtocolError::new(
@@ -477,6 +479,14 @@ impl TabsResult {
                     "tab inventory contains a non-exact tab or window identity",
                 ));
             }
+            if !tab_ids.insert(tab.tab_id) {
+                return Err(BridgeProtocolError::new(
+                    "browser_bridge_tab_identity_duplicate",
+                    "tab inventory contains a duplicate stable tab identity",
+                ));
+            }
+            let active = active_by_window.entry(tab.window_id).or_default();
+            *active += usize::from(tab.active);
             validate_text(
                 &tab.title,
                 TAB_TITLE_MAX_BYTES,
@@ -491,6 +501,12 @@ impl TabsResult {
                 "browser_bridge_control_value",
                 "tab URL",
             )?;
+        }
+        if !self.truncated && active_by_window.values().any(|count| *count != 1) {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_tab_active_identity_invalid",
+                "complete tab inventory must contain exactly one active tab per window",
+            ));
         }
         Ok(())
     }
@@ -1562,7 +1578,7 @@ mod tests {
         let valid = BrowserTab {
             tab_id: 4,
             window_id: 2,
-            active: false,
+            active: true,
             title: "Documentation".into(),
             url: "https://example.invalid/".into(),
         };
@@ -1572,6 +1588,28 @@ mod tests {
         }
         .validate()
         .unwrap();
+        assert_eq!(
+            TabsResult {
+                tabs: vec![valid.clone(), valid.clone()],
+                truncated: false,
+            }
+            .validate()
+            .unwrap_err()
+            .code,
+            "browser_bridge_tab_identity_duplicate"
+        );
+        let mut second_active = valid.clone();
+        second_active.tab_id = 5;
+        assert_eq!(
+            TabsResult {
+                tabs: vec![valid.clone(), second_active],
+                truncated: false,
+            }
+            .validate()
+            .unwrap_err()
+            .code,
+            "browser_bridge_tab_active_identity_invalid"
+        );
         let mut invalid = valid;
         invalid.title = "bad\ncaption".into();
         assert_eq!(

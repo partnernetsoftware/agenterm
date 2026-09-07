@@ -3519,6 +3519,20 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         app: Option<String>,
     },
+    /// Profile-wide tab inventory through one exact live MV3 bridge
+    /// connection. Unlike `tab-list`, this includes background windows,
+    /// stable Chromium tab ids and URLs without activating the browser.
+    BrowserTabs {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        profile_instance_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        connection_id: Option<crate::browser_bridge::ConnectionId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        match_text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tab_id: Option<u32>,
+    },
     /// Open a window (or, with `url`, a tab) of the profile named
     /// `profile` in the running instance: `open -na <app> --args
     /// --profile-directory=<dir> [url]`, then poll the window inventory
@@ -4162,6 +4176,7 @@ impl Command {
             Self::TabSelect { .. } => "tab-select".into(),
             Self::TabClose { .. } => "tab-close".into(),
             Self::BrowserProfiles { .. } => "browser-profiles".into(),
+            Self::BrowserTabs { .. } => "browser-tabs".into(),
             Self::BrowserOpen { .. } => "browser-open".into(),
             Self::BrowserSessionStart { .. } => "browser-session-start".into(),
             Self::BrowserSessionList { .. } => "browser-session-list".into(),
@@ -4560,6 +4575,7 @@ impl Command {
             | Self::TabSelect { target, .. }
             | Self::TabClose { target, .. }
             | Self::BrowserProfiles { target, .. }
+            | Self::BrowserTabs { target, .. }
             | Self::BrowserOpen { target, .. }
             | Self::BrowserSessionStart { target, .. }
             | Self::BrowserSessionList { target, .. }
@@ -4814,6 +4830,42 @@ impl Command {
                     return Err(
                         "browser bridge lock ttl_seconds must cover timeout_ms plus 5000ms",
                     );
+                }
+                Ok(())
+            }
+            Self::BrowserTabs {
+                profile_instance_id,
+                connection_id,
+                match_text,
+                tab_id,
+                ..
+            } => {
+                if profile_instance_id.is_some() && connection_id.is_some() {
+                    return Err(
+                        "browser-tabs takes at most one profile_instance_id or connection_id",
+                    );
+                }
+                if match_text.is_some() && tab_id.is_some() {
+                    return Err("browser-tabs takes at most one match_text or tab_id");
+                }
+                if profile_instance_id.as_ref().is_some_and(|value| {
+                    value.is_empty()
+                        || value.len() > 32
+                        || value
+                            .bytes()
+                            .any(|byte| !byte.is_ascii_digit() && !(b'a'..=b'f').contains(&byte))
+                }) {
+                    return Err(
+                        "browser-tabs profile_instance_id must be a 1..=32 lowercase hex prefix",
+                    );
+                }
+                if match_text.as_ref().is_some_and(|value| {
+                    value.is_empty() || value.len() > 4_096 || value.chars().any(char::is_control)
+                }) {
+                    return Err("browser-tabs match_text must be 1..=4096 non-control bytes");
+                }
+                if *tab_id == Some(0) {
+                    return Err("browser-tabs tab_id must be positive");
                 }
                 Ok(())
             }
@@ -7568,6 +7620,54 @@ mod tests {
             serde_json::to_value(&profiles).expect("serialize"),
             serde_json::json!({ "verb": "browser-profiles", "target": "current" })
         );
+        let tabs = Command::BrowserTabs {
+            target: TargetRef::Current,
+            profile_instance_id: Some("abcdef".into()),
+            connection_id: None,
+            match_text: Some("guide".into()),
+            tab_id: None,
+        };
+        assert_eq!(tabs.verb(), "browser-tabs");
+        assert_eq!(tabs.required_grant(), Grant::Observe);
+        assert_eq!(tabs.validate(), Ok(()));
+        assert_eq!(
+            serde_json::to_value(&tabs).expect("serialize"),
+            serde_json::json!({
+                "verb": "browser-tabs", "target": "current",
+                "profile_instance_id": "abcdef", "match_text": "guide"
+            })
+        );
+        let invalid_profile = Command::BrowserTabs {
+            target: TargetRef::Current,
+            profile_instance_id: Some("Default".into()),
+            connection_id: None,
+            match_text: None,
+            tab_id: None,
+        };
+        assert!(invalid_profile.validate().is_err());
+        let invalid_selector_pair: Command = serde_json::from_value(serde_json::json!({
+            "verb": "browser-tabs",
+            "target": "current",
+            "profile_instance_id": "abcdef",
+            "connection_id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }))
+        .expect("wire shape still deserializes before shared validation");
+        assert!(invalid_selector_pair.validate().is_err());
+        let invalid_filter: Command = serde_json::from_value(serde_json::json!({
+            "verb": "browser-tabs",
+            "target": "current",
+            "match_text": "guide",
+            "tab_id": 7
+        }))
+        .expect("wire shape still deserializes before shared validation");
+        assert!(invalid_filter.validate().is_err());
+        let invalid_tab: Command = serde_json::from_value(serde_json::json!({
+            "verb": "browser-tabs",
+            "target": "current",
+            "tab_id": 0
+        }))
+        .expect("wire shape still deserializes before shared validation");
+        assert!(invalid_tab.validate().is_err());
         let open = Command::BrowserOpen {
             target: TargetRef::Current,
             profile: "work".into(),

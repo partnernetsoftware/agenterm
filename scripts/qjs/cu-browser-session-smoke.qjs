@@ -6,6 +6,7 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.browser-managed-profile.macos",
   "cu.browser-bridge-owned-profile.macos",
+  "cu.browser-profile-tabs.macos",
   "cu.browser-bridge-reload.macos",
   "cu.browser-closed-tree.macos",
   "cu.browser-window-lifecycle.macos",
@@ -300,6 +301,58 @@ try {
     "cu_browser_bridge_background_window_focus_changed");
   const second_window_id = second_window.data.result.window.window_id;
   const attached_tab_id = second_window.data.result.window.active_tab_id;
+
+  print("STEP exact profile-wide tab inventory preserves background URLs without focus change");
+  const profile_tabs_focus_before_reply = require_ok(invoke("observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]), "cu_browser_profile_tabs_focus_before_failed");
+  ensure(profile_tabs_focus_before_reply.data.returned === 1,
+    "cu_browser_profile_tabs_focus_before_ambiguous");
+  const profile_tabs_focus_before = profile_tabs_focus_before_reply.data.windows[0].handle;
+  const profile_tabs = require_ok(invoke("observe", [
+    "browser-tabs", "--connection-id", bridge_id
+  ]), "cu_browser_profile_tabs_failed");
+  const profile_tabs_focus_after_reply = require_ok(invoke("observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]), "cu_browser_profile_tabs_focus_after_failed");
+  ensure(profile_tabs_focus_after_reply.data.returned === 1 &&
+    profile_tabs_focus_after_reply.data.windows[0].handle === profile_tabs_focus_before,
+    "cu_browser_profile_tabs_external_focus_changed");
+  ensure(profile_tabs.data.mechanism === "mv3-native-messaging" &&
+    profile_tabs.data.profile_instance_id === profile_instance_id &&
+    profile_tabs.data.truncated === false && profile_tabs.data.verified === true &&
+    profile_tabs.data.focus_changed === false,
+    "cu_browser_profile_tabs_identity");
+  ensure(profile_tabs.data.returned >= 2, "cu_browser_profile_tabs_count");
+  let saw_background_url = false;
+  for (let tab_index = 0; tab_index < profile_tabs.data.tabs.length; tab_index = tab_index + 1) {
+    const tab = profile_tabs.data.tabs[tab_index];
+    ensure(tab.tab_id > 0 && tab.window_id > 0 && typeof tab.url === "string",
+      "cu_browser_profile_tab_shape");
+    if (tab.active === true && tab.window_id === second_window_id &&
+        tab.url.includes("acu-closed-tree")) { saw_background_url = true; }
+  }
+  ensure(saw_background_url, "cu_browser_profile_background_url_missing");
+  const filtered_tabs_focus_before_reply = require_ok(invoke("observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]), "cu_browser_profile_tabs_filter_focus_before_failed");
+  ensure(filtered_tabs_focus_before_reply.data.returned === 1,
+    "cu_browser_profile_tabs_filter_focus_before_ambiguous");
+  const filtered_tabs_focus_before = filtered_tabs_focus_before_reply.data.windows[0].handle;
+  const filtered_tabs = require_ok(invoke("observe", [
+    "browser-tabs", "--profile-instance-id", profile_instance_id.slice(0, 8),
+    "--match", "ACU-CLOSED-TREE"
+  ]), "cu_browser_profile_tabs_filter_failed");
+  const filtered_tabs_focus_after_reply = require_ok(invoke("observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]), "cu_browser_profile_tabs_filter_focus_after_failed");
+  ensure(filtered_tabs_focus_after_reply.data.returned === 1 &&
+    filtered_tabs_focus_after_reply.data.windows[0].handle === filtered_tabs_focus_before,
+    "cu_browser_profile_tabs_filter_external_focus_changed");
+  ensure(filtered_tabs.data.returned === 1 &&
+    filtered_tabs.data.tabs[0].tab_id === attached_tab_id,
+    "cu_browser_profile_tabs_filter_identity");
+  harness.emit_evidence(context, declared_evidence, "cu.browser-profile-tabs.macos");
 
   print("STEP stable profile identity owns one exact tab across a background bridge reload");
   runtime_session = require_ok(invoke("actuate", [
