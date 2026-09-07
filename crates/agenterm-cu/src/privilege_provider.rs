@@ -61,6 +61,12 @@ pub(crate) struct PendingPrivilegeRequest {
     ledger: PrivilegeProviderLedger,
 }
 
+impl PendingPrivilegeRequest {
+    pub(crate) fn request(&self) -> &crate::privilege_apply::PrivilegeApplyRequestV1 {
+        self.validated.request()
+    }
+}
+
 impl FixedProviderAuthority {
     pub(crate) fn from_native_boundary(
         namespace: PrivilegeProviderNamespace,
@@ -79,7 +85,7 @@ impl FixedProviderAuthority {
     }
 
     #[cfg(test)]
-    fn fixture(state_root: PathBuf) -> Self {
+    pub(crate) fn fixture(state_root: PathBuf) -> Self {
         Self::fixture_with_provider(state_root, digest(b"fixture-provider"))
     }
 
@@ -335,6 +341,21 @@ pub(crate) fn execute_after_native_consent(
             Ok(failed_after_reply(request, &receipt, receipt_sha256))
         }
     }
+}
+
+/// Close an unreserved request after the native authorization agent was
+/// dismissed. No attempt or replay reservation is created.
+pub(crate) fn cancel_before_effect(pending: PendingPrivilegeRequest) -> PrivilegeApplyReplyV1 {
+    consent_canceled(pending.validated.request())
+}
+
+/// Close an unreserved request after native authorization refused it. The
+/// refusal remains retryable and therefore does not enter the effect ledger.
+pub(crate) fn refuse_before_effect(
+    pending: PendingPrivilegeRequest,
+    error_code: &str,
+) -> PrivilegeApplyReplyV1 {
+    refused(pending.validated.request(), error_code)
 }
 
 fn prepare_state_root(root: &Path) -> Result<(), CuError> {
@@ -615,6 +636,17 @@ fn refused(
         contract_digest: request.plan_contract_digest().to_owned(),
         approval_digest: request.plan_approval_digest().to_owned(),
         error_code: error_code.to_owned(),
+    }
+}
+
+fn consent_canceled(
+    request: &crate::privilege_apply::PrivilegeApplyRequestV1,
+) -> PrivilegeApplyReplyV1 {
+    PrivilegeApplyReplyV1::ConsentCanceled {
+        protocol_version: crate::privilege_apply::PRIVILEGE_APPLY_PROTOCOL_VERSION,
+        request_id: request.request_id.clone(),
+        contract_digest: request.plan_contract_digest().to_owned(),
+        approval_digest: request.plan_approval_digest().to_owned(),
     }
 }
 
