@@ -1515,10 +1515,15 @@ flowchart LR
   x86_64 for the same source line. Its Windows ARM64 run exposed and fixed two
   court-only PATH assumptions: inbox tools now resolve through
   `SystemRoot/System32` instead of relying on an interactive-shell PATH. The
-  current rerun remains honestly pending because the detached Windows session
-  agent did not claim its nonce within 180 seconds; this is an `utm-court`
-  session-provider blocker, not authority to mark product behavior green or
-  weaken the exact-object contract.
+  rerun exposed that the session worker synchronously ran test jobs and could
+  therefore starve its own readiness nonce after a restored or interrupted
+  court. `utm-court` e248f8c moves readiness into a separate responder and a
+  versioned protocol root, refuses source drift instead of overwriting a locked
+  PowerShell script, and exposes `windows-agent-root` so product runners do not
+  hard-code that generation. A 120-second blocking-job injection still returned
+  a valid interactive nonce. The exact product journey remains pending until it
+  is rerun through this repaired provider; infrastructure evidence is not
+  authority to mark product behavior green or weaken the exact-object contract.
 
 - [~] CoreSimulator now has a bounded macOS platform foundation rather than a
   shell-shaped MCU exception. It lists at most 200 devices by exact UDID,

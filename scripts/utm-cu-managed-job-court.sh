@@ -206,8 +206,9 @@ else
   GUEST_ROOT="$GUEST_BASE\\agenterm-$RUN_ID"
   GUEST_LOG="$GUEST_BASE\\agenterm-$RUN_ID.log"
   GUEST_EXIT="$GUEST_BASE\\agenterm-$RUN_ID.exit"
-  JOB="$GUEST_BASE\\agent-v2\\job.pending.ps1"
-  READY="$GUEST_BASE\\agent-v2\\job.ready"
+  AGENT_ROOT="$($UTM_COURT_CLI windows-agent-root)"
+  JOB="$AGENT_ROOT\\job.pending.ps1"
+  READY="$AGENT_ROOT\\job.ready"
   echo "UTM court phase: payload-transfer"
   UTM_COURT_TRANSFER_TIMEOUT=180 \
     "$COURT_CLI" push "$COURT" "$ARCHIVE" "$GUEST_ARCHIVE"
@@ -260,7 +261,7 @@ while :; do
     fi
     if [ "$GUEST_OS" = windows ]; then
       "$COURT_CLI" pull "$COURT" \
-        "$WINDOWS_ROOT\\agent-v2\\job.log" "$EVIDENCE_DIR/agent-job.log" \
+        "$AGENT_ROOT\\job.log" "$EVIDENCE_DIR/agent-job.log" \
         >/dev/null 2>&1 || true
     fi
     printf '124\n' >"$EVIDENCE_DIR/run.exit"
