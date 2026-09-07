@@ -111,6 +111,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   ├─ convergence owner: agenterm:acu = stable typed embedder object
   │  ├─ implemented before the compatibility-shell switch
   │  ├─ one schema / Executor / error vocabulary / receipt contract
+  │  ├─ default delivery is one fixed-sibling dynamic provider with ABI check
+  │  │  ├─ no path search, static/child/MCU fallback or malformed JSON acceptance
+  │  │  └─ provider panic serializes and permanently latches failure
   │  └─ consumed directly by CLI, MCP and qjswasm
   ├─ after object parity + TODO-aware MCU-absent courts: acu.qjs = Bun-free syntax adapter
   │  ├─ calls the public agenterm:acu object
@@ -138,20 +141,31 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   work therefore lands in `agenterm-cu`, an existing AgenTerm-owned facade, or
   the generic qjswasm/tinyvm layer; it never grows the transitional shell.
 
+  The size court has selected the delivery boundary. Static linkage grew the
+  Windows main PE from 3,731,968 to 8,865,792 bytes and was rejected. The
+  fixed-sibling dynamic provider keeps the exact integrated release PE at
+  3,738,112 bytes, below the unchanged 4 MiB court, while carrying ACU in a
+  separately versioned artifact. All six targets build that artifact; Windows
+  signing and macOS bundle signing now derive or validate it explicitly.
+  The public `acu-provider-smoke` proves one in-process capabilities call and
+  the missing-sibling path fails typed. Three-host runtime evidence and the
+  library-owned argv adapter remain open.
+
   ```mermaid
   flowchart LR
     TS["acu.ts today<br/>argv projection · binary discovery"]
     OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
     OBJ["agenterm:acu<br/>embedder object library"]
+    PROVIDER["fixed sibling dynamic provider<br/>ABI checked · bounded · no fallback"]
     GATE{"typed-object parity · TODO-aware<br/>MCU-absent black box"}
     QJS["acu.qjs transition<br/>Bun-free legacy mapping"]
     USERS["typed consumers<br/>CLI · MCP · qjs"]
     LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]
-    OWNER --> OBJ --> USERS
+    OWNER --> OBJ --> PROVIDER --> USERS
     TS --> GATE
     OWNER --> GATE
-    OBJ --> GATE
+    PROVIDER --> GATE
     GATE -->|red| DEBT --> OWNER
     GATE -->|green| QJS --> LEGACY
     OBJ -->|typed calls only| QJS

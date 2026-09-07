@@ -4,6 +4,7 @@
 //   REPO OUTPUT_PATH [--quiet]
 // Ported from scripts/rh/preflight.rh; runs under `--profile tool`.
 import * as rh from "lib/rh_compat";
+import * as artifact_manifest from "lib/artifact_manifest";
 
 // rh's "strip every allowed character and see whether anything is left",
 // spelled once (the original repeated the replace chain per site).
@@ -446,40 +447,22 @@ if (remote_passed !== 0) {
 }
 
 let artifact_passed = 1;
-const manifest = JSON.parse(rh.read_text(rh.join(repo, "scripts/artifacts.json")));
-if (manifest.schema_version !== 2) {
+const artifact_manifest_path = rh.join(repo, "scripts/artifacts.json");
+const manifest = JSON.parse(rh.read_text(artifact_manifest_path));
+try {
+  artifact_manifest.validate(artifact_manifest_path);
+} catch (_error) {
   artifact_passed = 0;
 }
 if (artifact_passed !== 0) {
-  if (!rh.is_array(manifest.executables) || !rh.is_array(manifest.libraries)) {
-    artifact_passed = 0;
-  }
-}
-if (artifact_passed !== 0) {
-  if (manifest.executables.length === 0) {
-    artifact_passed = 0;
-  }
-}
-if (artifact_passed !== 0) {
-  // The shipped set, distinct: the executable names are deduplicated before
-  // the count is compared, so a manifest that lists one name twice does not
-  // pass on length alone.
-  const expected = [
-    "agenterm.exe",
-    "agenterm.com",
-    "agenterm-cc.exe",
-    "agenterm-cu.exe"
-  ];
-  // No `Object.keys` in this engine yet: count distinct names as the maps
-  // are built.
+  // The canonical top-level Windows projection is validated by the shared
+  // manifest owner. Count its names here only to make the preflight receipt
+  // useful without maintaining a second release allowlist.
   const names = {};
   let names_count = 0;
   for (const artifact_entry of manifest.executables) {
     if (names[artifact_entry.name] !== true) { names_count = names_count + 1; }
     names[artifact_entry.name] = true;
-  }
-  if (names_count !== expected.length) {
-    artifact_passed = 0;
   }
   const library_names = {};
   let library_count = 0;
@@ -487,15 +470,8 @@ if (artifact_passed !== 0) {
     if (library_names[library_entry.name] !== true) { library_count = library_count + 1; }
     library_names[library_entry.name] = true;
   }
-  if (library_count !== 1 || library_names["agenterm.dll"] !== true) {
+  if (library_names["agenterm-cu-provider.dll"] !== true) {
     artifact_passed = 0;
-  }
-  if (artifact_passed !== 0) {
-    for (const expected_name of expected) {
-      if (names[expected_name] !== true) {
-        artifact_passed = 0;
-      }
-    }
   }
   if (artifact_passed !== 0) {
     gates.push({

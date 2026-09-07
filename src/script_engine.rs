@@ -1092,12 +1092,11 @@ fn qjs_host_bridges(fleet: Option<ScriptFleetBridgeFn>) -> agenterm_qjswasm::Hos
         ))
         .map_err(|error| format!("serializing ACU reply: {error}"))
     });
+    #[cfg(not(feature = "script-acu-embedder"))]
+    let acu = crate::acu_provider::bridge();
     agenterm_qjswasm::HostBridges {
         fleet,
-        #[cfg(feature = "script-acu-embedder")]
         acu: Some(acu),
-        #[cfg(not(feature = "script-acu-embedder"))]
-        acu: None,
     }
 }
 

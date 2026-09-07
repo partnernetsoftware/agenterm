@@ -239,6 +239,7 @@ export function validate_windows_signing_receipt(
   receipt_path, source_sha, version, run_id, run_attempt, assets
 ) {
   const receipt = rh.parse_file(receipt_path);
+  const receipt_asset_names = list(receipt, "asset_names");
   rh.require(
     receipt.schema_version === 1
       && receipt.kind === "agenterm-azure-artifact-signing"
@@ -250,7 +251,8 @@ export function validate_windows_signing_receipt(
       && receipt.timestamp_rfc3161 === "http://timestamp.acs.microsoft.com"
       && receipt.timestamp_digest === "SHA256"
       && receipt.release_eligible === true
-      && receipt.asset_count === 10
+      && receipt.asset_count === receipt_asset_names.length
+      && receipt.asset_count > 0
       && receipt.platform_count === 2,
     "candidate_windows_signing_receipt_identity"
   );
@@ -261,7 +263,8 @@ export function validate_windows_signing_receipt(
   );
   const receipt_platforms = child(receipt, "platforms");
   const receipt_assets = child(receipt, "assets");
-  const pe_names = ["agenterm.exe", "agenterm.com", "agenterm-cc.exe", "agenterm-cu.exe", "agenterm.dll"];
+  const seen_asset_names = [];
+  let validated_asset_count = 0;
   for (const platform of [
     { id: "windows-x86_64", arch: "x86_64" },
     { id: "windows-aarch64", arch: "aarch64" }
@@ -293,10 +296,17 @@ export function validate_windows_signing_receipt(
       }
     }
     rh.require(matching_archive, "candidate_windows_signing_archive_missing:" + platform.id);
-    for (const pe_name of pe_names) {
-      const receipt_asset = child(receipt_assets, platform.id + "/" + pe_name);
+    let platform_asset_count = 0;
+    for (const asset_name of receipt_asset_names) {
+      const relative = text(asset_name);
+      if (!relative.startsWith(platform.id + "/")) { continue; }
+      const pe_name = relative.replace(platform.id + "/", "");
+      require_asset_name(pe_name);
+      rh.require(!seen_asset_names.includes(relative), "candidate_windows_signing_asset_duplicate");
+      seen_asset_names.push(relative);
+      const receipt_asset = child(receipt_assets, relative);
       rh.require(
-        receipt_asset.path === platform.id + "/" + pe_name
+        receipt_asset.path === relative
           && valid_sha256(text(receipt_asset.before_sha256))
           && valid_sha256(text(receipt_asset.after_sha256))
           && receipt_asset.before_sha256 !== receipt_asset.after_sha256
@@ -309,8 +319,12 @@ export function validate_windows_signing_receipt(
           && text(receipt_asset.timestamp_subject) !== "",
         "candidate_windows_signing_asset:" + platform.id + "/" + pe_name
       );
+      platform_asset_count = platform_asset_count + 1;
+      validated_asset_count = validated_asset_count + 1;
     }
+    rh.require(platform_asset_count > 0, "candidate_windows_signing_asset_set_empty:" + platform.id);
   }
+  rh.require(validated_asset_count === receipt.asset_count, "candidate_windows_signing_asset_set");
 }
 
 export function validate_provenance(

@@ -17,6 +17,7 @@ APP_BUNDLE="$BIN_DIR/AgenTerm.app"
 APP_IDENTIFIER="com.partnernetsoftware.agenterm"
 HELPER_IDENTIFIER="com.partnernetsoftware.agenterm.cu.privilege"
 HELPER="$APP_BUNDLE/Contents/Resources/$HELPER_IDENTIFIER"
+PROVIDER="$APP_BUNDLE/Contents/MacOS/agenterm-cu-provider.dylib"
 TEAM_ID="${AGENTERM_APPLE_TEAM_ID:?AGENTERM_APPLE_TEAM_ID required at build and signing time}"
 
 if [[ ! "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]; then
@@ -85,6 +86,8 @@ VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$ROOT/Cargo.toml" | head -n 1
 # its fixed identifier; no certificate or Team identifier is stored in source.
 codesign --force --sign "$IDENTITY" --options runtime --timestamp \
   "$APP_BUNDLE/Contents/MacOS/libagenterm.dylib"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp \
+  "$PROVIDER"
 codesign --force --sign "$IDENTITY" --options runtime --timestamp \
   --identifier "$HELPER_IDENTIFIER" \
   --entitlements "$ROOT/packaging/privilege/macos/helper.entitlements" \

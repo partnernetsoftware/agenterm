@@ -70,8 +70,9 @@ ACU replaces MCU
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
-│  ├─ phase 2 [~]: bounded `agenterm:acu` door + shared Executor adapter are green; default provider and MCP remain
-│  │  └─ static provider is rejected for delivery: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
+│  ├─ phase 2 [~]: bounded `agenterm:acu` door + fixed-sibling dynamic provider are green; argv adapter and MCP remain
+│  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
+│  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  ├─ phase 3: after object parity + TODO-aware MCU-absent court, `acu.qjs` removes Bun while retaining only compatibility mapping
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
@@ -111,9 +112,10 @@ flowchart LR
   I --> Q
   P --> Q
   Q --> AO["agenterm:acu embedder object<br/>one schema + Executor + failures"]
-  AO --> SZ{"default provider<br/>Windows PE ≤ 4 MiB?"}
-  SZ -->|green| AQ["temporary acu.qjs compatibility shell<br/>no Bun · no duplicated mechanism"]
-  SZ -->|red| PX["provider delivery experiment"] --> SZ
+  AO --> SZ{"dynamic provider<br/>Windows PE ≤ 4 MiB?"}
+  SZ -->|3,738,112 B · green| DP["fixed sibling ABI artifact<br/>bounded · serialized · no fallback"]
+  DP --> AQ["temporary acu.qjs compatibility shell<br/>no Bun · no duplicated mechanism"]
+  SZ -->|regression| PX["reopen delivery experiment"] --> SZ
   SET --> PS["permissions status + open-next live<br/>real status · exact pane · never consent"]
   PS --> Q
   SET --> HO["host open + notification live<br/>shell-free · acceptance ≠ verification"]

@@ -512,6 +512,8 @@ if (action === "build" && (os_name === "windows" || library_entries.length > 0))
   }
   abi_args.push("--package");
   abi_args.push("agenterm-abi");
+  abi_args.push("--package");
+  abi_args.push("agenterm-cu-provider");
   // rh passed the identity keys and CARGO_TARGET_DIR here but not the
   // incremental-wrapper keys; the wrapper must not see the ABI build.
   let abi_environment = build_identity.environment(identity);
@@ -534,6 +536,26 @@ if (action === "build" && (os_name === "windows" || library_entries.length > 0))
   rh.try_remove_file(abi_destination);
   require(rh.try_copy(abi_source, abi_destination) === 1, "build_abi_artifact_copy:" + abi_source);
   require(direct_file(abi_destination) !== 0, "build_abi_artifact_destination:" + abi_destination);
+
+  // `agenterm:acu` uses one fixed-name sibling provider. Build it in the
+  // same unwind-only ABI lane as libagenterm, then rename Cargo's underscore
+  // artifact only while staging. The main executable never links agenterm-cu
+  // statically and never falls back to a child process when this file is absent.
+  let provider_source_name = "agenterm_cu_provider.dll";
+  let provider_destination_name = "agenterm-cu-provider.dll";
+  if (os_name === "linux") {
+    provider_source_name = "libagenterm_cu_provider.so";
+    provider_destination_name = "agenterm-cu-provider.so";
+  } else if (os_name === "macos") {
+    provider_source_name = "libagenterm_cu_provider.dylib";
+    provider_destination_name = "agenterm-cu-provider.dylib";
+  }
+  const provider_source = rh.join(abi_directory, provider_source_name);
+  const provider_destination = rh.join(profile_directory, provider_destination_name);
+  require(direct_file(provider_source) !== 0, "build_acu_provider_source:" + provider_source);
+  rh.try_remove_file(provider_destination);
+  require(rh.try_copy(provider_source, provider_destination) === 1, "build_acu_provider_copy:" + provider_source);
+  require(direct_file(provider_destination) !== 0, "build_acu_provider_destination:" + provider_destination);
 }
 
 if (action === "build" && external_target === 0 && cross_client === 0) {

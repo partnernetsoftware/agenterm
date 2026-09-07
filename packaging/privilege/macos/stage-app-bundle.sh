@@ -21,7 +21,7 @@ case "$OUTPUT" in
     exit 2
     ;;
 esac
-for name in agenterm agenterm-cc agenterm-cu libagenterm.dylib; do
+for name in agenterm agenterm-cc agenterm-cu libagenterm.dylib agenterm-cu-provider.dylib; do
   [[ -f "$BIN_DIR/$name" && ! -L "$BIN_DIR/$name" ]] || {
     echo "missing regular macOS artifact: $BIN_DIR/$name" >&2
     exit 1
@@ -43,12 +43,15 @@ cp "$BIN_DIR/agenterm" "$NEXT/Contents/MacOS/agenterm"
 cp "$BIN_DIR/agenterm-cc" "$NEXT/Contents/MacOS/agenterm-cc"
 cp "$BIN_DIR/agenterm-cu" "$NEXT/Contents/MacOS/agenterm-cu"
 cp "$BIN_DIR/libagenterm.dylib" "$NEXT/Contents/MacOS/libagenterm.dylib"
+cp "$BIN_DIR/agenterm-cu-provider.dylib" \
+  "$NEXT/Contents/MacOS/agenterm-cu-provider.dylib"
 cp "$BIN_DIR/agenterm-cu" \
   "$NEXT/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege"
 chmod 0755 "$NEXT/Contents/MacOS/agenterm" "$NEXT/Contents/MacOS/agenterm-cc" \
   "$NEXT/Contents/MacOS/agenterm-cu" \
   "$NEXT/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege"
-chmod 0644 "$NEXT/Contents/MacOS/libagenterm.dylib" "$NEXT/Contents/Info.plist" \
+chmod 0644 "$NEXT/Contents/MacOS/libagenterm.dylib" \
+  "$NEXT/Contents/MacOS/agenterm-cu-provider.dylib" "$NEXT/Contents/Info.plist" \
   "$NEXT/Contents/Library/LaunchDaemons/com.partnernetsoftware.agenterm.cu.privilege.plist" \
   "$NEXT/Contents/Resources/authorization-right.plist" \
   "$NEXT/Contents/Resources/privilege-deployment.json"

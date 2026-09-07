@@ -842,6 +842,23 @@
         "task.cu-setup-runtime-refresh-smoke"
       ]
     },
+    "acu-provider-smoke": {
+      "inputs": [
+        "built-agenterm-with-acu-provider"
+      ],
+      "outputs": [
+        "acu-provider-in-process-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-provider-smoke"
+      ]
+    },
     "cu-doctor-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3300,6 +3317,21 @@
         "artifact_write",
         "process_spawn"
       ]
+    },
+    {
+      "id": "acu-provider-smoke",
+      "description": "Prove the fixed-sibling dynamic provider executes one typed agenterm:acu capabilities call in-process without standalone agenterm-cu or MCU fallback.",
+      "entry": "scripts/qjs/acu-provider-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": []
     },
     {
       "id": "cu-doctor-smoke",

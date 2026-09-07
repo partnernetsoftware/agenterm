@@ -1,0 +1,33 @@
+[package]
+name = "agenterm-cu-provider"
+version = "0.1.16"
+edition = "2024"
+rust-version = "1.97"
+description = "Versioned dynamic provider for the AgenTerm ACU qjs embedder"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/partnernetsoftware/agenterm"
+publish = false
+
+[build-dependencies]
+# Build scripts run on the host, so this must remain unconditional for
+# Linux/macOS cross-builds that emit the Windows provider DLL.
+winresource = "0.1"
+
+[lib]
+name = "agenterm_cu_provider"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+agenterm-cu = { path = "../agenterm-cu" }
+serde_json = "1"
+
+# This provider is intentionally built as its own artifact under the root
+# `abi-dev` / `abi-release` profiles. Product profiles abort on panic, while
+# this native boundary must contain unwind before it can cross extern "C" and
+# permanently latch the provider failed.
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

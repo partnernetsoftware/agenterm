@@ -117,6 +117,7 @@ export function stage(source_directory_value, destination_directory_value, name_
       || name === "agenterm-cc.exe"
       || name === "agenterm-cu.exe"
       || name === "agenterm.dll"
+      || name === "agenterm-cu-provider.dll"
       || name === "agenterm-rh.exe",
     "stage_artifact_name_invalid:" + name
   );

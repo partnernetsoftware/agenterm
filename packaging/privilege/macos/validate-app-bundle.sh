@@ -12,10 +12,11 @@ ASSETS="$ROOT/packaging/privilege/macos"
 MANIFEST="$ASSETS/deployment.json"
 PLIST="$BUNDLE/Contents/Library/LaunchDaemons/com.partnernetsoftware.agenterm.cu.privilege.plist"
 HELPER="$BUNDLE/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege"
+PROVIDER="$BUNDLE/Contents/MacOS/agenterm-cu-provider.dylib"
 
-python3 - "$MANIFEST" "$BUNDLE" "$PLIST" "$HELPER" <<'PY'
+python3 - "$MANIFEST" "$BUNDLE" "$PLIST" "$HELPER" "$PROVIDER" <<'PY'
 import json, os, plistlib, stat, sys
-manifest_path, bundle, plist_path, helper = sys.argv[1:]
+manifest_path, bundle, plist_path, helper, provider = sys.argv[1:]
 with open(manifest_path, encoding="utf-8") as stream:
     m = json.load(stream)
 if m.get("schema_version") != 1:
@@ -57,6 +58,7 @@ if os.path.basename(bundle) != expected["bundle_name"]:
 required = [
     "Contents/Info.plist", "Contents/MacOS/agenterm", "Contents/MacOS/agenterm-cc",
     "Contents/MacOS/agenterm-cu", "Contents/MacOS/libagenterm.dylib",
+    "Contents/MacOS/agenterm-cu-provider.dylib",
     expected["helper_relative"], m["launchd"]["plist_relative_path"],
     "Contents/Resources/authorization-right.plist",
     "Contents/Resources/privilege-deployment.json",
@@ -66,6 +68,8 @@ for relative in required:
     st = os.lstat(path)
     if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
         raise SystemExit("macos_provider_bundle_entry:" + relative)
+if stat.S_IMODE(os.lstat(provider).st_mode) != 0o644:
+    raise SystemExit("macos_provider_library_mode")
 with open(os.path.join(bundle, "Contents/Resources/privilege-deployment.json"), encoding="utf-8") as stream:
     bundled_manifest = json.load(stream)
 if bundled_manifest != m:
@@ -120,7 +124,7 @@ if [[ "$MODE" == --layout ]]; then
   exit 0
 fi
 
-for path in "$HELPER" "$BUNDLE"; do
+for path in "$HELPER" "$PROVIDER" "$BUNDLE"; do
   /usr/bin/codesign --verify --strict --verbose=2 "$path" >/dev/null 2>&1 || {
     echo "macos_provider_signature_invalid: $path" >&2
     exit 1
@@ -133,16 +137,21 @@ signature_field() {
 }
 APP_TEAM="$(signature_field "$BUNDLE" TeamIdentifier)"
 HELPER_TEAM="$(signature_field "$HELPER" TeamIdentifier)"
+PROVIDER_TEAM="$(signature_field "$PROVIDER" TeamIdentifier)"
 APP_AUTHORITY="$(signature_field "$BUNDLE" Authority)"
 HELPER_AUTHORITY="$(signature_field "$HELPER" Authority)"
-[[ "$APP_TEAM" =~ ^[A-Z0-9]{10}$ && "$APP_TEAM" == "$HELPER_TEAM" ]] || {
+PROVIDER_AUTHORITY="$(signature_field "$PROVIDER" Authority)"
+[[ "$APP_TEAM" =~ ^[A-Z0-9]{10}$ && "$APP_TEAM" == "$HELPER_TEAM" && \
+  "$APP_TEAM" == "$PROVIDER_TEAM" ]] || {
   echo "macos_provider_team_mismatch" >&2; exit 1;
 }
 if [[ -n "${AGENTERM_APPLE_TEAM_ID:-}" && "$APP_TEAM" != "$AGENTERM_APPLE_TEAM_ID" ]]; then
   echo "macos_provider_expected_team_mismatch" >&2
   exit 1
 fi
-[[ "$APP_AUTHORITY" == "Developer ID Application:"* && "$HELPER_AUTHORITY" == "Developer ID Application:"* ]] || {
+[[ "$APP_AUTHORITY" == "Developer ID Application:"* && \
+  "$HELPER_AUTHORITY" == "Developer ID Application:"* && \
+  "$PROVIDER_AUTHORITY" == "Developer ID Application:"* ]] || {
   echo "macos_provider_developer_id_required" >&2; exit 1;
 }
 python3 - "$MANIFEST" "$APP_TEAM" > "${BUNDLE}.requirements.tmp" <<'PY'

@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/agenterm-macos-provider.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
-for name in agenterm agenterm-cc agenterm-cu libagenterm.dylib; do
+for name in agenterm agenterm-cc agenterm-cu libagenterm.dylib agenterm-cu-provider.dylib; do
   printf 'fixture:%s\n' "$name" > "$TMP/bin/$name"
 done
 cat > "$TMP/bin/agenterm-cu" <<'EOF'
@@ -18,6 +18,17 @@ chmod 0755 "$TMP/bin/agenterm" "$TMP/bin/agenterm-cc" "$TMP/bin/agenterm-cu"
 "$ROOT/packaging/privilege/macos/stage-app-bundle.sh" \
   aarch64 "$TMP/bin" "$TMP/AgenTerm.app" 0.0.0-test
 "$ROOT/packaging/privilege/macos/validate-app-bundle.sh" --layout "$TMP/AgenTerm.app"
+test "$(stat -f '%Lp' "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib")" = 644
+cmp -s "$TMP/bin/agenterm-cu-provider.dylib" \
+  "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib"
+mv "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib" \
+  "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib.missing"
+if "$ROOT/packaging/privilege/macos/validate-app-bundle.sh" --layout "$TMP/AgenTerm.app" >/dev/null 2>&1; then
+  echo "bundle without dynamic provider was accepted" >&2
+  exit 1
+fi
+mv "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib.missing" \
+  "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib"
 if "$ROOT/packaging/privilege/macos/validate-app-bundle.sh" --signed-bundle "$TMP/AgenTerm.app" >/dev/null 2>&1; then
   echo "unsigned fixture was accepted as deployable" >&2
   exit 1
@@ -28,6 +39,7 @@ fi
 codesign --force --sign - --identifier com.partnernetsoftware.agenterm.cu.privilege \
   "$TMP/AgenTerm.app/Contents/Resources/com.partnernetsoftware.agenterm.cu.privilege" >/dev/null
 codesign --force --sign - "$TMP/AgenTerm.app/Contents/MacOS/libagenterm.dylib" >/dev/null
+codesign --force --sign - "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu-provider.dylib" >/dev/null
 codesign --force --sign - "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cu" >/dev/null
 codesign --force --sign - "$TMP/AgenTerm.app/Contents/MacOS/agenterm-cc" >/dev/null
 codesign --force --sign - --identifier com.partnernetsoftware.agenterm \

@@ -50,6 +50,7 @@ dependencies = [
  "agenterm-ui-core",
  "anyhow",
  "libc",
+ "libloading 0.8.9",
  "png 0.17.16",
  "serde",
  "serde_json",
@@ -111,6 +112,15 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "winresource",
+]
+
+[[package]]
+name = "agenterm-cu-provider"
+version = "0.1.16"
+dependencies = [
+ "agenterm-cu",
+ "serde_json",
  "winresource",
 ]
 

@@ -48,7 +48,10 @@ agenterm-qjswasm
 │  ├─ [x] qjswasm → process.command → ACU headless PTY public journey
 │  ├─ [~] embedder `agenterm:acu` object: same typed schema/Executor/errors/receipts as CLI and MCP
 │  │  ├─ [x] raw bounded door + non-shadowable qjs module + shared Command/Executor/CuReply adapter
-│  │  ├─ [ ] size-compliant default provider; static experiment adds 5,133,824 bytes to Windows PE
+│  │  ├─ [x] fixed-sibling dynamic provider; Windows exact release PE 3,738,112 B ≤ 4 MiB
+│  │  │  ├─ separate ABI-versioned artifact; Win/macOS packaging and signing fail closed if absent
+│  │  │  ├─ public `acu-provider-smoke` executes capabilities through the in-process object
+│  │  │  └─ no path search, static implementation, child process or MCU fallback
 │  │  ├─ [ ] MCP consumes the same adapter (current MCP surface remains separate and read-only)
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
 │  │  ├─ `acu.qjs` is only a temporary Bun-free legacy-syntax adapter
@@ -112,8 +115,8 @@ flowchart LR
   PATHS["shared path helper<br/>`.` / `./` lexical normalization"]
   PRODUCT["AgenTerm operations<br/>Fleet · tools · process · fs · net"]
   ACUOBJ["agenterm:acu embedder object<br/>shared schema · Executor · failures · receipts"]
-  ACUSIZE{"default provider<br/>Windows PE ≤ 4 MiB?"}
-  ACUEXP["delivery experiment<br/>dynamic / resident IPC / static split"]
+  ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
+  ACUDYN["fixed sibling dynamic provider<br/>ABI checked · bounded · serialized<br/>separate signed artifact"]
   TS["temporary acu.ts<br/>legacy argv + binary discovery only"]
   ABSENT{"zero STAY + MCU absent<br/>black-box parity"}
   COMPAT["temporary acu.qjs<br/>legacy mapping only · no Bun"]
@@ -150,8 +153,8 @@ flowchart LR
   UP -. exact git rev .-> COMP & LOAD
   LOAD -->|yes| SLOT --> DOOR --> EXPLICIT --> PRODUCT --> RECEIPT
   DOOR --> ACUOBJ --> ACUSIZE
-  ACUSIZE -->|green| ACUCLI --> RECEIPT
-  ACUSIZE -->|red| ACUEXP --> ACUSIZE
+  ACUSIZE -->|3,738,112 B · green| ACUDYN --> ACUCLI --> RECEIPT
+  ACUSIZE -->|regression| REJECT
   TS --> ABSENT
   ACUOBJ --> ABSENT
   ABSENT --> COMPAT

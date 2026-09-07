@@ -14,6 +14,8 @@
 
 use std::time::Duration;
 
+#[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
+mod acu_provider;
 pub mod agent_tools;
 mod build_identity;
 mod client;

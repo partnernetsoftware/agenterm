@@ -39,7 +39,7 @@ function isArtifactName(name) {
 }
 
 function isLibraryName(name) {
-  return name === "agenterm.dll";
+  return name === "agenterm.dll" || name === "agenterm-cu-provider.dll";
 }
 
 function readJson(path) {
@@ -85,7 +85,13 @@ export function validate(path) {
     }
     require(entry.release_budget_bytes > 0, "artifact_manifest_release_budget_missing:" + name);
   }
-  require(executableCount > 0, "artifact_manifest_executables_empty");
+  const requiredExecutables = [
+    "agenterm.exe", "agenterm.com", "agenterm-cc.exe", "agenterm-cu.exe"
+  ];
+  require(executableCount === requiredExecutables.length, "artifact_manifest_executable_set");
+  for (const requiredName of requiredExecutables) {
+    require(names[requiredName] === true, "artifact_manifest_executable_missing:" + requiredName);
+  }
 
   let libraryCount = 0;
   for (const entry of manifest.libraries) {
@@ -99,6 +105,10 @@ export function validate(path) {
     require(entry.documentation_role.trim() !== "", "artifact_manifest_library_documentation_role_empty:" + name);
     require(entry.release_budget_bytes > 0, "artifact_manifest_library_release_budget_missing:" + name);
   }
-  require(libraryCount > 0, "artifact_manifest_libraries_empty");
+  const requiredLibraries = ["agenterm.dll", "agenterm-cu-provider.dll"];
+  require(libraryCount === requiredLibraries.length, "artifact_manifest_library_set");
+  for (const requiredName of requiredLibraries) {
+    require(names[requiredName] === true, "artifact_manifest_library_missing:" + requiredName);
+  }
   return executableCount + libraryCount;
 }

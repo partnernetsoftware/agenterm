@@ -1,0 +1,23 @@
+// Public black-box owner for the in-process `agenterm:acu` dynamic provider.
+//
+// The invoking AgenTerm executable must have its fixed-name provider sibling
+// and `AGENTERM_CU_GRANT=observe`. This script never resolves or spawns the
+// standalone agenterm-cu binary; success therefore proves the native object
+// path rather than a compatibility fallback.
+import * as acu from "agenterm:acu";
+
+if (arg_count() !== 0) { throw "expected: no arguments"; }
+
+const reply = acu.call({ verb: "capabilities", target: "current" });
+if (reply === null || typeof reply !== "object") {
+  throw "acu_provider_reply_shape";
+}
+if (reply.ok !== true || reply.command !== "capabilities") {
+  throw "acu_provider_capabilities_failed:" + JSON.stringify(reply);
+}
+if (reply.data === null || typeof reply.data !== "object") {
+  throw "acu_provider_capabilities_data";
+}
+
+print("PASS: agenterm:acu fixed-sibling provider executed capabilities in-process");
+return;

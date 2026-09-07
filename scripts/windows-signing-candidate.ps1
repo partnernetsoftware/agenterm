@@ -109,8 +109,8 @@ if ($Mode -eq 'Prepare') {
         })
         Require ($spec.Count -eq 1) "manifest platform count mismatch: $($platform.id)"
         $peNames = @($spec[0].executables.name) + @($spec[0].libraries.name)
-        Require ($peNames.Count -eq 5) "expected five PE inputs: $($platform.id)"
-        Require ((@($peNames | Sort-Object -Unique)).Count -eq 5) "duplicate PE input: $($platform.id)"
+        Require ($peNames.Count -gt 0) "empty PE input set: $($platform.id)"
+        Require ((@($peNames | Sort-Object -Unique)).Count -eq $peNames.Count) "duplicate PE input: $($platform.id)"
 
         $part = Join-Path $inputPath $platform.id
         Require (Test-Path -LiteralPath $part -PathType Container) "missing unsigned part: $($platform.id)"
@@ -299,8 +299,9 @@ $receipt = [ordered]@{
     timestamp_rfc3161 = 'http://timestamp.acs.microsoft.com'
     timestamp_digest = 'SHA256'
     release_eligible = -not $QualificationOnly
-    platform_count = 2
-    asset_count = 10
+    platform_count = $platforms.Count
+    asset_count = @($receiptAssets.Keys).Count
+    asset_names = @($receiptAssets.Keys | Sort-Object)
     run = [ordered]@{ id = $RunId; attempt = $RunAttempt }
     platforms = $receiptPlatforms
     assets = $receiptAssets

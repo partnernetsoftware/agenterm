@@ -138,8 +138,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       2026-09-07 起立即 ACU-only：未实现形状返回 `acu_todo` ALERT，
 │     │                       旧 MCU 仅作归档参考且永不运行时回退；完整 TODO 树归口 PRD 28
 │     ├─ convergence            `agenterm:acu` typed door 与同一 Executor adapter 已落地；
-│     │                       静态 provider 因 Windows PE 3.73→8.87 MiB 未进默认构建，
-│     │                       正以尺寸判决实验选择 provider 边界；MCP 接线仍待完成
+│     │                       静态 provider 因 Windows PE 3.73→8.87 MiB 被淘汰，固定同目录
+│     │                       dynamic provider 已进入六格构建与 Win/macOS 发布链；Windows
+│     │                       exact release 主程序 3,738,112 B ≤ 4 MiB。MCP/原生运行庭仍待完成
 │     ├─ Bun-free bridge         先切断 MCU runtime；过渡 `acu.ts` 的 Bun 尾账随后由
 │     │                       `agenterm:acu` + `acu.qjs` 接替，它只保留旧语法兼容
 │     │                       不复制机制、权威、验证，也不把 Rust CU 重写进 JavaScript
@@ -267,8 +268,8 @@ flowchart LR
   CU["agenterm-cu<br/>typed machine control · agenterm:acu"]
   ACTS["temporary acu.ts<br/>argv mapping · binary discovery<br/>no product effects"]
   ACUOBJ["agenterm:acu object<br/>one schema · Executor · receipts"]
-  ACUSIZE{"default provider<br/>Windows PE ≤ 4 MiB?"}
-  ACUEXP["provider experiment<br/>dynamic / resident IPC / static split"]
+  ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
+  ACUDYN["fixed sibling provider<br/>ABI checked · no fallback<br/>separate signed artifact"]
   ACUQJS["temporary acu.qjs<br/>Bun-free legacy mapping"]
   TODO["acu_todo ALERT<br/>stable gap id · explicit missing behavior"]
   MCUARC["archived MCU source<br/>read-only implementation reference"]
@@ -299,8 +300,8 @@ flowchart LR
   RETIRE -->|red| CU
   RETIRE -->|green| RELEASE
   ACUOBJ --> ACUSIZE
-  ACUSIZE -->|green| ACUQJS --> EVIDENCE
-  ACUSIZE -->|red| ACUEXP --> ACUSIZE
+  ACUSIZE -->|3,738,112 B · green| ACUDYN --> ACUQJS --> EVIDENCE
+  ACUSIZE -->|regression| TODO
   ROAD -. assigns bounded versions .-> CU & CC & RELEASE
 ```
 

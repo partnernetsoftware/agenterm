@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "examples/size-probe", "crates/agenterm-control-client", "crates/agenterm-cu", "crates/agenterm-platform", "crates/agenterm-abi", "crates/agenterm-ui-core", "crates/agenterm-script-common", "crates/agenterm-lua", "crates/agenterm-sql", "crates/agenterm-qjswasm", "crates/agenterm-dyn", "crates/agenterm-chassis", "crates/agenterm-vnc", "crates/agenterm-vnc-app", "third_party/vnc-rs"]
+members = [".", "examples/size-probe", "crates/agenterm-control-client", "crates/agenterm-cu", "crates/agenterm-cu-provider", "crates/agenterm-platform", "crates/agenterm-abi", "crates/agenterm-ui-core", "crates/agenterm-script-common", "crates/agenterm-lua", "crates/agenterm-sql", "crates/agenterm-qjswasm", "crates/agenterm-dyn", "crates/agenterm-chassis", "crates/agenterm-vnc", "crates/agenterm-vnc-app", "third_party/vnc-rs"]
 resolver = "2"
 
 [package]
@@ -54,6 +54,7 @@ agenterm-script-common = { path = "crates/agenterm-script-common" }
 agenterm-sql = { path = "crates/agenterm-sql", optional = true }
 agenterm-qjswasm = { path = "crates/agenterm-qjswasm", optional = true }
 agenterm-cu = { path = "crates/agenterm-cu", optional = true }
+libloading = "0.8"
 ab_glyph = "0.2.32"
 anyhow = "1"
 png = "0.17"
