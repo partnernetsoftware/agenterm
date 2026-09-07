@@ -777,7 +777,19 @@ impl Executor {
                 nice,
                 ttl_seconds,
                 ..
-            } => crate::privilege_plan::process_priority_plan_now(*pid, *nice, *ttl_seconds),
+            } => {
+                let value =
+                    crate::privilege_plan::process_priority_plan_now(*pid, *nice, *ttl_seconds)?;
+                let plan = serde_json::from_value(value).map_err(|_| {
+                    CuError::new(
+                        "privilege_plan_serialization_failed",
+                        "privilege priority plan could not be recovered as its typed shape",
+                    )
+                })?;
+                crate::privilege_apply::plan_reply(
+                    crate::privilege_apply::PrivilegePlanV1::ProcessPriority(plan),
+                )
+            }
             Command::PrivilegePlanProcessSignal {
                 pid,
                 signal,
@@ -787,15 +799,30 @@ impl Executor {
                 max_descendants,
                 ttl_seconds,
                 ..
-            } => crate::privilege_plan::process_signal_plan_now(
-                *pid,
-                *signal,
-                *force,
-                *tree,
-                *timeout_ms,
-                *max_descendants,
-                *ttl_seconds,
-            ),
+            } => {
+                let value = crate::privilege_plan::process_signal_plan_now(
+                    *pid,
+                    *signal,
+                    *force,
+                    *tree,
+                    *timeout_ms,
+                    *max_descendants,
+                    *ttl_seconds,
+                )?;
+                let plan = serde_json::from_value(value).map_err(|_| {
+                    CuError::new(
+                        "privilege_plan_serialization_failed",
+                        "privilege signal plan could not be recovered as its typed shape",
+                    )
+                })?;
+                crate::privilege_apply::plan_reply(
+                    crate::privilege_apply::PrivilegePlanV1::ProcessSignal(plan),
+                )
+            }
+            Command::PrivilegeApply { .. } => Err(CuError::new(
+                "privilege_request_identity_required",
+                "privilege apply requires request-id, session and session-lease",
+            )),
             Command::ProcessWatch {
                 pid,
                 parent,

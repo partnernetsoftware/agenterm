@@ -4559,9 +4559,9 @@ silently invalidate the byte proof.
 A fixed provider is more than an elevated process. Bind the running executable
 object back to a protected installed identity: on Linux, require a root-owned,
 non-group/world-writable path with no symlink components, compare its device
-and inode to `/proc/self/exe`, hash that running inode, verify the live parent is
-and derive the principal from canonical `PKEXEC_UID` only after effective uid
-is root. Do not verify `pkexec` through the provider's parent PID: `pkexec`
+and inode to `/proc/self/exe`, hash that running inode, and derive the principal
+from canonical `PKEXEC_UID` only after effective uid is root. Do not verify
+`pkexec` through the provider's parent PID: `pkexec`
 replaces itself with the authorized program, so the provider retains the
 original caller as its parent. A polkit action must pin both executable path
 and the one closed provider argv; never enable GUI environment inheritance for
@@ -4577,6 +4577,23 @@ If the effect or finalization crosses an uncertain boundary, preserve both the
 ledger reservation and attempt identity. This avoids inventing a different
 receipt id on retry and avoids an unbounded second index of already-finalized
 requests.
+
+Parse a complete, identity-bound provider reply before interpreting launcher
+exit status: an elevated provider may return a typed refusal or durable replay
+while still exiting normally. Conversely, timeout, broken capture, cleanup
+failure or EOF without one complete bounded reply is `outcome_unknown`, never
+`not_performed`, because native consent or the effect may already have begun.
+A failed-after-effect receipt also remains effect-unknown unless its closed
+postcondition proves a more specific terminal result.
+
+One-shot `pkexec` cannot satisfy replay-before-consent: authorization occurs
+before `exec` enters the provider, so its root-only ledger is consulted too
+late. The Linux terminal design therefore needs a fixed system-activated root
+broker. It accepts a bounded frame on a root-owned socket, binds the caller via
+kernel peer credentials plus process-start identity, reads the private ledger,
+and asks polkit to authorize that exact `unix-process` subject only for a
+Missing request. Do not replace this with a world-readable ledger, a caller
+supplied uid/session, a parent-PID heuristic, a password bridge or a shell.
 
 ## Freeze persisted grants to canonical operations
 

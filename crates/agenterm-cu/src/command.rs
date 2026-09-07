@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     browser_bridge::ConnectionId,
+    privilege_apply::{MAX_PROVIDER_TIMEOUT_MS, PrivilegePlanV1},
+    privilege_plan::PrivilegeOperation,
     service_control::{ServiceOperation, ServiceScope},
     target::TargetRef,
 };
@@ -1862,6 +1864,15 @@ pub enum Command {
         timeout_ms: u64,
         max_descendants: u32,
         ttl_seconds: u64,
+    },
+    /// Apply one typed expiring plan through the fixed native-consent
+    /// provider. The ordinary caller request/session identity is supplied by
+    /// the executor rather than duplicated inside this command.
+    PrivilegeApply {
+        target: TargetRef,
+        plan: PrivilegePlanV1,
+        approval_digest: String,
+        provider_timeout_ms: u64,
     },
     /// Observe a bounded process-set lifecycle. Every row is keyed by pid and
     /// start identity so pid reuse becomes one exit plus one start instead of
@@ -3837,6 +3848,7 @@ impl Command {
             Self::PrivilegePlanProcessPriority { .. } | Self::PrivilegePlanProcessSignal { .. } => {
                 "privilege-plan".into()
             }
+            Self::PrivilegeApply { .. } => "privilege-apply".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::ShellExec { .. } => "shell-exec".into(),
             Self::NetworkInterfaces { .. } => "network-interfaces".into(),
@@ -4076,6 +4088,12 @@ impl Command {
                 if *force { "force" } else { "normal" },
                 signal.as_str().to_ascii_lowercase()
             ),
+            Self::PrivilegeApply { plan, .. } => match plan.operation() {
+                PrivilegeOperation::ProcessSetPriority => {
+                    "privilege.apply.process.set-priority".to_owned()
+                }
+                PrivilegeOperation::ProcessSignal => "privilege.apply.process.signal".to_owned(),
+            },
             Self::PtyDiff { advance, .. } => {
                 format!("pty-diff.{}", if *advance { "advance" } else { "read" })
             }
@@ -4217,6 +4235,7 @@ impl Command {
             | Self::ProcessSignal { target, .. }
             | Self::PrivilegePlanProcessPriority { target, .. }
             | Self::PrivilegePlanProcessSignal { target, .. }
+            | Self::PrivilegeApply { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::ShellExec { target, .. }
             | Self::NetworkInterfaces { target, .. }
@@ -4416,6 +4435,7 @@ impl Command {
             | Self::ProcessSetState { .. }
             | Self::ProcessPolicy { .. }
             | Self::ProcessSignal { .. }
+            | Self::PrivilegeApply { .. }
             | Self::ShellExec { .. }
             | Self::FileCopy { apply: true, .. }
             | Self::FileMove { apply: true, .. }
@@ -4496,6 +4516,25 @@ impl Command {
     /// the same field bounds before constructing managed-job variants.
     pub fn validate(&self) -> Result<(), &'static str> {
         match self {
+            Self::PrivilegeApply {
+                target,
+                plan,
+                approval_digest,
+                provider_timeout_ms,
+            } => {
+                if *target != TargetRef::Current {
+                    return Err("privilege apply supports only target=current");
+                }
+                plan.validate_structure()
+                    .map_err(|_| "privilege apply plan is invalid")?;
+                if approval_digest != plan.approval_digest() {
+                    return Err("privilege apply approval does not match the typed plan");
+                }
+                if !(1..=MAX_PROVIDER_TIMEOUT_MS).contains(provider_timeout_ms) {
+                    return Err("privilege apply provider_timeout_ms must be in 1..=600000");
+                }
+                Ok(())
+            }
             Self::Setup {
                 target, bin_dir, ..
             } => {

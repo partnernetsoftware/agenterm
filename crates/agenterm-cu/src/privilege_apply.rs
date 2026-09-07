@@ -31,6 +31,8 @@ pub const PRIVILEGE_PROVIDER_CONTRACT_VERSION: u32 = 1;
 /// target. All native transports must reuse this exact ceiling.
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
 pub const MAX_REPLY_BYTES: usize = 16 * 1024;
+pub const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
+pub const MAX_PROVIDER_TIMEOUT_MS: u64 = 600_000;
 const MAX_ID_BYTES: usize = 128;
 const PROVIDER_REPLAY_RETENTION_MS: i64 = 7 * 24 * 60 * 60 * 1_000;
 const PROVIDER_KEY_DOMAIN: &[u8] = b"agenterm-cu/privileged-provider-key/v1\0";
@@ -165,14 +167,14 @@ impl PrivilegeProviderNamespace {
 }
 
 impl PrivilegePlanV1 {
-    fn operation(&self) -> PrivilegeOperation {
+    pub fn operation(&self) -> PrivilegeOperation {
         match self {
             Self::ProcessPriority(plan) => plan.operation,
             Self::ProcessSignal(plan) => plan.operation,
         }
     }
 
-    fn contract_digest(&self) -> &str {
+    pub fn contract_digest(&self) -> &str {
         match self {
             Self::ProcessPriority(plan) => &plan.contract_digest,
             Self::ProcessSignal(plan) => &plan.contract_digest,
@@ -186,6 +188,13 @@ impl PrivilegePlanV1 {
         }
     }
 
+    pub fn approval_digest(&self) -> &str {
+        match self {
+            Self::ProcessPriority(plan) => &plan.approval_digest,
+            Self::ProcessSignal(plan) => &plan.approval_digest,
+        }
+    }
+
     fn validate_at(&self, now_utc_ms: u64) -> Result<(), CuError> {
         match self {
             Self::ProcessPriority(plan) => validate_process_priority_plan(plan, now_utc_ms),
@@ -193,7 +202,7 @@ impl PrivilegePlanV1 {
         }
     }
 
-    fn validate_structure(&self) -> Result<(), CuError> {
+    pub fn validate_structure(&self) -> Result<(), CuError> {
         self.validate_at(self.issued_at_utc_ms())?;
         match (self, self.operation()) {
             (Self::ProcessPriority(_), PrivilegeOperation::ProcessSetPriority)
@@ -204,6 +213,103 @@ impl PrivilegePlanV1 {
             )),
         }
     }
+}
+
+/// Encode one closed plan for the public `privilege apply --request` flag.
+/// This is intent only; request/session identity and native consent are bound
+/// later by the executor and fixed provider respectively.
+pub fn encode_plan_request(plan: &PrivilegePlanV1) -> Result<String, CuError> {
+    plan.validate_structure()?;
+    let bytes = serde_json::to_vec(plan).map_err(|_| {
+        CuError::new(
+            "privilege_request_invalid",
+            "privilege plan could not be serialized",
+        )
+    })?;
+    if bytes.is_empty() || bytes.len() > MAX_REQUEST_BYTES {
+        return Err(CuError::new(
+            "privilege_request_size_invalid",
+            "privilege plan exceeds its request byte budget",
+        ));
+    }
+    Ok(crate::managed_job_ipc::base64_encode(&bytes)
+        .replace('+', "-")
+        .replace('/', "_")
+        .trim_end_matches('=')
+        .to_owned())
+}
+
+/// Decode and structurally validate the untrusted public plan encoding before
+/// it can enter [`crate::command::Command`].
+pub fn decode_plan_request(encoded: &str) -> Result<PrivilegePlanV1, CuError> {
+    if encoded.is_empty()
+        || encoded.len() > MAX_REQUEST_BYTES * 2
+        || !encoded
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(CuError::new(
+            "privilege_request_invalid",
+            "privilege request is not bounded unpadded base64url",
+        ));
+    }
+    let mut standard = encoded.replace('-', "+").replace('_', "/");
+    while !standard.len().is_multiple_of(4) {
+        standard.push('=');
+    }
+    let bytes = crate::managed_job_ipc::base64_decode(&standard).map_err(|_| {
+        CuError::new(
+            "privilege_request_invalid",
+            "privilege request is malformed",
+        )
+    })?;
+    if bytes.is_empty() || bytes.len() > MAX_REQUEST_BYTES {
+        return Err(CuError::new(
+            "privilege_request_size_invalid",
+            "decoded privilege request exceeds its byte budget",
+        ));
+    }
+    let canonical = crate::managed_job_ipc::base64_encode(&bytes)
+        .replace('+', "-")
+        .replace('/', "_")
+        .trim_end_matches('=')
+        .to_owned();
+    if canonical != encoded {
+        return Err(CuError::new(
+            "privilege_request_invalid",
+            "privilege request is not canonical unpadded base64url",
+        ));
+    }
+    let plan: PrivilegePlanV1 = serde_json::from_slice(&bytes).map_err(|_| {
+        CuError::new(
+            "privilege_request_invalid",
+            "privilege request is not a closed plan shape",
+        )
+    })?;
+    plan.validate_structure()?;
+    Ok(plan)
+}
+
+/// Preserve the plan's public fields while adding the exact arguments a caller
+/// can pass directly to `privilege apply`.
+pub fn plan_reply(plan: PrivilegePlanV1) -> Result<serde_json::Value, CuError> {
+    let request = encode_plan_request(&plan)?;
+    let approval = plan.approval_digest().to_owned();
+    let mut value = serde_json::to_value(plan).map_err(|_| {
+        CuError::new(
+            "privilege_plan_serialization_failed",
+            "privilege plan could not be serialized",
+        )
+    })?;
+    let object = value.as_object_mut().ok_or_else(|| {
+        CuError::new(
+            "privilege_plan_serialization_failed",
+            "privilege plan did not serialize as an object",
+        )
+    })?;
+    object.insert("request".to_owned(), serde_json::Value::String(request));
+    object.insert("approval".to_owned(), serde_json::Value::String(approval));
+    Ok(value)
 }
 
 #[derive(Clone, Debug)]

@@ -71,6 +71,10 @@ try {
     ensure(reply.data.mutation_performed === false, "cu_privilege_plan_mutated");
     ensure(reply.data.contract_digest.length === 64, "cu_privilege_plan_contract_digest");
     ensure(reply.data.approval_digest.length === 64, "cu_privilege_plan_approval_digest");
+    ensure(typeof reply.data.request === "string" && reply.data.request.length > 0,
+      "cu_privilege_plan_request");
+    ensure(reply.data.approval === reply.data.approval_digest,
+      "cu_privilege_plan_apply_approval");
     ensure(
       reply.data.expires_at_utc_ms - reply.data.issued_at_utc_ms === 60000,
       "cu_privilege_plan_expiry"
@@ -93,6 +97,8 @@ try {
       repeated.reply.data.contract_digest === reply.data.contract_digest,
       "cu_privilege_plan_repeat_contract"
     );
+    ensure(repeated.reply.data.request !== reply.data.request,
+      "cu_privilege_plan_repeat_request_must_bind_expiry");
     ensure(
       changed.reply.data.contract_digest !== reply.data.contract_digest,
       "cu_privilege_plan_changed_contract"

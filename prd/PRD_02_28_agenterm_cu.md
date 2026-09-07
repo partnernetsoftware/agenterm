@@ -1283,15 +1283,61 @@ flowchart LR
   and the single provider argv. Its root installer must verify sealed provider
   and policy digests and recover the prior pair after any interrupted
   cross-directory replacement; this is not a claim of multi-file atomicity.
-  This is not yet public apply:
-  the Linux archive/package still has to carry and install the policy/provider,
-  then a real polkit court must pass. A one-shot `pkexec` launch performs
+  The public typed `privilege apply` path is now wired as a rehearsal boundary:
+  the planner returns canonical `request` + `approval` arguments, the CLI
+  decodes them into the closed plan union, requires ordinary request/session
+  identity plus `actuate`, and sends one bounded canonical request to the fixed
+  Linux provider without a shell. The provider ledger remains the sole root
+  effect idempotency owner; timeout, broken transport or an incomplete reply is
+  `privilege_outcome_unknown`, never an automatic retry. The Linux
+  archive/package still has to carry and install the provider, policy and final
+  broker units, then a real polkit court must pass. A one-shot `pkexec` launch performs
   consent before the provider can inspect its root-only replay ledger, so the
   replay-before-consent invariant remains open and requires a fixed,
   authenticated broker boundary; a parent-PID check or world-readable ledger
   is not an acceptable substitute. macOS app-bundle/SMAppService and Windows
   protected-install/UAC transports remain explicit gaps; no shell, password
   capture, worktree helper or hidden elevation substitutes for them.
+
+  Linux broker promotion tree (the one-shot `pkexec` substrate is rehearsal,
+  not the final authority boundary):
+
+  ```text
+  privilege.apply.linux
+  ├─ behavior
+  │  ├─ fixed systemd socket accepts one bounded request
+  │  ├─ kernel SO_PEERCRED + process start identity bind the ordinary caller
+  │  ├─ root broker reads the private ledger before any consent
+  │  └─ only Missing asks polkit for that exact unix-process subject
+  ├─ evidence
+  │  ├─ finalized / unknown / conflict => zero polkit calls and zero effects
+  │  ├─ fresh approve => one prompt, one reservation, one verified effect
+  │  ├─ fresh cancel / no agent => zero reservation and zero effects
+  │  └─ same request raced twice => at most one prompt and one effect
+  ├─ delivery
+  │  ├─ fixed root-owned binary + policy + socket unit + service unit
+  │  ├─ digest-sealed, crash-recoverable four-file installation
+  │  └─ x86_64 + aarch64 active-desktop polkit courts
+  └─ non-goals
+     ├─ no world-readable ledger or caller-asserted uid/session
+     ├─ no password capture, shell, pkcheck wrapper or parent-PID proof
+     └─ no ordinary-user broker or silent consent fallback
+  ```
+
+  ```mermaid
+  flowchart LR
+    C["ordinary agenterm-cu client"] --> S["systemd-owned fixed socket"]
+    S --> P["SO_PEERCRED + start identity + retained peer"]
+    P --> L{"root-only replay lookup"}
+    L -->|final / unknown / conflict| R["reply · zero consent · zero effect"]
+    L -->|Missing| A["polkit CheckAuthorization<br/>kernel-bound unix-process subject"]
+    A -->|cancel / deny / unavailable| N["typed no-effect reply"]
+    A -->|authorized| V["recheck peer + freshness + exact target objects"]
+    V --> Q{"second reserve"}
+    Q -->|fresh| E["one effect + readback + immutable receipt"]
+    Q -->|existing| R
+    E --> D["durable terminal replay"]
+  ```
 
 - [~] The same read-only boundary now covers `privilege plan process.signal`.
   It freezes one exact process or a tree of at most 128 descendants, including

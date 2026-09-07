@@ -1101,6 +1101,34 @@
       ]
     },
     {
+      "name": "privilege-apply",
+      "command": "privilege-apply",
+      "aliases": [
+        "privilege apply"
+      ],
+      "grant": "actuate",
+      "family": "privilege",
+      "summary": "apply one typed plan through Linux native consent",
+      "usage": "privilege apply --request PLAN --approve DIGEST [--provider-timeout-ms N]",
+      "args": [
+        {
+          "flag": "--request",
+          "value": "PLAN",
+          "help": "bounded canonical base64url plan returned by privilege plan"
+        },
+        {
+          "flag": "--approve",
+          "value": "DIGEST",
+          "help": "exact approval digest returned with that expiring plan"
+        },
+        {
+          "flag": "--provider-timeout-ms",
+          "value": "N",
+          "help": "complete native-consent/provider deadline in 1..=600000 ms (default 120000)"
+        }
+      ]
+    },
+    {
       "name": "process-set-state",
       "command": "process-set-state",
       "aliases": [
@@ -6173,7 +6201,11 @@
     },
     {
       "name": "privilege-plan",
-      "text": "agenterm-cu privilege-plan    (also: privilege plan)\n  scope: observe    family: Privilege\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\n  privilege-plan process.signal PID SIGNAL [--tree --max N] [--force]\n                 [--timeout-ms N] [--ttl-seconds N]\n  privilege plan OPERATION ...\n\narguments:\n  process.set-priority           bind exact identity/current and requested Unix nice\n  process.signal PID SIGNAL      bind one exact process and scheduler state\n  --tree --max N                 bind at most 128 exact descendants and parent edges\n  --force                        required exactly for SIGKILL\n  --timeout-ms N                 provider read-back limit, 1..=60000 (default 5000)\n  --ttl-seconds N                approval lifetime, 1..=600 (default 120)\n\nPlanning observes a stable exact identity and before state twice, then returns a\ncanonical expiring plan with separate contract_digest and approval_digest. A\ntree plan also freezes every pid, parent edge, depth, start identity and prior\nstopped state. Planning never mutates, starts a provider, invokes a shell, or\nopens consent. Windows keeps unsupported scheduler/signal semantics typed.\n"
+      "text": "agenterm-cu privilege-plan    (also: privilege plan)\n  scope: observe    family: Privilege\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]\n  privilege-plan process.signal PID SIGNAL [--tree --max N] [--force]\n                 [--timeout-ms N] [--ttl-seconds N]\n  privilege plan OPERATION ...\n\narguments:\n  process.set-priority           bind exact identity/current and requested Unix nice\n  process.signal PID SIGNAL      bind one exact process and scheduler state\n  --tree --max N                 bind at most 128 exact descendants and parent edges\n  --force                        required exactly for SIGKILL\n  --timeout-ms N                 provider read-back limit, 1..=60000 (default 5000)\n  --ttl-seconds N                approval lifetime, 1..=600 (default 120)\n\nPlanning observes a stable exact identity and before state twice, then returns a\ncanonical expiring plan with separate contract_digest and approval_digest plus\nthe bounded request and approval arguments accepted directly by privilege apply.\nA tree plan also freezes every pid, parent edge, depth, start identity and prior\nstopped state. Planning never mutates, starts a provider, invokes a shell, or\nopens consent. Windows keeps unsupported scheduler/signal semantics typed.\n"
+    },
+    {
+      "name": "privilege-apply",
+      "text": "agenterm-cu privilege-apply    (also: privilege apply)\n  scope: actuate    family: Privilege\n\nusage (after the global flags, including --request-id, --session and --session-lease):\n  privilege apply --request PLAN --approve DIGEST [--provider-timeout-ms N]\n\narguments:\n  --request PLAN                 bounded canonical base64url plan returned by privilege plan\n  --approve DIGEST               exact approval digest returned with that expiring plan\n  --provider-timeout-ms N        full provider deadline, 1..=600000 (default 120000)\n\nThe executor decodes PLAN into the closed typed priority/signal union, binds the\nordinary request and session identity, and requests OneShotNativeConsent only.\nOn Linux it invokes exactly /usr/bin/pkexec with the installed fixed provider\nargv, no shell, and sends the canonical request on stdin. The provider's private\nroot ledger is the sole at-most-once effect owner; an absent, malformed, timed\nout or transport-broken reply is outcome_unknown and is never retried. Explicit\npkexec cancellation is consent_canceled. This one-shot route does not prove\nprovider replay lookup occurs before consent; that requires a future fixed broker.\n"
     },
     {
       "name": "process-set-state",

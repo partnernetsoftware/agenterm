@@ -1,11 +1,13 @@
 //! Read-only preparation of canonical privileged-operation plans.
 
 use agenterm_cu::{
-    Command, TargetRef, command::ProcessSignalKind,
+    Command, TargetRef,
+    command::ProcessSignalKind,
+    privilege_apply::{DEFAULT_PROVIDER_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS, decode_plan_request},
     privilege_plan::PROCESS_SIGNAL_TREE_MAX_DESCENDANTS,
 };
 
-use super::{flag_parsed, take_switch, verbs::VerbSpec};
+use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
 
 pub fn parse(
     spec: &VerbSpec,
@@ -13,6 +15,15 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name == "privilege-apply" {
+        if spelled == "privilege" {
+            if args.first().map(String::as_str) != Some("apply") {
+                return Err("privilege requires subcommand apply".into());
+            }
+            args.remove(0);
+        }
+        return parse_apply(target, args);
+    }
     if spec.name != "privilege-plan" {
         return Err(format!("unknown command '{}'", spec.name));
     }
@@ -36,6 +47,34 @@ pub fn parse(
         "process.signal" => parse_signal(target, args, ttl_seconds),
         _ => Err("privilege-plan operation must be process.set-priority or process.signal".into()),
     }
+}
+
+fn parse_apply(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let request = flag_text(args, "--request")?
+        .ok_or_else(|| "privilege apply requires --request".to_owned())?;
+    let approval_digest = flag_text(args, "--approve")?
+        .ok_or_else(|| "privilege apply requires --approve".to_owned())?;
+    let provider_timeout_ms =
+        flag_parsed::<u64>(args, "--provider-timeout-ms")?.unwrap_or(DEFAULT_PROVIDER_TIMEOUT_MS);
+    if !args.is_empty() {
+        return Err(format!(
+            "privilege apply has unexpected arguments: {}",
+            args.join(" ")
+        ));
+    }
+    if !(1..=MAX_PROVIDER_TIMEOUT_MS).contains(&provider_timeout_ms) {
+        return Err("privilege apply --provider-timeout-ms must be in 1..=600000".into());
+    }
+    let plan = decode_plan_request(&request).map_err(|error| error.message)?;
+    if approval_digest != plan.approval_digest() {
+        return Err("privilege apply --approve does not match the encoded plan".into());
+    }
+    Ok(Command::PrivilegeApply {
+        target,
+        plan,
+        approval_digest,
+        provider_timeout_ms,
+    })
 }
 
 fn parse_pid(raw: &str) -> Result<u32, String> {
@@ -191,5 +230,45 @@ mod tests {
             .unwrap_err()
             .contains("--force")
         );
+    }
+
+    #[test]
+    fn parses_typed_apply_without_retaining_the_opaque_encoding() {
+        let plan = agenterm_cu::privilege_plan::process_priority_plan(
+            std::process::id(),
+            0,
+            60,
+            1_000_000,
+        )
+        .unwrap();
+        let plan = agenterm_cu::privilege_apply::PrivilegePlanV1::ProcessPriority(plan);
+        let request = agenterm_cu::privilege_apply::encode_plan_request(&plan).unwrap();
+        let approval = plan.approval_digest().to_owned();
+        let spec = crate::cli::verbs::lookup("privilege-apply").unwrap();
+        let mut args = vec![
+            "apply".into(),
+            "--request".into(),
+            request,
+            "--approve".into(),
+            approval.clone(),
+            "--provider-timeout-ms".into(),
+            "3000".into(),
+        ];
+        let command = parse(spec, "privilege", TargetRef::Current, &mut args).unwrap();
+        assert_eq!(command.required_grant(), agenterm_cu::Grant::Actuate);
+        assert_eq!(
+            command.authorization_operation().as_deref(),
+            Some("privilege.apply.process.set-priority")
+        );
+        assert!(matches!(
+            command,
+            Command::PrivilegeApply {
+                plan: ref actual,
+                approval_digest: ref actual_approval,
+                provider_timeout_ms: 3_000,
+                ..
+            } if actual == &plan && actual_approval == &approval
+        ));
+        assert!(args.is_empty());
     }
 }

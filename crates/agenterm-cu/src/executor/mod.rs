@@ -72,6 +72,7 @@ mod persisted;
 mod placement;
 mod pointer;
 mod power_status;
+mod privilege;
 pub(crate) mod privilege_signal_effect;
 mod process;
 mod process_signal_recovery;
@@ -398,6 +399,14 @@ impl Executor {
             runtime.session_verify(&identity.session_id, &identity.session_lease, now_s)
         {
             return CuReply::err(command, error);
+        }
+
+        // The root provider ledger is the sole at-most-once owner for this
+        // effect family. Reserving in the ordinary caller store first would
+        // truncate the provider's exact replay receipt and still could not
+        // prevent a duplicate privileged effect after a transport break.
+        if matches!(command, Command::PrivilegeApply { .. }) {
+            return self.execute_privilege_with_request_identity(command, identity);
         }
 
         let canonical = match serde_json::to_vec(&serde_json::json!({
@@ -1066,6 +1075,52 @@ mod tests {
         assert_eq!(conflict.error.as_ref().unwrap().code, "request_id_conflict");
         let state = std::fs::read_to_string(request_path).unwrap();
         assert!(!state.contains(&session.lease));
+        remove_audit_scratch(&audit_path);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn privilege_apply_verifies_session_but_bypasses_the_caller_request_store() {
+        let audit_path = audit_scratch("privilege-request-identity");
+        let root = audit_path.parent().expect("scratch root");
+        let runtime_path = root.join("runtime.json");
+        let request_path = root.join("requests.json");
+        let now_ms = now_utc_ms().expect("test clock");
+        let session = RuntimeCoordinator::open_at(&runtime_path)
+            .unwrap()
+            .session_start(Some("privilege fixture"), 60, now_ms / 1_000)
+            .unwrap();
+        let plan = crate::privilege_plan::process_priority_plan(
+            std::process::id(),
+            0,
+            60,
+            u64::try_from(now_ms).unwrap(),
+        )
+        .unwrap();
+        let plan = crate::privilege_apply::PrivilegePlanV1::ProcessPriority(plan);
+        let command = Command::PrivilegeApply {
+            target: TargetRef::Current,
+            approval_digest: plan.approval_digest().to_owned(),
+            plan,
+            provider_timeout_ms: 1,
+        };
+        let reply = actuate_executor()
+            .with_audit_path(audit_path.clone())
+            .with_request_state_paths(request_path.clone(), runtime_path)
+            .with_request_identity(RequestIdentity {
+                request_id: "fixture.privilege-request-1".into(),
+                session_id: session.session_id,
+                session_lease: session.lease,
+            })
+            .execute(&command);
+        assert_eq!(
+            reply.error.as_ref().unwrap().code,
+            "privilege_provider_unsupported"
+        );
+        assert!(
+            !request_path.exists(),
+            "ordinary caller idempotency store must not own a privileged effect"
+        );
         remove_audit_scratch(&audit_path);
     }
 

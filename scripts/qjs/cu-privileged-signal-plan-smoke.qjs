@@ -95,6 +95,10 @@ try {
       "cu_privileged_signal_plan_mutated");
     ensure(first.contract_digest.length === 64 && first.approval_digest.length === 64,
       "cu_privileged_signal_plan_digest");
+    ensure(typeof first.request === "string" && first.request.length > 0,
+      "cu_privileged_signal_plan_request");
+    ensure(first.approval === first.approval_digest,
+      "cu_privileged_signal_plan_apply_approval");
     ensure(first.expires_at_utc_ms - first.issued_at_utc_ms === 60000,
       "cu_privileged_signal_plan_expiry");
 
