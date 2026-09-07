@@ -166,6 +166,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   native-qualification blocker remains. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
+- [~] Clipboard parity now has an empty-safe public qjswasm court. It reads
+  provider/type metadata without disclosing payload bytes, mutates only after
+  proving the native clipboard is exactly empty, verifies direct UTF-8 and
+  file-backed native-type round trips, proves byte-budget and no-overwrite
+  refusals, then clears and re-verifies the admitted empty state. The macOS
+  host court is green; Linux and Windows native desktop courts remain required.
 - [~] Managed-job policy is no longer a missing MCU-only mechanism. The
   resident owner now samples bounded RSS, monotonic CPU-rate deltas and process
   count without caller polling, requires consecutive violations, and enforces
