@@ -198,3 +198,26 @@ The executable still exceeded 2 MiB by 122,368 bytes, so D failed S1 before it
 could claim an L3 win. The ABI prototype was reverted; C remains because its
 growth slope passed. This closes the time-boxed no-raise court with an explicit
 123,904-byte unresolved product-budget gap.
+
+### 2026-09-07 attribution refresh — the gap is now structural
+
+An x86_64 Linux `cargo bloat` direction build at source `867d338e` measured an
+unstripped 19,307,160-byte analysis file with a 6,111,414-byte `.text` section.
+This is deliberately **not** a release-asset size measurement: `cargo bloat`
+retains the symbols it needs for attribution. Its largest entries were:
+
+```text
+Executor::run_current                         526,522 B
+capabilities_payload                           61,217 B
+Command JSON serialization (two instances)    97,135 B combined
+CLI parse_command                              27,195 B
+```
+
+The measured rebuild took 51.51 seconds on the development host. The result
+does not reopen A–D and does not change the 2 MiB court. It rejects another
+round of isolated dependency trimming as a credible multi-megabyte remedy:
+the current binary contains a broad product executor, catalog projection,
+parsers and platform mechanisms in one link unit. The next size experiment
+must measure a real L3 boundary (feature/entry partition or the planned
+embedder-installed `agenterm:acu` bridge) against the same public behavior;
+renaming, post-compression, or raising the ceiling cannot count as a win.
