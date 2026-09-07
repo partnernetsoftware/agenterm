@@ -699,13 +699,10 @@ pub(super) fn pty_start_payload(
     receipts: &mut ReceiptLog,
 ) -> Result<Value, CuError> {
     validate_name(name)?;
-    if command.is_empty()
-        || command.len() > 256
-        || command.iter().map(String::len).sum::<usize>() > 1_048_576
-    {
+    if command.len() > 256 || command.iter().map(String::len).sum::<usize>() > 1_048_576 {
         return Err(CuError::new(
             "pty_job_command_invalid",
-            "pty-start requires 1..=256 arguments totaling at most 1048576 bytes",
+            "pty-start accepts the platform default shell or 1..=256 explicit arguments totaling at most 1048576 bytes",
         ));
     }
     let root = jobs_root(true)?;

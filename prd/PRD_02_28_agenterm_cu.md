@@ -1523,6 +1523,13 @@ flowchart LR
   duplicate and exit-mismatch failures, output continuation, finalization and
   endpoint disappearance after shutdown. Both Windows targets pass
   `cargo-xwin` checks and both Linux targets pass `cargo-zigbuild`.
+  Omitting `-- PROGRAM ARG...` from `pty-start NAME` now deliberately selects
+  AgenTerm's platform default terminal shell; the parser no longer rejects a
+  behavior the terminal owner already supported. The same platform-neutral
+  qjswasm journey starts the omitted-command form, drives it through literal
+  input/output, exact exit, restart and cleanup, and emits
+  `cu.pty-default-shell`. Explicit commands remain typed argv; MCU `--cmd` and
+  `--exec-json` string-evaluation shortcuts are not folded into this contract.
   The interactive slice now sends one exact literal UTF-8 argument with a
   committed control receipt and waits on the retained raw byte stream from an
   explicit cursor. Its bounded overlap preserves a match split across output

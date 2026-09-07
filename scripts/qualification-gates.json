@@ -290,7 +290,8 @@
     {
       "id": "cu-pty-smoke",
       "evidence": [
-        "cu.pty-background-interactive"
+        "cu.pty-background-interactive",
+        "cu.pty-default-shell"
       ]
     },
     {
@@ -496,6 +497,12 @@
         "cu.macos-pointer-move",
         "cu.macos-pointer-restored",
         "cu.macos-pointer-refusals"
+      ]
+    },
+    {
+      "id": "cu-pointer-scroll-smoke",
+      "evidence": [
+        "cu.pointer-scroll-content-delivery"
       ]
     }
   ]

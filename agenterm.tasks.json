@@ -561,6 +561,26 @@
         "task.cu-macos-pointer-smoke"
       ]
     },
+    "cu-pointer-scroll-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "built-pointer-scroll-fixture",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-pointer-scroll-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-pointer-scroll-smoke"
+      ]
+    },
     "cu-macos-web-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4202,6 +4222,29 @@
       ],
       "side_effects": [
         "artifact_write"
+      ]
+    },
+    {
+      "id": "cu-pointer-scroll-smoke",
+      "description": "Prove one bounded desktop wheel event reaches owned host-native content while the real pointer and focused top-level window remain unchanged; the durable CU receipt must stay honest that mechanism acceptance alone is not delivery proof.",
+      "entry": "scripts/qjs/cu-pointer-scroll-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu",
+        "target/cu-pointer-scroll-fixture/agenterm-pointer-scroll-fixture"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
       ]
     },
     {

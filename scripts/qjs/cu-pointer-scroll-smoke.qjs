@@ -1,0 +1,183 @@
+// Public qjswasm black-box for desktop-scoped, bounded wheel delivery.
+//
+// The third argument is a host-native fixture built from the matching owned
+// source in examples/{objc,c,linux}. It maps a non-activating 240x180 window
+// around the current pointer and atomically publishes an independent scroll
+// counter. The court never moves the pointer, never clicks, and never borrows
+// a user's application as its observation surface.
+//
+// Args: REPO AGENTERM_CU_EXE POINTER_SCROLL_FIXTURE_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.pointer-scroll-content-delivery"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function lines(path) {
+  const result = [];
+  if (!rh.exists(path)) { return result; }
+  for (const line of rh.read_text(path).split("\n")) {
+    if (line.trim() !== "") { result.push(JSON.parse(line)); }
+  }
+  return result;
+}
+
+function invalid_before_dispatch(reply) {
+  return reply.ok === false
+    && (reply.error.code === "usage" || reply.error.code === "invalid_input");
+}
+
+function run_cu(context, executable, args) {
+  const argv = ["--target", "current", "--grant", "observe,actuate"];
+  for (const argument of args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: context.run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "cu-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  ensure(output.stdout.trim() !== "", "cu_pointer_scroll_empty_reply:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === output.success, "cu_pointer_scroll_process_reply_disagree:" + JSON.stringify(reply));
+  return reply;
+}
+
+function pointer(context, executable) {
+  const reply = run_cu(context, executable, ["pointer-position"]);
+  ensure(reply.ok === true && reply.data.coords.length === 2, "cu_pointer_scroll_pointer_shape");
+  return "" + reply.data.coords[0] + "," + reply.data.coords[1];
+}
+
+function focus(context, executable) {
+  const reply = run_cu(context, executable, ["windows", "--focused", "true", "--max", "1"]);
+  ensure(reply.ok === true, "cu_pointer_scroll_focus_inventory:" + JSON.stringify(reply.error));
+  if (reply.data.returned === 0) { return "none"; }
+  ensure(reply.data.returned === 1, "cu_pointer_scroll_focus_ambiguous");
+  const row = reply.data.windows[0];
+  return "" + row.handle + ":" + row.process_id;
+}
+
+function wait_state(path, fixture) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    if (rh.exists(path)) {
+      try {
+        const state = rh.parse_file(path);
+        if (state.ready === true) { return state; }
+      } catch (_error) {
+        // Atomic publication should make this unreachable; keep polling so a
+        // filesystem with delayed rename visibility does not create flake.
+      }
+    }
+    ensure(harness.state(fixture) === "running", "cu_pointer_scroll_fixture_early_exit");
+    harness.sleep_ms(25);
+  }
+  throw "cu_pointer_scroll_fixture_ready_timeout";
+}
+
+function wait_delivery(path, before_sequence, fixture) {
+  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
+    const state = wait_state(path, fixture);
+    if (state.sequence > before_sequence) { return state; }
+    harness.sleep_ms(25);
+  }
+  throw "cu_pointer_scroll_content_delivery_timeout";
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 3, "expected: REPO AGENTERM_CU_EXE POINTER_SCROLL_FIXTURE_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+let fixture_executable = rh.absolute(args[2]);
+if (harness.host_is_windows()) {
+  if (!direct_file(executable)) { executable = executable + ".exe"; }
+  if (!direct_file(fixture_executable)) { fixture_executable = fixture_executable + ".exe"; }
+}
+ensure(direct_file(executable), "cu_pointer_scroll_executable_missing");
+ensure(direct_file(fixture_executable), "cu_pointer_scroll_fixture_missing");
+
+const context = harness.new_context(repo, "cu-pointer-scroll");
+const state_path = rh.join(context.run_directory, "fixture-state.json");
+const receipt_path = rh.join(context.run_directory, "cu-receipts/current.jsonl");
+const children = [];
+let succeeded = false;
+let failure = "";
+
+try {
+  print("STEP invalid zero and out-of-budget deltas fail before any receipt or fixture effect");
+  const zero = run_cu(context, executable, ["pointer-scroll", "--to", "desktop", "--dx", "0", "--dy", "0"]);
+  const large = run_cu(context, executable, ["pointer-scroll", "--to", "desktop", "--dx", "0", "--dy", "101"]);
+  // The CLI parser rejects these as `usage`; direct typed callers reach the
+  // executor's `invalid_input`. Both are pre-dispatch refusals, and the empty
+  // receipt log below is the public proof that neither touched the mechanism.
+  ensure(invalid_before_dispatch(zero), "cu_pointer_scroll_zero_not_typed");
+  ensure(invalid_before_dispatch(large), "cu_pointer_scroll_large_not_typed");
+  ensure(lines(receipt_path).length === 0, "cu_pointer_scroll_invalid_receipt_written");
+
+  const pointer_before = pointer(context, executable);
+  const focus_before = focus(context, executable);
+  const fixture = harness.start({
+    program: fixture_executable,
+    args: [state_path],
+    current_dir: context.run_directory,
+    timeout_ms: 120000
+  });
+  children.push(fixture);
+  const state_before = wait_state(state_path, fixture);
+  harness.sleep_ms(100);
+  ensure(pointer(context, executable) === pointer_before, "cu_pointer_scroll_fixture_moved_pointer");
+  ensure(focus(context, executable) === focus_before, "cu_pointer_scroll_fixture_stole_focus");
+
+  print("STEP pointer-scroll writes a durable pair but does not self-certify content delivery");
+  const scroll = run_cu(context, executable, [
+    "pointer-scroll", "--to", "desktop", "--dx", "0", "--dy", "-1"
+  ]);
+  ensure(scroll.ok === true && scroll.data.performed === true, "cu_pointer_scroll_not_performed");
+  ensure(scroll.data.invariants_verified === true, "cu_pointer_scroll_invariants_unverified");
+  ensure(scroll.data.delivery_verified === false, "cu_pointer_scroll_self_certified_delivery");
+  ensure(scroll.data.addressing === "desktop-at-current-pointer", "cu_pointer_scroll_addressing");
+  ensure(scroll.data.pointer_before[0] === scroll.data.pointer_after[0]
+         && scroll.data.pointer_before[1] === scroll.data.pointer_after[1],
+         "cu_pointer_scroll_reply_pointer_changed");
+
+  const receipt_rows = lines(receipt_path);
+  ensure(receipt_rows.length === 2, "cu_pointer_scroll_receipt_count:" + receipt_rows.length);
+  ensure(receipt_rows[0].phase === "reserved" && receipt_rows[1].phase === "completed",
+         "cu_pointer_scroll_receipt_phases");
+  ensure(receipt_rows[0].receipt_id === receipt_rows[1].receipt_id
+         && receipt_rows[0].verb === "pointer-scroll" && receipt_rows[1].verb === "pointer-scroll",
+         "cu_pointer_scroll_receipt_identity");
+  ensure(receipt_rows[1].verified === true
+         && receipt_rows[1].invariants_verified === true
+         && receipt_rows[1].delivery_verified === false,
+         "cu_pointer_scroll_receipt_truthfulness");
+
+  print("STEP the owned fixture independently observes content movement while pointer and focus stay fixed");
+  const state_after = wait_delivery(state_path, state_before.sequence, fixture);
+  ensure(state_after.content_offset !== state_before.content_offset,
+         "cu_pointer_scroll_content_offset_unchanged");
+  ensure(pointer(context, executable) === pointer_before, "cu_pointer_scroll_moved_real_pointer");
+  ensure(focus(context, executable) === focus_before, "cu_pointer_scroll_changed_focus");
+  succeeded = true;
+} catch (error) {
+  failure = "" + error;
+}
+
+harness.complete(context, children, succeeded, failure);
+if (!succeeded) { throw failure; }
+harness.emit_evidence(context, declared_evidence, "cu.pointer-scroll-content-delivery");
+harness.remove_run(context);
+print("PASS: pointer-scroll delivers to owned content with durable truthful receipts and unchanged pointer/focus");
+return;

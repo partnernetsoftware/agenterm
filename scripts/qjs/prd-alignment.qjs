@@ -301,6 +301,7 @@ const evidence_suites = {
   "cu-device-watch-smoke": true,
   "cu-device-lease-smoke": true,
   "cu-macos-pointer-smoke": true,
+  "cu-pointer-scroll-smoke": true,
   "unix-frontend-linux-smoke": true,
   "unix-frontend-macos-smoke": true,
   "server-smoke": true,

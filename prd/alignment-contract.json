@@ -239,6 +239,7 @@
         "cu.windows-external-terminal-observe",
         "cu.windows-external-terminal-send",
         "cu.pty-background-interactive",
+        "cu.pty-default-shell",
         "cu.login-session-plan",
         "cu.audio-plan",
         "cu.service-plan",
@@ -309,7 +310,8 @@
         "cu.macos-pointer-capabilities",
         "cu.macos-pointer-move",
         "cu.macos-pointer-restored",
-        "cu.macos-pointer-refusals"
+        "cu.macos-pointer-refusals",
+        "cu.pointer-scroll-content-delivery"
       ]
     },
     {

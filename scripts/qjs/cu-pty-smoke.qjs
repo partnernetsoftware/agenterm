@@ -9,7 +9,10 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.pty-background-interactive"];
+const declared_evidence = [
+  "cu.pty-background-interactive",
+  "cu.pty-default-shell"
+];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -127,12 +130,10 @@ try {
     "cu_pty_list_initial_contract:" + JSON.stringify(before)
   );
 
-  print("STEP start one unique headless PTY authority with a platform-native interactive shell");
+  print("STEP omitted command starts one unique headless PTY authority with the platform default shell");
   const start_arguments = [
-    "--target", "current", "--grant", "actuate", "pty-start", job, "--"
+    "--target", "current", "--grant", "actuate", "pty-start", job
   ];
-  if (windows) { start_arguments.push("cmd.exe"); start_arguments.push("/Q"); }
-  else { start_arguments.push("/bin/sh"); start_arguments.push("-i"); }
   const start = require_ok(
     invoke_cu(run_directory, product, executable, start_arguments),
     "pty-start"
@@ -605,6 +606,7 @@ try {
 }
 if (succeeded !== 0 && stopped !== 0 && tree_stopped !== 0 && signal_stopped !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.pty-background-interactive");
+  harness.emit_evidence(context, declared_evidence, "cu.pty-default-shell");
   harness.remove_run(context);
   print("PASS: qjswasm orchestrated ACU PTY inventory, foreground signals, structured snapshot/diff/events, verified resize, input, loss-aware wait, exact exit, restart refusal and cleanup");
 }

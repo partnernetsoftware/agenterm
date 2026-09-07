@@ -2042,7 +2042,8 @@ pub enum Command {
         transaction_id: String,
     },
     /// Start one durable, headless AgenTerm-owned PTY job. The human name
-    /// deterministically selects an isolated logical server instance.
+    /// deterministically selects an isolated logical server instance. An
+    /// empty command selects AgenTerm's platform default terminal shell.
     PtyStart {
         target: TargetRef,
         name: String,

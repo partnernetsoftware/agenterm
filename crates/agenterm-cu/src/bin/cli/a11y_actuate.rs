@@ -3,6 +3,7 @@
 //! `pointer-move`, `pointer-scroll`, and `drag`.
 
 use agenterm_cu::{Command, PointerButton, TargetRef, command::InvokeAction};
+use agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
 
 use super::verbs::VerbSpec;
 use super::{
@@ -382,8 +383,12 @@ fn validate_scroll_delta(dx: i32, dy: i32) -> Result<(), String> {
     if dx == 0 && dy == 0 {
         return Err("pointer-scroll requires at least one non-zero axis".into());
     }
-    if dx.unsigned_abs() > 100 || dy.unsigned_abs() > 100 {
-        return Err("pointer-scroll requires each axis to be within -100..=100".into());
+    if dx.unsigned_abs() > MAX_POINTER_SCROLL_DETENTS
+        || dy.unsigned_abs() > MAX_POINTER_SCROLL_DETENTS
+    {
+        return Err(format!(
+            "pointer-scroll requires each axis to be within -{MAX_POINTER_SCROLL_DETENTS}..={MAX_POINTER_SCROLL_DETENTS}"
+        ));
     }
     Ok(())
 }

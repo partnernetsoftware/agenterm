@@ -1189,10 +1189,13 @@ recorded above as unproven rather than claimed.
   location on macOS, Windows and Linux X11. Validation rejects zero or an
   axis outside `-100..=100` before native dispatch; the durable receipt reads
   back that the pointer and focused top-level window did not change. This is
-  **mechanism-complete but not retirement evidence**: `delivery_verified`
-  remains false until an owned public qjswasm court independently observes
-  application content movement on the three hosts. Linux Wayland refuses
-  typed. Window-local hover/wheel remains a separate gap; the private
+  The command deliberately keeps `delivery_verified=false`: mechanism
+  acceptance never self-certifies delivery. The owned
+  `cu-pointer-scroll-smoke` qjswasm court supplies the separate evidence by
+  observing its fixture's sequence and content-offset change while the real
+  pointer and focused-window identity remain exact. That court is green on
+  macOS; Linux X11 and Windows native runs remain pending, while Linux Wayland
+  refuses typed. Window-local hover/wheel remains a separate gap; the private
   SkyLight candidate is governed by
   `plan/design-skylight-window-local-pointer-experiment.md` and cannot be
   promoted from source presence or mechanism acceptance.

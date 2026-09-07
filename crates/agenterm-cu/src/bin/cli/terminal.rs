@@ -139,9 +139,6 @@ pub fn parse(
             let command = command_tail(args);
             let name = required_name(args, "pty-start")?;
             let cwd = flag_text(args, "--cwd")?;
-            if command.is_empty() {
-                return Err("pty-start requires PROGRAM ARG... after --".into());
-            }
             if command.len() > 256 || command.iter().map(String::len).sum::<usize>() > 1_048_576 {
                 return Err("pty-start command exceeds 256 arguments or 1048576 bytes".into());
             }
@@ -689,6 +686,11 @@ mod tests {
                 if name == "build" && cwd == "." && command == ["sh", "-lc", "printf ok"]
         ));
         assert!(matches!(
+            parse("pty-start", &["default-shell", "--cwd", "."]).unwrap(),
+            Command::PtyStart { name, cwd: Some(cwd), command, .. }
+                if name == "default-shell" && cwd == "." && command.is_empty()
+        ));
+        assert!(matches!(
             parse("pty-list", &[]).unwrap(),
             Command::PtyList { .. }
         ));
@@ -771,7 +773,6 @@ mod tests {
             Command::PtyStop { name, expect_stopped: true, .. } if name == "build"
         ));
         assert!(parse("pty-start", &["bad/name", "--", "true"]).is_err());
-        assert!(parse("pty-start", &["build"]).is_err());
         assert!(parse("pty-send", &["build", ""]).is_err());
         assert!(parse("pty-wait", &["build"]).is_err());
         assert!(parse("pty-events", &["build", "--epoch", "e"]).is_err());

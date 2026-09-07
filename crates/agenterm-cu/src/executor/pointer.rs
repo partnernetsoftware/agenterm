@@ -1,6 +1,7 @@
 //! `pointer-move` / `pointer-scroll` / `pointer-position` / `drag`: the pointer verbs.
 
 use super::*;
+use agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
 
 pub(super) fn pointer_move(x: i32, y: i32) -> Result<serde_json::Value, CuError> {
     pointer_move_with(x, y, |x, y| {
@@ -11,8 +12,6 @@ pub(super) fn pointer_move(x: i32, y: i32) -> Result<serde_json::Value, CuError>
 pub(super) fn pointer_position() -> Result<serde_json::Value, CuError> {
     pointer_position_with(|| mechanism::input_inject::pointer_position().map_err(map_mechanism_err))
 }
-
-const MAX_SCROLL_DELTA: u32 = 100;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 struct FocusedWindowIdentity {
@@ -26,9 +25,11 @@ fn validate_pointer_scroll(dx: i32, dy: i32) -> Result<(), CuError> {
             "pointer-scroll requires at least one non-zero axis".into(),
         ));
     }
-    if dx.unsigned_abs() > MAX_SCROLL_DELTA || dy.unsigned_abs() > MAX_SCROLL_DELTA {
+    if dx.unsigned_abs() > MAX_POINTER_SCROLL_DETENTS
+        || dy.unsigned_abs() > MAX_POINTER_SCROLL_DETENTS
+    {
         return Err(invalid_input(format!(
-            "pointer-scroll requires each axis to be within -{MAX_SCROLL_DELTA}..={MAX_SCROLL_DELTA}"
+            "pointer-scroll requires each axis to be within -{MAX_POINTER_SCROLL_DETENTS}..={MAX_POINTER_SCROLL_DETENTS}"
         )));
     }
     Ok(())

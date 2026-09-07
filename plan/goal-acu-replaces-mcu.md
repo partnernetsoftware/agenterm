@@ -854,8 +854,8 @@ Q5 retirement
 ```
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
-decision while remaining a successful bounded audit: 134 ledger capabilities
-currently include 1 `gap` and 62 `platform-limited` rows. The compatibility
+decision while remaining a successful bounded audit: 135 ledger capabilities
+currently include 1 `gap` and 63 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings and its argument-sensitive corpus is
 complete, but the report still truthfully requires MCU while capability,
 registered-evidence and native-qualification blockers remain. The Candidate workflow now includes
@@ -865,16 +865,19 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
-The compatibility adapter now has zero static STAY spellings and 15 dynamic
+The compatibility adapter now has zero static STAY spellings and 14 dynamic
 STAY witnesses on macOS after four lossless projections (`resource top`,
-focused PID, observe role and wait absence). The count is deliberately not
+focused PID, observe role and wait absence) plus the platform-default-shell
+PTY projection. Omitting `-- PROGRAM` now starts AgenTerm's native default
+shell and the public `cu-pty-smoke` proves that path; MCU string-eval
+`--cmd` / `--exec-json` shortcuts remain separate. The count is deliberately not
 reduced by reclassifying useful MCU behavior as a permanent rejection: tmux
 PTY, bounded pattern wait, app/signing observation, app-global menus and native
 wheel input remain real ACU gaps until a typed replacement and public evidence
-exist. ABI 1.28 now supplies the bounded three-host desktop wheel mechanism,
-but it remains a retirement blocker while `delivery_verified=false`; an owned
-qjswasm content-movement court must close that evidence gap before the adapter
-may map MCU `scroll --to desktop`. Window-local hover/wheel is still separate
+exist. ABI 1.28 now supplies the bounded three-host desktop wheel mechanism.
+Its reply deliberately retains `delivery_verified=false`; the separate owned
+qjswasm content-movement court is green on macOS and must still pass Linux X11
+and Windows before the adapter may map MCU `scroll --to desktop`. Window-local hover/wheel is still separate
 and stays behind `plan/design-skylight-window-local-pointer-experiment.md`.
 The only reviewed permanent retirement in this cut is the login-service
 query for MCU's removed global daemon object.

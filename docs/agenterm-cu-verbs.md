@@ -2381,8 +2381,8 @@ signed fixed-path macOS court remains required before promotion.
 ### `pty-start`
 
 ```text
-pty-start NAME [--cwd DIR] -- PROGRAM ARG...
-pty start NAME [--cwd DIR] -- PROGRAM ARG...
+pty-start NAME [--cwd DIR] [-- PROGRAM ARG...]
+pty start NAME [--cwd DIR] [-- PROGRAM ARG...]
 ```
 
 ```text
@@ -2390,10 +2390,10 @@ agenterm-cu pty-start    (also: pty start)
   scope: actuate    family: Headless PTY jobs
 
 usage:
-  pty-start NAME [--cwd DIR] -- PROGRAM ARG...
-  pty start NAME [--cwd DIR] -- PROGRAM ARG...
+  pty-start NAME [--cwd DIR] [-- PROGRAM ARG...]
+  pty start NAME [--cwd DIR] [-- PROGRAM ARG...]
 
-Starts one invisible, cross-process PTY job under a deterministic isolated AgenTerm logical instance. AgenTerm server remains the sole POSIX PTY/ConPTY, terminal-tree, retention and process-lifecycle owner. NAME is 1..=64 ASCII letters, digits, dot, underscore or hyphen. The command is typed argv, never a shell string; its values are not copied into receipts. A same-name concurrent or existing job fails typed.
+Starts one invisible, cross-process PTY job under a deterministic isolated AgenTerm logical instance. Omitting `-- PROGRAM ARG...` selects AgenTerm's platform default terminal shell; an explicit command remains typed argv, never a shell string. AgenTerm server remains the sole POSIX PTY/ConPTY, terminal-tree, retention and process-lifecycle owner. NAME is 1..=64 ASCII letters, digits, dot, underscore or hyphen. Command values are not copied into receipts. A same-name concurrent or existing job fails typed.
 ```
 
 ### `pty-list`

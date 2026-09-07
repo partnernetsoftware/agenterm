@@ -415,9 +415,38 @@
         {
           "id": "desktop.pointer.global",
           "mcu_shape": "click/dclick/rclick/move/drag/scroll --to desktop",
-          "acu_shape": "click/drag/scroll and pointer-move --to desktop with explicit actuate grant",
+          "acu_shape": "click/drag and pointer-move --to desktop with explicit actuate grant",
           "state": "delegated",
           "evidence": ["cu.macos-pointer-move", "cu.macos-pointer-restored"]
+        },
+        {
+          "id": "desktop.pointer.wheel",
+          "mcu_shape": "scroll up|down|left|right AMOUNT --to desktop",
+          "acu_shape": "pointer-scroll --to desktop --dx DX --dy DY with a bounded signed detent, durable receipt and independent pointer/focus read-back",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-x11-court-pending-wayland-typed-limited", "windows": "native-court-pending"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "pending",
+                "blocker_code": "native-x11-court-not-run"
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-pointer-scroll-smoke",
+                "evidence": ["cu.pointer-scroll-content-delivery"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-desktop-court-not-run"
+              }
+            }
+          },
+          "evidence": ["cu.pointer-scroll-content-delivery"],
+          "declared_evidence": ["cu.pointer-scroll-content-delivery"],
+          "next": "run the same owned fixture journey on Linux X11 and Windows native desktop courts before clearing the MCU desktop-scroll route",
+          "note": "Mechanism acceptance is not delivery proof: the CU reply deliberately keeps delivery_verified=false; only the fixture's independent sequence and content-offset change provides delivery evidence. Pointer and focused top-level window identities are unchanged."
         },
         {
           "id": "desktop.pointer.exact-window",
@@ -730,8 +759,8 @@
           "acu_shape": "pty-start/status/wait-exit/stop over one isolated headless agenterm server; job identity binds validated name + logical instance + server epoch + stable @tab",
           "state": "native",
           "qualification": "local-six-cell-public-qjswasm-journey-green-macos-x86-via-rosetta",
-          "evidence": ["cu.pty-background-interactive"],
-          "declared_evidence": ["cu.pty-background-interactive"],
+          "evidence": ["cu.pty-background-interactive", "cu.pty-default-shell"],
+          "declared_evidence": ["cu.pty-background-interactive", "cu.pty-default-shell"],
           "next": "add process-group signal and forced-tree cleanup separately",
           "note": "Two concurrent macOS starts produced exactly one owner and one typed pty_job_busy. Duplicate, exact exit mismatch and explicit --expect stopped are typed; successful shutdown is verified by endpoint disappearance even when the disappearing authority cannot return an ACK. The existing AgenTerm server remains the sole POSIX PTY/ConPTY owner."
         },
