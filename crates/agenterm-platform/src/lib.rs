@@ -497,8 +497,11 @@ pub mod screenshot;
 ))]
 pub mod system_broker;
 
-/// Linux polkit authorization for the kernel-authenticated system-broker peer.
-#[cfg(all(feature = "privilege-authorization", target_os = "linux"))]
+/// Native authorization for the kernel-authenticated system-broker peer.
+#[cfg(all(
+    feature = "privilege-authorization",
+    any(target_os = "linux", target_os = "macos")
+))]
 pub mod privilege_authorization;
 
 mod selected;

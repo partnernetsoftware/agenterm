@@ -357,10 +357,15 @@ ipc = [
 # root-owned privilege-broker carrier and deliberately has different peer and
 # endpoint authority rules.
 system-broker = ["dep:libc"]
-# Native consent for the fixed Linux system broker. Keep this separate from
+# Native consent for the fixed Linux/macOS system broker. Keep this separate from
 # ordinary service management: callers must present an authenticated
 # `SystemBrokerStream`, not a caller-authored process identity.
-privilege-authorization = ["system-broker", "dep:tokio", "dep:zbus"]
+privilege-authorization = [
+    "system-broker",
+    "dep:security-framework-sys",
+    "dep:tokio",
+    "dep:zbus",
+]
 pty = [
     "process-metrics",
     "process-reference",
@@ -533,6 +538,7 @@ zbus = { version = "=5.19.0", optional = true, default-features = false, feature
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.2.2", optional = true, features = ["NSApplication", "NSEvent", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.2.2", optional = true }
+security-framework-sys = { version = "2.17", optional = true }
 
 [dependencies]
 memmap2 = { version = "0.9", optional = true }

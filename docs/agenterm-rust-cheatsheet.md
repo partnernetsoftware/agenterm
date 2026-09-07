@@ -4583,6 +4583,19 @@ Use fixed-width integers in cross-ISA protocol fields and restrict native start
 identities to their actual prefix-plus-decimal grammar so JSON escaping cannot
 silently invalidate the byte proof.
 
+On macOS, keep the Authorization Services bearer proof outside ordinary data
+models. Request only one fixed right with interaction allowed in the user
+process, externalize it once into the fixed 32-byte form, and keep the creating
+`AuthorizationRef` alive until that proof is consumed or abandoned. The root
+broker must internalize the proof, check the same fixed right with default
+flags only (no interaction and no extension), then destroy the right on every
+path. Make the proof move-only, non-debuggable and non-serializable; bound its
+single write, wipe both the wire bytes and native external form with volatile
+stores, and never persist or log them. A timeout can bound the caller's wait but
+cannot safely dismiss an Authorization Services UI already in flight, so a
+late worker result must remain owned and destroy its authorization instead of
+escaping into a detached credential.
+
 A fixed provider is more than an elevated process. Bind the running executable
 object back to a protected installed identity: on Linux, require a root-owned,
 non-group/world-writable path with no symlink components, compare its device
