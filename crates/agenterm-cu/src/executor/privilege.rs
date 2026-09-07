@@ -104,11 +104,11 @@ fn launch_linux_provider(
     timeout_ms: u64,
 ) -> Result<Value, CuError> {
     let timeout = Duration::from_millis(timeout_ms);
-    let mut stream =
-        SystemBrokerStream::connect(timeout).map_err(|_| transport_unknown("connect"))?;
-    stream
-        .set_io_timeout(timeout)
-        .map_err(|_| transport_unknown("io-timeout"))?;
+    let mut stream = SystemBrokerStream::connect(timeout)
+        .map_err(|_| transport_not_performed("privilege_provider_unavailable", "connect"))?;
+    stream.set_io_timeout(timeout).map_err(|_| {
+        transport_not_performed("privilege_provider_transport_failed", "io-timeout")
+    })?;
     crate::privilege_broker_wire::write_request(&mut stream, &canonical)
         .map_err(|_| transport_unknown("request-write"))?;
     stream
@@ -257,6 +257,18 @@ fn transport_unknown(stage: &'static str) -> CuError {
     }))
 }
 
+#[cfg(any(target_os = "linux", test))]
+fn transport_not_performed(code: &'static str, stage: &'static str) -> CuError {
+    CuError::new(
+        code,
+        "the privilege provider transport failed before any request bytes were sent",
+    )
+    .with_detail(json!({
+        "effect": "not_performed",
+        "stage": stage,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,5 +350,21 @@ mod tests {
                 .and_then(|detail| detail["effect"].as_str()),
             Some("unknown")
         );
+    }
+
+    #[test]
+    fn transport_stage_distinguishes_pre_send_failure_from_unknown_outcome() {
+        let unavailable = transport_not_performed("privilege_provider_unavailable", "connect");
+        assert_eq!(unavailable.code, "privilege_provider_unavailable");
+        assert_eq!(
+            unavailable.detail.as_ref().unwrap()["effect"],
+            "not_performed"
+        );
+        assert_eq!(unavailable.detail.as_ref().unwrap()["stage"], "connect");
+
+        let unknown = transport_unknown("request-write");
+        assert_eq!(unknown.code, "privilege_outcome_unknown");
+        assert_eq!(unknown.detail.as_ref().unwrap()["effect"], "unknown");
+        assert_eq!(unknown.detail.as_ref().unwrap()["stage"], "request-write");
     }
 }

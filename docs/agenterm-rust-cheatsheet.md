@@ -4607,11 +4607,14 @@ requests.
 
 Parse a complete, identity-bound provider reply before interpreting launcher
 exit status: an elevated provider may return a typed refusal or durable replay
-while still exiting normally. Conversely, timeout, broken capture, cleanup
-failure or EOF without one complete bounded reply is `outcome_unknown`, never
-`not_performed`, because native consent or the effect may already have begun.
-A failed-after-effect receipt also remains effect-unknown unless its closed
-postcondition proves a more specific terminal result.
+while still exiting normally. Track the transport boundary precisely. Failure
+to connect, or to configure the stream before sending any request byte, is a
+known `not_performed` result; no provider could have admitted the effect. Once
+request writing begins, a partial write, timeout, broken capture, cleanup
+failure or EOF without one complete bounded reply is `outcome_unknown`, because
+native consent or the effect may already have begun. A failed-after-effect
+receipt also remains effect-unknown unless its closed postcondition proves a
+more specific terminal result.
 
 One-shot `pkexec` cannot satisfy replay-before-consent: authorization occurs
 before `exec` enters the provider, so its root-only ledger is consulted too
