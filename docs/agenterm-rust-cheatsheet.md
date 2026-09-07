@@ -2142,6 +2142,17 @@ a fixed sleep, weakening event assertions, or pretending a tree walk is an
 atomic OS snapshot. Native-notification mode must reject the marker until its
 subscription API can expose an equivalent ready edge.
 
+Poll-diff filters belong at the sample boundary, before the two inventories
+are compared. Filtering an already-produced event stream loses transitions:
+for example, a stable window moving into or out of one macOS managed Space has
+the same native handle and fields, so only independently filtering both the
+previous and current samples can turn that membership change into an
+`appeared` / `disappeared` event. Validate a platform-limited filter provider
+before taking the baseline—even when the inventory is empty—so “no matching
+windows” never masquerades as “this host cannot evaluate the filter.” Return a
+typed unsupported result on hosts without the provider; do not silently
+post-filter or return an empty success.
+
 `agenterm-cu --ssh <user@host>` is the first remote target tier (PRD 30).
 It does not invent verbs: the host rewrites the abstract command to
 `target=current` and runs a remote `agenterm-cu exec --json -` worker over

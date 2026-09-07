@@ -633,7 +633,7 @@
       "grant": "observe",
       "family": "windows",
       "summary": "poll-diff over the window inventory",
-      "usage": "windows-watch [--pid N] [--app SUB] [--title SUB] [--duration-ms N] [--interval-ms N]\n              [--max-events N]",
+      "usage": "windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [--duration-ms N] [--interval-ms N]\n              [--max-events N]",
       "args": [
         {
           "flag": "--pid",
@@ -649,6 +649,11 @@
           "flag": "--title",
           "value": "SUB",
           "help": "window title substring"
+        },
+        {
+          "flag": "--space",
+          "value": "ID",
+          "help": "macOS managed Space id; evaluated inside every poll"
         },
         {
           "flag": "--duration-ms",
@@ -5743,7 +5748,7 @@
     },
     {
       "name": "windows-watch",
-      "text": "agenterm-cu windows-watch\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  windows-watch [--pid N] [--app SUB] [--title SUB] [--duration-ms N] [--interval-ms N]\n                [--max-events N]\n\narguments:\n  --pid N                       owning process id\n  --app SUB                     application name substring\n  --title SUB                   window title substring\n  --duration-ms N               watch window; 0 (default) takes one extra sample\n  --interval-ms N               poll interval\n  --max-events N                stop after N events\n\npoll-diff over the windows inventory (appeared / disappeared / changed +\nfield list). Not AXObserver. --duration-ms 0 (default) takes one extra\nsample.\n"
+      "text": "agenterm-cu windows-watch\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [--duration-ms N] [--interval-ms N]\n                [--max-events N]\n\narguments:\n  --pid N                       owning process id\n  --app SUB                     application name substring\n  --title SUB                   window title substring\n  --space ID                    macOS managed Space id; evaluated inside every poll\n  --duration-ms N               watch window; 0 (default) takes one extra sample\n  --interval-ms N               poll interval\n  --max-events N                stop after N events\n\npoll-diff over the windows inventory (appeared / disappeared / changed +\nfield list). Not AXObserver. --duration-ms 0 (default) takes one extra\nsample. A Space filter is evaluated while each sample is acquired, so a\nwindow crossing the selected Space boundary is reported as appeared or\ndisappeared; Linux and Windows refuse that macOS-only provider by name.\n"
     },
     {
       "name": "apps",

@@ -48,7 +48,7 @@ let dynamic_stays = 0;
 let permanent_rejections = 0;
 const resolved_exec = ["acu.dynamic.003", "acu.dynamic.021", "acu.dynamic.051",
   "acu.dynamic.066", "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
-  "acu.dynamic.096"];
+  "acu.dynamic.084", "acu.dynamic.096"];
 const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.083", "acu.dynamic.088",
   "acu.dynamic.094"];
@@ -79,6 +79,10 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   } else if (row.classification === "resolved") {
     if (resolved_exec.includes(row.gap_id)) {
       require(mapped.kind === "exec", row.gap_id + " resolved exec");
+      if (row.gap_id === "acu.dynamic.084") {
+        same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
+          "windows-watch", "--space", "1"], row.gap_id);
+      }
     } else if (resolved_todo.includes(row.gap_id)) {
       require(mapped.kind === "todo", row.gap_id + " pending compound must be TODO");
       require(mapped.gap_id === row.gap_id, row.gap_id + " pending compound id");
@@ -91,8 +95,15 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
     resolved_checked = resolved_checked + 1;
   }
 }
-require(dynamic_stays === 13, "dynamic stay corpus count");
+require(dynamic_stays === 12, "dynamic stay corpus count");
 require(permanent_rejections === 1, "permanent rejection corpus count");
-require(resolved_checked === 21, "resolved dynamic corpus count");
+require(resolved_checked === 22, "resolved dynamic corpus count");
 
-"compat-corpus.qjs PASS 42 positive exec / 21 resolved dispositions (9 exec + 8 compound + 4 usage) / 13 dynamic TODO / 1 permanent rejection / 95 frozen";
+const space_with_unmapped_filter = compat.canonicalize([
+  "windows", "watch", "--space", "1", "--type", "appeared"
+]);
+require(space_with_unmapped_filter.kind === "todo", "unmapped watch filter remains TODO");
+require(space_with_unmapped_filter.gap_id === "acu.dynamic.084",
+  "unmapped watch filter keeps stable dynamic id");
+
+"compat-corpus.qjs PASS 42 positive exec / 22 resolved dispositions (10 exec + 8 compound + 4 usage) / 12 dynamic TODO / 1 permanent rejection / 95 frozen";

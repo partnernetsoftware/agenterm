@@ -429,7 +429,15 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             "windows": capability_verb(mechanism::Capability::WindowEnumerate, serde_json::json!({})),
             "windows-watch": capability_verb(
                 mechanism::Capability::WindowEnumerate,
-                serde_json::json!({ "mode": "poll-diff", "group": "discover" }),
+                serde_json::json!({
+                    "mode": "poll-diff",
+                    "group": "discover",
+                    "space_filter": if cfg!(target_os = "macos") {
+                        "skylight-private-read"
+                    } else {
+                        "unsupported"
+                    },
+                }),
             ),
             "apps": {
                 "status": verb_status(mechanism::Capability::WindowEnumerate),
@@ -1591,6 +1599,14 @@ mod tests {
         assert!(!tsv.contains("still-gap"));
         assert_eq!(data["verbs"]["windows-watch"]["mode"], "poll-diff");
         assert_eq!(data["verbs"]["windows-watch"]["group"], "discover");
+        assert_eq!(
+            data["verbs"]["windows-watch"]["space_filter"],
+            if cfg!(target_os = "macos") {
+                "skylight-private-read"
+            } else {
+                "unsupported"
+            }
+        );
         assert_eq!(data["verbs"]["apps"]["running_only"], true);
         assert_eq!(data["verbs"]["apps"]["group"], "discover");
         assert_eq!(data["verbs"]["orderwin"]["mode"], "raise");

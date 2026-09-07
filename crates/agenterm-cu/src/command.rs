@@ -1669,6 +1669,11 @@ pub enum Command {
         app: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// Keep only windows that belong to this exact managed Space. The
+        /// filter is evaluated inside every poll so a Space transition is an
+        /// appeared / disappeared event rather than a lossy post-filter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<u64>,
         #[serde(default, skip_serializing_if = "is_zero_u64")]
         duration_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -7088,6 +7093,16 @@ mod tests {
         .expect("deserialize");
         assert_eq!(watch.verb(), "windows-watch");
         assert_eq!(watch.required_grant(), Grant::Observe);
+        let space_watch: Command = serde_json::from_value(serde_json::json!({
+            "verb": "windows-watch",
+            "target": "current",
+            "space": 7
+        }))
+        .expect("deserialize space watch");
+        assert!(matches!(
+            space_watch,
+            Command::WindowsWatch { space: Some(7), .. }
+        ));
         let apps = Command::Apps {
             target: TargetRef::Current,
             running: true,

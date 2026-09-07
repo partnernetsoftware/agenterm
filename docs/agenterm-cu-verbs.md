@@ -1490,7 +1490,7 @@ frontmost_app_has_no_inventory_window / no_frontmost_app), so a
 ### `windows-watch`
 
 ```text
-windows-watch [--pid N] [--app SUB] [--title SUB] [--duration-ms N] [--interval-ms N]
+windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [--duration-ms N] [--interval-ms N]
               [--max-events N]
 ```
 
@@ -1499,20 +1499,23 @@ agenterm-cu windows-watch
   scope: observe    family: Windows & apps
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  windows-watch [--pid N] [--app SUB] [--title SUB] [--duration-ms N] [--interval-ms N]
+  windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [--duration-ms N] [--interval-ms N]
                 [--max-events N]
 
 arguments:
   --pid N                       owning process id
   --app SUB                     application name substring
   --title SUB                   window title substring
+  --space ID                    macOS managed Space id; evaluated inside every poll
   --duration-ms N               watch window; 0 (default) takes one extra sample
   --interval-ms N               poll interval
   --max-events N                stop after N events
 
 poll-diff over the windows inventory (appeared / disappeared / changed +
 field list). Not AXObserver. --duration-ms 0 (default) takes one extra
-sample.
+sample. A Space filter is evaluated while each sample is acquired, so a
+window crossing the selected Space boundary is reported as appeared or
+disappeared; Linux and Windows refuse that macOS-only provider by name.
 ```
 
 ### `apps`

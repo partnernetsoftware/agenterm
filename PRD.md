@@ -148,8 +148,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       `agenterm:acu.argv` 跑通 native spelling；无 Bun、binary lookup、
 │     │                       child process 或 MCU fallback。冻结 42 个合法 legacy probe 已全部
 │     │                       映射；`kill PID` 仍以 process-state → identity-bound process-kill 两段
-│     │                       typed 调用执行。95 条动态 witness 的 21 条历史 resolved 已全部清账：
-│     │                       9 exec + 8 compound + 4 usage；13 条真实 dynamic-stay 按稳定 gap_id 修复
+│     │                       typed 调用执行。95 条动态 witness 的 22 条 resolved 已全部清账：
+│     │                       10 exec + 8 compound + 4 usage；12 条 dynamic-stay witness 继续按稳定
+│     │                       gap_id 修复；`.084` 的 Space slice 已通、其余 watch filter 仍显式 TODO
 │     ├─ retirement             MCU 立即退出生产入口；TODO 动态补 ACU。调用者迁到 typed
 │     │                       `acu` 对象后，过渡 `acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 135 叶：

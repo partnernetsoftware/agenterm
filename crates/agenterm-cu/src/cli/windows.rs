@@ -158,12 +158,16 @@ fn windows_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, S
     let pid = flag_parsed::<u32>(args, "--pid")?;
     let app = flag_text(args, "--app")?;
     let title = flag_text(args, "--title")?;
+    let space = flag_parsed::<u64>(args, "--space")?;
+    if space == Some(0) {
+        return Err("windows-watch --space must be a positive managed Space id".into());
+    }
     let duration_ms = flag_parsed::<u64>(args, "--duration-ms")?.unwrap_or(0);
     let interval_ms = flag_parsed::<u64>(args, "--interval-ms")?;
     let max_events = flag_parsed::<usize>(args, "--max-events")?;
     if !args.is_empty() {
         return Err(format!(
-            "windows-watch accepts only --pid N --app SUB --title SUB \
+            "windows-watch accepts only --pid N --app SUB --title SUB --space ID \
              --duration-ms N --interval-ms N --max-events N; unexpected {:?}",
             args[0]
         ));
@@ -173,6 +177,7 @@ fn windows_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, S
         pid,
         app,
         title,
+        space,
         duration_ms,
         interval_ms,
         max_events,

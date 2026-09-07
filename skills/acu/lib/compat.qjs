@@ -194,12 +194,21 @@ function known_dynamic_boundary(argv) {
   if (verb === "tree" && (has_arg(argv, "--page") || has_arg(argv, "--max-value-bytes"))) {
     return todo("acu.dynamic.078", "tree", "paged or value-bounded tree compatibility is not typed yet");
   }
-  if (verb === "windows" && sub === "watch" && (has_arg(argv, "--space")
-      || has_arg(argv, "--ax-meta") || has_arg(argv, "--ax-role")
+  if (verb === "windows" && sub === "watch" && (has_arg(argv, "--focused")
+      || has_arg(argv, "--minimized") || has_arg(argv, "--onscreen")
+      || has_arg(argv, "--occluded") || has_arg(argv, "--all")
+      || has_arg(argv, "--offset") || has_arg(argv, "--max")
+      || has_arg(argv, "--meta") || has_arg(argv, "--duration")
+      || has_arg(argv, "--interval") || has_arg(argv, "--ax-meta")
+      || has_arg(argv, "--ax-role")
       || has_arg(argv, "--ax-subrole") || has_arg(argv, "--ax-identifier")
-      || has_arg(argv, "--ax-scan-max") || has_arg(argv, "--onscreen")
-      || has_arg(argv, "--occluded") || has_arg(argv, "--type"))) {
+      || has_arg(argv, "--ax-scan-max") || has_arg(argv, "--type"))) {
     return todo("acu.dynamic.084", "windows", "window-watch filters must run inside its poll");
+  }
+  if (verb === "windows" && sub === "watch") {
+    const native = ["windows-watch"];
+    append(native, copy_from(argv, 2));
+    return { kind: "exec", argv: native };
   }
   if (verb === "windows" && sub !== "watch" && has_arg(argv, "--space")) {
     const parsed = without_value_flags(argv, ["space", "offset", "max"]);

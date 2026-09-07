@@ -260,16 +260,18 @@ pub(super) fn apps_payload(all: bool) -> Result<serde_json::Value, CuError> {
 
 pub(super) fn windows_watch_payload(
     filter: observe::WindowFilter,
+    space: Option<u64>,
     duration_ms: u64,
     interval_ms: Option<u64>,
     max_events: Option<usize>,
 ) -> Result<serde_json::Value, CuError> {
     observe::validate_windows_watch(duration_ms, max_events, interval_ms).map_err(invalid_input)?;
+    validate_windows_watch_space_provider(space)?;
     let max_events = max_events.unwrap_or(observe::DEFAULT_OBSERVE_EVENTS);
     let interval =
         Duration::from_millis(observe::windows_watch_interval_ms(duration_ms, interval_ms));
     let started = Instant::now();
-    let mut previous = filtered_windows(&filter)?;
+    let mut previous = windows_watch_sample(&filter, space)?;
     let mut events = Vec::new();
     let mut seq = 0u64;
     let mut polls = 1usize;
@@ -288,7 +290,7 @@ pub(super) fn windows_watch_payload(
             thread::sleep(interval.min(deadline.saturating_duration_since(Instant::now())));
         }
         polls += 1;
-        let current = filtered_windows(&filter)?;
+        let current = windows_watch_sample(&filter, space)?;
         let batch = observe::diff_window_inventory(&previous, &current);
         let t_ms = started.elapsed().as_millis() as u64;
         for event in batch {
@@ -304,7 +306,7 @@ pub(super) fn windows_watch_payload(
             break;
         }
     }
-    Ok(serde_json::json!({
+    let mut payload = serde_json::json!({
         "mechanism": "libagenterm",
         "mode": "poll-diff",
         "polls": polls,
@@ -314,7 +316,121 @@ pub(super) fn windows_watch_payload(
         "interval_ms": interval.as_millis() as u64,
         "events": events,
         "windows": previous.iter().map(observe::window_row_json).collect::<Vec<_>>(),
-    }))
+    });
+    if let Some(space) = space
+        && let Some(object) = payload.as_object_mut()
+    {
+        object.insert("filter".into(), serde_json::json!({ "space": space }));
+    }
+    Ok(payload)
+}
+
+/// Apply watch filters at the sample boundary. In particular, a managed
+/// Space filter may not be applied after diffing: doing so loses the moment a
+/// stable window enters or leaves the selected Space.
+fn windows_watch_sample(
+    filter: &observe::WindowFilter,
+    space: Option<u64>,
+) -> Result<Vec<mechanism::window_enumerate::WindowInfo>, CuError> {
+    let windows = filtered_windows(filter)?;
+    let Some(wanted) = space else {
+        return Ok(windows);
+    };
+    #[cfg(target_os = "macos")]
+    {
+        let mut selected = Vec::new();
+        for window in windows {
+            let memberships =
+                crate::macos_spaces::spaces_for_window(window.handle).map_err(|error| {
+                    CuError::new("unsupported", error.reason).with_detail(serde_json::json!({
+                        "group": "geometry",
+                        "os": "macos",
+                        "provider": "skylight-private-read",
+                        "window": window.handle,
+                        "filter": { "space": wanted },
+                    }))
+                })?;
+            let Some(memberships) = memberships else {
+                return Err(CuError::new(
+                    "unsupported",
+                    "managed Space membership provider is unavailable",
+                )
+                .with_detail(serde_json::json!({
+                    "group": "geometry",
+                    "os": "macos",
+                    "provider": "none",
+                    "window": window.handle,
+                    "filter": { "space": wanted },
+                })));
+            };
+            if memberships.contains(&wanted) {
+                selected.push(window);
+            }
+        }
+        Ok(selected)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = windows;
+        Err(CuError::new(
+            "unsupported",
+            "managed Space filtering is macOS SkyLight only",
+        )
+        .with_detail(serde_json::json!({
+            "group": "geometry",
+            "os": crate::mcu_surface::host_os(),
+            "provider": "none",
+            "filter": { "space": wanted },
+        })))
+    }
+}
+
+fn validate_windows_watch_space_provider(space: Option<u64>) -> Result<(), CuError> {
+    let Some(wanted) = space else {
+        return Ok(());
+    };
+    if wanted == 0 {
+        return Err(invalid_input(
+            "windows-watch --space must be a positive managed Space id".into(),
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let inventory = crate::macos_spaces::inventory().map_err(|error| {
+            CuError::new("unsupported", error.reason).with_detail(serde_json::json!({
+                "group": "geometry",
+                "os": "macos",
+                "provider": "skylight-private-read",
+                "filter": { "space": wanted },
+            }))
+        })?;
+        if inventory["provider"] == "skylight-private-read" {
+            return Ok(());
+        }
+        Err(CuError::new(
+            "unsupported",
+            "managed Space membership is unavailable on this macOS host",
+        )
+        .with_detail(serde_json::json!({
+            "group": "geometry",
+            "os": "macos",
+            "provider": inventory["provider"],
+            "filter": { "space": wanted },
+        })))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(CuError::new(
+            "unsupported",
+            "managed Space filtering is macOS SkyLight only",
+        )
+        .with_detail(serde_json::json!({
+            "group": "geometry",
+            "os": crate::mcu_surface::host_os(),
+            "provider": "none",
+            "filter": { "space": wanted },
+        })))
+    }
 }
 
 /// MCU `orderwin`: `above` raises `window`, `below` raises `relative`.
@@ -847,11 +963,47 @@ mod tests {
         );
         assert_eq!(err.detail.as_ref().unwrap()["group"], "shell-pty-job");
         assert_eq!(err.detail.as_ref().unwrap()["verb"], "pty");
+        let zero_space = exec.execute(&Command::WindowsWatch {
+            target: TargetRef::Current,
+            pid: None,
+            app: None,
+            title: None,
+            space: Some(0),
+            duration_ms: 0,
+            interval_ms: Some(0),
+            max_events: Some(10),
+        });
+        assert_eq!(
+            zero_space.error.as_ref().expect("typed space id").code,
+            "invalid_input"
+        );
+        #[cfg(not(target_os = "macos"))]
+        {
+            let unavailable = exec.execute(&Command::WindowsWatch {
+                target: TargetRef::Current,
+                pid: None,
+                app: None,
+                title: None,
+                space: Some(1),
+                duration_ms: 0,
+                interval_ms: Some(0),
+                max_events: Some(10),
+            });
+            assert_eq!(
+                unavailable
+                    .error
+                    .as_ref()
+                    .expect("typed platform limit")
+                    .code,
+                "unsupported"
+            );
+        }
         let watch = exec.execute(&Command::WindowsWatch {
             target: TargetRef::Current,
             pid: None,
             app: None,
             title: None,
+            space: None,
             duration_ms: 0,
             interval_ms: Some(0),
             max_events: Some(10),
