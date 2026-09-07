@@ -1565,9 +1565,13 @@ flowchart LR
   0.13 seconds without repeating the effect. Broker-owned counters now prove
   finalized replay and request conflict add neither consent nor effect, and a
   two-connection race proves exactly one consent/effect plus one finalized
-  replay. Retained-unknown, deny/no-agent, caller-death cancellation, installed
-  rejection/upgrade cuts, the aarch64 court and the 20-run latency court remain
-  unproved; therefore the capability is still `[~]` and not shipped. At source
+  replay. The B5 implementation now selects the one in-flight polkit request
+  against retained-pidfd liveness and cancels the same authorization id on
+  caller death; Linux cross-build, Clippy and deterministic seams are green,
+  while a native caller-death court remains required. Retained-unknown,
+  deny/no-agent, installed rejection/upgrade cuts, the aarch64 court and the
+  20-run latency court remain unproved; therefore the capability is still `[~]`
+  and not shipped. At source
   `9837cf81`, the current Linux x86_64 stripped release measured 10,188,952
   bytes against the unchanged 4,194,304-byte `agenterm-cu` court. Attribution
   shows that pruning the polkit transport alone cannot recover the budget, so

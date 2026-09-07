@@ -4839,6 +4839,17 @@ both sides of durable reservation; a lost client is not permission to retry an
 effect. Native passwords and authentication responses stay inside the OS
 consent surface and never become fixtures, command input, logs or receipts.
 
+A native consent future must not outlive the exact ordinary caller whose intent
+it represents. On Linux, retain the peer pidfd and select one in-flight polkit
+`CheckAuthorization` against a fixed-interval liveness probe. Caller death or
+an unreadable retained identity cancels that same check with the exact original
+cancellation id; it must never create a second authorization request. Keep one
+timer and one check future rather than spawning a polling thread or repeated
+D-Bus calls. Even after the native call resolves, recheck the retained peer at
+the outer boundary so a simultaneous late `Authorized` result cannot become
+effect authority. Cancellation failure is an uncertain authorization boundary,
+not a plain timeout or a reason to proceed.
+
 A graphical test bridge must preserve the filesystem, session and IPC semantics
 of the product it claims to qualify. Sandboxing the bridge with a read-only home
 or an unreadable root can manufacture product failures before the tested binary

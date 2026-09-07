@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio::time::timeout;
+use tokio::time::{MissedTickBehavior, timeout};
 use zbus::{Connection, Proxy, zvariant::Value};
 
 use crate::{
@@ -17,7 +17,7 @@ use crate::{
         PRIVILEGE_ACTION_ID, PrivilegeAuthorizationDecision, PrivilegeAuthorizationError,
         PrivilegeAuthorizationErrorKind, PrivilegeAuthorizationResult,
     },
-    system_broker::SystemBrokerPeerFacts,
+    system_broker::{SystemBrokerPeerFacts, SystemBrokerStream},
 };
 
 const POLKIT_DESTINATION: &str = "org.freedesktop.PolicyKit1";
@@ -27,6 +27,7 @@ const ALLOW_USER_INTERACTION: u32 = 1;
 const MAX_DETAIL_ENTRIES: usize = 32;
 const MAX_DETAIL_FIELD_BYTES: usize = 256;
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(5);
+const PEER_LIVENESS_INTERVAL: Duration = Duration::from_millis(25);
 
 static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
 static CANCELLATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -42,6 +43,7 @@ struct RawAuthorizationResult {
 enum TransportErrorKind {
     Connect,
     Call,
+    Peer,
     TimedOut,
     Cancel,
     AuthorizationCanceled,
@@ -57,14 +59,28 @@ struct TransportError {
 }
 
 trait AuthorizationTransport {
-    fn check(
-        &mut self,
+    async fn check(
+        &self,
         peer: &SystemBrokerPeerFacts,
         cancellation_id: &str,
         deadline: Duration,
     ) -> Result<RawAuthorizationResult, TransportError>;
 
-    fn cancel(&mut self, cancellation_id: &str, deadline: Duration) -> Result<(), TransportError>;
+    async fn cancel(&self, cancellation_id: &str, deadline: Duration)
+    -> Result<(), TransportError>;
+}
+
+trait PeerLiveness {
+    fn is_alive(&self) -> Result<bool, TransportError>;
+}
+
+impl PeerLiveness for SystemBrokerStream {
+    fn is_alive(&self) -> Result<bool, TransportError> {
+        self.peer_is_alive().map_err(|error| TransportError {
+            kind: TransportErrorKind::Peer,
+            message: format!("cannot inspect retained system broker peer: {error}"),
+        })
+    }
 }
 
 struct ZbusTransport {
@@ -72,12 +88,12 @@ struct ZbusTransport {
 }
 
 pub(super) fn authorize(
-    peer: &SystemBrokerPeerFacts,
+    peer: &SystemBrokerStream,
     deadline: Duration,
 ) -> PrivilegeAuthorizationResult<PrivilegeAuthorizationDecision> {
-    validate_peer(peer)?;
+    validate_peer(peer.peer())?;
     let started = Instant::now();
-    let mut transport = ZbusTransport::connect(deadline)?;
+    let transport = ZbusTransport::connect(deadline)?;
     let remaining = deadline.saturating_sub(started.elapsed());
     if remaining.is_zero() {
         return Err(PrivilegeAuthorizationError::new(
@@ -85,7 +101,13 @@ pub(super) fn authorize(
             "polkit authorization deadline expired while connecting to the system bus",
         ));
     }
-    authorize_with_transport(peer, remaining, &mut transport)
+    runtime()?.block_on(authorize_with_transport(
+        peer.peer(),
+        remaining,
+        &transport,
+        peer,
+        PEER_LIVENESS_INTERVAL,
+    ))
 }
 
 fn runtime() -> PrivilegeAuthorizationResult<&'static tokio::runtime::Runtime> {
@@ -126,74 +148,73 @@ impl ZbusTransport {
 }
 
 impl AuthorizationTransport for ZbusTransport {
-    fn check(
-        &mut self,
+    async fn check(
+        &self,
         peer: &SystemBrokerPeerFacts,
         cancellation_id: &str,
         deadline: Duration,
     ) -> Result<RawAuthorizationResult, TransportError> {
-        runtime().map_err(privilege_to_transport)?.block_on(async {
-            let result = timeout(deadline, async {
-                let proxy = authority_proxy(&self.connection).await?;
-                let mut subject_details = HashMap::with_capacity(3);
-                subject_details.insert("pid", Value::from(peer.process_id));
-                subject_details.insert("start-time", Value::from(peer.start_ticks));
-                subject_details.insert(
-                    "uid",
-                    Value::from(i32::try_from(peer.effective_user_id).map_err(|_| {
-                        TransportError {
-                            kind: TransportErrorKind::Call,
-                            message: "system broker peer uid does not fit the polkit wire type"
-                                .into(),
-                        }
-                    })?),
-                );
-                let subject = ("unix-process", subject_details);
-                let details: HashMap<&str, &str> = HashMap::new();
-                let arguments = (
-                    subject,
-                    PRIVILEGE_ACTION_ID,
-                    details,
-                    ALLOW_USER_INTERACTION,
-                    cancellation_id,
-                );
-                proxy
-                    .call::<_, _, (bool, bool, HashMap<String, String>)>(
-                        "CheckAuthorization",
-                        &arguments,
-                    )
-                    .await
-                    .map_err(map_check_error)
-            })
-            .await
-            .map_err(|_| TransportError {
-                kind: TransportErrorKind::TimedOut,
-                message: "polkit CheckAuthorization exceeded its deadline".into(),
-            })??;
-            let (authorized, challenge, details) = result;
-            Ok(RawAuthorizationResult {
-                authorized,
-                challenge,
+        let result = timeout(deadline, async {
+            let proxy = authority_proxy(&self.connection).await?;
+            let mut subject_details = HashMap::with_capacity(3);
+            subject_details.insert("pid", Value::from(peer.process_id));
+            subject_details.insert("start-time", Value::from(peer.start_ticks));
+            subject_details.insert(
+                "uid",
+                Value::from(
+                    i32::try_from(peer.effective_user_id).map_err(|_| TransportError {
+                        kind: TransportErrorKind::Call,
+                        message: "system broker peer uid does not fit the polkit wire type".into(),
+                    })?,
+                ),
+            );
+            let subject = ("unix-process", subject_details);
+            let details: HashMap<&str, &str> = HashMap::new();
+            let arguments = (
+                subject,
+                PRIVILEGE_ACTION_ID,
                 details,
-            })
+                ALLOW_USER_INTERACTION,
+                cancellation_id,
+            );
+            proxy
+                .call::<_, _, (bool, bool, HashMap<String, String>)>(
+                    "CheckAuthorization",
+                    &arguments,
+                )
+                .await
+                .map_err(map_check_error)
+        })
+        .await
+        .map_err(|_| TransportError {
+            kind: TransportErrorKind::TimedOut,
+            message: "polkit CheckAuthorization exceeded its deadline".into(),
+        })??;
+        let (authorized, challenge, details) = result;
+        Ok(RawAuthorizationResult {
+            authorized,
+            challenge,
+            details,
         })
     }
 
-    fn cancel(&mut self, cancellation_id: &str, deadline: Duration) -> Result<(), TransportError> {
-        runtime().map_err(privilege_to_transport)?.block_on(async {
-            timeout(deadline, async {
-                let proxy = authority_proxy(&self.connection).await?;
-                proxy
-                    .call::<_, _, ()>("CancelCheckAuthorization", &(cancellation_id,))
-                    .await
-                    .map_err(map_cancel_error)
-            })
-            .await
-            .map_err(|_| TransportError {
-                kind: TransportErrorKind::Cancel,
-                message: "polkit cancellation exceeded its deadline".into(),
-            })?
+    async fn cancel(
+        &self,
+        cancellation_id: &str,
+        deadline: Duration,
+    ) -> Result<(), TransportError> {
+        timeout(deadline, async {
+            let proxy = authority_proxy(&self.connection).await?;
+            proxy
+                .call::<_, _, ()>("CancelCheckAuthorization", &(cancellation_id,))
+                .await
+                .map_err(map_cancel_error)
         })
+        .await
+        .map_err(|_| TransportError {
+            kind: TransportErrorKind::Cancel,
+            message: "polkit cancellation exceeded its deadline".into(),
+        })?
     }
 }
 
@@ -209,13 +230,6 @@ async fn authority_proxy(connection: &Connection) -> Result<Proxy<'_>, Transport
         kind: TransportErrorKind::Connect,
         message: format!("cannot create the polkit authority proxy: {error}"),
     })
-}
-
-fn privilege_to_transport(error: PrivilegeAuthorizationError) -> TransportError {
-    TransportError {
-        kind: TransportErrorKind::Connect,
-        message: error.to_string(),
-    }
 }
 
 fn method_error_kind(error: &zbus::Error) -> Option<TransportErrorKind> {
@@ -256,27 +270,59 @@ fn map_cancel_error(error: zbus::Error) -> TransportError {
     }
 }
 
-fn authorize_with_transport(
+async fn authorize_with_transport(
     peer: &SystemBrokerPeerFacts,
     deadline: Duration,
-    transport: &mut impl AuthorizationTransport,
+    transport: &impl AuthorizationTransport,
+    liveness: &impl PeerLiveness,
+    liveness_interval: Duration,
 ) -> PrivilegeAuthorizationResult<PrivilegeAuthorizationDecision> {
     validate_peer(peer)?;
     let cancellation_id = next_cancellation_id();
-    match transport.check(peer, &cancellation_id, deadline) {
+    let check = transport.check(peer, &cancellation_id, deadline);
+    tokio::pin!(check);
+    let first_probe = tokio::time::Instant::now() + liveness_interval;
+    let mut probes = tokio::time::interval_at(first_probe, liveness_interval);
+    probes.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let result = loop {
+        tokio::select! {
+            result = &mut check => break result,
+            _ = probes.tick() => match liveness.is_alive() {
+                Ok(true) => {}
+                Ok(false) => {
+                    cancel_pending_check(
+                        transport,
+                        &cancellation_id,
+                        deadline,
+                        "caller exited while polkit authorization was pending",
+                    ).await?;
+                    return Err(PrivilegeAuthorizationError::new(
+                        PrivilegeAuthorizationErrorKind::StalePeer,
+                        "system broker peer exited while polkit authorization was pending",
+                    ));
+                }
+                Err(error) => {
+                    cancel_pending_check(
+                        transport,
+                        &cancellation_id,
+                        deadline,
+                        "caller liveness became unavailable while polkit authorization was pending",
+                    ).await?;
+                    return Err(map_transport_error(error));
+                }
+            }
+        }
+    };
+    match result {
         Ok(result) => classify_result(result),
         Err(error) if error.kind == TransportErrorKind::TimedOut => {
-            transport
-                .cancel(&cancellation_id, deadline.min(CANCEL_TIMEOUT))
-                .map_err(|cancel_error| {
-                    PrivilegeAuthorizationError::new(
-                        PrivilegeAuthorizationErrorKind::CancellationFailed,
-                        format!(
-                            "polkit authorization timed out and could not be canceled: {}",
-                            cancel_error.message
-                        ),
-                    )
-                })?;
+            cancel_pending_check(
+                transport,
+                &cancellation_id,
+                deadline,
+                "polkit authorization timed out",
+            )
+            .await?;
             Err(PrivilegeAuthorizationError::new(
                 PrivilegeAuthorizationErrorKind::TimedOut,
                 error.message,
@@ -284,6 +330,26 @@ fn authorize_with_transport(
         }
         Err(error) => Err(map_transport_error(error)),
     }
+}
+
+async fn cancel_pending_check(
+    transport: &impl AuthorizationTransport,
+    cancellation_id: &str,
+    deadline: Duration,
+    cause: &str,
+) -> PrivilegeAuthorizationResult<()> {
+    transport
+        .cancel(cancellation_id, deadline.min(CANCEL_TIMEOUT))
+        .await
+        .map_err(|error| {
+            PrivilegeAuthorizationError::new(
+                PrivilegeAuthorizationErrorKind::CancellationFailed,
+                format!(
+                    "{cause} and the check could not be canceled: {}",
+                    error.message
+                ),
+            )
+        })
 }
 
 fn validate_peer(peer: &SystemBrokerPeerFacts) -> PrivilegeAuthorizationResult<()> {
@@ -356,6 +422,7 @@ fn map_transport_error(error: TransportError) -> PrivilegeAuthorizationError {
     let kind = match error.kind {
         TransportErrorKind::Connect => PrivilegeAuthorizationErrorKind::SystemBusUnavailable,
         TransportErrorKind::Call => PrivilegeAuthorizationErrorKind::TransportFailed,
+        TransportErrorKind::Peer => PrivilegeAuthorizationErrorKind::InvalidPeer,
         TransportErrorKind::TimedOut => PrivilegeAuthorizationErrorKind::TimedOut,
         TransportErrorKind::Cancel => PrivilegeAuthorizationErrorKind::CancellationFailed,
         TransportErrorKind::AuthorizationCanceled => {
@@ -373,34 +440,73 @@ fn map_transport_error(error: TransportError) -> PrivilegeAuthorizationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        collections::VecDeque,
+        sync::{
+            Mutex,
+            atomic::{AtomicUsize, Ordering as AtomicOrdering},
+        },
+    };
 
     struct FakeTransport {
-        result: Option<Result<RawAuthorizationResult, TransportError>>,
-        cancel_result: Result<(), TransportError>,
-        cancellation_id: Option<String>,
-        cancel_id: Option<String>,
-        calls: usize,
+        result: Mutex<Option<Result<RawAuthorizationResult, TransportError>>>,
+        check_delay: Option<Duration>,
+        cancel_result: Mutex<Option<Result<(), TransportError>>>,
+        cancellation_id: Mutex<Option<String>>,
+        cancel_id: Mutex<Option<String>>,
+        calls: AtomicUsize,
+        cancel_calls: AtomicUsize,
     }
 
     impl AuthorizationTransport for FakeTransport {
-        fn check(
-            &mut self,
+        async fn check(
+            &self,
             _peer: &SystemBrokerPeerFacts,
             cancellation_id: &str,
             _deadline: Duration,
         ) -> Result<RawAuthorizationResult, TransportError> {
-            self.calls += 1;
-            self.cancellation_id = Some(cancellation_id.into());
-            self.result.take().expect("one check result")
+            self.calls.fetch_add(1, AtomicOrdering::Relaxed);
+            *self.cancellation_id.lock().expect("cancellation id lock") =
+                Some(cancellation_id.into());
+            match self.check_delay {
+                Some(delay) => tokio::time::sleep(delay).await,
+                None => std::future::pending().await,
+            }
+            self.result
+                .lock()
+                .expect("check result lock")
+                .take()
+                .expect("one check result")
         }
 
-        fn cancel(
-            &mut self,
+        async fn cancel(
+            &self,
             cancellation_id: &str,
             _deadline: Duration,
         ) -> Result<(), TransportError> {
-            self.cancel_id = Some(cancellation_id.into());
-            std::mem::replace(&mut self.cancel_result, Ok(()))
+            self.cancel_calls.fetch_add(1, AtomicOrdering::Relaxed);
+            *self.cancel_id.lock().expect("cancel id lock") = Some(cancellation_id.into());
+            self.cancel_result
+                .lock()
+                .expect("cancel result lock")
+                .take()
+                .expect("one cancel result")
+        }
+    }
+
+    struct FakeLiveness {
+        results: Mutex<VecDeque<Result<bool, TransportError>>>,
+        calls: AtomicUsize,
+    }
+
+    impl PeerLiveness for FakeLiveness {
+        fn is_alive(&self) -> Result<bool, TransportError> {
+            self.calls.fetch_add(1, AtomicOrdering::Relaxed);
+            self.results
+                .lock()
+                .expect("liveness result lock")
+                .pop_front()
+                .unwrap_or(Ok(true))
         }
     }
 
@@ -430,12 +536,36 @@ mod tests {
 
     fn fake(result: Result<RawAuthorizationResult, TransportError>) -> FakeTransport {
         FakeTransport {
-            result: Some(result),
-            cancel_result: Ok(()),
-            cancellation_id: None,
-            cancel_id: None,
-            calls: 0,
+            result: Mutex::new(Some(result)),
+            check_delay: Some(Duration::ZERO),
+            cancel_result: Mutex::new(Some(Ok(()))),
+            cancellation_id: Mutex::new(None),
+            cancel_id: Mutex::new(None),
+            calls: AtomicUsize::new(0),
+            cancel_calls: AtomicUsize::new(0),
         }
+    }
+
+    fn live() -> FakeLiveness {
+        FakeLiveness {
+            results: Mutex::new(VecDeque::new()),
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    fn authorize_fake(
+        transport: &FakeTransport,
+        liveness: &FakeLiveness,
+    ) -> PrivilegeAuthorizationResult<PrivilegeAuthorizationDecision> {
+        runtime()
+            .expect("test runtime")
+            .block_on(authorize_with_transport(
+                &peer(),
+                Duration::from_millis(50),
+                transport,
+                liveness,
+                Duration::from_millis(1),
+            ))
     }
 
     #[test]
@@ -463,22 +593,21 @@ mod tests {
             ),
         ];
         for (raw, expected) in cases {
-            let mut transport = fake(Ok(raw));
+            let transport = fake(Ok(raw));
             assert_eq!(
-                authorize_with_transport(&peer(), Duration::from_secs(1), &mut transport)
-                    .expect("valid decision"),
+                authorize_fake(&transport, &live()).expect("valid decision"),
                 expected
             );
-            assert_eq!(transport.calls, 1);
-            assert!(transport.cancel_id.is_none());
+            assert_eq!(transport.calls.load(AtomicOrdering::Relaxed), 1);
+            assert_eq!(transport.cancel_calls.load(AtomicOrdering::Relaxed), 0);
         }
     }
 
     #[test]
     fn rejects_contradictory_or_unbounded_native_results() {
-        let mut contradictory = fake(Ok(reply(true, true, &[])));
+        let contradictory = fake(Ok(reply(true, true, &[])));
         assert_eq!(
-            authorize_with_transport(&peer(), Duration::from_secs(1), &mut contradictory)
+            authorize_fake(&contradictory, &live())
                 .expect_err("contradictory result")
                 .kind(),
             PrivilegeAuthorizationErrorKind::InvalidNativeResult
@@ -487,13 +616,13 @@ mod tests {
         let details = (0..=MAX_DETAIL_ENTRIES)
             .map(|index| (format!("k{index}"), "v".to_owned()))
             .collect();
-        let mut unbounded = fake(Ok(RawAuthorizationResult {
+        let unbounded = fake(Ok(RawAuthorizationResult {
             authorized: false,
             challenge: false,
             details,
         }));
         assert_eq!(
-            authorize_with_transport(&peer(), Duration::from_secs(1), &mut unbounded)
+            authorize_fake(&unbounded, &live())
                 .expect_err("unbounded result")
                 .kind(),
             PrivilegeAuthorizationErrorKind::InvalidNativeResult
@@ -502,36 +631,106 @@ mod tests {
 
     #[test]
     fn timeout_cancels_on_the_same_transport_identity() {
-        let mut transport = fake(Err(TransportError {
+        let transport = fake(Err(TransportError {
             kind: TransportErrorKind::TimedOut,
             message: "fixture timeout".into(),
         }));
         assert_eq!(
-            authorize_with_transport(&peer(), Duration::from_secs(1), &mut transport)
+            authorize_fake(&transport, &live())
                 .expect_err("timed out")
                 .kind(),
             PrivilegeAuthorizationErrorKind::TimedOut
         );
-        assert_eq!(transport.cancel_id, transport.cancellation_id);
+        assert_eq!(transport.cancel_calls.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(
+            *transport.cancel_id.lock().expect("cancel id lock"),
+            *transport
+                .cancellation_id
+                .lock()
+                .expect("cancellation id lock")
+        );
     }
 
     #[test]
     fn timeout_with_failed_cancel_is_unknown_not_plain_timeout() {
-        let mut transport = fake(Err(TransportError {
+        let transport = fake(Err(TransportError {
             kind: TransportErrorKind::TimedOut,
             message: "fixture timeout".into(),
         }));
-        transport.cancel_result = Err(TransportError {
+        *transport.cancel_result.lock().expect("cancel result lock") = Some(Err(TransportError {
             kind: TransportErrorKind::Cancel,
             message: "fixture cancel failure".into(),
-        });
+        }));
         assert_eq!(
-            authorize_with_transport(&peer(), Duration::from_secs(1), &mut transport)
+            authorize_fake(&transport, &live())
                 .expect_err("cancel failed")
                 .kind(),
             PrivilegeAuthorizationErrorKind::CancellationFailed
         );
-        assert_eq!(transport.cancel_id, transport.cancellation_id);
+        assert_eq!(transport.cancel_calls.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(
+            *transport.cancel_id.lock().expect("cancel id lock"),
+            *transport
+                .cancellation_id
+                .lock()
+                .expect("cancellation id lock")
+        );
+    }
+
+    #[test]
+    fn caller_death_cancels_once_and_cannot_return_effect_authority() {
+        let mut transport = fake(Ok(reply(true, false, &[])));
+        transport.check_delay = None;
+        let liveness = FakeLiveness {
+            results: Mutex::new(VecDeque::from([Ok(false)])),
+            calls: AtomicUsize::new(0),
+        };
+
+        assert_eq!(
+            authorize_fake(&transport, &liveness)
+                .expect_err("dead caller must not receive effect authority")
+                .kind(),
+            PrivilegeAuthorizationErrorKind::StalePeer
+        );
+        assert_eq!(transport.calls.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(transport.cancel_calls.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(liveness.calls.load(AtomicOrdering::Relaxed), 1);
+        assert_eq!(
+            *transport.cancel_id.lock().expect("cancel id lock"),
+            *transport
+                .cancellation_id
+                .lock()
+                .expect("cancellation id lock")
+        );
+    }
+
+    #[test]
+    fn live_caller_can_approve_without_cancellation() {
+        let mut transport = fake(Ok(reply(true, false, &[])));
+        transport.check_delay = Some(Duration::from_millis(5));
+        let liveness = live();
+
+        assert_eq!(
+            authorize_fake(&transport, &liveness).expect("live caller approval"),
+            PrivilegeAuthorizationDecision::Authorized
+        );
+        assert_eq!(transport.cancel_calls.load(AtomicOrdering::Relaxed), 0);
+    }
+
+    #[test]
+    fn polkit_cancel_remains_typed_without_a_second_cancel_request() {
+        let transport = fake(Err(TransportError {
+            kind: TransportErrorKind::AuthorizationCanceled,
+            message: "fixture user cancellation".into(),
+        }));
+
+        assert_eq!(
+            authorize_fake(&transport, &live())
+                .expect_err("user cancellation")
+                .kind(),
+            PrivilegeAuthorizationErrorKind::AuthorizationCanceled
+        );
+        assert_eq!(transport.cancel_calls.load(AtomicOrdering::Relaxed), 0);
     }
 
     #[test]

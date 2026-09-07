@@ -238,9 +238,11 @@ mod macos_tests {
 
 /// Ask polkit to authorize the exact live process retained by `peer`.
 ///
-/// The peer is checked immediately before and after the native call. A caller
-/// therefore cannot substitute a self-authored `unix-process` subject, and a
-/// process that exits while consent is pending cannot yield authorization.
+/// The native wait observes the retained peer concurrently and cancels a
+/// pending polkit check when that exact process exits. The peer is also checked
+/// immediately before and after the native call. A caller therefore cannot
+/// substitute a self-authored `unix-process` subject, and a process that exits
+/// while consent is pending cannot yield authorization.
 #[cfg(target_os = "linux")]
 pub fn authorize_user_initiated(
     peer: &SystemBrokerStream,
@@ -253,7 +255,7 @@ pub fn authorize_user_initiated(
         ));
     }
     require_live_peer(peer, "before polkit authorization")?;
-    let decision = native::authorize(peer.peer(), timeout);
+    let decision = native::authorize(peer, timeout);
     let still_live = require_live_peer(peer, "after polkit authorization");
     still_live.and(decision)
 }
