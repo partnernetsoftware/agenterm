@@ -1,8 +1,8 @@
 // Bun-free legacy ACU entry. Native mechanisms, authorization, validation,
 // effects and receipts remain owned by agenterm-cu through `agenterm:acu`.
 import * as acu from "agenterm:acu";
-import * as argv_lib from "lib/argv";
-import * as compat from "lib/compat";
+import * as argv_lib from "agenterm:acu/argv";
+import * as compat from "agenterm:acu/compat";
 
 function usage(message) {
   return {

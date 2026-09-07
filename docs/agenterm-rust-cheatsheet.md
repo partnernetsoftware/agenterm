@@ -4089,6 +4089,14 @@ module the product does not execute. Let the generic engine accept an
 embedder-supplied built-in resolver, account each resolved source against the
 same bytes/module/deadline ledger, and resolve it before filesystem modules.
 
+A product-owned qjs entry should be compiled into the executable together with
+all of its imports and run through the ordinary worker, budget, audit and
+cleanup chain. Give it a reserved `.qjs` label, report its audit source as
+`builtin`, and pin that label to qjswasm so a process-wide backend override
+cannot reinterpret trusted built-in bytes. Pass compatibility argv only after
+the script delimiter and preserve each token byte-for-byte; never recover the
+entry by searching the installation, repository, current directory, or PATH.
+
 ## Measure guest allocation below the page granularity
 
 Linear-memory pages are a budget receipt, not an allocation-lifetime trace: a

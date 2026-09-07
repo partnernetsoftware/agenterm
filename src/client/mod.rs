@@ -1162,6 +1162,9 @@ fn run_list_instances(arguments: &[String]) -> i32 {
 
 fn run_cli(arguments: Vec<String>, control_options: CliControlOptions) -> i32 {
     let mut arguments = arguments;
+    if arguments.first().is_some_and(|command| command == "acu") {
+        return run_acu_compat_command(&arguments[1..]);
+    }
     if control_command_requests_help(&arguments) {
         let command = arguments.first().map(String::as_str).unwrap_or_default();
         if let Some(usage) = control_command_usage(command) {
@@ -1426,7 +1429,7 @@ fn run_script_command_hosted(arguments: &[String]) -> i32 {
     {
         return run_script_artifact_command(arguments);
     }
-    run_script_command_with_context(arguments, None)
+    run_script_command_with_context(arguments, None, None)
 }
 
 /// Bounded repository-wide `.qjs` validation. Rh's implementation left with
@@ -1464,10 +1467,7 @@ fn run_script_check_many(arguments: &[String]) -> i32 {
 
 #[cfg(feature = "script-qjswasm")]
 fn qjs_check_builtin_module(specifier: &str) -> Option<&'static str> {
-    match specifier {
-        "agenterm:acu" => Some(crate::script_engine::AGENTERM_ACU_MODULE_SOURCE),
-        _ => None,
-    }
+    crate::script_engine::qjs_builtin_module_source(specifier)
 }
 
 /// `script pack build|load`, `script run-smoke` and `script qualify`: the four
@@ -1890,13 +1890,45 @@ fn run_script_command_direct(arguments: &[String]) -> i32 {
     if arguments.get(1).is_some_and(|value| value == "repl") {
         return run_script_repl(arguments);
     }
-    run_script_command_with_context(arguments, None)
+    run_script_command_with_context(arguments, None, None)
 }
 
 #[derive(Clone, Debug)]
 struct ScriptExecutionContext {
     project_root: PathBuf,
     working_directory: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EmbeddedScriptSource {
+    label: &'static str,
+    source: &'static str,
+}
+
+fn run_acu_compat_command(arguments: &[String]) -> i32 {
+    let translated = acu_compat_script_arguments(arguments);
+    run_script_command_with_context(
+        &translated,
+        None,
+        Some(EmbeddedScriptSource {
+            label: crate::script_engine::AGENTERM_ACU_ENTRY_LABEL,
+            source: crate::script_engine::AGENTERM_ACU_ENTRY_SOURCE,
+        }),
+    )
+}
+
+fn acu_compat_script_arguments(arguments: &[String]) -> Vec<String> {
+    let mut translated = vec![
+        "script".to_owned(),
+        "run".to_owned(),
+        "--profile".to_owned(),
+        "tool".to_owned(),
+        "--exit-code-from-value".to_owned(),
+        crate::script_engine::AGENTERM_ACU_ENTRY_LABEL.to_owned(),
+        "--".to_owned(),
+    ];
+    translated.extend_from_slice(arguments);
+    translated
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1923,6 +1955,7 @@ fn script_worker_executable() -> Result<ResolvedScriptWorker, String> {
 fn run_script_command_with_context(
     arguments: &[String],
     context: Option<ScriptExecutionContext>,
+    embedded: Option<EmbeddedScriptSource>,
 ) -> i32 {
     let Some(operation_name) = arguments.get(1).map(String::as_str) else {
         cli_eprintln!(
@@ -2117,11 +2150,13 @@ fn run_script_command_with_context(
             ("eval".to_owned(), source)
         }
         ScriptOperation::Check | ScriptOperation::Run => {
-            let Some(path) = operand else {
+            let Some(path) = embedded.map(|source| source.label).or(operand) else {
                 cli_eprintln!("script {operation_name} requires a file path or -");
                 return 2;
             };
-            if path == "-" {
+            if let Some(embedded) = embedded {
+                (embedded.label.to_owned(), embedded.source.to_owned())
+            } else if path == "-" {
                 match read_script_source(std::io::stdin().lock(), budgets.source_bytes) {
                     Ok(source) => ("stdin".to_owned(), source),
                     Err((code, error)) => {
@@ -2264,6 +2299,9 @@ fn run_script_command_with_context(
         ScriptOperation::Eval => AuditSourceKind::Eval,
         ScriptOperation::Check | ScriptOperation::Run if source_label == "stdin" => {
             AuditSourceKind::Stdin
+        }
+        ScriptOperation::Check | ScriptOperation::Run if embedded.is_some() => {
+            AuditSourceKind::Builtin
         }
         ScriptOperation::Check | ScriptOperation::Run => AuditSourceKind::File,
     };
@@ -2967,6 +3005,7 @@ fn run_resolved_script_task(arguments: &[String], task: ResolvedScriptTask) -> i
             project_root: task.project_root,
             working_directory: task.cwd,
         }),
+        None,
     )
 }
 
@@ -4872,11 +4911,44 @@ mod tests {
     #[cfg(feature = "script-qjswasm")]
     #[test]
     fn check_many_uses_the_exact_runtime_acu_builtin_source() {
-        assert_eq!(
-            super::qjs_check_builtin_module("agenterm:acu"),
-            Some(crate::script_engine::AGENTERM_ACU_MODULE_SOURCE)
-        );
+        for specifier in [
+            "agenterm:acu",
+            "agenterm:acu/argv",
+            "agenterm:acu/legacy-args",
+            "agenterm:acu/rewrite",
+            "agenterm:acu/compat",
+        ] {
+            assert_eq!(
+                super::qjs_check_builtin_module(specifier),
+                crate::script_engine::qjs_builtin_module_source(specifier)
+            );
+        }
         assert_eq!(super::qjs_check_builtin_module("agenterm:unknown"), None);
+    }
+
+    #[test]
+    fn embedded_acu_translation_preserves_every_legacy_argument_byte_for_byte() {
+        let legacy = vec![
+            String::new(),
+            "  ".to_owned(),
+            "line one\nline two".to_owned(),
+            "--".to_owned(),
+            "--x".to_owned(),
+        ];
+        let translated = super::acu_compat_script_arguments(&legacy);
+        assert_eq!(
+            &translated[..7],
+            [
+                "script",
+                "run",
+                "--profile",
+                "tool",
+                "--exit-code-from-value",
+                crate::script_engine::AGENTERM_ACU_ENTRY_LABEL,
+                "--",
+            ]
+        );
+        assert_eq!(&translated[7..], legacy);
     }
 
     /// Every `value_type` the catalog declares must have a real arm in the

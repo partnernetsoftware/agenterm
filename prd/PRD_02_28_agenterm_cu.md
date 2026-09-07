@@ -120,7 +120,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  ├─ [x] no Bun / binary lookup / child process / MCU fallback
   │  ├─ [x] freeze the engine-neutral compatibility oracle: 42 positive probes + 95 dynamic witnesses
   │  ├─ [~] 33/42 positive probes map to one in-process argv call; the remaining 9 fail as stable typed TODOs
-  │  └─ [ ] close those 9 mappings, embed the entry, and switch the public command
+  │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
+  │  └─ [ ] close those 9 mappings, switch the external compatibility wrapper, and prove MCU-absent courts
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
   └─ acu.qjs retires when legacy MCU syntax has no retained callers

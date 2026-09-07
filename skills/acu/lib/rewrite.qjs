@@ -1,7 +1,7 @@
 // Pure first-wave compatibility rewrites. Input has already had global flags
 // removed; output is one typed argv call or an explicit local refusal.
 
-import * as legacy from "skills/acu/lib/legacy_args";
+import * as legacy from "agenterm:acu/legacy-args";
 
 const QUERY_TODO_FLAGS = [
   "subrole", "text", "selector", "within", "text-match", "descendant-text-depth",

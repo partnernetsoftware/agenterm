@@ -479,6 +479,28 @@ export function argv(args) {
 }
 "#;
 
+pub(crate) const AGENTERM_ACU_ENTRY_LABEL: &str = "agenterm-acu.qjs";
+pub(crate) const AGENTERM_ACU_ENTRY_SOURCE: &str = include_str!("../skills/acu/acu.qjs");
+pub(crate) const AGENTERM_ACU_ARGV_SOURCE: &str = include_str!("../skills/acu/lib/argv.qjs");
+pub(crate) const AGENTERM_ACU_LEGACY_ARGS_SOURCE: &str =
+    include_str!("../skills/acu/lib/legacy_args.qjs");
+pub(crate) const AGENTERM_ACU_REWRITE_SOURCE: &str = include_str!("../skills/acu/lib/rewrite.qjs");
+pub(crate) const AGENTERM_ACU_COMPAT_SOURCE: &str = include_str!("../skills/acu/lib/compat.qjs");
+
+/// Product-owned qjswasm modules. This is the one registry used by runtime,
+/// single-file checking and bounded check-many, so a built-in cannot resolve
+/// to different bytes depending on which public door reached the compiler.
+pub(crate) fn qjs_builtin_module_source(specifier: &str) -> Option<&'static str> {
+    match specifier {
+        "agenterm:acu" => Some(AGENTERM_ACU_MODULE_SOURCE),
+        "agenterm:acu/argv" => Some(AGENTERM_ACU_ARGV_SOURCE),
+        "agenterm:acu/legacy-args" => Some(AGENTERM_ACU_LEGACY_ARGS_SOURCE),
+        "agenterm:acu/rewrite" => Some(AGENTERM_ACU_REWRITE_SOURCE),
+        "agenterm:acu/compat" => Some(AGENTERM_ACU_COMPAT_SOURCE),
+        _ => None,
+    }
+}
+
 fn qjs_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + use<> {
     // Roots in order of preference, each confined to itself; the first that
     // has the file answers. Duplicates (the usual case: the entry's directory
@@ -494,8 +516,8 @@ fn qjs_module_resolver(roots: &[PathBuf]) -> impl Fn(&str) -> Option<String> + u
     move |specifier: &str| {
         // Product-owned built-in: resolve before the filesystem so a project
         // cannot shadow the typed ACU adapter with a same-named file.
-        if specifier == "agenterm:acu" {
-            return Some(AGENTERM_ACU_MODULE_SOURCE.to_owned());
+        if let Some(source) = qjs_builtin_module_source(specifier) {
+            return Some(source.to_owned());
         }
         canonical.iter().find_map(|root| {
             let mut candidate = root.join(specifier);
@@ -1766,6 +1788,31 @@ return reply.ok + ":" + reply.command;
         assert!(built_in.contains("export function argv"));
         assert!(built_in.contains("acu_request: 1"));
         assert!(!built_in.contains("not valid"));
+    }
+
+    #[cfg(feature = "script-qjswasm")]
+    #[test]
+    fn embedded_acu_entry_and_all_reserved_modules_compile_from_one_registry() {
+        for specifier in [
+            "agenterm:acu",
+            "agenterm:acu/argv",
+            "agenterm:acu/legacy-args",
+            "agenterm:acu/rewrite",
+            "agenterm:acu/compat",
+        ] {
+            assert!(
+                qjs_builtin_module_source(specifier).is_some(),
+                "missing reserved module {specifier}"
+            );
+        }
+        assert!(qjs_builtin_module_source("agenterm:acu/unknown").is_none());
+        let options = ScriptInvocationOptions {
+            tool_door: true,
+            ..ScriptInvocationOptions::default()
+        };
+        QjswasmEngineBackend
+            .check(AGENTERM_ACU_ENTRY_SOURCE, &options)
+            .expect("embedded ACU entry and its reserved imports compile together");
     }
 
     /// `check` and `execute` must agree about what the subset is.

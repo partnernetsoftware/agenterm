@@ -75,7 +75,8 @@ ACU replaces MCU
 │  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  33/42 legacy probes execute, 9 publish stable TODOs, 95 dynamic witnesses are frozen;
-│  │  remaining mappings, embedded public entry and MCU-absent court remain
+│  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
+│  │  remaining mappings, external-wrapper switch and MCU-absent court remain
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency

@@ -37,6 +37,7 @@ pub(crate) struct AuditBudgets {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum AuditSourceKind {
     Api,
+    Builtin,
     Eval,
     Stdin,
     File,

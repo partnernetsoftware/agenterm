@@ -2,8 +2,8 @@
 // native command schema, authorization, mechanisms and receipts remain in
 // agenterm-cu through agenterm:acu.argv.
 
-import * as legacy from "skills/acu/lib/legacy_args";
-import * as rewrite from "skills/acu/lib/rewrite";
+import * as legacy from "agenterm:acu/legacy-args";
+import * as rewrite from "agenterm:acu/rewrite";
 
 export const LEGACY_TOP_LEVEL = [
   "windows", "apps", "query", "invoke", "verify", "wait", "unlock",

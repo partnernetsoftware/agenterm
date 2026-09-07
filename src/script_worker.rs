@@ -717,15 +717,23 @@ fn execute_inner(
     // entry with no routed extension -- is refused here by name. Until
     // 2026-08-29 every one of those was answered by rh, which is how a
     // request for one language came to be served by another's transpiler.
-    let selected = match crate::script_backend::ScriptBackend::resolve(&invocation.source_label) {
-        Ok(selected) => selected,
-        Err(refusal) => {
-            return Err(configuration_error(
-                "script_backend_unavailable",
-                refusal.message(),
-            ));
-        }
-    };
+    let selected =
+        match if invocation.source_label == crate::script_engine::AGENTERM_ACU_ENTRY_LABEL {
+            // This product-owned entry is qjswasm source compiled into the binary.
+            // A process-wide backend override must not reinterpret trusted built-in
+            // bytes as another language.
+            crate::script_backend::ScriptBackend::refusal_for(Some("qjswasm"))
+        } else {
+            crate::script_backend::ScriptBackend::resolve(&invocation.source_label)
+        } {
+            Ok(selected) => selected,
+            Err(refusal) => {
+                return Err(configuration_error(
+                    "script_backend_unavailable",
+                    refusal.message(),
+                ));
+            }
+        };
 
     // Lua backend: `AGENTERM_SCRIPT_BACKEND=lua` or a `.lua` entry.
     #[cfg(all(not(test), feature = "script-lua"))]

@@ -59,16 +59,17 @@ while (index < args.length) {
 
 const stdout_path = repo + ".lint.stdout.tmp";
 const manifest_path = repo + ".lint-check-many.json";
+const acu_manifest_path = repo + ".lint-acu-check-many.json";
 const started = rh.now_ms();
 
 // The checker verb. rh spelled it `worker rh check-many ...`; `agenterm rh`
 // is retired and the binary itself names `cli script check-many` as the
 // replacement. The flag list is rh's (all still accepted).
-function check_many_args(manifest) {
+function check_many_args(manifest, project_root) {
   return [
     "cli", "script", "check-many", "--manifest", manifest,
     "--profile", "local",
-    "--project-root", repo,
+    "--project-root", project_root,
     "--timeout-ms", "10000",
     "--max-operations", "1000000"
   ];
@@ -104,13 +105,13 @@ if (internal_selftest === 1) {
     }) + "\n"
   );
 
-  const check_code = rh.command_stdout_file(worker, check_many_args(selftest_manifest), stdout_path, check_options);
+  const check_code = rh.command_stdout_file(worker, check_many_args(selftest_manifest, repo), stdout_path, check_options);
   rh.require(check_code !== 0, "lint_selftest_did_not_reject_malformed_inputs");
 
   // Malformed JSON is proven rejected by OUR OWN binary: `check-many` reads
   // its `--manifest` as JSON text, so handing it the bad fixture directly
   // exercises agenterm's json parse path and must exit non-zero.
-  const bad_json_code = rh.command_stdout_file(worker, check_many_args(bad_json), stdout_path, check_options);
+  const bad_json_code = rh.command_stdout_file(worker, check_many_args(bad_json, repo), stdout_path, check_options);
   rh.require(bad_json_code !== 0, "lint_selftest_did_not_reject_malformed_inputs");
 
   rh.try_remove_file(bad_json);
@@ -221,7 +222,12 @@ if (internal_selftest === 1) {
     );
     const manifest_code = rh.command_stdout_file(
       "git",
-      ["-C", repo, "ls-files", "--", "scripts/qjs/*.qjs"],
+      [
+        "-C", repo, "ls-files", "--",
+        "scripts/qjs/*.qjs",
+        "skills/acu/acu.qjs",
+        ":(glob)skills/acu/tests/*.qjs"
+      ],
       stdout_path,
       { cwd: repo, timeout_ms: 10000 }
     );
@@ -243,15 +249,53 @@ if (internal_selftest === 1) {
       }) + "\n"
     );
 
-    const checked = rh.command(worker, check_many_args(manifest_path), check_options);
+    const checked = rh.command(worker, check_many_args(manifest_path, repo), check_options);
     if (checked.exit_code !== 0) {
       throw "QJS lint errors:\n" + checked.stdout + checked.stderr;
+    }
+
+    // qjswasm checks an exported module by synthesizing an importer relative
+    // to PROJECT_ROOT/scripts/qjs, or relative to PROJECT_ROOT when that
+    // directory is absent. ACU is a self-contained skill tree, so give its
+    // exported libraries their own bounded manifest rooted at the skill.
+    const acu_root = rh.join(repo, "skills/acu");
+    const acu_manifest_code = rh.command_stdout_file(
+      "git",
+      ["-C", repo, "ls-files", "--", ":(glob)skills/acu/lib/*.qjs"],
+      stdout_path,
+      { cwd: repo, timeout_ms: 10000 }
+    );
+    rh.require(acu_manifest_code === 0, "lint_acu_qjs_files_git");
+    const acu_qjs_files = [];
+    for (const source_line of rh.read_text(stdout_path).split("\n")) {
+      const relative_path = source_line.trim();
+      if (relative_path !== "") {
+        acu_qjs_files.push(relative_path.replace("skills/acu/", ""));
+      }
+    }
+    rh.require(acu_qjs_files.length > 0, "lint_acu_qjs_files_empty");
+    rh.write_text(
+      acu_manifest_path,
+      JSON.stringify({
+        schema_version: 1,
+        kind: "agenterm-qjs-check-manifest",
+        files: acu_qjs_files
+      }) + "\n"
+    );
+    const acu_checked = rh.command(
+      worker,
+      check_many_args(acu_manifest_path, acu_root),
+      check_options
+    );
+    if (acu_checked.exit_code !== 0) {
+      throw "ACU QJS lint errors:\n" + acu_checked.stdout + acu_checked.stderr;
     }
   }
 }
 
 rh.try_remove_file(stdout_path);
 rh.try_remove_file(manifest_path);
+rh.try_remove_file(acu_manifest_path);
 
 const duration_ms = rh.now_ms() - started;
 let report_mode = mode;
