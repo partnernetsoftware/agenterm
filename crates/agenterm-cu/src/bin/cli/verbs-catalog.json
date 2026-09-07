@@ -2431,8 +2431,8 @@
       "aliases": [],
       "grant": "observe",
       "family": "a11y-observe",
-      "summary": "name a bounded tree as a baseline for diff",
-      "usage": "snapshot --window HANDLE [--depth N] [--max-nodes N] [--out PATH]",
+      "summary": "name a bounded tree baseline, optionally paired with a window PNG",
+      "usage": "snapshot --window HANDLE [--depth N] [--max-nodes N] [--out PATH] [--shot]",
       "args": [
         {
           "flag": "--window",
@@ -2453,6 +2453,10 @@
           "flag": "--out",
           "value": "PATH",
           "help": "also write the baseline itself to this path"
+        },
+        {
+          "flag": "--shot",
+          "help": "retain an identity-clamped window PNG beside the baseline"
         }
       ]
     },
@@ -5950,7 +5954,7 @@
     },
     {
       "name": "snapshot",
-      "text": "agenterm-cu snapshot\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  snapshot --window HANDLE [--depth N] [--max-nodes N] [--out PATH]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --out PATH                    also write the baseline itself to this path\n\nCaptures the bounded tree once and stores it as a named baseline, so\n`diff` can answer \"what changed since\" without the caller holding the\ntree. The reply carries snapshot_id, the node count and truncated.\n\nBaselines live beside the receipts, under the same audit directory:\n<audit dir>/cu-snapshots/<target>/w<window>/<snapshot_id>.json, so\nAGENTERM_CU_AUDIT_PATH relocates audit, receipts and baselines together.\nEach window keeps its 32 newest baselines and older ones are dropped, so\na poll loop cannot grow the store without end.\n"
+      "text": "agenterm-cu snapshot\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  snapshot --window HANDLE [--depth N] [--max-nodes N] [--out PATH] [--shot]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --out PATH                    also write the baseline itself to this path\n  --shot                        retain a window PNG beside the baseline\n\nCaptures the bounded tree once and stores it as a named baseline, so\n`diff` can answer \"what changed since\" without the caller holding the\ntree. The reply carries snapshot_id, the node count and truncated. With\n--shot, one Executor call also captures a PNG under the same snapshot id;\nthe full window identity is checked before the tree and after the PNG.\nThis is a sequential identity-clamped observation, not an atomic instant.\nTree, PNG, or identity failure publishes neither member of the pair.\n\nBaselines live beside the receipts, under the same audit directory:\n<audit dir>/cu-snapshots/<target>/w<window>/<snapshot_id>.json, with an\noptional same-id .png, so AGENTERM_CU_AUDIT_PATH relocates audit, receipts\nand baselines together. Each window keeps its 32 newest baseline pairs and\nolder pairs are dropped, so a poll loop cannot grow the store without end.\n"
     },
     {
       "name": "diff",

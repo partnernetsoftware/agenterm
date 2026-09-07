@@ -3749,6 +3749,10 @@ pub enum Command {
         /// the tree itself rather than only the id.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         out: Option<String>,
+        /// Capture a PNG of the same identity-bracketed window and retain it
+        /// beside the tree baseline under the same snapshot id.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        shot: bool,
     },
     /// `diff`: compare the window's current bounded tree against a stored
     /// baseline. Without `base` the most recent snapshot of that window is
@@ -7874,6 +7878,32 @@ mod tests {
         };
         assert_eq!(output.required_grant(), Grant::Observe);
         assert_eq!(output.verb(), "terminal-output");
+    }
+
+    #[test]
+    fn snapshot_shot_is_additive_on_the_typed_wire() {
+        let baseline = Command::Snapshot {
+            target: TargetRef::Current,
+            window: 7,
+            depth: None,
+            max_nodes: None,
+            out: None,
+            shot: false,
+        };
+        let baseline_json = serde_json::to_value(&baseline).expect("serialize baseline");
+        assert!(baseline_json.get("shot").is_none(), "{baseline_json}");
+        let shot = Command::Snapshot {
+            target: TargetRef::Current,
+            window: 7,
+            depth: None,
+            max_nodes: None,
+            out: None,
+            shot: true,
+        };
+        assert_eq!(
+            serde_json::to_value(&shot).expect("serialize shot")["shot"],
+            true
+        );
     }
 
     #[test]

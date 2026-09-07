@@ -18,6 +18,8 @@ use super::*;
 use crate::pty_snapshot::{self, PtySnapshotStore};
 use crate::snapshot::{self, SnapshotStore};
 
+const MAX_SNAPSHOT_IDENTITY_WINDOWS: usize = 512;
+
 impl Executor {
     /// `<audit dir>/cu-snapshots`, resolved exactly like the receipt
     /// directory so one audit path relocates audit, receipts and baselines
@@ -60,7 +62,7 @@ fn require_window(verb: &str, window: isize) -> Result<(), CuError> {
     Ok(())
 }
 
-/// `snapshot --window H [--depth N] [--max-nodes N] [--out PATH]`.
+/// `snapshot --window H [--depth N] [--max-nodes N] [--out PATH] [--shot]`.
 pub(super) fn snapshot_payload(
     store: &SnapshotStore,
     target: TargetRef,
@@ -68,26 +70,61 @@ pub(super) fn snapshot_payload(
     depth: Option<u32>,
     max_nodes: Option<usize>,
     out: Option<&str>,
+    shot: bool,
 ) -> Result<serde_json::Value, CuError> {
     require_window("snapshot", window)?;
     if out.is_some_and(|path| path.trim().is_empty() || path.contains('\0')) {
         return Err(invalid_input("snapshot --out needs a writable path".into()));
     }
     let budget = tree_budget(depth, max_nodes)?;
+    let identity = if shot {
+        Some(snapshot_window_identity(window)?)
+    } else {
+        None
+    };
     let tree =
         mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
-    let stored = store.write(target, window, (depth, max_nodes), &tree)?;
+    let stored = if let Some(identity) = identity.as_ref() {
+        store.write_with_shot(target, window, (depth, max_nodes), &tree, |staged_path| {
+            let captured = mechanism::screenshot::capture_native_window_png(window, staged_path)
+                .map_err(map_mechanism_err)?;
+            if captured.output_width == 0 || captured.output_height == 0 {
+                return Err(CuError::new(
+                    "snapshot_shot_invalid",
+                    "snapshot --shot capture did not produce a readable PNG header",
+                ));
+            }
+            revalidate_snapshot_window(identity)?;
+            Ok(snapshot::SnapshotShotCapture {
+                output_width: captured.output_width,
+                output_height: captured.output_height,
+                output_pixels: captured.output_pixels,
+            })
+        })?
+    } else {
+        store.write(target, window, (depth, max_nodes), &tree)?
+    };
     // `--out` is a convenience copy for a caller that wants the tree
     // itself; the baseline `diff` reads is the store's, always.
     if let Some(path) = out {
-        let text = serde_json::to_string_pretty(&stored)
-            .map_err(|error| CuError::new("serialize", error.to_string()))?;
-        std::fs::write(path, text).map_err(|error| {
-            CuError::new(
+        let text = match serde_json::to_string_pretty(&stored) {
+            Ok(text) => text,
+            Err(error) => {
+                if shot {
+                    store.remove_pair(target, window, &stored.snapshot_id);
+                }
+                return Err(CuError::new("serialize", error.to_string()));
+            }
+        };
+        if let Err(error) = std::fs::write(path, text) {
+            if shot {
+                store.remove_pair(target, window, &stored.snapshot_id);
+            }
+            return Err(CuError::new(
                 "snapshot_unavailable",
                 format!("could not write snapshot --out {path}: {error}"),
-            )
-        })?;
+            ));
+        }
     }
     let mut payload = stored.meta_json();
     if let Some(object) = payload.as_object_mut() {
@@ -96,6 +133,23 @@ pub(super) fn snapshot_payload(
         object.insert("store".into(), serde_json::json!(store.root()));
         object.insert("out".into(), serde_json::json!(out));
         object.insert("nodes".into(), serde_json::json!(stored.returned));
+        if shot {
+            object.insert(
+                "observation".into(),
+                serde_json::json!({
+                    "atomic": false,
+                    "order": ["window-identity-before", "bounded-tree", "window-png", "window-identity-after"],
+                    "identity_clamped": true,
+                }),
+            );
+            object.insert(
+                "window_identity".into(),
+                identity
+                    .as_ref()
+                    .map(observe::window_row_json)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
         object.insert(
             "next_actions".into(),
             serde_json::json!([format!(
@@ -105,6 +159,55 @@ pub(super) fn snapshot_payload(
         );
     }
     Ok(payload)
+}
+
+fn snapshot_window_identity(
+    window: isize,
+) -> Result<mechanism::window_enumerate::WindowInfo, CuError> {
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    if windows.len() > MAX_SNAPSHOT_IDENTITY_WINDOWS {
+        return Err(CuError::new(
+            "snapshot_window_limit",
+            format!(
+                "snapshot --shot observed {} windows; identity inventory limit is {MAX_SNAPSHOT_IDENTITY_WINDOWS}",
+                windows.len()
+            ),
+        ));
+    }
+    windows
+        .into_iter()
+        .find(|candidate| candidate.handle == window)
+        .ok_or_else(|| {
+            CuError::new(
+                "snapshot_window_not_found",
+                format!("snapshot --shot window {window} is absent from the bounded inventory"),
+            )
+        })
+}
+
+fn revalidate_snapshot_window(
+    identity: &mechanism::window_enumerate::WindowInfo,
+) -> Result<(), CuError> {
+    let after = snapshot_window_identity(identity.handle)?;
+    validate_snapshot_window_identity(identity, &after)
+}
+
+fn validate_snapshot_window_identity(
+    before: &mechanism::window_enumerate::WindowInfo,
+    after: &mechanism::window_enumerate::WindowInfo,
+) -> Result<(), CuError> {
+    if after == before {
+        return Ok(());
+    }
+    Err(CuError::new(
+        "snapshot_window_changed",
+        "snapshot --shot window identity changed during the sequential tree/PNG observation",
+    )
+    .with_detail(serde_json::json!({
+        "before": observe::window_row_json(before),
+        "after": observe::window_row_json(after),
+        "atomic": false,
+    })))
 }
 
 /// One bucket of the diff, in the node shape `query` returns, bounded.
@@ -236,6 +339,33 @@ pub(super) fn diff_payload(
 mod tests {
     use super::*;
 
+    fn window_identity(handle: isize, title: &str) -> mechanism::window_enumerate::WindowInfo {
+        mechanism::window_enumerate::WindowInfo {
+            handle,
+            title: title.into(),
+            process_id: 7,
+            app_name: "Fixture".into(),
+            bounds: mechanism::window_enumerate::WindowBounds {
+                x: 1,
+                y: 2,
+                width: 3,
+                height: 4,
+            },
+            focused: false,
+            minimized: false,
+        }
+    }
+
+    #[test]
+    fn shot_identity_clamp_compares_the_complete_window_row() {
+        let before = window_identity(7, "before");
+        assert!(validate_snapshot_window_identity(&before, &before).is_ok());
+        let after = window_identity(7, "after");
+        let error = validate_snapshot_window_identity(&before, &after).expect_err("drift");
+        assert_eq!(error.code, "snapshot_window_changed");
+        assert_eq!(error.detail.as_ref().expect("detail")["atomic"], false);
+    }
+
     #[test]
     fn both_verbs_need_a_window_and_a_bounded_page() {
         let path = audit_scratch("snapshot-usage");
@@ -246,6 +376,7 @@ mod tests {
             depth: None,
             max_nodes: None,
             out: None,
+            shot: false,
         });
         assert_eq!(no_window.command, "snapshot");
         assert_eq!(
@@ -258,6 +389,7 @@ mod tests {
             depth: Some(65),
             max_nodes: None,
             out: None,
+            shot: false,
         });
         assert_eq!(deep.error.as_ref().expect("typed").code, "invalid_input");
         let no_diff_window = executor.execute(&Command::Diff {
@@ -349,6 +481,7 @@ mod tests {
                 depth: None,
                 max_nodes: None,
                 out: None,
+                shot: false,
             },
             Command::Diff {
                 target: TargetRef::Current,

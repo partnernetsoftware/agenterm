@@ -2068,6 +2068,7 @@ impl Executor {
                 depth,
                 max_nodes,
                 out,
+                shot,
                 ..
             } => snapshot_payload(
                 &self.snapshot_store()?,
@@ -2076,6 +2077,7 @@ impl Executor {
                 *depth,
                 *max_nodes,
                 out.as_deref(),
+                *shot,
             ),
             Command::Diff {
                 window,

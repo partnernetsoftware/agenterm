@@ -80,13 +80,34 @@ pub struct StoredSnapshot {
     pub visited: usize,
     pub returned: usize,
     pub nodes: Vec<A11yNode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shot: Option<StoredSnapshotShot>,
+}
+
+/// PNG evidence retained beside one tree baseline under the same id.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StoredSnapshotShot {
+    pub path: String,
+    pub bytes: u64,
+    pub output_width: u32,
+    pub output_height: u32,
+    pub output_pixels: usize,
+}
+
+/// Capture facts returned by the existing screenshot mechanism before the
+/// store publishes the staged PNG.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SnapshotShotCapture {
+    pub output_width: u32,
+    pub output_height: u32,
+    pub output_pixels: usize,
 }
 
 impl StoredSnapshot {
     /// The reply's identity block: everything about the baseline except
     /// its nodes.
     pub fn meta_json(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut value = serde_json::json!({
             "snapshot_id": self.snapshot_id,
             "ts_ms": self.ts_ms,
             "window": self.window,
@@ -96,7 +117,11 @@ impl StoredSnapshot {
             "truncated": self.truncated,
             "visited": self.visited,
             "returned": self.returned,
-        })
+        });
+        if let (Some(shot), Some(object)) = (&self.shot, value.as_object_mut()) {
+            object.insert("shot".into(), serde_json::json!(shot));
+        }
+        value
     }
 }
 
@@ -142,6 +167,14 @@ impl SnapshotStore {
         &self.dir
     }
 
+    /// Remove both retained members for one id. Used only to roll back a
+    /// later failure in the same snapshot command.
+    pub fn remove_pair(&self, target: TargetRef, window: isize, snapshot_id: &str) {
+        let dir = self.window_dir(target, window);
+        let _ = std::fs::remove_file(dir.join(format!("{snapshot_id}.json")));
+        let _ = std::fs::remove_file(dir.join(format!("{snapshot_id}.png")));
+    }
+
     fn window_dir(&self, target: TargetRef, window: isize) -> PathBuf {
         self.dir.join(target.as_str()).join(format!("w{window}"))
     }
@@ -177,6 +210,7 @@ impl SnapshotStore {
             visited: tree.visited,
             returned: tree.nodes.len(),
             nodes: tree.nodes.clone(),
+            shot: None,
         };
         let dir = self.window_dir(target, window);
         std::fs::create_dir_all(&dir).map_err(|error| {
@@ -203,6 +237,130 @@ impl SnapshotStore {
         })?;
         // Best effort: a baseline that could not be pruned is not a reason
         // to fail the observation that just succeeded.
+        let _ = prune(&dir, KEEP_PER_WINDOW);
+        Ok(snapshot)
+    }
+
+    /// Stage a PNG in the target window's own store, then publish the PNG and
+    /// JSON baseline as one fail-closed pair. `capture` may also perform the
+    /// caller's post-capture identity recheck; nothing becomes visible until
+    /// it returns success. Any failure removes this id's staged/final files.
+    pub fn write_with_shot<F>(
+        &self,
+        target: TargetRef,
+        window: isize,
+        budget: (Option<u32>, Option<usize>),
+        tree: &crate::mechanism::A11yTree,
+        capture: F,
+    ) -> Result<StoredSnapshot, CuError>
+    where
+        F: FnOnce(&Path) -> Result<SnapshotShotCapture, CuError>,
+    {
+        let ts_ms = now_ms();
+        let pid = std::process::id();
+        let sequence = NEXT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let snapshot_id = format!("{ts_ms}-{pid}-{sequence}");
+        let dir = self.window_dir(target, window);
+        std::fs::create_dir_all(&dir).map_err(|error| {
+            CuError::new(
+                "snapshot_unavailable",
+                format!(
+                    "could not create snapshot directory {}: {error}",
+                    dir.display()
+                ),
+            )
+        })?;
+        let json_path = dir.join(format!("{snapshot_id}.json"));
+        let png_path = dir.join(format!("{snapshot_id}.png"));
+        let staged_json = dir.join(format!(".{snapshot_id}.json.pending"));
+        let staged_png = dir.join(format!(".{snapshot_id}.png.pending"));
+        let cleanup = || {
+            let _ = std::fs::remove_file(&staged_json);
+            let _ = std::fs::remove_file(&staged_png);
+            let _ = std::fs::remove_file(&json_path);
+            let _ = std::fs::remove_file(&png_path);
+        };
+
+        let captured = match capture(&staged_png) {
+            Ok(captured) => captured,
+            Err(error) => {
+                cleanup();
+                return Err(error);
+            }
+        };
+        let bytes = match std::fs::metadata(&staged_png) {
+            Ok(metadata) if metadata.is_file() => metadata.len(),
+            Ok(_) => {
+                cleanup();
+                return Err(CuError::new(
+                    "snapshot_unavailable",
+                    "snapshot --shot did not produce a regular PNG file",
+                ));
+            }
+            Err(error) => {
+                cleanup();
+                return Err(CuError::new(
+                    "snapshot_unavailable",
+                    format!("could not inspect staged snapshot PNG: {error}"),
+                ));
+            }
+        };
+        let snapshot = StoredSnapshot {
+            snapshot_id: snapshot_id.clone(),
+            ts_ms,
+            pid,
+            target: target.as_str().to_owned(),
+            window,
+            backend: tree.backend.clone(),
+            root_id: tree.root_id.clone(),
+            depth: budget.0,
+            max_nodes: budget.1,
+            truncated: tree.truncated,
+            visited: tree.visited,
+            returned: tree.nodes.len(),
+            nodes: tree.nodes.clone(),
+            shot: Some(StoredSnapshotShot {
+                path: png_path.to_string_lossy().into_owned(),
+                bytes,
+                output_width: captured.output_width,
+                output_height: captured.output_height,
+                output_pixels: captured.output_pixels,
+            }),
+        };
+        let text = serde_json::to_string(&snapshot).map_err(|error| {
+            cleanup();
+            CuError::new(
+                "snapshot_unavailable",
+                format!("snapshot serialization failed: {error}"),
+            )
+        })?;
+        if let Err(error) = std::fs::write(&staged_json, text) {
+            cleanup();
+            return Err(CuError::new(
+                "snapshot_unavailable",
+                format!("could not stage snapshot {}: {error}", json_path.display()),
+            ));
+        }
+        if let Err(error) = std::fs::rename(&staged_png, &png_path) {
+            cleanup();
+            return Err(CuError::new(
+                "snapshot_unavailable",
+                format!(
+                    "could not publish snapshot PNG {}: {error}",
+                    png_path.display()
+                ),
+            ));
+        }
+        if let Err(error) = std::fs::rename(&staged_json, &json_path) {
+            cleanup();
+            return Err(CuError::new(
+                "snapshot_unavailable",
+                format!(
+                    "could not publish snapshot {}: {error}",
+                    json_path.display()
+                ),
+            ));
+        }
         let _ = prune(&dir, KEEP_PER_WINDOW);
         Ok(snapshot)
     }
@@ -310,7 +468,9 @@ pub fn prune(dir: &Path, keep: usize) -> Result<usize, CuError> {
     let ids = ids_newest_first(dir)?;
     let mut removed = 0usize;
     for (_, _, _, id) in ids.into_iter().skip(keep) {
-        if std::fs::remove_file(dir.join(format!("{id}.json"))).is_ok() {
+        let json_removed = std::fs::remove_file(dir.join(format!("{id}.json"))).is_ok();
+        let _ = std::fs::remove_file(dir.join(format!("{id}.png")));
+        if json_removed {
             removed += 1;
         }
     }
@@ -640,6 +800,96 @@ mod tests {
                 .load(TargetRef::Current, 9, &ids[0])
                 .is_err_and(|error| error.code == "snapshot_not_found")
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shot_pair_is_same_id_retained_and_capture_failure_leaves_neither_member() {
+        let dir = scratch("shot-pair");
+        let store = SnapshotStore::new(&dir);
+        let stored = store
+            .write_with_shot(
+                TargetRef::Current,
+                9,
+                (None, None),
+                &walked(vec![node("/0", "AXWindow", "W")]),
+                |path| {
+                    std::fs::write(path, b"png").expect("fake capture");
+                    Ok(SnapshotShotCapture {
+                        output_width: 2,
+                        output_height: 3,
+                        output_pixels: 6,
+                    })
+                },
+            )
+            .expect("paired write");
+        let shot = stored.shot.as_ref().expect("shot metadata");
+        assert!(shot.path.ends_with(&format!("{}.png", stored.snapshot_id)));
+        assert_eq!(shot.bytes, 3);
+        assert!(Path::new(&shot.path).is_file());
+        assert!(
+            dir.join("current")
+                .join("w9")
+                .join(format!("{}.json", stored.snapshot_id))
+                .is_file()
+        );
+
+        let failure = store.write_with_shot(
+            TargetRef::Current,
+            10,
+            (None, None),
+            &walked(vec![node("/0", "AXWindow", "W")]),
+            |path| {
+                std::fs::write(path, b"partial").expect("partial capture");
+                Err(CuError::new("capture_failed", "fixture"))
+            },
+        );
+        assert_eq!(failure.expect_err("typed failure").code, "capture_failed");
+        let failed_dir = dir.join("current").join("w10");
+        assert_eq!(
+            std::fs::read_dir(failed_dir)
+                .expect("created store")
+                .count(),
+            0
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retention_prunes_json_and_png_as_pairs() {
+        let dir = scratch("shot-retention");
+        let store = SnapshotStore::new(&dir);
+        let mut ids = Vec::new();
+        for _ in 0..(KEEP_PER_WINDOW + 1) {
+            ids.push(
+                store
+                    .write_with_shot(
+                        TargetRef::Current,
+                        11,
+                        (None, None),
+                        &walked(vec![node("/0", "AXWindow", "W")]),
+                        |path| {
+                            std::fs::write(path, b"png").expect("fake capture");
+                            Ok(SnapshotShotCapture {
+                                output_width: 1,
+                                output_height: 1,
+                                output_pixels: 1,
+                            })
+                        },
+                    )
+                    .expect("paired write")
+                    .snapshot_id,
+            );
+        }
+        let window_dir = dir.join("current").join("w11");
+        let pngs = std::fs::read_dir(&window_dir)
+            .expect("pairs")
+            .flatten()
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "png"))
+            .count();
+        assert_eq!(pngs, KEEP_PER_WINDOW);
+        assert!(!window_dir.join(format!("{}.json", ids[0])).exists());
+        assert!(!window_dir.join(format!("{}.png", ids[0])).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

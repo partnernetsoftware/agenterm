@@ -99,9 +99,10 @@ pub fn parse(
             let depth = flag_parsed::<u32>(args, "--depth")?;
             let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
             let out = flag_text(args, "--out")?;
+            let shot = take_switch(args, "--shot");
             if !args.is_empty() {
                 return Err(format!(
-                    "snapshot accepts only --window H [--depth N] [--max-nodes N] [--out PATH]; unexpected {:?}",
+                    "snapshot accepts only --window H [--depth N] [--max-nodes N] [--out PATH] [--shot]; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -111,6 +112,7 @@ pub fn parse(
                 depth,
                 max_nodes,
                 out,
+                shot,
             })
         }
         "diff" => {

@@ -2101,15 +2101,21 @@ mod surface_tests {
                 depth,
                 max_nodes,
                 out,
+                shot,
                 ..
             } => {
                 assert_eq!(window, 42);
                 assert_eq!(depth, Some(6));
                 assert_eq!(max_nodes, Some(500));
                 assert_eq!(out, None);
+                assert!(!shot);
             }
             other => panic!("{other:?}"),
         }
+        assert!(matches!(
+            parse(&["snapshot", "--window", "42", "--shot"]).expect("snapshot shot"),
+            Command::Snapshot { shot: true, .. }
+        ));
         match parse(&["diff", "--window", "42", "--base", "1-2-3", "--advance"]).expect("diff") {
             Command::Diff {
                 window,

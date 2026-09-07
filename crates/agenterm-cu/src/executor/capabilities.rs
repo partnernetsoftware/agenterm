@@ -225,6 +225,21 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         }
         declaration
     };
+    let snapshot_verb = {
+        let mut declaration = tree_verb.clone();
+        if let Some(object) = declaration.as_object_mut() {
+            object.insert(
+                "shot".into(),
+                serde_json::json!({
+                    "status": screenshot_verb.get("status").cloned().unwrap_or(serde_json::json!("unsupported")),
+                    "mode": "sequential-identity-clamped-tree-and-window-png",
+                    "atomic": false,
+                    "store": "paired-json-png",
+                }),
+            );
+        }
+        declaration
+    };
     // `drag` is pointer injection, and it says out loud that no host has a
     // window-local route today: the only path moves the user's real cursor,
     // which is why the verb requires `--degraded`.
@@ -865,7 +880,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         // Observation over the same bounded walk `tree` / `query` use, so
         // they carry the tree's own status.
         verbs.insert("hit".into(), tree_verb.clone());
-        verbs.insert("snapshot".into(), tree_verb.clone());
+        verbs.insert("snapshot".into(), snapshot_verb);
         verbs.insert("diff".into(), tree_verb.clone());
         verbs.insert("zoom".into(), zoom_verb);
         verbs.insert("drag".into(), drag_verb);
