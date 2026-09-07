@@ -1308,7 +1308,8 @@ flowchart LR
   freezes exact before/requested-after state, bounds expiry to 1..=600 seconds,
   and returns separate stable-contract and expiring-approval SHA-256 digests.
   `cu.privilege-plan` proves the public qjswasm path and `mutation_performed`
-  remains false. Windows returns `privilege_operation_unsupported` because a
+  remains false. The same public court is now live on macOS, Linux x86_64 and
+  Windows ARM64. Windows returns `privilege_operation_unsupported` because a
   priority-class contract is not Unix nice. The next provider boundary now has
   a bounded protocol-v1 request/reply codec. Its closed plan union carries only
   `process.set-priority` or `process.signal`; authorization is exactly one-shot
@@ -1456,6 +1457,15 @@ flowchart LR
   open until its approve/replay/race/client-death cases, both Linux ISAs and the
   release-size court are green. macOS and Windows still require their own
   protected native provider transports; a Linux result cannot qualify them.
+
+- [~] The non-privileged exact-object signal court is live on macOS and Linux
+  x86_64 for the same source line. Its Windows ARM64 run exposed and fixed two
+  court-only PATH assumptions: inbox tools now resolve through
+  `SystemRoot/System32` instead of relying on an interactive-shell PATH. The
+  current rerun remains honestly pending because the detached Windows session
+  agent did not claim its nonce within 180 seconds; this is an `utm-court`
+  session-provider blocker, not authority to mark product behavior green or
+  weaken the exact-object contract.
 
 - [~] CoreSimulator now has a bounded macOS platform foundation rather than a
   shell-shaped MCU exception. It lists at most 200 devices by exact UDID,

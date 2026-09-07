@@ -157,7 +157,25 @@
             "macos": "retained-audit-token",
             "windows": "retained-handle-kill-only"
           },
-          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-process-signal-smoke",
+                "evidence": ["cu.process-signal"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-process-signal-smoke",
+                "evidence": ["cu.process-signal"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "interactive-session-agent-timeout"
+              }
+            }
+          },
           "evidence": ["cu.process-signal"],
           "note": "TERM/KILL verify exact exit, STOP/CONT verify scheduler state, and HUP/INT/USR1/USR2 report accepted delivery without fabricating application acknowledgement. Unix tree mode freezes until two bounded snapshots agree, retains every native process object, delivers deepest-first, and restores only members that it found running. Windows arbitrary trees remain typed unsupported, matching the absence of an MCU Job Object provider."
         },
@@ -1461,6 +1479,28 @@
           "state": "platform-limited",
           "platforms": {"macos": "native", "linux": "native", "windows": "semantic-contract-pending"},
           "evidence": ["cu.privilege-plan", "agenterm-cu privilege_plan unit tests"],
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-privilege-plan-smoke",
+                "evidence": ["cu.privilege-plan"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-privilege-plan-smoke",
+                "evidence": ["cu.privilege-plan"]
+              },
+              "windows": {
+                "result": "typed-intentional-retirement",
+                "gate": "cu-privilege-plan-smoke",
+                "evidence": ["cu.privilege-plan"],
+                "error_code": "privilege_operation_unsupported",
+                "rationale": "Windows priority classes are not Unix nice values; a future operation needs its own closed plan contract."
+              }
+            }
+          },
           "next": "extend the same closed-plan schema operation by operation; add a separate consented provider for apply; raw shell text and arbitrary executable elevation stay excluded"
         },
         {

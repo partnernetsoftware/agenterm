@@ -996,6 +996,15 @@ meaning or result contract is not yet lossless; this deliberately makes the
 remaining work visible instead of manufacturing compatibility from a same-name
 ACU command.
 
+The first schema-v2 qualification conversion now has live macOS and Linux
+x86_64 receipts for exact process signals and live macOS/Linux/Windows ARM64
+receipts for the read-only privilege plan. Windows signal remains a named
+interactive-session-agent timeout, not a product pass. Court payloads use
+`release-fast`: the x86 debug bundle was 74 MiB and timed out before execution,
+while the optimized test body transferred and ran. The next court efficiency
+knife is several registered journeys per one disposable lease, preserving one
+digest manifest and separate receipts instead of rebooting per evidence id.
+
 ## Hard gates
 
 - **R0 Accounting:** zero unclassified MCU public command shapes.
