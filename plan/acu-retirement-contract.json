@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "platform_qualification_schema": 1,
   "ledger": "plan/acu-mcu-capability-ledger.json",
   "final_states": ["native", "delegated", "platform-limited", "retired"],
   "evidence_required_states": ["native", "delegated", "platform-limited"],

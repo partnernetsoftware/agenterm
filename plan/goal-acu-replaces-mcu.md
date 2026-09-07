@@ -874,6 +874,15 @@ path, or a merely nonempty array cannot satisfy retirement. Candidate and
 MCU-absent courts must still produce the registered receipts for the exact
 source identity.
 
+Platform qualification is machine data, not prose. Every
+`platform-limited` leaf must carry a schema-versioned macOS/Linux/Windows
+matrix. A cell qualifies only through a registered public gate and its exact
+evidence as native behavior, an intentional typed retirement, or a typed
+not-applicable result. Pending cells and legacy free-text qualification always
+block retirement; a typed retirement or not-applicable cell additionally owns
+an exact error code and rationale. This prevents a sentence containing
+“pending” from accidentally becoming a green release gate.
+
 The owned browser-session row is no longer a capability gap. Its macOS public
 qjswasm court proves exact owner/browser identities, generation-preserving
 inventory and status, explicit stop, verified removal, same-name restart and

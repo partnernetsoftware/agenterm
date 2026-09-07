@@ -166,6 +166,14 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   native-qualification blocker remains. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
+- [~] Platform-limited leaves no longer pass because a free-text
+  `qualification` happens to be nonempty. The retirement contract requires a
+  schema-versioned macOS/Linux/Windows matrix. Every qualified cell binds one
+  registered public gate and evidence id; intentional retirement and
+  not-applicable results also bind a typed error and rationale. Missing,
+  legacy, pending or gap cells fail closed. Existing ledger prose must now be
+  migrated from evidence, so the higher blocker count exposes previously
+  hidden qualification debt rather than a product regression.
 - [~] Clipboard parity now has an empty-safe public qjswasm court. It reads
   provider/type metadata without disclosing payload bytes, mutates only after
   proving the native clipboard is exactly empty, verifies direct UTF-8 and

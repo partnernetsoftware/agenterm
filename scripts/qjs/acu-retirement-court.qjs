@@ -40,6 +40,71 @@ function platform_has(task, platform) {
   return false;
 }
 
+function array_has(rows, wanted) {
+  if (!Array.isArray(rows)) { return false; }
+  for (const row of rows) {
+    if (row === wanted) { return true; }
+  }
+  return false;
+}
+
+function gate_proves(gate_id, evidence_id, platform) {
+  for (const gate of qualification_manifest.required_gates) {
+    if (gate.id === gate_id && array_has(gate.evidence, evidence_id)) {
+      return platform_has(task_for(manifest, gate_id), platform);
+    }
+  }
+  for (const gate of host_native_manifest.gates) {
+    if (gate.id === gate_id && gate.platform === platform
+        && array_has(gate.evidence, evidence_id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function platform_qualification_error(capability) {
+  const qualification = capability.qualification;
+  if (typeof qualification !== "object" || qualification === null
+      || qualification.schema !== contract.platform_qualification_schema
+      || typeof qualification.platforms !== "object" || qualification.platforms === null) {
+    return "schema";
+  }
+  const expected = ["linux", "macos", "windows"];
+  const keys = Object.keys(qualification.platforms).sort();
+  if (keys.length !== expected.length) { return "platform_keys"; }
+  for (let index = 0; index < expected.length; index = index + 1) {
+    if (keys[index] !== expected[index]) { return "platform_keys"; }
+  }
+  for (const platform of expected) {
+    const cell = qualification.platforms[platform];
+    if (typeof cell !== "object" || cell === null || typeof cell.result !== "string") {
+      return platform + ":cell";
+    }
+    if (cell.result === "pending") {
+      if (!has_text(cell.blocker_code)) { return platform + ":pending_without_blocker"; }
+      return platform + ":pending:" + cell.blocker_code;
+    }
+    if (cell.result !== "native-qualified"
+        && cell.result !== "typed-intentional-retirement"
+        && cell.result !== "not-applicable") {
+      return platform + ":result";
+    }
+    if (!has_text(cell.gate) || !has_text(cell.evidence)
+        || !gate_proves(cell.gate, cell.evidence, platform)) {
+      return platform + ":gate_evidence";
+    }
+    if (cell.result === "native-qualified" && !has_text(capability.acu_shape)) {
+      return platform + ":native_without_acu_shape";
+    }
+    if ((cell.result === "typed-intentional-retirement" || cell.result === "not-applicable")
+        && (!has_text(cell.error_code) || !has_text(cell.rationale))) {
+      return platform + ":typed_boundary";
+    }
+  }
+  return "";
+}
+
 function last_json_line(text) {
   const lines = text.trim().split("\n");
   for (let index = lines.length - 1; index >= 0; index = index - 1) {
@@ -73,6 +138,8 @@ const counts = { total: 0, native: 0, delegated: 0, gap: 0, platform_limited: 0,
 const registered_evidence = {};
 
 harness.require(contract.schema === 1 && ledger.schema === 1, "retirement_contract_schema");
+harness.require(contract.platform_qualification_schema === 1,
+  "retirement_platform_qualification_schema");
 harness.require(Array.isArray(ledger.family_order) && ledger.family_order.length === 13, "retirement_family_order");
 harness.require(qualification_manifest.schema_version === 1, "retirement_qualification_schema");
 harness.require(host_native_manifest.schema_version === 1, "retirement_host_native_schema");
@@ -117,8 +184,12 @@ for (const family_id of ledger.family_order) {
           add(blockers, "available_without_registered_evidence", "" + capability.id);
         }
       }
-      if (state === "platform-limited" && !has_text(capability.qualification)) {
-        add(blockers, "platform_limit_without_qualification", "" + capability.id);
+      if (state === "platform-limited") {
+        const qualification_error = platform_qualification_error(capability);
+        if (qualification_error !== "") {
+          add(blockers, "platform_qualification_incomplete",
+            "" + capability.id + ":" + qualification_error);
+        }
       }
       if (state === "retired" && !has_text(capability.note)) {
         add(blockers, "retired_without_rationale", "" + capability.id);
