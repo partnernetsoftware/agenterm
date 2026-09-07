@@ -68,7 +68,10 @@ try {
     "process-state", "--pid", "" + pid
   ]);
   const identity = "" + observed.start_identity;
-  ensure(observed.state === "live" && identity !== "", "cu_process_signal_identity");
+  ensure(
+    observed.state === "live" && identity !== "",
+    "cu_process_signal_identity:" + JSON.stringify(observed)
+  );
 
   print("STEP stale caller identity is refused before delivery");
   invoke(context.run_directory, executable, "actuate", [
