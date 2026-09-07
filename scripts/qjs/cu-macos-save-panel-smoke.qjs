@@ -14,6 +14,7 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.macos-save-panel-tree",
   "cu.macos-save-panel-subrole",
+  "cu.macos-app-inspect-multi-window",
   "cu.macos-save-panel-cancel",
   "cu.macos-save-panel-save",
   "cu.macos-save-panel-cleanup"
@@ -243,6 +244,39 @@ function invoke_panel(run_directory, executable, handle, identifier) {
   );
 }
 
+function inspect_owned_application(run_directory, executable, pid, app_name) {
+  ensure(app_name !== "", "cu_macos_app_inspect_missing_app_name");
+  const reply = run_cu_ok(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "app-inspect",
+    "--app", app_name, "--depth", "12", "--max-nodes", "6000",
+    "--max-windows", "8"
+  ]);
+  ensure(
+    text_at(reply, "data.addressing") === "application-window-inventory"
+      && text_at(reply, "data.mechanism") === "libagenterm"
+      && flag_at(reply, "data.focus_unchanged")
+      && !flag_at(reply, "data.truncated")
+      && int_at(reply, "data.matched") >= 2
+      && int_at(reply, "data.returned") === int_at(reply, "data.matched"),
+    "cu_macos_app_inspect_inventory:" + JSON.stringify(reply.data)
+  );
+  let owned = 0;
+  for (const row of reply.data.windows) {
+    if (int_at(row, "pid") !== pid) { continue; }
+    owned = owned + 1;
+    ensure(
+      flag_at(row, "ok")
+        && flag_at(row, "identity_verified")
+        && text_at(row, "backend") === "ax"
+        && text_at(row, "page.cdp_scope") === "process"
+        && text_at(row, "page.state") === "no-debug-port"
+        && int_at(row, "returned") > 0,
+      "cu_macos_app_inspect_row:" + JSON.stringify(row)
+    );
+  }
+  ensure(owned >= 2, "cu_macos_app_inspect_dropped_multi_window:" + owned);
+}
+
 function terminate_fixture(child) {
   if (harness.child_state(child) === "running") {
     const terminated = rh.command("kill", ["-TERM", "" + child.pid], { timeout_ms: 5000 });
@@ -288,6 +322,9 @@ try {
   children.push(cancel_child);
   const cancel_row = wait_panel(run_directory, executable, cancel_child.pid);
   const cancel_handle = int_at(cancel_row, "handle");
+  inspect_owned_application(
+    run_directory, executable, cancel_child.pid, text_at(cancel_row, "app_name")
+  );
   inspect_panel(run_directory, executable, cancel_handle, cancel_name, "cancel-output");
   invoke_panel(run_directory, executable, cancel_handle, "CancelButton");
   wait_handle_gone(run_directory, executable, cancel_child.pid, cancel_handle);
@@ -346,8 +383,9 @@ if (!succeeded) {
 ensure(remove_directory_bounded(run_directory), "cu_macos_save_panel_cleanup_locked");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-tree");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-subrole");
+harness.emit_evidence(context, declared_evidence, "cu.macos-app-inspect-multi-window");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-cancel");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-save");
 harness.emit_evidence(context, declared_evidence, "cu.macos-save-panel-cleanup");
 harness.complete_children(context, children, true, "");
-print("PASS: macOS Save Panel tree, Cancel, Save, receipts and owned cleanup");
+print("PASS: macOS multi-window app inspect, Save Panel tree, actions and cleanup");

@@ -694,6 +694,37 @@
       ]
     },
     {
+      "name": "app-inspect",
+      "command": "app-inspect",
+      "aliases": [],
+      "grant": "observe",
+      "family": "windows",
+      "summary": "classify every matching application window in one bounded call",
+      "usage": "app-inspect --app NAME [--depth N] [--max-nodes N] [--max-windows N]\ninspect --app NAME [--depth N] [--max-nodes N] [--max-windows N]",
+      "args": [
+        {
+          "flag": "--app",
+          "value": "NAME",
+          "help": "case-insensitive application-name substring; required"
+        },
+        {
+          "flag": "--depth",
+          "value": "N",
+          "help": "per-window accessibility depth, 1..=32 (default 12)"
+        },
+        {
+          "flag": "--max-nodes",
+          "value": "N",
+          "help": "per-window node budget, 1..=20000 (default 6000)"
+        },
+        {
+          "flag": "--max-windows",
+          "value": "N",
+          "help": "matching-window budget, 1..=256 (default 64)"
+        }
+      ]
+    },
+    {
       "name": "ps",
       "command": "ps",
       "aliases": [],
@@ -5786,6 +5817,10 @@
     {
       "name": "apps",
       "text": "agenterm-cu apps\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  apps [--running] [--all]\n\narguments:\n  --running                     running applications only (the default set)\n  --all                         also the installed applications no window can reveal\n\nRunning apps from top-level windows (pids + window count). --all also\nlists the applications installed on this host that no window can reveal,\neach marked running or not.\n"
+    },
+    {
+      "name": "app-inspect",
+      "text": "agenterm-cu app-inspect\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  app-inspect --app NAME [--depth N] [--max-nodes N] [--max-windows N]\n  inspect --app NAME [--depth N] [--max-nodes N] [--max-windows N]\n\nClassifies every visible top-level window whose application name contains NAME.\nThe inventory, accessibility walk and owning process identity are checked in one\nbounded Executor call; a multi-window application is never reduced to one guessed\nhandle. Each row reports its own AX classification or typed acquisition failure.\nNo window is activated and no screenshot or page content is returned.\n"
     },
     {
       "name": "ps",

@@ -297,10 +297,7 @@ fn parse_rect(raw: &str) -> Result<[i32; 4], String> {
 /// their needle / selector positionally.
 fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Command, String> {
     if verb == "inspect" && args.iter().any(|arg| arg == "--app") {
-        return Err(
-            "inspect --app is MCU window inventory; use mcu inspect --app, or query --window"
-                .into(),
-        );
+        return super::windows::app_inspect(target, args);
     }
     let window = match parse_optional_window(args)? {
         Some(value) => value,

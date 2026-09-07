@@ -577,9 +577,7 @@ pub fn verb_declaration(verb: &str) -> Value {
         let reason = match verb {
             "find" => "MCU find HANDLE TEXT is query --window --text",
             "read" => "MCU read HANDLE SELECTOR is query --window --selector",
-            _ => {
-                "MCU inspect HANDLE is query --window; inspect --app inventory is an ACU migration gap"
-            }
+            _ => "MCU inspect HANDLE is query --window; inspect --app is native app-inspect",
         };
         return json!({
             "status": if tree_live(os) { "available" } else { "unsupported" },

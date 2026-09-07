@@ -570,6 +570,13 @@ impl Executor {
                 *max_events,
             ),
             Command::Apps { all, .. } => apps_payload(*all),
+            Command::AppInspect {
+                app,
+                depth,
+                max_nodes,
+                max_windows,
+                ..
+            } => app_inspect_payload(app, *depth, *max_nodes, *max_windows),
             Command::Ps {
                 pid,
                 parent,

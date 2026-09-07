@@ -1079,8 +1079,14 @@ mod tests {
             "--app".into(),
             "ChatGPT".into(),
         ]);
-        assert_eq!(app.command, "usage");
-        assert_eq!(app.error.expect("usage").code, "usage");
+        assert_eq!(app.command, "app-inspect");
+        assert_ne!(
+            app.error
+                .as_ref()
+                .map(|error| error.code.as_str())
+                .unwrap_or(""),
+            "usage"
+        );
         let query_positional = dispatch(vec![
             "--target".into(),
             "current".into(),

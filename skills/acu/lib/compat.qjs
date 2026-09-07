@@ -236,7 +236,20 @@ function known_dynamic_boundary(argv) {
     return todo("acu.dynamic.075", "browser", "profile-selected browser tab inventory is not typed yet");
   }
   if (verb === "inspect" && has_arg(argv, "--app")) {
-    return todo("acu.dynamic.076", "inspect", "multi-window application inspection is not typed yet");
+    const parsed = without_value_flags(argv, ["app", "depth"]);
+    if (!parsed.ok) { return { kind: "usage", command: "inspect", message: parsed.message }; }
+    if (parsed.values.app === null || parsed.values.app.length === 0 || parsed.argv.length !== 1) {
+      return { kind: "usage", command: "inspect",
+        message: "inspect --app requires one application name and optional --depth" };
+    }
+    const depth = optional_integer(parsed.values.depth, 1, "inspect --depth");
+    if (!depth.ok || depth.value !== null && depth.value > 32) {
+      return { kind: "usage", command: "inspect",
+        message: depth.ok ? "inspect --depth is outside its bound" : depth.message };
+    }
+    const native = ["app-inspect", "--app", parsed.values.app];
+    if (depth.value !== null) { append(native, ["--depth", "" + depth.value]); }
+    return { kind: "exec", argv: native };
   }
   if (verb === "tree" && has_arg(argv, "--page")) {
     return { kind: "usage", command: "tree",

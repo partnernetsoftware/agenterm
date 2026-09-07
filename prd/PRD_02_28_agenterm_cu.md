@@ -133,10 +133,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `7 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 26 resolved witnesses now have an executable disposition:
-  13 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 7 remaining
+  `6 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 27 resolved witnesses now have an executable disposition:
+  14 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 6 remaining
   dynamic-stay witness rows keep their stable repair identities. The `.050` witness now
   maps to native exact simulator app status, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
@@ -503,7 +503,7 @@ ACU-only cutover
 │  ├─ [x] every unresolved shape returns `acu_todo` + ALERT + stable gap id
 │  ├─ [x] no adapter branch spawns or recommends the archived MCU runtime
 │  └─ [x] MCU implementation is read-only reference, outside supported entrypoints
-├─ [x] dynamic TODO registry (complete corpus; no unknown fallback)
+├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green,
 │  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
 │  ├─ [~] acu.dynamic.050 · exact simulator application status is native and Bun-free;
@@ -512,10 +512,17 @@ ACU-only cutover
 │  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
 │  ├─ [~] acu.dynamic.067 · `literal.*` reduces exactly to native loss-aware substring wait;
 │  │  └─ general bounded linear-time regex remains typed TODO
-│  ├─ acu.dynamic.072 · application inspection / signing facts
+│  ├─ acu.dynamic.072 · application facts umbrella; never borrow `.076` window evidence
+│  │  ├─ acu.native.app.facts-signature · bundle/path/version/signature/entitlement facts
+│  │  ├─ acu.native.app.lifecycle-watch · bounded application process lifecycle
+│  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
 │  ├─ acu.dynamic.074 · window-local scroll without physical-pointer movement
 │  ├─ acu.dynamic.075 · browser tabs selected by profile/application
-│  ├─ acu.dynamic.076 · multi-window `inspect --app`
+│  ├─ [x] acu.dynamic.076 · `inspect --app` maps to native bounded `app-inspect`;
+│  │  ├─ whole matching window set + foreground identity are bracketed as one observation
+│  │  ├─ truncated non-content trees are `inconclusive-truncated`, never false empty
+│  │  ├─ macOS owned two-window Save Panel qjswasm court is green
+│  │  └─ Linux/Windows native desktop qualification remains delivery evidence debt
 │  ├─ [x] acu.dynamic.077 · native `query --subrole` preserves macOS `AXSubrole` through ABI 1.29;
 │  │  └─ public owned Save Panel qjswasm court proves a deterministic `AXDialog` accessory probe
 │  ├─ [~] acu.dynamic.078 · invalid legacy `tree --page` is closed usage;

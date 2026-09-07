@@ -258,6 +258,253 @@ pub(super) fn apps_payload(all: bool) -> Result<serde_json::Value, CuError> {
     Ok(payload)
 }
 
+const DEFAULT_APP_INSPECT_DEPTH: u32 = 12;
+const DEFAULT_APP_INSPECT_NODES: usize = 6_000;
+const DEFAULT_APP_INSPECT_WINDOWS: usize = 64;
+const MAX_APP_INSPECT_WINDOWS: usize = 256;
+
+fn app_name_matches(have: &str, wanted: &str) -> bool {
+    have.to_lowercase().contains(&wanted.to_lowercase())
+}
+
+fn app_page_status(pid: u32, app_name: &str) -> serde_json::Value {
+    let port = match resolve_cdp_port(None, Some(pid)) {
+        Ok(port) => port,
+        Err(error) if error.code == "cdp_debug_port_not_found" => {
+            return serde_json::json!({
+                "state": "no-debug-port",
+                "cdp_scope": "process",
+            });
+        }
+        Err(error) => {
+            return serde_json::json!({
+                "state": "inspect-unavailable",
+                "cdp_scope": "process",
+                "error": error_payload(&error),
+            });
+        }
+    };
+    match crate::cdp::targets::list_targets(port) {
+        Ok(targets) => {
+            let wanted = app_name.to_lowercase();
+            let selected = targets.iter().find(|target| {
+                target.is_page()
+                    && (target.title.to_lowercase().contains(&wanted)
+                        || target.url.to_lowercase().contains(&wanted)
+                        || target.description.to_lowercase().contains(&wanted))
+            });
+            serde_json::json!({
+                "state": "available",
+                "cdp_scope": "process",
+                "debug_port": port,
+                "targets": targets.len(),
+                "selected": selected.map(crate::cdp::targets::PageTarget::identity_json),
+            })
+        }
+        Err(error) => serde_json::json!({
+            "state": "unreachable",
+            "cdp_scope": "process",
+            "debug_port": port,
+            "error": { "code": error.code, "message": error.message },
+        }),
+    }
+}
+
+fn matching_app_identity_set(windows: &[WindowInfo], app: &str) -> Vec<(isize, u32, String)> {
+    let mut identities = windows
+        .iter()
+        .filter(|window| app_name_matches(&window.app_name, app))
+        .map(|window| (window.handle, window.process_id, window.app_name.clone()))
+        .collect::<Vec<_>>();
+    identities.sort();
+    identities
+}
+
+fn focus_identity(focus: &observe::FocusResolution) -> (Option<isize>, Option<u32>) {
+    (
+        focus.handle,
+        focus.app.as_ref().map(|application| application.pid),
+    )
+}
+
+/// MCU `inspect --app`: classify every matching top-level window in one
+/// bounded native call. A per-window acquisition failure remains a row rather
+/// than erasing the other windows, while a reused handle/process identity is
+/// never reported as a successful observation.
+pub(super) fn app_inspect_payload(
+    app: &str,
+    depth: Option<u32>,
+    max_nodes: Option<usize>,
+    max_windows: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    let app = app.trim();
+    if app.is_empty() {
+        return Err(invalid_input("app-inspect --app must not be empty".into()));
+    }
+    let depth = depth.unwrap_or(DEFAULT_APP_INSPECT_DEPTH);
+    let max_nodes = max_nodes.unwrap_or(DEFAULT_APP_INSPECT_NODES);
+    let max_windows = max_windows.unwrap_or(DEFAULT_APP_INSPECT_WINDOWS);
+    if !(1..=32).contains(&depth) {
+        return Err(invalid_input(
+            "app-inspect --depth must be in 1..=32".into(),
+        ));
+    }
+    if !(1..=observe::MAX_NODE_BUDGET).contains(&max_nodes) {
+        return Err(invalid_input(format!(
+            "app-inspect --max-nodes must be in 1..={}",
+            observe::MAX_NODE_BUDGET
+        )));
+    }
+    if !(1..=MAX_APP_INSPECT_WINDOWS).contains(&max_windows) {
+        return Err(invalid_input(format!(
+            "app-inspect --max-windows must be in 1..={MAX_APP_INSPECT_WINDOWS}"
+        )));
+    }
+    let mut inventory =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
+    let focus_before = resolve_inventory_focus(&mut inventory, &stacking);
+    let identities_before = matching_app_identity_set(&inventory, app);
+    let mut matches: Vec<WindowInfo> = inventory
+        .into_iter()
+        .filter(|window| app_name_matches(&window.app_name, app))
+        .collect();
+    matches.sort_by_key(|window| (window.process_id, window.handle));
+    if matches.is_empty() {
+        return Err(CuError::new(
+            "a11y_app_not_found",
+            "no top-level window belongs to the requested application",
+        )
+        .with_detail(serde_json::json!({ "app": app })));
+    }
+    let matched = matches.len();
+    matches.truncate(max_windows);
+    let budget = mechanism::TreeBudget {
+        max_depth: Some(depth),
+        max_nodes: Some(max_nodes),
+    };
+    let mut rows = Vec::with_capacity(matches.len());
+    let mut page_by_pid = std::collections::BTreeMap::<u32, serde_json::Value>::new();
+    for window in matches {
+        let process_before = agenterm_platform::process::observe(window.process_id);
+        let row = match mechanism::tree_for_window_bounded(Some(window.handle), budget) {
+            Ok(tree) => {
+                let process_after = agenterm_platform::process::observe(window.process_id);
+                let stable_process = matches!(
+                    (&process_before, &process_after),
+                    (
+                        agenterm_platform::process::ProcessObservation::Live {
+                            start_identity: Some(before),
+                        },
+                        agenterm_platform::process::ProcessObservation::Live {
+                            start_identity: Some(after),
+                        }
+                    ) if before == after
+                );
+                if !stable_process {
+                    serde_json::json!({
+                        "ok": false,
+                        "handle": window.handle,
+                        "pid": window.process_id,
+                        "app": window.app_name,
+                        "title": window.title,
+                        "error": {
+                            "code": "a11y_app_identity_changed",
+                            "message": "window or owning process identity changed during inspection"
+                        }
+                    })
+                } else {
+                    let ax = observe::classify_ax_tree(&tree);
+                    let inconclusive_truncation =
+                        tree.truncated && ax != observe::AxAvailability::Content;
+                    let page = if let Some(page) = page_by_pid.get(&window.process_id) {
+                        page.clone()
+                    } else {
+                        let page = app_page_status(window.process_id, &window.app_name);
+                        page_by_pid.insert(window.process_id, page.clone());
+                        page
+                    };
+                    serde_json::json!({
+                        "ok": true,
+                        "handle": window.handle,
+                        "pid": window.process_id,
+                        "app": window.app_name,
+                        "title": window.title,
+                        "ax": if inconclusive_truncation {
+                            "inconclusive-truncated"
+                        } else {
+                            ax.as_str()
+                        },
+                        "backend": tree.backend,
+                        "visited": tree.visited,
+                        "returned": tree.returned,
+                        "truncated": tree.truncated,
+                        "page": page,
+                        "page_accessibility": if ax == observe::AxAvailability::Content {
+                            "native-accessibility"
+                        } else if inconclusive_truncation {
+                            "inconclusive-truncated"
+                        } else { "not-visible-in-accessibility" },
+                        "next_actions": if inconclusive_truncation {
+                            Vec::<String>::new()
+                        } else {
+                            observe::empty_chrome_next_actions(ax, &window.app_name)
+                        },
+                        "identity_verified": true,
+                    })
+                }
+            }
+            Err(error) => {
+                let error = map_mechanism_err(error);
+                serde_json::json!({
+                    "ok": false,
+                    "handle": window.handle,
+                    "pid": window.process_id,
+                    "app": window.app_name,
+                    "title": window.title,
+                    "error": error_payload(&error),
+                })
+            }
+        };
+        rows.push(row);
+    }
+    let mut inventory_after =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let stacking_after = mechanism::window_enumerate::stacking().unwrap_or_default();
+    let focus_after = resolve_inventory_focus(&mut inventory_after, &stacking_after);
+    let identities_after = matching_app_identity_set(&inventory_after, app);
+    if identities_before != identities_after
+        || focus_identity(&focus_before) != focus_identity(&focus_after)
+    {
+        return Err(CuError::new(
+            "app_inspection_changed",
+            "application windows or foreground focus changed during inspection",
+        )
+        .with_detail(serde_json::json!({
+            "app": app,
+            "windows_before": identities_before.len(),
+            "windows_after": identities_after.len(),
+            "focus_before": focus_before.json(),
+            "focus_after": focus_after.json(),
+        })));
+    }
+    Ok(serde_json::json!({
+        "addressing": "application-window-inventory",
+        "mechanism": "libagenterm",
+        "app": app,
+        "budget": {
+            "depth": depth,
+            "max_nodes": max_nodes,
+            "max_windows": max_windows,
+        },
+        "matched": matched,
+        "returned": rows.len(),
+        "truncated": matched > rows.len(),
+        "focus_unchanged": true,
+        "windows": rows,
+    }))
+}
+
 pub(super) fn windows_watch_payload(
     filter: observe::WindowFilter,
     space: Option<u64>,
@@ -854,6 +1101,16 @@ pub(super) fn zoom_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_inspection_name_matching_is_case_insensitive_but_not_exact_only() {
+        assert!(app_name_matches(
+            "Agenterm Save Panel Fixture",
+            "save panel"
+        ));
+        assert!(app_name_matches("EDITOR.EXE", "editor"));
+        assert!(!app_name_matches("Terminal", "Editor"));
+    }
 
     #[test]
     fn displays_lists_native_screens() {

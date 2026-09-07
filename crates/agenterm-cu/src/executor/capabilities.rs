@@ -917,6 +917,16 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "app-inspect".into(),
+            serde_json::json!({
+                "status": verb_status(mechanism::Capability::WindowEnumerate),
+                "group": "discover",
+                "mode": "bounded-multi-window-accessibility-classification",
+                "grant": "observe",
+                "identity_bracketed": true,
+            }),
+        );
+        verbs.insert(
             "doctor".into(),
             serde_json::json!({
                 "status": "available",

@@ -16,6 +16,7 @@ pub fn parse(
         "windows" => windows(spelled, target, args),
         "windows-watch" => windows_watch(target, args),
         "apps" => apps(target, args),
+        "app-inspect" => app_inspect(target, args),
         "app" => app(spelled, target, args),
         "unlock" => {
             let Some(window) = flag_window(args)? else {
@@ -200,6 +201,28 @@ fn apps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     })
 }
 
+pub(crate) fn app_inspect(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let app = flag_text(args, "--app")?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "app-inspect requires --app <name>".to_owned())?;
+    let depth = flag_parsed::<u32>(args, "--depth")?;
+    let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+    let max_windows = flag_parsed::<usize>(args, "--max-windows")?;
+    if !args.is_empty() {
+        return Err(format!(
+            "app-inspect accepts only --app NAME --depth N --max-nodes N --max-windows N; unexpected {:?}",
+            args[0]
+        ));
+    }
+    Ok(Command::AppInspect {
+        target,
+        app,
+        depth,
+        max_nodes,
+        max_windows,
+    })
+}
+
 /// `app <action> …`; the MCU spellings `launch PATH`, `quit`, `hide` and
 /// `show` put their own name back as the action.
 fn app(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -294,4 +317,41 @@ fn close(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         snapshot,
         expect,
     })
+}
+
+#[cfg(test)]
+mod app_inspect_tests {
+    use super::*;
+
+    #[test]
+    fn parses_closed_bounded_app_inspect_shape() {
+        let mut args = vec![
+            "--app".into(),
+            "Editor".into(),
+            "--depth".into(),
+            "12".into(),
+            "--max-nodes".into(),
+            "6000".into(),
+            "--max-windows".into(),
+            "8".into(),
+        ];
+        assert!(matches!(
+            app_inspect(TargetRef::Current, &mut args).unwrap(),
+            Command::AppInspect {
+                app,
+                depth: Some(12),
+                max_nodes: Some(6000),
+                max_windows: Some(8),
+                ..
+            } if app == "Editor"
+        ));
+        assert!(app_inspect(TargetRef::Current, &mut Vec::new()).is_err());
+        assert!(
+            app_inspect(
+                TargetRef::Current,
+                &mut vec!["--app".into(), "Editor".into(), "--unknown".into()]
+            )
+            .is_err()
+        );
+    }
 }

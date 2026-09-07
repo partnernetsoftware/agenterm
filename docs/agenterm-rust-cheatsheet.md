@@ -4465,6 +4465,18 @@ caused by observing another application is not a valid result. Preserve the
 last complete observation at timeout and never turn an incomplete read into an
 absence receipt.
 
+An application-wide accessibility inspection is one coherent observation,
+not a bag of independently timed window reads. Snapshot and sort the complete
+matching `(handle, pid, app)` set, resolve the foreground identity, inspect the
+bounded rows with per-process start-identity brackets, then reacquire and
+compare the whole set and foreground before publishing anything. A tree that
+hit its node/depth budget without finding content is
+`inconclusive-truncated`, never proof of an empty application. When extending
+the large generated capability payload, prefer inserting a new object after
+the existing `serde_json::json!` value is built: adding another arm inside an
+already recursion-limit-sensitive macro creates compile-time debt and is not
+authority to raise the crate-wide recursion limit.
+
 A filtered accessibility watch must repeat the same bounded acquisition and
 predicate as the one-shot query; a generic accessibility notification stream
 is not a substitute for the caller's final matching row set. Treat failed

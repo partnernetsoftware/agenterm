@@ -76,6 +76,10 @@ pub fn top_level_text() -> String {
         "  network-interfaces (network interfaces) observe  bounded native interface inventory",
         "  network-interfaces  observe addresses;  network-routes  observe routes;  network-dns  observe resolvers",
     );
+    text = text.replace(
+        "  apps                              observe  running apps from top-level windows; --all adds installed",
+        "  apps observe running/installed;  app-inspect observe bounded multi-window application state",
+    );
     text = text.replace("\nshell-exec", "\n  shell-exec");
     text = text.replace(
         "\nAll replies are JSON on stdout: {\"ok\":bool,\"target\":..,\"command\":..,\"data\":..,\"error\":..}",
@@ -293,6 +297,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "audio",
         "service",
         "pointer-scroll",
+        "app-inspect",
     ];
     let compact_process = [
         "process-argv",

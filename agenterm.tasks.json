@@ -4417,7 +4417,7 @@
     },
     {
       "id": "cu-macos-save-panel-smoke",
-      "description": "Prove exact macOS NSSavePanel discovery, a deterministic owned AXDialog subrole refinement, and semantic Cancel/Save against a harmless fixture: the AX sheet and controls are addressed without coordinates or activation, exact window disappearance verifies each action, Cancel writes nothing, Save writes one bounded ordinary file, and cleanup leaves no process or window behind.",
+      "description": "Prove bounded multi-window app inspection, exact macOS NSSavePanel discovery, a deterministic owned AXDialog subrole refinement, and semantic Cancel/Save against a harmless fixture: the application inventory preserves both owner and sheet without guessing one handle; the AX sheet and controls are addressed without coordinates or activation; exact window disappearance verifies each action; Cancel writes nothing, Save writes one bounded ordinary file, and cleanup leaves no process or window behind.",
       "entry": "scripts/qjs/cu-macos-save-panel-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

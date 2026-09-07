@@ -1692,6 +1692,19 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         all: bool,
     },
+    /// Inspect every visible top-level window belonging to one application
+    /// name in one bounded call. This preserves MCU `inspect --app`'s
+    /// multi-window meaning instead of guessing one representative handle.
+    AppInspect {
+        target: TargetRef,
+        app: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_nodes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_windows: Option<usize>,
+    },
     /// Bounded cross-platform process inventory. Rich filters are evaluated
     /// only over the explicitly bounded native inventory; CPU percentage uses
     /// a stated sampling interval instead of relabelling cumulative CPU time.
@@ -3979,6 +3992,7 @@ impl Command {
             Self::Windows { .. } => "windows".into(),
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
+            Self::AppInspect { .. } => "app-inspect".into(),
             Self::Ps { .. } => "ps".into(),
             Self::ProcessState { .. } => "process-state".into(),
             Self::ProcessArgv { .. } => "process-argv".into(),
@@ -4375,6 +4389,7 @@ impl Command {
             | Self::Windows { target, .. }
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
+            | Self::AppInspect { target, .. }
             | Self::Ps { target, .. }
             | Self::ProcessState { target, .. }
             | Self::ProcessArgv { target, .. }
@@ -7128,6 +7143,22 @@ mod tests {
         };
         assert_eq!(apps.verb(), "apps");
         assert_eq!(apps.required_grant(), Grant::Observe);
+        let inspect = Command::AppInspect {
+            target: TargetRef::Current,
+            app: "Editor".into(),
+            depth: Some(12),
+            max_nodes: Some(6_000),
+            max_windows: Some(64),
+        };
+        assert_eq!(inspect.verb(), "app-inspect");
+        assert_eq!(inspect.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&inspect).expect("serialize app inspect"),
+            serde_json::json!({
+                "verb": "app-inspect", "target": "current", "app": "Editor",
+                "depth": 12, "max_nodes": 6000, "max_windows": 64
+            })
+        );
         let filtered = Command::Windows {
             target: TargetRef::Current,
             pid: Some(4242),

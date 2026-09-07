@@ -506,6 +506,16 @@
           "evidence": ["cu.macos-ax-app-lifecycle", "cu.linux-atspi-app-lifecycle"]
         },
         {
+          "id": "desktop.app.inspect-multi-window",
+          "mcu_shape": "inspect --app APP across every matching top-level window",
+          "acu_shape": "app-inspect --app NAME with bounded depth, nodes and windows",
+          "state": "native",
+          "qualification": "macos-public-qjswasm-live-linux-windows-native-execution-pending",
+          "evidence": ["cu.macos-app-inspect-multi-window"],
+          "next": "run the same owned multi-window classification court in Linux and Windows native desktop sessions",
+          "note": "The command brackets the whole matching window set and foreground identity, brackets each owning process, and reports truncated non-content trees as inconclusive rather than empty. CDP availability is process-scoped supplementary state, not a replacement for native accessibility."
+        },
+        {
           "id": "desktop.clipboard.text-rich",
           "mcu_shape": "clip plus clipboard inspect/read/write/write-file/clear",
           "acu_shape": "clipboard-read/write/write-file/clear with bounded bytes, native type names and digests",
