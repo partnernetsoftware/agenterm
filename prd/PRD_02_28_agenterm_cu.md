@@ -1279,8 +1279,14 @@ flowchart LR
   and the stable contract digest is separate from the expiring approval
   digest. The public qjswasm court `cu.privileged-signal-plan` proves that
   planning leaves the process tree unchanged and malformed KILL intent fails
-  before observation or effect. This does not close the privileged signal
-  capability gap: only a fixed-identity, protected native provider may
+  before observation or effect. The provider effect core now accepts only the
+  retained, one-attempt reservation: single and exact-tree STOP/CONT/KILL use
+  the same native references, tree stabilization has a provider-owned
+  write-ahead recovery journal, every required postcondition is bounded and
+  pre-stopped members remain stopped on failed TERM. Fixture courts prove the
+  one-attempt gate and recoverable tree core without claiming elevation. This
+  still does not close the privileged signal capability gap: only a
+  fixed-identity, protected native provider may
   authenticate the peer, obtain OS consent, retain the exact process objects,
   reserve provider-owned replay state before mutation and own read-back.
 

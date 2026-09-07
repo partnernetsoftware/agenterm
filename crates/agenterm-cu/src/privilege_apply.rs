@@ -269,7 +269,7 @@ impl PreparedPrivilegeEffect {
 pub struct AuthorizedPreparedRequest {
     pub(crate) validated: ValidatedPrivilegeRequestV1,
     pub(crate) peer: AuthenticatedPrivilegePeer,
-    pub(crate) prepared: PreparedPrivilegeEffect,
+    pub(crate) prepared: Option<PreparedPrivilegeEffect>,
 }
 
 #[derive(Debug)]
@@ -311,9 +311,49 @@ impl std::fmt::Debug for PrivilegeProviderExecution {
             .debug_struct("PrivilegeProviderExecution")
             .field("provider_key", &self.reservation.provider_key)
             .field("fingerprint", &self.reservation.fingerprint)
-            .field("prepared", &self.authorized.prepared)
+            .field("prepared", &self.authorized.prepared.as_ref())
             .field("completion_token", &"<redacted>")
             .finish()
+    }
+}
+
+impl PrivilegeProviderExecution {
+    pub(crate) fn take_prepared_effect(&mut self) -> Result<PreparedPrivilegeEffect, CuError> {
+        self.authorized.prepared.take().ok_or_else(|| {
+            CuError::new(
+                "privilege_effect_already_attempted",
+                "the reserved provider effect was already taken for its single attempt",
+            )
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum PrivilegeSignalEffectOutcome {
+    Completed {
+        evidence: serde_json::Value,
+        verified: Option<bool>,
+    },
+    FailedBeforeEffect(CuError),
+    FailedAfterEffect {
+        error: CuError,
+        outcome_unknown: bool,
+    },
+}
+
+/// Consume the one prepared effect attempt from a fresh provider reservation.
+/// `provider_state_root` must be a directory owned and protected by the fixed
+/// native provider identity; ordinary ACU state is not an acceptable path.
+pub fn execute_reserved_signal(
+    execution: &mut PrivilegeProviderExecution,
+    provider_state_root: &std::path::Path,
+) -> PrivilegeSignalEffectOutcome {
+    match execution.take_prepared_effect() {
+        Ok(prepared) => crate::executor::privilege_signal_effect::execute_prepared_signal(
+            prepared,
+            provider_state_root,
+        ),
+        Err(error) => PrivilegeSignalEffectOutcome::FailedBeforeEffect(error),
     }
 }
 
@@ -796,7 +836,7 @@ pub fn bind_authorized_prepared(
     Ok(AuthorizedPreparedRequest {
         validated,
         peer,
-        prepared,
+        prepared: Some(prepared),
     })
 }
 
@@ -1173,6 +1213,87 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
+    fn fresh_provider_execution_attempts_one_retained_object_effect_exactly_once() {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let root = std::fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!(
+                "agenterm-cu-privilege-effect-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn provider effect fixture");
+        let mut request = request(1_000);
+        request.plan = PrivilegePlanV1::ProcessSignal(
+            crate::privilege_plan::process_signal_plan(
+                child.id(),
+                ProcessSignalKind::Stop,
+                false,
+                false,
+                5_000,
+                16,
+                120,
+                1_000,
+            )
+            .unwrap(),
+        );
+        let validated = parse_apply_request(&serde_json::to_vec(&request).unwrap()).unwrap();
+        let ledger = PrivilegeProviderLedger::open_at(
+            root.join("ledger.json"),
+            PrivilegeProviderNamespace::Fixture,
+        )
+        .unwrap();
+        let mut execution = match ledger
+            .reserve_authorized(authorize(validated), 1_001)
+            .unwrap()
+        {
+            PrivilegeProviderReserveDecision::Fresh(execution) => execution,
+            other => panic!("expected fresh provider execution, got {other:?}"),
+        };
+        match execute_reserved_signal(&mut execution, &root) {
+            PrivilegeSignalEffectOutcome::Completed { verified, .. } => {
+                assert_eq!(verified, Some(true));
+            }
+            other => panic!("expected completed retained effect, got {other:?}"),
+        }
+        assert!(agenterm_platform::process_metrics::is_stopped(child.id()).unwrap());
+        match execute_reserved_signal(&mut execution, &root) {
+            PrivilegeSignalEffectOutcome::FailedBeforeEffect(error) => {
+                assert_eq!(error.code, "privilege_effect_already_attempted");
+            }
+            other => panic!("second effect attempt must fail closed, got {other:?}"),
+        }
+
+        let reference =
+            agenterm_platform::process_reference::ProcessReference::open_for_termination(
+                child.id(),
+            )
+            .unwrap();
+        reference.set_suspended(false).unwrap();
+        reference
+            .terminate(agenterm_platform::process_control::TerminationMode::Forceful)
+            .unwrap();
+        child.wait().unwrap();
+        ledger
+            .finalize(
+                execution,
+                PrivilegeProviderFinalOutcome::Completed {
+                    outcome_code: "completed".into(),
+                    receipt_id: "12345678-1234-4234-8234-123456789abc".into(),
+                    receipt_sha256: sha256_hex(b"fixture-effect-receipt"),
+                },
+                1_002,
+            )
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
     fn unknown_fields_tampering_and_expiry_fail_before_provider_dispatch() {
         let request = request(1_000);
         let mut value = serde_json::to_value(&request).unwrap();
@@ -1315,7 +1436,10 @@ mod tests {
             PrivilegeProviderReserveDecision::Fresh(reservation) => reservation,
             other => panic!("expected fresh reservation, got {other:?}"),
         };
-        let PreparedPrivilegeEffect::ProcessSignal(prepared) = &first.authorized.prepared;
+        let Some(PreparedPrivilegeEffect::ProcessSignal(prepared)) = &first.authorized.prepared
+        else {
+            panic!("fresh execution must retain its prepared signal effect")
+        };
         assert_eq!(prepared.references.len(), 1);
         assert_eq!(prepared.references[0].id(), std::process::id());
         assert!(prepared.references[0].is_alive().unwrap());

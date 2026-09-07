@@ -72,6 +72,7 @@ mod persisted;
 mod placement;
 mod pointer;
 mod power_status;
+pub(crate) mod privilege_signal_effect;
 mod process;
 mod process_signal_recovery;
 mod profiles;

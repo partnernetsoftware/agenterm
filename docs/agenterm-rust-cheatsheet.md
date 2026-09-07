@@ -4524,6 +4524,13 @@ ordinary process cannot prevent a duplicate root effect after a transport
 break. Likewise, reading the same process identity before and after a PID-only
 Unix syscall does not turn that syscall into exact-object authority; retain the
 typed platform gap until the native mutation primitive itself is identity-safe.
+The type state must own the authority, not merely its digest: move every
+retained native process reference from preparation into the authorized request
+and then into the fresh provider execution reservation. Let the execution hand
+that non-cloneable effect to exactly one dispatcher and consume it at terminal
+finalization. A type named `Prepared` that drops its handles and leaves only a
+PID plus digest silently reopens the very reuse race the plan was meant to
+close.
 
 For a privileged process-tree effect, freeze topology as well as membership:
 every plan row needs the exact parent edge, depth, process-start identity and

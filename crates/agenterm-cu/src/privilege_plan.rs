@@ -446,6 +446,27 @@ pub fn revalidate_process_signal_precondition(plan: &ProcessSignalPlan) -> Resul
     revalidate_process_signal_precondition_with(plan, observe_stable_signal_members)
 }
 
+/// Revalidate the complete exact member/parent/depth topology after the
+/// provider has temporarily frozen running members. Scheduler state is
+/// intentionally excluded because the provider itself changed that field.
+pub(crate) fn revalidate_process_signal_topology(plan: &ProcessSignalPlan) -> Result<(), CuError> {
+    let current = observe_stable_signal_members(plan.target.pid, plan.scope, plan.max_descendants)?;
+    if current.len() != plan.members.len()
+        || current.iter().zip(&plan.members).any(|(left, right)| {
+            left.pid != right.pid
+                || left.depth != right.depth
+                || left.parent_pid != right.parent_pid
+                || left.start_identity != right.start_identity
+        })
+    {
+        return Err(CuError::new(
+            "privilege_precondition_changed",
+            "process identity, tree membership, parent edge or depth changed while exact objects were frozen",
+        ));
+    }
+    Ok(())
+}
+
 fn revalidate_process_signal_precondition_with(
     plan: &ProcessSignalPlan,
     observe: impl FnOnce(u32, ProcessSignalScope, u32) -> Result<Vec<ProcessSignalMember>, CuError>,
