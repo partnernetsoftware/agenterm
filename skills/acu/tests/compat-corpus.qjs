@@ -47,9 +47,9 @@ require(explicit_todo === 0, "positive compatibility corpus must expose no TODO 
 let dynamic_stays = 0;
 let permanent_rejections = 0;
 const resolved_exec = ["acu.dynamic.003", "acu.dynamic.021", "acu.dynamic.051",
-  "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
+  "acu.dynamic.066", "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
   "acu.dynamic.096"];
-const resolved_todo = ["acu.dynamic.066"];
+const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.083", "acu.dynamic.088",
   "acu.dynamic.094"];
 const resolved_compound = {
@@ -95,4 +95,4 @@ require(dynamic_stays === 13, "dynamic stay corpus count");
 require(permanent_rejections === 1, "permanent rejection corpus count");
 require(resolved_checked === 21, "resolved dynamic corpus count");
 
-"compat-corpus.qjs PASS 42 positive exec / 21 resolved dispositions (8 compound) / 13 dynamic TODO / 1 permanent rejection / 95 frozen";
+"compat-corpus.qjs PASS 42 positive exec / 21 resolved dispositions (9 exec + 8 compound + 4 usage) / 13 dynamic TODO / 1 permanent rejection / 95 frozen";

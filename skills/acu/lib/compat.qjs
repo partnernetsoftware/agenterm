@@ -130,6 +130,14 @@ function known_dynamic_boundary(argv) {
       message: "daemon service is permanently retired; use the on-demand ACU runtime" };
   }
   if (verb === "pty" && has_arg(argv, "--provider")) {
+    const provider = value_flag(argv, "provider");
+    if (!provider.ok) { return { kind: "usage", command: "pty", message: provider.message }; }
+    if (sub === "start" && provider.value === "native") {
+      const parsed = without_value_flags(argv, ["provider"]);
+      const native = ["pty-start"];
+      append(native, copy_from(parsed.argv, 2));
+      return { kind: "exec", argv: native };
+    }
     if (sub === "wait") {
       return todo("acu.dynamic.067", "pty", "legacy regex wait needs a bounded linear-time matcher");
     }
