@@ -132,7 +132,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
   `13 dynamic-stay` rows as their exact typed TODO and the one permanent-scope row as a
-  local rejection; all 95 dynamic witnesses remain frozen.
+  local rejection. The 21 historical resolved witnesses now have an executable disposition:
+  7 direct exec, 4 local usage refusals, and 10 honest typed TODOs until their compound
+  result/identity projections move off TypeScript; all 95 dynamic witnesses remain frozen.
   This closes the valid top-level compatibility set, not the dynamic debt: every unsupported
   sub-shape still returns its stable `acu_todo`/usage result and never falls back to MCU.
   A TODO is visible progress, not parity: no row may be called migrated until

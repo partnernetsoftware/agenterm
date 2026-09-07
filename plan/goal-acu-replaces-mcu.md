@@ -76,6 +76,7 @@ ACU replaces MCU
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
 │  │  all 13 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
+│  │  all 21 historical resolved witnesses have a checked disposition (7 exec · 4 usage · 10 pending compounds);
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
 │  │  external wrapper now execs that entry; dynamic mappings, MCP, native courts and physical archive remain
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`

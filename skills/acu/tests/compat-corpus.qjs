@@ -44,6 +44,14 @@ require(explicit_todo === 0, "positive compatibility corpus must expose no TODO 
 
 let dynamic_stays = 0;
 let permanent_rejections = 0;
+const resolved_exec = ["acu.dynamic.003", "acu.dynamic.051", "acu.dynamic.079",
+  "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092", "acu.dynamic.096"];
+const resolved_todo = ["acu.dynamic.019", "acu.dynamic.020", "acu.dynamic.021",
+  "acu.dynamic.023", "acu.dynamic.066", "acu.dynamic.073", "acu.dynamic.080",
+  "acu.dynamic.081", "acu.dynamic.085", "acu.dynamic.093"];
+const resolved_usage = ["acu.dynamic.058", "acu.dynamic.083", "acu.dynamic.088",
+  "acu.dynamic.094"];
+let resolved_checked = 0;
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   const row = corpus.dynamic_rows[i];
   if (row.classification === "dynamic-stay") {
@@ -55,9 +63,21 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
     require(compat.canonicalize(row.argv).kind === "usage",
       row.gap_id + " permanent rejection must remain local");
     permanent_rejections = permanent_rejections + 1;
+  } else if (row.classification === "resolved") {
+    const mapped = compat.canonicalize(row.argv);
+    if (resolved_exec.includes(row.gap_id)) {
+      require(mapped.kind === "exec", row.gap_id + " resolved exec");
+    } else if (resolved_todo.includes(row.gap_id)) {
+      require(mapped.kind === "todo", row.gap_id + " pending compound must be TODO");
+      require(mapped.gap_id === row.gap_id, row.gap_id + " pending compound id");
+    } else if (resolved_usage.includes(row.gap_id)) {
+      require(mapped.kind === "usage", row.gap_id + " resolved local rejection");
+    } else { throw row.gap_id + " missing resolved disposition"; }
+    resolved_checked = resolved_checked + 1;
   }
 }
 require(dynamic_stays === 13, "dynamic stay corpus count");
 require(permanent_rejections === 1, "permanent rejection corpus count");
+require(resolved_checked === 21, "resolved dynamic corpus count");
 
-"compat-corpus.qjs PASS 42 positive exec / 13 dynamic TODO / 1 permanent rejection / 95 frozen";
+"compat-corpus.qjs PASS 42 positive exec / 21 resolved dispositions / 13 dynamic TODO / 1 permanent rejection / 95 frozen";

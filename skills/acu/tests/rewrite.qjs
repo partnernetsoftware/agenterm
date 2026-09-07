@@ -99,5 +99,9 @@ require(kill.pid === "42", "kill pid");
 require(kill.mode === "graceful", "kill mode");
 require(kill.timeoutMs === "1250", "kill timeout");
 kind(rewrite.rewrite(["kill", "0"]), "usage", "kill pid bound");
+exact(rewrite.rewrite(["resource", "top"]),
+  ["ps", "--sort", "cpu", "--max", "20"], "resource top");
+exact(rewrite.rewrite(["resource", "top", "--sort", "mem", "--limit", "7"]),
+  ["ps", "--sort", "memory", "--max", "7"], "resource top memory");
 
 "rewrite.qjs PASS";

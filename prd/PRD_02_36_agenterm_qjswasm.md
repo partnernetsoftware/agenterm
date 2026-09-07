@@ -61,6 +61,7 @@ agenterm-qjswasm
 │  │  │  ├─ 95 dynamic witnesses remain frozen with source digests and redacted argv as the
 │  │  │  │  explicit gap/typed-rejection queue; no MCU fallback exists
 │  │  │  ├─ all 13 dynamic-stay rows retain their exact gap id; the permanent-scope row rejects locally
+│  │  │  ├─ 21 historical resolved rows are executable-accounted: 7 exec · 4 usage · 10 typed TODO
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
 │  │  │  └─ no Bun, executable discovery, child process, repository cwd or MCU fallback
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism

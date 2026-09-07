@@ -11,7 +11,8 @@ export const LEGACY_TOP_LEVEL = [
   "move", "shot", "clip", "clipboard", "displays", "spaces", "cursor",
   "frame", "movewin", "resize", "maximize", "close", "orderwin",
   "focus", "raise", "minimize", "restore", "hit", "snapshot", "diff",
-  "launch", "quit", "hide", "show", "ps", "kill", "doctor", "permissions"
+  "launch", "quit", "hide", "show", "ps", "kill", "doctor", "permissions",
+  "resource"
 ];
 
 function contains(values, wanted) {
@@ -65,8 +66,23 @@ function known_dynamic_boundary(argv) {
     }
     return todo("acu.dynamic.061", "pty", "tmux provider and multi-pane inventory are not typed yet");
   }
+  if (verb === "job" && (sub === "output" || sub === "events" || sub === "wait")
+      && !has_arg(argv, "--generation")) {
+    const gap_id = sub === "output" ? "acu.dynamic.019"
+      : sub === "events" ? "acu.dynamic.020" : "acu.dynamic.023";
+    return todo(gap_id, "job", "legacy job operation needs a typed generation lookup before dispatch");
+  }
+  if (verb === "job" && sub === "events" && has_arg(argv, "--generation")
+      && has_arg(argv, "--max-bytes")) {
+    return todo("acu.dynamic.021", "job",
+      "legacy odd-byte event pagination needs a typed bounded reply projection");
+  }
   if (verb === "apps" && (sub === "inspect" || sub === "watch" || sub === "provisioning")) {
     return todo("acu.dynamic.072", "apps", "application inspection and signing facts need a typed provider");
+  }
+  if (verb === "apps" && (has_arg(argv, "--match") || has_arg(argv, "--offset")
+      || has_arg(argv, "--max"))) {
+    return todo("acu.dynamic.073", "apps", "legacy application filtering needs typed reply projection");
   }
   if (verb === "scroll" && has_arg(argv, "--to")) {
     return todo("acu.dynamic.074", "scroll", "window-local wheel delivery needs a typed mechanism");
@@ -86,6 +102,19 @@ function known_dynamic_boundary(argv) {
       || has_arg(argv, "--ax-scan-max") || has_arg(argv, "--onscreen")
       || has_arg(argv, "--occluded") || has_arg(argv, "--type"))) {
     return todo("acu.dynamic.084", "windows", "window-watch filters must run inside its poll");
+  }
+  if (verb === "windows" && sub !== "watch" && has_arg(argv, "--space")) {
+    return todo("acu.dynamic.085", "windows", "Space filtering needs typed inventory projection");
+  }
+  if (verb === "privilege" && sub === "apply"
+      && (!has_arg(argv, "--request") || !has_arg(argv, "--approve"))) {
+    return { kind: "usage", command: "privilege",
+      message: "privilege apply requires --request PLAN --approve 64_HEX" };
+  }
+  if (verb === "page" && sub === "targets" && has_arg(argv, "--match")
+      && !has_arg(argv, "--port") && !has_arg(argv, "--pid")) {
+    return { kind: "usage", command: "page",
+      message: "page targets requires --port N or --pid PID; --match does not select an endpoint" };
   }
   if (verb === "menu" && !has_arg(argv, "--window")) {
     return todo(sub === "inspect" ? "acu.dynamic.086" : "acu.dynamic.087", "menu",

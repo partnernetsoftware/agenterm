@@ -363,6 +363,37 @@ function legacy_kill(rest, flags) {
   };
 }
 
+function resource(rest, flags) {
+  const sub = take_first(rest);
+  if (sub === "status") {
+    if (rest_length(rest) !== 0 || flag_pairs(flags, []).length !== 0) {
+      return usage("resource", "resource status accepts no arguments");
+    }
+    return exec(["resource-status"]);
+  }
+  if (sub === "top") {
+    const names = Object.keys(flags);
+    for (let i = 0; i < names.length; i = i + 1) {
+      if (names[i] !== "sort" && names[i] !== "limit") {
+        return usage("resource", "resource top accepts only --sort cpu|mem and --limit N");
+      }
+    }
+    if (rest_length(rest) !== 0) {
+      return usage("resource", "resource top accepts no positional arguments");
+    }
+    const sort = flags.sort === undefined ? "cpu" : "" + flags.sort;
+    if (sort !== "cpu" && sort !== "mem") {
+      return usage("resource", "resource top --sort must be cpu or mem");
+    }
+    if (flags.limit !== undefined && !bounded_integer(flags, "limit", 1, 1000)) {
+      return usage("resource", "resource top --limit must be an integer in 1..1000");
+    }
+    return exec(["ps", "--sort", sort === "mem" ? "memory" : "cpu",
+      "--max", flags.limit === undefined ? "20" : "" + flags.limit]);
+  }
+  return todo("acu.dynamic.051", "resource", "resource subcommand is not typed yet");
+}
+
 function click(verb, rest, flags) {
   if (typeof flags.at === "string") {
     const handle = "" + flags.at;
@@ -519,6 +550,7 @@ export function rewrite(input) {
     ], flags, empty_rest()));
   }
   if (verb === "kill") { return legacy_kill(rest, flags); }
+  if (verb === "resource") { return resource(rest, flags); }
   if (verb === "orderwin") {
     if (flags.window !== undefined || flags.relation !== undefined || flags.relative !== undefined) {
       return exec(joined(["orderwin"], flags, rest));
