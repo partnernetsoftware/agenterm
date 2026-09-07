@@ -27,6 +27,16 @@
     "shared": false,
     "timeout_seconds": 0
   },
+  "installer": {
+    "package_identifier": "com.partnernetsoftware.agenterm.installer",
+    "install_location": "/Applications",
+    "ownership": "root:wheel",
+    "scripts_allowed": false,
+    "requires_stapled_app": true,
+    "requires_developer_id_installer": true,
+    "requires_trusted_timestamp": true,
+    "package_notarization_required_for_release": true
+  },
   "signing": {
     "expected_team_environment": "AGENTERM_APPLE_TEAM_ID",
     "app_requirement_template": "anchor apple generic and identifier \"com.partnernetsoftware.agenterm\" and certificate leaf[subject.OU] = \"@APPLE_TEAM_ID@\"",

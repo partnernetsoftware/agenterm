@@ -1324,9 +1324,20 @@ flowchart LR
   transport, so qualification
   cannot raise that budget or promote these bytes. The decisive experiment and
   exact result ledger live in `plan/design-linux-privilege-broker-experiment.md`
-  and `research/linux-privilege-broker/RESULTS.md`. macOS app-bundle/
-  SMAppService and Windows protected-install/UAC transports remain explicit
-  gaps; no worktree helper or silent elevation substitutes for them.
+  and `research/linux-privilege-broker/RESULTS.md`.
+
+  macOS now has the next non-mutating delivery slice: the signed app layout,
+  embedded launchd helper, operation-scoped Authorization Services right and
+  SMAppService-compatible LaunchDaemon contract are staged under
+  `packaging/privilege/macos/`. An offline Installer builder accepts only an
+  already Developer-ID-signed and stapled `AgenTerm.app`, requires an explicit
+  same-Team Developer ID Installer identity and trusted timestamp, verifies a
+  root:wheel, non-relocatable, script-free `/Applications` payload, and
+  publishes without overwrite. Its fixture mode cannot emit a deployable
+  package. The package itself must still be notarized before release, and no
+  provider registration, AuthorizationRight lifecycle or signed live court has
+  passed yet. Windows protected-install/UAC remains an explicit gap; no
+  worktree helper or silent elevation substitutes for either host.
 
   Linux broker promotion tree. The frozen decision procedure is
   `plan/design-linux-privilege-broker-experiment.md`:
