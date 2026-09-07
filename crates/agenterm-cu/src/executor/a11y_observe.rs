@@ -246,6 +246,7 @@ pub(super) fn query_payload(
     interval_ms: Option<u64>,
     max_events: Option<usize>,
 ) -> Result<serde_json::Value, CuError> {
+    filter.validate().map_err(invalid_input)?;
     let watch = query_watch_bounds(watch_ms, until, interval_ms, max_events)?;
     let focus_before = if watch.is_some() {
         Some(super::pointer::focused_window_identity()?.ok_or_else(|| {
@@ -409,10 +410,18 @@ fn query_once_payload(
         "budget": budget_json(depth, max_nodes),
         "filter": {
             "role": filter.roles,
+            "action": filter.actions,
+            "min_depth": filter.min_depth,
+            "max_depth": filter.max_depth,
             "text": filter.text,
             "text_exact": filter.text_exact,
             "identifier": filter.identifier,
             "actionable": filter.actionable,
+            "enabled": filter.enabled,
+            "focused": filter.focused,
+            "selected": filter.selected,
+            "checked": filter.checked,
+            "expanded": filter.expanded,
             "within": filter.within,
             "selector": selector,
         },
@@ -1190,10 +1199,18 @@ mod tests {
                     depth: None,
                     max_nodes: None,
                     role: Vec::new(),
+                    action: Vec::new(),
+                    min_depth: None,
+                    max_depth: None,
                     text: text.map(str::to_owned),
                     text_exact: text_exact.map(str::to_owned),
                     identifier: None,
                     actionable: false,
+                    enabled: None,
+                    focused: None,
+                    selected: None,
+                    checked: None,
+                    expanded: None,
                     within: None,
                     offset: None,
                     max,

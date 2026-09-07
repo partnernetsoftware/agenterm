@@ -2178,7 +2178,7 @@
       "grant": "observe",
       "family": "a11y-observe",
       "summary": "bounded filtered nodes, once or by poll-diff watch",
-      "usage": "query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]\n      [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]\n      [--offset N] [--max N] [--selector PATH]\n      [--watch-ms N [--until present|absent|change] [--interval-ms N] [--max-events N]]\ninspect HANDLE [flags]           (alias of query; --app is a migration gap)\nfind HANDLE TEXT [flags]         (alias of query --text TEXT)\nread HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)",
+      "usage": "query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]\n      [--action A,A] [--min-depth N] [--max-depth N]\n      [--text T | --text-exact T] [--identifier ID] [--actionable]\n      [--enabled true|false] [--focused true|false] [--selected true|false]\n      [--checked true|false] [--expanded true|false] [--within X,Y,W,H]\n      [--offset N] [--max N] [--selector PATH]\n      [--watch-ms N [--until present|absent|change] [--interval-ms N] [--max-events N]]\ninspect/find/read are ACU query conveniences, not lossless MCU receipt aliases",
       "args": [
         {
           "flag": "--window",
@@ -2201,6 +2201,21 @@
           "help": "roles to keep (AXTextArea or text-area spellings)"
         },
         {
+          "flag": "--action",
+          "value": "A,A",
+          "help": "case-insensitive exact action names; any requested action may match"
+        },
+        {
+          "flag": "--min-depth",
+          "value": "N",
+          "help": "minimum node depth (root = 0, at most 64)"
+        },
+        {
+          "flag": "--max-depth",
+          "value": "N",
+          "help": "maximum node depth (root = 0, at most 64; >= min-depth)"
+        },
+        {
           "flag": "--text",
           "value": "T",
           "help": "name / value substring"
@@ -2218,7 +2233,32 @@
         {
           "flag": "--actionable",
           "value": "",
-          "help": "nodes that offer an action"
+          "help": "nodes that offer an action or have a known actionable control role"
+        },
+        {
+          "flag": "--enabled",
+          "value": "true|false",
+          "help": "known enabled state; unknown never matches false"
+        },
+        {
+          "flag": "--focused",
+          "value": "true|false",
+          "help": "known focused state; unknown never matches false"
+        },
+        {
+          "flag": "--selected",
+          "value": "true|false",
+          "help": "known selected state; unknown never matches false"
+        },
+        {
+          "flag": "--checked",
+          "value": "true|false",
+          "help": "known checked state; mixed or unknown never matches"
+        },
+        {
+          "flag": "--expanded",
+          "value": "true|false",
+          "help": "known expanded state; unknown never matches false"
         },
         {
           "flag": "--within",
@@ -5894,7 +5934,7 @@
     },
     {
       "name": "query",
-      "text": "agenterm-cu query    (also: inspect, find, read)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]\n        [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]\n        [--offset N] [--max N] [--selector PATH]\n        [--watch-ms N [--until present|absent|change] [--interval-ms N] [--max-events N]]\n  inspect HANDLE [flags]           (alias of query; --app is a migration gap)\n  find HANDLE TEXT [flags]         (alias of query --text TEXT)\n  read HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --role R,R                    roles to keep (AXTextArea or text-area spellings)\n  --text T                      name / value substring\n  --text-exact T                exact name / value (not with --text)\n  --identifier ID               accessibility identifier\n  --actionable                  nodes that offer an action\n  --within X,Y,W,H              screen rectangle the node must intersect\n  --offset N                    page start\n  --max N                       page size\n  --selector PATH               MCU Role[idx] / Role@title / *@title / #desc path\n  --watch-ms N                 bounded poll duration (100..30000 ms)\n  --until CONDITION             present, absent, or change; requires --watch-ms\n  --interval-ms N              poll interval (50..2000; default 250)\n  --max-events N               retained identity-only diff events (1..2000; default 500)\n\nWithout --watch-ms this is the existing bounded, filtered flat node list. A\nwatch repeats that exact acquisition and returns one full final query plus\nbounded identity-only appeared/disappeared/changed events. Later acquisition\nerrors count as missing samples; they never masquerade as absence. `absent`\nrequires an untruncated complete scan. Foreground identity is compared before\nand after; a changed foreground or unmet --until fails typed. inspect is query\n(MCU `inspect HANDLE`; `--app` stays MCU). find HANDLE TEXT is query --text;\nread HANDLE SELECTOR is query --selector.\n"
+      "text": "agenterm-cu query    (also: inspect, find, read)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]\n        [--action A,A] [--min-depth N] [--max-depth N]\n        [--text T | --text-exact T] [--identifier ID] [--actionable]\n        [--enabled true|false] [--focused true|false] [--selected true|false]\n        [--checked true|false] [--expanded true|false] [--within X,Y,W,H]\n        [--offset N] [--max N] [--selector PATH]\n        [--watch-ms N [--until present|absent|change] [--interval-ms N] [--max-events N]]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --role R,R                    roles to keep (AXTextArea or text-area spellings)\n  --action A,A                  case-insensitive exact action names\n  --min-depth N                minimum node depth (root = 0, at most 64)\n  --max-depth N                maximum node depth (>= min-depth, at most 64)\n  --text T                      name / value substring\n  --text-exact T                exact name / value (not with --text)\n  --identifier ID               accessibility identifier\n  --actionable                  action-bearing or known actionable control roles\n  --enabled B                  known enabled state; unknown does not match false\n  --focused B                  known focused state; unknown does not match false\n  --selected B                 known selected state; unknown does not match false\n  --checked B                  known checked state; mixed/unknown do not match\n  --expanded B                 known expanded state; unknown does not match false\n  --within X,Y,W,H              screen rectangle the node must intersect\n  --offset N                    page start\n  --max N                       page size\n  --selector PATH               MCU Role[idx] / Role@title / *@title / #desc path\n  --watch-ms N                 bounded poll duration (100..30000 ms)\n  --until CONDITION             present, absent, or change; requires --watch-ms\n  --interval-ms N              poll interval (50..2000; default 250)\n  --max-events N               retained identity-only diff events (1..2000; default 500)\n\nWithout --watch-ms this is one bounded filtered flat node list. With a watch,\nevery poll repeats the exact same filters and returns one full final query plus\nbounded identity-only appeared/disappeared/changed events. Later acquisition\nerrors count as missing samples; they never masquerade as absence. False state\nfilters require an explicit opposite state: an unknown backend value never\nmatches false. `absent` requires an untruncated complete scan. Foreground\nidentity is compared before and after; a changed foreground or unmet --until\nfails typed. inspect/find/read remain ACU query conveniences only; they are not\nlossless aliases for MCU's classification, cross-field find, or node snapshot\nreceipts.\n"
     },
     {
       "name": "hit",

@@ -579,6 +579,15 @@ flowchart LR
   Only then may pure filters land; subrole/help/description/placeholder,
   required state and lossless long-value evidence require a platform/ABI
   extension rather than CLI-side invention.
+- [~] The first correctness tranche is now native in the ACU query contract:
+  case-insensitive exact action filters, bounded minimum/maximum depth, five
+  explicit tri-state filters (`enabled`, `focused`, `selected`, `checked`,
+  `expanded`), and MCU-compatible actionable-role fallback all compose over
+  the same single bounded acquisition. Unknown state never matches `false`.
+  Public qjswasm evidence `cu.query-native-filter-core` shares the existing
+  three-host owned-fixture court with query watch. This does not promote the
+  remaining aliases or cross-field text/region semantics; those stay typed
+  migration debt until their complete contracts exist.
 - [~] Profile-wide browser tab inventory must use the fixed MV3 bridge and its
   complete/truncated connection truth. `tab-list --window` is a visible native
   tab-strip for one window, lacks profile-wide background tabs and URLs, and

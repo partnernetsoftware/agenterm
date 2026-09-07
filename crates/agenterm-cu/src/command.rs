@@ -2318,10 +2318,12 @@ pub enum Command {
     },
     /// Bounded, filtered flat node list over the same walk `tree` makes
     /// (same node ids and flatten indices). Filters: `role` (comma list;
-    /// `AXTextArea` and `text-area` both match), `text` (case-insensitive
+    /// `AXTextArea` and `text-area` both match), exact action names, bounded
+    /// node depth, explicit tri-state controls, `text` (case-insensitive
     /// substring of name or text) or `text_exact`, `identifier` (exact),
-    /// `actionable` (at least one action), `within` (bounds intersect
-    /// `[x, y, w, h]`). `offset` / `max` page the matches. The reply reports
+    /// `actionable` (an action or known control role), and `within` (bounds
+    /// intersect `[x, y, w, h]`). Unknown state never matches `false`.
+    /// `offset` / `max` page the matches. The reply reports
     /// `visited / matched / returned / truncated`.
     Query {
         target: TargetRef,
@@ -2332,6 +2334,12 @@ pub enum Command {
         max_nodes: Option<usize>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         role: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        action: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_depth: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_depth: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2340,6 +2348,16 @@ pub enum Command {
         identifier: Option<String>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         actionable: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focused: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selected: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        checked: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expanded: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         within: Option<[i32; 4]>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6986,10 +7004,18 @@ mod tests {
             depth: Some(12),
             max_nodes: Some(500),
             role: vec!["AXTextArea".into(), "button".into()],
+            action: vec!["press".into()],
+            min_depth: Some(1),
+            max_depth: Some(4),
             text: Some("Fixture".into()),
             text_exact: None,
             identifier: None,
             actionable: true,
+            enabled: Some(true),
+            focused: Some(false),
+            selected: None,
+            checked: Some(false),
+            expanded: None,
             within: Some([0, 0, 900, 700]),
             offset: Some(2),
             max: Some(10),
@@ -7008,8 +7034,10 @@ mod tests {
             serde_json::json!({
                 "verb": "query", "target": "vnc", "window": 14278,
                 "depth": 12, "max_nodes": 500,
-                "role": ["AXTextArea", "button"], "text": "Fixture",
-                "actionable": true, "within": [0, 0, 900, 700],
+                "role": ["AXTextArea", "button"], "action": ["press"],
+                "min_depth": 1, "max_depth": 4, "text": "Fixture",
+                "actionable": true, "enabled": true, "focused": false,
+                "checked": false, "within": [0, 0, 900, 700],
                 "offset": 2, "max": 10
             })
         );

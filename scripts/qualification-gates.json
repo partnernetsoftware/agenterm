@@ -514,7 +514,8 @@
     {
       "id": "cu-query-watch-smoke",
       "evidence": [
-        "cu.query-watch-filtered-poll"
+        "cu.query-watch-filtered-poll",
+        "cu.query-native-filter-core"
       ]
     }
   ]

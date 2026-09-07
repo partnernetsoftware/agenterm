@@ -5020,6 +5020,16 @@ Prove ASCII leaves fallback slots untouched and CJK stops before emoji, then
 measure the consumer's RSS plus vmmap/heap; mapped virtual size is not dirty
 heap, and a loose RSS regression pass is not the product memory target.
 
+## Accessibility query state filters
+
+Treat native accessibility booleans as three-state observations. A node that
+publishes neither the positive nor the explicit opposite marker is unknown; it
+must not match a caller asking for `false`. Keep action, role, depth and state
+predicates over one bounded acquisition so watch and one-shot query cannot
+silently diverge. An “actionable” filter includes known control roles as well
+as nodes whose provider emitted an action list; cross-toolkit action lists are
+not complete enough to be the sole test.
+
 ## Large transient pixel frames
 
 On macOS a full 960×600 logical Retina XRGB frame is 8.79 MiB. Freeing a

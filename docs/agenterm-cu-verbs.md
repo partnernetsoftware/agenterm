@@ -3013,12 +3013,13 @@ windows refuses rather than returning a partial inventory.
 
 ```text
 query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]
-      [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]
+      [--action A,A] [--min-depth N] [--max-depth N]
+      [--text T | --text-exact T] [--identifier ID] [--actionable]
+      [--enabled true|false] [--focused true|false] [--selected true|false]
+      [--checked true|false] [--expanded true|false] [--within X,Y,W,H]
       [--offset N] [--max N] [--selector PATH]
       [--watch-ms N [--until present|absent|change] [--interval-ms N] [--max-events N]]
-inspect HANDLE [flags]           (alias of query; --app is a migration gap)
-find HANDLE TEXT [flags]         (alias of query --text TEXT)
-read HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)
+inspect/find/read are ACU query conveniences, not lossless MCU receipt aliases
 ```
 
 ```text
@@ -3027,22 +3028,30 @@ agenterm-cu query    (also: inspect, find, read)
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
   query --window HANDLE|App#N | HANDLE [--depth N] [--max-nodes N] [--role R,R]
-        [--text T | --text-exact T] [--identifier ID] [--actionable] [--within X,Y,W,H]
+        [--action A,A] [--min-depth N] [--max-depth N]
+        [--text T | --text-exact T] [--identifier ID] [--actionable]
+        [--enabled true|false] [--focused true|false] [--selected true|false]
+        [--checked true|false] [--expanded true|false] [--within X,Y,W,H]
         [--offset N] [--max N] [--selector PATH]
         [--watch-ms N [--until present|absent|change] [--interval-ms N] [--max-events N]]
-  inspect HANDLE [flags]           (alias of query; --app is a migration gap)
-  find HANDLE TEXT [flags]         (alias of query --text TEXT)
-  read HANDLE SELECTOR [flags]     (alias of query --selector SELECTOR)
 
 arguments:
   --window HANDLE               window handle from `windows` (numeric or App#N)
   --depth N                     walk depth (root = 0, at most 64)
   --max-nodes N                 node budget while the platform walks (1..20000)
   --role R,R                    roles to keep (AXTextArea or text-area spellings)
+  --action A,A                  case-insensitive exact action names
+  --min-depth N                minimum node depth (root = 0, at most 64)
+  --max-depth N                maximum node depth (>= min-depth, at most 64)
   --text T                      name / value substring
   --text-exact T                exact name / value (not with --text)
   --identifier ID               accessibility identifier
-  --actionable                  nodes that offer an action
+  --actionable                  action-bearing or known actionable control roles
+  --enabled B                  known enabled state; unknown does not match false
+  --focused B                  known focused state; unknown does not match false
+  --selected B                 known selected state; unknown does not match false
+  --checked B                  known checked state; mixed/unknown do not match
+  --expanded B                 known expanded state; unknown does not match false
   --within X,Y,W,H              screen rectangle the node must intersect
   --offset N                    page start
   --max N                       page size
@@ -3052,14 +3061,16 @@ arguments:
   --interval-ms N              poll interval (50..2000; default 250)
   --max-events N               retained identity-only diff events (1..2000; default 500)
 
-Without --watch-ms this is the existing bounded, filtered flat node list. A
-watch repeats that exact acquisition and returns one full final query plus
+Without --watch-ms this is one bounded filtered flat node list. With a watch,
+every poll repeats the exact same filters and returns one full final query plus
 bounded identity-only appeared/disappeared/changed events. Later acquisition
-errors count as missing samples; they never masquerade as absence. `absent`
-requires an untruncated complete scan. Foreground identity is compared before
-and after; a changed foreground or unmet --until fails typed. inspect is query
-(MCU `inspect HANDLE`; `--app` stays MCU). find HANDLE TEXT is query --text;
-read HANDLE SELECTOR is query --selector.
+errors count as missing samples; they never masquerade as absence. False state
+filters require an explicit opposite state: an unknown backend value never
+matches false. `absent` requires an untruncated complete scan. Foreground
+identity is compared before and after; a changed foreground or unmet --until
+fails typed. inspect/find/read remain ACU query conveniences only; they are not
+lossless aliases for MCU's classification, cross-field find, or node snapshot
+receipts.
 ```
 
 ### `hit`

@@ -337,6 +337,11 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
     let role = flag_text(args, "--role")?
         .map(|raw| agenterm_cu::observe::parse_roles(&raw))
         .unwrap_or_default();
+    let action = flag_text(args, "--action")?
+        .map(|raw| agenterm_cu::observe::parse_roles(&raw))
+        .unwrap_or_default();
+    let min_depth = flag_parsed::<u32>(args, "--min-depth")?;
+    let max_depth = flag_parsed::<u32>(args, "--max-depth")?;
     let text = flag_text(args, "--text")?;
     let text_exact = flag_text(args, "--text-exact")?;
     if text.is_some() && text_exact.is_some() {
@@ -344,6 +349,20 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
     }
     let identifier = flag_text(args, "--identifier")?;
     let actionable = take_switch(args, "--actionable");
+    let explicit_bool =
+        |args: &mut Vec<String>, flag: &'static str| -> Result<Option<bool>, String> {
+            match flag_text(args, flag)?.as_deref() {
+                None => Ok(None),
+                Some("true") => Ok(Some(true)),
+                Some("false") => Ok(Some(false)),
+                Some(_) => Err(format!("query {flag} takes true or false")),
+            }
+        };
+    let enabled = explicit_bool(args, "--enabled")?;
+    let focused = explicit_bool(args, "--focused")?;
+    let selected = explicit_bool(args, "--selected")?;
+    let checked = explicit_bool(args, "--checked")?;
+    let expanded = explicit_bool(args, "--expanded")?;
     let within = match flag_text(args, "--within")? {
         Some(raw) => Some(agenterm_cu::observe::parse_within(&raw)?),
         None => None,
@@ -371,7 +390,10 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
     if !args.is_empty() {
         return Err(format!(
             "{verb} accepts only --window H --depth N --max-nodes N --role R,R \
+             --action A,A --min-depth N --max-depth N \
              --text T | --text-exact T --identifier ID --actionable \
+             --enabled true|false --focused true|false --selected true|false \
+             --checked true|false --expanded true|false \
              --within X,Y,W,H --offset N --max N --selector PATH --watch-ms N \
              --until present|absent|change --interval-ms N --max-events N; unexpected {:?}",
             args[0]
@@ -383,10 +405,18 @@ fn query(target: TargetRef, verb: &str, args: &mut Vec<String>) -> Result<Comman
         depth,
         max_nodes,
         role,
+        action,
+        min_depth,
+        max_depth,
         text,
         text_exact,
         identifier,
         actionable,
+        enabled,
+        focused,
+        selected,
+        checked,
+        expanded,
         within,
         offset,
         max,
@@ -705,6 +735,16 @@ mod tests {
             "Fixture#7".into(),
             "--role".into(),
             "button".into(),
+            "--action".into(),
+            "Press,Focus".into(),
+            "--min-depth".into(),
+            "1".into(),
+            "--max-depth".into(),
+            "4".into(),
+            "--enabled".into(),
+            "false".into(),
+            "--checked".into(),
+            "true".into(),
             "--watch-ms".into(),
             "1500".into(),
             "--until".into(),
@@ -718,12 +758,17 @@ mod tests {
             parse(spec, "query", TargetRef::Current, &mut args).expect("query watch"),
             Command::Query {
                 window: 7,
+                ref action,
+                min_depth: Some(1),
+                max_depth: Some(4),
+                enabled: Some(false),
+                checked: Some(true),
                 watch_ms: Some(1500),
                 until: Some(QueryWatchUntil::Change),
                 interval_ms: Some(100),
                 max_events: Some(12),
                 ..
-            }
+            } if action == &["Press", "Focus"]
         ));
         let mut invalid = vec![
             "--window".into(),
@@ -732,6 +777,13 @@ mod tests {
             "forever".into(),
         ];
         assert!(parse(spec, "query", TargetRef::Current, &mut invalid).is_err());
+        let mut invalid_bool = vec![
+            "--window".into(),
+            "7".into(),
+            "--focused".into(),
+            "unknown".into(),
+        ];
+        assert!(parse(spec, "query", TargetRef::Current, &mut invalid_bool).is_err());
     }
 
     #[test]

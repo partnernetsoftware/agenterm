@@ -10,7 +10,7 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.query-watch-filtered-poll"];
+const declared_evidence = ["cu.query-watch-filtered-poll", "cu.query-native-filter-core"];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -169,6 +169,14 @@ function assert_invalid_watch(reply, label) {
     label + ":" + JSON.stringify(reply));
 }
 
+function nodes_include_id(reply, id) {
+  if (!Array.isArray(reply.data.nodes)) { return false; }
+  for (const node of reply.data.nodes) {
+    if (text_at(node, "id") === id) { return true; }
+  }
+  return false;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -218,6 +226,71 @@ try {
     "cu_query_watch_baseline:" + JSON.stringify(baseline));
   const stable_role = text_at(baseline.data.nodes[0], "role");
   ensure(stable_role !== "", "cu_query_watch_baseline_role_missing");
+
+  print("STEP native action, depth and published tri-state filters compose over one bounded walk");
+  let action_node = null;
+  let action_name = "";
+  for (const node of baseline.data.nodes) {
+    if (Array.isArray(node.actions) && node.actions.length > 0) {
+      action_node = node;
+      action_name = text_of(node.actions[0]);
+      break;
+    }
+  }
+  ensure(action_node !== null && action_name !== "", "cu_query_native_action_fixture_missing");
+  const action_depth = int_at(action_node, "depth");
+  const action_id = text_at(action_node, "id");
+  const action_filtered = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--depth", "64", "--max-nodes", "5000", "--action", action_name,
+    "--min-depth", "" + action_depth, "--max-depth", "" + action_depth
+  ]);
+  ensure(action_filtered.ok === true && nodes_include_id(action_filtered, action_id),
+    "cu_query_native_action_depth_filter:" + JSON.stringify(action_filtered));
+
+  const state_specs = [
+    ["enabled", "enabled", "disabled"],
+    ["focused", "focused", "focusable"],
+    ["selected", "selected", "unselected"],
+    ["checked", "checked", "unchecked"],
+    ["expanded", "expanded", "collapsed"]
+  ];
+  let state_filters_proven = 0;
+  for (const spec_state of state_specs) {
+    let state_node = null;
+    let state_value = "";
+    for (const node of baseline.data.nodes) {
+      if (!Array.isArray(node.states)) { continue; }
+      if (node.states.includes(spec_state[1])) {
+        state_node = node;
+        state_value = "true";
+        break;
+      }
+      if (node.states.includes(spec_state[2])) {
+        state_node = node;
+        state_value = "false";
+        break;
+      }
+    }
+    if (state_node === null) { continue; }
+    const state_filtered = run_cu(context, executable, [
+      "--target", "current", "--grant", "observe", "query", "--window", handle,
+      "--depth", "64", "--max-nodes", "5000", "--role", text_at(state_node, "role"),
+      "--min-depth", "" + int_at(state_node, "depth"),
+      "--max-depth", "" + int_at(state_node, "depth"),
+      "--" + spec_state[0], state_value
+    ]);
+    ensure(state_filtered.ok === true && nodes_include_id(state_filtered, text_at(state_node, "id")),
+      "cu_query_native_state_filter_" + spec_state[0] + ":" + JSON.stringify(state_filtered));
+    state_filters_proven = state_filters_proven + 1;
+  }
+  ensure(state_filters_proven >= 1, "cu_query_native_state_fixture_missing");
+  const inverted_depth = run_cu(context, executable, [
+    "--target", "current", "--grant", "observe", "query", "--window", handle,
+    "--min-depth", "2", "--max-depth", "1"
+  ]);
+  ensure(inverted_depth.ok === false && text_at(inverted_depth, "error.code") === "invalid_input",
+    "cu_query_native_inverted_depth_not_typed:" + JSON.stringify(inverted_depth));
 
   print("STEP bounded polling with no condition returns one unchanged final query");
   const unchanged = run_cu(context, executable, [
@@ -320,6 +393,7 @@ try {
 harness.complete(context, children, succeeded, failure);
 if (!succeeded) { throw failure; }
 harness.emit_evidence(context, declared_evidence, "cu.query-watch-filtered-poll");
+harness.emit_evidence(context, declared_evidence, "cu.query-native-filter-core");
 harness.remove_run(context);
 print("PASS: bounded query watch keeps a lossless final query, honest diff account and foreground invariants");
 return;

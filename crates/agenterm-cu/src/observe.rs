@@ -118,6 +118,29 @@ pub fn normalize_role(raw: &str) -> String {
     }
 }
 
+fn is_actionable_role(raw: &str) -> bool {
+    matches!(
+        normalize_role(raw).as_str(),
+        "button"
+            | "togglebutton"
+            | "checkbox"
+            | "radiobutton"
+            | "textfield"
+            | "textarea"
+            | "entry"
+            | "passwordtext"
+            | "combobox"
+            | "popupbutton"
+            | "spinbutton"
+            | "slider"
+            | "link"
+            | "menuitem"
+            | "tab"
+            | "row"
+            | "cell"
+    )
+}
+
 /// AX chrome-only vs page content, absorbed from MCU `classifyAxTree`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AxAvailability {
@@ -281,6 +304,10 @@ pub fn parse_within(raw: &str) -> Result<[i32; 4], String> {
 pub struct NodeFilter {
     /// Normalized with [`normalize_role`]; empty means any role.
     pub roles: Vec<String>,
+    /// Case-insensitive exact action names; any requested action may match.
+    pub actions: Vec<String>,
+    pub min_depth: Option<u32>,
+    pub max_depth: Option<u32>,
     /// Case-insensitive substring of `name` or `text`.
     pub text: Option<String>,
     /// Exact `name` or `text`.
@@ -289,11 +316,39 @@ pub struct NodeFilter {
     pub identifier: Option<String>,
     /// At least one action.
     pub actionable: bool,
+    pub enabled: Option<bool>,
+    pub focused: Option<bool>,
+    pub selected: Option<bool>,
+    pub checked: Option<bool>,
+    pub expanded: Option<bool>,
     /// Node bounds intersect this `[x, y, w, h]` screen rectangle.
     pub within: Option<[i32; 4]>,
 }
 
 impl NodeFilter {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.min_depth.is_some_and(|depth| depth > MAX_DEPTH_BUDGET) {
+            return Err(format!("--min-depth must be 0..={MAX_DEPTH_BUDGET}"));
+        }
+        if self.max_depth.is_some_and(|depth| depth > MAX_DEPTH_BUDGET) {
+            return Err(format!("--max-depth must be 0..={MAX_DEPTH_BUDGET}"));
+        }
+        if let (Some(minimum), Some(maximum)) = (self.min_depth, self.max_depth)
+            && maximum < minimum
+        {
+            return Err("--max-depth must be greater than or equal to --min-depth".into());
+        }
+        if self.actions.len() > 64
+            || self
+                .actions
+                .iter()
+                .any(|action| action.is_empty() || action.len() > 256)
+        {
+            return Err("--action must contain 1..64 values of at most 256 bytes each".into());
+        }
+        Ok(())
+    }
+
     pub fn from_parts(
         roles: &[String],
         text: Option<&str>,
@@ -304,15 +359,52 @@ impl NodeFilter {
     ) -> Self {
         Self {
             roles: roles.iter().map(|role| normalize_role(role)).collect(),
+            actions: Vec::new(),
+            min_depth: None,
+            max_depth: None,
             text: text.map(|value| value.to_lowercase()),
             text_exact: text_exact.map(str::to_owned),
             identifier: identifier.map(str::to_owned),
             actionable,
+            enabled: None,
+            focused: None,
+            selected: None,
+            checked: None,
+            expanded: None,
             within,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_native_filters(
+        mut self,
+        actions: &[String],
+        min_depth: Option<u32>,
+        max_depth: Option<u32>,
+        enabled: Option<bool>,
+        focused: Option<bool>,
+        selected: Option<bool>,
+        checked: Option<bool>,
+        expanded: Option<bool>,
+    ) -> Self {
+        self.actions = actions.iter().map(|action| action.to_lowercase()).collect();
+        self.min_depth = min_depth;
+        self.max_depth = max_depth;
+        self.enabled = enabled;
+        self.focused = focused;
+        self.selected = selected;
+        self.checked = checked;
+        self.expanded = expanded;
+        self
+    }
+
     pub fn matches(&self, node: &A11yNode) -> bool {
+        let depth = node_depth(&node.id);
+        if self.min_depth.is_some_and(|minimum| depth < minimum)
+            || self.max_depth.is_some_and(|maximum| depth > maximum)
+        {
+            return false;
+        }
         if !self.roles.is_empty() {
             let role = normalize_role(&node.role);
             if !self.roles.iter().any(|wanted| wanted == &role) {
@@ -340,7 +432,24 @@ impl NodeFilter {
         {
             return false;
         }
-        if self.actionable && node.actions.is_empty() {
+        if !self.actions.is_empty()
+            && !self.actions.iter().any(|wanted| {
+                node.actions
+                    .iter()
+                    .any(|actual| actual.eq_ignore_ascii_case(wanted))
+            })
+        {
+            return false;
+        }
+        if self.actionable && node.actions.is_empty() && !is_actionable_role(&node.role) {
+            return false;
+        }
+        if !tri_filter(self.enabled, enabled_state(node))
+            || !tri_filter(self.focused, focused_state(node))
+            || !tri_filter(self.selected, selected_state(node))
+            || !tri_filter(self.checked, checked_state(node))
+            || !tri_filter(self.expanded, expanded_state(node))
+        {
             return false;
         }
         if let Some([x, y, w, h]) = self.within {
@@ -1325,6 +1434,20 @@ pub enum Tri {
     False,
     Mixed,
     Unknown,
+}
+
+fn tri_filter(wanted: Option<bool>, actual: Tri) -> bool {
+    wanted.is_none() || actual.as_bool() == wanted
+}
+
+pub fn enabled_state(node: &A11yNode) -> Tri {
+    if has_state(node, "enabled") {
+        Tri::True
+    } else if has_state(node, "disabled") {
+        Tri::False
+    } else {
+        Tri::Unknown
+    }
 }
 
 impl Tri {
@@ -2891,6 +3014,137 @@ mod tests {
         let combined =
             NodeFilter::from_parts(&["button".into()], Some("press"), None, None, true, None);
         assert_eq!(query(&flat, &combined, page, false).0[0].index, 1);
+    }
+
+    #[test]
+    fn native_query_filters_are_bounded_and_unknown_is_not_false() {
+        let root = node("/0", "window", "Root", &[]);
+        let mut inactive = node("/0/0", "text-field", "Draft", &["focus"]);
+        inactive.states = vec![
+            "enabled".into(),
+            "focusable".into(),
+            "unselected".into(),
+            "unchecked".into(),
+            "collapsed".into(),
+        ];
+        let mut active = node("/0/0/0", "group", "Live", &["Press"]);
+        active.states = vec![
+            "disabled".into(),
+            "focused".into(),
+            "selected".into(),
+            "checked".into(),
+            "expanded".into(),
+        ];
+        let t = tree(vec![root, inactive, active], false);
+        let flat = flatten(&t);
+        let page = Page::new(None, None).expect("page");
+
+        let action = NodeFilter::default().with_native_filters(
+            &["press".into()],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(query(&flat, &action, page, false).0[0].index, 2);
+
+        let depth = NodeFilter::default().with_native_filters(
+            &[],
+            Some(1),
+            Some(1),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(query(&flat, &depth, page, false).0[0].index, 1);
+
+        for filter in [
+            NodeFilter::default().with_native_filters(
+                &[],
+                None,
+                None,
+                Some(true),
+                None,
+                None,
+                None,
+                None,
+            ),
+            NodeFilter::default().with_native_filters(
+                &[],
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                None,
+                None,
+            ),
+            NodeFilter::default().with_native_filters(
+                &[],
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                None,
+            ),
+            NodeFilter::default().with_native_filters(
+                &[],
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+            ),
+            NodeFilter::default().with_native_filters(
+                &[],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+            ),
+        ] {
+            let hits = query(&flat, &filter, page, false).0;
+            assert_eq!(hits.len(), 1, "unknown state must not match false");
+            assert_eq!(hits[0].index, 1);
+        }
+
+        let actionable = NodeFilter {
+            actionable: true,
+            ..NodeFilter::default()
+        };
+        let actionable_hits = query(&flat, &actionable, page, false).0;
+        assert_eq!(
+            actionable_hits
+                .iter()
+                .map(|node| node.index)
+                .collect::<Vec<_>>(),
+            vec![1, 2],
+            "a known control role remains actionable even without an action list"
+        );
+
+        let invalid_depth = NodeFilter::default().with_native_filters(
+            &[],
+            Some(4),
+            Some(3),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(invalid_depth.validate().is_err());
     }
 
     #[test]

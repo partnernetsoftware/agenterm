@@ -152,6 +152,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       macOS owned fixture 已绿，Linux/Windows 同一 court 待跑
 │     │                       query watch 已成为同一有界过滤器上的 poll-diff：缺样本不冒充 absent，
 │     │                       前景变化与 until 超时都 typed fail；三平台公开 court 已注册
+│     │                       query 第一批无 ABI 筛选已落：action/depth/五类三态；unknown 不冒充
+│     │                       false，inspect/find/read/tree/elements 的假等价已从过渡层撤回
 │     │                       retirement court 当前 80 阻塞：1 capability / 15 evidence /
 │     │                       63 platform qualification / 1 adapter；先清假等价再扩能力
 │     │                       browser profile 全量 tabs 只认 MV3 bridge；AX tab-strip 不得冒充

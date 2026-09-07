@@ -357,9 +357,9 @@
         {
           "id": "desktop.tree.query",
           "mcu_shape": "tree/query/elements/inspect/find/read with depth, scan, result, state, action and region bounds",
-          "acu_shape": "tree/query plus inspect/find/read aliases, flat results, selector-rooted subtree projection, bounded filtered poll-diff watch and typed truncation/timeout metadata",
+          "acu_shape": "tree/query flat results, selector-rooted subtree projection, bounded action/depth/tri-state filters, filtered poll-diff watch and typed truncation/timeout metadata; inspect/find/read conveniences are not yet lossless MCU receipt aliases",
           "state": "delegated",
-          "evidence": ["cu.macos-ax-query", "cu.linux-atspi-query", "cu.windows-uia-query", "cu.tree-selector-subtree", "cu.query-watch-filtered-poll"]
+          "evidence": ["cu.macos-ax-query", "cu.linux-atspi-query", "cu.windows-uia-query", "cu.tree-selector-subtree", "cu.query-watch-filtered-poll", "cu.query-native-filter-core"]
         },
         {
           "id": "desktop.focused-element",

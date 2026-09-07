@@ -987,6 +987,15 @@ when forwarding would silently change meaning, such as window activation vs.
 node focus or shell execution vs. one JSON CU command. The ledger and queues
 above turn every such honest refusal into owned removal work.
 
+The first query correctness tranche now composes exact action names, bounded
+minimum/maximum depth, five explicit tri-state filters and actionable-role
+fallback over the same bounded acquisition. Unknown state never matches
+`false`. The transition router also stopped forwarding MCU `inspect`, `find`,
+`read`, `tree`, `elements`, text, selector, actionable and region shapes whose
+meaning or result contract is not yet lossless; this deliberately makes the
+remaining work visible instead of manufacturing compatibility from a same-name
+ACU command.
+
 ## Hard gates
 
 - **R0 Accounting:** zero unclassified MCU public command shapes.
