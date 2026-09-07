@@ -5106,3 +5106,18 @@ completion. Feature dependencies must cover every supported target: an
 unconditional snapshot facade cannot use a Unix-only optional dependency.
 Streaming encoder completion also needs explicit I/O failure verification;
 a library destructor can discard an error from a final buffered chunk.
+
+## Reuse one typed command adapter across CLI, qjs and MCP
+
+Do not give each transport its own command DTO, error enum, receipt projection,
+or hand-written JSON Schema. Decode and authorize a closed, versioned envelope
+in the product crate, then enter the same `Command -> Executor -> CuReply` path
+used by the CLI. A dynamic provider should expose one transport-neutral opaque
+call; qjs and MCP are consumers of that call, not separate dispatchers.
+
+Keep tool descriptors beside the owning command contract and include those
+exact bytes in transport discovery. A legal `CuReply { ok: false, ... }` is
+application data: MCP returns it as structured content with `isError: true`.
+Only load/ABI/panic/encoding failure is a transport error. This distinction
+preserves typed failure and existing receipts without accidental translation,
+retry, or fallback at a new protocol boundary.

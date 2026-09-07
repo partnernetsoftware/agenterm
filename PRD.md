@@ -142,12 +142,14 @@ AgenTerm — local agent & process fleet work OS
 │     │                       静态 provider 因 Windows PE 3.73→8.87 MiB 被淘汰，固定同目录
 │     │                       dynamic provider 已进入六格构建与 Win/macOS 发布链；Windows
 │     │                       exact release 主程序 3,738,112 B ≤ 4 MiB。六格目前只证构建/打包，
-│     │                       dynamic load、MCP 与原生运行庭仍待完成，不能冒充 execute evidence
+│     │                       dynamic load 已在本机 macOS 经 qjs/MCP 实跑；MCP 目前仅 capabilities
+│     │                       只读纵切片，三主机与六格原生运行庭仍待完成，不能冒充全平台 evidence
 │     ├─ Bun-free bridge [~]     `skills/acu/acu.qjs` 已以 bounded argv helper +
 │     │                       `agenterm:acu.argv` 跑通 native spelling；无 Bun、binary lookup、
 │     │                       child process 或 MCU fallback。冻结 42 个合法 legacy probe 已全部
 │     │                       映射；`kill PID` 仍以 process-state → identity-bound process-kill 两段
-│     │                       typed 调用执行。95 条动态 witness 继续按稳定 gap_id 补齐或拒绝
+│     │                       typed 调用执行。95 条动态 witness 中 8 条复合投影已接线，仅 default-shell
+│     │                       仍为历史 resolved TODO；13 条真实 dynamic-stay 继续按稳定 gap_id 修复
 │     ├─ retirement             MCU 立即退出生产入口；TODO 动态补 ACU。调用者迁到 typed
 │     │                       `acu` 对象后，过渡 `acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；ledger 当前 135 叶：
@@ -274,7 +276,7 @@ flowchart LR
   ACUOBJ["agenterm:acu.call/argv<br/>one parser · Executor · receipts"]
   ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
   ACUDYN["fixed sibling provider<br/>ABI checked · no fallback<br/>separate signed artifact"]
-  ACUQJS["agenterm cli acu [~]<br/>embedded · Bun-free · any cwd<br/>42/42 positive exec · 95 dynamic frozen"]
+  ACUQJS["agenterm cli acu [~]<br/>embedded · Bun-free · any cwd<br/>42/42 positive · 8 compound · 95 frozen"]
   TODO["acu_todo ALERT<br/>stable gap id · explicit missing behavior"]
   MCUARC["archived MCU source<br/>read-only implementation reference"]
   BRIDGE["stable MV3 profile<br/>exact-tab lock · unique reconnect"]

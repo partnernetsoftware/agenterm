@@ -103,9 +103,11 @@ fn public_stdio_lifecycle_keeps_stdout_machine_only() {
     let tools = responses[3]["result"]["tools"]
         .as_array()
         .expect("tool list");
-    assert_eq!(tools.len(), 1);
+    assert_eq!(tools.len(), 2);
     assert_eq!(tools[0]["name"], "agenterm_wait");
+    assert_eq!(tools[1]["name"], "agenterm_acu_capabilities");
     assert_eq!(tools[0]["annotations"]["readOnlyHint"], true);
+    assert_eq!(tools[1]["annotations"]["readOnlyHint"], true);
 }
 
 #[test]

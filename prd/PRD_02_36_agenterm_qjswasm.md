@@ -53,7 +53,7 @@ agenterm-qjswasm
 │  │  │  ├─ separate ABI-versioned artifact; Win/macOS packaging and signing fail closed if absent
 │  │  │  ├─ public `acu-provider-smoke` executes typed command + argv capabilities in-process
 │  │  │  └─ no path search, static implementation, child process or MCU fallback
-│  │  ├─ [ ] MCP consumes the same adapter (current MCP surface remains separate and read-only)
+│  │  ├─ [~] MCP consumes the same adapter: read-only capabilities is live; broader verbs remain closed
 │  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
 │  │  ├─ [~] `skills/acu/acu.qjs`: bounded argv/native path + frozen compatibility court are green
@@ -61,7 +61,7 @@ agenterm-qjswasm
 │  │  │  ├─ 95 dynamic witnesses remain frozen with source digests and redacted argv as the
 │  │  │  │  explicit gap/typed-rejection queue; no MCU fallback exists
 │  │  │  ├─ all 13 dynamic-stay rows retain their exact gap id; the permanent-scope row rejects locally
-│  │  │  ├─ 21 historical resolved rows are executable-accounted: 7 exec · 4 usage · 10 typed TODO
+│  │  │  ├─ 21 historical resolved rows: 8 exec · 8 compound · 4 usage · 1 typed TODO
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
 │  │  │  └─ no Bun, executable discovery, child process, repository cwd or MCU fallback
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism

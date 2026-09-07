@@ -1,4 +1,4 @@
-//! Versioned dynamic provider for the qjs `agenterm:acu` embedder.
+//! Versioned dynamic provider shared by qjs `agenterm:acu` and MCP.
 //!
 //! This crate owns only the native delivery seam. The request is opaque JSON
 //! passed to `agenterm-cu`, which remains the sole owner of `Command`,

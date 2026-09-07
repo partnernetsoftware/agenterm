@@ -123,7 +123,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │      two-call identity bracket (process-state → process-kill with the exact start identity)
   │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
-  │  └─ [ ] close the named dynamic sub-shapes, MCP adapter, native courts and physical reference archive
+  │  ├─ [x] eight compound compatibility shapes execute through pure qjs projections + the same typed calls
+  │  ├─ [~] MCP uses the same provider/Executor for one read-only capabilities slice; mutation remains closed
+  │  └─ [ ] close the remaining named dynamic sub-shapes, native courts and physical reference archive
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
   └─ acu.qjs retires when legacy MCU syntax has no retained callers
@@ -133,8 +135,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
   `13 dynamic-stay` rows as their exact typed TODO and the one permanent-scope row as a
   local rejection. The 21 historical resolved witnesses now have an executable disposition:
-  7 direct exec, 4 local usage refusals, and 10 honest typed TODOs until their compound
-  result/identity projections move off TypeScript; all 95 dynamic witnesses remain frozen.
+  8 direct exec, 8 Bun-free compound projections, 4 local usage refusals, and one honest
+  typed TODO (`pty start` default-shell semantics); all 95 dynamic witnesses remain frozen.
   This closes the valid top-level compatibility set, not the dynamic debt: every unsupported
   sub-shape still returns its stable `acu_todo`/usage result and never falls back to MCU.
   A TODO is visible progress, not parity: no row may be called migrated until
@@ -171,8 +173,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   provider envelope accepts either one typed `Command` or bounded argv, and
   both end at the same `Executor`; a legacy naked `Command` remains compatible.
   The public `acu-provider-smoke` proves both in-process paths and the
-  missing-sibling path fails typed. Six-target build/package coverage is not
-  six-target dynamic-load evidence: native runtime courts and MCP remain open.
+  missing-sibling path fails typed. The same fixed-sibling boundary now serves
+  MCP's read-only `agenterm_acu_capabilities` tool: its tool schema is owned in
+  `agenterm-cu`, and its `CuReply` passes through unchanged as MCP structured
+  content. A macOS public stdio black box has executed this path; six-target
+  build/package coverage is still not six-target dynamic-load evidence, and
+  broader MCP verbs plus native runtime courts remain open.
 
   ```mermaid
   flowchart LR

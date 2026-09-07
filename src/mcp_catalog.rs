@@ -130,13 +130,22 @@ pub fn capabilities() -> McpCapabilities {
                 content_bearing: false,
             },
         ],
-        tools: vec![McpTool {
-            stable_id: "fleet.wait",
-            name: "agenterm_wait",
-            schema_id: "agenterm.mcp.tool.wait.v1",
-            availability: McpAvailability::Shipped,
-            read_only: true,
-        }],
+        tools: vec![
+            McpTool {
+                stable_id: "fleet.wait",
+                name: "agenterm_wait",
+                schema_id: "agenterm.mcp.tool.wait.v1",
+                availability: McpAvailability::Shipped,
+                read_only: true,
+            },
+            McpTool {
+                stable_id: "acu.capabilities",
+                name: "agenterm_acu_capabilities",
+                schema_id: "agenterm.cu.mcp.capabilities.v1",
+                availability: McpAvailability::Shipped,
+                read_only: true,
+            },
+        ],
         limits: McpLimits {
             frame_bytes: 1_048_576,
             response_bytes: 1_048_576,
@@ -286,7 +295,7 @@ fn print_help() {
            agenterm-mcp [--endpoint ENDPOINT|--address HOST:PORT|--instance NAME] serve --stdio\n\
          \n\
          The stdio lifecycle, metadata-safe Fleet resources, and one bounded\n\
-         read-only wait tool are shipped in this implementation slice.\n\
+         read-only wait tool and agenterm-cu capability inventory are shipped.\n\
          No network listener or mutation tool is available."
     );
 }
@@ -298,15 +307,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn first_delivery_catalog_is_read_only_and_bounded() {
+    fn current_catalog_is_read_only_and_bounded() {
         let catalog = capabilities();
         assert_eq!(catalog.protocol_revision, "2025-11-25");
         assert_eq!(catalog.transports, vec!["stdio"]);
         assert_eq!(catalog.resources.len(), 4);
         assert!(catalog.resources.iter().all(|item| !item.content_bearing));
-        assert_eq!(catalog.tools.len(), 1);
+        assert_eq!(catalog.tools.len(), 2);
         assert_eq!(catalog.tools[0].name, "agenterm_wait");
-        assert!(catalog.tools[0].read_only);
+        assert_eq!(catalog.tools[1].name, "agenterm_acu_capabilities");
+        assert!(catalog.tools.iter().all(|tool| tool.read_only));
         assert!(catalog.limits.frame_bytes > 0);
         assert!(catalog.limits.resource_bytes <= catalog.limits.response_bytes);
         assert!(catalog.limits.resource_items > 0);
@@ -317,6 +327,12 @@ mod tests {
         );
         assert!(catalog.limits.instance_discovery_concurrency > 0);
         assert!(catalog.limits.wait_timeout_ms_maximum > 0);
+        let acu: serde_json::Value = serde_json::from_str(include_str!(
+            "../crates/agenterm-cu/contract/mcp-capabilities-tool.json"
+        ))
+        .expect("agenterm-cu MCP descriptor");
+        assert_eq!(acu["name"], catalog.tools[1].name);
+        assert_eq!(acu["annotations"]["readOnlyHint"], true);
     }
 
     #[test]

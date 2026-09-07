@@ -24,6 +24,7 @@ const ERROR_INVALID_PARAMS: i64 = -32602;
 const ERROR_NOT_INITIALIZED: i64 = -32002;
 const ERROR_PROTOCOL_VERSION: i64 = -32005;
 const ERROR_RESPONSE_TOO_LARGE: i64 = -32004;
+const ERROR_ACU_PROVIDER: i64 = -32006;
 const WAIT_PENDING: u8 = 0;
 const WAIT_CANCELLED: u8 = 1;
 const WAIT_COMPLETED: u8 = 2;
@@ -135,7 +136,7 @@ pub fn serve_stdio_with_config<R: BufRead + Send + 'static, W: Write>(
                 if handle_cancel_notification(&message, &active) {
                     continue;
                 }
-                if state == SessionState::Ready && is_tool_call(&message) {
+                if state == SessionState::Ready && is_wait_tool_call(&message) {
                     match start_wait(
                         &message,
                         &config,
@@ -247,12 +248,17 @@ fn handle_cancel_notification(message: &Value, active: &HashMap<String, ActiveWa
     true
 }
 
-fn is_tool_call(message: &Value) -> bool {
-    message
-        .as_object()
-        .and_then(|object| object.get("method"))
-        .and_then(Value::as_str)
-        == Some("tools/call")
+fn is_wait_tool_call(message: &Value) -> bool {
+    let Some(object) = message.as_object() else {
+        return false;
+    };
+    object.get("method").and_then(Value::as_str) == Some("tools/call")
+        && object
+            .get("params")
+            .and_then(Value::as_object)
+            .and_then(|params| params.get("name"))
+            .and_then(Value::as_str)
+            == Some("agenterm_wait")
 }
 
 fn start_wait(
@@ -559,9 +565,9 @@ fn process_message(
                         "name": "agenterm-mcp",
                         "title": "AgenTerm MCP",
                         "version": env!("CARGO_PKG_VERSION"),
-                        "description": "Read-only AgenTerm Fleet bridge"
+                        "description": "Read-only AgenTerm Fleet and agenterm-cu bridge"
                     },
-                    "instructions": "Read metadata-safe Fleet resources or use agenterm_wait for one bounded, cancellable event wait."
+                    "instructions": "Read metadata-safe Fleet resources, wait for one bounded Fleet event, or inspect the canonical agenterm-cu capability inventory."
                 }),
             ))
         }
@@ -684,9 +690,10 @@ fn process_message(
                         "idempotentHint": false,
                         "openWorldHint": false
                     }
-                }]
+                }, acu_capabilities_tool_descriptor()]
             }),
         )),
+        "tools/call" => Some(call_acu_tool(response_id, params)),
         _ => Some(error_response(
             response_id,
             ERROR_METHOD_NOT_FOUND,
@@ -694,6 +701,88 @@ fn process_message(
             Some(json!({"method": method})),
         )),
     }
+}
+
+fn acu_capabilities_tool_descriptor() -> Value {
+    serde_json::from_str(include_str!(
+        "../crates/agenterm-cu/contract/mcp-capabilities-tool.json"
+    ))
+    .expect("agenterm-cu-owned MCP descriptor must be valid JSON")
+}
+
+fn call_acu_tool(response_id: Value, params: Option<&Value>) -> Value {
+    let Some(params) = params.and_then(Value::as_object) else {
+        return error_response(
+            response_id,
+            ERROR_INVALID_PARAMS,
+            "tools/call params must be an object",
+            None,
+        );
+    };
+    let Some(name) = params.get("name").and_then(Value::as_str) else {
+        return error_response(
+            response_id,
+            ERROR_INVALID_PARAMS,
+            "tools/call requires a tool name",
+            None,
+        );
+    };
+    if name != "agenterm_acu_capabilities" {
+        return error_response(
+            response_id,
+            ERROR_INVALID_PARAMS,
+            "Unknown tool",
+            Some(json!({"name": name})),
+        );
+    }
+    let Some(arguments) = params.get("arguments").and_then(Value::as_object) else {
+        return error_response(
+            response_id,
+            ERROR_INVALID_PARAMS,
+            "agenterm_acu_capabilities arguments must be an object",
+            None,
+        );
+    };
+    let request = json!({
+        "acu_request": 1,
+        "kind": "mcp_call",
+        "name": name,
+        "arguments": arguments
+    });
+    let encoded = serde_json::to_string(&request).expect("ACU MCP request serializes");
+    let reply = match crate::acu_provider::call(&encoded) {
+        Ok(reply) => match serde_json::from_str::<Value>(&reply) {
+            Ok(reply) => reply,
+            Err(_) => {
+                return error_response(
+                    response_id,
+                    ERROR_ACU_PROVIDER,
+                    "agenterm-cu provider returned an invalid reply",
+                    Some(json!({"code": "acu_provider_reply_not_json"})),
+                );
+            }
+        },
+        Err(code) => {
+            return error_response(
+                response_id,
+                ERROR_ACU_PROVIDER,
+                "agenterm-cu provider boundary failed",
+                Some(json!({"code": code})),
+            );
+        }
+    };
+    let is_error = reply.get("ok").and_then(Value::as_bool) != Some(true);
+    success_response(
+        response_id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&reply).expect("ACU reply serializes")
+            }],
+            "structuredContent": reply,
+            "isError": is_error
+        }),
+    )
 }
 
 fn resource_title(stable_id: &str) -> &'static str {
@@ -927,7 +1016,7 @@ mod tests {
     }
 
     #[test]
-    fn ready_session_lists_one_bounded_read_only_wait_tool() {
+    fn ready_session_lists_two_bounded_read_only_tools() {
         let responses = exchange(concat!(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":",
             "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},",
@@ -936,9 +1025,12 @@ mod tests {
             "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
         ));
         let tools = responses[1]["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
         assert_eq!(tools[0]["name"], "agenterm_wait");
+        assert_eq!(tools[1]["name"], "agenterm_acu_capabilities");
+        assert_eq!(tools[1]["inputSchema"]["additionalProperties"], false);
         assert_eq!(tools[0]["annotations"]["readOnlyHint"], true);
+        assert_eq!(tools[1]["annotations"]["readOnlyHint"], true);
         assert_eq!(
             tools[0]["inputSchema"]["properties"]["timeout_ms"]["maximum"],
             capabilities().limits.wait_timeout_ms_maximum

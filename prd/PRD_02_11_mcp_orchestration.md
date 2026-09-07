@@ -168,3 +168,22 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     - [ ] MCP client federation, network transport, subscriptions, control
       tools, Rhai tool execution, brain/flow, durable scheduling, and
       autonomous actions remain outside this first-delivery gate
+
+- [~] post-v0.1.16 ACU convergence: keep the first-delivery history above, but
+  evolve the current read-only catalog from one to two tools
+  - [x] add `agenterm_acu_capabilities` without adding a second command,
+    authorization, error, or receipt implementation: MCP sends one versioned
+    `mcp_call` envelope through the fixed-sibling provider and the canonical
+    `agenterm-cu` `Command -> Executor -> CuReply` path
+  - [x] keep the MCP descriptor beside the `agenterm-cu` contract and include
+    that exact JSON in `tools/list`; `mcp_stdio` does not restate its argument
+    or output schema
+  - [x] return `CuReply` unchanged as `structuredContent`, with `isError`
+    derived only from `CuReply.ok`; provider/ABI failure remains a distinct
+    JSON-RPC boundary error and there is no static, process, or MCU fallback
+  - [x] public macOS stdio evidence proves initialize → tools/list →
+    `agenterm_acu_capabilities`, using the staged fixed-sibling provider and an
+    observe grant
+  - [ ] run the same exact provider bytes through Windows/Linux native courts,
+    then widen MCP only after cancellation and receipt semantics are explicit;
+    no mutation tool is advertised in this slice

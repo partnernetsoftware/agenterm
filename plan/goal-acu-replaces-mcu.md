@@ -70,15 +70,16 @@ ACU replaces MCU
 ├─ qjswasm execution core
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1: `acu.ts` is only a temporary lossless MCU→ACU argv adapter
-│  ├─ phase 2 [~]: bounded `agenterm:acu.call/argv` + fixed-sibling provider + shared argv parser are green; MCP/native courts remain
+│  ├─ phase 2 [~]: bounded `agenterm:acu.call/argv` + fixed-sibling provider + shared argv parser are green;
+│  │  MCP read-only capabilities uses the same adapter, while broader MCP/native courts remain
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  │  └─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
 │  │  all 13 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
-│  │  all 21 historical resolved witnesses have a checked disposition (7 exec · 4 usage · 10 pending compounds);
+│  │  all 21 historical resolved witnesses have a checked disposition (8 exec · 8 compound · 4 usage · 1 TODO);
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
-│  │  external wrapper now execs that entry; dynamic mappings, MCP, native courts and physical archive remain
+│  │  external wrapper now execs that entry; remaining dynamic mappings, broader MCP, native courts and physical archive remain
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency

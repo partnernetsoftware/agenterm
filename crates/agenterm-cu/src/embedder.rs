@@ -11,6 +11,12 @@ use crate::{Authorization, Command, CuError, CuReply, Executor};
 /// Version of the closed in-process request envelope.
 pub const ACU_REQUEST_VERSION: u64 = 1;
 
+/// MCP tool descriptor owned beside the canonical ACU command schema.
+///
+/// The transport includes this same source file, so MCP never grows a second
+/// hand-written description of the command or its [`CuReply`].
+pub const MCP_CAPABILITIES_TOOL_JSON: &str = include_str!("../contract/mcp-capabilities-tool.json");
+
 /// Decode one complete command and execute it through the supplied executor.
 ///
 /// Supplying the executor keeps authority an upper-layer caller decision. A
@@ -83,9 +89,33 @@ pub fn execute_request_from_environment(request_json: &str) -> CuReply {
                 None => malformed_request("argv envelope requires an array of strings"),
             }
         }
-        Some("command" | "argv") => malformed_request("request envelope fields do not match kind"),
-        _ => malformed_request("request kind must be command or argv"),
+        Some("mcp_call") if exact_keys(object, &["acu_request", "kind", "name", "arguments"]) => {
+            execute_mcp_call_from_environment(object)
+        }
+        Some("command" | "argv" | "mcp_call") => {
+            malformed_request("request envelope fields do not match kind")
+        }
+        _ => malformed_request("request kind must be command, argv or mcp_call"),
     }
+}
+
+fn execute_mcp_call_from_environment(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> CuReply {
+    if object.get("name").and_then(serde_json::Value::as_str) != Some("agenterm_acu_capabilities") {
+        return malformed_request("unknown ACU MCP tool");
+    }
+    let Some(arguments) = object
+        .get("arguments")
+        .and_then(serde_json::Value::as_object)
+        .filter(|arguments| arguments.is_empty())
+    else {
+        return malformed_request("agenterm_acu_capabilities arguments must be an empty object");
+    };
+    let _ = arguments;
+    execute_command_from_environment(&Command::Capabilities {
+        target: crate::TargetRef::Current,
+    })
 }
 
 fn strict_command(value: &serde_json::Value) -> Result<Command, String> {
@@ -218,6 +248,7 @@ mod tests {
             r#"{"acu_request":1,"kind":"argv","argv":[],"extra":true}"#,
             r#"{"acu_request":1,"kind":"command","argv":[]}"#,
             r#"{"acu_request":1,"kind":"command","command":{"verb":"capabilities","target":"current","typo":true}}"#,
+            r#"{"acu_request":1,"kind":"mcp_call","name":"agenterm_acu_capabilities","arguments":{},"extra":true}"#,
         ] {
             let reply = execute_request_from_environment(request);
             assert!(!reply.ok, "{request}");
@@ -228,5 +259,27 @@ mod tests {
                 "{request}"
             );
         }
+    }
+
+    #[test]
+    fn mcp_capabilities_uses_the_same_command_and_executor_reply() {
+        let request = r#"{"acu_request":1,"kind":"mcp_call","name":"agenterm_acu_capabilities","arguments":{}}"#;
+        let embedded = execute_request_from_environment(request);
+        let direct = execute_request_from_environment(
+            r#"{"acu_request":1,"kind":"command","command":{"verb":"capabilities","target":"current"}}"#,
+        );
+        assert_eq!(
+            serde_json::to_value(embedded).unwrap(),
+            serde_json::to_value(direct).unwrap()
+        );
+    }
+
+    #[test]
+    fn mcp_contract_is_valid_and_matches_the_owned_tool_name() {
+        let descriptor: serde_json::Value =
+            serde_json::from_str(MCP_CAPABILITIES_TOOL_JSON).expect("MCP descriptor JSON");
+        assert_eq!(descriptor["name"], "agenterm_acu_capabilities");
+        assert_eq!(descriptor["annotations"]["readOnlyHint"], true);
+        assert_eq!(descriptor["inputSchema"]["additionalProperties"], false);
     }
 }

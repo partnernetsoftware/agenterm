@@ -1,0 +1,39 @@
+{
+  "name": "agenterm_acu_capabilities",
+  "title": "Inspect agenterm-cu capabilities",
+  "description": "Return the canonical read-only agenterm-cu capability inventory through the shared typed Executor.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" },
+      "target": { "type": "string" },
+      "command": { "type": "string" },
+      "data": {},
+      "error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "count": { "type": "integer", "minimum": 0 },
+          "detail": {}
+        },
+        "required": ["code", "message"]
+      }
+    },
+    "required": ["ok", "target", "command"]
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

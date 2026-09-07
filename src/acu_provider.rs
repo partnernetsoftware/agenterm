@@ -3,15 +3,18 @@
 //! The provider is a fixed-name sibling of the running AgenTerm executable.
 //! There is deliberately no path search, environment override, static ACU
 //! fallback, or child-process fallback: delivery either supplies the matching
-//! provider or `agenterm:acu` fails with a typed boundary diagnostic.
+//! provider or qjs/MCP fails with a typed boundary diagnostic.
 
 use std::{
     path::Path,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Mutex, OnceLock},
 };
 
+#[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
 use agenterm_qjswasm::AcuBridgeFn;
 use libloading::{Library, Symbol};
+#[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
+use std::sync::Arc;
 
 const EXPECTED_ABI_VERSION: u32 = 1;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
@@ -32,11 +35,12 @@ struct Provider {
 
 static PROVIDER: OnceLock<Result<Provider, String>> = OnceLock::new();
 
+#[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
 pub(crate) fn bridge() -> AcuBridgeFn {
     Arc::new(call)
 }
 
-fn call(request: &str) -> Result<String, String> {
+pub(crate) fn call(request: &str) -> Result<String, String> {
     if request.len() > MAX_REQUEST_BYTES {
         return Err("acu_provider_request_too_large".to_owned());
     }
