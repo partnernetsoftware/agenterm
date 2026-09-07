@@ -1340,9 +1340,14 @@ flowchart LR
   `RequiresApproval` as an intermediate state, installs only an absent exact
   operation right before daemon registration, unregisters the daemon before
   removing that right, and refuses conflicts or non-fixed executable paths.
-  This mechanism is not yet a public `agenterm-cu` verb and has not performed a
-  real registration. Windows protected-install/UAC remains an explicit gap; no
-  worktree helper or silent elevation substitutes for either host.
+  The public `privilege-provider status|register|unregister` command now owns
+  that lifecycle. Status is Observe; both mutations require the ordinary
+  request/session identity, idempotency journal and audit path. The
+  non-mutating qjswasm contract court `cu.privilege-provider-lifecycle-contract`
+  is green on macOS and proves that `RequiresApproval` never becomes ready;
+  it deliberately does not invoke either mutation. No signed fixed-path live
+  registration has run. Windows protected-install/UAC remains an explicit gap;
+  no worktree helper or silent elevation substitutes for either host.
 
   Linux broker promotion tree. The frozen decision procedure is
   `plan/design-linux-privilege-broker-experiment.md`:

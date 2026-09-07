@@ -1129,6 +1129,38 @@
       ]
     },
     {
+      "name": "privilege-provider",
+      "command": "privilege-provider",
+      "aliases": [
+        "privilege provider"
+      ],
+      "grant": "mixed",
+      "grant_by_shape": {
+        "status": "observe",
+        "register|unregister": "actuate"
+      },
+      "family": "privilege",
+      "summary": "observe or explicitly change the fixed macOS privilege-provider lifecycle",
+      "usage": "privilege-provider status|register|unregister\nprivilege provider status|register|unregister",
+      "args": [
+        {
+          "flag": "status",
+          "value": "",
+          "help": "observe daemon, exact authorization right and fixed executable state"
+        },
+        {
+          "flag": "register",
+          "value": "",
+          "help": "install the exact right then request SMAppService registration"
+        },
+        {
+          "flag": "unregister",
+          "value": "",
+          "help": "unregister the service completely before removing the exact right"
+        }
+      ]
+    },
+    {
       "name": "process-set-state",
       "command": "process-set-state",
       "aliases": [
@@ -6223,6 +6255,10 @@
     {
       "name": "process-environment",
       "text": "agenterm-cu process-environment    (also: process env)\n  scope: observe    family: Processes\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  process-environment --pid N [--prefix TEXT] [--offset N] [--limit N] [--values]\n  process env PID [--prefix TEXT] [--offset N] [--limit N] [--values]\n\narguments:\n  --pid N                       positive process id (or positional PID)\n  --prefix TEXT                 filter names by UTF-8 byte prefix (max 256 bytes)\n  --offset N                    first sorted matching entry (default 0)\n  --limit N                     entries returned, 1..=5000 (default 256)\n  --values                      explicitly include environment values\n\nReads the bounded native exec-time environment snapshot between two matching\nprocess-start identity observations. This is not a promise to observe mutations\na process made after exec. Entries are split at the first equals sign, raw-byte\nsorted, prefix-filtered, then paged; duplicates and empty values are preserved.\nBy default values are represented only by byte length and SHA-256. --values is\nan explicit disclosure request. Non-UTF-8 bytes are never replaced lossily.\nLinux uses /proc/PID/environ; macOS uses KERN_PROCARGS2 and typed-fails when the\nkernel omits restricted data. Windows returns process_environment_unsupported\nrather than reading undocumented remote PEB layouts.\n"
+    },
+    {
+      "name": "privilege-provider",
+      "text": "agenterm-cu privilege-provider    (also: privilege provider)\n  scope: status=observe; register|unregister=actuate    family: Privilege\n\nusage:\n  privilege-provider status|register|unregister\n  privilege provider status|register|unregister\n\nThe identifiers and expected executable path are compiled into AgenTerm; callers\ncannot select another service, right or binary. status is read-only. register and\nunregister require request/session identity and use the ordinary audited,\nidempotent mutation path. requires-approval is returned as a distinct daemon\nstate and provider_ready=false, never as enabled. Linux and Windows return typed\nunsupported. Fixture tests do not register a service or open System Settings; a\nsigned fixed-path macOS court remains required before promotion.\n"
     }
   ]
 }

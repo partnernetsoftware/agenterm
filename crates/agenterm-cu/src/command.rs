@@ -809,6 +809,34 @@ pub enum ProcessPolicyAction {
     Normal,
 }
 
+/// Lifecycle operation for AgenTerm's fixed macOS privilege provider.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PrivilegeProviderAction {
+    Status,
+    Register,
+    Unregister,
+}
+
+impl PrivilegeProviderAction {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "status" => Some(Self::Status),
+            "register" => Some(Self::Register),
+            "unregister" => Some(Self::Unregister),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Status => "status",
+            Self::Register => "register",
+            Self::Unregister => "unregister",
+        }
+    }
+}
+
 impl ProcessPolicyAction {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim() {
@@ -1901,6 +1929,13 @@ pub enum Command {
         plan: PrivilegePlanV1,
         approval_digest: String,
         provider_timeout_ms: u64,
+    },
+    /// Observe or explicitly mutate the installed fixed-provider lifecycle.
+    /// The product identifiers and executable location are compiled into the
+    /// executor and never accepted from CLI input.
+    PrivilegeProvider {
+        target: TargetRef,
+        action: PrivilegeProviderAction,
     },
     /// Observe a bounded process-set lifecycle. Every row is keyed by pid and
     /// start identity so pid reuse becomes one exit plus one start instead of
@@ -3881,6 +3916,7 @@ impl Command {
                 "privilege-plan".into()
             }
             Self::PrivilegeApply { .. } => "privilege-apply".into(),
+            Self::PrivilegeProvider { .. } => "privilege-provider".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
             Self::ShellExec { .. } => "shell-exec".into(),
             Self::NetworkInterfaces { .. } => "network-interfaces".into(),
@@ -4126,6 +4162,9 @@ impl Command {
                 }
                 PrivilegeOperation::ProcessSignal => "privilege.apply.process.signal".to_owned(),
             },
+            Self::PrivilegeProvider { action, .. } => {
+                format!("privilege-provider.{}", action.as_str())
+            }
             Self::PtyDiff { advance, .. } => {
                 format!("pty-diff.{}", if *advance { "advance" } else { "read" })
             }
@@ -4269,6 +4308,7 @@ impl Command {
             | Self::PrivilegePlanProcessPriority { target, .. }
             | Self::PrivilegePlanProcessSignal { target, .. }
             | Self::PrivilegeApply { target, .. }
+            | Self::PrivilegeProvider { target, .. }
             | Self::ProcessWatch { target, .. }
             | Self::ShellExec { target, .. }
             | Self::NetworkInterfaces { target, .. }
@@ -4469,6 +4509,10 @@ impl Command {
             | Self::ProcessPolicy { .. }
             | Self::ProcessSignal { .. }
             | Self::PrivilegeApply { .. }
+            | Self::PrivilegeProvider {
+                action: PrivilegeProviderAction::Register | PrivilegeProviderAction::Unregister,
+                ..
+            }
             | Self::ShellExec { .. }
             | Self::FileCopy { apply: true, .. }
             | Self::FileMove { apply: true, .. }
@@ -4565,6 +4609,12 @@ impl Command {
                 }
                 if !(1..=MAX_PROVIDER_TIMEOUT_MS).contains(provider_timeout_ms) {
                     return Err("privilege apply provider_timeout_ms must be in 1..=600000");
+                }
+                Ok(())
+            }
+            Self::PrivilegeProvider { target, .. } => {
+                if *target != TargetRef::Current {
+                    return Err("privilege-provider supports only target=current");
                 }
                 Ok(())
             }
@@ -6488,6 +6538,34 @@ mod tests {
                 "ttl_seconds": 60,
             })
         );
+    }
+
+    #[test]
+    fn privilege_provider_lifecycle_separates_observation_and_mutation_authority() {
+        let status = Command::PrivilegeProvider {
+            target: TargetRef::Current,
+            action: PrivilegeProviderAction::Status,
+        };
+        assert_eq!(status.required_grant(), Grant::Observe);
+        assert_eq!(
+            status.authorization_operation().as_deref(),
+            Some("privilege-provider.status")
+        );
+
+        for action in [
+            PrivilegeProviderAction::Register,
+            PrivilegeProviderAction::Unregister,
+        ] {
+            let command = Command::PrivilegeProvider {
+                target: TargetRef::Current,
+                action,
+            };
+            assert_eq!(command.required_grant(), Grant::Actuate);
+            assert_eq!(
+                command.authorization_operation(),
+                Some(format!("privilege-provider.{}", action.as_str()))
+            );
+        }
     }
 
     #[test]

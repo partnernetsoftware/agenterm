@@ -2,7 +2,7 @@
 
 use agenterm_cu::{
     Command, TargetRef,
-    command::ProcessSignalKind,
+    command::{PrivilegeProviderAction, ProcessSignalKind},
     privilege_apply::{DEFAULT_PROVIDER_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS, decode_plan_request},
     privilege_plan::PROCESS_SIGNAL_TREE_MAX_DESCENDANTS,
 };
@@ -15,6 +15,15 @@ pub fn parse(
     target: TargetRef,
     args: &mut Vec<String>,
 ) -> Result<Command, String> {
+    if spec.name == "privilege-provider" {
+        if spelled == "privilege" {
+            if args.first().map(String::as_str) != Some("provider") {
+                return Err("privilege requires subcommand provider".into());
+            }
+            args.remove(0);
+        }
+        return parse_provider(target, args);
+    }
     if spec.name == "privilege-apply" {
         if spelled == "privilege" {
             if args.first().map(String::as_str) != Some("apply") {
@@ -47,6 +56,16 @@ pub fn parse(
         "process.signal" => parse_signal(target, args, ttl_seconds),
         _ => Err("privilege-plan operation must be process.set-priority or process.signal".into()),
     }
+}
+
+fn parse_provider(target: TargetRef, args: &mut [String]) -> Result<Command, String> {
+    if args.len() != 1 {
+        return Err("privilege-provider requires exactly status, register or unregister".into());
+    }
+    let action = PrivilegeProviderAction::parse(&args[0]).ok_or_else(|| {
+        "privilege-provider action must be status, register or unregister".to_owned()
+    })?;
+    Ok(Command::PrivilegeProvider { target, action })
 }
 
 fn parse_apply(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
@@ -270,5 +289,38 @@ mod tests {
             } if actual == &plan && actual_approval == &approval
         ));
         assert!(args.is_empty());
+    }
+
+    #[test]
+    fn parses_provider_lifecycle_without_caller_selected_identity() {
+        let spec = crate::cli::verbs::lookup("privilege-provider").unwrap();
+        let mut status = vec!["status".into()];
+        assert!(matches!(
+            parse(spec, "privilege-provider", TargetRef::Current, &mut status).unwrap(),
+            Command::PrivilegeProvider {
+                action: PrivilegeProviderAction::Status,
+                ..
+            }
+        ));
+
+        let mut grouped = vec!["provider".into(), "register".into()];
+        let command = parse(spec, "privilege", TargetRef::Current, &mut grouped).unwrap();
+        assert!(matches!(
+            command,
+            Command::PrivilegeProvider {
+                action: PrivilegeProviderAction::Register,
+                ..
+            }
+        ));
+        assert_eq!(command.required_grant(), agenterm_cu::Grant::Actuate);
+
+        for bad in [
+            vec![],
+            vec!["other".into()],
+            vec!["status".into(), "extra".into()],
+        ] {
+            let mut bad = bad;
+            assert!(parse(spec, "privilege-provider", TargetRef::Current, &mut bad).is_err());
+        }
     }
 }

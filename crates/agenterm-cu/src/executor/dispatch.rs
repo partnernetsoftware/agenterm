@@ -823,6 +823,18 @@ impl Executor {
                 "privilege_request_identity_required",
                 "privilege apply requires request-id, session and session-lease",
             )),
+            Command::PrivilegeProvider { action, .. } => {
+                if *action != crate::command::PrivilegeProviderAction::Status
+                    && job_request.is_none()
+                {
+                    Err(CuError::new(
+                        "privilege_request_identity_required",
+                        "privilege-provider register/unregister require request-id, session and session-lease",
+                    ))
+                } else {
+                    privilege_provider_payload(*action)
+                }
+            }
             Command::ProcessWatch {
                 pid,
                 parent,

@@ -1080,6 +1080,23 @@
         "task.cu-privilege-plan-smoke"
       ]
     },
+    "cu-privilege-provider-contract-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-privilege-provider-contract-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-privilege-provider-contract-smoke"
+      ]
+    },
     "cu-privileged-signal-plan-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3532,6 +3549,27 @@
       "id": "cu-privilege-plan-smoke",
       "description": "Prove the public read-only process.set-priority plan is identity-bound, expiring, digest-sealed and mutation-free; Windows must fail with its typed semantic gap.",
       "entry": "scripts/qjs/cu-privilege-plan-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-privilege-provider-contract-smoke",
+      "description": "Prove status is read-only, RequiresApproval is not ready, unsupported platforms stay typed, and mutation spellings remain explicit without exercising them.",
+      "entry": "scripts/qjs/cu-privilege-provider-contract-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

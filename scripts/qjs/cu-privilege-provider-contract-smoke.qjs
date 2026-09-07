@@ -1,0 +1,91 @@
+// Public black-box contract for the fixed privilege-provider lifecycle.
+// This court is deliberately non-mutating: signed fixed-path registration is
+// a separate macOS qualification and must never be exercised by a fixture.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.privilege-provider-lifecycle-contract"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_privilege_provider_executable_missing");
+
+const context = harness.new_context(repo, "cu-privilege-provider-contract");
+let failure = "";
+try {
+  print("STEP status observes the compiled provider identity without mutation");
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+    "privilege-provider", "status"
+  ], { cwd: context.run_directory, timeout_ms: 30000 });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_privilege_provider_empty:" + output.stderr);
+  const reply = JSON.parse(stdout);
+  ensure(reply.command === "privilege-provider", "cu_privilege_provider_command");
+  if (reply.ok === true) {
+    ensure(output.success === true, "cu_privilege_provider_exit");
+    ensure(reply.data.action === "status", "cu_privilege_provider_action");
+    ensure(typeof reply.data.daemon === "string", "cu_privilege_provider_daemon");
+    ensure(typeof reply.data.authorization_right === "string", "cu_privilege_provider_right");
+    ensure(typeof reply.data.fixed_executable === "boolean", "cu_privilege_provider_location");
+    ensure(typeof reply.data.provider_ready === "boolean", "cu_privilege_provider_ready");
+    if (reply.data.daemon === "requires-approval") {
+      ensure(reply.data.provider_ready === false, "cu_privilege_provider_approval_false_ready");
+    }
+  } else {
+    ensure(output.success !== true, "cu_privilege_provider_false_success");
+    ensure(
+      reply.error.code === "privilege_provider_unsupported",
+      "cu_privilege_provider_unexpected_error:" + stdout
+    );
+  }
+
+  print("STEP mutation spelling without request identity is rejected before effect");
+  const rejected = rh.command(executable, [
+    "--target", "current", "--grant", "actuate",
+    "privilege-provider", "register"
+  ], { cwd: context.run_directory, timeout_ms: 30000 });
+  const rejected_reply = JSON.parse(rejected.stdout.trim());
+  ensure(rejected.success !== true && rejected_reply.ok === false,
+    "cu_privilege_provider_register_false_success");
+  ensure(rejected_reply.error.code === "privilege_request_identity_required",
+    "cu_privilege_provider_register_identity_gate");
+
+  const repeated = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+    "privilege-provider", "status"
+  ], { cwd: context.run_directory, timeout_ms: 30000 });
+  ensure(repeated.stdout.trim() === stdout, "cu_privilege_provider_rejected_mutation_changed_state");
+
+  print("STEP mutation spellings are documented but never invoked by this court");
+  const help = rh.command(executable, ["help", "privilege-provider"], {
+    cwd: context.run_directory,
+    timeout_ms: 30000
+  });
+  ensure(help.success === true, "cu_privilege_provider_help");
+  ensure(help.stderr.indexOf("register|unregister") >= 0, "cu_privilege_provider_help_actions");
+  ensure(help.stderr.indexOf("request/session identity") >= 0, "cu_privilege_provider_help_identity");
+
+  harness.emit_evidence(
+    context,
+    declared_evidence,
+    "cu.privilege-provider-lifecycle-contract"
+  );
+  harness.remove_run(context);
+  print("PASS: privilege-provider lifecycle is typed, read-only by default, and platform-honest");
+} catch (error) {
+  failure = "" + error;
+}
+if (failure !== "") { throw failure; }
+return;

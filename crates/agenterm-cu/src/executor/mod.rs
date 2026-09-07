@@ -124,6 +124,7 @@ use persisted::now_utc_ms;
 use placement::*;
 use pointer::*;
 use power_status::*;
+use privilege::*;
 use process::*;
 use profiles::*;
 use pty_jobs::*;

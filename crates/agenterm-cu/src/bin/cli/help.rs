@@ -365,6 +365,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "file-transaction",
         "privilege-plan",
         "privilege-apply",
+        "privilege-provider",
         "simulator-devices",
         "simulator-launch",
         "simulator-terminate",
@@ -417,7 +418,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  host-open  host-notify  audit-query  audit-compact  session-start  session-list  simulator-launch\n  session-status  session-renew  session-end  lock-acquire  lock-list  lock-release  simulator-terminate\n  job-spawn  job-adopt  job-list  job-status  job-prune  job-resources  job-priority  login-session\n  job-events  job-output  job-write  job-wait  job-set-state  job-signal  job-stop\n  job-renew  file-copy  file-move  file-transaction  privilege-plan  privilege-apply  simulator-devices"
+            "  host-open  host-notify  audit-query  audit-compact  session-start  session-list  simulator-launch\n  session-status  session-renew  session-end  lock-acquire  lock-list  lock-release  simulator-terminate\n  job-spawn  job-adopt  job-list  job-status  job-prune  job-resources  job-priority  login-session\n  job-events  job-output  job-write  job-wait  job-set-state  job-signal  job-stop  privilege-provider\n  job-renew  file-copy  file-move  file-transaction  privilege-plan  privilege-apply  simulator-devices"
                 .to_owned(),
         );
     }

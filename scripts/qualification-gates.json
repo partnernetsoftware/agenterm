@@ -374,6 +374,10 @@
       "evidence": ["cu.privilege-plan"]
     },
     {
+      "id": "cu-privilege-provider-contract-smoke",
+      "evidence": ["cu.privilege-provider-lifecycle-contract"]
+    },
+    {
       "id": "cu-privileged-signal-plan-smoke",
       "evidence": ["cu.privileged-signal-plan"]
     },

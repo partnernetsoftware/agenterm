@@ -1,5 +1,6 @@
 //! Public typed privilege apply and the selected fixed native-consent launcher.
 
+use std::path::Path;
 #[cfg(any(target_os = "linux", all(target_os = "macos", not(test))))]
 use std::time::Duration;
 
@@ -15,6 +16,7 @@ use serde_json::{Value, json};
 use crate::privilege_apply::PrivilegeApplyReplyV1;
 use crate::{
     Command, CuError, CuReply,
+    command::PrivilegeProviderAction,
     privilege_apply::{
         PRIVILEGE_APPLY_PROTOCOL_VERSION, PRIVILEGE_PROVIDER_CONTRACT_VERSION,
         PrivilegeApplyRequestV1, PrivilegeAuthorizationV1, PrivilegeClientV1, PrivilegeOriginV1,
@@ -22,7 +24,91 @@ use crate::{
     },
 };
 
+const PROVIDER_DAEMON_PLIST: &str = "com.partnernetsoftware.agenterm.cu.privilege.plist";
+const PROVIDER_AUTHORIZATION_RIGHT: &str =
+    "com.partnernetsoftware.agenterm.cu.privilege.process-signal";
+const PROVIDER_EXECUTABLE: &str = "/Applications/AgenTerm.app/Contents/MacOS/agenterm-cu";
+
 use super::{Executor, RequestIdentity};
+
+pub(super) fn privilege_provider_payload(
+    action: PrivilegeProviderAction,
+) -> Result<Value, CuError> {
+    use agenterm_platform::privilege_service::{
+        PrivilegeDaemonStatus, PrivilegeRightStatus, PrivilegeServiceDefinition,
+        PrivilegeServiceErrorKind,
+    };
+
+    let definition = PrivilegeServiceDefinition {
+        daemon_plist_name: PROVIDER_DAEMON_PLIST,
+        authorization_right: PROVIDER_AUTHORIZATION_RIGHT,
+        expected_executable: Path::new(PROVIDER_EXECUTABLE),
+    };
+    let result = match action {
+        PrivilegeProviderAction::Status => {
+            agenterm_platform::privilege_service::status(&definition)
+        }
+        PrivilegeProviderAction::Register => {
+            agenterm_platform::privilege_service::register(&definition)
+        }
+        PrivilegeProviderAction::Unregister => {
+            agenterm_platform::privilege_service::unregister(&definition)
+        }
+    };
+    let status = result.map_err(|error| {
+        let code = match error.kind() {
+            PrivilegeServiceErrorKind::Unsupported => "privilege_provider_unsupported",
+            PrivilegeServiceErrorKind::InvalidDefinition
+            | PrivilegeServiceErrorKind::InvalidExecutableLocation => {
+                "privilege_provider_definition_invalid"
+            }
+            PrivilegeServiceErrorKind::AuthorizationRightConflict => {
+                "privilege_provider_right_conflict"
+            }
+            PrivilegeServiceErrorKind::NativeFailure => "privilege_provider_native_failed",
+            PrivilegeServiceErrorKind::IncompleteTransition => {
+                "privilege_provider_incomplete_transition"
+            }
+            PrivilegeServiceErrorKind::RollbackFailed => "privilege_provider_rollback_failed",
+            _ => "privilege_provider_native_failed",
+        };
+        CuError::new(code, error.message())
+    })?;
+
+    let daemon = match status.daemon {
+        PrivilegeDaemonStatus::NotRegistered => "not-registered",
+        PrivilegeDaemonStatus::Enabled => "enabled",
+        PrivilegeDaemonStatus::RequiresApproval => "requires-approval",
+        PrivilegeDaemonStatus::NotFound => "not-found",
+        _ => {
+            return Err(CuError::new(
+                "privilege_provider_state_unknown",
+                "the platform returned an unknown privilege daemon state",
+            ));
+        }
+    };
+    let authorization_right = match status.authorization_right {
+        PrivilegeRightStatus::Missing => "missing",
+        PrivilegeRightStatus::Expected => "expected",
+        PrivilegeRightStatus::Conflict => "conflict",
+        _ => {
+            return Err(CuError::new(
+                "privilege_provider_state_unknown",
+                "the platform returned an unknown authorization-right state",
+            ));
+        }
+    };
+    let provider_ready = status.daemon == PrivilegeDaemonStatus::Enabled
+        && status.authorization_right == PrivilegeRightStatus::Expected
+        && status.fixed_executable;
+    Ok(json!({
+        "action": action.as_str(),
+        "daemon": daemon,
+        "authorization_right": authorization_right,
+        "fixed_executable": status.fixed_executable,
+        "provider_ready": provider_ready,
+    }))
+}
 
 impl Executor {
     pub(super) fn execute_privilege_with_request_identity(
