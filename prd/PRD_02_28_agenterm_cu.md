@@ -133,10 +133,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `12 dynamic-stay` rows as their exact typed TODO and the one permanent-scope row as a
-  local rejection. The 22 resolved witnesses now have an executable disposition:
-  10 direct exec, 8 Bun-free compound projections, and 4 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 12 remaining
+  `11 dynamic-stay` rows as their exact typed TODO and the one permanent-scope row as a
+  local rejection. The 23 resolved witnesses now have an executable disposition:
+  10 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 11 remaining
   dynamic-stay witness rows keep their stable repair identities. The `.084` witness now
   proves native Space filtering, while its other legacy watch filters remain explicitly
   asserted as the same typed TODO until their per-poll semantics exist.
@@ -513,7 +513,8 @@ ACU-only cutover
 │  ├─ acu.dynamic.075 · browser tabs selected by profile/application
 │  ├─ acu.dynamic.076 · multi-window `inspect --app`
 │  ├─ acu.dynamic.077 · missing lossless query predicates such as subrole
-│  ├─ acu.dynamic.078 · nested/value-bounded tree compatibility shapes
+│  ├─ [~] acu.dynamic.078 · invalid legacy `tree --page` is closed usage;
+│  │  └─ valid `tree --max-value-bytes` remains typed TODO
 │  ├─ [~] acu.dynamic.084 · `--space` is evaluated inside every windows-watch poll;
 │  │  └─ qjs compatibility + native unit gates green, macOS live Space-transition court pending
 │  ├─ acu.dynamic.086 · app-global menu inspection without ambiguous window choice

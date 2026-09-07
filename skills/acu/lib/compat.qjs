@@ -191,7 +191,11 @@ function known_dynamic_boundary(argv) {
   if (verb === "inspect" && has_arg(argv, "--app")) {
     return todo("acu.dynamic.076", "inspect", "multi-window application inspection is not typed yet");
   }
-  if (verb === "tree" && (has_arg(argv, "--page") || has_arg(argv, "--max-value-bytes"))) {
+  if (verb === "tree" && has_arg(argv, "--page")) {
+    return { kind: "usage", command: "tree",
+      message: "tree --page was never a valid MCU tree shape; use bounded tree selectors" };
+  }
+  if (verb === "tree" && has_arg(argv, "--max-value-bytes")) {
     return todo("acu.dynamic.078", "tree", "paged or value-bounded tree compatibility is not typed yet");
   }
   if (verb === "windows" && sub === "watch" && (has_arg(argv, "--focused")
