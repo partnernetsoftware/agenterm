@@ -385,6 +385,59 @@ flowchart LR
 - [ ] Candidate and six-cell qualification and release evidence remain open.
   Passing local fixtures and staged public smoke does not promote this subtree
   root to shipped.
+
+## Delivery and install (runtime `libagenterm` colocation)
+
+`agenterm-cu` resolves every `agt_*` mechanism from a `libagenterm` dynamic
+library loaded at runtime (`crates/agenterm-cu/src/dynlib.rs`): search order is
+`AGENTERM_ABI_LIB` (full path) → the executable's own directory
+(`libagenterm.dylib` / `.so` / `agenterm.dll`) → the development build dirs.
+The load refuses an unlocatable library and refuses an ABI major mismatch. The
+capability set, not the binary alone, is therefore the delivery unit: a cu
+binary without its matching dylib is inert.
+
+- [ ] **P0 — distribution defect: the shipped cu binary must be colocated with
+  a version-matched `libagenterm.dylib`, and today it is not.** The macOS
+  `.app` bundle (`~/Applications/AgentermCu.app/Contents/MacOS/`) ships the cu
+  binary with **no `libagenterm.dylib` beside it**, and `install.sh` does not
+  place one either. On such a host cu either fails to locate the library or
+  loads a stale one, and reports `symbol agt_input_send_keys missing` /
+  `agt_window_enumerate missing` / `input-inject not wired on unix` /
+  `native-window-capture-is-unavailable`. These are **stale-library / missing-
+  library symptoms, not missing mechanism**: the four foundation symbols
+  (`agt_input_send_keys`, `agt_window_enumerate`, `agt_screenshot_capture_window`,
+  `agt_a11y_tree_snapshot`) are declared, `#[no_mangle]`-exported and fully
+  implemented on macOS at head (CGEventPost / CGWindowList /
+  dlsym `CGWindowListCreateImage` / AXUIElement). Evidence and the full symbol
+  and capability audit:
+  [`docs/cu-gaps-analysis.md`](../docs/cu-gaps-analysis.md).
+- [ ] the fix is in `packaging/` and `install.sh`: when the cu binary is copied
+  into the bundle / onto `PATH`, copy the same-build `abi-release`
+  `libagenterm.dylib` next to it (or set `AGENTERM_ABI_LIB`), and assert
+  `agt_abi_version()` matches cu's `EXPECTED_ABI_MAJOR` / `REQUIRED_ABI_MINOR`
+  (currently `1` / `28`, library reports `1.28`) at package time. This is the
+  precondition for cu being usable out of the box on a user's machine; no new
+  platform code is required.
+- [~] **P1 — macOS TCC consent gates (runtime prerequisite, not a code
+  defect).** Accessibility (AX tree, AX-backed window ops) and Screen Recording
+  / Camera (`device-screenshot` full-screen capture) require TCC authorization.
+  With consent absent, `device-screenshot` returns
+  `host_tcc_consent_required`; `screenshot --window <handle>` uses the
+  `CGWindowListCreateImage` path and works once granted. `permissions` and
+  `doctor` (`crates/agenterm-platform/src/adapters/macos/permission_settings.rs`)
+  must guide the user through granting these; they are the normal authorization
+  flow, not a capability gap.
+- [x] **Verification** (recorded in [`docs/cu-gaps-analysis.md`](../docs/cu-gaps-analysis.md)):
+  `nm -gU target/abi-release/libagenterm.dylib | grep agt_` shows 88 `agt_*`
+  exports including all four foundation symbols; with
+  `AGENTERM_ABI_LIB=<repo>/target/abi-release/libagenterm.dylib` and
+  `target/release/agenterm-cu --target current`, `capabilities` reports every
+  group `available` (`input=Available`, `windows=Available`,
+  `input_degraded: "none — shared agenterm.dll (milestone 46)"`), `tree`
+  returns a real AX tree, `windows` returns real window handles, and
+  `screenshot --window <handle>` produces a real PNG. This proves the four
+  capabilities are live at head and isolates the failure to distribution + TCC.
+
 ## Product outcome
 
 - [~] `agenterm-cu` is AgenTerm's own computer-use foundation: one abstract
