@@ -366,6 +366,10 @@
       "evidence": ["cu.resource-status"]
     },
     {
+      "id": "cu-host-resource-smoke",
+      "evidence": ["cu.resource-process-policy"]
+    },
+    {
       "id": "cu-storage-devices-smoke",
       "evidence": ["cu.storage-devices"]
     },

@@ -1446,6 +1446,14 @@ flowchart LR
   green on macOS. Linux and Windows runtime courts remain before promotion;
   pressure/top/disk/volumes/priority/affinity/limits/scope are separate gaps.
 
+- [~] The partial `resource.process-policy` row now has an owning public
+  qjswasm court rather than catalog-only credit. It brackets the court process
+  by exact identity, proves `process.set-priority` planning is read-only and
+  digest-bound, and composes it with typed `process-policy status`;
+  non-applicable hosts must refuse explicitly. This evidence does not promote
+  affinity, limits or mutation: those remain separate gaps until their own
+  native effects and read-back exist.
+
 - [~] `shell-exec` is the explicit synchronous host-shell facade for the MCU
   compatibility frontier; ACU's transport worker `exec --json` keeps its old
   meaning. Commands are UTF-8/no-NUL and bounded before spawn. The shell is

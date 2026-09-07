@@ -942,6 +942,17 @@
         "task.cu-resource-status-smoke"
       ]
     },
+    "cu-host-resource-smoke": {
+      "inputs": ["built-agenterm-cu"],
+      "outputs": ["cu-host-resource-evidence"],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": ["task.cu-host-resource-smoke"]
+    },
     "acu-retirement-readiness": {
       "inputs": [
         "built-agenterm-cu",
@@ -3412,6 +3423,17 @@
         "artifact_write",
         "process_spawn"
       ]
+    },
+    {
+      "id": "cu-host-resource-smoke",
+      "description": "Prove the shipped resource.process-policy slice is an identity-bound, mutation-free priority plan plus a typed read-only process-policy observation; unsupported hosts must refuse explicitly.",
+      "entry": "scripts/qjs/cu-host-resource-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [".", "target/debug/agenterm-cu"],
+      "dependencies": [],
+      "platforms": ["windows", "linux", "macos"],
+      "side_effects": ["artifact_write", "process_spawn"]
     },
     {
       "id": "acu-retirement-readiness",

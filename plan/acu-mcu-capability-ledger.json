@@ -1384,6 +1384,8 @@
           "acu_shape": "read-only process.set-priority privilege plan plus separate process/job observations; mutation shapes incomplete",
           "state": "platform-limited",
           "platforms": {"macos": "partial", "linux": "partial", "windows": "contract-pending"},
+          "evidence": ["cu.resource-process-policy"],
+          "qualification": "macOS public qjswasm court; Linux and Windows registered and pending native execution",
           "next": "route mutations only through exact identity, native consent where required, postcondition read-back and rollback/uncertain receipts"
         }
       ]

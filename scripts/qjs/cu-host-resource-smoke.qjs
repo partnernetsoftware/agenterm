@@ -1,0 +1,138 @@
+// Public black-box contract for the real portion of the `resource.process-policy`
+// ledger row: an identity-bound priority plan with read-back (privilege-plan
+// process.set-priority) composed with a read-only scope observation
+// (process-policy status), both bracketed against the court's own live process.
+// `resource.pressure-top` and `resource.disk-volumes` have no corresponding
+// public verb today (no native pressure fact, no filesystem/mount inventory),
+// and process affinity/limits have no typed operation either -- only a generic
+// "usage" parse error -- so none of those are exercised here.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.resource-process-policy"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_host_resource_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-host-resource");
+const run_directory = context.run_directory;
+const audit_path = rh.join(run_directory, "cu-audit.jsonl");
+
+function invoke(grant, verb_args) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let index = 0; index < verb_args.length; index = index + 1) {
+    argv.push(verb_args[index]);
+  }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: audit_path },
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_host_resource_empty:" + output.stderr);
+  return { output: output, reply: JSON.parse(stdout), stdout: stdout };
+}
+
+function expect_error(result, code) {
+  ensure(result.output.success !== true && result.reply.ok !== true,
+    "cu_host_resource_expected_failure:" + result.stdout);
+  ensure(result.reply.error.code === code,
+    "cu_host_resource_wrong_error:" + result.stdout);
+  return result.reply.error;
+}
+
+let succeeded = 0;
+let failure = "";
+try {
+  const pid = "" + rh.pid();
+
+  print("STEP priority plan observes this exact live process and never mutates it");
+  const plan_zero = invoke("observe", ["privilege", "plan", "process.set-priority", pid, "0", "--ttl-seconds", "60"]);
+  if (harness.host_is_windows()) {
+    ensure(plan_zero.output.success !== true && plan_zero.reply.ok !== true,
+      "cu_host_resource_windows_plan_false_success");
+    ensure(plan_zero.reply.error.code === "privilege_operation_unsupported",
+      "cu_host_resource_windows_plan_error:" + plan_zero.stdout);
+  } else {
+    ensure(plan_zero.output.success === true && plan_zero.reply.ok === true,
+      "cu_host_resource_plan_reply:" + plan_zero.stdout);
+    const first = plan_zero.reply.data;
+    ensure(first.operation === "process.set-priority", "cu_host_resource_plan_operation");
+    ensure(first.schema_version === 1, "cu_host_resource_plan_schema");
+    ensure(first.target.pid === rh.pid(), "cu_host_resource_plan_pid");
+    ensure(typeof first.target.start_identity === "string" && first.target.start_identity.length > 0,
+      "cu_host_resource_plan_identity");
+    ensure(first.before.nice >= -20 && first.before.nice <= 20, "cu_host_resource_plan_before_readback");
+    ensure(first.after.nice === 0, "cu_host_resource_plan_after");
+    ensure(first.mutation_performed === false, "cu_host_resource_plan_not_mutated");
+    ensure(first.contract_digest.length === 64 && first.approval_digest.length === 64,
+      "cu_host_resource_plan_digests");
+    ensure(first.expires_at_utc_ms - first.issued_at_utc_ms === 60000, "cu_host_resource_plan_ttl");
+
+    print("STEP changed requested priority changes the plan while identity and before-state stay put");
+    const plan_five = invoke("observe", ["privilege", "plan", "process.set-priority", pid, "5", "--ttl-seconds", "60"]);
+    ensure(plan_five.output.success === true && plan_five.reply.ok === true,
+      "cu_host_resource_plan_changed_reply:" + plan_five.stdout);
+    const changed = plan_five.reply.data;
+    ensure(changed.target.start_identity === first.target.start_identity,
+      "cu_host_resource_plan_changed_identity_stable");
+    ensure(changed.before.nice === first.before.nice, "cu_host_resource_plan_changed_before_stable");
+    ensure(changed.after.nice === 5, "cu_host_resource_plan_changed_after");
+    ensure(changed.contract_digest !== first.contract_digest, "cu_host_resource_plan_changed_contract");
+    ensure(changed.mutation_performed === false, "cu_host_resource_plan_changed_not_mutated");
+  }
+
+  print("STEP process-policy status observes the same exact identity as a read-only scope fact");
+  const status = invoke("observe", ["process-policy", "--pid", pid, "status"]);
+  if (status.output.success === true && status.reply.ok === true) {
+    const scope = status.reply.data;
+    ensure(scope.provider === "macos-proc-pidinfo-darwin-background", "cu_host_resource_scope_provider");
+    ensure(scope.pid === rh.pid() && scope.start_identity.length > 0, "cu_host_resource_scope_identity");
+    ensure(typeof scope.raw_flags === "number"
+      && typeof scope.darwin_background === "boolean"
+      && typeof scope.external_background === "boolean"
+      && typeof scope.background === "boolean",
+      "cu_host_resource_scope_flags:" + status.stdout);
+    ensure(scope.background === (scope.darwin_background || scope.external_background),
+      "cu_host_resource_scope_derived_flag");
+    ensure(scope.verified === true && scope.mutation_performed === false,
+      "cu_host_resource_scope_contract");
+  } else {
+    print("STEP non-Darwin hosts reject the scope substitution before any effect, not silently");
+    expect_error(status, "process_policy_not_applicable");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.resource-process-policy");
+  harness.remove_run(context);
+  print("PASS: the priority-plan-plus-scope-status portion of resource.process-policy is real, identity-bound and read-only");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

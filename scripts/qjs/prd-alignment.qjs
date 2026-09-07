@@ -271,6 +271,7 @@ const evidence_suites = {
   "cu-network-dns-smoke": true,
   "cu-network-probe-smoke": true,
   "cu-resource-status-smoke": true,
+  "cu-host-resource-smoke": true,
   "cu-storage-devices-smoke": true,
   "cu-privilege-plan-smoke": true,
   "cu-privilege-provider-contract-smoke": true,

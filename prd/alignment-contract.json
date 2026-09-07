@@ -257,6 +257,7 @@
         "cu.network-dns",
         "cu.network-probe",
         "cu.resource-status",
+        "cu.resource-process-policy",
         "cu.storage-devices",
         "cu.privilege-plan",
         "cu.privilege-provider-lifecycle-contract",
