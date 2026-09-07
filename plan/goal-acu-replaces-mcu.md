@@ -865,6 +865,15 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
+At source `6c7f5194`, the public report measures 80 blockers: one capability
+gap, 15 available leaves without registered evidence, 63 incomplete schema-2
+platform qualifications, and the compatibility adapter still requiring MCU.
+The count is a fail-closed work queue, not a claim that 80 native mechanisms
+are missing. Query parity review also exposed silent semantic differences in
+defaults, geometry and legacy alias results; correcting those differences now
+precedes adding more flags. Browser profile-wide tabs are separately frozen to
+the MV3 bridge: a one-window AX tab strip is never an acceptable fallback.
+
 The compatibility adapter now has zero static STAY spellings and 14 dynamic
 STAY witnesses on macOS after lossless projections for `resource top`, focused
 PID, observe role, wait absence, platform-default-shell PTY, selector-rooted

@@ -569,6 +569,23 @@ flowchart LR
   text. Public qjswasm evidence `cu.query-watch-filtered-poll` owns the
   macOS/Linux/Windows fixture contract; same-source native executions remain
   the qualification step. MCU-only filter shapes remain separate debt.
+- [~] The post-watch parity audit found that the remaining query debt is not
+  merely 20 unparsed flags. MCU and ACU currently differ in default traversal
+  and result budgets, `within` geometry (center-in-rectangle versus rectangle
+  intersection), actionable fallback roles, searchable fields, and the
+  `inspect` / `find` / `read` result meanings. The next query tranche therefore
+  starts with a correctness gate: align explicit budgets and geometry, and
+  keep aliases typed as migration gaps where their meaning cannot be preserved.
+  Only then may pure filters land; subrole/help/description/placeholder,
+  required state and lossless long-value evidence require a platform/ABI
+  extension rather than CLI-side invention.
+- [~] Profile-wide browser tab inventory must use the fixed MV3 bridge and its
+  complete/truncated connection truth. `tab-list --window` is a visible native
+  tab-strip for one window, lacks profile-wide background tabs and URLs, and
+  must never silently substitute. A missing, truncated or ambiguous bridge
+  inventory is typed unavailable/uncertain; the first delivery should resolve
+  one exact profile instance or one uniquely live connection before adding
+  human profile-name aliases.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
   gated `minimize`/`restore` are live in the macOS Cocoa/AX public journey.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;
