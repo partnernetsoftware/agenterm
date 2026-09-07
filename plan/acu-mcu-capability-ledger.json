@@ -381,9 +381,9 @@
           "mcu_shape": "clip plus clipboard inspect/read/write/write-file/clear",
           "acu_shape": "clipboard-read/write/write-file/clear with bounded bytes, native type names and digests",
           "state": "delegated",
-          "qualification": "pending-native-public-journey",
-          "evidence": [],
-          "next": "add non-destructive text and native-type round-trip leaves to each platform journey"
+          "qualification": "public-qjswasm-court-registered-three-host-native-execution-pending",
+          "evidence": ["cu.clipboard-text-native-roundtrip"],
+          "next": "run the empty-safe clipboard round-trip court in controlled macOS, Linux and Windows desktop sessions; nonempty or unavailable clipboards remain typed no-evidence outcomes"
         },
         {
           "id": "desktop.displays-spaces",

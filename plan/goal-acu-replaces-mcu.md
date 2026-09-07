@@ -850,8 +850,9 @@ Q5 retirement
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: 134 ledger capabilities
 currently include 1 `gap` and 62 `platform-limited` rows. The compatibility
-adapter has zero static `STAY` spellings, but its argument-sensitive corpus is
-still incomplete and dynamic fallback remains required. The Candidate workflow now includes
+adapter has zero static `STAY` spellings and its argument-sensitive corpus is
+complete, but the report still truthfully requires MCU while capability,
+registered-evidence and native-qualification blockers remain. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
 removed; release authority and dispatch remain owned by the release skill and
 GitHub workflow rather than a second credential-bearing script.

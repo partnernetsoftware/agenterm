@@ -160,8 +160,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   machine report. Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; its first baseline measured 131 capabilities;
   after splitting the old setup/doctor/caps aggregate by authority, the current
-  ledger now measures 134 capabilities with 1 gap, 62 platform-limited rows, zero static
-  adapter stays and an incomplete dynamic parity corpus. Only `enforce-absent` may emit
+  ledger now measures 134 capabilities with 1 gap, 62 platform-limited rows,
+  zero static adapter stays and a complete argument-sensitive dynamic parity
+  corpus. The report still requires MCU while any capability, evidence or
+  native-qualification blocker remains. Only `enforce-absent` may emit
   `cu.retirement`, after zero blockers and after the configured MCU path is
   actually unavailable.
 - [~] Managed-job policy is no longer a missing MCU-only mechanism. The
