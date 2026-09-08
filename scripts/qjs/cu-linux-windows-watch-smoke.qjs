@@ -1,0 +1,261 @@
+// CEO: Linux windows-watch honesty with independent windows inventory diff read-back.
+// Acceptance is smoke read-back only: CU windows-watch appeared/disappeared/changed
+// events must agree with handle/title/field diffs from independent `windows` polls
+// over the same selector window. AT-SPI/--name only; no --coords or screenshot.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-windows-watch-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function verify_windows_watch(run_directory, executable) {
+  const script = [
+    "import json, os, signal, subprocess, sys, threading, time",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "marker = f'ceo-windows-watch-{os.getpid()}'",
+    "appear_title = marker + '-appear'",
+    "title_a = marker + '-titleA'",
+    "title_b = marker + '-titleB'",
+    "duration_ms = 10000",
+    "interval_ms = 100",
+    "max_events = 24",
+    "env = os.environ.copy()",
+    "env['AGENTERM_NO_ACTIVATE'] = '1'",
+    "def cu_windows():",
+    "    proc = subprocess.run(",
+    "        [cu, '--target', 'current', '--grant', 'observe',",
+    "         'windows', '--title', marker],",
+    "        cwd=run_dir, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)",
+    "    if proc.returncode != 0:",
+    "        raise SystemExit('probe_windows_cli:' + proc.stderr + proc.stdout)",
+    "    reply = json.loads(proc.stdout)",
+    "    if not reply.get('ok'):",
+    "        raise SystemExit('probe_windows_reply')",
+    "    data = reply['data']",
+    "    rows = data.get('windows') if isinstance(data, dict) else data",
+    "    if rows is None:",
+    "        rows = []",
+    "    out = {}",
+    "    for row in rows:",
+    "        handle = int(row['handle'])",
+    "        out[handle] = row",
+    "    return out",
+    "def changed_fields(before, after):",
+    "    fields = []",
+    "    if before.get('title') != after.get('title'):",
+    "        fields.append('title')",
+    "    if before.get('app_name') != after.get('app_name'):",
+    "        fields.append('app_name')",
+    "    if int(before.get('process_id', 0)) != int(after.get('process_id', 0)):",
+    "        fields.append('process_id')",
+    "    if before.get('bounds') != after.get('bounds'):",
+    "        fields.append('bounds')",
+    "    if bool(before.get('focused')) != bool(after.get('focused')):",
+    "        fields.append('focused')",
+    "    if bool(before.get('minimized')) != bool(after.get('minimized')):",
+    "        fields.append('minimized')",
+    "    return fields",
+    "def diff_inventory(before, after, t_ms):",
+    "    events = []",
+    "    for handle, row in before.items():",
+    "        if handle not in after:",
+    "            events.append({'t_ms': t_ms, 'kind': 'disappeared', 'handle': handle,",
+    "                           'title': row.get('title', ''), 'fields': []})",
+    "    for handle, row in after.items():",
+    "        if handle not in before:",
+    "            events.append({'t_ms': t_ms, 'kind': 'appeared', 'handle': handle,",
+    "                           'title': row.get('title', ''), 'fields': []})",
+    "        else:",
+    "            fields = changed_fields(before[handle], row)",
+    "            if fields:",
+    "                events.append({'t_ms': t_ms, 'kind': 'changed', 'handle': handle,",
+    "                               'title': row.get('title', ''), 'fields': fields})",
+    "    return events",
+    "probe_events = []",
+    "stop_probe = threading.Event()",
+    "def probe_loop():",
+    "    started = time.monotonic()",
+    "    deadline = started + duration_ms / 1000.0",
+    "    previous = cu_windows()",
+    "    while time.monotonic() < deadline and not stop_probe.is_set():",
+    "        time.sleep(interval_ms / 1000.0)",
+    "        t_ms = int((time.monotonic() - started) * 1000)",
+    "        current = cu_windows()",
+    "        for event in diff_inventory(previous, current, t_ms):",
+    "            if len(probe_events) < max_events:",
+    "                probe_events.append(event)",
+    "        previous = current",
+    "appear_py = '''",
+    "import gi, os, signal, sys",
+    "gi.require_version('Gtk', '3.0')",
+    "from gi.repository import Gtk",
+    "title = sys.argv[1]",
+    "w = Gtk.Window(title=title)",
+    "w.set_default_size(180, 100)",
+    "w.add(Gtk.Label(label='appear'))",
+    "w.show_all()",
+    "signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())",
+    "Gtk.main()",
+    "'''",
+    "title_py = '''",
+    "import gi, os, signal, sys",
+    "gi.require_version('Gtk', '3.0')",
+    "from gi.repository import Gtk, GLib",
+    "title_a = sys.argv[1]",
+    "title_b = sys.argv[2]",
+    "w = Gtk.Window(title=title_a)",
+    "w.set_default_size(180, 100)",
+    "w.add(Gtk.Label(label='title'))",
+    "w.show_all()",
+    "def rename():",
+    "    w.set_title(title_b)",
+    "    return False",
+    "GLib.timeout_add(400, rename)",
+    "signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())",
+    "Gtk.main()",
+    "'''",
+    "thread = threading.Thread(target=probe_loop, daemon=True)",
+    "thread.start()",
+    "cu_proc = subprocess.Popen(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'windows-watch', '--title', marker,",
+    "     '--duration-ms', str(duration_ms),",
+    "     '--interval-ms', str(interval_ms),",
+    "     '--max-events', str(max_events)],",
+    "    cwd=run_dir, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)",
+    "time.sleep(0.25)",
+    "appear = subprocess.Popen(['python3', '-c', appear_py, appear_title],",
+    "                          cwd=run_dir, env={**env, 'GTK_MODULES': 'gail:atk-bridge'})",
+    "time.sleep(1.0)",
+    "appear.terminate()",
+    "try:",
+    "    appear.wait(timeout=3)",
+    "except subprocess.TimeoutExpired:",
+    "    appear.kill()",
+    "    appear.wait(timeout=3)",
+    "time.sleep(0.5)",
+    "title_proc = subprocess.Popen(['python3', '-c', title_py, title_a, title_b],",
+    "                              cwd=run_dir, env={**env, 'GTK_MODULES': 'gail:atk-bridge'})",
+    "time.sleep(1.5)",
+    "title_proc.terminate()",
+    "try:",
+    "    title_proc.wait(timeout=3)",
+    "except subprocess.TimeoutExpired:",
+    "    title_proc.kill()",
+    "    title_proc.wait(timeout=3)",
+    "cu_stdout, cu_stderr = cu_proc.communicate(timeout=duration_ms / 1000 + 15)",
+    "stop_probe.set()",
+    "thread.join(timeout=3)",
+    "if cu_proc.returncode != 0:",
+    "    raise SystemExit('cu_linux_windows_watch_cli:' + cu_stderr + cu_stdout)",
+    "reply = json.loads(cu_stdout)",
+    "if not reply.get('ok') or reply.get('command') != 'windows-watch':",
+    "    raise SystemExit('cu_linux_windows_watch_reply')",
+    "cu_events = reply['data'].get('events') or []",
+    "def event_key(event):",
+    "    fields = tuple(sorted(event.get('fields') or []))",
+    "    return (event.get('kind'), int(event['handle']), fields)",
+    "def title_matches(event, needle):",
+    "    title = event.get('title') or ''",
+    "    return needle in title",
+    "def pick(events, kind, title_needle, fields=None):",
+    "    out = []",
+    "    for event in events:",
+    "        if event.get('kind') != kind:",
+    "            continue",
+    "        if not title_matches(event, title_needle):",
+    "            continue",
+    "        if fields is not None:",
+    "            got = sorted(event.get('fields') or [])",
+    "            if got != sorted(fields):",
+    "                continue",
+    "        out.append(event)",
+    "    return out",
+    "cu_appear = pick(cu_events, 'appeared', appear_title)",
+    "cu_disappear = pick(cu_events, 'disappeared', appear_title)",
+    "cu_title = pick(cu_events, 'changed', title_b, ['title'])",
+    "probe_appear = pick(probe_events, 'appeared', appear_title)",
+    "probe_disappear = pick(probe_events, 'disappeared', appear_title)",
+    "probe_title = pick(probe_events, 'changed', title_b, ['title'])",
+    "if not cu_appear:",
+    "    raise SystemExit('cu_linux_windows_watch_cu_appear')",
+    "if not cu_disappear:",
+    "    raise SystemExit('cu_linux_windows_watch_cu_disappear')",
+    "if not cu_title:",
+    "    raise SystemExit('cu_linux_windows_watch_cu_title')",
+    "if not probe_appear:",
+    "    raise SystemExit('cu_linux_windows_watch_probe_appear')",
+    "if not probe_disappear:",
+    "    raise SystemExit('cu_linux_windows_watch_probe_disappear')",
+    "if not probe_title:",
+    "    raise SystemExit('cu_linux_windows_watch_probe_title')",
+    "cu_appear_h = int(cu_appear[0]['handle'])",
+    "probe_appear_h = int(probe_appear[0]['handle'])",
+    "if cu_appear_h != probe_appear_h:",
+    "    raise SystemExit('cu_linux_windows_watch_appear_handle')",
+    "cu_disappear_h = int(cu_disappear[0]['handle'])",
+    "probe_disappear_h = int(probe_disappear[0]['handle'])",
+    "if cu_disappear_h != probe_disappear_h or cu_disappear_h != cu_appear_h:",
+    "    raise SystemExit('cu_linux_windows_watch_disappear_handle')",
+    "cu_title_h = int(cu_title[0]['handle'])",
+    "probe_title_h = int(probe_title[0]['handle'])",
+    "if cu_title_h != probe_title_h:",
+    "    raise SystemExit('cu_linux_windows_watch_title_handle')",
+    "if event_key(cu_appear[0]) != event_key(probe_appear[0]):",
+    "    raise SystemExit('cu_linux_windows_watch_appear_event')",
+    "if event_key(cu_disappear[0]) != event_key(probe_disappear[0]):",
+    "    raise SystemExit('cu_linux_windows_watch_disappear_event')",
+    "if event_key(cu_title[0]) != event_key(probe_title[0]):",
+    "    raise SystemExit('cu_linux_windows_watch_title_event')",
+    "print('marker', marker, 'appear_handle', cu_appear_h, 'title_handle', cu_title_h)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable, run_directory], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true, "cu_linux_windows_watch:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-windows-watch");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP windows-watch appeared/disappeared/title diffs match independent windows inventory read-back");
+  verify_windows_watch(context.run_directory, executable);
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-windows-watch-readback");
+  harness.remove_run(context);
+  print("PASS: Linux windows-watch matches independent windows inventory diff read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

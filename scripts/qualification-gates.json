@@ -429,6 +429,12 @@
       ]
     },
     {
+      "id": "cu-linux-process-kill-smoke",
+      "evidence": [
+        "cu.linux-process-kill-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-argv-cwd-smoke",
       "evidence": [
         "cu.linux-process-argv-readback",
