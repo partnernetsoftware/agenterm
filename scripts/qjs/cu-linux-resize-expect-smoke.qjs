@@ -12,7 +12,8 @@ const declared_evidence = [
 ];
 
 const TARGET_WIDTH = 400;
-const TARGET_HEIGHT = 360;
+// GTK fixture enforces ~430px minimum client height; 360 clamps and breaks --expect.
+const TARGET_HEIGHT = 430;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
