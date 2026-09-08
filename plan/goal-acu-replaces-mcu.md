@@ -937,6 +937,7 @@ Q5 retirement
 ├─ [~] one qjswasm retirement court
 │  ├─ [x] report mode measures ledger gaps/evidence, host-task registration, Candidate wiring, Bun/MCU production dependencies and adapter truth
 │  ├─ [x] adapter exposes a machine report that cannot mistake zero static STAY for complete dynamic parity
+│  ├─ [x] all platform-pending cells are listed without changing the capability-level blocker contract
 │  └─ [ ] enforce-absent mode green with zero blockers and the retired MCU path unavailable
 ├─ [~] six-cell baseline now requires architecture-matched `agenterm-cu`
 │  ├─ [x] local arm64 rehearsal executes public bounded storage inventory
@@ -946,7 +947,10 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: the integrated tree's
-140 ledger capabilities include zero `gap` and 64 `platform-limited` rows. The
+140 ledger capabilities include zero `gap`, 63 `platform-limited` rows and 7
+reviewed retirements. The report preserves 65 capability-level blockers while
+also exposing all 126 pending platform cells, including 71 previously hidden
+behind the first pending cell of the same capability. The
 compatibility adapter has zero static `STAY` spellings and its
 argument-sensitive corpus is complete and no longer requires MCU at runtime,
 and the public `acu.compat-job-resources` court now proves that legacy point
