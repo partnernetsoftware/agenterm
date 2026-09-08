@@ -622,6 +622,27 @@ pub(crate) fn click_node(
     Ok(())
 }
 
+/// Named-node hover is wired on Linux (AT-SPI `GenerateMouseEvent("abs")`).
+pub(crate) fn hover_node(
+    _window_handle: Option<isize>,
+    _node_id: &str,
+) -> Result<(), AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "named-node hover is not wired on Windows yet".into(),
+    })
+}
+
+pub(crate) fn wheel_node(
+    _window_handle: Option<isize>,
+    _node_id: &str,
+    _dx: i32,
+    _dy: i32,
+) -> Result<(), AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "named-node scroll-wheel is not wired on Windows yet".into(),
+    })
+}
+
 pub(crate) fn set_node_text(
     window_handle: Option<isize>,
     node_id: &str,

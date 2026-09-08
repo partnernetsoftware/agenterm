@@ -1669,6 +1669,16 @@ pub fn click_node(
     Ok(())
 }
 
+pub fn hover_node(window: Option<isize>, node_id: &str) -> Result<(), MechanismError> {
+    let handle = window.unwrap_or(0);
+    let node_c = CStringOrStack::new(node_id)?;
+    write_ledger::note();
+    let f = call_sym::<NodeHover>(b"agt_a11y_node_hover")?;
+    let status = unsafe { f(handle, node_c.as_ptr()) };
+    map_status("agt_a11y_node_hover", status)?;
+    Ok(())
+}
+
 pub fn set_node_text(
     window: Option<isize>,
     node_id: &str,
@@ -2586,6 +2596,7 @@ type TreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type NodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
 type NodeClick = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, u32) -> i32;
+type NodeHover = unsafe extern "C" fn(isize, *const std::ffi::c_char) -> i32;
 type NodePerform = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32) -> i32;
 type NodeInvoke =
     unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, *const u8, usize) -> i32;

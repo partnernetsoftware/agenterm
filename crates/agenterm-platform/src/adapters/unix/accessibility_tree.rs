@@ -73,6 +73,26 @@ pub(crate) fn click_node(
     })
 }
 
+pub(crate) fn hover_node(
+    _window_handle: Option<isize>,
+    _node_id: &str,
+) -> Result<(), AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "accessibility-tree not wired on this unix host".into(),
+    })
+}
+
+pub(crate) fn wheel_node(
+    _window_handle: Option<isize>,
+    _node_id: &str,
+    _dx: i32,
+    _dy: i32,
+) -> Result<(), AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "accessibility-tree not wired on this unix host".into(),
+    })
+}
+
 pub(crate) fn set_node_text(
     _window_handle: Option<isize>,
     _node_id: &str,

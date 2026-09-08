@@ -47,6 +47,10 @@ menubar.append(file_item)
 # stable would hide the very value these steps read back.
 press_label = Gtk.Label(label="pressed 0")
 menu_label = Gtk.Label(label="menu idle")
+hover_label = Gtk.Label(label="hover idle")
+hover_target = Gtk.Label(label="Fixture Hover")
+hover_area = Gtk.EventBox()
+hover_area.add(hover_target)
 entry = Gtk.Entry()
 entry.set_text("seed")
 entry.get_accessible().set_name("Fixture Entry")
@@ -64,11 +68,21 @@ def on_thing(_widget):
     menu_label.set_text("did thing %d" % things[0])
 
 
+def on_hover_enter(_widget, _event):
+    hover_label.set_text("hover active")
+
+
+def on_hover_leave(_widget, _event):
+    hover_label.set_text("hover idle")
+
+
 button.connect("clicked", on_click)
 do_thing.connect("activate", on_thing)
+hover_area.connect("enter-notify-event", on_hover_enter)
+hover_area.connect("leave-notify-event", on_hover_leave)
 minimize_item.connect("activate", lambda _w: main_window.iconify())
 
-for widget in (menubar, press_label, menu_label, entry, check, button):
+for widget in (menubar, press_label, menu_label, hover_label, hover_area, entry, check, button):
     box.add(widget)
 main_window.add(box)
 main_window.connect("destroy", Gtk.main_quit)

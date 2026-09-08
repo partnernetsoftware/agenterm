@@ -3755,6 +3755,32 @@
       ]
     },
     {
+      "name": "hover",
+      "command": "hover",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "a11y-actuate",
+      "summary": "AT-SPI GenerateMouseEvent(abs) at a named node's extents center",
+      "usage": "hover --window HANDLE --name PAT [--role ROLE]",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--name",
+          "value": "PAT",
+          "help": "unique showing node whose name contains PAT (wait matching)"
+        },
+        {
+          "flag": "--role",
+          "value": "ROLE",
+          "help": "narrow --name to one role"
+        }
+      ]
+    },
+    {
       "name": "send-text",
       "command": "send-text",
       "aliases": [
@@ -6469,6 +6495,10 @@
     {
       "name": "focus",
       "text": "agenterm-cu focus\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  focus [--window HANDLE] (--node ID | --window HANDLE --name PAT [--role ROLE])\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --node ID                     node path id\n  --name PAT                    unique showing node whose name contains PAT (wait matching)\n  --role ROLE                   narrow --name to one role\n\nGives one node the accessibility focus through the a11y tree; never\nraises or activates the window.\n"
+    },
+    {
+      "name": "hover",
+      "text": "agenterm-cu hover\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  hover --window HANDLE --name PAT [--role ROLE]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --name PAT                    unique showing node whose name contains PAT (wait matching)\n  --role ROLE                   narrow --name to one role\n\nOne-shot AT-SPI GenerateMouseEvent(\"abs\") at Component.GetExtents center.\naddressing=accessibility-tree via=generate-mouse-event-abs. Never --coords,\nXTest, or screenshot.\n"
     },
     {
       "name": "send-text",

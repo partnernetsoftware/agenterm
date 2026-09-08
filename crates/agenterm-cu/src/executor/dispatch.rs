@@ -1982,10 +1982,9 @@ impl Executor {
                 role.as_deref(),
                 &mut self.open_receipts(command.target())?,
             ),
-            Command::Hover { .. } => Err(CuError::new(
-                "unsupported",
-                "hover is declared but not wired in the executor yet",
-            )),
+            Command::Hover {
+                window, name, role, ..
+            } => hover(*window, name.as_deref(), role.as_deref()),
             Command::SendText {
                 text,
                 window,

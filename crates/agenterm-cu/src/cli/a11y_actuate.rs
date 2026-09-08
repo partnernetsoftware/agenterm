@@ -88,6 +88,16 @@ pub fn parse(
                 role,
             })
         }
+        "hover" => {
+            let (window, name, role) =
+                named_node(args, "hover requires --window <handle> --name <pattern>")?;
+            Ok(Command::Hover {
+                target,
+                window,
+                name,
+                role,
+            })
+        }
         "select" => {
             let window = flag_window_opt(args);
             let name = flag_value(args, "--name");

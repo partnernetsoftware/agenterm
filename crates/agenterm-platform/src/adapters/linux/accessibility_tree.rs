@@ -32,7 +32,7 @@ use crate::contract::accessibility_tree::{
     AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
     AccessibilityTreeError, ApplicationVisibility,
 };
-
+use crate::contract::input_inject::{InputInjectError, PointerPosition};
 const MAX_NODES: usize = 1_000;
 const MAX_DEPTH: u32 = 32;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1126,6 +1126,46 @@ pub(crate) fn perform_node_action(
             )
         })?
     })
+}
+
+/// Named-node pointer hover via AT-SPI `GenerateMouseEvent("abs")` at
+/// `Component.GetExtents` center. Never `--coords` or XTest.
+pub(crate) fn hover_node(
+    window_handle: Option<isize>,
+    node_id: &str,
+) -> Result<(), AccessibilityTreeError> {
+    runtime().block_on(async {
+        timeout(SNAPSHOT_TIMEOUT, hover_node_async(window_handle, node_id))
+            .await
+            .map_err(|_| {
+                AccessibilityTreeError::failed(
+                    "a11y_action_timeout",
+                    "AT-SPI node hover exceeded its deadline",
+                )
+            })?
+    })
+}
+
+/// Bounded wheel delivery at the named node's AT-SPI screen center without
+/// leaving the physical pointer displaced. Never `--coords` or screenshot.
+pub(crate) fn wheel_node(
+    window_handle: Option<isize>,
+    node_id: &str,
+    dx: i32,
+    dy: i32,
+) -> Result<(), AccessibilityTreeError> {
+    let center = runtime().block_on(async {
+        timeout(SNAPSHOT_TIMEOUT, wheel_node_center_async(window_handle, node_id))
+            .await
+            .map_err(|_| {
+                AccessibilityTreeError::failed(
+                    "a11y_action_timeout",
+                    "AT-SPI node wheel center lookup exceeded its deadline",
+                )
+            })?
+    })?;
+    crate::contract::input_inject::validate_pointer_scroll(dx, dy).map_err(map_input_inject_err)?;
+    crate::input_inject::pointer_scroll_at(center, dx, dy).map_err(map_input_inject_err)
 }
 
 /// Named-node click with AT-SPI multi-click semantics. `clicks` is `1..=3`.
@@ -3766,6 +3806,92 @@ fn format_mouse_event(button: u8, kind: char) -> &'static str {
 
 const MULTI_CLICK_GAP: Duration = Duration::from_millis(40);
 
+async fn hover_node_async(
+    window_handle: Option<isize>,
+    node_id: &str,
+) -> Result<(), AccessibilityTreeError> {
+    let indices = parse_node_path(node_id)?;
+    let conn = connect().await?;
+    let identity = window_handle.and_then(window_identity);
+    let roots = registry_children(&conn).await?;
+    let selected = select_roots(&conn, roots, identity.as_ref()).await?;
+    if selected.is_empty() {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            format!("node path {node_id} has no AT-SPI Component for hover"),
+        ));
+    }
+    let object = resolve_path(&conn, &selected, &indices).await?;
+    let proxy = open_bus_object(&conn, &object).await?;
+    let component = component_proxy_for(&proxy).await?;
+    let (x, y, width, height) = timeout(NODE_TIMEOUT, component.get_extents(CoordType::Screen))
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_action_timeout",
+                "AT-SPI Component GetExtents exceeded its deadline",
+            )
+        })?
+        .map_err(map_atspi_err)?;
+    let Some((cx, cy)) = extents_center(x, y, width, height) else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            "node Component extents are empty; not falling back to --coords",
+        ));
+    };
+    let dec = DeviceEventControllerProxy::builder(proxy.inner().connection())
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await
+        .map_err(map_atspi_err)?;
+    timeout(NODE_TIMEOUT, dec.generate_mouse_event(cx, cy, "abs"))
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_action_timeout",
+                "AT-SPI GenerateMouseEvent exceeded its deadline",
+            )
+        })?
+        .map_err(map_atspi_err)?;
+    Ok(())
+}
+
+async fn wheel_node_center_async(
+    window_handle: Option<isize>,
+    node_id: &str,
+) -> Result<PointerPosition, AccessibilityTreeError> {
+    let indices = parse_node_path(node_id)?;
+    let conn = connect().await?;
+    let identity = window_handle.and_then(window_identity);
+    let roots = registry_children(&conn).await?;
+    let selected = select_roots(&conn, roots, identity.as_ref()).await?;
+    if selected.is_empty() {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_scroll_wheel_unavailable",
+            format!("node path {node_id} has no AT-SPI Component for wheel delivery"),
+        ));
+    }
+    let object = resolve_path(&conn, &selected, &indices).await?;
+    let proxy = open_bus_object(&conn, &object).await?;
+    let component = component_proxy_for(&proxy).await?;
+    let (x, y, width, height) = timeout(NODE_TIMEOUT, component.get_extents(CoordType::Screen))
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_action_timeout",
+                "AT-SPI Component GetExtents exceeded its deadline",
+            )
+        })?
+        .map_err(map_atspi_err)?;
+    let Some((cx, cy)) = extents_center(x, y, width, height) else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_scroll_wheel_unavailable",
+            "node Component extents are empty; not falling back to --coords",
+        ));
+    };
+    Ok(PointerPosition { x: cx, y: cy })
+}
+
 async fn click_node_async(
     window_handle: Option<isize>,
     node_id: &str,
@@ -4771,6 +4897,18 @@ fn titles_equivalent(window_title: &str, node_name: &str) -> bool {
 
 fn is_unique_bus_name(name: &str) -> bool {
     name.starts_with(':')
+}
+
+fn map_input_inject_err(error: InputInjectError) -> AccessibilityTreeError {
+    match error {
+        InputInjectError::Unsupported { reason } => AccessibilityTreeError::failed(
+            "a11y_scroll_wheel_unavailable",
+            reason,
+        ),
+        InputInjectError::Failed { code, message } => {
+            AccessibilityTreeError::failed(code, message)
+        }
+    }
 }
 
 fn map_atspi_err(error: impl std::fmt::Display) -> AccessibilityTreeError {

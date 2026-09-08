@@ -51,6 +51,27 @@ pub fn click_node(
     crate::selected::accessibility_tree::click_node(window_handle, node_id, button, clicks)
 }
 
+/// Named-node pointer hover via AT-SPI `GenerateMouseEvent("abs")` at
+/// `Component.GetExtents` center (Linux). Never `--coords` or XTest.
+pub fn hover_node(
+    window_handle: Option<isize>,
+    node_id: &str,
+) -> Result<(), AccessibilityTreeError> {
+    crate::selected::accessibility_tree::hover_node(window_handle, node_id)
+}
+
+/// Bounded wheel delivery at the named node's AT-SPI screen center without
+/// leaving the physical pointer displaced (Linux: XTest wheel at extents
+/// center). Never `--coords` or screenshot.
+pub fn wheel_node(
+    window_handle: Option<isize>,
+    node_id: &str,
+    dx: i32,
+    dy: i32,
+) -> Result<(), AccessibilityTreeError> {
+    crate::selected::accessibility_tree::wheel_node(window_handle, node_id, dx, dy)
+}
+
 /// Walk the menu bar of the application owning `window_handle` under
 /// `budget` (macOS: `AXMenuBar` → `AXMenuBarItem` → `AXMenu` → `AXMenuItem`)
 /// without opening a menu on screen or activating the application. Node

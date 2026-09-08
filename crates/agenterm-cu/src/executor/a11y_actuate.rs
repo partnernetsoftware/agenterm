@@ -297,6 +297,41 @@ pub(super) fn scroll(
     Ok(payload)
 }
 
+/// `hover --name` delivers one AT-SPI `GenerateMouseEvent("abs")` at the
+/// named node's `Component.GetExtents` center (`agt_a11y_node_hover`).
+/// Never `--coords`, XTest, or screenshot.
+pub(super) fn hover(
+    window: Option<isize>,
+    name: Option<&str>,
+    role: Option<&str>,
+) -> Result<serde_json::Value, CuError> {
+    let name = name.filter(|value| !value.is_empty()).ok_or_else(|| {
+        CuError::new(
+            "invalid_input",
+            "hover requires --window <handle> --name <pattern>",
+        )
+    })?;
+    let resolved =
+        resolve_actuation_node(window, None, Some(name), role, "hover")?.ok_or_else(|| {
+            CuError::new(
+                "invalid_input",
+                "hover requires --window <handle> --name <pattern>",
+            )
+        })?;
+    mechanism::hover_node(window, &resolved.node_id).map_err(map_mechanism_err)?;
+    let mut payload = serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "node": resolved.node_id,
+        "window": window,
+        "action": "hover",
+        "via": "generate-mouse-event-abs",
+        "performed": true,
+    });
+    attach_name_match(&mut payload, &resolved);
+    Ok(payload)
+}
+
 /// `get-extents --name` reads independent AT-SPI `Component.GetExtents(Screen)`
 /// (`agt_a11y_node_get_extents`). Snapshot `node.bounds` do not count.
 /// Empty extents typed-fail (`a11y_extents_unavailable`).
