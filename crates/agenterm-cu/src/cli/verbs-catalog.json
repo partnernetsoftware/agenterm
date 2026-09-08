@@ -5733,7 +5733,7 @@
       "grant": "actuate",
       "family": "placement",
       "summary": "window-place move (keeps the current size)",
-      "usage": "movewin HANDLE|--window H --x X --y Y   (or HANDLE X Y)",
+      "usage": "movewin HANDLE|--window H --x X --y Y [--expect XxY]   (or HANDLE X Y)",
       "args": [
         {
           "flag": "--window",
@@ -5744,6 +5744,11 @@
           "flag": "--x/--y",
           "value": "N",
           "help": "new origin (positional X Y also accepted)"
+        },
+        {
+          "flag": "--expect",
+          "value": "XxY",
+          "help": "checkable postcondition: the window origin reads back at X,Y"
         }
       ]
     },
@@ -5754,7 +5759,7 @@
       "grant": "actuate",
       "family": "placement",
       "summary": "window-place resize (keeps the current origin)",
-      "usage": "resize HANDLE|--window H --width W --height H   (or HANDLE W H)",
+      "usage": "resize HANDLE|--window H --width W --height H [--expect WxH]   (or HANDLE W H)",
       "args": [
         {
           "flag": "--window",
@@ -5765,6 +5770,11 @@
           "flag": "--width/--height",
           "value": "N",
           "help": "new size (positional W H also accepted)"
+        },
+        {
+          "flag": "--expect",
+          "value": "WxH",
+          "help": "checkable postcondition: the window size reads back at W,H"
         }
       ]
     },
@@ -6794,11 +6804,11 @@
     },
     {
       "name": "movewin",
-      "text": "agenterm-cu movewin\n  scope: actuate    family: Window placement    reply.command: window-place\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  movewin HANDLE|--window H --x X --y Y   (or HANDLE X Y)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --x/--y N                     new origin (positional X Y also accepted)\n\nAlias of window-place move; keeps the current size. The reply's command\nis window-place.\n"
+      "text": "agenterm-cu movewin\n  scope: actuate    family: Window placement    reply.command: window-place\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  movewin HANDLE|--window H --x X --y Y [--expect XxY]   (or HANDLE X Y)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --x/--y N                     new origin (positional X Y also accepted)\n  --expect XxY                  checkable postcondition: the window origin reads back at X,Y\n\nAlias of window-place move; keeps the current size. The reply's command\nis window-place.\n"
     },
     {
       "name": "resize",
-      "text": "agenterm-cu resize\n  scope: actuate    family: Window placement    reply.command: window-place\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  resize HANDLE|--window H --width W --height H   (or HANDLE W H)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --width/--height N            new size (positional W H also accepted)\n\nAlias of window-place resize; keeps the current origin. The reply's\ncommand is window-place.\n"
+      "text": "agenterm-cu resize\n  scope: actuate    family: Window placement    reply.command: window-place\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  resize HANDLE|--window H --width W --height H [--expect WxH]   (or HANDLE W H)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --width/--height N            new size (positional W H also accepted)\n  --expect WxH                  checkable postcondition: the window size reads back at W,H\n\nAlias of window-place resize; keeps the current origin. The reply's\ncommand is window-place.\n"
     },
     {
       "name": "maximize",

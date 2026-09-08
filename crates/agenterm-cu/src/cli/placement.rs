@@ -144,6 +144,9 @@ fn shorthand(verb: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
                 .ok_or_else(|| "movewin requires --x X --y Y (or HANDLE X Y)".to_owned())?;
             let y = take_i32_flag_or_positional(args, "--y")?
                 .ok_or_else(|| "movewin requires --x X --y Y (or HANDLE X Y)".to_owned())?;
+            let expect_geometry = flag_text(args, "--expect")?
+                .map(|raw| parse_expect_geometry(&raw))
+                .transpose()?;
             if !args.is_empty() {
                 return Err(format!("movewin unexpected {:?}", args[0]));
             }
@@ -152,7 +155,7 @@ fn shorthand(verb: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
                 action: "move".into(),
                 window,
                 frame: Some([x, y, 0, 0]),
-                expect_geometry: None,
+                expect_geometry,
             }
         }
         "resize" => {

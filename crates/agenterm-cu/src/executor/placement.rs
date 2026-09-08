@@ -70,6 +70,31 @@ pub(super) fn window_place(
             ));
         }
     }
+    if action == "move"
+        && let Some([expected_x, expected_y]) = expect_geometry
+    {
+        if !window.is_some_and(|handle| handle != 0) {
+            return Err(CuError::new(
+                    "refused",
+                    "move with --expect needs an exact target (--window HANDLE) and a checkable geometry postcondition (--expect XxY); nothing was performed",
+                )
+                .with_detail(serde_json::json!({
+                    "reason": "destructive_gate",
+                    "missing": ["target", "postcondition"],
+                    "required": {
+                        "target": "--window HANDLE",
+                        "postcondition": "--expect XxY",
+                    },
+                    "effect": "not_performed",
+                })));
+        }
+        if frame.is_none_or(|rect| rect[0] != expected_x || rect[1] != expected_y) {
+            return Err(CuError::new(
+                "invalid_input",
+                "move --expect geometry must match --x and --y",
+            ));
+        }
+    }
     let catalog_action = if matches!(action, "frame" | "move" | "resize") {
         None
     } else {
@@ -160,11 +185,70 @@ pub(super) fn window_place(
     {
         verify_resize_geometry(&reply, expected_width, expected_height)?;
     }
+    if action == "move"
+        && let Some([expected_x, expected_y]) = expect_geometry
+    {
+        verify_move_geometry(&reply, expected_x, expected_y)?;
+    }
     Ok(reply)
 }
 
 fn geometry_within(got: i32, want: i32) -> bool {
     got >= want - 5 && got <= want
+}
+
+fn json_geometry_i32(value: &serde_json::Value, field: &str) -> Result<i32, CuError> {
+    let raw = value
+        .get(field)
+        .ok_or_else(|| CuError::new("failed", format!("reply after.{field} is missing")))?;
+    if let Some(int) = raw.as_i64() {
+        return i32::try_from(int).map_err(|_| {
+            CuError::new("failed", format!("reply after.{field} is out of range"))
+        });
+    }
+    if let Some(float) = raw.as_f64() {
+        if !float.is_finite() {
+            return Err(CuError::new("failed", format!("reply after.{field} is not finite")));
+        }
+        return Ok(float.round() as i32);
+    }
+    Err(CuError::new("failed", format!("reply after.{field} is not numeric")))
+}
+
+fn verify_move_geometry(
+    reply: &serde_json::Value,
+    expected_x: i32,
+    expected_y: i32,
+) -> Result<(), CuError> {
+    let after = reply
+        .get("after")
+        .ok_or_else(|| CuError::new("failed", "move reply is missing after geometry"))?;
+    let got_x = json_geometry_i32(after, "x")?;
+    let got_y = json_geometry_i32(after, "y")?;
+    let exact = got_x == expected_x && got_y == expected_y;
+    let quantized = reply
+        .get("quantized")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let bounded =
+        geometry_within(got_x, expected_x) && geometry_within(got_y, expected_y);
+    if exact || (quantized && bounded) {
+        return Ok(());
+    }
+    Err(
+        CuError::new(
+            "unverified",
+            format!(
+                "move was delivered but reads ({got_x},{got_y}), expected ({expected_x},{expected_y})"
+            ),
+        )
+        .with_detail(serde_json::json!({
+            "reason": "geometry_mismatch",
+            "expected": {"x": expected_x, "y": expected_y},
+            "observed": {"x": got_x, "y": got_y},
+            "reply": reply,
+        })),
+    )
 }
 
 fn verify_resize_geometry(
@@ -175,18 +259,8 @@ fn verify_resize_geometry(
     let after = reply
         .get("after")
         .ok_or_else(|| CuError::new("failed", "resize reply is missing after geometry"))?;
-    let width = after
-        .get("width")
-        .and_then(|value| value.as_i64())
-        .ok_or_else(|| CuError::new("failed", "resize reply after.width is missing"))?;
-    let height = after
-        .get("height")
-        .and_then(|value| value.as_i64())
-        .ok_or_else(|| CuError::new("failed", "resize reply after.height is missing"))?;
-    let got_width = i32::try_from(width)
-        .map_err(|_| CuError::new("failed", "resize reply after.width is out of range"))?;
-    let got_height = i32::try_from(height)
-        .map_err(|_| CuError::new("failed", "resize reply after.height is out of range"))?;
+    let got_width = json_geometry_i32(after, "width")?;
+    let got_height = json_geometry_i32(after, "height")?;
     let exact = got_width == expected_width && got_height == expected_height;
     let quantized = reply
         .get("quantized")

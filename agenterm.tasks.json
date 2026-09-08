@@ -738,6 +738,25 @@
         "task.cu-scroll-wheel-smoke"
       ]
     },
+    "cu-linux-resize-expect-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-resize-expect-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-resize-expect-smoke"
+      ]
+    },
     "cu-linux-chrome-text-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -3477,6 +3496,46 @@
       "id": "cu-scroll-wheel-smoke",
       "description": "Prove Linux scroll-wheel --name on a Chrome scroll fixture: independent get-extents before and after must show OffscreenField screen geometry move after dy=-5 wheel delivery at the named node center; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-scroll-wheel-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-resize-expect-smoke",
+      "description": "Prove Linux resize --expect WxH on a named GTK fixture window: independent windows inventory bounds must match --expect after resize; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-resize-expect-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-chrome-text-smoke",
+      "description": "Prove Linux Chrome CDP page-fill/page-text and AT-SPI send-text/get-text --name on OffscreenField with independent read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

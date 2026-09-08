@@ -553,6 +553,12 @@
       ]
     },
     {
+      "id": "cu-linux-window-move-smoke",
+      "evidence": [
+        "cu.linux-window-move-expect"
+      ]
+    },
+    {
       "id": "cu-tree-selector-smoke",
       "evidence": [
         "cu.tree-selector-subtree"
