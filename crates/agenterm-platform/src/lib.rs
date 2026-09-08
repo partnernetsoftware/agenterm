@@ -288,6 +288,9 @@ pub mod host_memory;
 #[cfg(feature = "host-resource-snapshot")]
 pub mod host_resource_snapshot;
 
+#[cfg(feature = "host-pressure")]
+pub mod host_pressure;
+
 #[cfg(feature = "host-boot-identity")]
 pub mod host_boot_identity;
 

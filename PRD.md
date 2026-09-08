@@ -233,6 +233,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       resident job policy 已原生驻留 owner：有界 RSS/CPU-rate/process-count 连续采样，
 │     │                       Unix group-stop 与全平台 containment terminate 均有明确后置条件；macOS qjswasm 绿，
 │     │                       Linux/Windows 同源资格待补，故从 gap 晋级 platform-limited 而非宣称六格完成
+│     │                       resource pressure/top 已拆为原生 pressure 事实 + 既有有界 ps 排名；不从 free bytes
+│     │                       伪造统一等级，macOS qjswasm 绿，Linux/Windows 原生实现待同源 court
 │     │                       login-session 已有 macOS 原生有界 inventory、精确会话短时 plan、
 │     │                       持久化防重放与锁定回读；只读 qjswasm 绿，显式可见锁屏 court 待跑
 │     │                       external term observe + 显式前台 send 在 macOS/Windows ARM64/Linux x86_64

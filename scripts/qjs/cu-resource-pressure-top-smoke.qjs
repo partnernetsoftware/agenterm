@@ -1,0 +1,215 @@
+// Public read-only court for native host pressure plus the existing bounded
+// process ranking used by the legacy `resource top` spelling.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.resource-pressure-native",
+  "cu.resource-top-ranked"
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function host_platform() {
+  if (harness.host_is_windows()) { return "windows"; }
+  const uname = rh.command("uname", ["-s"], { timeout_ms: 10000 });
+  ensure(uname.success === true, "cu_resource_pressure_uname_failed");
+  if (uname.stdout.trim() === "Darwin") { return "macos"; }
+  ensure(uname.stdout.trim() === "Linux", "cu_resource_pressure_host_unsupported");
+  return "linux";
+}
+
+function isolated_env(run_directory, receipt_path) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: receipt_path,
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json")
+  };
+}
+
+function invoke(run_directory, executable, receipt_path, args) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe"
+  ].concat(args), {
+    cwd: run_directory,
+    env: isolated_env(run_directory, receipt_path),
+    timeout_ms: 30000
+  });
+  ensure(output.stdout.trim() !== "", "cu_resource_pressure_empty:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(output.success === true && reply.ok === true,
+         "cu_resource_pressure_failed:" + output.stdout + output.stderr);
+  return reply;
+}
+
+function assert_unavailable(signal, label) {
+  ensure(signal.available === false
+         && signal.semantics === "unavailable"
+         && signal.reason === "not-published-by-platform",
+         label + "_unavailable_shape");
+}
+
+function assert_psi_window(window, label) {
+  for (const name of ["avg10", "avg60", "avg300"]) {
+    ensure(typeof window[name] === "number"
+           && window[name] === window[name]
+           && window[name] >= 0
+           && window[name] <= 100,
+           label + "_" + name);
+  }
+  ensure(typeof window.totalStallMicroseconds === "string"
+         && decimal_string(window.totalStallMicroseconds),
+         label + "_total");
+}
+
+function decimal_string(value) {
+  if (value.length === 0) { return false; }
+  for (let index = 0; index < value.length; index = index + 1) {
+    const code = value.charCodeAt(index);
+    if (code < 48 || code > 57) { return false; }
+  }
+  return true;
+}
+
+function assert_pressure(reply, platform) {
+  ensure(reply.command === "resource-pressure" && reply.target === "current",
+         "cu_resource_pressure_identity");
+  const data = reply.data;
+  ensure(data.derived === false && data.atomicSnapshot === false,
+         "cu_resource_pressure_native_truth");
+  if (platform === "linux") {
+    ensure(data.provider === "linux-proc-pressure", "cu_resource_pressure_linux_provider");
+    for (const name of ["memory", "cpu", "io"]) {
+      const signal = data[name];
+      ensure(signal.available === true
+             && signal.semantics === "linux-psi-stall-window",
+             "cu_resource_pressure_linux_signal_" + name);
+      assert_psi_window(signal.some, "cu_resource_pressure_linux_some_" + name);
+      if (signal.full !== null) {
+        assert_psi_window(signal.full, "cu_resource_pressure_linux_full_" + name);
+      }
+    }
+  } else if (platform === "macos") {
+    ensure(data.provider === "macos-vm-memory-pressure",
+           "cu_resource_pressure_macos_provider");
+    ensure(data.memory.available === true
+           && data.memory.semantics === "macos-vm-memory-pressure-raw"
+           && Number.isInteger(data.memory.rawLevel),
+           "cu_resource_pressure_macos_memory");
+    assert_unavailable(data.cpu, "cu_resource_pressure_macos_cpu");
+    assert_unavailable(data.io, "cu_resource_pressure_macos_io");
+  } else {
+    ensure(data.provider === "windows-memory-resource-notification",
+           "cu_resource_pressure_windows_provider");
+    ensure(data.memory.available === true
+           && data.memory.semantics === "windows-memory-resource-notification"
+           && typeof data.memory.lowMemory === "boolean"
+           && typeof data.memory.highMemory === "boolean",
+           "cu_resource_pressure_windows_memory");
+    assert_unavailable(data.cpu, "cu_resource_pressure_windows_cpu");
+    assert_unavailable(data.io, "cu_resource_pressure_windows_io");
+  }
+  ensure(data.level === undefined && data.percent === undefined,
+         "cu_resource_pressure_derived_level_leak");
+}
+
+function assert_ranked(reply, sort_name) {
+  ensure(reply.command === "ps" && reply.target === "current",
+         "cu_resource_top_identity_" + sort_name);
+  const data = reply.data;
+  ensure(Array.isArray(data.processes)
+         && Number.isInteger(data.returned)
+         && data.returned === data.processes.length
+         && data.returned <= 5
+         && Number.isInteger(data.visited)
+         && data.visited <= 10000
+         && typeof data.coverage_complete === "boolean"
+         && typeof data.truncated_scan === "boolean"
+         && typeof data.verified === "boolean"
+         && data.verified === true,
+         "cu_resource_top_bounds_" + sort_name);
+  let previous = null;
+  for (const process of data.processes) {
+    const current = sort_name === "cpu"
+      ? process.cpu_percent
+      : decimal_number(process.resident_bytes);
+    ensure(typeof current === "number" && current === current
+           && current >= 0 && current <= 9007199254740991,
+           "cu_resource_top_value_" + sort_name);
+    if (previous !== null) {
+      ensure(previous >= current, "cu_resource_top_order_" + sort_name);
+    }
+    previous = current;
+  }
+}
+
+function decimal_number(value) {
+  ensure(typeof value === "string" && decimal_string(value),
+         "cu_resource_top_decimal_string");
+  let result = 0;
+  for (let index = 0; index < value.length; index = index + 1) {
+    result = result * 10 + value.charCodeAt(index) - 48;
+    ensure(result <= 9007199254740991, "cu_resource_top_decimal_overflow");
+  }
+  return result;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-resource-pressure-top");
+let succeeded = 0;
+let failure = "";
+try {
+  const receipt_path = rh.join(context.run_directory, "cu-receipts.jsonl");
+  const platform = host_platform();
+  print("STEP native pressure preserves platform semantics without a derived level");
+  assert_pressure(invoke(context.run_directory, executable, receipt_path, [
+    "resource-pressure"
+  ]), platform);
+
+  print("STEP existing bounded ps provides CPU and memory ranked process samples");
+  assert_ranked(invoke(context.run_directory, executable, receipt_path, [
+    "ps", "--sort", "cpu", "--max", "5", "--max-visited", "10000"
+  ]), "cpu");
+  assert_ranked(invoke(context.run_directory, executable, receipt_path, [
+    "ps", "--sort", "memory", "--max", "5", "--max-visited", "10000"
+  ]), "memory");
+
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
+         "cu_resource_pressure_effect_receipt_created");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  for (const id of declared_evidence) {
+    harness.emit_evidence(context, declared_evidence, id);
+  }
+  harness.remove_run(context);
+  print("PASS: native pressure and bounded ranked process samples stayed distinct and read-only");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }

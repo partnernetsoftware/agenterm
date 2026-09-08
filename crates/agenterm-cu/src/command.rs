@@ -2642,6 +2642,9 @@ pub enum Command {
     ResourceStatus {
         target: TargetRef,
     },
+    ResourcePressure {
+        target: TargetRef,
+    },
     PowerStatus {
         target: TargetRef,
     },
@@ -4176,6 +4179,7 @@ impl Command {
             Self::Screenshot { .. } => "screenshot".into(),
             Self::DeviceScreenshot { .. } => "device-screenshot".into(),
             Self::ResourceStatus { .. } => "resource-status".into(),
+            Self::ResourcePressure { .. } => "resource-pressure".into(),
             Self::PowerStatus { .. } => "power-status".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::DeviceList { .. } => "device-list".into(),
@@ -4595,6 +4599,7 @@ impl Command {
             | Self::Screenshot { target, .. }
             | Self::DeviceScreenshot { target, .. }
             | Self::ResourceStatus { target }
+            | Self::ResourcePressure { target }
             | Self::PowerStatus { target }
             | Self::StorageDevices { target, .. }
             | Self::DeviceList { target, .. }
@@ -6328,6 +6333,31 @@ mod tests {
         assert!(matches!(
             back,
             Command::RuntimeStatus {
+                target: TargetRef::Ssh
+            }
+        ));
+    }
+
+    #[test]
+    fn resource_pressure_is_a_first_class_observe_wire_command() {
+        let command = Command::ResourcePressure {
+            target: TargetRef::Ssh,
+        };
+        assert_eq!(command.verb(), "resource-pressure");
+        assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.required_grant(), Grant::Observe);
+        let value = serde_json::to_value(&command).expect("serialize");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "verb": "resource-pressure",
+                "target": "ssh"
+            })
+        );
+        let back: Command = serde_json::from_value(value).expect("deserialize");
+        assert!(matches!(
+            back,
+            Command::ResourcePressure {
                 target: TargetRef::Ssh
             }
         ));

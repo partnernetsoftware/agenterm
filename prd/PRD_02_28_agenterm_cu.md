@@ -1751,7 +1751,29 @@ flowchart LR
   values but marks `loadAverageSemantics=windows-not-available`; macOS/Linux
   mark native `getloadavg`. The registered `cu.resource-status` qjswasm court is
   green on macOS. Linux and Windows runtime courts remain before promotion;
-  pressure/top/disk/volumes/priority/affinity/limits/scope are separate gaps.
+  disk/volumes/priority/affinity/limits/scope are separate gaps.
+
+- [~] `resource pressure|top` no longer collapses two different facts. The new
+  `resource-pressure` observation preserves Linux PSI windows, the macOS raw
+  `vm.memory_pressure` value, or Windows low/high memory-resource notification
+  booleans; dimensions the host does not publish are explicitly unavailable.
+  It never derives a shared percentage or green/yellow/red level. Ranked
+  processes remain owned by the existing bounded `ps --sort cpu|memory`
+  sampler, including its scan-completeness and detail-error disclosures. The
+  public `cu-resource-pressure-top-smoke` court is green on macOS; Linux and
+  Windows use native implementations but remain pending until the unchanged
+  qjswasm court runs there.
+
+  ```mermaid
+  flowchart LR
+    N["native pressure provider"] --> P["resource-pressure<br/>derived=false"]
+    PS["bounded process sampler"] --> T["ps --sort cpu|memory"]
+    P --> Q{"public qjswasm court"}
+    T --> Q
+    Q -->|macOS green| E["registered evidence"]
+    Q -->|Linux / Windows pending| C["native courts"]
+    P -. never infer .-> X["shared pressure level"]
+  ```
 
 - [~] The partial `resource.process-policy` row now has an owning public
   qjswasm court rather than catalog-only credit. It brackets the court process

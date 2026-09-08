@@ -263,6 +263,8 @@
         "cu.network-dns",
         "cu.network-probe",
         "cu.resource-status",
+        "cu.resource-pressure-native",
+        "cu.resource-top-ranked",
         "cu.resource-process-policy",
         "cu.storage-devices",
         "cu.privilege-plan",

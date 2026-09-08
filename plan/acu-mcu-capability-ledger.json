@@ -1682,10 +1682,34 @@
         {
           "id": "resource.pressure-top",
           "mcu_shape": "resource pressure|top with native pressure and bounded ranked process samples",
-          "acu_shape": null,
+          "acu_shape": "resource-pressure plus ps --sort cpu|memory --max N --max-visited N",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
-          "next": "separate native pressure facts from bounded multi-process usage sampling; do not infer pressure from free bytes"
+          "platforms": {
+            "macos": "native-public-qjswasm-qualified",
+            "linux": "native-implementation-public-court-pending",
+            "windows": "native-implementation-public-court-pending"
+          },
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "pending",
+                "blocker_code": "native-linux-psi-court-not-run"
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-resource-pressure-top-smoke",
+                "evidence": ["cu.resource-pressure-native", "cu.resource-top-ranked"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-windows-memory-notification-court-not-run"
+              }
+            }
+          },
+          "evidence": ["cu.resource-pressure-native", "cu.resource-top-ranked"],
+          "next": "run the unchanged public qjswasm court on Linux and Windows native hosts; do not infer a shared pressure level from free bytes",
+          "note": "The native pressure provider and process ranking are deliberately separate. macOS reports the raw vm.memory_pressure value while CPU and IO are explicitly unavailable; Linux preserves PSI some/full windows for memory, CPU and IO; Windows preserves low/high memory-resource notification booleans while CPU and IO are explicitly unavailable. derived is always false. The existing bounded ps sampler owns CPU and RSS ranking, including scan completeness and detail-error disclosure. The macOS public court is green; Linux and Windows remain pending until their native courts execute the same script."
         },
         {
           "id": "resource.disk-volumes",

@@ -316,6 +316,18 @@ pub fn parse(
         }
         return Ok(Command::ResourceStatus { target });
     }
+    if spec.name == "resource-pressure" {
+        if args.first().is_some_and(|arg| arg == "pressure") {
+            args.remove(0);
+        }
+        if !args.is_empty() {
+            return Err(format!(
+                "resource-pressure accepts no arguments; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::ResourcePressure { target });
+    }
     if spec.name == "power-status" {
         if args.first().is_some_and(|arg| arg == "status") {
             args.remove(0);
@@ -1431,6 +1443,15 @@ mod tests {
             parse("resource", &["status"]).unwrap(),
             Command::ResourceStatus { .. }
         ));
+        assert!(matches!(
+            parse("resource-pressure", &[]).unwrap(),
+            Command::ResourcePressure { .. }
+        ));
+        assert!(matches!(
+            parse("resource", &["pressure"]).unwrap(),
+            Command::ResourcePressure { .. }
+        ));
+        assert!(parse("resource-pressure", &["extra"]).is_err());
         assert!(parse("resource-status", &["extra"]).is_err());
         assert!(parse("resource", &["status", "extra"]).is_err());
     }

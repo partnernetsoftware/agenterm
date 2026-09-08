@@ -1835,6 +1835,7 @@ impl Executor {
                 ..
             } => device_screenshot_payload(path.as_deref(), device.as_deref(), *timeout_ms, *list),
             Command::ResourceStatus { .. } => resource_status_payload(),
+            Command::ResourcePressure { .. } => resource_pressure_payload(),
             Command::PowerStatus { .. } => power_status_payload(),
             Command::StorageDevices { max, .. } => storage_devices_payload(*max),
             Command::DeviceList { selector, max, .. } => device_inventory_payload(*selector, *max),

@@ -3009,6 +3009,18 @@
       "args": []
     },
     {
+      "name": "resource-pressure",
+      "command": "resource-pressure",
+      "aliases": [
+        "resource pressure"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read native host pressure facts without deriving a cross-platform level",
+      "usage": "resource pressure\nresource-pressure",
+      "args": []
+    },
+    {
       "name": "power-status",
       "command": "power-status",
       "aliases": [
@@ -6285,6 +6297,10 @@
     {
       "name": "resource-status",
       "text": "agenterm-cu resource-status    (also: resource status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  resource status\n  resource-status\n\nReturns one bounded current-host snapshot with platform, architecture, host\nidentity, uptime, native load semantics, CPU identity, strict free memory,\nreclaimable available memory and the complete native process count. The\nqueries are sequential and atomicSnapshot is always false. Windows explicitly\nreports loadAverageSemantics=windows-not-available instead of fabricating a\nnative load measurement.\n"
+    },
+    {
+      "name": "resource-pressure",
+      "text": "agenterm-cu resource-pressure    (also: resource pressure)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  resource pressure\n  resource-pressure\n\nReturns native pressure facts without inventing one portable percentage or\nseverity. Linux exposes bounded PSI windows independently for memory, CPU and\nI/O. macOS exposes the raw vm.memory_pressure value and names CPU/I/O as\nunavailable. Windows exposes the native low/high memory resource notification\nstates and names CPU/I/O as unavailable. The three providers are sampled\nsequentially, so atomicSnapshot is false and derived is always false. Use the\nexisting bounded `ps --sort cpu|memory` command for ranked process samples.\n"
     },
     {
       "name": "power-status",

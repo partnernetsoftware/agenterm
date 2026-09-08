@@ -410,7 +410,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "resource" => (
             "available",
-            "resource-status is a native bounded host snapshot with explicit free/available and load semantics; pressure/top/disk/volumes/priority/affinity/limits/scope remain typed gaps",
+            "resource-status is a native bounded host snapshot; resource-pressure preserves native per-dimension semantics without deriving a shared level; top maps to bounded ps sorting while disk/volumes/affinity/limits/scope remain typed gaps",
         ),
         "power" => (
             "available",

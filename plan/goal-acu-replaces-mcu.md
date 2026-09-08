@@ -792,7 +792,12 @@ Q3 owned runtime facades
    │  ├─ [x] strict free memory stays distinct from reclaimable available memory
    │  ├─ [x] Windows load is explicitly unavailable, never a fabricated measurement
    │  ├─ [x] macOS public qjswasm journey `cu.resource-status`
-   │  └─ [ ] Linux + Windows native public journeys; pressure/top/disk/volumes/policy remain separate gaps
+   │  └─ [ ] Linux + Windows native public journeys; disk/volumes/policy remain separate gaps
+   ├─ [~] resource pressure/top: native pressure facts + existing bounded ranked process sampler
+   │  ├─ [x] no free-memory-derived or cross-platform synthetic pressure level
+   │  ├─ [x] Linux PSI / macOS raw VM pressure / Windows memory notification adapters
+   │  ├─ [x] macOS public qjswasm journey `cu.resource-pressure-native` + `cu.resource-top-ranked`
+   │  └─ [ ] Linux + Windows native public journeys
    ├─ [~] storage-devices: fixed native provider + bounded privacy-minimized inventory
    │  ├─ [x] exact decimal capacities; no serial/WWN/Windows UniqueId
    │  ├─ [x] 10,000-row scan + 2 MiB provider + 1 MiB response ceilings
