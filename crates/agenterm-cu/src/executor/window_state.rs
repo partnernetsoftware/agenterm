@@ -13,6 +13,7 @@
 
 use super::*;
 
+use crate::command::OrderRelation;
 use crate::observe::FrontmostApp;
 
 /// How long a window-state postcondition polls before it is called unmet.
@@ -619,6 +620,174 @@ pub(super) fn window_state_payload(
         .with_detail(serde_json::json!({ "reason": "state_mismatch", "receipt": payload })));
     }
     Ok(payload)
+}
+
+/// The two handles' places in the front-to-back order, or why they are not
+/// readable. `z_index` 0 is frontmost.
+pub(super) struct OrderSnapshot {
+    window: Option<u32>,
+    relative: Option<u32>,
+    reason: Option<String>,
+}
+
+pub(super) enum OrderVerdict {
+    Holds,
+    Refused,
+    Unverifiable(String),
+}
+
+impl OrderSnapshot {
+    fn holds(&self, relation: OrderRelation) -> bool {
+        let (Some(window), Some(relative)) = (self.window, self.relative) else {
+            return false;
+        };
+        match relation {
+            OrderRelation::Above => window < relative,
+            OrderRelation::Below => window > relative,
+        }
+    }
+
+    fn verdict(&self, relation: OrderRelation) -> OrderVerdict {
+        if self.holds(relation) {
+            return OrderVerdict::Holds;
+        }
+        if let Some(reason) = &self.reason {
+            return OrderVerdict::Unverifiable(reason.clone());
+        }
+        match (self.window, self.relative) {
+            (Some(_), Some(_)) => OrderVerdict::Refused,
+            _ => OrderVerdict::Unverifiable(
+                "one of the two windows is no longer in the stacking order".to_owned(),
+            ),
+        }
+    }
+
+    fn json(&self) -> serde_json::Value {
+        serde_json::json!({ "window_z": self.window, "relative_z": self.relative })
+    }
+}
+
+pub(super) fn order_snapshot(window: isize, relative: isize) -> OrderSnapshot {
+    match mechanism::window_enumerate::stacking() {
+        Ok(rows) => {
+            let z = |handle: isize| {
+                rows.iter()
+                    .find(|row| row.handle == handle)
+                    .map(|row| row.z_index)
+            };
+            OrderSnapshot {
+                window: z(window),
+                relative: z(relative),
+                reason: None,
+            }
+        }
+        Err(mechanism::MechanismError::Unsupported { reason }) => OrderSnapshot {
+            window: None,
+            relative: None,
+            reason: Some(reason),
+        },
+        Err(mechanism::MechanismError::Failed { code, message }) => OrderSnapshot {
+            window: None,
+            relative: None,
+            reason: Some(format!("{code}: {message}")),
+        },
+    }
+}
+
+/// MCU `orderwin`: `above` raises `window`, `below` raises `relative`.
+pub(super) fn orderwin_payload(
+    window: isize,
+    relation: OrderRelation,
+    relative: isize,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 || relative == 0 {
+        return Err(invalid_input(
+            "orderwin requires --window H --relative H (non-zero handles from windows)".into(),
+        ));
+    }
+    if window == relative {
+        return Err(invalid_input(
+            "orderwin --window and --relative must be distinct handles".into(),
+        ));
+    }
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let target = windows.iter().find(|item| item.handle == window);
+    let other = windows.iter().find(|item| item.handle == relative);
+    if target.is_none() {
+        return Err(CuError::new(
+            "a11y_window_gone",
+            format!("orderwin --window {window} is not in the current inventory"),
+        ));
+    }
+    if other.is_none() {
+        return Err(CuError::new(
+            "a11y_window_gone",
+            format!("orderwin --relative {relative} is not in the current inventory"),
+        ));
+    }
+    let raised = match relation {
+        OrderRelation::Above => window,
+        OrderRelation::Below => relative,
+    };
+    let before = order_snapshot(window, relative);
+    mechanism::window_op::show(raised, mechanism::window_op::SHOW).map_err(map_mechanism_err)?;
+    let deadline = Instant::now() + Duration::from_millis(500);
+    let mut after = order_snapshot(window, relative);
+    loop {
+        if after.holds(relation) || Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(25));
+        after = order_snapshot(window, relative);
+    }
+    let payload = serde_json::json!({
+        "mechanism": "libagenterm",
+        "via": "native-window-show",
+        "relation": relation.as_str(),
+        "window": window,
+        "relative": relative,
+        "raised": raised,
+        "before": before.json(),
+        "after": after.json(),
+    });
+    match after.verdict(relation) {
+        OrderVerdict::Holds => {
+            let mut payload = payload;
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("verified".into(), serde_json::json!(true));
+                object.insert(
+                    "verification".into(),
+                    serde_json::json!({
+                        "method": "stacking-readback",
+                        "reason": serde_json::Value::Null,
+                    }),
+                );
+            }
+            Ok(payload)
+        }
+        OrderVerdict::Unverifiable(reason) => {
+            let mut payload = payload;
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("verified".into(), serde_json::json!(false));
+                object.insert(
+                    "verification".into(),
+                    serde_json::json!({
+                        "method": "stacking-readback",
+                        "reason": reason,
+                    }),
+                );
+            }
+            Ok(payload)
+        }
+        OrderVerdict::Refused => Err(CuError::new(
+            "window_order_not_applied",
+            format!(
+                "the window manager did not place {window} {} {relative}; the order is unchanged",
+                relation.as_str()
+            ),
+        )
+        .with_detail(payload)),
+    }
 }
 
 #[cfg(test)]

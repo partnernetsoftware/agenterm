@@ -336,16 +336,28 @@ pub(crate) fn stacking() -> Result<Vec<WindowStacking>, WindowEnumerateError> {
     let mut seen = HashSet::new();
     let mut ordered: Vec<(isize, WindowBounds)> = Vec::new();
     // Bottom-to-top on the wire; the contract wants front first.
+    //
+    // Keep the same membership rule as `enumerate_top_level`: a window the
+    // window manager marks `_NET_WM_STATE_HIDDEN` is still in the stacking
+    // list even when it is iconified and unmapped. Dropping only VIEWABLE
+    // windows here made minimized inventory rows carry no `z_index` and
+    // `orderwin` read back `verified=false` for handles that `windows`
+    // still listed.
     for window in stacked.into_iter().rev() {
         if !seen.insert(window) {
             continue;
         }
-        if map_state(&context, window)? != MapState::VIEWABLE {
+        let state = map_state(&context, window)?;
+        let hidden = minimized(&context, window);
+        if state != MapState::VIEWABLE && !hidden {
             continue;
         }
-        let Ok(bounds) = geometry(&context, window) else {
-            continue;
-        };
+        let bounds = geometry(&context, window).unwrap_or(WindowBounds {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        });
         ordered.push((window as isize, bounds));
     }
     Ok(stacking_from_front_to_back(&ordered))
@@ -437,6 +449,17 @@ mod tests {
         assert_eq!(
             classify_session(Some("x11"), None, Some(":0")),
             SessionKind::X11
+        );
+    }
+
+    #[test]
+    fn resolve_screenshot_xid_rejects_zero_handle() {
+        assert_eq!(
+            resolve_screenshot_xid(0),
+            Err(failed(
+                "screenshot_window_unavailable",
+                "screenshot window handle must be non-zero"
+            ))
         );
     }
 
