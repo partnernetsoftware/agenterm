@@ -6,7 +6,7 @@
 //! CLI parser / [`Executor`] path; it is not a second dispatcher and never
 //! shells out.
 
-use crate::{Authorization, Command, CuError, CuReply, Executor};
+use crate::{Authorization, Command, CuError, CuReply, Executor, Grant, RequestIdentity};
 
 /// Version of the closed in-process request envelope.
 pub const ACU_REQUEST_VERSION: u64 = 1;
@@ -378,11 +378,94 @@ pub fn execute_request_from_environment(request_json: &str) -> CuReply {
         Some("mcp_call") if exact_keys(object, &["acu_request", "kind", "name", "arguments"]) => {
             execute_mcp_call_from_environment(object)
         }
-        Some("command" | "argv" | "mcp_call") => {
+        Some("identity_bound_command")
+            if exact_keys(
+                object,
+                &["acu_request", "kind", "command", "request_identity"],
+            ) =>
+        {
+            execute_identity_bound_command_from_environment(object)
+        }
+        Some("command" | "argv" | "mcp_call" | "identity_bound_command") => {
             malformed_request("request envelope fields do not match kind")
         }
-        _ => malformed_request("request kind must be command, argv or mcp_call"),
+        _ => malformed_request(
+            "request kind must be command, argv, mcp_call or identity_bound_command",
+        ),
     }
+}
+
+/// Execute the provider-internal request shape used when MCP has already
+/// assigned one caller/session identity to an actuation. The bearer lease is
+/// moved directly into [`Executor`] and is never projected into a reply.
+fn execute_identity_bound_command_from_environment(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> CuReply {
+    let command = match strict_command(object.get("command").expect("exact identity envelope")) {
+        Ok(command) => command,
+        Err(message) => return malformed_request(message),
+    };
+    if let Err(message) = command.validate() {
+        return CuReply::err(&command, CuError::new("invalid_command", message));
+    }
+    if command.required_grant() != Grant::Actuate {
+        return CuReply::err(
+            &command,
+            CuError::new(
+                "request_identity_not_actuation",
+                "caller request identity is valid only for mutating commands",
+            ),
+        );
+    }
+    let identity = match strict_request_identity(
+        object
+            .get("request_identity")
+            .expect("exact identity envelope"),
+    ) {
+        Ok(identity) => identity,
+        Err(message) => return malformed_request(message),
+    };
+    execute_command_with_identity_from_environment(&command, identity)
+}
+
+fn strict_request_identity(value: &serde_json::Value) -> Result<RequestIdentity, String> {
+    let Some(object) = value.as_object() else {
+        return Err("request_identity must be an object".to_owned());
+    };
+    if !exact_keys(object, &["request_id", "session_id", "session_lease"]) {
+        return Err(
+            "request_identity must contain exactly request_id, session_id and session_lease"
+                .to_owned(),
+        );
+    }
+    let request_id = identity_token(object, "request_id")?;
+    let session_id = identity_token(object, "session_id")?;
+    let session_lease = identity_token(object, "session_lease")?;
+    Ok(RequestIdentity {
+        request_id,
+        session_id,
+        session_lease,
+    })
+}
+
+fn identity_token(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> Result<String, String> {
+    let Some(value) = object.get(field).and_then(serde_json::Value::as_str) else {
+        return Err(format!("request_identity {field} must be a string"));
+    };
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        return Err(format!(
+            "request_identity {field} must be 1..=128 ASCII token bytes"
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn execute_mcp_call_from_environment(
@@ -454,6 +537,25 @@ fn exact_keys(object: &serde_json::Map<String, serde_json::Value>, expected: &[&
 }
 
 fn execute_command_from_environment(command: &Command) -> CuReply {
+    let executor = match executor_from_environment(command) {
+        Ok(executor) => executor,
+        Err(reply) => return *reply,
+    };
+    execute_command(&executor, command)
+}
+
+fn execute_command_with_identity_from_environment(
+    command: &Command,
+    identity: RequestIdentity,
+) -> CuReply {
+    let executor = match executor_from_environment(command) {
+        Ok(executor) => executor.with_request_identity(identity),
+        Err(reply) => return *reply,
+    };
+    execute_command(&executor, command)
+}
+
+fn executor_from_environment(command: &Command) -> Result<Executor, Box<CuReply>> {
     let mut unsupported = false;
     for (key, _) in std::env::vars_os() {
         let Some(key) = key.to_str() else { continue };
@@ -464,25 +566,25 @@ fn execute_command_from_environment(command: &Command) -> CuReply {
         }
     }
     if unsupported {
-        return CuReply::err(
+        return Err(Box::new(CuReply::err(
             command,
             CuError::new(
                 "invalid_authorization",
                 "unsupported authorization environment selector is present",
             ),
-        );
+        )));
     }
     let environment_grant = std::env::var("AGENTERM_CU_GRANT").ok();
     let authorization = match Authorization::try_from_sources(None, environment_grant.as_deref()) {
         Ok(authorization) => authorization,
         Err(error) => {
-            return CuReply::err(
+            return Err(Box::new(CuReply::err(
                 command,
                 CuError::new("invalid_authorization", error.to_string()),
-            );
+            )));
         }
     };
-    execute_command(&Executor::new(authorization), command)
+    Ok(Executor::new(authorization))
 }
 
 fn malformed_command(message: String) -> CuReply {
@@ -711,5 +813,78 @@ mod tests {
         });
         let follow_up = execute_json_with(&executor, &valid.to_string());
         assert!(follow_up.ok);
+    }
+
+    #[test]
+    fn identity_bound_envelope_is_closed_and_actuation_only() {
+        let read_only = serde_json::json!({
+            "acu_request": ACU_REQUEST_VERSION,
+            "kind": "identity_bound_command",
+            "command": {"verb": "capabilities", "target": "current"},
+            "request_identity": {
+                "request_id": "mcp-request-1",
+                "session_id": "mcp-session-1",
+                "session_lease": "fixture-bearer-secret"
+            }
+        });
+        let reply = execute_request_from_environment(&read_only.to_string());
+        assert!(!reply.ok);
+        assert_eq!(
+            reply.error.expect("typed refusal").code,
+            "request_identity_not_actuation"
+        );
+
+        let mut extra = read_only;
+        extra
+            .as_object_mut()
+            .expect("request object")
+            .insert("extra".to_owned(), serde_json::Value::Bool(true));
+        let reply = execute_request_from_environment(&extra.to_string());
+        assert!(!reply.ok);
+        assert_eq!(reply.command, "acu.request");
+        assert_eq!(
+            reply.error.expect("closed envelope refusal").code,
+            "invalid_acu_request"
+        );
+    }
+
+    #[test]
+    fn request_identity_is_bounded_without_echoing_bearer_values() {
+        let valid = serde_json::json!({
+            "request_id": "request:one",
+            "session_id": "session_one",
+            "session_lease": "lease.one-two"
+        });
+        let identity = strict_request_identity(&valid).expect("valid identity");
+        assert_eq!(identity.request_id, "request:one");
+        assert_eq!(identity.session_id, "session_one");
+        assert_eq!(identity.session_lease, "lease.one-two");
+
+        for invalid in [
+            serde_json::json!({
+                "request_id": "request:one",
+                "session_id": "session_one",
+                "session_lease": "bearer secret must not echo"
+            }),
+            serde_json::json!({
+                "request_id": "x".repeat(129),
+                "session_id": "session_one",
+                "session_lease": "lease.one-two"
+            }),
+            serde_json::json!({
+                "request_id": "request:one",
+                "session_id": "session_one",
+                "session_lease": "lease.one-two",
+                "extra": true
+            }),
+        ] {
+            let encoded = invalid.to_string();
+            let error = match strict_request_identity(&invalid) {
+                Ok(_) => panic!("invalid identity accepted: {encoded}"),
+                Err(error) => error,
+            };
+            assert!(!error.contains("bearer secret"), "{encoded}: {error}");
+            assert!(!error.contains("lease.one-two"), "{encoded}: {error}");
+        }
     }
 }
