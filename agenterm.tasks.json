@@ -947,6 +947,25 @@
         "task.cu-linux-window-move-smoke"
       ]
     },
+    "cu-linux-window-opacity-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-window-opacity-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-window-opacity-smoke"
+      ]
+    },
     "cu-linux-hide-show-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5345,6 +5364,26 @@
       "id": "cu-linux-window-move-smoke",
       "description": "Prove Linux movewin --expect XxY on a disposable GTK fixture with independent windows inventory origin read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-window-move-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-window-opacity-smoke",
+      "description": "Prove Linux window-opacity --opacity/--expect on a disposable GTK fixture window: independent xprop _NET_WM_WINDOW_OPACITY and windows inventory opacity must match --expect after set; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-window-opacity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

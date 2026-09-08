@@ -287,6 +287,7 @@ const evidence_suites = {
   "cu-linux-minimize-expect-smoke": true,
   "cu-linux-hide-show-smoke": true,
   "cu-linux-maximize-expect-smoke": true,
+  "cu-linux-window-opacity-smoke": true,
   "cu-linux-fullscreen-expect-smoke": true,
   "cu-linux-topmost-expect-smoke": true,
   "cu-linux-window-close-smoke": true,

@@ -302,6 +302,13 @@
       ]
     },
     {
+      "id": "cu-linux-window-opacity-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-window-opacity"
+      ]
+    },
+    {
       "id": "cu-linux-fullscreen-expect-smoke",
       "platform": "linux",
       "evidence": [

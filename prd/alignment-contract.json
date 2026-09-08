@@ -141,6 +141,7 @@
         "cu.linux-fullscreen-expect-state",
         "cu.linux-app-hide-show-state",
         "cu.linux-maximize-expect-state",
+        "cu.linux-window-opacity",
         "cu.linux-topmost-expect-state",
         "cu.linux-desktop-state",
         "cu.linux-close-expect-gone",
