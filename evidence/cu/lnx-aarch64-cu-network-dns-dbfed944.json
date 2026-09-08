@@ -1,9 +1,0 @@
-{
-  "bundle_sha256": "635ff8ca850fbd28ccf1bc799d3f038b29ccfeb67f26bfadf8b91a315a80a718",
-  "completed_at": "2026-09-05T20:25:14.487905+00:00",
-  "court": "lnx-aarch64-desktop",
-  "evidence": "cu.network-dns",
-  "exit_code": 0,
-  "schema": 1,
-  "source_sha": "dbfed944c3f38c0fdd50e1e3ce1981a4cfea3a3c"
-}

@@ -1152,18 +1152,20 @@ costs a full candidate cycle:
   D-Bus or AT-SPI connectivity. The product runner supplies the complete
   journey fixture and exact current PASS line. Exact source `7c489577` then
   passed the X11 Linux x86_64 court with all 32 declared evidence lines,
-  matching guest/host exit zero and a stopped VM after release; the compact
-  receipt is [`evidence/cu/lnx-x86_64-cu-linux-smoke-7c489577.json`](../evidence/cu/lnx-x86_64-cu-linux-smoke-7c489577.json).
+  matching guest/host exit zero and a stopped VM after release. The compact
+  runtime receipt is local and gitignored; this exact source/court verdict is
+  the durable product record.
   Linux arm64 GNOME/Wayland remains a separate parity verdict and may not
   borrow this X11 result.
-- [x] A successful local court can persist a compact, redacted schema-2 receipt
-  under `evidence/` instead of leaving the only proof under ignored `target/`.
+- [x] A successful local court can retain a compact, redacted schema-2 receipt
+  under the gitignored `evidence/cu/` runtime area.
   It binds source and bundle hashes, manifest/transcript hashes, the exact PASS
   line, every emitted evidence id, guest/host exits and the interactive-session
   nonce/uid/connectivity proof; it does not copy screenshots, payloads, host
-  paths or transcript contents into Git. Persistence is explicit through
-  `AGENTERM_UTM_PERSIST_RECEIPT=evidence/<name>.json`, so ordinary development
-  runs do not dirty the repository.
+  paths or transcript contents into Git. Stable Git history stores the task,
+  gate, exact source SHA, court and verdict in machine contracts plus PRD; it
+  never stores per-run receipt JSON. Local retention is explicit through
+  `AGENTERM_UTM_PERSIST_RECEIPT=evidence/cu/<name>.json`.
 - [x] A court runner must apply its cell-specific transport-ready budget to
   lease-time authorization cleanup as well as the later explicit readiness
   probe. A cold native ARM guest took about 115 seconds to expose QGA, so the
@@ -1190,12 +1192,10 @@ costs a full candidate cycle:
   absent, ends that exact task before recovery, starts one fresh mutex-owned
   worker, proves a new nonce, and keeps it alive for the court. Exact source
   `91d55b69` subsequently passed the full 24-token Windows ARM64 journey and
-  released the VM; the compact receipt is
-  [`evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json`](../evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json).
+  released the VM; its compact runtime receipt remains local and gitignored.
 - [~] The full Linux x86_64 managed-job journey is green at exact source
   `d9252a07`, including containment resources, session/lock cleanup and audit
-  retention; its compact receipt is
-  [`evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json`](../evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json).
+  retention; its compact runtime receipt remains local and gitignored.
   The same Windows ARM64 run reached product code and refused because its
   Scheduled Task parent Job denies breakaway. `utm-court` must provide a login
   user bridge outside that Task Job before Windows managed-job evidence can be

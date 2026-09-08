@@ -1168,7 +1168,7 @@
             }
           },
           "evidence": ["cu.network-interfaces"],
-          "note": "The shared platform facade uses getifaddrs plus ifindex on Unix and GetAdaptersAddresses plus adapter LUID on Windows. It returns stable-sorted address rows under a 10000-record scan ceiling and 1 MiB response ceiling; max is validated as 1..5000 before enumeration. Missing MAC/netmask/CIDR fields remain explicit unavailable fields. Exact source 100ee73b passed the public Linux arm64 Wayland UTM court; exact source fcbfed9a passed the same contract in Windows arm64 after a nonce-bound, non-Job-contained interactive session was proven. Both persisted receipts bind byte manifests, logs and cleanup. The MCU compatibility entry routes interfaces, routes and probes; per-service DNS and global sockets remain honest separate gaps."
+          "note": "The shared platform facade uses getifaddrs plus ifindex on Unix and GetAdaptersAddresses plus adapter LUID on Windows. It returns stable-sorted address rows under a 10000-record scan ceiling and 1 MiB response ceiling; max is validated as 1..5000 before enumeration. Missing MAC/netmask/CIDR fields remain explicit unavailable fields. Exact source 100ee73b passed the public Linux arm64 Wayland UTM court; exact source fcbfed9a passed the same contract in Windows arm64 after a nonce-bound, non-Job-contained interactive session was proven. Compact runtime receipts bind byte manifests, logs and cleanup locally and are gitignored. The MCU compatibility entry routes interfaces, routes and probes; per-service DNS and global sockets remain honest separate gaps."
         },
         {
           "id": "network.routes",
@@ -1230,7 +1230,7 @@
           },
           "evidence": ["cu.network-dns"],
           "next": "repair the Windows x86_64 interactive agent nonce court, then execute the unchanged public DNS journey before promoting this leaf to native",
-          "note": "macOS uses scoped scutil state; Windows uses GetAdaptersAddresses; Linux detects a systemd-resolved stub and names stub-only coverage when its upstream file is unavailable. macOS, Linux arm64/x86_64 and Windows arm64 have exact-source public qjswasm evidence; compact receipts for the three UTM cells are persisted under evidence/cu. Windows x86_64 has no product verdict because its UTM interactive agent failed to claim a nonce at both 180s and 360s. The Windows platform remains pending rather than borrowing the ARM64 result. No provider contacts a resolver or fabricates completeness."
+          "note": "macOS uses scoped scutil state; Windows uses GetAdaptersAddresses; Linux detects a systemd-resolved stub and names stub-only coverage when its upstream file is unavailable. macOS, Linux arm64/x86_64 and Windows arm64 have exact-source public qjswasm evidence; compact UTM runtime receipts are local and gitignored. Windows x86_64 has no product verdict because its UTM interactive agent failed to claim a nonce at both 180s and 360s. The Windows platform remains pending rather than borrowing the ARM64 result. No provider contacts a resolver or fabricates completeness."
         },
         {
           "id": "network.dns.services",
@@ -1384,7 +1384,7 @@
           },
           "evidence": ["cu.device-screenshot-inventory"],
           "next": "run one non-sensitive public-CLI PNG capture court from the fixed installed app identity, then qualify the macOS cell",
-          "note": "ACU exceeds MCU here. The public inventory court proves the bounded host Camera/usbmux/source projection on macOS, permits a truthful zero-device result, and proves exact typed non-applicability on Linux/Windows; it does not claim that a PNG frame was captured. The Linux arm64 Wayland court passed the exact refusal contract at source 1a7cf00a with a persisted schema-2 receipt. Camera TCC, usbmux pairing and DAL publication remain independent evidence; an empty capture inventory never implies device lock or trust failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
+          "note": "ACU exceeds MCU here. The public inventory court proves the bounded host Camera/usbmux/source projection on macOS, permits a truthful zero-device result, and proves exact typed non-applicability on Linux/Windows; it does not claim that a PNG frame was captured. The Linux arm64 Wayland court passed the exact refusal contract at source 1a7cf00a; its compact runtime receipt is local and gitignored. Camera TCC, usbmux pairing and DAL publication remain independent evidence; an empty capture inventory never implies device lock or trust failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
         },
         {
           "id": "audio.default-output.observe",
@@ -1392,9 +1392,32 @@
           "acu_shape": "agenterm-cu audio status",
           "state": "platform-limited",
           "platforms": {"macos": "native-coreaudio-public-qjswasm-plan-court", "linux": "typed-unsupported", "windows": "typed-unsupported"},
-          "qualification": "macos-status-and-plan-public-qjswasm-green-linux-windows-typed-refusal-real-audible-mutation-court-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "not-applicable",
+                "gate": "cu-audio-smoke",
+                "evidence": ["cu.audio-plan"],
+                "error_code": "audio_unsupported",
+                "rationale": "No Linux default-output backend is shipped; the public court must refuse without mutation."
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-audio-smoke",
+                "evidence": ["cu.audio-plan"]
+              },
+              "windows": {
+                "result": "not-applicable",
+                "gate": "cu-audio-smoke",
+                "evidence": ["cu.audio-plan"],
+                "error_code": "audio_unsupported",
+                "rationale": "No Windows default-output backend is shipped; the public court must refuse without mutation."
+              }
+            }
+          },
           "evidence": ["cu.audio-plan"],
-          "note": "The public court observes the exact default-output device and settings without mutation. macOS uses the native CoreAudio adapter; Linux and Windows return audio_unsupported instead of claiming a backend.",
+          "note": "The public court observes the exact default-output device and settings without mutation. macOS uses the native CoreAudio adapter. Exact source 345696c2 passed the unchanged public court on native Linux arm64 and Windows arm64 with audio_unsupported and no durable effect; both VMs were released and their compact runtime receipts remain local and gitignored.",
           "next": "retain the platform-limited state until the separate explicit audible mutation court proves apply and guarded rollback on macOS"
         },
         {

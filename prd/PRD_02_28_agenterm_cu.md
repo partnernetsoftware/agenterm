@@ -62,8 +62,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   process, file, network and terminal behavior through the 24-token public
   `cu-windows-smoke`. Exact source `91d55b69` passed all 24 identities on the
   native Windows ARM64 UTM court, with interactive nonce, exact bundle/log/
-  manifest hashes, guest/host exit zero and owned cleanup recorded in
-  [`evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json`](../evidence/cu/win-aarch64-cu-windows-smoke-91d55b69.json).
+  manifest hashes, guest/host exit zero and owned cleanup. The runtime receipt
+  is local and gitignored; the exact source/court verdict is retained here.
 - [~] Linux current-target process, terminal and AT-SPI desktop behavior runs
   through the public qjswasm journey. Its 32 evidence identities are registered
   in the host-native gate; exact source `7c489577` passed all 32 on a real
@@ -78,8 +78,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   replay-safe spawn, private list/status, containment resources, lease renewal,
   dual cursors, wait/stop, session-owned job and lock cleanup, idempotent
   session end, expiry sweep and bounded audit retention. Exact source
-  `d9252a07` emitted all three declared identities and is retained in
-  [`evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json`](../evidence/cu/lnx-x86_64-cu-managed-job-d9252a07.json).
+  `d9252a07` emitted all three declared identities; its compact runtime receipt
+  is local and gitignored.
   The Windows court launcher has since moved from the Scheduled Task shape to
   a WTS/CreateProcessAsUser session process with Job breakaway, and its
   no-console PowerShell runner fixture is green. The exact-source ARM64 rerun
@@ -2088,12 +2088,10 @@ flowchart LR
   qjswasm journey `cu.network-interfaces` is green and both Windows ISAs
   compile under strict Clippy. Exact source `100ee73b` also passed its bounded
   schema and alias contract on the Linux arm64 Wayland UTM court, then released
-  the VM; the compact receipt is
-  [`evidence/cu/lnx-aarch64-cu-network-interfaces-100ee73b.json`](../evidence/cu/lnx-aarch64-cu-network-interfaces-100ee73b.json).
+  the VM; its compact runtime receipt is local and gitignored.
   Exact source `fcbfed9a` then passed the unchanged journey on the Windows
   arm64 UTM court after proving a nonce-bound interactive process outside the
-  launcher Job; its receipt is
-  [`evidence/cu/win-aarch64-cu-network-interfaces-fcbfed9a.json`](../evidence/cu/win-aarch64-cu-network-interfaces-fcbfed9a.json).
+  launcher Job; its compact runtime receipt is local and gitignored.
   With both Windows ISAs compiling and native runtime evidence on each OS,
   `network.interfaces` is now `native`. `network-routes` adds the matching shell-free route
   inventory through Linux NETLINK_ROUTE, macOS PF_ROUTE/NET_RT_DUMP2 and
@@ -2102,11 +2100,10 @@ flowchart LR
   interrupted or malformed kernel snapshots. Native scanning is capped at
   10,000 records and the public response at 1 MiB. The public macOS qjswasm
   `network-routes` journey is green; exact source `884c1809` also passed on the
-  Linux arm64 Wayland UTM court and released the VM. Its compact receipt is
-  [`evidence/cu/lnx-aarch64-cu-network-routes-884c1809.json`](../evidence/cu/lnx-aarch64-cu-network-routes-884c1809.json).
+  Linux arm64 Wayland UTM court and released the VM. Its compact runtime
+  receipt is local and gitignored.
   Exact source `e8ce266f` then passed the same public contract in the Windows
-  arm64 UTM court; its compact receipt is
-  [`evidence/cu/win-aarch64-cu-network-routes-e8ce266f.json`](../evidence/cu/win-aarch64-cu-network-routes-e8ce266f.json).
+  arm64 UTM court; its compact runtime receipt is local and gitignored.
   Both Windows ISAs compile, so `network.routes` is now `native`.
   The reusable UTM caller now resolves the task entry from
   `agenterm.tasks.json` and the complete required evidence set from
@@ -2129,14 +2126,10 @@ flowchart LR
   journey `cu.network-dns` is green and all six targets compile. The same
   journey ran from exact source `dbfed944` in native Linux arm64 and emulated
   x86_64 UTM courts with byte-manifest verification and typed exit receipts.
-  Those compact receipts are persisted as
-  [`evidence/cu/lnx-aarch64-cu-network-dns-dbfed944.json`](../evidence/cu/lnx-aarch64-cu-network-dns-dbfed944.json)
-  and
-  [`evidence/cu/lnx-x86_64-cu-network-dns-dbfed944.json`](../evidence/cu/lnx-x86_64-cu-network-dns-dbfed944.json).
+  Their compact runtime receipts are local and gitignored.
   Windows arm64 also passed at exact source `c6295175` after the court
   normalized PowerShell UTF-16LE/CRLF evidence into canonical UTF-8/LF; its
-  receipt is
-  [`evidence/cu/win-aarch64-cu-network-dns-c6295175.json`](../evidence/cu/win-aarch64-cu-network-dns-c6295175.json).
+  compact runtime receipt is local and gitignored.
   The schema-2 verdict still leaves Windows pending: its x86_64 interactive
   agent failed to claim a nonce at both 180 and 360 seconds, so the ARM64
   result cannot be borrowed as a platform-wide qualification. That is a
@@ -2225,12 +2218,15 @@ flowchart LR
   CoreAudio adapter; Linux and Windows fail with typed `audio_unsupported`.
   The registered `cu.audio-plan` qjswasm court proves exact-device status,
   expiring approval-bound plan/reverse-plan shape and unchanged before/after
-  state; it intentionally performs no mutation. Apply reserves durably before
+  state; it intentionally performs no mutation. Exact source `345696c2` passed
+  the same public court on native Linux arm64 and Windows arm64, proving typed
+  `audio_unsupported` without durable effect before both VMs were released.
+  Their compact runtime receipts are local and gitignored. Apply reserves durably before
   effect, is at-most-once on replay, revalidates the same output device, reads
   back the result and permits rollback only against that device and expected
   state. A separate explicit audible apply/readback/rollback court remains
-  pending, so both ledger leaves stay `platform-limited` rather than fully
-  qualified.
+  pending, so the mutation leaf stays incompletely qualified and both leaves
+  remain truthfully `platform-limited` at product level.
 - [~] `device-list` / `device list` now owns the bounded native peripheral
   inventory leaf for USB, Bluetooth, audio, camera and GPU. It is not a raw
   system-profiler dump: native serials, addresses, provider instance ids and
@@ -2358,8 +2354,8 @@ flowchart LR
   closes the inventory evidence alert but does not claim PNG capture.
   Exact source `1a7cf00a` subsequently passed that public refusal contract in
   the native Linux arm64 Wayland court after exact-byte transfer and
-  interactive-session nonce proof; the compact receipt is
-  [`evidence/cu/lnx-aarch64-device-screenshot-inventory-1a7cf00a.json`](../evidence/cu/lnx-aarch64-device-screenshot-inventory-1a7cf00a.json).
+  interactive-session nonce proof; its compact runtime receipt is local and
+  gitignored.
   Accessibility is independent from pure DAL
   capture. The shared contract, macOS AVFoundation/CoreMediaIO adapter and
   public verb are now connected: observation never requests TCC consent; native

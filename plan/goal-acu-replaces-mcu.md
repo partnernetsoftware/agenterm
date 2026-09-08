@@ -788,7 +788,7 @@ Q3 owned runtime facades
    ├─ [x] network-interfaces: native ifindex/LUID + bounded stable snapshot
    │  ├─ [x] macOS public qjswasm schema/count/identity court `cu.network-interfaces`
    │  ├─ [x] Windows x86_64 + arm64 compile/Clippy
-   │  └─ [x] Linux arm64 Wayland + Windows arm64 public UTM runtime courts with persisted receipts
+   │  └─ [x] Linux arm64 Wayland + Windows arm64 public UTM runtime courts; local receipts gitignored
    ├─ [~] desktop-state: screenshot-free bounded inventory + tree + pointer aggregate
    │  ├─ [x] macOS public qjswasm journey `cu.desktop-state`
    │  └─ [ ] Linux + Windows native desktop courts
@@ -799,7 +799,7 @@ Q3 owned runtime facades
    │  ├─ [x] ifindex/LUID identity + deterministic public ordering
    │  ├─ [x] interrupted/malformed snapshot fails typed; no shell
    │  ├─ [x] macOS public qjswasm journey `cu.network-routes`
-   │  └─ [x] Linux arm64 Wayland + Windows arm64 public UTM runtime courts with persisted receipts
+   │  └─ [x] Linux arm64 Wayland + Windows arm64 public UTM runtime courts; local receipts gitignored
    ├─ [~] network-dns: effective resolver/search-domain inventory
    │  ├─ [x] macOS scoped system-effective provider + public qjswasm journey `cu.network-dns`
    │  ├─ [x] Linux systemd-resolved stub detection; stub-only is explicitly incomplete
@@ -808,7 +808,7 @@ Q3 owned runtime facades
    │  └─ [ ] Windows x86_64 runtime: interactive agent failed nonce at 180s and 360s; no product verdict
    ├─ [~] default-output audio: exact observation + approval-bound transaction
    │  ├─ [x] macOS CoreAudio status and mutation-free plan public qjswasm journey `cu.audio-plan`
-   │  ├─ [x] Linux/Windows return typed unsupported without durable effect state
+   │  ├─ [x] exact source `345696c2`: Linux arm64 + Windows arm64 native courts prove typed unsupported with no effect
    │  ├─ [x] apply reserves before effect, revalidates exact device, reads back and guards rollback
    │  └─ [ ] explicit macOS audible apply/readback/rollback court; remains platform-limited
    ├─ [~] file-inspect: no-follow final entry + bounded metadata + stable identity
@@ -904,7 +904,7 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
 decision while remaining a successful bounded audit: the integrated tree's 139
-ledger capabilities include zero `gap` and 64 `platform-limited` rows. The compatibility
+ledger capabilities include zero `gap` and 62 `platform-limited` rows. The compatibility
 adapter has zero static `STAY` spellings and its argument-sensitive corpus is
 complete and no longer requires MCU at runtime, but the report still truthfully
 blocks physical source retirement while registered-evidence and
@@ -915,8 +915,8 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
-The latest report reduces the total to 70: zero capability gaps, 14 available
-leaves without registered evidence and 56
+The latest report reduces the total to 69: zero capability gaps, 14 available
+leaves without registered evidence and 55
 incomplete schema-2 platform qualifications. In particular,
 `process.signal.privileged` already has a public typed plan/apply surface and
 Linux/macOS protected-provider implementations; its missing public apply courts,
