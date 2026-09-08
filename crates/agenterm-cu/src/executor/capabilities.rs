@@ -533,15 +533,29 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "group": "input-local",
             },
             "receipts": { "status": "available" },
-            // `hide` / `show` need an application-level hidden state, which
-            // only macOS has; `quit` needs the application's own Quit menu
-            // item, so it rides the menu verb's own status.
+            // `hide` / `show` step every top-level window of the application
+            // aside and back; macOS uses application-level hidden state, Linux
+            // iconifies every owned window and reads the inventory back.
+            // `quit` needs the application's own Quit menu item, so it rides
+            // the menu verb's own status.
             "app": {
-                "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "status": if cfg!(any(target_os = "macos", target_os = "linux")) {
+                    "available"
+                } else {
+                    "unsupported"
+                },
                 "group": "app",
                 "actions": {
-                    "hide": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
-                    "show": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                    "hide": if cfg!(any(target_os = "macos", target_os = "linux")) {
+                        "available"
+                    } else {
+                        "unsupported"
+                    },
+                    "show": if cfg!(any(target_os = "macos", target_os = "linux")) {
+                        "available"
+                    } else {
+                        "unsupported"
+                    },
                     "quit": if cfg!(target_os = "macos") { "available" } else { "mapped" },
                     "launch": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
                 },

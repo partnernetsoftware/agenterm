@@ -775,6 +775,24 @@
         "task.cu-linux-a11y-status-smoke"
       ]
     },
+    "cu-linux-ime-status-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-ime-status-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-ime-status-smoke"
+      ]
+    },
     "cu-linux-minimize-expect-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -794,7 +812,7 @@
         "task.cu-linux-minimize-expect-smoke"
       ]
     },
-    "cu-linux-maximize-expect-smoke": {
+    "cu-linux-minimize-expect-smoke": {
       "inputs": [
         "built-agenterm-cu",
         "built-libagenterm",
@@ -3974,6 +3992,24 @@
       "args": [
         ".",
         "target/abi-dev/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-ime-status-smoke",
+      "description": "Prove Linux ime-status observe returns ok JSON with independent ibus/fcitx read-back or typed unsupported with session-bus and framework probe facts; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-ime-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [
