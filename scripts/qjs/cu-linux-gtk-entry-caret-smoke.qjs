@@ -11,6 +11,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-gtk-entry-set-caret",
   "cu.linux-gtk-entry-get-caret",
+  "cu.linux-gtk-entry-set-caret-end",
+  "cu.linux-gtk-entry-get-caret-end",
 ];
 
 function ensure(condition, message) {
@@ -124,7 +126,8 @@ try {
   );
 
   const seed = "ceo9-caret-" + context.run_id;
-  const caret_offset = 3;
+  const caret_offset = 7;
+  const end_offset = seed.length;
   print("STEP send-text --name plants SEED through AT-SPI EditableText/Text");
   const sent = run_cu(run_directory, executable, "observe,actuate", [
     "send-text", "--window", handle, "--name", "Fixture Entry", "--", seed,
@@ -135,21 +138,13 @@ try {
     "cu_linux_gtk_entry_caret_send:" + JSON.stringify(sent.data)
   );
 
-  print("STEP independent get-caret before set-caret is not the target offset");
+  print("STEP independent get-caret baseline before set-caret (not proof of placement)");
   const before = run_cu(run_directory, executable, "observe", [
     "get-caret", "--window", handle, "--name", "Fixture Entry",
   ]);
   ensure(
     text_at(before, "data.via") === "get-caret-offset",
     "cu_linux_gtk_entry_caret_before_via:" + JSON.stringify(before.data)
-  );
-  const before_offset = int_at(before, "data.offset");
-  ensure(
-    before_offset !== caret_offset,
-    "cu_linux_gtk_entry_caret_before_not_target:" + JSON.stringify({
-      before: before_offset,
-      target: caret_offset,
-    })
   );
 
   print("STEP set-caret --name --offset N moves caret through AT-SPI Text.SetCaretOffset");
@@ -178,6 +173,30 @@ try {
     })
   );
   harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-get-caret");
+
+  print("STEP set-caret --name --offset end-of-SEED then independent get-caret read-back");
+  const placed_end = run_cu(run_directory, executable, "observe,actuate", [
+    "set-caret", "--window", handle, "--name", "Fixture Entry",
+    "--offset", "" + end_offset,
+  ]);
+  ensure(
+    text_at(placed_end, "data.via") === "set-caret-offset"
+      && int_at(placed_end, "data.offset") === end_offset,
+    "cu_linux_gtk_entry_caret_set_end:" + JSON.stringify(placed_end.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-set-caret-end");
+  const caret_end = run_cu(run_directory, executable, "observe", [
+    "get-caret", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  ensure(
+    text_at(caret_end, "data.via") === "get-caret-offset"
+      && int_at(caret_end, "data.offset") === end_offset,
+    "cu_linux_gtk_entry_caret_readback_end:" + JSON.stringify({
+      target: end_offset,
+      caret: caret_end.data,
+    })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-get-caret-end");
 
   succeeded = 1;
 } catch (error) {

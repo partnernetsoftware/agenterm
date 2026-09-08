@@ -51,7 +51,8 @@ for row in rows:
 [[ -n "$HANDLE" ]] || { echo "FAIL: window handle missing for $TITLE" >&2; exit 1; }
 
 SEED="ceo9-caret-$$-$(date +%s)"
-CARET_OFFSET=3
+CARET_OFFSET=7
+END_OFFSET="${#SEED}"
 
 echo "STEP focus --name Fixture Entry"
 "$CU" --target current --grant observe,actuate focus --window "$HANDLE" --name "Fixture Entry" >/dev/null
@@ -62,15 +63,13 @@ echo "STEP send-text --name plants SEED"
 SENT="$("$CU" --target current --grant observe,actuate send-text --window "$HANDLE" --name "Fixture Entry" -- "$SEED")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["typed"]==sys.argv[1] and d["data"]["addressing"]=="accessibility-tree"' "$SEED" <<<"$SENT"
 
-echo "STEP independent get-caret before set-caret is not the target offset"
+echo "STEP independent get-caret baseline before set-caret (not proof of placement)"
 BEFORE="$("$CU" --target current --grant observe get-caret --window "$HANDLE" --name "Fixture Entry")"
 python3 -c '
 import json, sys
-target = int(sys.argv[1])
 d = json.load(sys.stdin)
 assert d["ok"] and d["data"]["via"] == "get-caret-offset"
-assert d["data"]["offset"] != target
-' "$CARET_OFFSET" <<<"$BEFORE"
+' <<<"$BEFORE"
 
 echo "STEP set-caret --name --offset N"
 PLACED="$("$CU" --target current --grant observe,actuate set-caret --window "$HANDLE" --name "Fixture Entry" --offset "$CARET_OFFSET")"
@@ -96,5 +95,29 @@ data = d["data"]
 assert data["via"] == "get-caret-offset"
 assert data["offset"] == target
 ' "$CARET_OFFSET" <<<"$CARET"
+
+echo "STEP set-caret --name --offset end-of-SEED"
+PLACED_END="$("$CU" --target current --grant observe,actuate set-caret --window "$HANDLE" --name "Fixture Entry" --offset "$END_OFFSET")"
+python3 -c '
+import json, sys
+target = int(sys.argv[1])
+d = json.load(sys.stdin)
+assert d["ok"]
+data = d["data"]
+assert data["via"] == "set-caret-offset"
+assert data["offset"] == target
+' "$END_OFFSET" <<<"$PLACED_END"
+
+echo "STEP independent get-caret --name returns end offset"
+CARET_END="$("$CU" --target current --grant observe get-caret --window "$HANDLE" --name "Fixture Entry")"
+python3 -c '
+import json, sys
+target = int(sys.argv[1])
+d = json.load(sys.stdin)
+assert d["ok"]
+data = d["data"]
+assert data["via"] == "get-caret-offset"
+assert data["offset"] == target
+' "$END_OFFSET" <<<"$CARET_END"
 
 echo "PASS: CEO#9 GTK entry set-caret / get-caret roundtrip by --name (independent offset read-back)"
