@@ -1,0 +1,63 @@
+{
+  "name": "agenterm_acu_shell_exec",
+  "title": "Run one bounded host command",
+  "description": "Execute one contained current-host shell command with a caller-owned idempotency key. The connection owns a private agenterm-cu session; cancellation never claims to undo an already dispatched effect.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "idempotency_key": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9._:-]+$"
+      },
+      "command": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 131072,
+        "description": "UTF-8 command bytes; NUL is refused."
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 120000
+      },
+      "max_output_bytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16777216
+      }
+    },
+    "required": ["idempotency_key", "command", "timeout_ms", "max_output_bytes"]
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" },
+      "target": { "type": "string" },
+      "command": { "type": "string" },
+      "data": {},
+      "error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "count": { "type": "integer", "minimum": 0 },
+          "detail": {}
+        },
+        "required": ["code", "message"]
+      }
+    },
+    "required": ["ok", "target", "command"]
+  },
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true
+  }
+}

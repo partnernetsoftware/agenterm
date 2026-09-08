@@ -23,6 +23,10 @@ pub const MCP_CAPABILITIES_TOOL_JSON: &str = include_str!("../contract/mcp-capab
 /// is narrowed by [`mcp_exposure`] before dispatch.
 pub const MCP_OBSERVE_TOOL_JSON: &str = include_str!("../contract/mcp-observe-tool.json");
 
+/// MCP descriptor for the first bounded mutation. The MCP transport keeps it
+/// unadvertised until its connection-owned session and shutdown court pass.
+pub const MCP_SHELL_EXEC_TOOL_JSON: &str = include_str!("../contract/mcp-shell-exec-tool.json");
+
 /// MCP-facing effect classification.
 ///
 /// This match is deliberately exhaustive and has no wildcard. Adding a
@@ -716,6 +720,23 @@ mod tests {
         assert_eq!(
             observe["inputSchema"]["properties"]["command"]["properties"]["target"]["enum"],
             serde_json::json!(["current", "ssh", "vnc", "rdp"])
+        );
+
+        let shell_exec: serde_json::Value =
+            serde_json::from_str(MCP_SHELL_EXEC_TOOL_JSON).expect("MCP shell-exec descriptor JSON");
+        assert_eq!(shell_exec["name"], "agenterm_acu_shell_exec");
+        assert_eq!(shell_exec["annotations"]["readOnlyHint"], false);
+        assert_eq!(shell_exec["annotations"]["destructiveHint"], true);
+        assert_eq!(shell_exec["annotations"]["idempotentHint"], true);
+        assert_eq!(shell_exec["inputSchema"]["additionalProperties"], false);
+        assert_eq!(
+            shell_exec["inputSchema"]["required"],
+            serde_json::json!([
+                "idempotency_key",
+                "command",
+                "timeout_ms",
+                "max_output_bytes"
+            ])
         );
     }
 
