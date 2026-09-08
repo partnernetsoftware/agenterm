@@ -5,6 +5,8 @@
 //! focused text writers consult. Profiles (`browser profiles` / `browser
 //! open`) live in `profiles.rs`.
 
+use std::collections::BTreeMap;
+
 use super::*;
 
 /// Resolve one Chromium debugging endpoint without scanning or guessing.
@@ -13,6 +15,10 @@ use super::*;
 /// command-line read and that command line explicitly carries one valid
 /// `--remote-debugging-port`. The command line itself is credential-bearing
 /// mechanism data and must never enter the returned error detail or receipt.
+///
+/// On Linux, when neither `port` nor `pid` is set, the first live Chromium
+/// window in the inventory whose command line carries
+/// `--remote-debugging-port` is used (same discovery as `browser-tabs`).
 pub(super) fn resolve_cdp_port(port: Option<u16>, pid: Option<u32>) -> Result<u16, CuError> {
     if port.is_some() && pid.is_some() {
         return Err(invalid_input(
@@ -20,7 +26,17 @@ pub(super) fn resolve_cdp_port(port: Option<u16>, pid: Option<u32>) -> Result<u1
         ));
     }
     let Some(pid) = pid else {
-        return Ok(port.unwrap_or(crate::cdp::DEFAULT_PORT));
+        if let Some(port) = port {
+            return Ok(port);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            return resolve_cdp_port_discovered_linux();
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            return Ok(crate::cdp::DEFAULT_PORT);
+        }
     };
     if pid == 0 {
         return Err(invalid_input("CDP process pid must be non-zero".into()));
@@ -65,6 +81,86 @@ pub(super) fn resolve_cdp_port(port: Option<u16>, pid: Option<u32>) -> Result<u1
         )
         .with_detail(serde_json::json!({ "pid": pid }))
     })
+}
+
+/// Every live Chromium inventory PID that publishes an explicit
+/// `--remote-debugging-port`, deduped by port (first PID wins).
+#[cfg(target_os = "linux")]
+pub(super) fn discover_linux_cdp_ports() -> Result<Vec<(u32, u16)>, CuError> {
+    let windows =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let mut ports = BTreeMap::<u16, u32>::new();
+    for window in windows {
+        if !observe::looks_like_browser_app(&window.app_name) {
+            continue;
+        }
+        let pid = window.process_id;
+        if pid == 0 {
+            continue;
+        }
+        match resolve_cdp_port(None, Some(pid)) {
+            Ok(port) => {
+                ports.entry(port).or_insert(pid);
+            }
+            Err(error)
+                if matches!(
+                    error.code.as_str(),
+                    "cdp_debug_port_not_found" | "cdp_process_unavailable"
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(ports
+        .into_iter()
+        .map(|(port, pid)| (pid, port))
+        .collect())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn discover_linux_cdp_ports() -> Result<Vec<(u32, u16)>, CuError> {
+    Ok(Vec::new())
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_cdp_port_discovered_linux() -> Result<u16, CuError> {
+    let ports = discover_linux_cdp_ports()?;
+    match ports.as_slice() {
+        [] => Err(linux_cdp_port_not_discovered()),
+        [(_, port)] => Ok(*port),
+        many => Err(CuError::new(
+            "cdp_port_ambiguous",
+            "more than one live Chromium instance publishes a remote debugging port; pass --port or --pid",
+        )
+        .with_count(many.len())
+        .with_detail(serde_json::json!({
+            "os": "linux",
+            "instances": many
+                .iter()
+                .map(|(pid, port)| serde_json::json!({ "pid": pid, "port": port }))
+                .collect::<Vec<_>>(),
+        }))),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_cdp_port_not_discovered() -> CuError {
+    CuError::new(
+        "unsupported",
+        "page-targets needs a Chromium process whose command line carries --remote-debugging-port",
+    )
+    .with_detail(serde_json::json!({
+        "os": "linux",
+        "backend": crate::cdp::backend(),
+        "next_actions": [
+            format!(
+                "relaunch Chrome with --remote-debugging-port={} bound to 127.0.0.1 (scripts/box-chrome-a11y.sh forwards extra args)",
+                crate::cdp::DEFAULT_PORT
+            ),
+            "page-targets --port N reads the CDP /json inventory when a listener is already answering",
+            "browser bridge setup; then load the ACU extension for profile-wide tabs without a debug port",
+        ],
+        "alternatives": ["browser-bridge-setup", "browser-bridge-connections", "browser-tabs"],
+    }))
 }
 
 fn debug_port_from_command_line(command_line: &str) -> Option<u16> {
@@ -2745,5 +2841,20 @@ mod tests {
         });
         assert!(!reply.ok);
         assert_eq!(reply.error.as_ref().unwrap().code, "invalid_input");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_cdp_port_not_discovered_carries_enablement_steps() {
+        let error = linux_cdp_port_not_discovered();
+        assert_eq!(error.code, "unsupported");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["os"], "linux");
+        assert!(detail["next_actions"]
+            .as_array()
+            .is_some_and(|steps| steps.len() >= 2));
+        assert!(detail["alternatives"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|value| value == "browser-tabs")));
     }
 }

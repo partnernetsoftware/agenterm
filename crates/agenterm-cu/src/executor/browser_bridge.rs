@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     thread,
     time::{Duration, Instant},
 };
@@ -211,7 +211,7 @@ fn browser_tabs_via_cdp_linux(
     focus_before: Option<isize>,
     deadline: Instant,
 ) -> Result<Value, CuError> {
-    let ports = discover_linux_cdp_ports()?;
+    let ports = super::browser::discover_linux_cdp_ports()?;
     let (pid, port) = match ports.as_slice() {
         [] => return Err(browser_tabs_inventory_unsupported()),
         [(pid, port)] => (*pid, *port),
@@ -278,37 +278,6 @@ fn browser_tabs_via_cdp_linux(
     _deadline: Instant,
 ) -> Result<Value, CuError> {
     unreachable!("browser_tabs_via_cdp_linux is only called on Linux")
-}
-
-#[cfg(target_os = "linux")]
-fn discover_linux_cdp_ports() -> Result<Vec<(u32, u16)>, CuError> {
-    let windows =
-        crate::mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
-    let mut ports = BTreeMap::<u16, u32>::new();
-    for window in windows {
-        if !crate::observe::looks_like_browser_app(&window.app_name) {
-            continue;
-        }
-        let pid = window.process_id;
-        if pid == 0 {
-            continue;
-        }
-        match super::browser::resolve_cdp_port(None, Some(pid)) {
-            Ok(port) => {
-                ports.entry(port).or_insert(pid);
-            }
-            Err(error)
-                if matches!(
-                    error.code.as_str(),
-                    "cdp_debug_port_not_found" | "cdp_process_unavailable"
-                ) => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(ports
-        .into_iter()
-        .map(|(port, pid)| (pid, port))
-        .collect())
 }
 
 fn browser_tabs_inventory_unsupported() -> CuError {
