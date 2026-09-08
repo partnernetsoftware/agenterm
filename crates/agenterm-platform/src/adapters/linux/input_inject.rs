@@ -1,6 +1,7 @@
 //! Linux X11 input injection through the XTest extension.
 
 use std::env;
+use std::time::Duration;
 
 use x11rb::{
     CURRENT_TIME,
@@ -292,10 +293,12 @@ pub(crate) fn pointer_click(
     let y = i16::try_from(position.y)
         .map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
     let detail = button_detail(button);
-    for _ in 0..clicks.max(1) {
+    let repeats = clicks.max(1);
+    for index in 0..repeats {
         xtest_input(&context, MOTION_NOTIFY_EVENT, 0, x, y)?;
         xtest_input(&context, BUTTON_PRESS_EVENT, detail, 0, 0)?;
         xtest_input(&context, BUTTON_RELEASE_EVENT, detail, 0, 0)?;
+        if index + 1 < repeats { std::thread::sleep(Duration::from_millis(40)); }
     }
     Ok(())
 }

@@ -66,13 +66,12 @@ pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
         cpu_time: Duration::from_secs(ticks / clock_hz).saturating_add(Duration::from_nanos(
             (ticks % clock_hz).saturating_mul(1_000_000_000) / clock_hz,
         )),
-    let resident_bytes = resident_pages.checked_mul(page_size).ok_or_else(|| {
-        error(
-            ProcessMetricsErrorKind::Overflow,
-            "resident page count multiplied by page size overflowed u64",
-        )
-    })?;
-
+        resident_bytes: resident_pages.checked_mul(page_size).ok_or_else(|| {
+            error(
+                ProcessMetricsErrorKind::Overflow,
+                "resident page count multiplied by page size overflowed u64",
+            )
+        })?,
         page_faults: checked_page_faults(total_faults, Some(minor_faults), Some(major_faults))?,
     })
 }

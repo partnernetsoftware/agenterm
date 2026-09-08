@@ -52,6 +52,7 @@ const declared_evidence = [
   "cu.linux-atspi-menu-inspect",
   "cu.linux-atspi-menu-invoke",
   "cu.linux-atspi-node-text",
+  "cu.linux-atspi-dclick",
   "cu.linux-atspi-focus",
   "cu.linux-atspi-observe",
   "cu.linux-atspi-screenshot",
@@ -1280,6 +1281,29 @@ try {
   print("STEP the node text and geometry verbs write and read the entry through AT-SPI: send-text, select / get-selection, set-caret / get-caret, get-extents");
   run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "send-text",
+    "--window", handle_text, "--name", "Fixture Entry", "--", "seed"
+  ]);
+  ensure(node_text(run_directory, executable, handle_text, "Fixture Entry") === "seed", "cu_linux_smoke_send_text_seed");
+  print("STEP named dclick on the GTK entry selects one word through AT-SPI multi-click, verified by get-selection");
+  const dclicked = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "dclick",
+    "--window", handle_text, "--name", "Fixture Entry"
+  ]);
+  ensure(flag_at(dclicked, "data.performed") && int_at(dclicked, "data.clicks") === 2, "cu_linux_smoke_dclick:" + JSON.stringify(dclicked.data));
+  const dclick_selection = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-selection",
+    "--window", handle_text, "--name", "Fixture Entry"
+  ]);
+  ensure(int_at(dclick_selection, "data.start") === 0 && int_at(dclick_selection, "data.end") === 4, "cu_linux_smoke_dclick_selection:" + JSON.stringify(dclick_selection.data));
+  const before_dclick_press = label_text(run_directory, executable, handle_text, "pressed ");
+  const click_twice = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "click",
+    "--window", handle_text, "--name", "Fixture Press", "--count", "2"
+  ]);
+  ensure(flag_at(click_twice, "data.performed") && int_at(click_twice, "data.clicks") === 2, "cu_linux_smoke_click_count:" + JSON.stringify(click_twice.data));
+  ensure(label_text(run_directory, executable, handle_text, "pressed ") === "pressed " + (rh.parse_int(before_dclick_press.replace("pressed ", "")) + 2), "cu_linux_smoke_click_count_effect");
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-text",
     "--window", handle_text, "--name", "Fixture Entry", "--", "linuxtyped"
   ]);
   ensure(
@@ -1702,6 +1726,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-node-text");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-dclick");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-focus");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-screenshot");

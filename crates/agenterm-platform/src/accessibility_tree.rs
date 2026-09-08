@@ -42,6 +42,15 @@ pub fn perform_node_action(
     crate::selected::accessibility_tree::perform_node_action(window_handle, node_id, action)
 }
 
+pub fn click_node(
+    window_handle: Option<isize>,
+    node_id: &str,
+    button: u8,
+    clicks: u32,
+) -> Result<(), AccessibilityTreeError> {
+    crate::selected::accessibility_tree::click_node(window_handle, node_id, button, clicks)
+}
+
 /// Walk the menu bar of the application owning `window_handle` under
 /// `budget` (macOS: `AXMenuBar` → `AXMenuBarItem` → `AXMenu` → `AXMenuItem`)
 /// without opening a menu on screen or activating the application. Node

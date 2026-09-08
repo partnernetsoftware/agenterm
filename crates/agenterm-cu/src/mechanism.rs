@@ -1649,6 +1649,23 @@ pub fn perform_node_action(
     Ok(())
 }
 
+pub fn click_node(
+    window: Option<isize>, node_id: &str, button: input_inject::PointerButton, clicks: u32,
+) -> Result<(), MechanismError> {
+    let handle = window.unwrap_or(0);
+    let node_c = CStringOrStack::new(node_id)?;
+    let button_id = match button {
+        input_inject::PointerButton::Left => dynlib::AGT_INPUT_BUTTON_LEFT,
+        input_inject::PointerButton::Right => dynlib::AGT_INPUT_BUTTON_RIGHT,
+        input_inject::PointerButton::Middle => dynlib::AGT_INPUT_BUTTON_MIDDLE,
+    };
+    write_ledger::note();
+    let f = call_sym::<NodeClick>(b"agt_a11y_node_click")?;
+    let status = unsafe { f(handle, node_c.as_ptr(), button_id, clicks) };
+    map_status("agt_a11y_node_click", status)?;
+    Ok(())
+}
+
 pub fn set_node_text(
     window: Option<isize>,
     node_id: &str,
@@ -2565,6 +2582,7 @@ type MetaString = unsafe extern "C" fn(i32, *mut u8, usize, *mut usize) -> i32;
 type TreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type NodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
+type NodeClick = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, u32) -> i32;
 type NodePerform = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32) -> i32;
 type NodeInvoke =
     unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, *const u8, usize) -> i32;

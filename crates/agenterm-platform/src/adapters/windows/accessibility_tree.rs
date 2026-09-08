@@ -604,6 +604,16 @@ pub(crate) fn perform_node_action(
     }
 }
 
+pub(crate) fn click_node(
+    window_handle: Option<isize>, node_id: &str, _button: u8, clicks: u32,
+) -> Result<(), AccessibilityTreeError> {
+    if clicks == 0 || clicks > 3 {
+        return Err(AccessibilityTreeError::failed("invalid_input", format!("click count must be 1..=3, got {clicks}")));
+    }
+    for _ in 0..clicks { perform_node_action(window_handle, node_id, AccessibilityNodeAction::Click)?; }
+    Ok(())
+}
+
 pub(crate) fn set_node_text(
     window_handle: Option<isize>,
     node_id: &str,

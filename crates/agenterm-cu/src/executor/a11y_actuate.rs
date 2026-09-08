@@ -63,15 +63,13 @@ pub(super) fn click_command(
             }),
         )?;
         let mut mechanism_error = None;
-        for _ in 0..clicks.max(1) {
-            if let Err(error) = mechanism::perform_node_action(
-                window,
-                &resolved.node_id,
-                mechanism::NodeAction::Click,
-            ) {
-                mechanism_error = Some(map_mechanism_err(error));
-                break;
-            }
+        let inject_button = match button {
+            PointerButton::Left => mechanism::input_inject::PointerButton::Left,
+            PointerButton::Right => mechanism::input_inject::PointerButton::Right,
+            PointerButton::Middle => mechanism::input_inject::PointerButton::Middle,
+        };
+        if let Err(error) = mechanism::click_node(window, &resolved.node_id, inject_button, clicks.max(1)) {
+            mechanism_error = Some(map_mechanism_err(error));
         }
         let after = window
             .map(|handle| mechanism::tree_for_window(Some(handle)).map_err(map_mechanism_err))
@@ -106,6 +104,15 @@ pub(super) fn click_command(
             payload["next_actions"] = serde_json::json!([
                 "AX did not flip checked; Chromium custom switch is not a native checkbox",
                 "re-query then retry, or mcu browser/CDP click on the DOM control",
+            ]);
+        } else if !verified
+            && button != PointerButton::Left
+            && crate::mcu_surface::host_os() == "linux"
+        {
+            payload["next_actions"] = serde_json::json!([
+                "invoke --name PAT show-menu when the node publishes that Action",
+                "menu-invoke for Gtk menu-bar paths that are already in the tree",
+                "AT-SPI GenerateMouseEvent delivered the secondary press; toolkit popup menus may stay off-tree",
             ]);
         }
         payload["before"] = before_node.unwrap_or(serde_json::Value::Null);

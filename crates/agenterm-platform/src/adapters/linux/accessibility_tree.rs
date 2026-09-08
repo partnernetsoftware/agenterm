@@ -1128,6 +1128,34 @@ pub(crate) fn perform_node_action(
     })
 }
 
+/// Named-node click with AT-SPI multi-click semantics. `clicks` is `1..=3`.
+pub(crate) fn click_node(
+    window_handle: Option<isize>,
+    node_id: &str,
+    button: u8,
+    clicks: u32,
+) -> Result<(), AccessibilityTreeError> {
+    if clicks == 0 || clicks > 3 {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("click count must be 1..=3, got {clicks}"),
+        ));
+    }
+    runtime().block_on(async {
+        timeout(
+            SNAPSHOT_TIMEOUT,
+            click_node_async(window_handle, node_id, button, clicks),
+        )
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_action_timeout",
+                "AT-SPI node click exceeded its deadline",
+            )
+        })?
+    })
+}
+
 /// Write through AT-SPI `EditableText` when present, otherwise AT-SPI `Text`
 /// plus the toolkit's accessibility set-value (Chrome: renderer AX `kSetValue`;
 /// WebKitGTK/Reasonix: AT-SPI `id` attribute + eval helper, because WebKit
@@ -3645,13 +3673,13 @@ async fn invoke_structured_click(
 ) -> Result<(), AccessibilityTreeError> {
     let has_action = node_exposes_action(proxy).await;
     let result = match click_route(has_action, &[]) {
-        ClickRoute::Component => invoke_component_click(proxy).await,
+        ClickRoute::Component => invoke_component_click(proxy, 0, 1).await,
         ClickRoute::Action { .. } => match invoke_action_click(proxy).await {
             Ok(()) => Ok(()),
             Err(action_err)
                 if has_action != Some(true) && is_missing_action_interface(&action_err) =>
             {
-                invoke_component_click(proxy).await
+                invoke_component_click(proxy, 0, 1).await
             }
             Err(action_err) => Err(action_err),
         },
@@ -3682,7 +3710,91 @@ async fn invoke_action_click(proxy: &AccessibleProxy<'_>) -> Result<(), Accessib
         })?
 }
 
-async fn invoke_component_click(proxy: &AccessibleProxy<'_>) -> Result<(), AccessibilityTreeError> {
+/// AT-SPI button index: 1 = primary (left), 2 = middle, 3 = secondary (right).
+fn atspi_button_index(button: u8) -> Result<u8, AccessibilityTreeError> {
+    match button {
+        0 => Ok(1),
+        1 => Ok(3),
+        2 => Ok(2),
+        other => Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("button must be 0 (left)..=2 (middle), got {other}"),
+        )),
+    }
+}
+
+fn atspi_mouse_events(button: u8, clicks: u32) -> Result<Vec<&'static str>, AccessibilityTreeError> {
+    let b = atspi_button_index(button)?;
+    Ok(match clicks {
+        1 if b == 3 => vec![format_mouse_event(b, 'p'), format_mouse_event(b, 'r')],
+        1 => vec![format_mouse_event(b, 'c')],
+        2 => vec![format_mouse_event(b, 'd')],
+        3 => vec![
+            format_mouse_event(b, 'c'),
+            format_mouse_event(b, 'c'),
+            format_mouse_event(b, 'c'),
+        ],
+        other => {
+            return Err(AccessibilityTreeError::failed(
+                "invalid_input",
+                format!("click count must be 1..=3, got {other}"),
+            ));
+        }
+    })
+}
+
+fn format_mouse_event(button: u8, kind: char) -> &'static str {
+    match (button, kind) {
+        (1, 'c') => "b1c",
+        (1, 'd') => "b1d",
+        (1, 'p') => "b1p",
+        (1, 'r') => "b1r",
+        (2, 'c') => "b2c",
+        (2, 'd') => "b2d",
+        (2, 'p') => "b2p",
+        (2, 'r') => "b2r",
+        (3, 'c') => "b3c",
+        (3, 'd') => "b3d",
+        (3, 'p') => "b3p",
+        (3, 'r') => "b3r",
+        _ => "b1c",
+    }
+}
+
+const MULTI_CLICK_GAP: Duration = Duration::from_millis(40);
+
+async fn click_node_async(
+    window_handle: Option<isize>,
+    node_id: &str,
+    button: u8,
+    clicks: u32,
+) -> Result<(), AccessibilityTreeError> {
+    let indices = parse_node_path(node_id)?;
+    let conn = connect().await?;
+    let identity = window_handle.and_then(window_identity);
+    let roots = registry_children(&conn).await?;
+    let selected = select_roots(&conn, roots, identity.as_ref()).await?;
+    if selected.is_empty() {
+        return activate_window_node(window_handle, node_id);
+    }
+    let object = resolve_path(&conn, &selected, &indices).await?;
+    let proxy = open_bus_object(&conn, &object).await?;
+    if clicks == 1 && button == 0 {
+        invoke_structured_click(window_handle, &proxy).await
+    } else {
+        let result = invoke_component_click(&proxy, button, clicks).await;
+        if result.is_ok() {
+            remember_app_focus_hint(window_handle, &proxy);
+        }
+        result
+    }
+}
+
+async fn invoke_component_click(
+    proxy: &AccessibleProxy<'_>,
+    button: u8,
+    clicks: u32,
+) -> Result<(), AccessibilityTreeError> {
     let component = component_proxy_for(proxy).await?;
     let (x, y, width, height) = timeout(NODE_TIMEOUT, component.get_extents(CoordType::Screen))
         .await
@@ -3704,15 +3816,22 @@ async fn invoke_component_click(proxy: &AccessibleProxy<'_>) -> Result<(), Acces
         .build()
         .await
         .map_err(map_atspi_err)?;
-    timeout(NODE_TIMEOUT, dec.generate_mouse_event(cx, cy, "b1c"))
-        .await
-        .map_err(|_| {
-            AccessibilityTreeError::failed(
-                "a11y_action_timeout",
-                "AT-SPI GenerateMouseEvent exceeded its deadline",
-            )
-        })?
-        .map_err(map_atspi_err)
+    let events = atspi_mouse_events(button, clicks)?;
+    for (index, event) in events.iter().enumerate() {
+        if index > 0 {
+            tokio::time::sleep(MULTI_CLICK_GAP).await;
+        }
+        timeout(NODE_TIMEOUT, dec.generate_mouse_event(cx, cy, event))
+            .await
+            .map_err(|_| {
+                AccessibilityTreeError::failed(
+                    "a11y_action_timeout",
+                    "AT-SPI GenerateMouseEvent exceeded its deadline",
+                )
+            })?
+            .map_err(map_atspi_err)?;
+    }
+    Ok(())
 }
 
 async fn action_proxy_for<'a>(
