@@ -367,6 +367,24 @@
       ]
     },
     {
+      "id": "cu-linux-gtk-entry-paste-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-gtk-entry-clipboard-write",
+        "cu.linux-gtk-entry-paste",
+        "cu.linux-gtk-entry-paste-get-text"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-entry-send-keys-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-gtk-entry-send-keys-ctrl-home",
+        "cu.linux-gtk-entry-send-keys-ctrl-end",
+        "cu.linux-gtk-entry-send-keys-select-delete"
+      ]
+    },
+    {
       "id": "cu-linux-desktop-state-smoke",
       "platform": "linux",
       "evidence": [
