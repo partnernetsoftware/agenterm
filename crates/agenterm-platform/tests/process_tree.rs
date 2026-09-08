@@ -65,6 +65,75 @@ fn owned_tree_terminates_descendants_that_create_new_process_groups() {
     std::fs::remove_file(marker).expect("remove process-tree marker");
 }
 
+#[test]
+fn owned_tree_preserves_descendants_that_own_independent_sessions() {
+    let marker = std::env::var_os(MARKER);
+    match std::env::var(MODE).ok().as_deref() {
+        Some("detached-grandchild") => {
+            std::fs::write(
+                Path::new(&marker.expect("detached grandchild marker path")),
+                std::process::id().to_string(),
+            )
+            .expect("publish detached grandchild PID");
+            std::thread::sleep(Duration::from_secs(30));
+            return;
+        }
+        Some("detached-child") => {
+            let mut command = test_command_for(
+                "owned_tree_preserves_descendants_that_own_independent_sessions",
+                "detached-grandchild",
+                marker.as_deref(),
+            );
+            process::configure_detached_command(&mut command)
+                .expect("configure detached grandchild");
+            let mut grandchild = command.spawn().expect("spawn detached grandchild");
+            let _ = grandchild.wait();
+            return;
+        }
+        Some(other) => panic!("unknown process-tree helper mode: {other}"),
+        None => {}
+    }
+
+    let marker = std::env::temp_dir().join(format!(
+        "agenterm-platform-detached-process-tree-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&marker);
+    let mut command = test_command_for(
+        "owned_tree_preserves_descendants_that_own_independent_sessions",
+        "detached-child",
+        Some(marker.as_os_str()),
+    );
+    process::configure_owned_command(&mut command).expect("configure owned child group");
+    let mut child = command.spawn().expect("spawn owned child");
+    let mut guard = GuardCleanup(Some(
+        ProcessTreeGuard::attach(&child).expect("attach process-tree guard"),
+    ));
+
+    let detached_id = wait_for_marker(&marker, &mut child);
+    let detached_identity =
+        process::start_identity(detached_id).expect("capture detached child start identity");
+    guard
+        .0
+        .as_mut()
+        .expect("active guard")
+        .terminate()
+        .expect("terminate owned tree around detached child");
+    wait_for_child_exit(&mut child);
+    assert!(
+        matches!(
+            process::observe(detached_id),
+            ProcessObservation::Live {
+                start_identity: Some(ref current),
+            } if current == &detached_identity
+        ),
+        "detached session owner did not survive owned-tree termination"
+    );
+    terminate_original(detached_id, &detached_identity);
+    guard.0.take();
+    std::fs::remove_file(marker).expect("remove detached process-tree marker");
+}
+
 struct GuardCleanup(Option<ProcessTreeGuard>);
 
 impl Drop for GuardCleanup {
@@ -76,17 +145,35 @@ impl Drop for GuardCleanup {
 }
 
 fn test_command(mode: &str, marker: Option<&std::ffi::OsStr>) -> Command {
+    test_command_for(
+        "owned_tree_terminates_descendants_that_create_new_process_groups",
+        mode,
+        marker,
+    )
+}
+
+fn test_command_for(test_name: &str, mode: &str, marker: Option<&std::ffi::OsStr>) -> Command {
     let mut command = Command::new(std::env::current_exe().expect("integration test executable"));
-    command
-        .args([
-            "--exact",
-            "owned_tree_terminates_descendants_that_create_new_process_groups",
-        ])
-        .env(MODE, mode);
+    command.args(["--exact", test_name]).env(MODE, mode);
     if let Some(marker) = marker {
         command.env(MARKER, marker);
     }
     command
+}
+
+fn terminate_original(id: u32, identity: &str) {
+    assert!(
+        matches!(
+            process::observe(id),
+            ProcessObservation::Live {
+                start_identity: Some(ref current),
+            } if current == identity
+        ),
+        "refusing to terminate a reused detached process ID"
+    );
+    let native_id = libc::pid_t::try_from(id).expect("detached PID fits pid_t");
+    assert_eq!(unsafe { libc::kill(native_id, libc::SIGKILL) }, 0);
+    wait_for_original_exit(id, identity);
 }
 
 fn wait_for_marker(marker: &Path, child: &mut Child) -> u32 {

@@ -4493,6 +4493,19 @@ waits for that suspended object. Unix establishes the process group in
 `pre_exec`, before `exec` transfers control to the requested program. Keep
 arguments as `OsString`/wide units so containment does not cost path fidelity.
 
+Containment discovery and detached ownership are different contracts. A Unix
+PPID walk may rediscover descendants that changed process groups, but a child
+created through the detached-spawn facade has crossed an explicit `setsid`
+boundary and must outlive the caller's owned tree. During timeout cleanup,
+compare each rediscovered descendant's session with the owned root session:
+terminate same-session descendants, preserve different-session descendants,
+and fail closed to ordinary cleanup when either session identity cannot be
+read. Checking only whether a process is itself the session leader is
+insufficient because that would spare the detached owner but still kill its
+children. Keep a black-box test in both directions: a new-process-group child
+is cleaned up, while a detached-session child survives until its explicit
+owner stops it.
+
 Captured child output adds a second ownership contract. Drain stdout and stderr
 concurrently under one aggregate byte ceiling; a serial drain can deadlock when
 the other bounded pipe fills. On Windows, opt into `STARTF_USESTDHANDLES` and an
