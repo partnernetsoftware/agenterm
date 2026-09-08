@@ -17,7 +17,8 @@ use x11rb::{
 
 use crate::CapabilityStatus;
 use crate::contract::input_inject::{
-    InputInjectError, PointerButton, PointerPosition, validate_pointer_scroll,
+    InputInjectError, MAX_POINTER_DRAG_STEPS, PointerButton, PointerPosition,
+    validate_pointer_scroll,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -305,18 +306,57 @@ pub(crate) fn pointer_click(
     Ok(())
 }
 
-/// Not wired: XTest can post the motion and button events a drag needs,
-/// but the sequence has never been built or measured here, and a drag that
-/// half works is worse than one that says so.
+fn drag_points(from: PointerPosition, to: PointerPosition, steps: u32) -> Vec<(i32, i32)> {
+    let steps = i64::from(steps.max(1));
+    let mut out = Vec::with_capacity(steps as usize);
+    for i in 1..=steps {
+        if i == steps {
+            out.push((to.x, to.y));
+            continue;
+        }
+        let lerp = |a: i32, b: i32| -> i32 {
+            let (a, b) = (i64::from(a), i64::from(b));
+            (a + (b - a) * i / steps) as i32
+        };
+        out.push((lerp(from.x, to.x), lerp(from.y, to.y)));
+    }
+    out
+}
+
 pub(crate) fn pointer_drag(
-    _from: PointerPosition,
-    _to: PointerPosition,
-    _button: PointerButton,
-    _steps: u32,
+    from: PointerPosition,
+    to: PointerPosition,
+    button: PointerButton,
+    steps: u32,
 ) -> Result<(), InputInjectError> {
-    Err(InputInjectError::Unsupported {
-        reason: "pointer drag is not wired on Linux yet".into(),
-    })
+    if steps == 0 || steps > MAX_POINTER_DRAG_STEPS {
+        return Err(InputInjectError::Failed {
+            code: "invalid_input".into(),
+            message: format!("steps must be 1..={MAX_POINTER_DRAG_STEPS}, got {steps}"),
+        });
+    }
+    let context = connect()?;
+    let detail = button_detail(button);
+    let from_x = i16::try_from(from.x)
+        .map_err(|_| failed("pointer x coordinate is outside the X11 range"))?;
+    let from_y = i16::try_from(from.y)
+        .map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
+    let to_x = i16::try_from(to.x)
+        .map_err(|_| failed("pointer x coordinate is outside the X11 range"))?;
+    let to_y = i16::try_from(to.y)
+        .map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
+    xtest_input(&context, MOTION_NOTIFY_EVENT, 0, from_x, from_y)?;
+    xtest_input(&context, BUTTON_PRESS_EVENT, detail, 0, 0)?;
+    for (x, y) in drag_points(from, to, steps) {
+        let x = i16::try_from(x)
+            .map_err(|_| failed("pointer x coordinate is outside the X11 range"))?;
+        let y = i16::try_from(y)
+            .map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
+        xtest_input(&context, MOTION_NOTIFY_EVENT, 0, x, y)?;
+    }
+    xtest_input(&context, MOTION_NOTIFY_EVENT, 0, to_x, to_y)?;
+    xtest_input(&context, BUTTON_RELEASE_EVENT, detail, 0, 0)?;
+    Ok(())
 }
 
 pub(crate) fn type_text(text: &str) -> Result<(), InputInjectError> {

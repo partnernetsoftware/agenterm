@@ -246,17 +246,40 @@ fn drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let Some(window) = flag_window(args)? else {
         return Err("drag requires --window <handle>".into());
     };
-    // `flag_text` (not the lenient `flag_value` the older verbs use)
-    // consumes the value with its flag, so a stray positional is a usage
-    // error here instead of a silently ignored argument.
-    let Some(from) = flag_text(args, "--from")? else {
-        return Err("drag requires --from X,Y (screen coordinates inside the window)".into());
+    let from_name = flag_text(args, "--from-name")?;
+    let from_role = flag_text(args, "--from-role")?;
+    let to_name = flag_text(args, "--to-name")?;
+    let to_role = flag_text(args, "--to-role")?;
+    let from_coords = flag_text(args, "--from")?;
+    let to_coords = flag_text(args, "--to")?;
+    let named = from_name.is_some() || to_name.is_some();
+    let coord = from_coords.is_some() || to_coords.is_some();
+    if named && coord {
+        return Err(
+            "drag accepts --from-name/--to-name or --from/--to coordinates, not both".into(),
+        );
+    }
+    let (from, to, from_name, to_name) = if named {
+        let from_name = from_name.filter(|value| !value.is_empty()).ok_or_else(|| {
+            "drag --from-name PAT --to-name PAT requires both names".to_owned()
+        })?;
+        let to_name = to_name.filter(|value| !value.is_empty()).ok_or_else(|| {
+            "drag --from-name PAT --to-name PAT requires both names".to_owned()
+        })?;
+        ([0, 0], [0, 0], Some(from_name), Some(to_name))
+    } else {
+        let Some(from_raw) = from_coords else {
+            return Err(
+                "drag requires --from-name PAT --to-name PAT or --from X,Y --to X,Y".into(),
+            );
+        };
+        let from = parse_point("--from", &from_raw)?;
+        let Some(to_raw) = to_coords else {
+            return Err("drag requires --to X,Y (screen coordinates)".into());
+        };
+        let to = parse_point("--to", &to_raw)?;
+        (from, to, None, None)
     };
-    let from = parse_point("--from", &from)?;
-    let Some(to) = flag_text(args, "--to")? else {
-        return Err("drag requires --to X,Y (screen coordinates)".into());
-    };
-    let to = parse_point("--to", &to)?;
     let button = match flag_text(args, "--button")?.as_deref() {
         Some("left") | None => PointerButton::Left,
         Some("right") => PointerButton::Right,
@@ -271,7 +294,7 @@ fn drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let degraded = take_switch(args, "--degraded");
     if !args.is_empty() {
         return Err(format!(
-            "drag accepts only --window H --from X,Y --to X,Y [--button B] [--steps N] [--degraded]; unexpected {:?}",
+            "drag accepts --window H (--from-name PAT --to-name PAT [--from-role ROLE] [--to-role ROLE] | --from X,Y --to X,Y) [--button B] [--steps N] [--degraded]; unexpected {:?}",
             args[0]
         ));
     }
@@ -280,6 +303,10 @@ fn drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         window,
         from,
         to,
+        from_name,
+        from_role,
+        to_name,
+        to_role,
         button,
         steps,
         degraded,

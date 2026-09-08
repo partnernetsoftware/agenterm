@@ -2143,19 +2143,38 @@ impl Executor {
                 window,
                 from,
                 to,
+                from_name,
+                from_role,
+                to_name,
+                to_role,
                 button,
                 steps,
                 degraded,
                 ..
-            } => drag_payload(
-                *window,
-                *from,
-                *to,
-                *button,
-                *steps,
-                *degraded,
-                &mut self.open_receipts(command.target())?,
-            ),
+            } => {
+                if from_name.is_some() || to_name.is_some() {
+                    drag_by_name(
+                        *window,
+                        from_name.as_deref(),
+                        from_role.as_deref(),
+                        to_name.as_deref(),
+                        to_role.as_deref(),
+                        *button,
+                        *steps,
+                        &mut self.open_receipts(command.target())?,
+                    )
+                } else {
+                    drag_payload(
+                        *window,
+                        *from,
+                        *to,
+                        *button,
+                        *steps,
+                        *degraded,
+                        &mut self.open_receipts(command.target())?,
+                    )
+                }
+            },
             Command::Hit {
                 window,
                 x,

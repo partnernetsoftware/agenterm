@@ -1965,11 +1965,51 @@ mod surface_tests {
                 button,
                 steps,
                 degraded,
+                from_name,
+                to_name,
                 ..
             } => {
                 assert_eq!(button, agenterm_cu::PointerButton::Left);
                 assert_eq!(steps, None);
                 assert!(!degraded, "--degraded is never implied");
+                assert!(from_name.is_none() && to_name.is_none());
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&[
+            "drag",
+            "--window",
+            "42",
+            "--from-name",
+            "Fixture Press",
+            "--to-name",
+            "Fixture Entry",
+            "--from-role",
+            "push button",
+            "--steps",
+            "8",
+        ])
+        .expect("named drag")
+        {
+            Command::Drag {
+                window,
+                from,
+                to,
+                from_name,
+                to_name,
+                from_role,
+                steps,
+                degraded,
+                ..
+            } => {
+                assert_eq!(window, 42);
+                assert_eq!(from, [0, 0]);
+                assert_eq!(to, [0, 0]);
+                assert_eq!(from_name.as_deref(), Some("Fixture Press"));
+                assert_eq!(to_name.as_deref(), Some("Fixture Entry"));
+                assert_eq!(from_role.as_deref(), Some("push button"));
+                assert_eq!(steps, Some(8));
+                assert!(!degraded);
             }
             other => panic!("{other:?}"),
         }

@@ -1,6 +1,7 @@
 //! Node-addressed actuation and readback: `click`, `focus`, `scroll`,
-//! `get-extents`, `select` / `get-selection`, `set-caret` / `get-caret`,
-//! `get-text`, and the shared `--node` / `--name` / focused-node resolver.
+//! `get-extents`, `drag` (named extents), `select` / `get-selection`,
+//! `set-caret` / `get-caret`, `get-text`, and the shared `--node` / `--name`
+//! / focused-node resolver.
 
 use super::*;
 
@@ -336,6 +337,145 @@ pub(super) fn get_extents(
     attach_name_match(&mut payload, &resolved);
     Ok(payload)
 }
+
+fn extents_center(bounds: &mechanism::A11yBounds) -> [i32; 2] {
+    [
+        bounds.x + bounds.width / 2,
+        bounds.y + bounds.height / 2,
+    ]
+}
+
+/// `drag --from-name` / `--to-name`: resolve both nodes, read independent
+/// AT-SPI `Component.GetExtents(Screen)` centers, then deliver one bounded
+/// XTest press / moves / release between them. No `--coords`, no
+/// `--degraded`, and no snapshot-diff verification — pointer readback only.
+pub(super) fn drag_by_name(
+    window: isize,
+    from_name: Option<&str>,
+    from_role: Option<&str>,
+    to_name: Option<&str>,
+    to_role: Option<&str>,
+    button: PointerButton,
+    steps: Option<u32>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    if window == 0 {
+        return Err(invalid_input(
+            "drag requires --window <handle> (a non-zero handle from `windows`)".into(),
+        ));
+    }
+    let from_name = from_name.filter(|value| !value.is_empty()).ok_or_else(|| {
+        CuError::new(
+            "invalid_input",
+            "drag --from-name PAT --to-name PAT requires both names",
+        )
+    })?;
+    let to_name = to_name.filter(|value| !value.is_empty()).ok_or_else(|| {
+        CuError::new(
+            "invalid_input",
+            "drag --from-name PAT --to-name PAT requires both names",
+        )
+    })?;
+    let from_resolved =
+        resolve_actuation_node(Some(window), None, Some(from_name), from_role, "drag")?
+            .ok_or_else(|| {
+                CuError::new(
+                    "invalid_input",
+                    "drag --from-name PAT --to-name PAT requires both names",
+                )
+            })?;
+    let to_resolved =
+        resolve_actuation_node(Some(window), None, Some(to_name), to_role, "drag")?
+            .ok_or_else(|| {
+                CuError::new(
+                    "invalid_input",
+                    "drag --from-name PAT --to-name PAT requires both names",
+                )
+            })?;
+    let from_extents = mechanism::get_node_extents(Some(window), &from_resolved.node_id)
+        .map_err(map_mechanism_err)?;
+    let to_extents = mechanism::get_node_extents(Some(window), &to_resolved.node_id)
+        .map_err(map_mechanism_err)?;
+    let from = extents_center(&from_extents);
+    let to = extents_center(&to_extents);
+    let steps = super::pointer::validate_drag_steps(steps).map_err(invalid_input)?;
+    let pointer_before = mechanism::input_inject::pointer_position().ok();
+    let ticket = receipts.reserve(
+        "drag",
+        window,
+        serde_json::json!({
+            "action": "drag",
+            "path": "named-extents-pointer-drag",
+            "from_name": from_name,
+            "to_name": to_name,
+            "from": from,
+            "to": to,
+            "button": button,
+            "steps": steps,
+            "before": { "pointer": pointer_before.map(|(x, y)| [x, y]) },
+        }),
+    )?;
+    let inject_button = match button {
+        PointerButton::Left => mechanism::input_inject::PointerButton::Left,
+        PointerButton::Right => mechanism::input_inject::PointerButton::Right,
+        PointerButton::Middle => mechanism::input_inject::PointerButton::Middle,
+    };
+    let mechanism_error = mechanism::input_inject::pointer_drag(
+        (from[0], from[1]),
+        (to[0], to[1]),
+        inject_button,
+        steps,
+    )
+    .err()
+    .map(map_mechanism_err);
+    let pointer_after = mechanism::input_inject::pointer_position().ok();
+    let landed = pointer_after == Some((to[0], to[1]));
+    let verified = landed && mechanism_error.is_none();
+    let mut payload = serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "action": "drag",
+        "path": "named-extents-pointer-drag",
+        "window": window,
+        "from_name": from_name,
+        "to_name": to_name,
+        "from": from,
+        "to": to,
+        "from_extents": {
+            "x": from_extents.x,
+            "y": from_extents.y,
+            "width": from_extents.width,
+            "height": from_extents.height,
+        },
+        "to_extents": {
+            "x": to_extents.x,
+            "y": to_extents.y,
+            "width": to_extents.width,
+            "height": to_extents.height,
+        },
+        "button": button,
+        "steps": steps,
+        "performed": mechanism_error.is_none(),
+        "verified": verified,
+        "verification": {
+            "method": "pointer-position-readback",
+            "reason": if mechanism_error.is_some() {
+                Some("mechanism_failed")
+            } else if !landed {
+                Some("pointer_not_at_target")
+            } else {
+                None
+            },
+        },
+        "receipt": ticket.json(),
+    });
+    attach_name_match(&mut payload, &from_resolved);
+    if let Some(error) = mechanism_error {
+        return Err(error.with_detail(payload));
+    }
+    Ok(payload)
+}
+
 
 /// `select --name` is one-shot AT-SPI `Text.SetSelection`
 /// (`agt_a11y_node_set_selection`). Missing Text / `UnknownMethod`

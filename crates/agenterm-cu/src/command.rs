@@ -3887,6 +3887,14 @@ pub enum Command {
         window: isize,
         from: [i32; 2],
         to: [i32; 2],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_role: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to_role: Option<String>,
         #[serde(default)]
         button: PointerButton,
         /// Intermediate moves between press and release (1..=64).
