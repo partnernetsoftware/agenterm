@@ -463,10 +463,16 @@ pub(super) fn close_payload(
         .map_err(map_mechanism_err)
         .map_err(not_performed)?;
     let Some(row) = windows.iter().find(|item| item.handle == window) else {
-        return Err(not_performed(CuError::new(
-            "window_not_found",
-            format!("no top-level window with handle {window}"),
-        )));
+        return Err(not_performed(
+            CuError::new(
+                "window_not_found",
+                format!("no top-level window with handle {window}"),
+            )
+            .with_detail(serde_json::json!({
+                "reason": "target_absent",
+                "window": window,
+            })),
+        ));
     };
     if let Some(pid) = pid
         && row.process_id != pid
@@ -602,7 +608,16 @@ pub(super) fn close_payload(
         "receipt": ticket.json(),
     });
     if let Some(error) = mechanism_error.or(readback_error) {
-        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+        let mut detail = error.detail.clone().unwrap_or(serde_json::json!({}));
+        if let Some(object) = detail.as_object_mut() {
+            if let Some(reason) = reason {
+                object.insert("reason".into(), serde_json::json!(reason));
+            }
+            object.insert("receipt".into(), payload.clone());
+            object.insert("verification".into(), verification.clone());
+            object.insert("target".into(), identity.clone());
+        }
+        return Err(error.with_detail(detail));
     }
     if present {
         return Err(CuError::new(
@@ -612,7 +627,101 @@ pub(super) fn close_payload(
                 polls
             ),
         )
-        .with_detail(serde_json::json!({ "reason": "window_still_present", "receipt": payload })));
+        .with_detail(serde_json::json!({
+            "reason": "window_still_present",
+            "window": window,
+            "target": identity,
+            "verification": verification,
+            "receipt": payload,
+        })));
     }
     Ok(payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_close_gate_names_every_missing_part_and_performs_nothing() {
+        let executor = actuate_executor();
+        let reply = executor.execute(&Command::Close {
+            target: TargetRef::Current,
+            window: 0,
+            pid: None,
+            title: None,
+            snapshot: false,
+            expect: None,
+        });
+        assert!(!reply.ok);
+        assert_eq!(reply.command, "close");
+        let error = reply.error.as_ref().expect("typed refusal");
+        assert_eq!(error.code, "refused");
+        let detail = error.detail.as_ref().expect("gate detail");
+        assert_eq!(detail["reason"], "destructive_gate");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(
+            detail["missing"],
+            serde_json::json!(["target", "snapshot", "postcondition"])
+        );
+        let missing_snapshot = executor.execute(&Command::Close {
+            target: TargetRef::Current,
+            window: 4242,
+            pid: None,
+            title: None,
+            snapshot: false,
+            expect: Some("gone".into()),
+        });
+        assert_eq!(
+            missing_snapshot.error.as_ref().expect("typed").code,
+            "refused"
+        );
+        assert_eq!(
+            missing_snapshot
+                .error
+                .as_ref()
+                .unwrap()
+                .detail
+                .as_ref()
+                .unwrap()["missing"],
+            serde_json::json!(["snapshot"])
+        );
+        let bad_expect = executor.execute(&Command::Close {
+            target: TargetRef::Current,
+            window: 4242,
+            pid: None,
+            title: None,
+            snapshot: true,
+            expect: Some("minimized".into()),
+        });
+        assert_eq!(
+            bad_expect.error.as_ref().expect("typed").code,
+            "invalid_input"
+        );
+        let complete = executor.execute(&Command::Close {
+            target: TargetRef::Current,
+            window: 4242,
+            pid: None,
+            title: None,
+            snapshot: true,
+            expect: Some("gone".into()),
+        });
+        assert!(!complete.ok);
+        let code = complete.error.as_ref().expect("typed").code.clone();
+        assert_ne!(code, "refused");
+        assert_ne!(code, "usage");
+    }
+
+    #[test]
+    fn the_close_gate_is_pure_and_accepts_only_gone() {
+        assert!(destructive_gate(7, true, Some("gone")).is_ok());
+        for bad in [None, Some("minimized"), Some("restored")] {
+            assert!(
+                destructive_gate(7, true, bad).is_err(),
+                "{bad:?} must not satisfy close"
+            );
+        }
+        assert!(destructive_gate(0, true, Some("gone")).is_err());
+        assert!(destructive_gate(7, false, Some("gone")).is_err());
+    }
 }
