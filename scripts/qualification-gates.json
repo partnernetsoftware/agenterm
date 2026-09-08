@@ -547,12 +547,6 @@
       ]
     },
     {
-      "id": "cu-linux-window-move-smoke",
-      "evidence": [
-        "cu.linux-window-move-expect"
-      ]
-    },
-    {
       "id": "cu-linux-resize-expect-smoke",
       "evidence": [
         "cu.linux-resize-expect-geometry"
