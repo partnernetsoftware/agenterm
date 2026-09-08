@@ -25,7 +25,7 @@ pub(crate) fn availability() -> Result<HostMemoryAvailability, HostMemoryError> 
     )
 }
 
-pub(super) fn read_meminfo() -> Result<String, HostMemoryError> {
+pub(crate) fn read_meminfo() -> Result<String, HostMemoryError> {
     let file = std::fs::File::open("/proc/meminfo").map_err(|error| {
         HostMemoryError::new(
             HostMemoryErrorKind::Query,
@@ -55,7 +55,7 @@ pub(super) fn read_meminfo() -> Result<String, HostMemoryError> {
     })
 }
 
-pub(super) fn meminfo_kibibytes(meminfo: &str, key: &str) -> Result<u64, HostMemoryError> {
+pub(crate) fn meminfo_kibibytes(meminfo: &str, key: &str) -> Result<u64, HostMemoryError> {
     let line = meminfo
         .lines()
         .find(|line| line.starts_with(key))
