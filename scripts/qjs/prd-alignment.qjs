@@ -262,6 +262,7 @@ const evidence_suites = {
   "cu-linux-verify-expect-honesty-smoke": true,
   "cu-linux-browser-tabs-smoke": true,
   "cu-linux-browser-tab-select-smoke": true,
+  "cu-linux-tab-list-honesty-smoke": true,
   "cu-linux-tab-close-smoke": true,
   "cu-linux-window-move-smoke": true,
   "cu-linux-raise-activate-smoke": true,

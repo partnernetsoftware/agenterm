@@ -975,6 +975,12 @@
       ]
     },
     {
+      "id": "cu-linux-tab-list-honesty-smoke",
+      "evidence": [
+        "cu.linux-tab-list-readback"
+      ]
+    },
+    {
       "id": "cu-linux-tab-close-smoke",
       "evidence": [
         "cu.linux-browser-tab-close"

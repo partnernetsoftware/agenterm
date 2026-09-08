@@ -177,6 +177,7 @@
         "cu.linux-browser-open-window",
         "cu.linux-browser-tabs-inventory",
         "cu.linux-browser-tab-select",
+        "cu.linux-tab-list-readback",
         "cu.linux-browser-tab-close",
         "cu.linux-atspi-orderwin",
         "cu.linux-atspi-raise",

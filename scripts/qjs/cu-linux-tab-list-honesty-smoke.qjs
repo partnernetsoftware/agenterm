@@ -1,0 +1,491 @@
+// CEO: Linux tab-list honesty with independent pyatspi tab-strip walk read-back.
+// Acceptance is smoke read-back only: CU tab-list on box-chrome-a11y must agree
+// with a separate AT-SPI page-tab-list / page-tab (or Chromium application-frame)
+// walk for the same browser window. AT-SPI/--name only; no --coords or screenshot
+// degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-tab-list-readback",
+];
+
+const TAB_A_PREFIX = "CEO Tab List A";
+const TAB_B_PREFIX = "CEO Tab List B";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory) {
+  const env = {
+    HOME: run_directory,
+    XDG_CONFIG_HOME: rh.join(run_directory, ".config"),
+    XDG_DATA_HOME: rh.join(run_directory, ".data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_tab_list_honesty_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_tab_list_honesty_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_tab_list_honesty_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function tab_rows(reply) {
+  const rows = at(reply, "data.tabs");
+  return rows === undefined || rows === null ? [] : rows;
+}
+
+function independent_tab_strip_probe_script() {
+  return [
+    "import json, re, sys",
+    "import pyatspi",
+    "",
+    "pid = int(sys.argv[1])",
+    "",
+    "CHROMIUM_SUFFIXES = [",
+    "    ' - Google Chrome',",
+    "    ' - Chromium',",
+    "    ' - Brave',",
+    "    ' - Microsoft Edge',",
+    "]",
+    "TAB_STRIP_ROLES = [",
+    "    ('tabgroup', 'radiobutton'),",
+    "    ('pagetablist', 'pagetab'),",
+    "    ('tab', 'tabitem'),",
+    "]",
+    "ROLE_SELECTABLE = {'page tab'}",
+    "",
+    "def normalize_role(role):",
+    "    return re.sub(r'[^a-z0-9]', '', (role or '').lower())",
+    "",
+    "def normalize_tab_title(name):",
+    "    for suffix in CHROMIUM_SUFFIXES:",
+    "        if name.endswith(suffix):",
+    "            return name[:-len(suffix)]",
+    "    return name",
+    "",
+    "def node_role(obj):",
+    "    try:",
+    "        rn = obj.getRoleName()",
+    "        if rn and rn.strip():",
+    "            return rn",
+    "    except Exception:",
+    "        pass",
+    "    return pyatspi.role.getName(obj.getRole()).lower()",
+    "",
+    "def state_labels(obj, role):",
+    "    labels = []",
+    "    st = obj.getState()",
+    "    for attr in dir(pyatspi):",
+    "        if not attr.startswith('STATE_') or attr in ('STATE_LAST_DEFINED', 'STATE_VALUE_TO_NAME'):",
+    "            continue",
+    "        if st.contains(getattr(pyatspi, attr)):",
+    "            labels.append(attr[6:].lower())",
+    "    if (role in ROLE_SELECTABLE or normalize_role(role) == 'pagetab') and 'selected' not in labels and 'unselected' not in labels:",
+    "        labels.append('unselected')",
+    "    return labels",
+    "",
+    "def selected_tri(labels, role):",
+    "    if 'selected' in labels:",
+    "        return True",
+    "    if 'unselected' in labels:",
+    "        return False",
+    "    if 'active' in labels and normalize_role(role) == 'frame':",
+    "        return True",
+    "    return None",
+    "",
+    "def looks_like_browser_app(name):",
+    "    lowered = (name or '').lower()",
+    "    return any(token in lowered for token in ('chrome', 'chromium', 'brave', 'edge', 'firefox'))",
+    "",
+    "def find_app(pid):",
+    "    desktop = pyatspi.Registry.getDesktop(0)",
+    "    for index in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(index)",
+    "        if app is None:",
+    "            continue",
+    "        try:",
+    "            if app.get_process_id() == pid:",
+    "                return app",
+    "        except Exception:",
+    "            continue",
+    "    return None",
+    "",
+    "def walk_nodes(root):",
+    "    nodes = []",
+    "    queue = [(root, None)]",
+    "    while queue:",
+    "        obj, parent = queue.pop(0)",
+    "        role = node_role(obj)",
+    "        name = obj.name or ''",
+    "        labels = state_labels(obj, role)",
+    "        nodes.append({'obj': obj, 'parent': parent, 'role': role, 'name': name, 'labels': labels})",
+    "        try:",
+    "            child_count = obj.childCount",
+    "        except Exception:",
+    "            continue",
+    "        for child_index in range(child_count):",
+    "            child = obj.getChildAtIndex(child_index)",
+    "            if child is not None:",
+    "                queue.append((child, obj))",
+    "    return nodes",
+    "",
+    "def strip_entries_by_roles(nodes):",
+    "    entries = []",
+    "    for node in nodes:",
+    "        parent = node['parent']",
+    "        if parent is None:",
+    "            continue",
+    "        parent_role = normalize_role(node_role(parent))",
+    "        child_role = normalize_role(node['role'])",
+    "        for container, item in TAB_STRIP_ROLES:",
+    "            if parent_role == container and child_role == item:",
+    "                entries.append(node)",
+    "                break",
+    "    return entries",
+    "",
+    "def chromium_application_frame_entries(app):",
+    "    if not looks_like_browser_app(app.name or ''):",
+    "        return []",
+    "    entries = []",
+    "    for index in range(app.childCount):",
+    "        child = app.getChildAtIndex(index)",
+    "        if child is None:",
+    "            continue",
+    "        role = node_role(child)",
+    "        name = child.name or ''",
+    "        if normalize_role(role) != 'frame' or not name.strip():",
+    "            continue",
+    "        entries.append({",
+    "            'obj': child,",
+    "            'parent': app,",
+    "            'role': role,",
+    "            'name': name,",
+    "            'labels': state_labels(child, role),",
+    "        })",
+    "    return entries",
+    "",
+    "def tab_strip_entries(app):",
+    "    nodes = walk_nodes(app)",
+    "    standard = strip_entries_by_roles(nodes)",
+    "    if standard:",
+    "        return standard, 'tab-strip-roles'",
+    "    frames = chromium_application_frame_entries(app)",
+    "    return frames, 'chromium-application-frame'",
+    "",
+    "def active_frame_index(entries):",
+    "    active = [index for index, entry in enumerate(entries) if 'active' in entry['labels']]",
+    "    if len(active) == 1:",
+    "        return active[0]",
+    "    return None",
+    "",
+    "def entry_selected(entry, active_index, entries):",
+    "    tri = selected_tri(entry['labels'], entry['role'])",
+    "    if tri is not None:",
+    "        return tri",
+    "    if active_index is not None:",
+    "        return active_index == entries.index(entry)",
+    "    return None",
+    "",
+    "app = find_app(pid)",
+    "if app is None:",
+    "    raise SystemExit('cu_linux_tab_list_probe_app_missing')",
+    "",
+    "entries, strip_kind = tab_strip_entries(app)",
+    "if not entries:",
+    "    raise SystemExit('cu_linux_tab_list_probe_strip_missing')",
+    "",
+    "active_index = active_frame_index(entries) if strip_kind == 'chromium-application-frame' else None",
+    "tabs = []",
+    "for index, entry in enumerate(entries):",
+    "    selected = entry_selected(entry, active_index, entries)",
+    "    tabs.append({",
+    "        'index': index,",
+    "        'title': normalize_tab_title(entry['name']),",
+    "        'selected': selected,",
+    "        'role': entry['role'],",
+    "    })",
+    "",
+    "print(json.dumps({'strip': strip_kind, 'tabs': tabs}))",
+  ].join("\n");
+}
+
+function independent_tab_strip_probe(run_directory, executable, env, pid) {
+  const output = rh.command("python3", ["-c", independent_tab_strip_probe_script(), "" + pid], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_tab_list_probe:" + output.stderr + output.stdout);
+  const document = JSON.parse(output.stdout.trim());
+  ensure(Array.isArray(document.tabs), "cu_linux_tab_list_probe_tabs");
+  return document;
+}
+
+function selected_json_matches(cu_value, probe_value) {
+  if (cu_value === true || cu_value === false || cu_value === null) {
+    return cu_value === probe_value;
+  }
+  return probe_value === null;
+}
+
+function assert_tab_list_agreement(cu_tabs, probe, label) {
+  ensure(
+    cu_tabs.length === probe.tabs.length,
+    "cu_linux_tab_list_count_" + label + ":" + JSON.stringify({
+      cu: cu_tabs.length,
+      probe: probe.tabs.length,
+    })
+  );
+  for (let index = 0; index < cu_tabs.length; index = index + 1) {
+    const cu_row = cu_tabs[index];
+    const probe_row = probe.tabs[index];
+    ensure(
+      int_at(cu_row, "index") === probe_row.index,
+      "cu_linux_tab_list_index_" + label + ":" + JSON.stringify({ cu: cu_row, probe: probe_row })
+    );
+    ensure(
+      text_at(cu_row, "title") === probe_row.title,
+      "cu_linux_tab_list_title_" + label + ":" + JSON.stringify({ cu: cu_row, probe: probe_row })
+    );
+    const cu_selected = rh.field(cu_row, "selected");
+    ensure(
+      selected_json_matches(cu_selected, probe_row.selected),
+      "cu_linux_tab_list_selected_" + label + ":" + JSON.stringify({
+        cu: cu_selected,
+        probe: probe_row.selected,
+        row: cu_row,
+      })
+    );
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(!harness.host_is_windows(),
+  "cu.linux-tab-list-readback requires Linux browser-open + AT-SPI tab-strip read-back");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+const a11y_launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+ensure(direct_file(executable), "cu_linux_tab_list_honesty_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_tab_list_honesty_library_missing:" + abi_library);
+ensure(direct_file(a11y_launcher), "cu_linux_tab_list_honesty_a11y_launcher_missing:" + a11y_launcher);
+
+const context = harness.new_context(repo, "cu-linux-tab-list-honesty");
+const run_directory = context.run_directory;
+const TAB_A = TAB_A_PREFIX + " " + context.run_id;
+const TAB_B = TAB_B_PREFIX + " " + context.run_id;
+const user_data = rh.join(run_directory, ".config/google-chrome");
+const local_state = rh.join(user_data, "Local State");
+const html_dir = rh.join(run_directory, "html");
+const fixture_a = rh.join(html_dir, "tab-a.html");
+const fixture_b = rh.join(html_dir, "tab-b.html");
+const env = isolated_env(run_directory);
+env.AGENTERM_ABI_LIB = abi_library;
+env.CHROME_USER_DATA_DIR = user_data;
+
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP clear stale box-chrome singletons on this display before browser-open");
+  rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+  harness.sleep_ms(1000);
+
+  print("STEP write synthetic Chromium Local State and two fixture pages");
+  rh.create_dir_all(rh.join(user_data, "Default"));
+  rh.create_dir_all(html_dir);
+  rh.write_text(fixture_a, "<!DOCTYPE html><html><head><title>"
+    + TAB_A + "</title></head><body>alpha</body></html>");
+  rh.write_text(fixture_b, "<!DOCTYPE html><html><head><title>"
+    + TAB_B + "</title></head><body>bravo</body></html>");
+  rh.write_text(local_state, JSON.stringify({
+    profile: {
+      last_used: "Profile 7",
+      profiles_order: ["Profile 7", "Default"],
+      info_cache: {
+        Default: { name: "court-alpha" },
+        "Profile 7": { name: "court-beta" },
+      },
+    },
+  }));
+
+  print("STEP browser-open first tab and capture the chrome window by unique title");
+  const before_inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
+  const before_set = {};
+  const before_rows = before_inventory.data.windows === undefined
+    ? before_inventory.data : before_inventory.data.windows;
+  for (const row of before_rows) {
+    before_set["" + at(row, "handle")] = true;
+  }
+
+  let opened = null;
+  for (let open_attempt = 0; open_attempt < 3 && opened === null; open_attempt = open_attempt + 1) {
+    if (open_attempt > 0) {
+      rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+      harness.sleep_ms(2000);
+    }
+    const output = rh.command(executable, [
+      "--target", "current", "--grant", "actuate",
+      "browser-open", "--profile", "court-alpha",
+      "--url", "file://" + fixture_a, "--app", "Google Chrome", "--timeout-ms", "30000",
+    ], { cwd: run_directory, env: env, timeout_ms: 60000 });
+    if (output.success !== true) { continue; }
+    const trimmed = output.stdout.trim();
+    if (trimmed === "") { continue; }
+    const reply = JSON.parse(trimmed);
+    if (reply.command === "browser-open" && flag_at(reply, "ok")) {
+      opened = reply;
+    }
+  }
+  ensure(opened !== null, "cu_linux_tab_list_honesty_open_a_failed");
+
+  let window_handle = null;
+  let chrome_pid = 0;
+  for (let attempt = 0; attempt < 40 && window_handle === null; attempt = attempt + 1) {
+    const inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
+    const rows = inventory.data.windows === undefined ? inventory.data : inventory.data.windows;
+    for (const row of rows) {
+      const title = text_at(row, "title");
+      const app = text_at(row, "app_name").toLowerCase();
+      const handle = "" + at(row, "handle");
+      if ((app.indexOf("chrome") >= 0 || app === "google-chrome" || app === "google-chrome-stable")
+          && title.indexOf(TAB_A) >= 0
+          && before_set[handle] !== true) {
+        window_handle = handle;
+        chrome_pid = int_at(row, "process_id");
+        break;
+      }
+    }
+    if (window_handle === null) { harness.sleep_ms(250); }
+  }
+  ensure(window_handle !== null, "cu_linux_tab_list_honesty_window_missing");
+  ensure(chrome_pid > 0, "cu_linux_tab_list_honesty_pid:" + chrome_pid);
+
+  print("STEP open second tab via box-chrome-a11y in the same profile");
+  const launch_shell = a11y_launcher
+    + " --profile-directory=Default"
+    + " file://" + fixture_b
+    + " >/dev/null 2>&1 &";
+  rh.command_status("sh", ["-c", launch_shell], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 5000,
+  });
+  harness.sleep_ms(5000);
+
+  print("STEP CU tab-list and independent AT-SPI tab-strip walk agree");
+  let cu_reply = null;
+  let cu_tabs = [];
+  for (let attempt = 0; attempt < 80 && cu_tabs.length < 2; attempt = attempt + 1) {
+    cu_reply = run_cu(run_directory, executable, "observe", [
+      "tab-list", "--window", window_handle,
+    ], env);
+    if (cu_reply.command === "tab-list") { cu_tabs = tab_rows(cu_reply); }
+    if (cu_tabs.length >= 2) { break; }
+    harness.sleep_ms(500);
+  }
+  ensure(cu_tabs.length >= 2, "cu_linux_tab_list_honesty_cu_count:" + JSON.stringify(cu_tabs));
+  ensure(
+    text_at(cu_reply, "data.addressing") === "accessibility-tree",
+    "cu_linux_tab_list_honesty_addressing:" + JSON.stringify(cu_reply.data)
+  );
+  ensure(
+    text_at(cu_reply, "data.backend") === "at-spi2",
+    "cu_linux_tab_list_honesty_backend:" + JSON.stringify(cu_reply.data)
+  );
+  ensure(
+    flag_at(cu_reply, "data.degraded") === false,
+    "cu_linux_tab_list_honesty_degraded:" + JSON.stringify(cu_reply.data)
+  );
+
+  const probe = independent_tab_strip_probe(run_directory, executable, env, chrome_pid);
+  assert_tab_list_agreement(cu_tabs, probe, "initial");
+
+  let selected_count = 0;
+  for (const row of cu_tabs) {
+    if (rh.field(row, "selected") === true) { selected_count = selected_count + 1; }
+  }
+  ensure(selected_count === 1,
+    "cu_linux_tab_list_honesty_selected_count:" + JSON.stringify(cu_tabs));
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-tab-list-readback");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+  print("PASS: Linux CU tab-list matches independent AT-SPI tab-strip walk");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
