@@ -1192,25 +1192,6 @@
         "task.cu-linux-cdp-page-fill-smoke"
       ]
     },
-    "cu-linux-page-click-smoke": {
-      "inputs": [
-        "built-agenterm-cu",
-        "built-libagenterm",
-        "display-session"
-      ],
-      "outputs": [
-        "cu-linux-page-click-evidence"
-      ],
-      "budget": {
-        "timeout_ms": 180000,
-        "max_operations": 1000000000,
-        "max_output_bytes": 1048576
-      },
-      "network": [],
-      "evidence": [
-        "task.cu-linux-page-click-smoke"
-      ]
-    },
     "cu-linux-browser-profiles-open-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -1247,6 +1228,25 @@
       "network": [],
       "evidence": [
         "task.cu-linux-page-targets-smoke"
+      ]
+    },
+    "cu-linux-page-find-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-find-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-find-smoke"
       ]
     },
     "cu-linux-page-screenshot-smoke": {
@@ -5718,26 +5718,6 @@
       ]
     },
     {
-      "id": "cu-linux-page-click-smoke",
-      "description": "Prove Linux CDP page-click --selector on a named page control mutates DOM state verified by independent page-find text read-back; disposable Chrome profile, --port/--target-id only, no --coords or screenshot degradation.",
-      "entry": "scripts/qjs/cu-linux-page-click-smoke.qjs",
-      "profile": "tool",
-      "cwd": ".",
-      "args": [
-        ".",
-        "target/abi-dev/agenterm-cu"
-      ],
-      "dependencies": [],
-      "platforms": [
-        "linux"
-      ],
-      "side_effects": [
-        "artifact_write",
-        "process_spawn",
-        "gui_spawn"
-      ]
-    },
-    {
       "id": "cu-linux-browser-profiles-open-smoke",
       "description": "Prove Linux browser-profiles reads installed Google Chrome Local State without a live profile window and browser-open yields a new chrome window verified by independent windows inventory read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-browser-profiles-open-smoke.qjs",
@@ -5761,6 +5741,26 @@
       "id": "cu-linux-page-targets-smoke",
       "description": "Prove Linux page-targets --port CDP /json inventory matches independent curl read of the same debugging port; disposable Chrome profile, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-page-targets-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-page-find-smoke",
+      "description": "Prove Linux page-find --selector CDP node text/count matches an independent CDP Runtime.evaluate querySelectorAll probe on the same disposable page target; --port/--target-id only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-page-find-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
