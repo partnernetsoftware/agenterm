@@ -2,7 +2,7 @@
 
 use agenterm_cu::{Command, FileTransactionAction, TargetRef};
 
-use super::{take_switch, verbs::VerbSpec};
+use super::{flag_parsed, take_switch, verbs::VerbSpec};
 
 pub fn parse(
     spec: &VerbSpec,
@@ -19,6 +19,35 @@ pub fn parse(
             Ok(Command::FileInspect {
                 target,
                 path: args.remove(0),
+            })
+        }
+        "file-watch" => {
+            consume_group_subcommand(spelled, args, "observe")?;
+            let duration_ms = flag_parsed::<u64>(args, "--duration-ms")?.unwrap_or(30_000);
+            let max_events = flag_parsed::<usize>(args, "--max-events")?;
+            if args.len() != 1 || args[0].is_empty() {
+                return Err(
+                    "file-watch requires exactly one non-empty directory PATH [--duration-ms N] [--max-events N]"
+                        .into(),
+                );
+            }
+            if !(1..=86_400_000).contains(&duration_ms)
+                || max_events.is_some_and(|value| !(1..=4_096).contains(&value))
+            {
+                return Err(
+                    "file-watch requires duration-ms in 1..=86400000 and max-events in 1..=4096"
+                        .into(),
+                );
+            }
+            let path = args.remove(0);
+            if !args.is_empty() {
+                return Err(format!("file-watch received unexpected {:?}", args[0]));
+            }
+            Ok(Command::FileWatch {
+                target,
+                path,
+                duration_ms,
+                max_events,
             })
         }
         "file-attributes" => {

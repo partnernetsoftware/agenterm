@@ -35,7 +35,7 @@ regex = { version = "1", default-features = false, features = [
     "perf-literal",
     "unicode",
 ] }
-agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "ipc", "locking", "process", "process-spawn", "contained-process-spawn", "filesystem", "filesystem-entry", "filesystem-open", "filesystem-publish", "file-identity", "file-attributes", "network-interfaces", "network-routes", "network-dns", "device-capture", "device-inventory", "device-io", "host-open", "host-notification", "permission-settings", "serde", "simulator", "host-boot-identity", "host-resource-snapshot", "host-pressure", "storage-device-inventory", "audio", "ime", "service", "login-session", "system-broker", "privilege-authorization", "privilege-service-lifecycle"] }
+agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["current-target-binding", "ipc", "locking", "process", "process-spawn", "contained-process-spawn", "filesystem", "filesystem-entry", "filesystem-open", "filesystem-publish", "filesystem-watch", "file-identity", "file-attributes", "network-interfaces", "network-routes", "network-dns", "device-capture", "device-inventory", "device-io", "host-open", "host-notification", "permission-settings", "serde", "simulator", "host-boot-identity", "host-resource-snapshot", "host-pressure", "storage-device-inventory", "audio", "ime", "service", "login-session", "system-broker", "privilege-authorization", "privilege-service-lifecycle"] }
 
 [target.'cfg(windows)'.dependencies]
 agenterm-platform = { path = "../agenterm-platform", default-features = false, features = ["native-messaging-registry"] }

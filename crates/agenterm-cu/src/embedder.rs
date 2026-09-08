@@ -142,6 +142,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::FileAttributes { .. }
         | Command::FileCopy { .. }
         | Command::FileInspect { .. }
+        | Command::FileWatch { .. }
         | Command::FileMode { .. }
         | Command::FileMove { .. }
         | Command::FileQuarantineClear { .. }

@@ -6,6 +6,62 @@ use sha2::{Digest as _, Sha256};
 
 use super::*;
 
+pub(super) fn file_watch_payload(
+    path: &str,
+    duration_ms: u64,
+    max_events: Option<usize>,
+) -> Result<serde_json::Value, CuError> {
+    const MAX_DURATION_MS: u64 = 86_400_000;
+    const DEFAULT_MAX_EVENTS: usize = 256;
+    const MAX_EVENTS: usize = 4_096;
+    let max_events = max_events.unwrap_or(DEFAULT_MAX_EVENTS);
+    if path.is_empty()
+        || !(1..=MAX_DURATION_MS).contains(&duration_ms)
+        || !(1..=MAX_EVENTS).contains(&max_events)
+    {
+        return Err(CuError::new(
+            "invalid_input",
+            "file-watch requires one non-empty directory PATH, duration-ms in 1..=86400000 and max-events in 1..=4096",
+        ));
+    }
+    let result = agenterm_platform::filesystem_watch::watch_directory(
+        Path::new(path),
+        duration_ms,
+        max_events,
+    )
+    .map_err(map_file_watch_error)?;
+    Ok(serde_json::json!({
+        "path": result.path,
+        "provider": result.provider,
+        "mode": result.mode,
+        "duration_ms": result.duration_ms,
+        "max_events": result.max_events,
+        "events": result.events.into_iter().map(|event| serde_json::json!({
+            "t_ms": event.t_ms,
+            "kind": event.kind,
+            "name": event.name,
+            "mask": event.mask,
+        })).collect::<Vec<_>>(),
+        "emitted": result.emitted,
+        "completed": result.completed,
+        "truncated": result.truncated,
+        "verified": true,
+    }))
+}
+
+fn map_file_watch_error(
+    error: agenterm_platform::filesystem_watch::FilesystemWatchError,
+) -> CuError {
+    use agenterm_platform::filesystem_watch::FilesystemWatchErrorKind;
+    let code = match error.kind {
+        FilesystemWatchErrorKind::Unsupported => "file_watch_unsupported",
+        FilesystemWatchErrorKind::InvalidInput => "invalid_input",
+        FilesystemWatchErrorKind::NotDirectory => "file_watch_not_directory",
+        FilesystemWatchErrorKind::Native => "file_watch_failed",
+    };
+    CuError::new(code, error.message)
+}
+
 pub(super) fn file_inspect_payload(path: &str) -> Result<serde_json::Value, CuError> {
     let path = Path::new(path);
     let mut details = agenterm_platform::filesystem_entry::inspect_path(path)

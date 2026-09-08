@@ -658,6 +658,18 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "file-watch".into(),
+            serde_json::json!({
+                "status": if cfg!(target_os = "linux") { "available" } else { "unsupported" },
+                "group": "file",
+                "grant": "observe",
+                "mode": "bounded-native-directory-events",
+                "provider": "linux-inotify",
+                "event_kinds": "created-modified-removed",
+                "non_linux": "typed-unsupported-gap",
+            }),
+        );
+        verbs.insert(
             "file-mode".into(),
             serde_json::json!({
                 "status": if cfg!(any(target_os = "macos", target_os = "linux")) { "available" } else { "unsupported" },

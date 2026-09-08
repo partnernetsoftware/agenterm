@@ -353,6 +353,9 @@ pub mod filesystem_read;
 #[cfg(feature = "filesystem-usage")]
 pub mod filesystem_usage;
 
+#[cfg(feature = "filesystem-watch")]
+pub mod filesystem_watch;
+
 #[cfg(feature = "file-identity")]
 pub mod file_identity;
 

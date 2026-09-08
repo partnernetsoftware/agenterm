@@ -2073,6 +2073,15 @@ pub enum Command {
         target: TargetRef,
         path: String,
     },
+    /// Watch one existing directory for bounded native create/modify/remove
+    /// events. Linux uses inotify; other hosts return a typed unsupported gap.
+    FileWatch {
+        target: TargetRef,
+        path: String,
+        duration_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_events: Option<usize>,
+    },
     /// Inspect bounded extended-attribute metadata for one opened regular
     /// file. Raw values are returned only after an explicit disclosure flag.
     FileAttributes {
@@ -4209,6 +4218,7 @@ impl Command {
             Self::NetworkDns { .. } => "network-dns".into(),
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
+            Self::FileWatch { .. } => "file-watch".into(),
             Self::FileAttributes { .. } => "file-attributes".into(),
             Self::FileMode { .. } => "file-mode".into(),
             Self::FileXattrSet { .. } => "file-xattr-set".into(),
@@ -4636,6 +4646,7 @@ impl Command {
             | Self::NetworkDns { target, .. }
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
+            | Self::FileWatch { target, .. }
             | Self::FileAttributes { target, .. }
             | Self::FileMode { target, .. }
             | Self::FileXattrSet { target, .. }

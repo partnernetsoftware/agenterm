@@ -314,6 +314,18 @@ pub(crate) mod filesystem_read;
 #[path = "adapters/unix/filesystem_publish.rs"]
 pub(crate) mod filesystem_publish;
 
+#[cfg(all(feature = "filesystem-watch", target_os = "linux"))]
+#[path = "adapters/linux/filesystem_watch.rs"]
+pub(crate) mod filesystem_watch;
+
+#[cfg(all(feature = "filesystem-watch", windows))]
+#[path = "adapters/windows/filesystem_watch.rs"]
+pub(crate) mod filesystem_watch;
+
+#[cfg(all(feature = "filesystem-watch", target_os = "macos"))]
+#[path = "adapters/macos/filesystem_watch.rs"]
+pub(crate) mod filesystem_watch;
+
 #[cfg(all(
     windows,
     any(feature = "cache-hierarchy", feature = "processor-topology")

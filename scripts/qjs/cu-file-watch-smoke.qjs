@@ -1,0 +1,136 @@
+// Linux public black-box court for bounded directory file-watch via inotify.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.linux-file-watch"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function run_cu_json(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    },
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_file_watch_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_file_watch_reply:" + JSON.stringify(reply));
+  return reply;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_file_watch_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_file_watch_requires_linux");
+
+const context = harness.new_context(repo, "cu-file-watch");
+const run_directory = context.run_directory;
+const watch_dir = rh.join(run_directory, "watch-root");
+const fixture = rh.join(watch_dir, "fixture.txt");
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.create_dir_all(watch_dir);
+
+  print("STEP capabilities declare file-watch available on Linux");
+  const capabilities = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "capabilities"
+  ]);
+  ensure(
+    capabilities.data.verbs["file-watch"].status === "available"
+      && capabilities.data.verbs["file-watch"].provider === "linux-inotify",
+    "cu_file_watch_capabilities:" + JSON.stringify(capabilities.data.verbs["file-watch"])
+  );
+
+  print("STEP background watch observes create and modify on one temp directory");
+  const watcher = harness.start({
+    program: executable,
+    args: [
+      "--target", "current", "--grant", "observe",
+      "file", "observe", watch_dir,
+      "--duration-ms", "5000", "--max-events", "8"
+    ],
+    current_dir: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "watch-audit.jsonl") },
+    timeout_ms: 60000
+  });
+  harness.sleep_ms(150);
+  rh.write_text(fixture, "created");
+  harness.sleep_ms(100);
+  rh.write_text(fixture, "modified");
+
+  const output = harness.wait(watcher, 20000);
+  ensure(output.success === true, "cu_file_watch_process:" + JSON.stringify(output));
+  const watched = JSON.parse(output.stdout.trim());
+  ensure(watched.command === "file-watch" && watched.ok === true,
+    "cu_file_watch_shape:" + JSON.stringify(watched));
+  const data = watched.data;
+  ensure(
+    data.provider === "linux-inotify"
+      && data.mode === "native-events"
+      && data.path === watch_dir
+      && data.emitted >= 2
+      && Array.isArray(data.events),
+    "cu_file_watch_data:" + JSON.stringify(data)
+  );
+  let saw_created = 0;
+  let saw_modified = 0;
+  for (const event of data.events) {
+    if (event.name !== "fixture.txt") { continue; }
+    if (event.kind === "created") { saw_created = 1; }
+    if (event.kind === "modified") { saw_modified = 1; }
+    ensure(Array.isArray(event.mask) && event.mask.length > 0,
+      "cu_file_watch_mask:" + JSON.stringify(event));
+  }
+  ensure(saw_created === 1 && saw_modified === 1,
+    "cu_file_watch_events:" + JSON.stringify(data.events));
+
+  print("STEP non-directory path is a typed failure");
+  const refused = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+    "file-watch", fixture, "--duration-ms", "100", "--max-events", "1"
+  ], {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "refusal-audit.jsonl") },
+    timeout_ms: 30000
+  });
+  const refusal = JSON.parse(refused.stdout.trim());
+  ensure(
+    refusal.ok !== true && refusal.error.code === "file_watch_not_directory",
+    "cu_file_watch_refusal:" + JSON.stringify(refusal)
+  );
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: agenterm-cu Linux file-watch inotify create/modify");
+  return;
+}
+harness.remove_run(context);
+throw failure;

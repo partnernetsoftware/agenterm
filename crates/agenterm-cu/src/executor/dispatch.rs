@@ -923,6 +923,12 @@ impl Executor {
                 ..
             } => network_probe::payload(host, *port, *attempts, *timeout_ms),
             Command::FileInspect { path, .. } => file_inspect_payload(path),
+            Command::FileWatch {
+                path,
+                duration_ms,
+                max_events,
+                ..
+            } => file_watch_payload(path, *duration_ms, *max_events),
             Command::PtyStart {
                 name,
                 cwd,

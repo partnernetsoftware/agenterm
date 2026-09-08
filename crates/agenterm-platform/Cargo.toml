@@ -327,6 +327,10 @@ filesystem-publish = [
     "windows-sys/Win32_Storage_FileSystem",
 ]
 filesystem-usage = ["filesystem-entry"]
+filesystem-watch = [
+    "filesystem-entry",
+    "dep:libc",
+]
 file-identity = [
     "dep:windows-sys",
     "windows-sys/Win32_Foundation",
@@ -521,6 +525,7 @@ full = [
     "filesystem-read",
     "filesystem-publish",
     "filesystem-usage",
+    "filesystem-watch",
     "locking",
     "ipc",
     "pty",
