@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 29
+#define AGT_ABI_MINOR 30
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -987,6 +987,7 @@ agt_status agt_native_window_close(intptr_t handle);
  * this host) is AGT_UNSUPPORTED, never 0: "unknown" and "not minimized"
  * are different claims. */
 agt_status agt_native_window_minimized(intptr_t handle, int32_t* out_minimized);
+agt_status agt_native_window_maximized(intptr_t handle, int32_t* out_maximized);
 
 /* Input injection. Mechanism absent on this host -> AGT_UNSUPPORTED;
  * platform failure -> AGT_FAILED{code="input_failed"}. */

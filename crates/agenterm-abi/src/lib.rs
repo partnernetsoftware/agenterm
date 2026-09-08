@@ -140,7 +140,7 @@ use agenterm_platform::window_host::{
     run_pixel_window,
 };
 use agenterm_platform::window_op::{
-    WindowShowState, activate as activate_native_window, close, minimized as window_minimized,
+    WindowShowState, activate as activate_native_window, close, maximized as window_maximized, minimized as window_minimized,
     move_window, set_topmost, show, window_rect,
 };
 
@@ -299,7 +299,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 29);
+abi_version!(1, 30);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -6883,6 +6883,28 @@ pub extern "C" fn agt_native_window_minimized(
             );
             agt_status::AGT_FAILED
         }
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_native_window_maximized(handle: isize, out_maximized: *mut i32) -> agt_status {
+    fn inner(handle: isize, out_maximized: *mut i32) -> agt_status {
+        if native_handle_error(c"agt_native_window_maximized", handle) { return agt_status::AGT_FAILED; }
+        if out_maximized.is_null() {
+            record_error(c"agt_native_window_maximized", c"bad_pointer", "out_maximized is null");
+            return agt_status::AGT_FAILED;
+        }
+        if !window_op_available() { return agt_status::AGT_UNSUPPORTED; }
+        match window_maximized(handle) {
+            Ok(value) => { unsafe { *out_maximized = i32::from(value) }; agt_status::AGT_OK }
+            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => agt_status::AGT_UNSUPPORTED,
+            Err(e) => { record_error(c"agt_native_window_maximized", c"window_op_failed", format!("{e:?}")); agt_status::AGT_FAILED }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(handle, out_maximized))) {
+        Ok(s) => s,
+        Err(_) => { record_error(c"agt_native_window_maximized", c"panic", "panic in agt_native_window_maximized"); agt_status::AGT_FAILED }
     }
 }
 
