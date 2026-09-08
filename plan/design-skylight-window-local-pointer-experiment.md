@@ -1,6 +1,6 @@
 # SkyLight window-local pointer delivery experiment
 
-Status: **PLANNED · research only · not a must-ship ACU dependency**
+Status: **MEASURED PARTIAL · research only · not a product provider**
 
 Date: 2026-09-07
 Purpose: decide whether the private macOS SkyLight route already explored by
@@ -15,7 +15,8 @@ Parent: [`goal-acu-replaces-mcu.md`](goal-acu-replaces-mcu.md)
 ```text
 ACU retirement gap 095: move --to <window>
 ├── public CoreGraphics posting to a PID
-│   └── measured: event reaches the process but has no AppKit window
+│   └── historical claim: event reaches the process but has no AppKit window
+│       current owned AppKit fixture did not reproduce that claim
 ├── global CoreGraphics posting
 │   └── works only by moving the user's real pointer; not equivalent
 └── MCU research provider: runtime-resolved private SkyLight symbols
@@ -53,7 +54,7 @@ This experiment does not block the separate public desktop-scoped wheel verb.
 
 | Dimension | Frozen choice | Why |
 |---|---|---|
-| Baseline | public PID-targeted CoreGraphics event | proves the known no-window failure remains observable |
+| Baseline | public PID-targeted CoreGraphics event | tests whether the historical no-window failure remains observable |
 | Candidate | MCU-shaped runtime `dlopen`/`dlsym` SkyLight provider, independently re-integrated under `research/` | tests the only known window-local candidate without importing it into product code |
 | Target | owned two-window fixture with event counters and monotonic sequence numbers | proves exact-window delivery and rejects process-wide ambiguity |
 | Hover action | move inside target A, then target B | proves window identity rather than mere process delivery |
@@ -126,7 +127,7 @@ verdict. It contains no host absolute paths or user application data.
 | Alternative | Reason excluded |
 |---|---|
 | Global `CGEventPost` | changes the user's real pointer/foreground target; not window-local |
-| PID-targeted `CGEventPostToPid` alone | measured event lacks an AppKit window and cannot prove control delivery |
+| PID-targeted `CGEventPostToPid` alone | current AppKit fixture receives it, so a discriminating Chromium/Electron fixture must decide whether any product gap remains |
 | Accessibility `AXScrollToVisible` | semantic reveal, not bounded wheel input |
 | AppleScript or UI scripting | different mechanism and authority surface |
 | Coordinate click or focus-before-send | violates background and pointer-preservation invariants |
@@ -140,8 +141,28 @@ verdict. It contains no host absolute paths or user application data.
 - App Store review or notarization policy for a private runtime-resolved API;
 - whether a future public macOS API replaces this provider.
 
-## 8. Result backfill
+## 8. Result backfill · 2026-09-08
 
-Not run. Backfill only measured results and the decision-tree verdict. A pass
-permits a guarded provider implementation; it does not itself clear ACU gap 095
-until the public typed command, durable receipt and qjswasm black-box court land.
+```text
+current macOS arm64
+├─ C1–C7: PASS
+├─ C8: PASS · 1,000 alternating two-window actions · repeated twice
+├─ C9: INCOMPLETE · no previous-generation arm64 or native Intel result
+└─ discriminating baseline: FAIL
+   └─ public PID-targeted posting also reached the owned AppKit fixture
+```
+
+Decision trace: the candidate reached the `C8 repeatability + C9 matrix?` node.
+C8 passed, but C9 remains open; the decision tree therefore ends at
+**research-only provider / no release dependency**. More importantly, the
+owned AppKit baseline did not reproduce the premise that public PID-targeted
+events lack window semantics. This is an honest negative result: the run proves
+the private route can be exact on the measured host, not that the route is
+needed or should enter product code.
+
+Full criteria, exact source identity, host build, source digest and reproduction
+command live in `research/skylight-window-local-pointer/RESULTS.md`. Revisit only
+after an owned Chromium/Electron fixture distinguishes the public and private
+routes and a previous-generation arm64 court supplies C9. Until then ACU gaps
+074 and 095 remain typed TODOs; no private provider, durable receipt or release
+linkage is authorized.

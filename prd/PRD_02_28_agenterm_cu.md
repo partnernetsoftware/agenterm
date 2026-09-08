@@ -524,7 +524,9 @@ ACU-only cutover
 │  │  │  macOS/Windows native facts and their courts remain
 │  │  ├─ acu.native.app.lifecycle-watch · bounded application process lifecycle
 │  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
-│  ├─ acu.dynamic.074 · window-local scroll without physical-pointer movement
+│  ├─ [~] acu.dynamic.074 · window-local scroll without physical-pointer movement
+│  │  └─ current-host SkyLight research passed C1–C8, but the public AppKit baseline
+│  │     also delivered; C9 and a discriminating Chromium/Electron fixture remain
 │  ├─ [~] acu.dynamic.075 · native `browser-tabs` resolves one exact MV3 profile connection;
 │  │  ├─ complete profile-wide background tabs retain stable tab/window ids, title and URL
 │  │  ├─ truncated/ambiguous connection or tab inventories fail typed; no AX/CDP heuristic fallback
@@ -552,7 +554,8 @@ ACU-only cutover
 │  │  ├─ source-window disappearance after accepted delivery cannot become a false failure
 │  │  ├─ public owned qjswasm menu court proves mark/tree read-back and unchanged foreground
 │  │  └─ Linux/Windows typed-not-applicable; exact-window `menu-invoke` remains available
-│  └─ acu.dynamic.095 · window-local background hover without moving the real cursor
+│  └─ [~] acu.dynamic.095 · window-local background hover without moving the real cursor
+│     └─ same research-only verdict as `.074`; no private provider entered product code
 ├─ [ ] native/product TODO registry
 │  ├─ capability truth and platform status → `plan/acu-mcu-capability-ledger.json`
 │  ├─ one current true gap → `process.signal.privileged`
