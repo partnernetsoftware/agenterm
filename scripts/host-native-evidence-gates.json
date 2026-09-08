@@ -192,6 +192,13 @@
       ]
     },
     {
+      "id": "cu-linux-double-click-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-double-click"
+      ]
+    },
+    {
       "id": "cu-linux-chrome-text-smoke",
       "platform": "linux",
       "evidence": [

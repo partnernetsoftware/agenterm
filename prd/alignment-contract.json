@@ -92,6 +92,7 @@
         "cu.linux-atspi-zoom",
         "cu.linux-atspi-snapshot-diff",
         "cu.linux-atspi-dclick",
+        "cu.linux-atspi-double-click",
         "cu.linux-atspi-focus",
         "cu.linux-atspi-hover",
         "cu.linux-atspi-scroll-wheel",

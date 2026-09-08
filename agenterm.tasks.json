@@ -1022,6 +1022,25 @@
         "task.cu-linux-gtk-button-focus-smoke"
       ]
     },
+    "cu-linux-double-click-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-double-click-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-double-click-smoke"
+      ]
+    },
     "cu-linux-gtk-rclick-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4152,6 +4171,26 @@
       "id": "cu-linux-gtk-button-focus-smoke",
       "description": "Prove Linux GTK3 button click --name then three independent focused read-backs name the clicked button; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-button-focus-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-double-click-smoke",
+      "description": "Prove Linux GTK double-click by --name via click --count 2; independent label read-back shows pressed +2; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-double-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
