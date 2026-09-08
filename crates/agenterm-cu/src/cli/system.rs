@@ -370,6 +370,42 @@ pub fn parse(
         }
         return Ok(Command::CacheHierarchyStatus { target });
     }
+    if spec.name == "processor-affinity-status" {
+        if args.first().is_some_and(|arg| arg == "affinity") {
+            args.remove(0);
+        }
+        if args.first().is_some_and(|arg| arg == "status") {
+            args.remove(0);
+        }
+        let mut pid = None;
+        while let Some(arg) = args.first() {
+            if arg == "--pid" {
+                args.remove(0);
+                let value = args
+                    .first()
+                    .ok_or_else(|| {
+                        "processor-affinity-status --pid requires a value".to_owned()
+                    })?;
+                pid = Some(
+                    value
+                        .parse::<u32>()
+                        .map_err(|_| {
+                            format!(
+                                "processor-affinity-status --pid must be a positive integer; got {:?}",
+                                value
+                            )
+                        })?,
+                );
+                args.remove(0);
+                continue;
+            }
+            return Err(format!(
+                "processor-affinity-status accepts only [--pid N]; unexpected {:?}",
+                arg
+            ));
+        }
+        return Ok(Command::ProcessorAffinityStatus { target, pid });
+    }
     if spec.name == "font-discovery" {
         if args.first().is_some_and(|arg| arg == "discovery") {
             args.remove(0);
@@ -1590,6 +1626,25 @@ mod tests {
         ));
         assert!(parse("cache-hierarchy-status", &["extra"]).is_err());
         assert!(parse("cache", &["hierarchy", "status", "extra"]).is_err());
+    }
+
+    #[test]
+    fn processor_affinity_status_flat_and_grouped_shapes_are_closed() {
+        assert!(matches!(
+            parse("processor-affinity-status", &[]).unwrap(),
+            Command::ProcessorAffinityStatus { pid: None, .. }
+        ));
+        assert!(matches!(
+            parse("processor", &["affinity", "status"]).unwrap(),
+            Command::ProcessorAffinityStatus { pid: None, .. }
+        ));
+        assert!(matches!(
+            parse("processor-affinity-status", &["--pid", "42"]).unwrap(),
+            Command::ProcessorAffinityStatus { pid: Some(42), .. }
+        ));
+        assert!(parse("processor-affinity-status", &["extra"]).is_err());
+        assert!(parse("processor", &["affinity", "status", "extra"]).is_err());
+        assert!(parse("processor-affinity-status", &["--pid"]).is_err());
     }
 
     #[test]

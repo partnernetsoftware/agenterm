@@ -9,7 +9,25 @@ use crate::contract::processor_affinity::{
 };
 
 pub(crate) fn current_process() -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
-    let handle = unsafe { GetCurrentProcess() };
+    affinity_for_handle(unsafe { GetCurrentProcess() })
+}
+
+pub(crate) fn process(pid: u32) -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle == 0 {
+        return Err(query_error("OpenProcess"));
+    }
+    let result = affinity_for_handle(handle);
+    let _ = unsafe { CloseHandle(handle) };
+    result
+}
+
+fn affinity_for_handle(handle: windows_sys::Win32::Foundation::HANDLE) -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
     let active_group_count = unsafe { GetActiveProcessorGroupCount() };
     if active_group_count == 0 {
         return Err(query_error("GetActiveProcessorGroupCount"));

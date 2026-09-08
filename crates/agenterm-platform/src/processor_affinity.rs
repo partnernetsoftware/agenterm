@@ -14,6 +14,11 @@ pub fn current_process() -> Result<ProcessorAffinityFacts, ProcessorAffinityErro
     crate::selected::processor_affinity::current_process()
 }
 
+/// Query the scheduler-allowed logical processor set for one host process.
+pub fn process(pid: u32) -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
+    crate::selected::processor_affinity::process(pid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

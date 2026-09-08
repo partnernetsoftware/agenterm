@@ -7,7 +7,11 @@ const INITIAL_WORDS: usize = 16;
 const MAX_WORDS: usize = 16 * 1024;
 
 pub(crate) fn current_process() -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
-    let words = query_words()?;
+    process(std::process::id())
+}
+
+pub(crate) fn process(pid: u32) -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
+    let words = query_words(pid)?;
     let processors = words
         .iter()
         .enumerate()
@@ -29,8 +33,14 @@ pub(crate) fn current_process() -> Result<ProcessorAffinityFacts, ProcessorAffin
     ProcessorAffinityFacts::from_locations(processors, ProcessorSetSemantics::SchedulerAllowed)
 }
 
-fn query_words() -> Result<Vec<usize>, ProcessorAffinityError> {
+fn query_words(pid: u32) -> Result<Vec<usize>, ProcessorAffinityError> {
     let mut word_count = INITIAL_WORDS;
+    let native_pid = i32::try_from(pid).map_err(|_| {
+        ProcessorAffinityError::new(
+            ProcessorAffinityErrorKind::InvalidValue,
+            format!("pid {pid} exceeds native pid_t range"),
+        )
+    })?;
     loop {
         let mut words = vec![0_usize; word_count];
         let byte_count = words
@@ -43,7 +53,11 @@ fn query_words() -> Result<Vec<usize>, ProcessorAffinityError> {
                 )
             })?;
         let result = unsafe {
-            libc::sched_getaffinity(0, byte_count, words.as_mut_ptr().cast::<libc::cpu_set_t>())
+            libc::sched_getaffinity(
+                native_pid,
+                byte_count,
+                words.as_mut_ptr().cast::<libc::cpu_set_t>(),
+            )
         };
         if result == 0 {
             return Ok(words);
@@ -52,7 +66,7 @@ fn query_words() -> Result<Vec<usize>, ProcessorAffinityError> {
         if error.raw_os_error() != Some(libc::EINVAL) || word_count >= MAX_WORDS {
             return Err(ProcessorAffinityError::new(
                 ProcessorAffinityErrorKind::Query,
-                format!("sched_getaffinity: {error}"),
+                format!("sched_getaffinity({pid}): {error}"),
             ));
         }
         word_count = word_count.checked_mul(2).ok_or_else(|| {

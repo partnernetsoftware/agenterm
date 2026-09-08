@@ -3636,6 +3636,24 @@
       "args": []
     },
     {
+      "name": "processor-affinity-status",
+      "command": "processor-affinity-status",
+      "aliases": [
+        "processor affinity status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read the scheduler-allowed logical processor set for the current or chosen process",
+      "usage": "processor affinity status [--pid N]\nprocessor-affinity-status [--pid N]",
+      "args": [
+        {
+          "name": "--pid",
+          "optional": true,
+          "summary": "target process id; defaults to the current process"
+        }
+      ]
+    },
+    {
       "name": "font-discovery",
       "command": "font-discovery",
       "aliases": [
@@ -7548,6 +7566,10 @@
     {
       "name": "host-memory-status",
       "text": "agenterm-cu host-memory-status\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  host-memory-status\n\nReturns stable host page geometry, installed physical memory and a separate\npoint-in-time availability estimate with explicit semantics. Linux uses\n/proc/meminfo MemTotal and MemAvailable. The query is read-only and\natomic_snapshot is always false.\n"
+    },
+    {
+      "name": "processor-affinity-status",
+      "text": "agenterm-cu processor-affinity-status    (also: processor affinity status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  processor affinity status [--pid N]\n  processor-affinity-status [--pid N]\n\nReturns the scheduler-allowed logical processor set for the current process\nor one chosen PID. Linux uses sched_getaffinity; Windows uses\nGetProcessAffinityMask. The query is read-only and atomic_snapshot is always\nfalse.\n"
     },
     {
       "name": "font-discovery",

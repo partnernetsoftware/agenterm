@@ -679,6 +679,16 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "processor-affinity-status".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "host",
+                "grant": "observe",
+                "mode": "native-process-scheduler-allowed-cpu-set",
+                "mutation_performed": false,
+            }),
+        );
+        verbs.insert(
             "font-discovery".into(),
             if cfg!(target_os = "linux") {
                 serde_json::json!({

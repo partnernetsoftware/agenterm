@@ -2705,6 +2705,10 @@ pub enum Command {
     HostMemoryStatus {
         target: TargetRef,
     },
+    ProcessorAffinityStatus {
+        target: TargetRef,
+        pid: Option<u32>,
+    },
     FontDiscovery {
         target: TargetRef,
     },
@@ -4351,6 +4355,7 @@ impl Command {
             Self::ProcessorTopologyStatus { .. } => "processor-topology-status".into(),
             Self::CacheHierarchyStatus { .. } => "cache-hierarchy-status".into(),
             Self::HostMemoryStatus { .. } => "host-memory-status".into(),
+            Self::ProcessorAffinityStatus { .. } => "processor-affinity-status".into(),
             Self::FontDiscovery { .. } => "font-discovery".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::StorageVolumes { .. } => "storage-volumes".into(),
@@ -4792,6 +4797,7 @@ impl Command {
             | Self::ProcessorTopologyStatus { target }
             | Self::CacheHierarchyStatus { target }
             | Self::HostMemoryStatus { target }
+            | Self::ProcessorAffinityStatus { target, .. }
             | Self::FontDiscovery { target }
             | Self::StorageDevices { target, .. }
             | Self::StorageVolumes { target, .. }

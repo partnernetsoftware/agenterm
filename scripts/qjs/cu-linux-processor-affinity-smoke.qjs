@@ -1,0 +1,171 @@
+// CEO: Linux processor-affinity honesty with independent /proc/status read-back.
+// Acceptance is smoke read-back only: CU processor-affinity-status must agree with
+// Cpus_allowed_list from /proc/<pid>/status or taskset -p outside agenterm-cu.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-processor-affinity-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_processor_affinity_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_processor_affinity_reply_state");
+  return reply;
+}
+
+function independent_affinity(pid) {
+  const script = [
+    "import json, os, re, subprocess, sys",
+    "pid = int(sys.argv[1])",
+    "cpus = None",
+    "path = f'/proc/{pid}/status'",
+    "if os.path.exists(path):",
+    "    for line in open(path):",
+    "        if line.startswith('Cpus_allowed_list:'):",
+    "            raw = line.split(':', 1)[1].strip()",
+    "            if raw == '':",
+    "                cpus = []",
+    "            else:",
+    "                out = set()",
+    "                for part in raw.split(','):",
+    "                    part = part.strip()",
+    "                    if '-' in part:",
+    "                        start, end = part.split('-', 1)",
+    "                        out.update(range(int(start), int(end) + 1))",
+    "                    else:",
+    "                        out.add(int(part))",
+    "                cpus = sorted(out)",
+    "            break",
+    "if cpus is None:",
+    "    out = subprocess.run(['taskset', '-p', str(pid)], capture_output=True, text=True)",
+    "    if out.returncode != 0:",
+    "        print(json.dumps({'available': False, 'stderr': out.stderr.strip()}))",
+    "        sys.exit(0)",
+    "    match = re.search(r'affinity mask:\\s*([0-9a-fA-F]+)', out.stdout)",
+    "    if match is None:",
+    "        print(json.dumps({'available': False, 'stderr': out.stdout.strip()}))",
+    "        sys.exit(0)",
+    "    mask = int(match.group(1), 16)",
+    "    cpus = [bit for bit in range(1024) if mask & (1 << bit)]",
+    "print(json.dumps({'available': True, 'pid': pid, 'cpus': cpus}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid], { timeout_ms: 15000 });
+  ensure(output.success === true, "cu_linux_processor_affinity_probe:" + output.stderr);
+  const probe = JSON.parse(output.stdout.trim());
+  ensure(probe.available === true, "cu_linux_processor_affinity_probe_unavailable:" + output.stdout);
+  return probe;
+}
+
+function cu_cpus(reply) {
+  const rows = rh.field(rh.field(reply, "data"), "processors");
+  ensure(Array.isArray(rows), "cu_linux_processor_affinity_processors_shape");
+  const cpus = [];
+  for (let index = 0; index < rows.length; index = index + 1) {
+    const row = rows[index];
+    ensure(text_at(row, "group") === "0", "cu_linux_processor_affinity_group");
+    cpus.push(Number(text_at(row, "index")));
+  }
+  cpus.sort(function (left, right) { return left - right; });
+  return cpus;
+}
+
+function compare_sets(label, observed, expected) {
+  ensure(observed.length === expected.length,
+         label + "_length:cu=" + observed.length + ":probe=" + expected.length);
+  for (let index = 0; index < observed.length; index = index + 1) {
+    ensure(observed[index] === expected[index],
+           label + "_cpu_" + index + ":cu=" + observed[index] + ":probe=" + expected[index]);
+  }
+}
+
+function verify_reply(reply, probe) {
+  ensure(reply.command === "processor-affinity-status" && reply.target === "current",
+         "cu_linux_processor_affinity_identity");
+  ensure(text_at(reply, "data.atomic_snapshot") === "false",
+         "cu_linux_processor_affinity_atomic_snapshot");
+  ensure(text_at(reply, "data.semantics") === "scheduler-allowed",
+         "cu_linux_processor_affinity_semantics");
+  ensure(Number(text_at(reply, "data.pid")) === probe.pid,
+         "cu_linux_processor_affinity_pid");
+  compare_sets("cu_linux_processor_affinity_cpus", cu_cpus(reply), probe.cpus);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-processor-affinity");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP processor-affinity-status observe matches independent read-back");
+  const self_pid = rh.pid();
+  const self_probe = independent_affinity(self_pid);
+  const self_reply = invoke(context.run_directory, executable,
+    ["processor-affinity-status", "--pid", "" + self_pid], true);
+  verify_reply(self_reply, self_probe);
+
+  print("STEP spawn disposable child and verify --pid read-back");
+  const child = harness.start({
+    program: "sleep",
+    args: ["300"],
+    current_dir: context.run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  const hold_pid = harness.spawned_pid(child);
+  const child_reply = invoke(context.run_directory, executable,
+    ["processor-affinity-status", "--pid", "" + hold_pid], true);
+  const child_probe = independent_affinity(hold_pid);
+  verify_reply(child_reply, child_probe);
+  harness.kill(child);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-processor-affinity-readback");
+  harness.remove_run(context);
+  print("PASS: Linux processor-affinity-status matches independent /proc/status Cpus_allowed_list read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
