@@ -143,10 +143,17 @@ async fn connection(scope: ServiceScope) -> Result<Connection, ServiceError> {
         ServiceScope::System => Connection::system().await,
     };
     result.map_err(|error| {
-        ServiceError::new(
-            ServiceErrorKind::QueryFailed,
-            format!("could not connect to systemd D-Bus: {error}"),
-        )
+        if is_systemd_unavailable(&error) {
+            ServiceError::new(
+                ServiceErrorKind::Unsupported,
+                "systemd D-Bus is not available on this host",
+            )
+        } else {
+            ServiceError::new(
+                ServiceErrorKind::QueryFailed,
+                format!("could not connect to systemd D-Bus: {error}"),
+            )
+        }
     })
 }
 
@@ -312,10 +319,26 @@ fn validate_field(value: &str) -> Result<(), ServiceError> {
 }
 
 fn query_error(error: zbus::Error) -> ServiceError {
+    if is_systemd_unavailable(&error) {
+        return ServiceError::new(
+            ServiceErrorKind::Unsupported,
+            "systemd D-Bus manager is not available on this host",
+        );
+    }
     ServiceError::new(
         ServiceErrorKind::QueryFailed,
         format!("systemd D-Bus query failed: {error}"),
     )
+}
+
+fn is_systemd_unavailable(error: &zbus::Error) -> bool {
+    let text = error.to_string();
+    text.contains("ServiceUnknown")
+        || text.contains("Name has no owner")
+        || text.contains("Failed to connect to bus")
+        || text.contains("Failed to connect to address")
+        || text.contains("system_bus_socket")
+        || (text.contains("systemd1") && text.contains("not provided"))
 }
 
 fn is_no_such_unit(error: &zbus::Error) -> bool {

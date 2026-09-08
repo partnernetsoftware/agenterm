@@ -429,6 +429,12 @@
       ]
     },
     {
+      "id": "cu-linux-service-smoke",
+      "evidence": [
+        "cu.linux-service-readback"
+      ]
+    },
+    {
       "id": "cu-app-facts-smoke",
       "evidence": [
         "cu.app-facts.linux"

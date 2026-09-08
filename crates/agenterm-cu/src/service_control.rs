@@ -1156,8 +1156,10 @@ fn native_operation(operation: ServiceOperation) -> native::ServiceOperation {
 }
 
 fn platform_error(error: native::ServiceError) -> CuError {
+    if error.kind() == native::ServiceErrorKind::Unsupported {
+        return crate::host_limit::service_unsupported();
+    }
     let code = match error.kind() {
-        native::ServiceErrorKind::Unsupported => "service_unsupported",
         native::ServiceErrorKind::RequiresPrivilege => "service_requires_privilege",
         native::ServiceErrorKind::InvalidRequest => "service_request_invalid",
         native::ServiceErrorKind::InvalidNativeValue => "service_provider_shape",

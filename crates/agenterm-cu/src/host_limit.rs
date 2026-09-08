@@ -104,6 +104,50 @@ fn audio_unsupported_non_linux() -> CuError {
     )
 }
 
+pub(crate) fn service_unsupported() -> CuError {
+    #[cfg(target_os = "linux")]
+    {
+        return host_limit_error(
+            "service_unsupported",
+            format!(
+                "service inventory and status require Linux systemd D-Bus (org.freedesktop.systemd1); {} cannot reach that provider",
+                crate::mcu_surface::host_os()
+            ),
+            HostLimitDetail {
+                group: Some("system"),
+                provider: Some("none"),
+                required_os: Some("linux"),
+                mechanism: Some("systemd-dbus-manager"),
+                alternatives: &[
+                    "systemctl --user list-units --type=service (user scope when user systemd is running)",
+                    "systemctl list-units --type=service (system scope; may require privilege for some units)",
+                    "busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager ListUnits",
+                    "process-state / ps (process facts only; not unit inventory)",
+                ],
+            },
+        );
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        host_limit_error(
+            "service_unsupported",
+            format!(
+                "service inventory requires macOS launchctl or Linux systemd; {} has no mapped provider",
+                crate::mcu_surface::host_os()
+            ),
+            HostLimitDetail {
+                group: Some("system"),
+                provider: Some("none"),
+                required_os: None,
+                mechanism: Some("native-service-authority"),
+                alternatives: &[
+                    "process-state (host processes only; not service units)",
+                ],
+            },
+        )
+    }
+}
+
 pub(crate) fn login_session_unsupported() -> CuError {
     #[cfg(target_os = "linux")]
     {

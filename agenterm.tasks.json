@@ -1286,6 +1286,23 @@
         "task.cu-linux-login-session-smoke"
       ]
     },
+    "cu-linux-service-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-service-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-service-smoke"
+      ]
+    },
     "cu-linux-gtk-button-focus-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5228,6 +5245,24 @@
       "id": "cu-linux-login-session-smoke",
       "description": "Prove Linux login-session status matches independent loginctl/session-env read-back or returns typed systemd-logind unsupported honesty without macOS claims; no lock apply.",
       "entry": "scripts/qjs/cu-linux-login-session-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-service-smoke",
+      "description": "Prove Linux service list|status|system-list|system-status match independent systemctl or sd-bus probe read-back, or return typed service_unsupported with systemd alternatives; observe-only, no lifecycle mutation.",
+      "entry": "scripts/qjs/cu-linux-service-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
