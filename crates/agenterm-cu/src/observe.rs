@@ -1071,6 +1071,20 @@ pub fn windows_watch_interval_ms(duration_ms: u64, interval_ms: Option<u64>) -> 
     })
 }
 
+/// Case-insensitive substring match for native window titles. Uses Unicode
+/// case folding so GTK/Chromium titles match the same way as `windows
+/// --title` and CDP target filters.
+pub fn window_title_contains(haystack: &str, needle: &str) -> bool {
+    haystack.to_lowercase().contains(&needle.to_lowercase())
+}
+
+/// True when the host reported top-level windows but every title is empty.
+/// Some window managers (notably macOS) omit captions; title-based waits
+/// cannot succeed in that inventory.
+pub fn window_titles_unavailable(windows: &[WindowInfo]) -> bool {
+    !windows.is_empty() && windows.iter().all(|window| window.title.trim().is_empty())
+}
+
 /// The filter half of the `windows` inventory.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WindowFilter {
@@ -1105,10 +1119,7 @@ impl WindowFilter {
             return false;
         }
         if let Some(title) = &self.title
-            && !window
-                .title
-                .to_lowercase()
-                .contains(title.to_lowercase().as_str())
+            && !window_title_contains(&window.title, title)
         {
             return false;
         }
@@ -3241,6 +3252,50 @@ mod tests {
             minimized: false,
             maximized: false,
         }
+    }
+
+    #[test]
+    fn window_title_contains_is_unicode_case_insensitive() {
+        assert!(window_title_contains(
+            "Example Domain - Google Chrome",
+            "example domain"
+        ));
+        assert!(window_title_contains("Café menu", "café"));
+        assert!(!window_title_contains("menu-smoke-test", "NOPE"));
+    }
+
+    #[test]
+    fn window_titles_unavailable_requires_windows_with_only_empty_titles() {
+        assert!(!window_titles_unavailable(&[]));
+        assert!(!window_titles_unavailable(&[window(
+            1, 1, "app", "title", false
+        )]));
+        assert!(window_titles_unavailable(&[window(1, 1, "app", "", false)]));
+        assert!(window_titles_unavailable(&[
+            window(1, 1, "app", "   ", false),
+            window(2, 2, "other", "", false),
+        ]));
+    }
+
+    #[test]
+    fn windows_title_filter_uses_shared_title_matcher() {
+        let rows = vec![window(
+            1,
+            1,
+            "chrome",
+            "Example Domain - Google Chrome",
+            false,
+        )];
+        let filter = WindowFilter {
+            title: Some("example domain".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            inventory(&rows, &filter, Page::new(None, None).expect("page"))
+                .0
+                .len(),
+            1
+        );
     }
 
     #[test]

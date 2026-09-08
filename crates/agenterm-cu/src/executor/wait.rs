@@ -60,6 +60,11 @@ pub(super) fn wait(
     while Instant::now() < deadline {
         let windows =
             mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+        if matches!(condition, WaitCondition::WindowTitleContains { .. })
+            && observe::window_titles_unavailable(&windows)
+        {
+            return Err(window_titles_unavailable_error(windows.len()));
+        }
         last_observation = serde_json::json!({ "window_count": windows.len(), "windows": windows });
         if condition_met(condition, &windows) {
             return Ok(serde_json::json!({
@@ -80,12 +85,9 @@ pub(super) fn wait(
 pub(super) fn condition_met(condition: &WaitCondition, windows: &[WindowInfo]) -> bool {
     match condition {
         WaitCondition::WindowCountGte { count } => windows.len() >= *count,
-        WaitCondition::WindowTitleContains { pattern } => {
-            let pat = pattern.to_ascii_lowercase();
-            windows
-                .iter()
-                .any(|window| window.title.to_ascii_lowercase().contains(&pat))
-        }
+        WaitCondition::WindowTitleContains { pattern } => windows
+            .iter()
+            .any(|window| observe::window_title_contains(&window.title, pattern)),
         WaitCondition::FocusedHandle { handle } => windows
             .iter()
             .any(|window| window.focused && window.handle == *handle),
@@ -412,6 +414,24 @@ pub(super) fn wait_expect(
     })))
 }
 
+fn window_titles_unavailable_error(window_count: usize) -> CuError {
+    CuError::new(
+        "unverified",
+        format!(
+            "window inventory reports {window_count} top-level window(s) but every title is empty; --window-title-contains cannot match"
+        ),
+    )
+    .with_detail(serde_json::json!({
+        "reason": "window_titles_unavailable",
+        "window_count": window_count,
+        "alternatives": [
+            "windows --pid / --app (resolve a handle without a title)",
+            "wait --focused-handle HANDLE",
+            "wait --node-name-contains PAT [--window HANDLE] (AT-SPI --name, not window title)",
+        ],
+    }))
+}
+
 fn require_complete_absence_observation(
     absent: bool,
     window: isize,
@@ -674,6 +694,56 @@ mod tests {
             assert_eq!(error.code, "foreground_changed");
             assert_eq!(error.detail.unwrap()["before"]["window"]["handle"], 7);
         }
+    }
+
+    #[test]
+    fn window_titles_unavailable_error_names_handle_and_name_alternatives() {
+        let error = window_titles_unavailable_error(3);
+        assert_eq!(error.code, "unverified");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["reason"], "window_titles_unavailable");
+        assert_eq!(detail["window_count"], 3);
+        let alternatives = detail["alternatives"].as_array().expect("alternatives");
+        assert!(
+            alternatives
+                .iter()
+                .any(|alt| alt.as_str().is_some_and(|s| s.contains("--focused-handle")))
+        );
+        assert!(alternatives.iter().any(|alt| {
+            alt.as_str()
+                .is_some_and(|s| s.contains("--node-name-contains"))
+        }));
+    }
+
+    #[test]
+    fn window_title_contains_matches_case_insensitively() {
+        let windows = vec![WindowInfo {
+            handle: 1,
+            title: "Example Domain - Google Chrome".into(),
+            process_id: 1,
+            app_name: "chrome".into(),
+            bounds: mechanism::window_enumerate::WindowBounds {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+            focused: false,
+            minimized: false,
+            maximized: false,
+        }];
+        assert!(condition_met(
+            &WaitCondition::WindowTitleContains {
+                pattern: "example domain".into(),
+            },
+            &windows,
+        ));
+        assert!(!condition_met(
+            &WaitCondition::WindowTitleContains {
+                pattern: "missing".into(),
+            },
+            &windows,
+        ));
     }
 
     #[test]
