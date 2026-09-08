@@ -15,6 +15,12 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+mod discovery;
+mod launch;
+
+pub use discovery::installed_catalog_apps;
+pub use launch::{LaunchPlan, open_launch_plan, window_matches_catalog_app};
+
 /// One Chromium-family application whose `Local State` this binary can
 /// read. `macos_dir` / `linux_dir` are relative to the platform's
 /// application-support root (`~/Library/Application Support` /
@@ -82,23 +88,47 @@ pub enum AppResolveError {
     Unsupported { requested: String },
     /// More than one catalog entry matched and none of them narrowed it.
     Ambiguous { candidates: Vec<&'static str> },
-    /// No `--app` and no catalog application has a window.
+    /// No `--app` and no catalog application is running or installed.
     NotRunning,
 }
 
 /// Resolve `--app SUB` against the catalog: exact (case-insensitive)
 /// first, then substring; a substring shared by several entries is
 /// narrowed to the ones currently running (`running` = distinct
-/// `app_name`s of the window inventory). Without `--app`, the one
-/// running catalog application wins; none running is `NotRunning`.
+/// `app_name`s of the window inventory) or, when none are running,
+/// to installed catalog applications (`installed`). Without `--app`,
+/// the one running catalog application wins, then the one installed
+/// application, else `NotRunning`.
 pub fn resolve_app(
     requested: Option<&str>,
     running: &[String],
 ) -> Result<&'static BrowserApp, AppResolveError> {
-    let is_running = |app: &BrowserApp| running.iter().any(|name| name == app.name);
+    resolve_app_with_installed(requested, running, &[])
+}
+
+pub fn resolve_app_with_installed(
+    requested: Option<&str>,
+    running: &[String],
+    installed: &[&'static BrowserApp],
+) -> Result<&'static BrowserApp, AppResolveError> {
+    let running_apps = launch::running_catalog_apps(running);
+    let is_running =
+        |app: &BrowserApp| running_apps.iter().any(|candidate| candidate.name == app.name);
+    let is_installed =
+        |app: &BrowserApp| installed.iter().any(|candidate| candidate.name == app.name);
+    let is_available = |app: &BrowserApp| is_running(app) || is_installed(app);
     let Some(requested) = requested.map(str::trim).filter(|s| !s.is_empty()) else {
-        let up: Vec<&'static BrowserApp> = APPS.iter().filter(|app| is_running(app)).collect();
-        return match up.as_slice() {
+        if !running_apps.is_empty() {
+            return match running_apps.as_slice() {
+                [one] => Ok(one),
+                many => Err(AppResolveError::Ambiguous {
+                    candidates: many.iter().map(|app| app.name).collect(),
+                }),
+            };
+        }
+        let installed_up: Vec<&'static BrowserApp> =
+            APPS.iter().filter(|app| is_installed(app)).collect();
+        return match installed_up.as_slice() {
             [] => Err(AppResolveError::NotRunning),
             [one] => Ok(one),
             many => Err(AppResolveError::Ambiguous {
@@ -120,7 +150,7 @@ pub fn resolve_app(
         }),
         [one] => Ok(one),
         many => {
-            let up: Vec<&&'static BrowserApp> = many.iter().filter(|app| is_running(app)).collect();
+            let up: Vec<&&'static BrowserApp> = many.iter().filter(|app| is_available(app)).collect();
             match up.as_slice() {
                 [one] => Ok(one),
                 _ => Err(AppResolveError::Ambiguous {
@@ -284,7 +314,7 @@ pub fn validate_url(url: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    const FIXTURE: &str = include_str!("../tests/fixtures/local_state.json");
+    const FIXTURE: &str = include_str!("../../tests/fixtures/local_state.json");
 
     fn fixture() -> Vec<ProfileEntry> {
         parse_local_state(&serde_json::from_str(FIXTURE).expect("fixture json")).expect("parse")
@@ -390,6 +420,14 @@ mod tests {
             Err(AppResolveError::Ambiguous {
                 candidates: vec!["Brave Origin", "Google Chrome"]
             })
+        );
+        assert_eq!(
+            resolve_app_with_installed(None, &[], &[&APPS[2]]).unwrap().name,
+            "Google Chrome"
+        );
+        assert_eq!(
+            resolve_app_with_installed(Some("Brave"), &[], &[&APPS[1]]).unwrap().name,
+            "Brave Browser"
         );
     }
 

@@ -38,11 +38,11 @@ impl ProfileWindow {
 }
 
 /// Every window of `app` that carries a profile name, in inventory order.
-pub(super) fn profile_windows(app: &str) -> Result<Vec<ProfileWindow>, CuError> {
+pub(super) fn profile_windows(app: &BrowserApp) -> Result<Vec<ProfileWindow>, CuError> {
     let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     Ok(windows
         .iter()
-        .filter(|window| window.app_name == app)
+        .filter(|window| profiles::window_matches_catalog_app(&window.app_name, app))
         .filter_map(|window| {
             window_browser_profile(window).map(|profile| ProfileWindow {
                 handle: window.handle,
@@ -67,7 +67,9 @@ fn running_app_names() -> Result<Vec<String>, CuError> {
 
 fn resolve_app(requested: Option<&str>) -> Result<&'static BrowserApp, CuError> {
     let running = running_app_names()?;
-    profiles::resolve_app(requested, &running).map_err(|error| match error {
+    let home = home_dir()?;
+    let installed = profiles::installed_catalog_apps(&home);
+    profiles::resolve_app_with_installed(requested, &running, &installed).map_err(|error| match error {
         AppResolveError::Unsupported { requested } => CuError::new(
             "unsupported",
             format!(
@@ -87,15 +89,23 @@ fn resolve_app(requested: Option<&str>) -> Result<&'static BrowserApp, CuError> 
                 requested.map(|s| format!("{s:?}")).unwrap_or_else(|| "(none)".into())
             ),
         )
-        .with_detail(serde_json::json!({ "candidates": candidates, "running": running })),
+        .with_detail(serde_json::json!({
+            "candidates": candidates,
+            "running": running,
+            "installed": installed.iter().map(|app| app.name).collect::<Vec<_>>(),
+        })),
         AppResolveError::NotRunning => CuError::new(
             "browser_app_not_found",
             format!(
-                "no window of a supported browser is in the inventory; pass --app ({})",
+                "no supported browser is running or installed; pass --app ({})",
                 profiles::app_names().join(" | ")
             ),
         )
-        .with_detail(serde_json::json!({ "supported": profiles::app_names(), "running": running })),
+        .with_detail(serde_json::json!({
+            "supported": profiles::app_names(),
+            "running": running,
+            "installed": installed.iter().map(|app| app.name).collect::<Vec<_>>(),
+        })),
     })
 }
 
@@ -163,7 +173,7 @@ fn load_local_state(app: &BrowserApp) -> Result<LocalState, CuError> {
 pub(super) fn browser_profiles_payload(app: Option<&str>) -> Result<serde_json::Value, CuError> {
     let app = resolve_app(app)?;
     let state = load_local_state(app)?;
-    let windows = profile_windows(app.name)?;
+    let windows = profile_windows(app)?;
     let rows: Vec<serde_json::Value> = state
         .entries
         .iter()
@@ -263,19 +273,12 @@ pub(super) fn browser_open_payload(
             wanted
         }
     };
-    if !cfg!(target_os = "macos") {
-        return Err(CuError::new(
-            "unsupported",
-            "browser open launches through macOS `open -na <app> --args --profile-directory=...`; not mapped on this OS",
-        )
-        .with_detail(serde_json::json!({ "os": crate::mcu_surface::host_os() })));
-    }
     let app = resolve_app(app)?;
     let state = load_local_state(app)?;
     let entry = profiles::resolve_profile(&state.entries, profile)
         .map_err(|error| profile_error(error, profile, &state.entries))?
         .clone();
-    let before: Vec<ProfileWindow> = profile_windows(app.name)?
+    let before: Vec<ProfileWindow> = profile_windows(app)?
         .into_iter()
         .filter(|window| window.profile == entry.name)
         .collect();
@@ -290,7 +293,13 @@ pub(super) fn browser_open_payload(
                 .map(|tree| (window.handle, TabRow::from_tree(&tree)))
         })
         .collect();
-    let argv = profiles::open_argv(app, &entry.directory, url);
+    let launch = profiles::open_launch_plan(app, &entry.directory, url).map_err(|message| {
+        CuError::new("unsupported", message).with_detail(serde_json::json!({
+            "os": crate::mcu_surface::host_os(),
+            "app": app.name,
+        }))
+    })?;
+    let argv = launch.argv;
     // The reply's `created` field says which of the two postconditions
     // can close the loop: a new window of the profile, or (a URL into a
     // profile that already has a window) that window's title changing.
@@ -304,19 +313,20 @@ pub(super) fn browser_open_payload(
             "profile": entry.json(),
             "url": url,
             "argv": argv,
+            "mechanism": launch.mechanism,
             "postcondition": if expect_title_change { "profile window appears or an existing one's title changes" } else { "profile window appears" },
             "before": before_json,
             "timeout_ms": timeout.as_millis() as u64,
         }),
     )?;
     let started = Instant::now();
-    let launch = std::process::Command::new(&argv[0])
+    let launch_output = std::process::Command::new(&argv[0])
         .args(&argv[1..])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .output();
-    let launch_error = match launch {
+    let launch_error = match launch_output {
         Ok(output) if output.status.success() => None,
         Ok(output) => Some(CuError::new(
             "browser_open_failed",
@@ -338,7 +348,7 @@ pub(super) fn browser_open_payload(
     if launch_error.is_none() {
         loop {
             polls += 1;
-            match profile_windows(app.name) {
+            match profile_windows(app) {
                 Ok(now) => {
                     let now: Vec<ProfileWindow> = now
                         .into_iter()
@@ -420,7 +430,7 @@ pub(super) fn browser_open_payload(
     )?;
     let receipt = serde_json::json!({
         "addressing": "browser-profile",
-        "mechanism": "open -na",
+        "mechanism": launch.mechanism,
         "app": app.name,
         "profile": entry.json(),
         "url": url,
