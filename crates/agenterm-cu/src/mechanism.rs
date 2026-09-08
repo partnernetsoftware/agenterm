@@ -1007,6 +1007,8 @@ pub mod input_inject {
 // Screenshots.
 // ---------------------------------------------------------------------------
 
+mod display_screenshot;
+
 pub mod screenshot {
     use std::ffi::CString;
     use std::path::Path;
@@ -1129,6 +1131,13 @@ pub mod screenshot {
     /// Read the width/height from a PNG file's IHDR (fixed offset 16..24).
     /// Returns `(0, 0)` when the header cannot be read — the capture itself
     /// already succeeded, so a broken header must not fail the command.
+    /// Capture the host's primary display when `screenshot` omits `--window`.
+    pub fn capture_native_display_png(
+        path: &Path,
+    ) -> Result<ScreenshotWriteResult, MechanismError> {
+        super::display_screenshot::capture_native_display_png(path)
+    }
+
     fn png_dimensions(path: &Path) -> (u32, u32) {
         let mut header = [0u8; 24];
         let Ok(mut file) = std::fs::File::open(path) else {
@@ -2503,6 +2512,14 @@ type InputTypeText = unsafe extern "C" fn(*const u8, usize) -> i32;
 type InputSendKeys = unsafe extern "C" fn(*const u8, usize) -> i32;
 type CaptureWindow =
     unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, i32, i32, i32, i32) -> i32;
+#[cfg(target_os = "macos")]
+type ScreenshotWritePng = unsafe extern "C" fn(
+    *const std::ffi::c_char,
+    *const u32,
+    usize,
+    u32,
+    u32,
+) -> i32;
 type DrainBus = unsafe extern "C" fn() -> i32;
 type LastTextWriteVia = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type TreeSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;

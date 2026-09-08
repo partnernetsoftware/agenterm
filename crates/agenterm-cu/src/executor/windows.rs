@@ -889,18 +889,29 @@ pub(super) fn screenshot(path: &str, window: Option<isize>) -> Result<serde_json
     if path.is_empty() {
         return Err(CuError::new("invalid_input", "screenshot path is required"));
     }
-    let raw = window.unwrap_or(0);
-    if raw == 0 {
-        return Err(CuError::new(
-            "invalid_input",
-            "screenshot window handle must be non-zero",
-        ));
-    }
-    let result = mechanism::screenshot::capture_native_window_png(raw, std::path::Path::new(path))
-        .map_err(map_mechanism_err)?;
+    let path_ref = std::path::Path::new(path);
+    let (result, via) = match window {
+        Some(raw) if raw == 0 => {
+            return Err(CuError::new(
+                "invalid_input",
+                "screenshot window handle must be non-zero",
+            ));
+        }
+        Some(raw) => (
+            mechanism::screenshot::capture_native_window_png(raw, path_ref)
+                .map_err(map_mechanism_err)?,
+            "window-capture",
+        ),
+        None => (
+            mechanism::screenshot::capture_native_display_png(path_ref)
+                .map_err(map_mechanism_err)?,
+            "display-capture",
+        ),
+    };
     Ok(serde_json::json!({
         "path": path,
         "window": window,
+        "via": via,
         "output_width": result.output_width,
         "output_height": result.output_height,
         "output_pixels": result.output_pixels,
