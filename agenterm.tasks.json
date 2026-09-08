@@ -2545,6 +2545,23 @@
         "task.cu-linux-network-dns-smoke"
       ]
     },
+    "cu-linux-network-probe-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-network-probe-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-network-probe-smoke"
+      ]
+    },
     "cu-linux-proxy-env-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -6415,6 +6432,25 @@
       "id": "cu-linux-network-dns-smoke",
       "description": "Prove Linux network-dns observe matches independent /etc/resolv.conf or resolvectl read-back for resolvers, search domains and coverage; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-network-dns-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-network-probe-smoke",
+      "description": "Prove Linux network-probe resolve-once and bounded TCP reachability match independent getent/getaddrinfo and python socket read-back for loopback reachable and closed-port failure; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-network-probe-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

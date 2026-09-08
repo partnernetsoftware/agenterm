@@ -1,0 +1,351 @@
+// CEO: Linux network-probe honesty with independent getent/getaddrinfo and
+// python socket TCP read-back. Acceptance is smoke read-back only: CU
+// resolve-once plus bounded TCP reachability must agree with an independent
+// probe for the same host/port (reachable listener and closed-port failure).
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-network-probe-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function int_at(value, dotted) {
+  return rh.int_of(rh.field(value, dotted));
+}
+
+function flag_at(value, dotted) {
+  return rh.field(value, dotted) === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_network_probe_exit:" + output.exit_code + ":" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_linux_network_probe_reply:" + output.stdout);
+  return reply;
+}
+
+function independent_resolve(host, port) {
+  const script = [
+    "import json, socket, subprocess, sys",
+    "host, port = sys.argv[1], int(sys.argv[2])",
+    "def family_name(sock_family):",
+    "    return 'ipv4' if sock_family == socket.AF_INET else 'ipv6'",
+    "def resolve_getent(name):",
+    "    out = subprocess.run(['getent', 'hosts', name], capture_output=True, text=True)",
+    "    if out.returncode != 0:",
+    "        return []",
+    "    rows = []",
+    "    for line in out.stdout.splitlines():",
+    "        parts = line.split()",
+    "        if len(parts) >= 1:",
+    "            rows.append(parts[0])",
+    "    return rows",
+    "def resolve_getaddrinfo(name, port):",
+    "    seen = set()",
+    "    rows = []",
+    "    for entry in socket.getaddrinfo(name, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP):",
+    "        addr = entry[4][0]",
+    "        family = family_name(entry[0])",
+    "        key = (addr, family)",
+    "        if key in seen:",
+    "            continue",
+    "        seen.add(key)",
+    "        rows.append({'address': addr, 'family': family})",
+    "    return rows",
+    "resolved = resolve_getaddrinfo(host, port)",
+    "if not resolved:",
+    "    raise SystemExit('independent_resolve_empty')",
+    "print(json.dumps({",
+    "    'getent_addresses': resolve_getent(host),",
+    "    'resolved_addresses': resolved,",
+    "    'address_count': len(resolved),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, host, "" + port], { timeout_ms: 30000 });
+  ensure(output.success === true, "cu_linux_network_probe_independent_resolve:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function independent_tcp_probe(host, port, attempts, timeout_ms) {
+  const script = [
+    "import json, socket, sys",
+    "host, port, attempts, timeout_ms = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])",
+    "def family_name(sock_family):",
+    "    return 'ipv4' if sock_family == socket.AF_INET else 'ipv6'",
+    "def resolve_getaddrinfo(name, port):",
+    "    seen = set()",
+    "    rows = []",
+    "    for entry in socket.getaddrinfo(name, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP):",
+    "        addr = entry[4][0]",
+    "        family = family_name(entry[0])",
+    "        key = (addr, family)",
+    "        if key in seen:",
+    "            continue",
+    "        seen.add(key)",
+    "        rows.append({'address': addr, 'family': family})",
+    "    return rows",
+    "def tcp_outcome(address, family, port, timeout_ms):",
+    "    sock_family = socket.AF_INET if family == 'ipv4' else socket.AF_INET6",
+    "    sock = socket.socket(sock_family, socket.SOCK_STREAM)",
+    "    sock.settimeout(timeout_ms / 1000.0)",
+    "    try:",
+    "        sock.connect((address, port))",
+    "        sock.close()",
+    "        return 'connected'",
+    "    except socket.timeout:",
+    "        return 'timeout'",
+    "    except ConnectionRefusedError:",
+    "        return 'refused'",
+    "    except OSError:",
+    "        return 'unreachable'",
+    "resolved = resolve_getaddrinfo(host, port)",
+    "if not resolved:",
+    "    raise SystemExit('independent_resolve_empty')",
+    "attempt_rows = []",
+    "connected = 0",
+    "for index in range(attempts):",
+    "    row = resolved[index % len(resolved)]",
+    "    outcome = tcp_outcome(row['address'], row['family'], port, timeout_ms)",
+    "    if outcome == 'connected':",
+    "        connected += 1",
+    "    attempt_rows.append({",
+    "        'attempt': index + 1,",
+    "        'address': row['address'],",
+    "        'family': row['family'],",
+    "        'outcome': outcome,",
+    "    })",
+    "print(json.dumps({",
+    "    'resolved_addresses': resolved,",
+    "    'address_count': len(resolved),",
+    "    'attempt_count': attempts,",
+    "    'connected_count': connected,",
+    "    'unreachable_count': attempts - connected,",
+    "    'status': 'reachable' if connected > 0 else 'unreachable',",
+    "    'attempts': attempt_rows,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", [
+    "-c", script, host, "" + port, "" + attempts, "" + timeout_ms
+  ], { timeout_ms: 30000 });
+  ensure(output.success === true, "cu_linux_network_probe_independent_tcp:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function sorted_address_keys(rows) {
+  const keys = [];
+  for (let index = 0; index < rows.length; index = index + 1) {
+    const row = rows[index];
+    keys.push(text_at(row, "address") + "/" + text_at(row, "family"));
+  }
+  keys.sort();
+  return keys;
+}
+
+function assert_resolution_agreement(cu_data, independent) {
+  const cu_keys = sorted_address_keys(cu_data.resolved_addresses);
+  const independent_keys = sorted_address_keys(independent.resolved_addresses);
+  ensure(
+    JSON.stringify(cu_keys) === JSON.stringify(independent_keys),
+    "cu_linux_network_probe_resolve_mismatch:cu=" + JSON.stringify(cu_keys)
+      + ":independent=" + JSON.stringify(independent_keys)
+  );
+  if (independent.getent_addresses.length > 0) {
+    for (let index = 0; index < cu_data.resolved_addresses.length; index = index + 1) {
+      const address = text_at(cu_data.resolved_addresses[index], "address");
+      let found = false;
+      for (let getent_index = 0; getent_index < independent.getent_addresses.length; getent_index = getent_index + 1) {
+        if (independent.getent_addresses[getent_index] === address) { found = true; break; }
+      }
+      ensure(found, "cu_linux_network_probe_getent_mismatch:" + address);
+    }
+  }
+  ensure(
+    int_at(cu_data, "address_count") === int_at(independent, "address_count"),
+    "cu_linux_network_probe_address_count:" + JSON.stringify(cu_data)
+  );
+}
+
+function assert_tcp_agreement(cu_data, independent, expect_reachable) {
+  ensure(
+    int_at(cu_data, "attempt_count") === int_at(independent, "attempt_count")
+      && int_at(cu_data, "connected_count") === int_at(independent, "connected_count")
+      && int_at(cu_data, "unreachable_count") === int_at(independent, "unreachable_count")
+      && text_at(cu_data, "status") === text_at(independent, "status"),
+    "cu_linux_network_probe_counts_mismatch:cu=" + JSON.stringify(cu_data)
+      + ":independent=" + JSON.stringify(independent)
+  );
+  ensure(
+    expect_reachable
+      ? text_at(cu_data, "status") === "reachable"
+      : text_at(cu_data, "status") === "unreachable",
+    "cu_linux_network_probe_status:" + text_at(cu_data, "status")
+  );
+  for (let index = 0; index < independent.attempts.length; index = index + 1) {
+    const independent_row = independent.attempts[index];
+    const cu_row = cu_data.attempts[index];
+    ensure(
+      int_at(cu_row, "attempt") === int_at(independent_row, "attempt")
+        && text_at(cu_row, "address") === text_at(independent_row, "address")
+        && text_at(cu_row, "family") === text_at(independent_row, "family")
+        && text_at(cu_row, "outcome") === text_at(independent_row, "outcome"),
+      "cu_linux_network_probe_attempt_mismatch:cu=" + JSON.stringify(cu_row)
+        + ":independent=" + JSON.stringify(independent_row)
+    );
+  }
+}
+
+function start_fixture(context, run_directory, executable, attempts, label) {
+  const stdout_path = rh.join(run_directory, label + ".stdout");
+  const stderr_path = rh.join(run_directory, label + ".stderr");
+  rh.try_remove_file(stdout_path);
+  rh.try_remove_file(stderr_path);
+  const child = harness.start_child(context, {
+    program: executable,
+    args: [
+      "--agenterm-cu-internal-network-probe-fixture",
+      "" + attempts,
+      "10000"
+    ],
+    current_dir: run_directory,
+    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+    stdout_path: stdout_path,
+    stderr_path: stderr_path,
+    timeout_ms: 30000
+  }, label);
+  let ready = null;
+  for (let poll = 0; poll < 400; poll = poll + 1) {
+    if (direct_file(stdout_path)) {
+      const text = rh.read_text(stdout_path).trim();
+      if (text.startsWith("{") && text.endsWith("}")) {
+        const candidate = JSON.parse(text);
+        if (int_at(candidate, "port") > 0) { ready = candidate; break; }
+      }
+    }
+    ensure(harness.child_state(child) !== "exited", "cu_linux_network_probe_fixture_early_exit:" + label);
+    harness.sleep_ms(10);
+  }
+  ensure(ready !== null, "cu_linux_network_probe_fixture_not_ready:" + label);
+  return { child: child, port: int_at(ready, "port"), stdout_path: stdout_path };
+}
+
+function reap_fixture(fixture, label) {
+  const output = harness.child_wait(fixture.child, 5000);
+  ensure(output.success === true, "cu_linux_network_probe_fixture_exit:" + label + ":" + JSON.stringify(output));
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-network-probe");
+const run_directory = context.run_directory;
+const owned_children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  const host = "127.0.0.1";
+  const timeout_ms = 500;
+  const reachable_attempts = 3;
+  const unreachable_attempts = 2;
+
+  print("STEP CU reachable observation against invocation-owned loopback listener");
+  const cu_fixture = start_fixture(context, run_directory, executable, reachable_attempts, "cu-listener");
+  owned_children.push(cu_fixture.child);
+  const cu_reachable = invoke(run_directory, executable, [
+    "network-probe", host,
+    "--port", "" + cu_fixture.port,
+    "--attempts", "" + reachable_attempts,
+    "--timeout-ms", "" + timeout_ms
+  ]);
+  ensure(
+    text_at(cu_reachable.data, "provider") === "system-resolver-owned-worker"
+      && flag_at(cu_reachable.data, "address_set_frozen")
+      && text_at(cu_reachable.data, "status") === "reachable",
+    "cu_linux_network_probe_cu_reachable:" + JSON.stringify(cu_reachable.data)
+  );
+  reap_fixture(cu_fixture, "cu-listener");
+
+  print("STEP independent getent/getaddrinfo resolution agrees with CU frozen address set");
+  const independent_resolve_closed = independent_resolve(host, cu_fixture.port);
+  assert_resolution_agreement(cu_reachable.data, independent_resolve_closed);
+
+  print("STEP independent python socket probe reaches its own listener with the same attempt semantics");
+  const independent_fixture = start_fixture(
+    context, run_directory, executable, reachable_attempts, "independent-listener"
+  );
+  owned_children.push(independent_fixture.child);
+  const independent_reachable = independent_tcp_probe(
+    host, independent_fixture.port, reachable_attempts, timeout_ms
+  );
+  ensure(text_at(independent_reachable, "status") === "reachable", "cu_linux_network_probe_independent_reachable");
+  assert_tcp_agreement(cu_reachable.data, independent_reachable, true);
+  reap_fixture(independent_fixture, "independent-listener");
+
+  print("STEP CU and independent closed-port unreachable observations agree on the same port");
+  const closed_port = cu_fixture.port;
+  const cu_unreachable = invoke(run_directory, executable, [
+    "network-probe", host,
+    "--port", "" + closed_port,
+    "--attempts", "" + unreachable_attempts,
+    "--timeout-ms", "" + timeout_ms
+  ]);
+  const independent_unreachable = independent_tcp_probe(
+    host, closed_port, unreachable_attempts, timeout_ms
+  );
+  assert_resolution_agreement(cu_unreachable.data, independent_resolve(host, closed_port));
+  assert_tcp_agreement(cu_unreachable.data, independent_unreachable, false);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, owned_children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-network-probe-readback");
+  harness.remove_run(context);
+  print("PASS: Linux network-probe matches independent getent/getaddrinfo and python socket TCP read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
