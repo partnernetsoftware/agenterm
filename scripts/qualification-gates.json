@@ -323,6 +323,10 @@
       "evidence": ["cu.desktop-state"]
     },
     {
+      "id": "cu-linux-desktop-state-smoke",
+      "evidence": ["cu.linux-desktop-state"]
+    },
+    {
       "id": "cu-app-facts-smoke",
       "evidence": ["cu.app-facts.linux"]
     },
