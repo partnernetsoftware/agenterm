@@ -5242,6 +5242,24 @@
       ]
     },
     {
+      "id": "cu-linux-process-fds-smoke",
+      "description": "Prove Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-fds-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-process-sockets-smoke",
       "description": "Prove Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-process-sockets-smoke.qjs",
