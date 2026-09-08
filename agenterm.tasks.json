@@ -984,6 +984,24 @@
         "task.cu-linux-window-title-contains-smoke"
       ]
     },
+    "cu-linux-windows-inventory-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-windows-inventory-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-windows-inventory-smoke"
+      ]
+    },
     "cu-linux-raise-activate-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5108,6 +5126,26 @@
       "id": "cu-linux-window-title-contains-smoke",
       "description": "Prove Linux wait --window-title-contains matches Unicode GTK titles with case folding, unmet titles exit nonzero, and independent windows inventory title read-back; observe only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-window-title-contains-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-windows-inventory-smoke",
+      "description": "Prove Linux windows top-level inventory pid, title and app_name match independent EWMH/xdotool/AT-SPI read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-windows-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

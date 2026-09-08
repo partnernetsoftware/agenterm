@@ -72,6 +72,7 @@
       "evidence_ids": [
         "cu.linux-atspi-capabilities",
         "cu.linux-atspi-window-identity",
+        "cu.linux-windows-inventory-readback",
         "cu.linux-process-state",
         "cu.linux-process-state-readback",
         "cu.linux-process-signal-readback",

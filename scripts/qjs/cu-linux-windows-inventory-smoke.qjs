@@ -1,0 +1,436 @@
+// CEO: Linux windows inventory honesty with independent xdotool/xprop/AT-SPI read-back.
+// Acceptance is smoke read-back only: CU windows top-level rows must agree with
+// pid, title and app_name facts derived outside agenterm-cu from the same EWMH
+// client-list semantics the Linux adapter uses. No --coords or screenshot
+// degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-windows-inventory-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function flag_at(value, dotted) { return rh.field(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function probe_script() {
+  return [
+    "import json, os, re, subprocess, sys",
+    "from pathlib import Path",
+    "",
+    "def run(argv):",
+    "    return subprocess.run(argv, capture_output=True, text=True, env=os.environ)",
+    "",
+    "def tool_available(name):",
+    "    return run(['sh', '-c', f'command -v {name}']).returncode == 0",
+    "",
+    "def parse_client_list():",
+    "    result = run(['xprop', '-root', '_NET_CLIENT_LIST'])",
+    "    if result.returncode != 0:",
+    "        return None, 'xprop_client_list_failed'",
+    "    match = re.search(r'window id # (.*)$', result.stdout)",
+    "    if not match:",
+    "        return [], None",
+    "    ids = []",
+    "    for token in match.group(1).split(','):",
+    "        token = token.strip()",
+    "        if token.startswith('0x'):",
+    "            ids.append(int(token, 16))",
+    "        elif token.isdigit():",
+    "            ids.append(int(token))",
+    "    return ids, None",
+    "",
+    "def window_hidden(wid):",
+    "    result = run(['xprop', '-id', str(wid), '_NET_WM_STATE'])",
+    "    if result.returncode != 0:",
+    "        return False",
+    "    return '_NET_WM_STATE_HIDDEN' in result.stdout",
+    "",
+    "def window_map_state(wid):",
+    "    result = run(['xwininfo', '-id', str(wid)])",
+    "    if result.returncode != 0:",
+    "        return None",
+    "    for line in result.stdout.splitlines():",
+    "        if 'Map State:' in line:",
+    "            return line.split(':', 1)[1].strip()",
+    "    return None",
+    "",
+    "def xprop_title(wid):",
+    "    modern = run(['xprop', '-id', str(wid), '_NET_WM_NAME'])",
+    "    if modern.returncode == 0:",
+    "        match = re.search(r'_NET_WM_NAME\\(UTF8_STRING\\) = \"(.*)\"$', modern.stdout)",
+    "        if match and match.group(1):",
+    "            return match.group(1)",
+    "    legacy = run(['xprop', '-id', str(wid), 'WM_NAME'])",
+    "    if legacy.returncode == 0:",
+    "        match = re.search(r'WM_NAME\\(STRING\\) = \"(.*)\"$', legacy.stdout)",
+    "        if match:",
+    "            return match.group(1)",
+    "    return ''",
+    "",
+    "def xprop_pid(wid):",
+    "    result = run(['xprop', '-id', str(wid), '_NET_WM_PID'])",
+    "    if result.returncode != 0:",
+    "        return None",
+    "    match = re.search(r'_NET_WM_PID\\(CARDINAL\\) = (\\d+)', result.stdout)",
+    "    if not match:",
+    "        return None",
+    "    return int(match.group(1))",
+    "",
+    "def xdotool_title(wid):",
+    "    result = run(['xdotool', 'getwindowname', str(wid)])",
+    "    if result.returncode != 0:",
+    "        return None",
+    "    title = result.stdout.strip()",
+    "    return title if title else None",
+    "",
+    "def xdotool_pid(wid):",
+    "    result = run(['xdotool', 'getwindowpid', str(wid)])",
+    "    if result.returncode != 0:",
+    "        return None",
+    "    text = result.stdout.strip()",
+    "    if not text.isdigit():",
+    "        return None",
+    "    return int(text)",
+    "",
+    "def proc_comm(pid):",
+    "    if pid <= 0:",
+    "        return ''",
+    "    path = Path(f'/proc/{pid}/comm')",
+    "    try:",
+    "        return path.read_text(encoding='utf-8').strip()",
+    "    except OSError:",
+    "        return ''",
+    "",
+    "def atspi_apps():",
+    "    try:",
+    "        import gi",
+    "        gi.require_version('Atspi', '2.0')",
+    "        from gi.repository import Atspi",
+    "    except Exception:",
+    "        return None",
+    "    try:",
+    "        Atspi.init()",
+    "    except Exception:",
+    "        return None",
+    "    apps = {}",
+    "    desktop = Atspi.get_desktop(0)",
+    "    for index in range(desktop.get_child_count()):",
+    "        app = desktop.get_child_at_index(index)",
+    "        if app is None:",
+    "            continue",
+    "        try:",
+    "            pid = app.get_process_id()",
+    "        except Exception:",
+    "            continue",
+    "        if pid <= 0:",
+    "            continue",
+    "        name = app.get_name() or ''",
+    "        apps[pid] = name",
+    "    return apps",
+    "",
+    "def inventory():",
+    "    missing = []",
+    "    for tool in ('xprop', 'xwininfo', 'xdotool'):",
+    "        if not tool_available(tool):",
+    "            missing.append(tool)",
+    "    if missing:",
+    "        return {'available': False, 'reason': 'missing_tools:' + ','.join(missing)}",
+    "    ids, error = parse_client_list()",
+    "    if error is not None:",
+    "        return {'available': False, 'reason': error}",
+    "    atspi = atspi_apps()",
+    "    rows = {}",
+    "    for wid in ids:",
+    "        state = window_map_state(wid)",
+    "        hidden = window_hidden(wid)",
+    "        if state != 'IsViewable' and not hidden:",
+    "            continue",
+    "        pid = xprop_pid(wid)",
+    "        title = xprop_title(wid)",
+    "        app_name = proc_comm(pid or 0)",
+    "        xdot_pid = xdotool_pid(wid)",
+    "        xdot_title = xdotool_title(wid)",
+    "        if pid is not None and xdot_pid is not None and pid != xdot_pid:",
+    "            return {'available': False, 'reason': f'pid_mismatch:{wid}:{pid}:{xdot_pid}'}",
+    "        if title and xdot_title is not None and title != xdot_title:",
+    "            return {'available': False, 'reason': f'title_mismatch:{wid}:{title}:{xdot_title}'}",
+    "        atspi_name = None",
+    "        if atspi is not None and pid is not None:",
+    "            atspi_name = atspi.get(pid)",
+    "        rows[str(wid)] = {",
+    "            'handle': wid,",
+    "            'process_id': pid or 0,",
+    "            'title': title,",
+    "            'app_name': app_name,",
+    "            'atspi_app_name': atspi_name,",
+    "            'minimized': hidden,",
+    "        }",
+    "    return {",
+    "        'available': True,",
+    "        'provider': 'linux-x11-ewmh-xdotool-atspi',",
+    "        'windows': rows,",
+    "    }",
+    "",
+    "print(json.dumps(inventory()))",
+  ].join("\n");
+}
+
+function independent_probe(run_directory) {
+  const output = rh.command("python3", ["-c", probe_script()], {
+    cwd: run_directory,
+    env: cu_env(""),
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true, "cu_linux_windows_inventory_probe:" + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function invoke_windows(run_directory, executable, arguments) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true, "cu_linux_windows_inventory_invoke:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true && reply.command === "windows",
+         "cu_linux_windows_inventory_reply:" + output.stdout.trim());
+  const data = reply.data;
+  if (Array.isArray(data)) { return data; }
+  return data.windows || [];
+}
+
+function fetch_inventory(run_directory, executable) {
+  return invoke_windows(run_directory, executable, ["windows"]);
+}
+
+function row_key(row) {
+  return parseInt(text_at(row, "handle"), 10);
+}
+
+function intersect_probe(left, right) {
+  const stable = {};
+  const keys = Object.keys(left);
+  for (let index = 0; index < keys.length; index = index + 1) {
+    const handle = keys[index];
+    const right_row = right[handle];
+    const left_row = left[handle];
+    if (right_row === undefined) { continue; }
+    if (right_row.process_id !== left_row.process_id) { continue; }
+    if (right_row.title !== left_row.title) { continue; }
+    if (right_row.app_name !== left_row.app_name) { continue; }
+    stable[handle] = left_row;
+  }
+  return stable;
+}
+
+function compare_inventory(probe, inventory, label) {
+  const by_handle = {};
+  for (let index = 0; index < inventory.length; index = index + 1) {
+    const row = inventory[index];
+    const handle = row_key(row);
+    ensure(by_handle[handle] === undefined, label + ":duplicate:" + handle);
+    by_handle[handle] = row;
+  }
+  const probe_keys = Object.keys(probe);
+  for (let index = 0; index < probe_keys.length; index = index + 1) {
+    const handle = probe_keys[index];
+    const expected = probe[handle];
+    const row = by_handle[parseInt(handle, 10)];
+    ensure(row !== undefined, label + ":missing:" + handle);
+    ensure(parseInt(text_at(row, "process_id"), 10) === expected.process_id,
+           label + ":process_id:" + handle);
+    ensure(text_at(row, "title") === expected.title,
+           label + ":title:" + handle + ":" + text_at(row, "title"));
+    ensure(text_at(row, "app_name") === expected.app_name,
+           label + ":app_name:" + handle + ":" + text_at(row, "app_name"));
+    if (expected.minimized === true) {
+      ensure(flag_at(row, "minimized") === true, label + ":minimized:" + handle);
+    }
+  }
+}
+
+function verify_inventory_with_retry(run_directory, executable) {
+  let last_error = "";
+  for (let attempt = 0; attempt < 2; attempt = attempt + 1) {
+    const before = independent_probe(run_directory);
+    ensure(before.available === true, "cu_linux_windows_inventory_probe_unavailable:" + before.reason);
+    const inventory = fetch_inventory(run_directory, executable);
+    const after = independent_probe(run_directory);
+    ensure(after.available === true, "cu_linux_windows_inventory_probe_unavailable:" + after.reason);
+    const stable = intersect_probe(before.windows, after.windows);
+    try {
+      compare_inventory(stable, inventory, "cu_linux_windows_inventory");
+      return;
+    } catch (error) {
+      last_error = "" + error;
+    }
+  }
+  throw last_error;
+}
+
+function verify_fixture_filter(run_directory, executable, pid, title) {
+  const rows = invoke_windows(run_directory, executable, [
+    "windows", "--pid", "" + pid, "--title", title,
+  ]);
+  ensure(rows.length === 1, "cu_linux_windows_inventory_fixture_filter_shape");
+  const row = rows[0];
+  ensure(parseInt(text_at(row, "process_id"), 10) === pid,
+         "cu_linux_windows_inventory_fixture_pid");
+  ensure(text_at(row, "title") === title,
+         "cu_linux_windows_inventory_fixture_title");
+  ensure(text_at(row, "app_name") === "python3",
+         "cu_linux_windows_inventory_fixture_app:" + text_at(row, "app_name"));
+}
+
+function fixture_env(executable) {
+  const env = cu_env(executable);
+  env.GTK_MODULES = "gail:atk-bridge";
+  return env;
+}
+
+function wait_for_fixture_window(run_directory, executable, pid, title) {
+  for (let attempt = 0; attempt < 300; attempt = attempt + 1) {
+    const rows = invoke_windows(run_directory, executable, ["windows", "--pid", "" + pid]);
+    for (let index = 0; index < rows.length; index = index + 1) {
+      if (text_at(rows[index], "title") === title) {
+        return rows[index];
+      }
+    }
+    harness.sleep_ms(50);
+  }
+  throw "cu_linux_windows_inventory_fixture_not_ready";
+}
+
+function verify_unavailable(run_directory, executable, reason) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe", "windows",
+  ], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  const trimmed = output.stdout.trim();
+  if (output.success === true) {
+    const reply = JSON.parse(trimmed);
+    ensure(reply.ok === true, "cu_linux_windows_inventory_false_unavailable");
+    return;
+  }
+  ensure(trimmed !== "", "cu_linux_windows_inventory_unavailable_empty");
+  const reply = JSON.parse(trimmed);
+  ensure(reply.ok !== true, "cu_linux_windows_inventory_false_available:" + reason);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-windows-inventory");
+const run_directory = context.run_directory;
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source),
+  "cu_linux_windows_inventory_fixture_missing:" + fixture_source);
+
+const initial_probe = independent_probe(run_directory);
+if (initial_probe.available !== true) {
+  print("STEP typed gap when independent xdotool/xprop probe cannot enumerate windows");
+  verify_unavailable(run_directory, executable, initial_probe.reason);
+  harness.emit_evidence(context, declared_evidence, "cu.linux-windows-inventory-readback");
+  harness.remove_run(context);
+  print("PASS: CEO Linux windows inventory typed gap with independent probe absence read-back");
+  return;
+}
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP windows inventory matches independent EWMH/xdotool/AT-SPI read-back");
+  verify_inventory_with_retry(run_directory, executable);
+
+  print("STEP spawn disposable GTK fixture and verify --pid/--title filter read-back");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: fixture_env(executable),
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  wait_for_fixture_window(run_directory, executable, fixture_pid, fixture_title);
+  verify_fixture_filter(run_directory, executable, fixture_pid, fixture_title);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture >= 0) {
+  harness.kill(fixture);
+  harness.wait(fixture, 5000);
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-windows-inventory-readback");
+  harness.remove_run(context);
+  print("PASS: CEO Linux windows inventory matches independent pid/title/app read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

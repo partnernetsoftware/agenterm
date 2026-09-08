@@ -405,6 +405,12 @@
       ]
     },
     {
+      "id": "cu-linux-windows-inventory-smoke",
+      "evidence": [
+        "cu.linux-windows-inventory-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-usage-smoke",
       "evidence": [
         "cu.linux-process-usage-readback"
