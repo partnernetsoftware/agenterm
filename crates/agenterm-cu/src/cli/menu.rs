@@ -193,6 +193,40 @@ mod hyphen_alias_tests {
             } if path == ["File", "Quit"]
         ));
     }
+
+    #[test]
+    fn space_subcommand_parses_like_hyphen_entrypoints() {
+        let mut inspect_args = vec![
+            "inspect".into(),
+            "--window".into(),
+            "42".into(),
+            "--depth".into(),
+            "2".into(),
+        ];
+        assert!(matches!(
+            parse(TargetRef::Current, &mut inspect_args).unwrap(),
+            Command::MenuInspect {
+                window: 42,
+                depth: Some(2),
+                ..
+            }
+        ));
+        let mut invoke_args = vec![
+            "invoke".into(),
+            "--window".into(),
+            "42".into(),
+            "--path".into(),
+            "Help/About".into(),
+        ];
+        assert!(matches!(
+            parse(TargetRef::Current, &mut invoke_args).unwrap(),
+            Command::MenuInvoke {
+                window: 42,
+                path,
+                ..
+            } if path == ["Help", "About"]
+        ));
+    }
 }
 
 #[cfg(test)]

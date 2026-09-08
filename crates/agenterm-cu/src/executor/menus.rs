@@ -20,6 +20,109 @@ pub(super) fn menu_budget(
     })
 }
 
+const LINUX_MENU_UNAVAILABLE_ALTERNATIVES: &[&str] = &[
+    "launch the target with accessibility enabled (QT_ACCESSIBILITY=1; Chrome via scripts/box-chrome-a11y.sh --force-renderer-accessibility)",
+    "menu-inspect --window HANDLE on a GTK application that publishes an AT-SPI menu bar before menu-invoke",
+    "invoke --name on in-window controls when the application does not publish a menu bar",
+];
+
+fn linux_menu_unavailable_detail() -> serde_json::Value {
+    serde_json::json!({
+        "os": "linux",
+        "mechanism": "at-spi2-menu-bar",
+        "alternatives": LINUX_MENU_UNAVAILABLE_ALTERNATIVES,
+    })
+}
+
+fn menu_leaf_is_unsafe(title: &str) -> bool {
+    let normalized = title.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "quit"
+            | "exit"
+            | "close"
+            | "close window"
+            | "close tab"
+            | "kill"
+            | "delete"
+            | "remove"
+            | "log out"
+            | "logout"
+            | "sign out"
+            | "signout"
+            | "shut down"
+            | "shutdown"
+            | "restart"
+            | "power off"
+            | "discard"
+            | "empty trash"
+    )
+}
+
+fn enabled_leaf_paths(window: isize) -> Vec<String> {
+    let budget = mechanism::TreeBudget {
+        max_depth: Some(observe::menu_node_depth(observe::DEFAULT_MENU_DEPTH)),
+        max_nodes: Some(observe::DEFAULT_MENU_NODE_BUDGET),
+    };
+    let tree = mechanism::menu_tree_for_window_bounded(Some(window), budget);
+    let Ok(tree) = tree else {
+        return Vec::new();
+    };
+    observe::menu_items(&tree)
+        .into_iter()
+        .filter(|item| item.enabled && !item.has_submenu && !menu_leaf_is_unsafe(&item.title))
+        .map(|item| item.path.join("/"))
+        .collect()
+}
+
+fn enrich_linux_menu_err(error: CuError, window: Option<isize>) -> CuError {
+    if crate::mcu_surface::host_os() != "linux" {
+        return error;
+    }
+    match error.code.as_str() {
+        "a11y_menu_unavailable" => error.with_detail(linux_menu_unavailable_detail()),
+        "a11y_menu_item_not_found" | "a11y_menu_item_ambiguous" => {
+            let mut detail = error.detail.unwrap_or_else(|| serde_json::json!({}));
+            if let Some(object) = detail.as_object_mut() {
+                object.insert("os".into(), serde_json::json!("linux"));
+                if let Some(window) = window.filter(|handle| *handle != 0) {
+                    let alternatives = enabled_leaf_paths(window);
+                    if !alternatives.is_empty() {
+                        object.insert("alternatives".into(), serde_json::json!(alternatives));
+                        object.insert(
+                            "hint".into(),
+                            serde_json::json!(
+                                "no exact enabled leaf matched; choose one of the published paths in alternatives"
+                            ),
+                        );
+                    }
+                }
+            }
+            CuError::new(error.code, error.message).with_detail(detail)
+        }
+        _ => error,
+    }
+}
+
+fn menu_invoke_unsupported(window: isize, path: &[String]) -> CuError {
+    let leaf = path.last().map(String::as_str).unwrap_or_default();
+    let alternatives = enabled_leaf_paths(window);
+    CuError::new(
+        "menu_invoke_unsupported",
+        format!(
+            "menu invoke refuses destructive or session-ending menu path {leaf:?}; choose a safe enabled leaf instead"
+        ),
+    )
+    .with_detail(serde_json::json!({
+        "os": "linux",
+        "effect": "not_performed",
+        "path": path,
+        "unsafe_segment": leaf,
+        "alternatives": alternatives,
+        "hint": "menu invoke only presses non-destructive enabled leaves; run menu-inspect --window HANDLE to inventory safe paths",
+    }))
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn app_menu_effect_verification(
     target_disappeared: bool,
@@ -59,8 +162,9 @@ pub(super) fn menu_inspect_payload(
     }
     let budget = menu_budget(depth, max_nodes)?;
     let page = observe::Page::new(offset, max).map_err(invalid_input)?;
-    let tree =
-        mechanism::menu_tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
+    let tree = mechanism::menu_tree_for_window_bounded(Some(window), budget)
+        .map_err(map_mechanism_err)
+        .map_err(|error| enrich_linux_menu_err(error, Some(window)))?;
     let items = observe::menu_items(&tree);
     let (hits, counts) = observe::menu_query(&items, &filter, page, tree.truncated);
     let rows = serde_json::to_value(&hits)
@@ -444,6 +548,12 @@ pub(super) fn menu_invoke_payload(
                 .into(),
         ));
     }
+    if crate::mcu_surface::host_os() == "linux" {
+        let leaf = path.last().map(String::as_str).unwrap_or_default();
+        if menu_leaf_is_unsafe(leaf) {
+            return Err(menu_invoke_unsupported(window, path));
+        }
+    }
     let before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
     // The platform resolves the whole path (and refuses) before pressing,
     // so a refusal there leaves a `failed` receipt with nothing performed.
@@ -459,7 +569,7 @@ pub(super) fn menu_invoke_payload(
     let receipt = match mechanism::invoke_menu_path(Some(window), path) {
         Ok(receipt) => receipt,
         Err(error) => {
-            let error = map_mechanism_err(error);
+            let error = enrich_linux_menu_err(map_mechanism_err(error), Some(window));
             receipts.complete(
                 &ticket,
                 "menu-invoke",
@@ -520,7 +630,11 @@ pub(super) fn menu_invoke_payload(
 
 #[cfg(test)]
 mod tests {
-    use super::app_menu_effect_verification;
+    use super::{
+        app_menu_effect_verification, enrich_linux_menu_err, menu_invoke_unsupported,
+        menu_leaf_is_unsafe,
+    };
+    use crate::reply::CuError;
 
     #[test]
     fn app_menu_effect_never_confuses_delivery_with_readback() {
@@ -544,5 +658,40 @@ mod tests {
             app_menu_effect_verification(false, false, true, true, true, true),
             (false, "no-observable-change")
         );
+    }
+
+    #[test]
+    fn destructive_menu_leaf_is_refused_on_linux() {
+        assert!(menu_leaf_is_unsafe("Quit"));
+        assert!(menu_leaf_is_unsafe("Close Window"));
+        assert!(!menu_leaf_is_unsafe("Do Thing"));
+        assert!(!menu_leaf_is_unsafe("Minimize"));
+    }
+
+    #[test]
+    fn linux_menu_unavailable_includes_os_and_alternatives() {
+        let error = enrich_linux_menu_err(
+            CuError::new("a11y_menu_unavailable", "no menu bar"),
+            Some(7),
+        );
+        assert_eq!(error.code, "a11y_menu_unavailable");
+        if crate::mcu_surface::host_os() == "linux" {
+            let detail = error.detail.expect("detail");
+            assert_eq!(detail["os"], "linux");
+            assert_eq!(detail["mechanism"], "at-spi2-menu-bar");
+            assert!(detail["alternatives"].as_array().is_some_and(|items| !items.is_empty()));
+        }
+    }
+
+    #[test]
+    fn linux_menu_invoke_unsupported_names_alternatives() {
+        let error = menu_invoke_unsupported(7, &["File".into(), "Quit".into()]);
+        assert_eq!(error.code, "menu_invoke_unsupported");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["os"], "linux");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["unsafe_segment"], "Quit");
+        assert!(detail["alternatives"].is_array());
+        assert!(detail["hint"].as_str().unwrap().contains("menu-inspect"));
     }
 }
