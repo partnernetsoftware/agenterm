@@ -1084,6 +1084,12 @@ blocking-job injection proved readiness stays live. Court payloads use
 while the optimized test body transferred and ran. The next court efficiency
 knife is several registered journeys per one disposable lease, preserving one
 digest manifest and separate receipts instead of rebooting per evidence id.
+Before that batching knife, the single-journey caller now removes duplicated
+protocol strings: the task catalog owns the executable entry, the qualification
+gate owns the complete evidence set, and both are resolved before lease. Exit
+zero plus an exact evidence multiset is the machine verdict; `PASS:` is retained
+only as human diagnostic text. Caller-supplied evidence/PASS overrides fail
+before a VM starts.
 
 ## Hard gates
 

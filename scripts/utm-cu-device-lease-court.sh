@@ -14,6 +14,4 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export AGENTERM_UTM_TASK=cu-device-lease-smoke
-export AGENTERM_UTM_EVIDENCE=cu.device-lease
-export AGENTERM_UTM_PASS_LINE='PASS: device claim, replay, authority refusal, exact I/O, renewal, release and session cleanup'
 exec "$SCRIPT_DIR/utm-cu-managed-job-court.sh" "$@"

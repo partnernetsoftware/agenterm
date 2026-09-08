@@ -2108,6 +2108,14 @@ flowchart LR
   arm64 UTM court; its compact receipt is
   [`evidence/cu/win-aarch64-cu-network-routes-e8ce266f.json`](../evidence/cu/win-aarch64-cu-network-routes-e8ce266f.json).
   Both Windows ISAs compile, so `network.routes` is now `native`.
+  The reusable UTM caller now resolves the task entry from
+  `agenterm.tasks.json` and the complete required evidence set from
+  `scripts/qualification-gates.json` before it leases a VM. It rejects legacy
+  caller-supplied evidence/PASS overrides and accepts a run only when exit zero
+  carries exactly that machine-declared evidence multiset. Human-readable
+  `PASS:` text remains in the compact receipt for diagnosis, but wording drift
+  can no longer turn a successful journey into an expensive false failure or
+  manufacture a pass.
   `network-dns` now owns the active
   resolver/search-domain observation shape. It exposes provider, native
   interface/service identity when available, resolver scope, port, coverage,

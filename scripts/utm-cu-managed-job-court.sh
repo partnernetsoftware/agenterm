@@ -1,7 +1,8 @@
 #!/bin/bash
 # Run one registered public ACU journey in a Linux/Windows UTM court.
-# Defaults preserve the historical managed-job entry; thin owning wrappers may
-# select another checked-in task and its exact evidence/PASS lines.
+# Defaults preserve the historical managed-job entry. The task catalog owns the
+# executable entry and the qualification-gate manifest owns its evidence set;
+# callers never repeat evidence or human PASS text.
 
 set -euo pipefail
 
@@ -13,8 +14,8 @@ COURT is one of lnx-aarch64-desktop, lnx-x86_64-desktop,
 win-aarch64-desktop, or win-x86_64-desktop. PROFILE_DIR is the host directory
 containing same-cell release-fast artifacts. The runner packages those exact
 bytes under the task manifest's target/debug paths, executes the registered
-cu-managed-job-smoke journey, retains a receipt under target/, and releases
-only the VM leased by this invocation.
+AGENTERM_UTM_TASK journey (default: cu-managed-job-smoke), retains a receipt
+under target/, and releases only the VM leased by this invocation.
 EOF
 }
 
@@ -22,10 +23,11 @@ EOF
 COURT="$1"
 PROFILE_DIR="$2"
 TASK="${AGENTERM_UTM_TASK:-cu-managed-job-smoke}"
-EVIDENCE="${AGENTERM_UTM_EVIDENCE:-cu.managed-job-lifecycle}"
-PASS_LINE="${AGENTERM_UTM_PASS_LINE:-PASS: agenterm-cu managed-job lifecycle, containment resources and bounded audit retention}"
 case "$TASK" in ''|*[!a-z0-9-]*) echo "invalid UTM task id" >&2; exit 2 ;; esac
-case "$EVIDENCE" in ''|*[!a-z0-9.-]*) echo "invalid UTM evidence id" >&2; exit 2 ;; esac
+if [ -n "${AGENTERM_UTM_EVIDENCE+x}" ] || [ -n "${AGENTERM_UTM_PASS_LINE+x}" ]; then
+  echo "UTM evidence and PASS text are machine-derived; remove AGENTERM_UTM_EVIDENCE/AGENTERM_UTM_PASS_LINE" >&2
+  exit 2
+fi
 case "$COURT" in
   lnx-aarch64-desktop|lnx-x86_64-desktop) GUEST_OS=linux ;;
   win-aarch64-desktop|win-x86_64-desktop) GUEST_OS=windows ;;
@@ -34,6 +36,9 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+EXPECTED_EVIDENCE="$(python3 "$SCRIPT_DIR/utm-task-contract.py" resolve "$REPO_ROOT" "$TASK")"
+[ -n "$EXPECTED_EVIDENCE" ] || { echo "UTM task has no qualification evidence" >&2; exit 2; }
+EVIDENCE="$(printf '%s\n' "$EXPECTED_EVIDENCE" | sed -n '1p')"
 case "$PROFILE_DIR" in
   /*) ;;
   *) PROFILE_DIR="$REPO_ROOT/$PROFILE_DIR" ;;
@@ -318,14 +323,20 @@ case "$RUN_RC" in ''|*[!0-9]*) echo "invalid guest exit receipt" >&2; exit 1 ;; 
 
 FINAL_RC="$RUN_RC"
 OUTCOME=failed
-if [ "$RUN_RC" -eq 0 ] &&
-   grep -Fqx "EVIDENCE $EVIDENCE" "$LOCAL_LOG" &&
-   grep -Fqx "$PASS_LINE" "$LOCAL_LOG"; then
+PASS_LINE="$(sed -n '/^PASS: /{p;q;}' "$LOCAL_LOG")"
+EVIDENCE_MATCH=0
+if [ "$RUN_RC" -eq 0 ]; then
+  if VERIFIED_PASS_LINE="$(python3 "$SCRIPT_DIR/utm-task-contract.py" verify "$REPO_ROOT" "$TASK" "$LOCAL_LOG")"; then
+    EVIDENCE_MATCH=1
+    PASS_LINE="$VERIFIED_PASS_LINE"
+  fi
+fi
+if [ "$RUN_RC" -eq 0 ] && [ "$EVIDENCE_MATCH" -eq 1 ]; then
   FINAL_RC=0
   OUTCOME=passed
 elif [ "$RUN_RC" -eq 0 ]; then
-  # A zero guest exit without both exact protocol lines is a court failure,
-  # not a successful receipt followed by an incidental grep error.
+  # A zero guest exit without the exact registered evidence set is a court
+  # failure. Human-readable PASS prose is deliberately not a protocol field.
   FINAL_RC=1
 fi
 
