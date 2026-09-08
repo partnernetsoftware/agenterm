@@ -11,6 +11,7 @@ pub(super) fn storage_volumes_payload(max: usize) -> Result<Value, CuError> {
             StorageErrorKind::InvalidValue => "storage_volumes_invalid_limit",
             StorageErrorKind::Path => "storage_volumes_path_failed",
             StorageErrorKind::Query => "storage_volumes_query_failed",
+            StorageErrorKind::ZeroCapacity => "storage_volumes_zero_capacity",
             StorageErrorKind::Overflow => "storage_volumes_overflow",
             _ => "storage_volumes_failed",
         };
@@ -24,8 +25,16 @@ fn inventory_value(inventory: MountedVolumeInventory) -> Value {
         "volumes": inventory.volumes.into_iter().map(volume_value).collect::<Vec<_>>(),
         "visited": inventory.visited,
         "read_errors": inventory.read_errors,
+        "skipped_unsafe": inventory.skipped_unsafe,
+        "skipped_zero_capacity": inventory.skipped_zero_capacity,
         "truncated": inventory.truncated,
-        "complete": !inventory.truncated && inventory.read_errors == 0,
+        "coverage": inventory.coverage,
+        "coverage_complete": inventory.coverage_complete,
+        "complete": inventory.coverage_complete
+            && !inventory.truncated
+            && inventory.read_errors == 0
+            && inventory.skipped_unsafe == 0
+            && inventory.skipped_zero_capacity == 0,
         "mutation_performed": false,
         "privacy": {
             "mount_paths_returned": true,
@@ -73,7 +82,11 @@ mod tests {
             }],
             visited: 1,
             read_errors: 0,
+            skipped_unsafe: 0,
+            skipped_zero_capacity: 0,
             truncated: false,
+            coverage: "test-complete",
+            coverage_complete: true,
         });
         assert_eq!(reply["volumes"][0]["total_bytes"], "9007199254740993");
         assert_eq!(reply["volumes"][0]["mount_path_encoding"], "utf8");

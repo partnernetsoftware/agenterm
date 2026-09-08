@@ -17,7 +17,11 @@ pub struct MountedVolumeInventory {
     pub volumes: Vec<MountedVolume>,
     pub visited: usize,
     pub read_errors: usize,
+    pub skipped_unsafe: usize,
+    pub skipped_zero_capacity: usize,
     pub truncated: bool,
+    pub coverage: &'static str,
+    pub coverage_complete: bool,
 }
 
 pub fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, StorageError> {
@@ -75,6 +79,7 @@ mod tests {
         let inventory = mounted_volumes(16).expect("enumerate mounted volumes");
         assert!(inventory.volumes.len() <= 16);
         assert!(inventory.visited >= inventory.volumes.len());
+        assert!(!inventory.coverage.is_empty());
         for volume in inventory.volumes {
             assert!(volume.mount_path.is_absolute());
             assert!(volume.space.available_bytes <= volume.space.free_bytes);

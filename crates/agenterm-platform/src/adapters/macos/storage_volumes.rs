@@ -17,6 +17,7 @@ pub(crate) fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, Stor
     let records = unsafe { std::slice::from_raw_parts(raw, count as usize) };
     let mut paths = BTreeMap::new();
     let mut read_errors = 0usize;
+    let mut skipped_zero_capacity = 0usize;
     for record in records {
         let path = unsafe { CStr::from_ptr(record.f_mntonname.as_ptr()) };
         let path = PathBuf::from(std::ffi::OsStr::from_bytes(path.to_bytes()));
@@ -32,6 +33,9 @@ pub(crate) fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, Stor
                 match checked_mounted_space(total, free, available, u64::from(record.f_bsize)) {
                     Ok(space) => {
                         paths.insert(path, space);
+                    }
+                    Err(error) if error.kind() == StorageErrorKind::ZeroCapacity => {
+                        skipped_zero_capacity += 1;
                     }
                     Err(_) => read_errors += 1,
                 }
@@ -50,6 +54,10 @@ pub(crate) fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, Stor
         volumes,
         visited,
         read_errors,
+        skipped_unsafe: 0,
+        skipped_zero_capacity,
         truncated,
+        coverage: "mounted-filesystems-cached",
+        coverage_complete: true,
     })
 }

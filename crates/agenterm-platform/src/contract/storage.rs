@@ -24,6 +24,7 @@ pub struct MountedVolumeSpace {
 pub enum StorageErrorKind {
     Path,
     Query,
+    ZeroCapacity,
     InvalidValue,
     Overflow,
 }
@@ -65,7 +66,7 @@ pub(crate) fn checked_space(
     allocation_unit: u64,
 ) -> Result<VolumeSpace, StorageError> {
     let total_bytes = std::num::NonZeroU64::new(total_bytes).ok_or_else(|| {
-        StorageError::new(StorageErrorKind::InvalidValue, "volume capacity is zero")
+        StorageError::new(StorageErrorKind::ZeroCapacity, "volume capacity is zero")
     })?;
     let allocation_unit = std::num::NonZeroU64::new(allocation_unit).ok_or_else(|| {
         StorageError::new(StorageErrorKind::InvalidValue, "allocation unit is zero")
@@ -129,8 +130,13 @@ mod tests {
 
     #[test]
     fn raw_space_rejects_incoherent_values() {
+        assert_eq!(
+            checked_space(0, 0, 4096)
+                .expect_err("reject zero-capacity volume")
+                .kind(),
+            StorageErrorKind::ZeroCapacity
+        );
         for result in [
-            checked_space(0, 0, 4096),
             checked_space(1024, 1025, 512),
             checked_space(1024, 0, 0),
             checked_space(1024, 0, 2048),

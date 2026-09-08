@@ -3147,6 +3147,25 @@
       ]
     },
     {
+      "name": "storage-devices",
+      "command": "storage-devices",
+      "aliases": [
+        "storage devices",
+        "storage"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "list a bounded privacy-minimized native block-device inventory",
+      "usage": "storage [--max N]\nstorage devices [--max N]\nstorage-devices [--max N]",
+      "args": [
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "device result bound, 1..5000 (default 500)"
+        }
+      ]
+    },
+    {
       "name": "storage-volumes",
       "command": "storage-volumes",
       "aliases": [
@@ -3161,24 +3180,6 @@
           "flag": "--max",
           "value": "N",
           "help": "volume result bound, 1..512 (default 128)"
-        }
-      ]
-    },
-    {
-      "name": "storage-devices",
-      "command": "storage-devices",
-      "aliases": [
-        "storage devices"
-      ],
-      "grant": "observe",
-      "family": "system",
-      "summary": "list a bounded privacy-minimized native block-device inventory",
-      "usage": "storage devices [--max N]\nstorage-devices [--max N]",
-      "args": [
-        {
-          "flag": "--max",
-          "value": "N",
-          "help": "device result bound, 1..5000 (default 500)"
         }
       ]
     },
@@ -6379,11 +6380,11 @@
     },
     {
       "name": "storage-volumes",
-      "text": "agenterm-cu storage-volumes    (also: storage volumes)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  storage volumes [--max N]\n  storage-volumes [--max N]\n\narguments:\n  --max N                       result bound, 1..512 (default 128)\n\nReturns a bounded native mounted-volume inventory. Each row contains only the\npublic mount path, an explicit utf8/lossy encoding label and exact\ntotal/free/current-user-available/allocation-unit counts as decimal strings. It\nnever returns serial numbers, UUIDs or backing device identifiers. The command\nis read-only and reports partial scans instead of inventing complete coverage.\n"
+      "text": "agenterm-cu storage-volumes    (also: storage volumes)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  storage volumes [--max N]\n  storage-volumes [--max N]\n\narguments:\n  --max N                       result bound, 1..512 (default 128)\n\nReturns a bounded native mounted-volume inventory. Each row contains only the\npublic mount path, an explicit utf8/lossy encoding label and exact\ntotal/free/current-user-available/allocation-unit counts as decimal strings. It\nnever returns serial numbers, UUIDs or backing device identifiers. The command\nis read-only and reports partial scans instead of inventing complete coverage.\nPotentially blocking or automounting Unix filesystems are counted as skipped;\nWindows currently reports only fixed drive-letter and RAM-disk letters and marks\nthat coverage incomplete rather than probing removable or remote media.\n"
     },
     {
       "name": "storage-devices",
-      "text": "agenterm-cu storage-devices    (also: storage devices)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  storage devices [--max N]\n  storage-devices [--max N]\n\narguments:\n  --max N                       result bound, 1..5000 (default 500)\n\nReturns a bounded native block-device inventory with exact capacities encoded\nas decimal strings. Missing host fields are explicit in unavailable_fields.\nSerial numbers, WWNs and Windows UniqueId are never queried or returned. The\ncommand is read-only: it does not mount, eject, format or mutate metadata.\n"
+      "text": "agenterm-cu storage-devices    (also: storage devices, storage)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  storage [--max N]\n  storage devices [--max N]\n  storage-devices [--max N]\n\narguments:\n  --max N                       result bound, 1..5000 (default 500)\n\nReturns a bounded native block-device inventory with exact capacities encoded\nas decimal strings. Missing host fields are explicit in unavailable_fields.\nSerial numbers, WWNs and Windows UniqueId are never queried or returned. The\ncommand is read-only: it does not mount, eject, format or mutate metadata.\n"
     },
     {
       "name": "device-list",

@@ -2096,7 +2096,7 @@
           },
           "evidence": ["cu.storage-volumes"],
           "next": "run the unchanged public qjswasm court on native Linux and Windows; do not infer physical-device identity from mounted filesystems",
-          "note": "The separate storage-volumes facade reports mounted filesystem total, free and current-user-available capacity as exact decimal strings. It keeps current-user available distinct from filesystem free, parses Linux mountinfo as escaped bytes, bounds rows and errors, and never emits backing-device, serial or UUID identifiers. The public macOS court is green; Linux and Windows have compile evidence but remain pending until native execution."
+          "note": "The separate storage-volumes facade reports mounted filesystem total, free and current-user-available capacity as exact decimal strings. It keeps current-user available distinct from filesystem free, parses Linux mountinfo as escaped bytes, bounds rows and errors, and never emits backing-device, serial or UUID identifiers. Linux refuses to stat potentially automounting or blocking remote/FUSE filesystems and reports the skipped count. Windows probes only fixed drive-letter and RAM-disk capacity, skips removable/remote media to prevent native error UI or unbounded waits, and marks drive-letter-only coverage incomplete. The public macOS court is green; Linux and Windows have compile evidence but remain pending until native execution."
         },
         {
           "id": "resource.process-policy",

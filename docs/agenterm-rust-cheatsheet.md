@@ -5056,7 +5056,13 @@ stable and add a separate mounted-volume record when enumeration needs mount
 metadata. On Linux, parse `/proc/self/mountinfo` as bounded bytes and decode its
 octal escapes before converting paths; `read_to_string` incorrectly rejects a
 valid mount table containing non-UTF-8 names. Never expose the backing-device
-field merely because mountinfo supplies it.
+field merely because mountinfo supplies it. Do not `statvfs` an `autofs`,
+remote, or FUSE row merely to inventory it: lookup can mount media or block on
+a dead server. Count such rows as skipped and make completeness depend on that
+count. Likewise, Windows inventory should classify drive type before capacity
+queries, avoid removable/remote sources that can display native error UI or
+wait without a product deadline, and state when drive-letter-only coverage
+omits folder-mounted volumes.
 
 Linux `current` target identity must prove the calling process is inside the
 one active local graphical session; an effective uid alone is not a desktop

@@ -570,6 +570,18 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-watch".into(), process_watch_verb);
         verbs.insert("process-cgroup".into(), process_cgroup_verb);
         verbs.insert(
+            "storage-devices".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "storage",
+                "grant": "observe",
+                "mode": "bounded-privacy-minimized-native-device-inventory",
+                "result_ceiling": 5000,
+                "device_identifiers_returned": false,
+                "mutation_performed": false,
+            }),
+        );
+        verbs.insert(
             "storage-volumes".into(),
             serde_json::json!({
                 "status": "available",
@@ -578,6 +590,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "mode": "bounded-native-mounted-volume-capacity",
                 "result_ceiling": 512,
                 "capacity_order": "available<=free<=total",
+                "coverage": "local-safe-mounted-filesystems-with-explicit-skips",
                 "mount_paths_returned": true,
                 "device_identifiers_returned": false,
                 "mutation_performed": false,
@@ -1753,6 +1766,12 @@ mod tests {
         assert_eq!(data["verbs"]["job-output"]["grant"], "observe");
         assert_eq!(data["verbs"]["job-resources"]["scope"], "containment-group");
         assert_eq!(data["verbs"]["job-resources"]["membership_complete"], true);
+        assert_eq!(data["verbs"]["storage-volumes"]["status"], "available");
+        assert_eq!(data["verbs"]["storage-volumes"]["grant"], "observe");
+        assert_eq!(data["verbs"]["storage-volumes"]["result_ceiling"], 512);
+        assert_eq!(data["verbs"]["storage-devices"]["status"], "available");
+        assert_eq!(data["verbs"]["storage-devices"]["grant"], "observe");
+        assert_eq!(data["verbs"]["storage-devices"]["result_ceiling"], 5000);
         assert_eq!(data["verbs"]["job-priority"]["grant"], "actuate");
         assert_eq!(data["verbs"]["job-priority"]["scope"], "containment-group");
         assert_eq!(

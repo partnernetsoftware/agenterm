@@ -2130,7 +2130,11 @@ flowchart LR
   conflating it with physical devices. Its exact decimal reply keeps
   current-user available capacity distinct from filesystem free capacity,
   parses Linux mount information as escaped bytes, and emits no backing-device,
-  serial or UUID identifiers. The public `cu.storage-volumes` qjswasm court is
+  serial or UUID identifiers. Linux skips and counts potentially automounting
+  or blocking remote/FUSE sources instead of calling `statvfs`; Windows probes
+  only fixed drive letters and RAM disks, skips removable/remote media, and
+  marks its drive-letter-only coverage incomplete. The public
+  `cu.storage-volumes` qjswasm court is
   green on macOS; native Linux and Windows execution remains explicit schema-2
   debt, so `resource.disk-volumes` stays `platform-limited`.
   The platform mechanism implements identity-bound Unix mode/xattr

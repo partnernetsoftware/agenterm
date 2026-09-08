@@ -1492,6 +1492,10 @@ mod tests {
             parse("storage", &["devices"]).unwrap(),
             Command::StorageDevices { max: 500, .. }
         ));
+        assert!(matches!(
+            parse("storage", &["--max", "1"]).unwrap(),
+            Command::StorageDevices { max: 1, .. }
+        ));
         assert!(parse("storage-devices", &["--max", "0"]).is_err());
         assert!(parse("storage", &["devices", "extra"]).is_err());
     }

@@ -56,10 +56,22 @@ function assert_inventory(reply, max) {
   ensure(Array.isArray(data.volumes) && data.volumes.length >= 1 && data.volumes.length <= max, "cu_storage_volumes_count");
   ensure(typeof data.visited === "number" && data.visited >= data.volumes.length, "cu_storage_volumes_visited");
   ensure(typeof data.read_errors === "number" && data.read_errors >= 0, "cu_storage_volumes_errors");
+  ensure(typeof data.skipped_unsafe === "number" && data.skipped_unsafe >= 0, "cu_storage_volumes_skipped_unsafe");
+  ensure(typeof data.skipped_zero_capacity === "number" && data.skipped_zero_capacity >= 0, "cu_storage_volumes_skipped_zero");
+  ensure(
+    data.visited >= data.volumes.length + data.read_errors + data.skipped_unsafe + data.skipped_zero_capacity,
+    "cu_storage_volumes_accounting"
+  );
+  ensure(typeof data.coverage === "string" && data.coverage.length > 0, "cu_storage_volumes_coverage_name");
+  ensure(typeof data.coverage_complete === "boolean", "cu_storage_volumes_coverage_flag");
   ensure(typeof data.truncated === "boolean" && typeof data.complete === "boolean", "cu_storage_volumes_coverage");
+  const expected_complete = data.coverage_complete === true && data.truncated === false &&
+    data.read_errors === 0 && data.skipped_unsafe === 0 && data.skipped_zero_capacity === 0;
+  ensure(data.complete === expected_complete, "cu_storage_volumes_complete_truth");
   ensure(data.mutation_performed === false, "cu_storage_volumes_mutation");
-  ensure(data.privacy.mount_paths_returned === true, "cu_storage_volumes_paths_hidden");
+  ensure(data.privacy.mount_paths_returned === true, "cu_storage_volumes_paths_declared");
   ensure(data.privacy.device_identifiers_returned === false && data.privacy.serial_numbers_returned === false, "cu_storage_volumes_private_identity");
+  let has_root = false;
   for (const row of data.volumes) {
     ensure(typeof row.mount_path === "string" && row.mount_path.length > 0, "cu_storage_volumes_mount_path");
     ensure(row.mount_path_encoding === "utf8" || row.mount_path_encoding === "lossy", "cu_storage_volumes_path_encoding");
@@ -67,7 +79,13 @@ function assert_inventory(reply, max) {
     ensure(decimal_le(row.free_bytes, row.total_bytes), "cu_storage_volumes_free_gt_total");
     ensure(decimal_le("1", row.total_bytes) && decimal_le("1", row.allocation_unit), "cu_storage_volumes_zero_geometry");
     ensure(row.device === undefined && row.serial === undefined && row.uuid === undefined && row.wwn === undefined, "cu_storage_volumes_device_identity");
+    if (harness.host_is_windows()) {
+      has_root = has_root || (row.mount_path.length === 3 && row.mount_path.charAt(1) === ":");
+    } else {
+      has_root = has_root || row.mount_path === "/";
+    }
   }
+  ensure(has_root, "cu_storage_volumes_root_missing");
   return data;
 }
 
@@ -96,8 +114,8 @@ try {
     "--target", "current", "--grant", "observe", "storage", "volumes", "--max", "1"
   ], true), 1);
 
-  print("STEP zero and over-ceiling bounds fail before native observation");
-  for (const max of ["0", "513"]) {
+  print("STEP malformed, zero and over-ceiling bounds fail before native observation");
+  for (const max of ["nope", "0", "513"]) {
     const invalid = invoke(context.run_directory, executable, [
       "--target", "current", "--grant", "observe", "storage-volumes", "--max", max
     ], false);

@@ -6,7 +6,12 @@ use crate::{
 };
 
 pub(crate) fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, StorageError> {
-    use windows_sys::Win32::Storage::FileSystem::GetLogicalDriveStringsW;
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDriveStringsW};
+
+    // Win32 DRIVE_* values are stable API constants. Keep them local so the
+    // storage feature does not pull the unrelated WindowsProgramming module.
+    const DRIVE_FIXED_KIND: u32 = 3;
+    const DRIVE_RAMDISK_KIND: u32 = 6;
 
     let required = unsafe { GetLogicalDriveStringsW(0, std::ptr::null_mut()) };
     if required == 0 {
@@ -26,21 +31,51 @@ pub(crate) fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, Stor
     let visited = paths.len();
     let mut volumes = Vec::with_capacity(max.min(visited));
     let mut read_errors = 0usize;
+    let mut skipped_unsafe = 0usize;
+    let mut skipped_zero_capacity = 0usize;
+    let mut truncated = false;
     for mount_path in paths {
+        let encoded = wide(&mount_path)?;
+        let drive_type = unsafe { GetDriveTypeW(encoded.as_ptr()) };
+        if drive_type != DRIVE_FIXED_KIND && drive_type != DRIVE_RAMDISK_KIND {
+            skipped_unsafe += 1;
+            continue;
+        }
         if volumes.len() == max {
-            break;
+            truncated = true;
+            continue;
         }
         match crate::storage::mounted_volume_space(&mount_path) {
             Ok(space) => volumes.push(MountedVolume { mount_path, space }),
+            Err(error) if error.kind() == StorageErrorKind::ZeroCapacity => {
+                skipped_zero_capacity += 1;
+            }
             Err(_) => read_errors += 1,
         }
     }
     Ok(MountedVolumeInventory {
-        truncated: volumes.len().saturating_add(read_errors) < visited,
         volumes,
         visited,
         read_errors,
+        skipped_unsafe,
+        skipped_zero_capacity,
+        truncated,
+        coverage: "drive-letters-fixed-only",
+        coverage_complete: false,
     })
+}
+
+fn wide(path: &std::path::Path) -> Result<Vec<u16>, StorageError> {
+    use std::os::windows::ffi::OsStrExt;
+    let mut encoded = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    if encoded.contains(&0) {
+        return Err(StorageError::new(
+            StorageErrorKind::Path,
+            "mount path contains an embedded NUL",
+        ));
+    }
+    encoded.push(0);
+    Ok(encoded)
 }
 
 fn query_error(operation: &str) -> StorageError {
