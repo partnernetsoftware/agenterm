@@ -525,11 +525,31 @@ pub(super) fn select(
     Ok(payload)
 }
 
+/// Slice one AT-SPI Text selection range out of an independent
+/// `Text.GetText` payload. Offsets are Unicode scalar indices, matching
+/// `select`, semantic `ctrl+a`, and GTK `GtkEntry` on Linux.
+fn selection_text_from_range(full: &str, start: i32, end: i32) -> String {
+    if start >= end {
+        return String::new();
+    }
+    let Ok(start) = usize::try_from(start) else {
+        return String::new();
+    };
+    let Ok(end) = usize::try_from(end) else {
+        return String::new();
+    };
+    if start >= end {
+        return String::new();
+    }
+    full.chars().skip(start).take(end - start).collect()
+}
+
 /// `get-selection --name` reads independent AT-SPI `Text.GetNSelections`
-/// + `GetSelection(0)` (`agt_a11y_node_get_selection`). The `select`
-///
-/// The reply payload does not count. Missing Text typed-fails
-/// (`a11y_selection_unavailable`). `n == 0` is empty success.
+/// + `GetSelection(0)` (`agt_a11y_node_get_selection`), then one
+/// independent `Text.GetText` slice for the selected scalar range. The
+/// `select` / semantic `ctrl+a` reply payload does not count. Missing Text
+/// typed-fails (`a11y_selection_unavailable`). `n == 0` is empty success
+/// with `text=""`.
 pub(super) fn get_selection(
     window: Option<isize>,
     name: Option<&str>,
@@ -550,6 +570,13 @@ pub(super) fn get_selection(
         })?;
     let selection =
         mechanism::get_node_selection(window, &resolved.node_id).map_err(map_mechanism_err)?;
+    let text = if selection.n > 0 && selection.start < selection.end {
+        let full =
+            mechanism::get_node_text(window, &resolved.node_id).map_err(map_mechanism_err)?;
+        selection_text_from_range(&full, selection.start, selection.end)
+    } else {
+        String::new()
+    };
     let mut payload = serde_json::json!({
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
@@ -560,6 +587,7 @@ pub(super) fn get_selection(
         "n": selection.n,
         "start": selection.start,
         "end": selection.end,
+        "text": text,
     });
     attach_name_match(&mut payload, &resolved);
     Ok(payload)
@@ -1440,6 +1468,15 @@ mod tests {
         assert_eq!(get_selection.verb(), "get-selection");
         assert_eq!(select.required_grant(), Grant::Actuate);
         assert_eq!(get_selection.required_grant(), Grant::Observe);
+    }
+
+    #[test]
+    fn selection_text_from_range_uses_scalar_offsets() {
+        assert_eq!(selection_text_from_range("linuxtyped", 2, 7), "nuxty");
+        assert_eq!(selection_text_from_range("seedround", 0, 9), "seedround");
+        assert_eq!(selection_text_from_range("中文abc", 1, 3), "文a");
+        assert_eq!(selection_text_from_range("hello", 2, 2), "");
+        assert_eq!(selection_text_from_range("hello", 4, 2), "");
     }
 
     #[test]

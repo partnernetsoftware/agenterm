@@ -6324,7 +6324,7 @@
     },
     {
       "name": "get-selection",
-      "text": "agenterm-cu get-selection\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  get-selection --window HANDLE --name PAT [--role ROLE]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --name PAT                    unique showing node whose name contains PAT (wait matching)\n  --role ROLE                   narrow --name to one role\n\nIndependent AT-SPI Text.GetNSelections + GetSelection(0). Not the select\nreply payload. Missing Text typed-fails (a11y_selection_unavailable). n=0\nis empty success.\n"
+      "text": "agenterm-cu get-selection\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  get-selection --window HANDLE --name PAT [--role ROLE]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --name PAT                    unique showing node whose name contains PAT (wait matching)\n  --role ROLE                   narrow --name to one role\n\nIndependent AT-SPI Text.GetNSelections + GetSelection(0), plus one\nindependent Text.GetText slice for the selected scalar range in `text`.\nNot the select / send-keys reply payload. Missing Text typed-fails\n(a11y_selection_unavailable). n=0 is empty success with text=\"\".\n"
     },
     {
       "name": "get-caret",
