@@ -65,10 +65,7 @@ pub fn open_launch_plan(
     }
     if cfg!(target_os = "linux") {
         let binary = resolve_linux_binary(app)?;
-        let mut argv = vec![
-            binary,
-            format!("--profile-directory={directory}"),
-        ];
+        let mut argv = vec![binary, format!("--profile-directory={directory}")];
         if let Some(url) = url {
             argv.push(url.to_owned());
         }

@@ -263,13 +263,15 @@ pub(super) fn clipboard_write(
     // UTF-8 plain text must use the publish path so Linux X11 keeps a
     // detached CLIPBOARD owner alive after this process exits.
     if type_name == crate::command::CLIPBOARD_UTF8_TEXT_TYPE {
-        let text = std::str::from_utf8(&bytes).map_err(|error| CuError::new(
-            "invalid_input",
-            format!(
-                "clipboard-write --path {path} is not valid UTF-8 for --type {}: {error}",
-                crate::command::CLIPBOARD_UTF8_TEXT_TYPE
-            ),
-        ))?;
+        let text = std::str::from_utf8(&bytes).map_err(|error| {
+            CuError::new(
+                "invalid_input",
+                format!(
+                    "clipboard-write --path {path} is not valid UTF-8 for --type {}: {error}",
+                    crate::command::CLIPBOARD_UTF8_TEXT_TYPE
+                ),
+            )
+        })?;
         return clipboard_write_text(type_name, text);
     }
     let sha256 = clipboard_sha256_hex(&bytes);

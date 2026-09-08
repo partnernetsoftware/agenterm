@@ -112,8 +112,11 @@ pub fn resolve_app_with_installed(
     installed: &[&'static BrowserApp],
 ) -> Result<&'static BrowserApp, AppResolveError> {
     let running_apps = launch::running_catalog_apps(running);
-    let is_running =
-        |app: &BrowserApp| running_apps.iter().any(|candidate| candidate.name == app.name);
+    let is_running = |app: &BrowserApp| {
+        running_apps
+            .iter()
+            .any(|candidate| candidate.name == app.name)
+    };
     let is_installed =
         |app: &BrowserApp| installed.iter().any(|candidate| candidate.name == app.name);
     let is_available = |app: &BrowserApp| is_running(app) || is_installed(app);
@@ -150,7 +153,8 @@ pub fn resolve_app_with_installed(
         }),
         [one] => Ok(one),
         many => {
-            let up: Vec<&&'static BrowserApp> = many.iter().filter(|app| is_available(app)).collect();
+            let up: Vec<&&'static BrowserApp> =
+                many.iter().filter(|app| is_available(app)).collect();
             match up.as_slice() {
                 [one] => Ok(one),
                 _ => Err(AppResolveError::Ambiguous {
@@ -422,11 +426,15 @@ mod tests {
             })
         );
         assert_eq!(
-            resolve_app_with_installed(None, &[], &[&APPS[2]]).unwrap().name,
+            resolve_app_with_installed(None, &[], &[&APPS[2]])
+                .unwrap()
+                .name,
             "Google Chrome"
         );
         assert_eq!(
-            resolve_app_with_installed(Some("Brave"), &[], &[&APPS[1]]).unwrap().name,
+            resolve_app_with_installed(Some("Brave"), &[], &[&APPS[1]])
+                .unwrap()
+                .name,
             "Brave Browser"
         );
     }
