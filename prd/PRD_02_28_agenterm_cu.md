@@ -150,7 +150,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │      two-call identity bracket (process-state → process-kill with the exact start identity)
   │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
   │  │      and its worker envelope is 650 seconds by default so provider-owned deadlines up to
-  │  │      600 seconds remain authoritative; leading `--timeout-ms N` is an explicit override
+  │  │      600 seconds remain authoritative; leading `--timeout-ms N` is an explicit override,
+  │  │      including longer compatibility operations such as process kill or device watch
+  │  ├─ [x] Unix hard-timeout cleanup keeps resident browser/job/PTY/device owners that crossed
+  │  │      the explicit `setsid` boundary; same-session descendants remain invocation-owned
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] eight compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  ├─ [~] MCP uses the same provider/Executor; bounded shell mutation is implemented but deliberately unadvertised

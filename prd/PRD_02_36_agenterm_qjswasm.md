@@ -92,7 +92,10 @@ agenterm-qjswasm
 │  │  ├─ [x] detached helper rejected: it returns while callback and provider lock remain live
 │  │  ├─ [x] Script worker process remains the bounded hard-containment boundary
 │  │  ├─ [x] `agenterm cli acu` supplies a 650-second worker envelope for provider-owned
-│  │  │      deadlines up to 600 seconds; a leading `--timeout-ms N` explicitly overrides it
+│  │  │      deadlines up to 600 seconds; a leading `--timeout-ms N` explicitly overrides it,
+│  │  │      including longer compatibility operations such as process kill or device watch
+│  │  ├─ [x] Unix hard-timeout cleanup preserves a descendant that crossed the explicit
+│  │  │      `setsid` ownership boundary while still terminating same-session descendants
 │  │  └─ [ ] pass one cooperative token through Executor and interruptible native waits
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
