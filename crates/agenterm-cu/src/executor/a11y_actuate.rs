@@ -235,6 +235,22 @@ pub(super) fn focus(
     Ok(payload)
 }
 
+pub(crate) fn map_scroll_err(error: mechanism::MechanismError) -> CuError {
+    let mapped = map_mechanism_err(error);
+    if mapped.code != "a11y_scroll_unavailable" || crate::mcu_surface::host_os() != "linux" {
+        return mapped;
+    }
+    mapped.with_detail(serde_json::json!({
+        "os": "linux",
+        "mechanism": "at-spi2-component",
+        "alternatives": [
+            "scroll a node inside a Gtk.ScrolledWindow or other scrollable AT-SPI container",
+            "raise or activate the window when the target is off-screen without a scroll parent",
+            "get-extents to verify whether the node already has on-screen geometry",
+        ],
+    }))
+}
+
 /// `scroll --name` is one-shot AT-SPI `Component.ScrollTo(TopEdge)`
 /// (`agt_a11y_node_scroll`). Missing / false / `UnknownMethod` typed-fails
 /// (`a11y_scroll_unavailable`). Never Action `scroll*`, XTest wheel,
@@ -258,7 +274,7 @@ pub(super) fn scroll(
                 "scroll requires --window <handle> --name <pattern>",
             )
         })?;
-    mechanism::scroll_node(window, &resolved.node_id).map_err(map_mechanism_err)?;
+    mechanism::scroll_node(window, &resolved.node_id).map_err(map_scroll_err)?;
     let mut payload = serde_json::json!({
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
@@ -971,6 +987,20 @@ mod tests {
             ),
             "unexpected code: {code}"
         );
+    }
+
+    #[test]
+    fn linux_scroll_unavailable_includes_os_and_alternatives() {
+        let error = map_scroll_err(mechanism::MechanismError::Failed {
+            code: "a11y_scroll_unavailable".into(),
+            message: "AT-SPI Component.ScrollTo returned false".into(),
+        });
+        assert_eq!(error.code, "a11y_scroll_unavailable");
+        if crate::mcu_surface::host_os() == "linux" {
+            let detail = error.detail.expect("detail");
+            assert_eq!(detail["os"], "linux");
+            assert!(detail["alternatives"].as_array().is_some_and(|items| !items.is_empty()));
+        }
     }
 
     #[test]

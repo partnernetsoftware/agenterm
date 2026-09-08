@@ -1712,45 +1712,246 @@ fn toolkit_is_webkit(toolkit: &str) -> bool {
     toolkit.to_ascii_lowercase().contains("webkit")
 }
 
+const SCROLL_ANCESTOR_LIMIT: usize = 24;
+
 async fn invoke_atspi_component_scroll_to(
     proxy: &AccessibleProxy<'_>,
 ) -> Result<(), AccessibilityTreeError> {
+    let role = proxy.get_role().await.ok();
+    let role_label = role
+        .map(atspi_role_label)
+        .unwrap_or_else(|| "unknown".to_owned());
+
+    if try_component_scroll_to(proxy, ScrollType::TopEdge).await? {
+        return Ok(());
+    }
+    if try_component_scroll_to_point(proxy).await? {
+        return Ok(());
+    }
+    if try_ancestor_viewport_scroll(proxy).await? {
+        return Ok(());
+    }
+
+    if component_proxy_for(proxy).await.is_err() {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_scroll_unavailable",
+            "node does not expose AT-SPI Component.ScrollTo",
+        ));
+    }
+
+    Err(scroll_unavailable_after_component_attempts(
+        role.as_ref(),
+        &role_label,
+    ))
+}
+
+async fn try_component_scroll_to(
+    proxy: &AccessibleProxy<'_>,
+    scroll_type: ScrollType,
+) -> Result<bool, AccessibilityTreeError> {
     let component = match component_proxy_for(proxy).await {
         Ok(component) => component,
-        Err(error) if is_missing_scroll_interface(&error) => {
-            return Err(AccessibilityTreeError::failed(
-                "a11y_scroll_unavailable",
-                "node does not expose AT-SPI Component.ScrollTo",
-            ));
-        }
+        Err(error) if is_missing_scroll_interface(&error) => return Ok(false),
         Err(error) => return Err(error),
     };
-    let scrolled = match timeout(NODE_TIMEOUT, component.scroll_to(ScrollType::TopEdge)).await {
-        Ok(Ok(scrolled)) => scrolled,
+    match timeout(NODE_TIMEOUT, component.scroll_to(scroll_type)).await {
+        Ok(Ok(scrolled)) => Ok(scrolled),
         Ok(Err(error)) => {
             let mapped = map_atspi_err(error);
             if is_missing_scroll_interface(&mapped) {
-                return Err(AccessibilityTreeError::failed(
-                    "a11y_scroll_unavailable",
-                    "AT-SPI Component.ScrollTo is missing or UnknownMethod",
-                ));
+                Ok(false)
+            } else {
+                Err(mapped)
             }
-            return Err(mapped);
         }
-        Err(_) => {
-            return Err(AccessibilityTreeError::failed(
-                "a11y_scroll_unavailable",
-                "AT-SPI Component.ScrollTo exceeded its deadline",
-            ));
-        }
-    };
-    if !scrolled {
-        return Err(AccessibilityTreeError::failed(
+        Err(_) => Err(AccessibilityTreeError::failed(
             "a11y_scroll_unavailable",
-            "AT-SPI Component.ScrollTo returned false",
-        ));
+            "AT-SPI Component.ScrollTo exceeded its deadline",
+        )),
     }
-    Ok(())
+}
+
+async fn try_component_scroll_to_point(proxy: &AccessibleProxy<'_>) -> Result<bool, AccessibilityTreeError> {
+    let Some((x, y)) = read_screen_origin(proxy).await? else {
+        return Ok(false);
+    };
+    let component = match component_proxy_for(proxy).await {
+        Ok(component) => component,
+        Err(error) if is_missing_scroll_interface(&error) => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    match timeout(NODE_TIMEOUT, component.scroll_to_point(CoordType::Screen, x, y)).await {
+        Ok(Ok(scrolled)) => Ok(scrolled),
+        Ok(Err(error)) => {
+            let mapped = map_atspi_err(error);
+            if is_missing_scroll_interface(&mapped) {
+                Ok(false)
+            } else {
+                Err(mapped)
+            }
+        }
+        Err(_) => Err(AccessibilityTreeError::failed(
+            "a11y_scroll_unavailable",
+            "AT-SPI Component.ScrollToPoint exceeded its deadline",
+        )),
+    }
+}
+
+async fn try_scroll_to_point_at(
+    proxy: &AccessibleProxy<'_>,
+    x: i32,
+    y: i32,
+) -> Result<bool, AccessibilityTreeError> {
+    let component = match component_proxy_for(proxy).await {
+        Ok(component) => component,
+        Err(error) if is_missing_scroll_interface(&error) => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    match timeout(NODE_TIMEOUT, component.scroll_to_point(CoordType::Screen, x, y)).await {
+        Ok(Ok(scrolled)) => Ok(scrolled),
+        Ok(Err(error)) => {
+            let mapped = map_atspi_err(error);
+            if is_missing_scroll_interface(&mapped) {
+                Ok(false)
+            } else {
+                Err(mapped)
+            }
+        }
+        Err(_) => Err(AccessibilityTreeError::failed(
+            "a11y_scroll_unavailable",
+            "AT-SPI Component.ScrollToPoint exceeded its deadline",
+        )),
+    }
+}
+
+async fn read_screen_origin(
+    proxy: &AccessibleProxy<'_>,
+) -> Result<Option<(i32, i32)>, AccessibilityTreeError> {
+    match extents_from_component(proxy).await {
+        Ok(bounds) => Ok(Some((bounds.x, bounds.y))),
+        Err(error) if is_missing_scroll_interface(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+async fn try_ancestor_viewport_scroll(proxy: &AccessibleProxy<'_>) -> Result<bool, AccessibilityTreeError> {
+    let conn = proxy.inner().connection();
+    let target_origin = read_screen_origin(proxy).await?;
+    let ancestors = collect_parent_objects(conn, proxy).await?;
+    let (target_x, target_y) = target_origin.unwrap_or((0, 0));
+
+    for ancestor_obj in ancestors {
+        let ancestor_proxy = match open_bus_object(conn, &ancestor_obj).await {
+            Ok(proxy) => proxy,
+            Err(_) => continue,
+        };
+        let ancestor_role = ancestor_proxy.get_role().await.ok();
+        let carrier = ancestor_role
+            .as_ref()
+            .is_some_and(role_supports_viewport_scroll);
+        if !carrier && !ancestor_role_is_generic_container(ancestor_role.as_ref()) {
+            continue;
+        }
+        if try_scroll_to_point_at(&ancestor_proxy, target_x, target_y).await? {
+            return Ok(true);
+        }
+        if try_component_scroll_to(&ancestor_proxy, ScrollType::TopEdge).await? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn collect_parent_objects(
+    conn: &zbus::Connection,
+    proxy: &AccessibleProxy<'_>,
+) -> Result<Vec<BusObject>, AccessibilityTreeError> {
+    let mut ancestors = Vec::new();
+    let mut current_obj = bus_object_for(proxy);
+    for _ in 0..SCROLL_ANCESTOR_LIMIT {
+        let current_proxy = open_bus_object(conn, &current_obj).await?;
+        let parent_ref = match timeout(NODE_TIMEOUT, current_proxy.parent()).await {
+            Ok(Ok(parent_ref)) => parent_ref,
+            _ => break,
+        };
+        if !is_usable_object_ref(&parent_ref) {
+            break;
+        }
+        let dest = parent_ref.name_as_str().unwrap_or("").to_owned();
+        let path = parent_ref.path_as_str().to_owned();
+        let Some(parent_obj) = bus_object_from_pair(dest, &path) else {
+            break;
+        };
+        ancestors.push(parent_obj.clone());
+        current_obj = parent_obj;
+    }
+    Ok(ancestors)
+}
+
+fn role_supports_viewport_scroll(role: &Role) -> bool {
+    matches!(
+        *role,
+        Role::ScrollPane
+            | Role::ScrollBar
+            | Role::List
+            | Role::Table
+            | Role::Tree
+            | Role::TreeTable
+            | Role::DocumentFrame
+            | Role::DocumentWeb
+            | Role::Terminal
+    )
+}
+
+fn ancestor_role_is_generic_container(role: Option<&Role>) -> bool {
+    matches!(
+        role,
+        Some(Role::Panel) | Some(Role::Filler) | Some(Role::Section)
+    )
+}
+
+fn role_is_non_scrollable_leaf(role: &Role) -> bool {
+    matches!(
+        *role,
+        Role::Entry
+            | Role::PasswordText
+            | Role::Text
+            | Role::Label
+            | Role::Static
+            | Role::Button
+            | Role::ToggleButton
+            | Role::CheckBox
+            | Role::RadioButton
+            | Role::ComboBox
+            | Role::SpinButton
+            | Role::Slider
+            | Role::MenuItem
+            | Role::Heading
+            | Role::Paragraph
+    )
+}
+
+fn scroll_failure_kind(role: Option<&Role>) -> &'static str {
+    match role {
+        Some(role) if role_is_non_scrollable_leaf(role) => "non_scrollable_leaf",
+        Some(Role::ScrollBar) => "scrollbar_controller",
+        Some(role) if role_supports_viewport_scroll(role) => "scrollable_no_effect",
+        _ => "no_scrollable_ancestor",
+    }
+}
+
+fn scroll_unavailable_after_component_attempts(
+    role: Option<&Role>,
+    role_label: &str,
+) -> AccessibilityTreeError {
+    let kind = scroll_failure_kind(role);
+    AccessibilityTreeError::failed(
+        "a11y_scroll_unavailable",
+        format!(
+            "AT-SPI Component.ScrollTo and ScrollToPoint returned false after ancestor \
+             scroll attempts ({kind}; role={role_label})",
+        ),
+    )
 }
 
 async fn apply_webkit_scroll(proxy: &AccessibleProxy<'_>) -> Result<(), AccessibilityTreeError> {
@@ -2314,7 +2515,6 @@ fn dbus_address_from_process(process_name: &str) -> Option<String> {
     None
 }
 
-#[cfg(test)]
 fn is_usable_object_ref(object_ref: &atspi::ObjectRefOwned) -> bool {
     !object_ref.is_null()
 }
@@ -4653,6 +4853,40 @@ mod tests {
             "org.freedesktop.DBus.Error.UnknownMethod: Method does not exist",
         );
         assert!(is_missing_scroll_interface(&error));
+    }
+
+    #[test]
+    fn scroll_failure_kind_classifies_entry_and_scroll_pane() {
+        assert_eq!(
+            scroll_failure_kind(Some(&Role::Entry)),
+            "non_scrollable_leaf"
+        );
+        assert_eq!(
+            scroll_failure_kind(Some(&Role::ScrollPane)),
+            "scrollable_no_effect"
+        );
+        assert_eq!(scroll_failure_kind(Some(&Role::Frame)), "no_scrollable_ancestor");
+        assert_eq!(scroll_failure_kind(None), "no_scrollable_ancestor");
+    }
+
+    #[test]
+    fn viewport_scroll_roles_include_terminal_and_tree() {
+        assert!(role_supports_viewport_scroll(&Role::ScrollPane));
+        assert!(role_supports_viewport_scroll(&Role::Terminal));
+        assert!(role_supports_viewport_scroll(&Role::Tree));
+        assert!(!role_supports_viewport_scroll(&Role::Entry));
+    }
+
+    #[test]
+    fn scroll_unavailable_message_names_role_and_kind() {
+        let error = scroll_unavailable_after_component_attempts(Some(&Role::Entry), "text");
+        let AccessibilityTreeError::Failed { code, message } = error else {
+            panic!("expected failed");
+        };
+        assert_eq!(code, "a11y_scroll_unavailable");
+        assert!(message.contains("non_scrollable_leaf"), "{message}");
+        assert!(message.contains("role=text"), "{message}");
+        assert!(message.contains("ScrollToPoint"), "{message}");
     }
 
     #[test]
