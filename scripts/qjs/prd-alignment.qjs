@@ -281,6 +281,7 @@ const evidence_suites = {
   "cu-privileged-signal-plan-smoke": true,
   "cu-persisted-grant-smoke": true,
   "cu-browser-session-smoke": true,
+  "cu-browser-profile-inventory-smoke": true,
   "cu-terminal-viewport-smoke": true,
   "cu-simulator-readonly-smoke": true,
   "cu-file-transaction-smoke": true,

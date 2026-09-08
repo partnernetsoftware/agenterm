@@ -695,12 +695,42 @@
           "note": "browser-tabs retains stable ids and URLs for background tabs and rejects incomplete or ambiguous bridge inventories; the frozen no-argument witness is resolved, while human profile/application binding remains stable TODO acu.dynamic.075.profile-name-binding and native Linux/Windows owned-profile qualification remains"
         },
         {
-          "id": "browser.profile.inventory-open",
-          "mcu_shape": "browser profile inventory and browser open",
-          "acu_shape": "browser-profiles/browser-open using an existing local profile",
-          "state": "native",
-          "evidence": ["scripts/cu-brave-live-smoke.sh", "scripts/cu-brave-live-cdp-smoke.sh"],
-          "note": "This does not claim ownership of profile creation, leasing or cleanup."
+          "id": "browser.profile.inventory",
+          "mcu_shape": "browser profile inventory",
+          "acu_shape": "browser-profiles over a named Chromium-family Local State",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "provider-not-mapped"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-browser-profile-inventory-smoke",
+                "evidence": ["cu.browser-profile-inventory.synthetic-home"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "windows-local-state-provider-not-mapped"
+              }
+            }
+          },
+          "evidence": ["cu.browser-profile-inventory.synthetic-home"],
+          "note": "The synthetic-HOME court proves ordered Local State parsing, last-used identity, redacted display paths and typed malformed-state failure without starting a browser or reading the real HOME. It does not claim a live profile/window join.",
+          "next": "run the unchanged synthetic-HOME court on native Linux, then map the Windows Chromium user-data directory and add its native court"
+        },
+        {
+          "id": "browser.profile.open",
+          "mcu_shape": "browser open against one existing profile",
+          "acu_shape": "browser-open using one exact existing local profile on macOS",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-live-court-pending", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "evidence": [],
+          "note": "Opening is an actuating focus and live-window contract. Inventory evidence, shell-script anecdotes or a typed argument refusal cannot qualify it.",
+          "next": "run one owned-profile macOS public qjswasm court with receipt, exact profile/window read-back, focus accounting and cleanup; retain typed unsupported on Linux and Windows until native providers exist"
         },
         {
           "id": "browser.managed-profile",

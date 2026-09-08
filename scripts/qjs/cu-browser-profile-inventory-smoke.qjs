@@ -1,0 +1,162 @@
+// Public read-only black-box court for Chromium Local State profile inventory.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+//
+// The fixture lives under an invocation-owned HOME. The court never starts a
+// browser and deliberately does not exercise `browser-open`: that verb owns a
+// separate actuation, focus and live-window contract.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.browser-profile-inventory.synthetic-home"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function host_is_macos() {
+  return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json")
+  };
+}
+
+function invoke(run_directory, executable, expected_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+    "browser-profiles", "--app", "Google Chrome"
+  ], {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000
+  });
+  ensure(output.success === expected_success,
+    "cu_browser_profile_inventory_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expected_success,
+    "cu_browser_profile_inventory_reply_state");
+  return reply;
+}
+
+function profile_row(data, name) {
+  for (const row of data.profiles) {
+    if (row.name === name) { return row; }
+  }
+  throw "cu_browser_profile_inventory_missing_profile:" + name;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(!harness.host_is_windows(),
+  "cu.browser-profile-inventory.synthetic-home requires the macOS/Linux Local State mapping");
+
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable),
+  "cu_browser_profile_inventory_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-browser-profile-inventory");
+const run_directory = context.run_directory;
+const user_data = host_is_macos()
+  ? rh.join(run_directory, "Library/Application Support/Google/Chrome")
+  : rh.join(run_directory, ".config/google-chrome");
+const local_state = rh.join(user_data, "Local State");
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP write a synthetic Chromium Local State under an invocation-owned HOME");
+  rh.create_dir_all(user_data);
+  rh.write_text(local_state, JSON.stringify({
+    profile: {
+      last_used: "Profile 7",
+      profiles_order: ["Profile 7", "Default", "not-in-cache"],
+      info_cache: {
+        "Default": { name: "court-alpha" },
+        "Profile 7": { name: "court-beta" },
+        "Profile 9": { name: "   " }
+      }
+    }
+  }));
+
+  print("STEP browser-profiles reads only the synthetic HOME and preserves Local State semantics");
+  const reply = invoke(run_directory, executable, true);
+  ensure(reply.command === "browser-profiles" && reply.target === "current",
+    "cu_browser_profile_inventory_identity");
+  const data = reply.data;
+  ensure(data.mechanism === "local-state+window-inventory"
+      && data.app === "Google Chrome"
+      && data.local_state.startsWith("~/")
+      && !data.local_state.includes(run_directory)
+      && data.returned === 3
+      && data.profiles.length === 3,
+    "cu_browser_profile_inventory_contract");
+  ensure(data.profiles[0].name === "court-beta"
+      && data.profiles[1].name === "court-alpha"
+      && data.profiles[2].name === "Profile 9",
+    "cu_browser_profile_inventory_order_and_fallback");
+  const alpha = profile_row(data, "court-alpha");
+  const beta = profile_row(data, "court-beta");
+  const unnamed = profile_row(data, "Profile 9");
+  ensure(alpha.directory === "Default" && alpha.last_used === false,
+    "cu_browser_profile_inventory_alpha");
+  ensure(beta.directory === "Profile 7" && beta.last_used === true,
+    "cu_browser_profile_inventory_beta");
+  ensure(unnamed.directory === "Profile 9" && unnamed.last_used === false,
+    "cu_browser_profile_inventory_unnamed");
+  for (const row of data.profiles) {
+    ensure(Array.isArray(row.windows),
+      "cu_browser_profile_inventory_windows_shape");
+  }
+  ensure(Array.isArray(data.unlisted_windows),
+    "cu_browser_profile_inventory_unlisted_shape");
+
+  print("STEP malformed synthetic Local State fails typed instead of consulting another HOME");
+  rh.write_text(local_state, "{not-json");
+  const invalid = invoke(run_directory, executable, false);
+  ensure(invalid.error.code === "browser_local_state_invalid"
+      && invalid.error.message.startsWith("~/")
+      && !invalid.error.message.includes(run_directory),
+    "cu_browser_profile_inventory_invalid_state");
+
+  ensure(!rh.exists(rh.join(run_directory, "cu-receipts.jsonl")),
+    "cu_browser_profile_inventory_effect_receipt_created");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence,
+    "cu.browser-profile-inventory.synthetic-home");
+  harness.remove_run(context);
+  print("PASS: browser profile inventory is bounded to synthetic HOME Local State");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

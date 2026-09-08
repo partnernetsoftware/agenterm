@@ -934,9 +934,12 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
-The latest report reduces the total to 66: zero capability gaps, 12 available
-leaves without registered evidence and 54 incomplete schema-2 platform
-qualifications. In particular,
+The latest report contains 68 blockers: zero capability gaps, 12 available
+leaves without registered evidence and 56 incomplete schema-2 platform
+qualifications. The count rose because the old composite
+`browser.profile.inventory-open` row was split into separately falsifiable
+inventory and actuation leaves; the synthetic-HOME inventory court cannot
+qualify browser launch, focus or live-window read-back. In particular,
 `process.signal.privileged` already has a public typed plan/apply surface and
 Linux/macOS protected-provider implementations; its missing public apply courts,
 release-size evidence and Windows provider are platform qualification debt.

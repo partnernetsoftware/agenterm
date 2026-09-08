@@ -2632,6 +2632,36 @@ in-progress unique version plan until it closes.
 
 ## Browser window lifecycle closure
 
+### Browser profile inventory boundary
+
+```text
+browser.profile
+├─ [x] inventory · synthetic HOME Local State · no browser launch
+│  ├─ macOS public qjswasm court green
+│  ├─ Linux native court pending
+│  └─ Windows Local State provider not mapped
+└─ [~] open · separate actuation/focus/live-window receipt court pending
+```
+
+Profile inventory and profile opening are separate ledger leaves. The
+`cu-browser-profile-inventory-smoke` court creates an invocation-owned HOME,
+proves profile order, last-used identity, unnamed-profile fallback, redacted
+`~/...` display paths and typed malformed-state failure, and never starts a
+browser or reads the real HOME. That evidence cannot qualify `browser-open`:
+opening owns actuation, focus accounting, a live profile/window postcondition,
+receipt closure and cleanup.
+
+```mermaid
+flowchart LR
+    H["invocation-owned HOME"] --> L["synthetic Chromium Local State"]
+    L --> I["browser-profiles<br/>ordered · bounded · redacted"]
+    I --> E["cu.browser-profile-inventory.synthetic-home"]
+    O["browser-open"] --> A{"actuation + focus + live window<br/>receipt court green?"}
+    A -->|no| P["remain pending"]
+    A -->|yes| Q["qualify profile open separately"]
+    E -. never borrowed .-> A
+```
+
 - [x] `browser.window-lifecycle` is a native ACU capability rather than an MCU
   fallback.
   - **User problem:** an agent must create and manage an isolated Chromium
