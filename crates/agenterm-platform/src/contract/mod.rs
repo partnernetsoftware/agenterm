@@ -37,13 +37,14 @@ pub mod hardware;
 pub mod host_memory;
 #[cfg(feature = "ime")]
 pub mod ime;
-pub mod keyboard_layout;
 #[cfg(feature = "input")]
 pub mod input;
 #[cfg(feature = "input-inject")]
 pub mod input_inject;
 #[cfg(feature = "ipc")]
 pub mod ipc_transport;
+#[cfg(feature = "keyboard-layout")]
+pub mod keyboard_layout;
 pub mod local_clock;
 #[cfg(feature = "login-session")]
 pub mod login_session;
