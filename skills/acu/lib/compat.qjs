@@ -6,7 +6,7 @@ import * as legacy from "agenterm:acu/legacy-args";
 import * as rewrite from "agenterm:acu/rewrite";
 
 export const LEGACY_TOP_LEVEL = [
-  "windows", "apps", "query", "invoke", "verify", "wait", "unlock",
+  "windows", "apps", "tree", "query", "invoke", "verify", "wait", "unlock",
   "observe", "focused", "click", "dclick", "rclick", "type", "key",
   "move", "shot", "clip", "clipboard", "displays", "spaces", "cursor",
   "frame", "movewin", "resize", "maximize", "close", "orderwin",
@@ -295,9 +295,6 @@ function known_dynamic_boundary(argv) {
   if (verb === "tree" && has_arg(argv, "--page")) {
     return { kind: "usage", command: "tree",
       message: "tree --page was never a valid MCU tree shape; use bounded tree selectors" };
-  }
-  if (verb === "tree" && has_arg(argv, "--max-value-bytes")) {
-    return todo("acu.dynamic.078", "tree", "paged or value-bounded tree compatibility is not typed yet");
   }
   if (verb === "windows" && sub === "watch" && (has_arg(argv, "--focused")
       || has_arg(argv, "--minimized") || has_arg(argv, "--onscreen")

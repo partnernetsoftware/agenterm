@@ -1499,6 +1499,7 @@ mod tests {
             window: Some(0x1000),
             depth: None,
             max_nodes: None,
+            max_value_bytes: None,
             flat: false,
             selector: None,
         };
@@ -1593,6 +1594,7 @@ mod tests {
             window: Some(1),
             depth: None,
             max_nodes: None,
+            max_value_bytes: None,
             flat: false,
             selector: None,
         });
@@ -1661,6 +1663,7 @@ mod tests {
             window: Some(0x1000),
             depth: None,
             max_nodes: None,
+            max_value_bytes: None,
             flat: false,
             selector: None,
         };
@@ -1686,6 +1689,7 @@ mod tests {
             window: Some(1),
             depth: None,
             max_nodes: None,
+            max_value_bytes: None,
             flat: false,
             selector: None,
         };

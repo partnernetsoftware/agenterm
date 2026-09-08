@@ -2164,6 +2164,15 @@ windows” never masquerades as “this host cannot evaluate the filter.” Retu
 typed unsupported result on hosts without the provider; do not silently
 post-filter or return an empty success.
 
+Bound accessibility text at the product serialization boundary, after the
+single native walk and before either flat or nested projection. A shortened
+UTF-8 preview keeps the complete observed byte length and SHA-256 so callers
+can detect changes beyond the prefix; `0` is a valid metadata-only budget.
+But a node already marked `text-truncated` by its platform adapter is not a
+complete value: report that incompleteness and omit the purported full-value
+digest. Hashing the adapter's prefix and labelling it as the whole value is a
+false identity, not a useful approximation.
+
 `agenterm-cu --ssh <user@host>` is the first remote target tier (PRD 30).
 It does not invent verbs: the host rewrites the abstract command to
 `target=current` and runs a remote `agenterm-cu exec --json -` worker over

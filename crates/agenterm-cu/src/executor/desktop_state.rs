@@ -22,7 +22,7 @@ pub(super) fn desktop_state_payload(
     } else {
         "focused"
     };
-    let tree = tree_payload(Some(selected.handle), depth, max_nodes, true, None)?;
+    let tree = tree_payload(Some(selected.handle), depth, max_nodes, None, true, None)?;
     let pointer = pointer_position()?;
 
     // A handle is only valid at an observation instant.  Re-read the exact

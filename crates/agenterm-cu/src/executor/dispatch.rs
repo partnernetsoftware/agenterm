@@ -1073,10 +1073,18 @@ impl Executor {
                 window,
                 depth,
                 max_nodes,
+                max_value_bytes,
                 flat,
                 selector,
                 ..
-            } => tree_payload(*window, *depth, *max_nodes, *flat, selector.as_deref()),
+            } => tree_payload(
+                *window,
+                *depth,
+                *max_nodes,
+                *max_value_bytes,
+                *flat,
+                selector.as_deref(),
+            ),
             Command::DesktopState {
                 window,
                 depth,

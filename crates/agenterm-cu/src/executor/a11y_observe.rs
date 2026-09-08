@@ -19,14 +19,38 @@ pub(super) fn budget_json(depth: Option<u32>, max_nodes: Option<usize>) -> serde
     serde_json::json!({ "depth": depth, "max_nodes": max_nodes })
 }
 
-/// Bounded tree. `flat` returns the same nodes in walk order, each with its
-/// flatten `index` and `depth`; the identities are the tree's own ids.
-#[derive(serde::Serialize)]
-struct ScopedFlatNode<'a> {
-    index: usize,
-    depth: u32,
-    #[serde(flatten)]
-    node: &'a mechanism::A11yNode,
+fn bounded_node_json(
+    node: &mechanism::A11yNode,
+    max_value_bytes: usize,
+) -> Result<serde_json::Value, CuError> {
+    use sha2::{Digest, Sha256};
+
+    let mut value =
+        serde_json::to_value(node).map_err(|error| CuError::new("serialize", error.to_string()))?;
+    let Some(full) = node.text.as_deref() else {
+        return Ok(value);
+    };
+    let (preview, bounded_truncated) = observe::preview_value(full, max_value_bytes);
+    let adapter_truncated = node.states.iter().any(|state| state == "text-truncated");
+    let object = value
+        .as_object_mut()
+        .expect("A11yNode serializes as an object");
+    object.insert("text".into(), preview.into());
+    object.insert("value_bytes".into(), full.len().into());
+    object.insert(
+        "value_truncated".into(),
+        (bounded_truncated || adapter_truncated).into(),
+    );
+    object.insert("value_complete".into(), (!adapter_truncated).into());
+    if !adapter_truncated {
+        let digest = Sha256::digest(full.as_bytes());
+        let hex = digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        object.insert("value_sha256".into(), hex.into());
+    }
+    Ok(value)
 }
 
 fn selector_segment_has_index(raw: &str) -> bool {
@@ -189,6 +213,7 @@ fn nested_subtree_node(
     index: &TreeIndex<'_>,
     node: &mechanism::A11yNode,
     remaining: &mut std::collections::HashSet<String>,
+    max_value_bytes: usize,
 ) -> Result<serde_json::Value, CuError> {
     if !remaining.remove(&node.id) {
         return Err(CuError::new(
@@ -201,10 +226,9 @@ fn nested_subtree_node(
         .get(node.id.as_str())
         .into_iter()
         .flatten()
-        .map(|child| nested_subtree_node(index, child, remaining))
+        .map(|child| nested_subtree_node(index, child, remaining, max_value_bytes))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut value =
-        serde_json::to_value(node).map_err(|error| CuError::new("serialize", error.to_string()))?;
+    let mut value = bounded_node_json(node, max_value_bytes)?;
     value
         .as_object_mut()
         .expect("A11yNode serializes as an object")
@@ -216,18 +240,22 @@ pub(super) fn tree_payload(
     window: Option<isize>,
     depth: Option<u32>,
     max_nodes: Option<usize>,
+    max_value_bytes: Option<usize>,
     flat: bool,
     selector: Option<&str>,
 ) -> Result<serde_json::Value, CuError> {
+    observe::validate_max_value_bytes(max_value_bytes).map_err(invalid_input)?;
+    let max_value_bytes = max_value_bytes.unwrap_or(observe::DEFAULT_MAX_VALUE_BYTES);
     let budget = tree_budget(depth, max_nodes)?;
     let tree = mechanism::tree_for_window_bounded(window, budget).map_err(map_mechanism_err)?;
-    scoped_tree_payload(tree, depth, max_nodes, flat, selector)
+    scoped_tree_payload(tree, depth, max_nodes, max_value_bytes, flat, selector)
 }
 
 fn scoped_tree_payload(
     tree: mechanism::A11yTree,
     depth: Option<u32>,
     max_nodes: Option<usize>,
+    max_value_bytes: usize,
     flat: bool,
     selector: Option<&str>,
 ) -> Result<serde_json::Value, CuError> {
@@ -258,7 +286,7 @@ fn scoped_tree_payload(
         let nested = if flat {
             None
         } else {
-            let root = nested_subtree_node(&index, selected, &mut ids)?;
+            let root = nested_subtree_node(&index, selected, &mut ids, max_value_bytes)?;
             if !ids.is_empty() {
                 return Err(CuError::new(
                     "a11y_tree_invalid",
@@ -277,22 +305,29 @@ fn scoped_tree_payload(
         .unwrap_or(tree.root_id.as_str());
     let selected_root_depth = scoped.first().map_or(0, |entry| entry.depth);
     let nodes = if flat {
-        serde_json::to_value(
-            scoped
-                .iter()
-                .map(|entry| ScopedFlatNode {
-                    index: entry.index,
-                    depth: entry.depth.saturating_sub(selected_root_depth),
-                    node: entry.node,
-                })
-                .collect::<Vec<_>>(),
-        )
+        scoped
+            .iter()
+            .map(|entry| {
+                let mut value = bounded_node_json(entry.node, max_value_bytes)?;
+                let object = value.as_object_mut().expect("bounded node is an object");
+                object.insert("index".into(), entry.index.into());
+                object.insert(
+                    "depth".into(),
+                    entry.depth.saturating_sub(selected_root_depth).into(),
+                );
+                Ok(value)
+            })
+            .collect::<Result<Vec<_>, CuError>>()
+            .map(serde_json::Value::Array)
     } else if selector.is_none() {
-        serde_json::to_value(scoped.iter().map(|entry| entry.node).collect::<Vec<_>>())
+        scoped
+            .iter()
+            .map(|entry| bounded_node_json(entry.node, max_value_bytes))
+            .collect::<Result<Vec<_>, CuError>>()
+            .map(serde_json::Value::Array)
     } else {
         Ok(serde_json::Value::Null)
-    }
-    .map_err(|error| CuError::new("serialize", error.to_string()))?;
+    }?;
     let ax = observe::classify_ax_tree(&tree);
     let app = window_app_name(tree.window_handle);
     let mut payload = serde_json::json!({
@@ -304,6 +339,7 @@ fn scoped_tree_payload(
         "root_id": selected_root_id,
         "flat": flat,
         "budget": budget_json(depth, max_nodes),
+        "max_value_bytes": max_value_bytes,
         "truncated": tree.truncated,
         "visited": tree.visited,
         "returned": scoped.len(),
@@ -1241,9 +1277,15 @@ mod tests {
 
     #[test]
     fn tree_selector_returns_a_real_nested_subtree_and_a_flat_projection_on_request() {
-        let nested =
-            scoped_tree_payload(selector_tree(), Some(4), Some(20), false, Some("Group[0]"))
-                .expect("selected nested subtree");
+        let nested = scoped_tree_payload(
+            selector_tree(),
+            Some(4),
+            Some(20),
+            4096,
+            false,
+            Some("Group[0]"),
+        )
+        .expect("selected nested subtree");
         assert_eq!(nested["selector"], "Group[0]");
         assert_eq!(nested["root_id"], "/0/0");
         assert_eq!(nested["returned"], 2);
@@ -1255,9 +1297,15 @@ mod tests {
             serde_json::json!([])
         );
 
-        let payload =
-            scoped_tree_payload(selector_tree(), Some(4), Some(20), true, Some("Group[0]"))
-                .expect("selected subtree");
+        let payload = scoped_tree_payload(
+            selector_tree(),
+            Some(4),
+            Some(20),
+            4096,
+            true,
+            Some("Group[0]"),
+        )
+        .expect("selected subtree");
         assert_eq!(payload["selector"], "Group[0]");
         assert_eq!(payload["root_id"], "/0/0");
         assert_eq!(payload["returned"], 2);
@@ -1278,26 +1326,59 @@ mod tests {
     }
 
     #[test]
+    fn tree_value_budget_keeps_complete_length_and_digest_without_splitting_utf8() {
+        let mut tree = selector_tree();
+        tree.nodes[2].text = Some("hello".into());
+        let bounded = scoped_tree_payload(tree.clone(), None, None, 3, true, None)
+            .expect("bounded flat tree");
+        let node = &bounded["nodes"][2];
+        assert_eq!(node["text"], "hel");
+        assert_eq!(node["value_bytes"], 5);
+        assert_eq!(node["value_truncated"], true);
+        assert_eq!(node["value_complete"], true);
+        assert_eq!(
+            node["value_sha256"],
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+        assert_eq!(bounded["max_value_bytes"], 3);
+
+        tree.nodes[2].text = Some("你好".into());
+        let metadata = scoped_tree_payload(tree.clone(), None, None, 0, false, None)
+            .expect("metadata-only nested tree");
+        assert_eq!(metadata["nodes"][2]["text"], "");
+        assert_eq!(metadata["nodes"][2]["value_bytes"], 6);
+        assert_eq!(metadata["nodes"][2]["value_truncated"], true);
+
+        tree.nodes[2].states.push("text-truncated".into());
+        let incomplete = scoped_tree_payload(tree, None, None, 3, false, None)
+            .expect("adapter-truncated tree remains truthful");
+        assert_eq!(incomplete["nodes"][2]["value_complete"], false);
+        assert!(incomplete["nodes"][2].get("value_sha256").is_none());
+    }
+
+    #[test]
     fn tree_selector_requires_a_unique_unindexed_match() {
-        let error = scoped_tree_payload(selector_tree(), None, None, false, Some("Group"))
+        let error = scoped_tree_payload(selector_tree(), None, None, 4096, false, Some("Group"))
             .expect_err("unindexed repeated role must be ambiguous");
         assert_eq!(error.code, "a11y_node_ambiguous");
         assert_eq!(error.count, Some(2));
-        let payload = scoped_tree_payload(selector_tree(), None, None, false, Some("Group[1]"))
-            .expect("explicit sibling index is deterministic");
+        let payload =
+            scoped_tree_payload(selector_tree(), None, None, 4096, false, Some("Group[1]"))
+                .expect("explicit sibling index is deterministic");
         assert_eq!(payload["root"]["id"], "/0/1");
     }
 
     #[test]
     fn tree_selector_miss_and_incomplete_walk_are_typed_failures() {
-        let error = scoped_tree_payload(selector_tree(), None, None, false, Some("Button[9]"))
-            .expect_err("selector miss");
+        let error =
+            scoped_tree_payload(selector_tree(), None, None, 4096, false, Some("Button[9]"))
+                .expect_err("selector miss");
         assert_eq!(error.code, "a11y_node_not_found");
 
         let mut truncated = selector_tree();
         truncated.truncated = true;
         truncated.visited = 9;
-        let error = scoped_tree_payload(truncated, Some(1), Some(4), false, Some("Group[0]"))
+        let error = scoped_tree_payload(truncated, Some(1), Some(4), 4096, false, Some("Group[0]"))
             .expect_err("a partial acquisition cannot prove a complete subtree");
         assert_eq!(error.code, "a11y_tree_truncated");
         assert_eq!(error.detail.as_ref().unwrap()["visited"], 9);
@@ -1427,6 +1508,7 @@ mod tests {
             window: Some(1),
             depth: Some(65),
             max_nodes: None,
+            max_value_bytes: None,
             flat: false,
             selector: None,
         });
@@ -1437,6 +1519,7 @@ mod tests {
             window: Some(1),
             depth: None,
             max_nodes: Some(0),
+            max_value_bytes: None,
             flat: false,
             selector: None,
         });

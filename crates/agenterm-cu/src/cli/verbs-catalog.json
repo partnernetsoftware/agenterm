@@ -2209,7 +2209,7 @@
       "grant": "observe",
       "family": "a11y-observe",
       "summary": "bounded a11y tree of a window or selected subtree; --flat numbers nodes",
-      "usage": "tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat] [--selector PATH]\nelements [--window HANDLE] [--depth N] [--max-nodes N] [--selector PATH]     (alias of tree --flat)",
+      "usage": "tree [--window HANDLE] [--depth N] [--max-nodes N] [--max-value-bytes N] [--flat] [--selector PATH]\nelements [--window HANDLE] [--depth N] [--max-nodes N] [--max-value-bytes N] [--selector PATH]     (alias of tree --flat)",
       "args": [
         {
           "flag": "--window",
@@ -2225,6 +2225,11 @@
           "flag": "--max-nodes",
           "value": "N",
           "help": "node budget while the platform walks (1..20000)"
+        },
+        {
+          "flag": "--max-value-bytes",
+          "value": "N",
+          "help": "per-node text preview bytes (default 4096; 0 keeps length/digest metadata)"
         },
         {
           "flag": "--flat",
@@ -6116,7 +6121,7 @@
     },
     {
       "name": "tree",
-      "text": "agenterm-cu tree    (also: elements)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat] [--selector PATH]\n  elements [--window HANDLE] [--depth N] [--max-nodes N] [--selector PATH]     (alias of tree --flat)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --flat                        number nodes (index, depth) in walk order\n  --selector PATH               return one unique complete nested subtree\n\nDepth (root=0, <=64) and node budget (1..20000) apply while the platform\nwalks. Without --flat, --selector returns `root` with recursive `children`;\n--flat instead numbers the same subtree in walk order, with selector-relative\ndepth and original flatten indices. An unindexed segment that matches siblings\nfails `a11y_node_ambiguous`; add `[index]`. A miss fails\n`a11y_node_not_found`. If depth or max-nodes truncates the window-root walk,\nselection fails `a11y_tree_truncated` because uniqueness and complete\ndescendants are unproven. No second backend walk is claimed. `elements` is the\nMCU spelling of tree --flat.\n"
+      "text": "agenterm-cu tree    (also: elements)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  tree [--window HANDLE] [--depth N] [--max-nodes N] [--max-value-bytes N] [--flat] [--selector PATH]\n  elements [--window HANDLE] [--depth N] [--max-nodes N] [--max-value-bytes N] [--selector PATH]     (alias of tree --flat)\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --depth N                     walk depth (root = 0, at most 64)\n  --max-nodes N                 node budget while the platform walks (1..20000)\n  --max-value-bytes N           per-node text preview (default 4096; 0 keeps length/digest metadata)\n  --flat                        number nodes (index, depth) in walk order\n  --selector PATH               return one unique complete nested subtree\n\nDepth (root=0, <=64) and node budget (1..20000) apply while the platform\nwalks. Node text defaults to a 4096-byte UTF-8 preview; shorter previews retain\nthe complete observed byte length and SHA-256, while a provider-truncated value\nis marked incomplete and never receives a misleading full-value digest.\nWithout --flat, --selector returns `root` with recursive `children`; --flat\ninstead numbers the same subtree in walk order, with selector-relative depth\nand original flatten indices. An unindexed segment that matches siblings fails\n`a11y_node_ambiguous`; add `[index]`. A miss fails `a11y_node_not_found`. If\ndepth or max-nodes truncates the window-root walk, selection fails\n`a11y_tree_truncated` because uniqueness and complete descendants are unproven.\nNo second backend walk is claimed. `elements` is the MCU spelling of tree --flat.\n"
     },
     {
       "name": "desktop-state",

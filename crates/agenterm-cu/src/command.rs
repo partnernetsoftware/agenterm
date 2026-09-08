@@ -2325,6 +2325,11 @@ pub enum Command {
         depth: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_nodes: Option<usize>,
+        /// Maximum UTF-8 bytes transported for each node text value. The
+        /// complete observed byte length and digest remain available when a
+        /// value is shortened. `0` is metadata-only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_value_bytes: Option<usize>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         flat: bool,
         /// MCU path: select exactly one node from the bounded window-root walk
@@ -7102,6 +7107,7 @@ mod tests {
                 window: Some(7),
                 depth: None,
                 max_nodes: None,
+                max_value_bytes: None,
                 flat: false,
                 selector: None,
             }
@@ -7115,6 +7121,7 @@ mod tests {
             window: Some(7),
             depth: Some(3),
             max_nodes: Some(5),
+            max_value_bytes: Some(16),
             flat: true,
             selector: Some("Group[0]".into()),
         };
@@ -7123,7 +7130,7 @@ mod tests {
             serde_json::to_value(&bounded).expect("serialize"),
             serde_json::json!({
                 "verb": "tree", "target": "ssh", "window": 7,
-                "depth": 3, "max_nodes": 5, "flat": true,
+                "depth": 3, "max_nodes": 5, "max_value_bytes": 16, "flat": true,
                 "selector": "Group[0]"
             })
         );

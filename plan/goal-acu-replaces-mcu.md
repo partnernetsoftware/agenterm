@@ -917,8 +917,8 @@ PID, observe role, wait absence, platform-default-shell PTY, selector-rooted
 trees, bounded filtered query watch, and Space filtering evaluated inside every
 window-watch poll. The frozen `tree --page` witness is now a closed local usage
 result because archived MCU never accepted that tree shape. The tree/query debt
-remains because MCU-only filters including `--max-value-bytes` and state/action
-predicates remain under the same argument-sensitive
+is now narrower: tree value previews have a native bounded projection, while
+query-only state/action filters remain under their stable argument-sensitive
 gap ids. The archived tmux provider is a permanent scope rejection, while a
 native wait shaped as `literal.*` reduces exactly to loss-aware substring search;
 irreducible regex remains `.067`. Watch control itself now routes through ACU. The tree witness count

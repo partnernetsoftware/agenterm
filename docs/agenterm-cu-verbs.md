@@ -1933,8 +1933,8 @@ return app_menu_platform_unsupported; use menu-inspect --window there.
 ### `tree`
 
 ```text
-tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat] [--selector PATH]
-elements [--window HANDLE] [--depth N] [--max-nodes N] [--selector PATH]     (alias of tree --flat)
+tree [--window HANDLE] [--depth N] [--max-nodes N] [--max-value-bytes N] [--flat] [--selector PATH]
+elements [--window HANDLE] [--depth N] [--max-nodes N] [--max-value-bytes N] [--selector PATH]     (alias of tree --flat)
 ```
 
 ```text
@@ -1942,25 +1942,28 @@ agenterm-cu tree    (also: elements)
   scope: observe    family: Accessibility: observe
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  tree [--window HANDLE] [--depth N] [--max-nodes N] [--flat] [--selector PATH]
-  elements [--window HANDLE] [--depth N] [--max-nodes N] [--selector PATH]     (alias of tree --flat)
+  tree [--window HANDLE] [--depth N] [--max-nodes N] [--max-value-bytes N] [--flat] [--selector PATH]
+  elements [--window HANDLE] [--depth N] [--max-nodes N] [--max-value-bytes N] [--selector PATH]     (alias of tree --flat)
 
 arguments:
   --window HANDLE               window handle from `windows` (numeric or App#N)
   --depth N                     walk depth (root = 0, at most 64)
   --max-nodes N                 node budget while the platform walks (1..20000)
+  --max-value-bytes N           per-node text preview (default 4096; 0 keeps length/digest metadata)
   --flat                        number nodes (index, depth) in walk order
   --selector PATH               return one unique complete nested subtree
 
 Depth (root=0, <=64) and node budget (1..20000) apply while the platform
-walks. Without --flat, --selector returns `root` with recursive `children`;
---flat instead numbers the same subtree in walk order, with selector-relative
-depth and original flatten indices. An unindexed segment that matches siblings
-fails `a11y_node_ambiguous`; add `[index]`. A miss fails
-`a11y_node_not_found`. If depth or max-nodes truncates the window-root walk,
-selection fails `a11y_tree_truncated` because uniqueness and complete
-descendants are unproven. No second backend walk is claimed. `elements` is the
-MCU spelling of tree --flat.
+walks. Node text defaults to a 4096-byte UTF-8 preview; shorter previews retain
+the complete observed byte length and SHA-256, while a provider-truncated value
+is marked incomplete and never receives a misleading full-value digest.
+Without --flat, --selector returns `root` with recursive `children`; --flat
+instead numbers the same subtree in walk order, with selector-relative depth
+and original flatten indices. An unindexed segment that matches siblings fails
+`a11y_node_ambiguous`; add `[index]`. A miss fails `a11y_node_not_found`. If
+depth or max-nodes truncates the window-root walk, selection fails
+`a11y_tree_truncated` because uniqueness and complete descendants are unproven.
+No second backend walk is claimed. `elements` is the MCU spelling of tree --flat.
 ```
 
 ### `desktop-state`

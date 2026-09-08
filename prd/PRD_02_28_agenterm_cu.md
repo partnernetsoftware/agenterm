@@ -538,8 +538,9 @@ ACU-only cutover
 │  │  └─ Linux/Windows native desktop qualification remains delivery evidence debt
 │  ├─ [x] acu.dynamic.077 · native `query --subrole` preserves macOS `AXSubrole` through ABI 1.29;
 │  │  └─ public owned Save Panel qjswasm court proves a deterministic `AXDialog` accessory probe
-│  ├─ [~] acu.dynamic.078 · invalid legacy `tree --page` is closed usage;
-│  │  └─ valid `tree --max-value-bytes` remains typed TODO
+│  ├─ [x] acu.dynamic.078 · invalid legacy `tree --page` is closed usage;
+│  │  └─ valid `tree --max-value-bytes` maps to native UTF-8 previews,
+│  │     byte-length/digest metadata and explicit provider-incomplete truth
 │  ├─ [~] acu.dynamic.084 · `--space` is evaluated inside every windows-watch poll;
 │  │  └─ qjs compatibility + native unit gates green, macOS live Space-transition court pending
 │  ├─ [x] acu.dynamic.086 · native macOS `app-menu-inspect` resolves an exact app + unique process;
@@ -760,8 +761,10 @@ flowchart LR
   original node ids and flatten indices, rebases displayed depth to the selected
   root, and retains the original `visited` / `truncated` scan truth. Public
   qjswasm evidence `cu.tree-selector-subtree` is green on macOS; the same owned
-  fixture is registered for Linux and Windows. MCU-only `--page` and
-  `--max-value-bytes` tree projections remain separate migration debt.
+  fixture is registered for Linux and Windows. Invalid MCU `--page` remains a
+  closed usage result; `--max-value-bytes` now bounds every returned node text,
+  keeps complete observed byte length/SHA-256, and never hashes a provider-
+  truncated value as though it were complete.
 - [~] `query --watch-ms` now repeats the exact bounded query acquisition and
   filter rather than substituting the generic event observer. Optional
   `--until present|absent|change`, a bounded interval and a bounded compact

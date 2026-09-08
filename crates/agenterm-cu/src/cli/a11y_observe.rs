@@ -26,6 +26,8 @@ pub fn parse(
             let window = flag_window(args)?;
             let depth = flag_parsed::<u32>(args, "--depth")?;
             let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+            let max_value_bytes = flag_parsed::<usize>(args, "--max-value-bytes")?;
+            agenterm_cu::observe::validate_max_value_bytes(max_value_bytes)?;
             let selector = flag_text(args, "--selector")?;
             if let Some(raw) = selector.as_deref() {
                 agenterm_cu::observe::parse_selector(raw)?;
@@ -34,7 +36,7 @@ pub fn parse(
             let flat = spelled == "elements" || take_switch(args, "--flat");
             if !args.is_empty() {
                 return Err(format!(
-                    "tree accepts only [--window H] [--depth N] [--max-nodes N] [--flat] [--selector PATH]; unexpected {:?}",
+                    "tree accepts only [--window H] [--depth N] [--max-nodes N] [--max-value-bytes N] [--flat] [--selector PATH]; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -43,6 +45,7 @@ pub fn parse(
                 window,
                 depth,
                 max_nodes,
+                max_value_bytes,
                 flat,
                 selector,
             })

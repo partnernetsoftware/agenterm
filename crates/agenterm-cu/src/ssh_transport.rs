@@ -1206,6 +1206,7 @@ mod tests {
             window: Some(42),
             depth: None,
             max_nodes: None,
+            max_value_bytes: None,
             flat: false,
             selector: None,
         };

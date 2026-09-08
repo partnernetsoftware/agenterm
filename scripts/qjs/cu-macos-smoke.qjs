@@ -1239,6 +1239,31 @@ try {
       + ":press=" + press_button_matches + ":text=" + text_area_matches
   );
 
+  print("STEP tree bounds every node text without losing complete value identity");
+  const value_bounded = run_cu_json(
+    run_directory,
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "tree", "--window", handle_text,
+      "--flat", "--max-value-bytes", "2"
+    ]
+  );
+  let bounded_field = null;
+  for (const node of value_bounded.data.nodes) {
+    if (text_at(node, "identifier") === "fixture-field") { bounded_field = node; }
+  }
+  ensure(
+    bounded_field !== null
+      && text_at(bounded_field, "text") === "se"
+      && int_at(bounded_field, "value_bytes") === 4
+      && flag_at(bounded_field, "value_truncated")
+      && flag_at(bounded_field, "value_complete")
+      && text_at(bounded_field, "value_sha256")
+        === "19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b"
+      && int_at(value_bounded, "data.max_value_bytes") === 2,
+    "cu_macos_smoke_tree_value_budget:" + JSON.stringify(bounded_field)
+  );
+
   // ---- slice 2: actuation, read back through the same tree -------------
   const focused_before = focused_window_handle(run_directory, executable);
 

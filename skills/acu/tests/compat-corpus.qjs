@@ -164,9 +164,11 @@ require(app_profile_tabs.gap_id === "acu.dynamic.075.profile-name-binding",
 const tree_value_bound = compat.canonicalize([
   "tree", "Window#1", "--max-value-bytes", "0"
 ]);
-require(tree_value_bound.kind === "todo", "unmapped tree value bound remains TODO");
-require(tree_value_bound.gap_id === "acu.dynamic.078",
-  "unmapped tree value bound keeps stable dynamic id");
+require(tree_value_bound.kind === "exec", "tree value bound maps to native tree");
+require(JSON.stringify(tree_value_bound.argv)
+    === JSON.stringify(["--target", "current", "--grant", "observe,actuate",
+      "tree", "--window", "Window#1", "--max-value-bytes", "0"]),
+  "tree value bound keeps exact handle and byte budget:" + JSON.stringify(tree_value_bound));
 
 const space_with_unmapped_filter = compat.canonicalize([
   "windows", "watch", "--space", "1", "--type", "appeared"
