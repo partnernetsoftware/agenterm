@@ -1,6 +1,8 @@
 {
   "schema_version": 3,
-  "planned_command_roots": ["agenterm-bash"],
+  "planned_command_roots": [
+    "agenterm-bash"
+  ],
   "capabilities": [
     {
       "id": "computer-use.windows-current",
@@ -112,12 +114,15 @@
         "cu.linux-ime-status",
         "cu.linux-power-status-readback",
         "cu.linux-processor-topology-readback",
+        "cu.linux-processor-affinity-readback",
+        "cu.linux-audio-status-readback",
         "cu.linux-host-memory-readback",
         "cu.linux-cache-hierarchy-readback",
         "cu.linux-resource-status-readback",
         "cu.linux-device-inventory-readback",
         "cu.linux-local-clock-readback",
         "cu.linux-boot-identity-readback",
+        "cu.linux-login-session-readback",
         "cu.linux-network-dns-resolv",
         "cu.linux-atspi-orderwin",
         "cu.linux-atspi-raise",
@@ -406,7 +411,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "Backspace emits ConPTY VT `DEL` and deletes exactly one input",
-      "evidence_ids": ["cli.backspace-del-one"]
+      "evidence_ids": [
+        "cli.backspace-del-one"
+      ]
     },
     {
       "id": "terminal.first-window-async-ready",
@@ -414,7 +421,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "GUI shell appears before the initial ConPTY/cmd process is ready",
-      "evidence_ids": ["startup.first-window-async-ready"]
+      "evidence_ids": [
+        "startup.first-window-async-ready"
+      ]
     },
     {
       "id": "terminal.mouse-scrollback",
@@ -422,7 +431,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "mouse wheel navigates ordinary terminal history and raw full-screen applications",
-      "evidence_ids": ["ux.mouse-scrollback"]
+      "evidence_ids": [
+        "ux.mouse-scrollback"
+      ]
     },
     {
       "id": "terminal.text-selection-copy",
@@ -430,7 +441,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "basic Windows visible-cell dragging selects terminal text and a completed",
-      "evidence_ids": ["ux.terminal-selection-copy"]
+      "evidence_ids": [
+        "ux.terminal-selection-copy"
+      ]
     },
     {
       "id": "terminal.system-menu-clipboard",
@@ -438,7 +451,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "window-icon system menu exposes focus-aware Copy and Paste",
-      "evidence_ids": ["ux.system-menu-clipboard"]
+      "evidence_ids": [
+        "ux.system-menu-clipboard"
+      ]
     },
     {
       "id": "settings.path-isolation",
@@ -446,7 +461,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "`AGENTERM_SETTINGS_PATH` provides explicit settings isolation",
-      "evidence_ids": ["ux.settings-isolation"]
+      "evidence_ids": [
+        "ux.settings-isolation"
+      ]
     },
     {
       "id": "workspace.theme-settings",
@@ -454,7 +471,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "Dark and Light theme settings preview, apply, cancel, and persist without interrupting PTYs",
-      "evidence_ids": ["ux.theme-settings"]
+      "evidence_ids": [
+        "ux.theme-settings"
+      ]
     },
     {
       "id": "workspace.theme-render-cost-parity",
@@ -462,7 +481,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "Dark/Light same-window render-cost parity rejects stable 3--5x palette-dependent asymmetry",
-      "evidence_ids": ["ux.theme-render-parity"]
+      "evidence_ids": [
+        "ux.theme-render-parity"
+      ]
     },
     {
       "id": "control.named-buffer-paste",
@@ -470,7 +491,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "named buffer commands",
-      "evidence_ids": ["cli.named-buffer-paste"]
+      "evidence_ids": [
+        "cli.named-buffer-paste"
+      ]
     },
     {
       "id": "control.stable-create-id",
@@ -478,7 +501,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "`new-window -F` can return the new tab's stable ID",
-      "evidence_ids": ["cli.stable-create-id"]
+      "evidence_ids": [
+        "cli.stable-create-id"
+      ]
     },
     {
       "id": "workspace.locale-consistency",
@@ -486,7 +511,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "Windows replaceable-UI labels use one locale source with persistent English and Traditional Chinese switching",
-      "evidence_ids": ["ux.locale-consistency"]
+      "evidence_ids": [
+        "ux.locale-consistency"
+      ]
     },
     {
       "id": "workspace.semantic-window-control",
@@ -494,7 +521,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "semantic actions control window state and client size without corrupting the PTY grid",
-      "evidence_ids": ["ux.semantic-window-control"]
+      "evidence_ids": [
+        "ux.semantic-window-control"
+      ]
     },
     {
       "id": "workspace.unix-native-frontend",
@@ -519,7 +548,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "workspace chrome uses a full-height Tabs column and a terminal workbench column containing the top New/Tabs/Settings toolbar, terminal viewport, Composer, and terminal-scoped status bar",
-      "evidence_ids": ["ux.adaptive-tabs"]
+      "evidence_ids": [
+        "ux.adaptive-tabs"
+      ]
     },
     {
       "id": "workspace.no-activate-launch",
@@ -527,7 +558,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "`agenterm.exe --no-activate` shows or starts the workspace without activation and behind the current foreground window; `--not-foreground` remains an alias",
-      "evidence_ids": ["ux.no-activate-launch"]
+      "evidence_ids": [
+        "ux.no-activate-launch"
+      ]
     },
     {
       "id": "runtime.remain-on-exit",
@@ -536,7 +569,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "exited process retains its final screen and exit code",
-      "evidence_ids": ["cli.remain-on-exit"]
+      "evidence_ids": [
+        "cli.remain-on-exit"
+      ]
     },
     {
       "id": "workspace.live-close-confirmation",
@@ -545,7 +580,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "explicit confirmation before closing a live process",
-      "evidence_ids": ["ux.live-close-confirmation"]
+      "evidence_ids": [
+        "ux.live-close-confirmation"
+      ]
     },
     {
       "id": "workspace.detach-first-window-close",
@@ -553,7 +590,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "detach-first window close preserves the live server and explicit stop creates a fresh runtime",
-      "evidence_ids": ["ux.detach-first-window-close"]
+      "evidence_ids": [
+        "ux.detach-first-window-close"
+      ]
     },
     {
       "id": "control.semantic-ui-automation",
@@ -562,7 +601,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "semantic focus and UI actions",
-      "evidence_ids": ["ux.semantic-ui-automation"]
+      "evidence_ids": [
+        "ux.semantic-ui-automation"
+      ]
     },
     {
       "id": "control.modal-wait",
@@ -570,7 +611,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "`wait-ui` directly waits for modal kind, target, or closed state with a stable timeout code",
-      "evidence_ids": ["ux.modal-wait"]
+      "evidence_ids": [
+        "ux.modal-wait"
+      ]
     },
     {
       "id": "workspace.keyboard-surface-navigation",
@@ -578,7 +621,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "keyboard-first Ctrl+Arrow surface navigation preserves native Edit word movement and suppresses cross-focus repeat",
-      "evidence_ids": ["ux.keyboard-surface-navigation"]
+      "evidence_ids": [
+        "ux.keyboard-surface-navigation"
+      ]
     },
     {
       "id": "workspace.working-context-cwd",
@@ -586,7 +631,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "truthful working-context CWD uses launch and OSC 7 provenance with safe Composer preparation",
-      "evidence_ids": ["ux.working-context-cwd"]
+      "evidence_ids": [
+        "ux.working-context-cwd"
+      ]
     },
     {
       "id": "workspace.working-context-proxy",
@@ -594,7 +641,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "create-time tab-scoped HTTP(S) proxy context remains ephemeral and redacted across UI, control, persistence, and terminal evidence",
-      "evidence_ids": ["ux.working-context-proxy"]
+      "evidence_ids": [
+        "ux.working-context-proxy"
+      ]
     },
     {
       "id": "workspace.hierarchical-tabs",
@@ -603,7 +652,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "tabs form a visible parent/child tree",
-      "evidence_ids": ["ux.hierarchical-tabs"]
+      "evidence_ids": [
+        "ux.hierarchical-tabs"
+      ]
     },
     {
       "id": "workspace.persistence",
@@ -612,7 +663,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "normal application close preserves the tab tree and active tab",
-      "evidence_ids": ["ux.persistent-workspace"]
+      "evidence_ids": [
+        "ux.persistent-workspace"
+      ]
     },
     {
       "id": "fleet.tab-environment",
@@ -621,7 +674,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "per-tab child environment injection",
-      "evidence_ids": ["fleet.tab-environment"]
+      "evidence_ids": [
+        "fleet.tab-environment"
+      ]
     },
     {
       "id": "fleet.codex-launcher",
@@ -630,7 +685,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "launch Codex agent tabs",
-      "evidence_ids": ["fleet.codex-launcher"]
+      "evidence_ids": [
+        "fleet.codex-launcher"
+      ]
     },
     {
       "id": "compat.mux-frontend",
@@ -639,7 +696,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "tmux/RMUX-compatible fleet control entry point",
-      "evidence_ids": ["fleet.mux-frontend"]
+      "evidence_ids": [
+        "fleet.mux-frontend"
+      ]
     },
     {
       "id": "control.instance-discovery",
@@ -648,7 +707,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "registered multi-instance discovery",
-      "evidence_ids": ["fleet.instance-discovery"]
+      "evidence_ids": [
+        "fleet.instance-discovery"
+      ]
     },
     {
       "id": "control.native-local-ipc",
@@ -675,7 +736,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "public fleet discovery distinguishes same, stale, incompatible, and unknown running-versus-staged identity without guessing missing build fields",
-      "evidence_ids": ["fleet.upgrade-truth"]
+      "evidence_ids": [
+        "fleet.upgrade-truth"
+      ]
     },
     {
       "id": "development.ui-bridge-contracts",
@@ -683,7 +746,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "renderer-neutral UI bootstrap and terminal-screen DTOs publish independent schema versions, causal server epoch/sequence identity, stable tab/tree identity, completeness facts and hard byte/item/dimension limits",
-      "evidence_ids": ["cli.ui-bridge-contracts"]
+      "evidence_ids": [
+        "cli.ui-bridge-contracts"
+      ]
     },
     {
       "id": "development.ui-bootstrap-projection",
@@ -691,7 +756,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "`ui-bootstrap` projects authoritative server tab/tree/process/composer/working-context/screen truth through those DTOs and public black-box evidence compares its causal position and tab metadata with `ui-snapshot` and `inspect`",
-      "evidence_ids": ["cli.ui-bootstrap"]
+      "evidence_ids": [
+        "cli.ui-bootstrap"
+      ]
     },
     {
       "id": "development.ui-snapshot-follow",
@@ -699,7 +766,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "`ui-hello` negotiates a bounded protocol range, echoes an additive bounded client-build identity, and returns the server build, PID, epoch, sequence and contract schemas while compatible prior peers may omit the new identities; `ui-deltas` follows that baseline with ordered journal events, affected-tab terminal post-state, active-tab identity, explicit completeness and typed restart, gap and future-sequence recovery",
-      "evidence_ids": ["cli.ui-follow"]
+      "evidence_ids": [
+        "cli.ui-follow"
+      ]
     },
     {
       "id": "development.headless-server-authority",
@@ -707,7 +776,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "the first internal headless `agenterm server` process is a real headless process that owns workspace persistence, tab/tree selection, ConPTY children, parser/scrollback, the event journal, shared replay/receipt authority outside Win32 `AppState`, and a single live interactive UI lease; public server smoke proves hello/bootstrap/delta, lease attach/idempotent renewal/live-owner conflict/heartbeat/detach, lease-gated stable-ID selection/bounded binary input/PTY resize, terminal output, committed replay, conflict rejection, asynchronous receipt completion, persistence, graceful shutdown and zero user-facing HWND",
-      "evidence_ids": ["server.headless-authority"]
+      "evidence_ids": [
+        "server.headless-authority"
+      ]
     },
     {
       "id": "development.replaceable-ui-client-slice",
@@ -715,7 +786,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "ordinary `agenterm.exe` starts or connects to the independent headless authority, acquires an interactive lease (concurrent GUIs allowed) with an observable additive client-build identity, renders renderer-neutral tab/screen/composer DTOs, routes stable-ID selection/input/resize through the lease, acknowledges applied event positions, detaches without ending the server or PTY, and a replacement GUI recovers the same server PID, active tab and live terminal marker with PNG and orphan-free public evidence",
-      "evidence_ids": ["ui.replaceable-client"]
+      "evidence_ids": [
+        "ui.replaceable-client"
+      ]
     },
     {
       "id": "development.ui-same-server-upgrade",
@@ -723,7 +796,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "black-box upgrade proof uses two genuinely different GUI binaries and keeps server PID, epoch, stable tab ID, PTY child PID, Composer/CWD facts, scrollback markers and continuing output stable while HWND and GUI build identity change; competing startup exits nonzero without a blocking dialog, incompatible hello fails closed without disturbing the server, and rollback restores the prior compatible GUI identity",
-      "evidence_ids": ["ui.same-server-upgrade-rollback"]
+      "evidence_ids": [
+        "ui.same-server-upgrade-rollback"
+      ]
     },
     {
       "id": "control.observable-events",
@@ -731,7 +806,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "bounded event reads and waits follow a snapshot epoch and sequence",
-      "evidence_ids": ["cli.observable-events"]
+      "evidence_ids": [
+        "cli.observable-events"
+      ]
     },
     {
       "id": "control.wake-coalescing",
@@ -739,7 +816,10 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "producer notifications share one atomic wake signal",
-      "evidence_ids": ["fleet.wake-coalescing", "ux-parity.wake-coalescing"]
+      "evidence_ids": [
+        "fleet.wake-coalescing",
+        "ux-parity.wake-coalescing"
+      ]
     },
     {
       "id": "platform.ux-parity-remote-ui",
@@ -760,7 +840,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "closed event catalog publishes state path, payload, scope, and since metadata",
-      "evidence_ids": ["fleet.event-transition-catalog"]
+      "evidence_ids": [
+        "fleet.event-transition-catalog"
+      ]
     },
     {
       "id": "control.typed-operations",
@@ -769,7 +851,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "typed operation catalog shared by CLI validation, IPC dispatch, capability discovery, stable errors, and event attribution",
-      "evidence_ids": ["cli.typed-tabs-operations"]
+      "evidence_ids": [
+        "cli.typed-tabs-operations"
+      ]
     },
     {
       "id": "control.receipt-replay-slice",
@@ -777,7 +861,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "public receipt replay proves same-ID same-payload replay and different-payload conflict without repeating a tab-note mutation, and proves retried `new-window`/`kill-window` create and close exactly one stable tab",
-      "evidence_ids": ["cli.control-receipts"]
+      "evidence_ids": [
+        "cli.control-receipts"
+      ]
     },
     {
       "id": "scripting.qjswasm-runtime",
@@ -785,7 +871,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "active qjswasm runtime executes `.qjs` check/run and expression eval",
-      "evidence_ids": ["script.qjs-runtime"]
+      "evidence_ids": [
+        "script.qjs-runtime"
+      ]
     },
     {
       "id": "scripting.api-tree",
@@ -793,7 +881,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "`script api [MODULE] [--status shipped|planned|all] [--tree|--json]` renders one deterministic hierarchical object tree with reviewed Node.js/Bun analogues and returns the same filtered versioned catalog with explicit view and comparison metadata",
-      "evidence_ids": ["script.api-tree"]
+      "evidence_ids": [
+        "script.api-tree"
+      ]
     },
     {
       "id": "scripting.qjswasm-robustness-budget",
@@ -801,7 +891,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "qjswasm computation budget fails closed with the public limit exit class",
-      "evidence_ids": ["script.qjs-robustness-budget"]
+      "evidence_ids": [
+        "script.qjs-robustness-budget"
+      ]
     },
     {
       "id": "scripting.qjswasm-tool-process",
@@ -809,7 +901,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "qjswasm tool profile executes bounded child processes with typed failures",
-      "evidence_ids": ["script.qjs-tool-process"]
+      "evidence_ids": [
+        "script.qjs-tool-process"
+      ]
     },
     {
       "id": "scripting.qjswasm-acu-mcp-provider",
@@ -817,7 +911,10 @@
       "status": "partial",
       "evidence_mode": "black-box-partial",
       "prd": "qjswasm drives MCP stdio into the fixed-sibling ACU provider and preserves shared typed capability and generic observation replies",
-      "evidence_ids": ["acu.mcp-provider-capabilities", "acu.mcp-provider-observe"]
+      "evidence_ids": [
+        "acu.mcp-provider-capabilities",
+        "acu.mcp-provider-observe"
+      ]
     },
     {
       "id": "scripting.audit",
@@ -825,7 +922,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "privacy-bounded audit records contain identity",
-      "evidence_ids": ["script.audit"]
+      "evidence_ids": [
+        "script.audit"
+      ]
     },
     {
       "id": "scripting.stream",
@@ -833,7 +932,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "qjswasm tool process returns bounded child stdout and stderr",
-      "evidence_ids": ["script.stream"]
+      "evidence_ids": [
+        "script.stream"
+      ]
     },
     {
       "id": "scripting.typed-errors",
@@ -841,7 +942,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "qjswasm tool process reports a missing child as a typed failure",
-      "evidence_ids": ["script.typed-errors"]
+      "evidence_ids": [
+        "script.typed-errors"
+      ]
     },
     {
       "id": "scripting.rust-host-rhai-language",
@@ -857,7 +960,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "editing is owned by exactly one stable tab ID",
-      "evidence_ids": ["ux.workbench-inline-edit"]
+      "evidence_ids": [
+        "ux.workbench-inline-edit"
+      ]
     },
     {
       "id": "workspace.compact-tab-geometry",
@@ -865,7 +970,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "root inset and every depth indent use the shared compact geometry",
-      "evidence_ids": ["ux.workbench-compact-tree"]
+      "evidence_ids": [
+        "ux.workbench-compact-tree"
+      ]
     },
     {
       "id": "workspace.proxy-status-archived",
@@ -873,7 +980,9 @@
       "status": "shipped",
       "evidence_mode": "black-box",
       "prd": "former right-aligned Proxy display/editor entry is archived",
-      "evidence_ids": ["ux.workbench-proxy-archived"]
+      "evidence_ids": [
+        "ux.workbench-proxy-archived"
+      ]
     }
   ]
 }

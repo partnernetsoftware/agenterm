@@ -316,143 +316,233 @@
     },
     {
       "id": "cu-network-interfaces-smoke",
-      "evidence": ["cu.network-interfaces"]
+      "evidence": [
+        "cu.network-interfaces"
+      ]
     },
     {
       "id": "cu-linux-network-interfaces-smoke",
-      "evidence": ["cu.linux-network-interfaces-ip-sysfs"]
+      "evidence": [
+        "cu.linux-network-interfaces-ip-sysfs"
+      ]
     },
     {
       "id": "cu-linux-network-dns-smoke",
-      "evidence": ["cu.linux-network-dns-resolv"]
+      "evidence": [
+        "cu.linux-network-dns-resolv"
+      ]
     },
     {
       "id": "cu-linux-fontconfig-monospace-smoke",
-      "evidence": ["cu.linux-fontconfig-monospace"]
+      "evidence": [
+        "cu.linux-fontconfig-monospace"
+      ]
     },
     {
       "id": "cu-linux-processor-topology-smoke",
-      "evidence": ["cu.linux-processor-topology-readback"]
+      "evidence": [
+        "cu.linux-processor-topology-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-processor-affinity-smoke",
+      "evidence": [
+        "cu.linux-processor-affinity-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-audio-status-smoke",
+      "evidence": [
+        "cu.linux-audio-status-readback"
+      ]
     },
     {
       "id": "cu-linux-host-memory-smoke",
-      "evidence": ["cu.linux-host-memory-readback"]
+      "evidence": [
+        "cu.linux-host-memory-readback"
+      ]
     },
     {
       "id": "cu-linux-cache-hierarchy-smoke",
-      "evidence": ["cu.linux-cache-hierarchy-readback"]
+      "evidence": [
+        "cu.linux-cache-hierarchy-readback"
+      ]
     },
     {
       "id": "cu-linux-resource-status-smoke",
-      "evidence": ["cu.linux-resource-status-readback"]
+      "evidence": [
+        "cu.linux-resource-status-readback"
+      ]
     },
     {
       "id": "cu-linux-device-inventory-smoke",
-      "evidence": ["cu.linux-device-inventory-readback"]
+      "evidence": [
+        "cu.linux-device-inventory-readback"
+      ]
     },
     {
       "id": "cu-desktop-state-smoke",
-      "evidence": ["cu.desktop-state"]
+      "evidence": [
+        "cu.desktop-state"
+      ]
     },
     {
       "id": "cu-linux-desktop-state-smoke",
-      "evidence": ["cu.linux-desktop-state"]
+      "evidence": [
+        "cu.linux-desktop-state"
+      ]
     },
     {
       "id": "cu-linux-local-clock-smoke",
-      "evidence": ["cu.linux-local-clock-readback"]
+      "evidence": [
+        "cu.linux-local-clock-readback"
+      ]
     },
     {
       "id": "cu-linux-boot-identity-smoke",
-      "evidence": ["cu.linux-boot-identity-readback"]
+      "evidence": [
+        "cu.linux-boot-identity-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-login-session-smoke",
+      "evidence": [
+        "cu.linux-login-session-readback"
+      ]
     },
     {
       "id": "cu-app-facts-smoke",
-      "evidence": ["cu.app-facts.linux"]
+      "evidence": [
+        "cu.app-facts.linux"
+      ]
     },
     {
       "id": "acu-mcp-provider-smoke",
-      "evidence": ["acu.mcp-provider-capabilities", "acu.mcp-provider-observe"]
+      "evidence": [
+        "acu.mcp-provider-capabilities",
+        "acu.mcp-provider-observe"
+      ]
     },
     {
       "id": "acu-job-resources-compat-smoke",
-      "evidence": ["acu.compat-job-resources"]
+      "evidence": [
+        "acu.compat-job-resources"
+      ]
     },
     {
       "id": "cu-process-inventory-smoke",
-      "evidence": ["cu.process-inventory-rich"]
+      "evidence": [
+        "cu.process-inventory-rich"
+      ]
     },
     {
       "id": "cu-process-inspection-smoke",
-      "evidence": ["cu.process-inspection"]
+      "evidence": [
+        "cu.process-inspection"
+      ]
     },
     {
       "id": "cu-process-sockets-smoke",
-      "evidence": ["cu.process-sockets"]
+      "evidence": [
+        "cu.process-sockets"
+      ]
     },
     {
       "id": "cu-process-cgroup-smoke",
-      "evidence": ["cu.process-cgroup"]
+      "evidence": [
+        "cu.process-cgroup"
+      ]
     },
     {
       "id": "cu-process-set-state-smoke",
-      "evidence": ["cu.process-set-state"]
+      "evidence": [
+        "cu.process-set-state"
+      ]
     },
     {
       "id": "cu-process-policy-smoke",
-      "evidence": ["cu.process-policy"]
+      "evidence": [
+        "cu.process-policy"
+      ]
     },
     {
       "id": "cu-process-signal-smoke",
-      "evidence": ["cu.process-signal"]
+      "evidence": [
+        "cu.process-signal"
+      ]
     },
     {
       "id": "cu-network-routes-smoke",
-      "evidence": ["cu.network-routes"]
+      "evidence": [
+        "cu.network-routes"
+      ]
     },
     {
       "id": "cu-network-dns-smoke",
-      "evidence": ["cu.network-dns"]
+      "evidence": [
+        "cu.network-dns"
+      ]
     },
     {
       "id": "cu-network-probe-smoke",
-      "evidence": ["cu.network-probe"]
+      "evidence": [
+        "cu.network-probe"
+      ]
     },
     {
       "id": "cu-resource-status-smoke",
-      "evidence": ["cu.resource-status"]
+      "evidence": [
+        "cu.resource-status"
+      ]
     },
     {
       "id": "cu-resource-pressure-top-smoke",
-      "evidence": ["cu.resource-pressure-native", "cu.resource-top-ranked"]
+      "evidence": [
+        "cu.resource-pressure-native",
+        "cu.resource-top-ranked"
+      ]
     },
     {
       "id": "cu-host-resource-smoke",
-      "evidence": ["cu.resource-process-policy"]
+      "evidence": [
+        "cu.resource-process-policy"
+      ]
     },
     {
       "id": "cu-storage-devices-smoke",
-      "evidence": ["cu.storage-devices"]
+      "evidence": [
+        "cu.storage-devices"
+      ]
     },
     {
       "id": "cu-storage-volumes-smoke",
-      "evidence": ["cu.storage-volumes"]
+      "evidence": [
+        "cu.storage-volumes"
+      ]
     },
     {
       "id": "cu-privilege-plan-smoke",
-      "evidence": ["cu.privilege-plan"]
+      "evidence": [
+        "cu.privilege-plan"
+      ]
     },
     {
       "id": "cu-privilege-provider-contract-smoke",
-      "evidence": ["cu.privilege-provider-lifecycle-contract"]
+      "evidence": [
+        "cu.privilege-provider-lifecycle-contract"
+      ]
     },
     {
       "id": "cu-privileged-signal-plan-smoke",
-      "evidence": ["cu.privileged-signal-plan"]
+      "evidence": [
+        "cu.privileged-signal-plan"
+      ]
     },
     {
       "id": "cu-persisted-grant-smoke",
-      "evidence": ["cu.persisted-grant-operation-binding.macos"]
+      "evidence": [
+        "cu.persisted-grant-operation-binding.macos"
+      ]
     },
     {
       "id": "cu-browser-session-smoke",
@@ -471,11 +561,15 @@
     },
     {
       "id": "cu-terminal-viewport-smoke",
-      "evidence": ["cu.terminal-viewport-image.macos"]
+      "evidence": [
+        "cu.terminal-viewport-image.macos"
+      ]
     },
     {
       "id": "cu-simulator-readonly-smoke",
-      "evidence": ["cu.simulator-readonly"]
+      "evidence": [
+        "cu.simulator-readonly"
+      ]
     },
     {
       "id": "cu-file-transaction-smoke",
@@ -486,19 +580,27 @@
     },
     {
       "id": "cu-file-attributes-smoke",
-      "evidence": ["cu.file-xattr-inspect.macos"]
+      "evidence": [
+        "cu.file-xattr-inspect.macos"
+      ]
     },
     {
       "id": "cu-file-mode-smoke",
-      "evidence": ["cu.file-mode.macos"]
+      "evidence": [
+        "cu.file-mode.macos"
+      ]
     },
     {
       "id": "cu-file-xattr-mutation-smoke",
-      "evidence": ["cu.file-xattr-mutation.macos"]
+      "evidence": [
+        "cu.file-xattr-mutation.macos"
+      ]
     },
     {
       "id": "cu-file-move-transaction-smoke",
-      "evidence": ["cu.file-move-transaction"]
+      "evidence": [
+        "cu.file-move-transaction"
+      ]
     },
     {
       "id": "cu-managed-job-smoke",
@@ -517,67 +619,101 @@
     },
     {
       "id": "cu-setup-cli-smoke",
-      "evidence": ["cu.setup-cli-entrypoint"]
+      "evidence": [
+        "cu.setup-cli-entrypoint"
+      ]
     },
     {
       "id": "cu-setup-runtime-refresh-smoke",
-      "evidence": ["cu.setup-runtime-refresh-owned-job"]
+      "evidence": [
+        "cu.setup-runtime-refresh-owned-job"
+      ]
     },
     {
       "id": "cu-doctor-smoke",
-      "evidence": ["cu.doctor-desktop-baseline", "cu.doctor-system-readiness", "cu.capabilities-declaration"]
+      "evidence": [
+        "cu.doctor-desktop-baseline",
+        "cu.doctor-system-readiness",
+        "cu.capabilities-declaration"
+      ]
     },
     {
       "id": "cu-power-status-smoke",
-      "evidence": ["cu.power-host-status"]
+      "evidence": [
+        "cu.power-host-status"
+      ]
     },
     {
       "id": "cu-power-action-plan-smoke",
-      "evidence": ["cu.power-action-plan"]
+      "evidence": [
+        "cu.power-action-plan"
+      ]
     },
     {
       "id": "cu-clipboard-roundtrip-smoke",
-      "evidence": ["cu.clipboard-text-native-roundtrip"]
+      "evidence": [
+        "cu.clipboard-text-native-roundtrip"
+      ]
     },
     {
       "id": "cu-host-open-smoke",
-      "evidence": ["cu.host-open.macos"]
+      "evidence": [
+        "cu.host-open.macos"
+      ]
     },
     {
       "id": "cu-permissions-open-smoke",
-      "evidence": ["cu.permissions-open.contract"]
+      "evidence": [
+        "cu.permissions-open.contract"
+      ]
     },
     {
       "id": "cu-host-notify-smoke",
-      "evidence": ["cu.host-notify.macos"]
+      "evidence": [
+        "cu.host-notify.macos"
+      ]
     },
     {
       "id": "cu-linux-host-notify-smoke",
-      "evidence": ["cu.host-notify.linux"]
+      "evidence": [
+        "cu.host-notify.linux"
+      ]
     },
     {
       "id": "cu-linux-host-open-smoke",
-      "evidence": ["cu.host-open.linux"]
+      "evidence": [
+        "cu.host-open.linux"
+      ]
     },
     {
       "id": "cu-runtime-status-smoke",
-      "evidence": ["cu.runtime-status"]
+      "evidence": [
+        "cu.runtime-status"
+      ]
     },
     {
       "id": "cu-device-inventory-smoke",
-      "evidence": ["cu.device-inventory"]
+      "evidence": [
+        "cu.device-inventory"
+      ]
     },
     {
       "id": "cu-device-screenshot-inventory-smoke",
-      "evidence": ["cu.device-screenshot-inventory"]
+      "evidence": [
+        "cu.device-screenshot-inventory"
+      ]
     },
     {
       "id": "cu-device-watch-smoke",
-      "evidence": ["cu.device-watch"]
+      "evidence": [
+        "cu.device-watch"
+      ]
     },
     {
       "id": "cu-device-lease-smoke",
-      "evidence": ["cu.device-lease"]
+      "evidence": [
+        "cu.device-lease"
+      ]
     },
     {
       "id": "cu-macos-pointer-smoke",
@@ -590,7 +726,9 @@
     },
     {
       "id": "cu-browser-profile-inventory-smoke",
-      "evidence": ["cu.browser-profile-inventory.synthetic-home"]
+      "evidence": [
+        "cu.browser-profile-inventory.synthetic-home"
+      ]
     },
     {
       "id": "cu-pointer-scroll-smoke",

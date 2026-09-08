@@ -8,7 +8,7 @@ pub const LOGIN_SESSION_DISPLAY_NAME_MAX_BYTES: usize = 512;
 pub struct LoginSessionIdentity([u8; 32]);
 
 impl LoginSessionIdentity {
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(any(target_os = "macos", target_os = "linux", test))]
     pub(crate) const fn new(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
@@ -44,6 +44,7 @@ pub struct LoginSession {
 #[non_exhaustive]
 pub enum LoginSessionProvider {
     MacosIoRegistry,
+    LinuxSdLogin,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

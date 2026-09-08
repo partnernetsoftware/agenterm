@@ -799,6 +799,7 @@ fn platform_inventory(inventory: LoginSessionInventory) -> LoginSessionStatus {
 fn provider_name(provider: LoginSessionProvider) -> &'static str {
     match provider {
         LoginSessionProvider::MacosIoRegistry => "macos-io-registry",
+        LoginSessionProvider::LinuxSdLogin => "linux-sd-login",
         _ => "unknown",
     }
 }

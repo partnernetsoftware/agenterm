@@ -1133,6 +1133,23 @@
         "task.cu-linux-processor-affinity-smoke"
       ]
     },
+    "cu-linux-audio-status-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-audio-status-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-audio-status-smoke"
+      ]
+    },
     "cu-linux-host-memory-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -1233,6 +1250,23 @@
       "network": [],
       "evidence": [
         "task.cu-linux-boot-identity-smoke"
+      ]
+    },
+    "cu-linux-login-session-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-login-session-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-login-session-smoke"
       ]
     },
     "cu-linux-gtk-button-focus-smoke": {
@@ -4548,7 +4582,7 @@
     },
     {
       "id": "cu-linux-chrome-text-smoke",
-      "description": "Prove Linux Chrome focus → send-text --name → get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords or screenshot degradation.",
+      "description": "Prove Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -4960,6 +4994,42 @@
       ]
     },
     {
+      "id": "cu-linux-host-memory-smoke",
+      "description": "Prove Linux host-memory-status page geometry, physical_bytes and available_physical_bytes match independent /proc/meminfo MemTotal and MemAvailable read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-host-memory-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-cache-hierarchy-smoke",
+      "description": "Prove Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-cache-hierarchy-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-processor-affinity-smoke",
       "description": "Prove Linux processor-affinity-status scheduler-allowed CPU set matches independent /proc/<pid>/status Cpus_allowed_list or taskset read-back for current and chosen PID; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-processor-affinity-smoke.qjs",
@@ -4977,8 +5047,10 @@
         "process_spawn"
       ]
     },
-      "description": "Prove Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; no --coords or screenshot degradation.",
-      "entry": "scripts/qjs/cu-linux-cache-hierarchy-smoke.qjs",
+    {
+      "id": "cu-linux-audio-status-smoke",
+      "description": "Prove Linux audio status default-output volume and mute match independent pactl, wpctl or amixer read-back, or return typed audio_unsupported with linux-default-output alternatives; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-audio-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
@@ -5069,6 +5141,24 @@
       "id": "cu-linux-boot-identity-smoke",
       "description": "Prove Linux capabilities host_boot_identity boot_id, machine_id and uptime_milliseconds match independent /proc/sys/kernel/random/boot_id, /etc/machine-id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-boot-identity-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-login-session-smoke",
+      "description": "Prove Linux login-session status matches independent loginctl/session-env read-back or returns typed systemd-logind unsupported honesty without macOS claims; no lock apply.",
+      "entry": "scripts/qjs/cu-linux-login-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

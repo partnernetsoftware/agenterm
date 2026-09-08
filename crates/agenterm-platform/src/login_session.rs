@@ -5,7 +5,7 @@
 //! only; in particular, [`lock_console`] reports event delivery, not a verified
 //! transition to the locked state.
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 use sha2::{Digest as _, Sha256};
 
 pub use crate::contract::login_session::{
@@ -14,10 +14,10 @@ pub use crate::contract::login_session::{
     LoginSessionInventory, LoginSessionProvider,
 };
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 const IDENTITY_DOMAIN: &[u8] = b"agenterm-platform/login-session-identity/v1\0";
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 #[derive(Clone, Debug)]
 pub(crate) struct NativeLoginSessionRow {
     pub(crate) uuid: String,
@@ -50,8 +50,9 @@ pub fn lock_console() -> Result<(), LoginSessionError> {
     crate::selected::login_session::lock_console()
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 pub(crate) fn finish_inventory(
+    provider: LoginSessionProvider,
     locked: bool,
     rows: Vec<NativeLoginSessionRow>,
 ) -> Result<LoginSessionInventory, LoginSessionError> {
@@ -124,14 +125,14 @@ pub(crate) fn finish_inventory(
         ));
     }
     Ok(LoginSessionInventory {
-        provider: LoginSessionProvider::MacosIoRegistry,
+        provider,
         locked,
         sessions,
         console_session_index: console_sessions.first().copied(),
     })
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn validate_text(
     field: &'static str,
     value: &str,
@@ -152,7 +153,7 @@ fn validate_text(
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn validate_uuid(uuid: &str) -> Result<(), LoginSessionError> {
     if uuid.len() != 36
         || !uuid.bytes().enumerate().all(|(index, byte)| match index {
@@ -165,7 +166,7 @@ fn validate_uuid(uuid: &str) -> Result<(), LoginSessionError> {
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn session_identity(
     uuid: &str,
     session_id: u64,
@@ -184,7 +185,7 @@ fn session_identity(
     LoginSessionIdentity::new(digest.finalize().into())
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn shape(detail: impl Into<String>) -> LoginSessionError {
     LoginSessionError::new(LoginSessionErrorKind::ProviderShape, detail)
 }
@@ -213,7 +214,7 @@ mod tests {
         let mut later = row(300);
         later.on_console = false;
         later.uuid = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE".into();
-        let inventory = finish_inventory(false, vec![later, row(257)]).unwrap();
+        let inventory = finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![later, row(257)]).unwrap();
         assert_eq!(inventory.sessions[0].native_session_id, 257);
         assert_eq!(inventory.console_session().unwrap().username, "fixture");
         assert_ne!(
@@ -232,13 +233,13 @@ mod tests {
         let mut malformed = row(1);
         malformed.uuid = "not-a-uuid".into();
         assert_eq!(
-            finish_inventory(false, vec![malformed]).unwrap_err().kind(),
+            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![malformed]).unwrap_err().kind(),
             LoginSessionErrorKind::ProviderShape
         );
         let mut second = row(2);
         second.uuid = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE".into();
         assert_eq!(
-            finish_inventory(false, vec![row(1), second])
+            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![row(1), second])
                 .unwrap_err()
                 .kind(),
             LoginSessionErrorKind::AmbiguousConsole
@@ -249,7 +250,7 @@ mod tests {
     fn text_and_count_limits_are_strict() {
         let mut bad_name = row(1);
         bad_name.username = "bad\nname".into();
-        assert!(finish_inventory(false, vec![bad_name]).is_err());
+        assert!(finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![bad_name]).is_err());
         let rows = (0..=LOGIN_SESSION_MAX_ROWS)
             .map(|index| {
                 let mut value = row(index as u64);
@@ -258,21 +259,21 @@ mod tests {
             })
             .collect();
         assert_eq!(
-            finish_inventory(false, rows).unwrap_err().kind(),
+            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, rows).unwrap_err().kind(),
             LoginSessionErrorKind::ProviderShape
         );
 
         let mut oversized = row(2);
         oversized.username = "u".repeat(LOGIN_SESSION_USERNAME_MAX_BYTES + 1);
         assert_eq!(
-            finish_inventory(false, vec![oversized]).unwrap_err().kind(),
+            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![oversized]).unwrap_err().kind(),
             LoginSessionErrorKind::ProviderShape
         );
 
         let mut out_of_range = row(3);
         out_of_range.user_id = u64::from(u32::MAX) + 1;
         assert_eq!(
-            finish_inventory(false, vec![out_of_range])
+            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![out_of_range])
                 .unwrap_err()
                 .kind(),
             LoginSessionErrorKind::ProviderShape
@@ -281,7 +282,7 @@ mod tests {
         let mut duplicate = row(4);
         duplicate.on_console = false;
         assert_eq!(
-            finish_inventory(false, vec![row(4), duplicate])
+            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![row(4), duplicate])
                 .unwrap_err()
                 .kind(),
             LoginSessionErrorKind::ProviderShape

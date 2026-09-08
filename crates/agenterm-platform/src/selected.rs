@@ -59,12 +59,19 @@ pub(crate) mod host_notification;
 #[path = "adapters/macos/login_session.rs"]
 pub(crate) mod login_session;
 
-#[cfg(all(feature = "login-session", not(target_os = "macos")))]
+#[cfg(all(feature = "login-session", target_os = "linux"))]
+#[path = "adapters/linux/login_session.rs"]
+pub(crate) mod login_session;
+
+#[cfg(all(
+    feature = "login-session",
+    not(any(target_os = "macos", target_os = "linux"))
+))]
 #[path = "adapters/unsupported_login_session.rs"]
 pub(crate) mod login_session;
 
 pub(crate) const fn login_session_supported() -> bool {
-    cfg!(target_os = "macos")
+    cfg!(any(target_os = "macos", target_os = "linux"))
 }
 
 #[cfg(all(feature = "host-notification", target_os = "macos"))]

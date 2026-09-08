@@ -1,0 +1,92 @@
+// CEO: Linux login-session status honesty with independent loginctl/session-env read-back.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.linux-login-session-readback"];
+
+function ensure(c, m) { if (!c) throw m; }
+function text_at(v, d) {
+  let c = v; for (const k of d.split(".")) c = rh.field(c, k);
+  return c === undefined || c === null ? "" : "" + c;
+}
+function cu_env(exe) {
+  const env = { AGENTERM_ABI_LIB: rh.join(rh.parent(exe), "libagenterm.so"), AGENTERM_NO_ACTIVATE: "1" };
+  for (const k of ["DISPLAY","XDG_RUNTIME_DIR","DBUS_SESSION_BUS_ADDRESS","AT_SPI_BUS_ADDRESS","AT_SPI_BUS","XDG_SESSION_ID"]) {
+    if (rh.has_env(k)) env[k] = rh.env_or(k, "");
+  }
+  return env;
+}
+function invoke(dir, exe, args, ok) {
+  const out = rh.command(exe, ["--target","current","--grant","observe","login-session"].concat(args), { cwd: dir, env: cu_env(exe), timeout_ms: 30000 });
+  const reply = JSON.parse(out.stdout.trim());
+  ensure(reply.ok === ok, "reply:" + out.stdout);
+  ensure(out.success === ok, "exit:" + out.exit_code);
+  return reply;
+}
+function probe() {
+  const script = "import json,os,subprocess,sys,shutil\n" +
+    "sid=os.environ.get('XDG_SESSION_ID','').strip()\n" +
+    "if not sid and shutil.which('loginctl'):\n  out=subprocess.run(['loginctl','list-sessions','--no-legend'],capture_output=True,text=True)\n" +
+    "  if out.returncode==0:\n    for line in out.stdout.splitlines():\n      p=line.split()\n      if len(p)>=3 and p[2]==str(os.getuid()): sid=p[0]; break\n" +
+    "if not sid: print(json.dumps({'available':False})); sys.exit(0)\n" +
+    "def kv(t):\n  d={}\n  for line in t.splitlines():\n    if '=' in line: k,v=line.split('=',1); d[k]=v\n  return d\n" +
+    "facts=None\n" +
+    "if shutil.which('loginctl'):\n  out=subprocess.run(['loginctl','show-session',sid,'-a'],capture_output=True,text=True)\n" +
+    "  if out.returncode==0: facts=kv(out.stdout)\n" +
+    "if facts is None and os.path.exists(f'/run/systemd/sessions/{sid}'): facts=kv(open(f'/run/systemd/sessions/{sid}').read())\n" +
+    "if facts is None: print(json.dumps({'available':False})); sys.exit(0)\n" +
+    "seat=facts.get('Seat',''); typ=facts.get('Type',''); cls=facts.get('Class',''); st=facts.get('State',''); rem=facts.get('Remote','no'); lock=facts.get('LockedHint',facts.get('Locked','no'))\n" +
+    "uid=facts.get('User',facts.get('UID','')); name=facts.get('Name',facts.get('USER','')); leader=facts.get('Leader',''); vt=facts.get('VTNr','0')\n" +
+    "active=st=='active'; graphical=typ in ('x11','wayland'); on=seat!='' and rem in ('no','0','false','False') and graphical and cls=='user' and active\n" +
+    "print(json.dumps({'available':True,'uid':int(uid) if str(uid).isdigit() else None,'username':name,'on_console':on,'login_complete':cls=='user' and active,'locked':lock in ('yes','1','true','True'),'leader':int(leader) if str(leader).isdigit() else None,'vt':int(vt) if str(vt).isdigit() else 0}))\n";
+  const out = rh.command("python3", ["-c", script], { env: cu_env(""), timeout_ms: 30000 });
+  ensure(out.success, out.stderr);
+  const p = JSON.parse(out.stdout.trim());
+  return p.available === true ? p : null;
+}
+function field_at(v, d) {
+  let c = v;
+  for (const k of d.split(".")) c = rh.field(c, k);
+  return c;
+}
+function verify_unsupported(st) {
+  ensure(st.ok !== true, "false_success");
+  ensure(text_at(st,"error.code")==="login_session_unsupported","code");
+  ensure(text_at(st,"error.detail.os")==="linux","os");
+  ensure(text_at(st,"error.detail.required_os")!=="macos","required_os");
+  ensure(text_at(st,"error.detail.mechanism").indexOf("systemd")>=0,"mechanism");
+  ensure(text_at(st,"error.message").indexOf("macOS")<0,"macos_claim");
+  const alts = field_at(st, "error.detail.alternatives");
+  ensure(Array.isArray(alts) && alts.length>0,"alts");
+}
+
+const args = rh.args();
+if (args.length===1 && args[0]==="--list-evidence") { for (const id of declared_evidence) print(id); return; }
+harness.require(args.length===2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]); const exe = rh.absolute(args[1]);
+ensure(rh.exists(exe), "missing exe");
+const ctx = harness.new_context(repo, "cu-linux-login-session");
+const p = probe();
+if (p === null) {
+  print("STEP typed unsupported path");
+  verify_unsupported(invoke(ctx.run_directory, exe, ["status"], false));
+  ensure(text_at(invoke(ctx.run_directory, exe, ["plan","lock"], false),"error.code")==="login_session_unsupported","plan");
+  harness.emit_evidence(ctx, declared_evidence, "cu.linux-login-session-readback");
+  harness.remove_run(ctx);
+  print("PASS typed unsupported with Linux systemd-logind alternatives");
+  return;
+}
+print("STEP readback path");
+const st = invoke(ctx.run_directory, exe, ["status"], true);
+ensure(text_at(st,"data.provider")==="linux-sd-login","provider");
+let console = null;
+for (const s of rh.field(st,"data.sessions")) if (rh.field(s,"on_console")===true) console = s;
+ensure(console !== null, "console");
+ensure(rh.field(console,"uid")===p.uid,"uid");
+ensure(text_at(console,"username")===p.username,"username");
+ensure(rh.field(console,"on_console")===p.on_console,"on_console");
+ensure(rh.field(console,"login_complete")===p.login_complete,"login_complete");
+ensure(rh.field(st,"data.locked")===p.locked,"locked");
+harness.emit_evidence(ctx, declared_evidence, "cu.linux-login-session-readback");
+harness.remove_run(ctx);
+print("PASS login-session status matches independent session probe read-back");

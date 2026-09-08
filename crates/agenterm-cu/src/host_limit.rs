@@ -55,7 +55,39 @@ pub(crate) fn spaces_unsupported() -> CuError {
     )
 }
 
+pub(crate) fn audio_unsupported_detail(
+    unsupported: agenterm_platform::audio::AudioObserveUnsupported,
+) -> CuError {
+    CuError::new("audio_unsupported", unsupported.reason).with_detail(serde_json::json!({
+        "effect": "not_performed",
+        "required_mechanism": unsupported.required_mechanism,
+        "probed_mechanisms": unsupported.probed_mechanisms,
+        "session_bus_available": unsupported.session_bus_available,
+        "alternatives": unsupported.alternatives,
+    }))
+}
+
 pub(crate) fn audio_unsupported() -> CuError {
+    #[cfg(target_os = "linux")]
+    {
+        return match agenterm_platform::audio::query_default_output_result() {
+            agenterm_platform::audio::AudioQueryResult::Unsupported(unsupported) => {
+                audio_unsupported_detail(unsupported)
+            }
+            agenterm_platform::audio::AudioQueryResult::Ok(_) => CuError::new(
+                "audio_unsupported",
+                "default-output volume and mute observation are unavailable on this Linux host",
+            ),
+        };
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        audio_unsupported_non_linux()
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn audio_unsupported_non_linux() -> CuError {
     host_limit_error(
         "audio_unsupported",
         format!(
@@ -73,23 +105,46 @@ pub(crate) fn audio_unsupported() -> CuError {
 }
 
 pub(crate) fn login_session_unsupported() -> CuError {
-    host_limit_error(
-        "login_session_unsupported",
-        format!(
-            "console login-session inventory and screen-lock delivery require macOS IORegistry integration; {} has no mapped provider",
-            crate::mcu_surface::host_os()
-        ),
-        HostLimitDetail {
-            group: Some("system"),
-            provider: Some("none"),
-            required_os: Some("macos"),
-            mechanism: Some("macos-io-registry"),
-            alternatives: &[
-                "session-list (AgenTerm runtime sessions when agenterm server is running)",
-                "resource-status / power-status (host facts; not OS screen lock)",
-            ],
-        },
-    )
+    #[cfg(target_os = "linux")]
+    {
+        return host_limit_error(
+            "login_session_unsupported",
+            format!(
+                "console login-session inventory requires Linux systemd-logind (sd-login); {} cannot load or use that provider",
+                crate::mcu_surface::host_os()
+            ),
+            HostLimitDetail {
+                group: Some("system"),
+                provider: Some("none"),
+                required_os: Some("linux"),
+                mechanism: Some("systemd-logind-sd-login"),
+                alternatives: &[
+                    "session-list (AgenTerm runtime sessions when agenterm server is running)",
+                    "resource-status / power-status (host facts; not OS screen lock)",
+                ],
+            },
+        );
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        host_limit_error(
+            "login_session_unsupported",
+            format!(
+                "console login-session inventory and screen-lock delivery require macOS IORegistry integration; {} has no mapped provider",
+                crate::mcu_surface::host_os()
+            ),
+            HostLimitDetail {
+                group: Some("system"),
+                provider: Some("none"),
+                required_os: Some("macos"),
+                mechanism: Some("macos-io-registry"),
+                alternatives: &[
+                    "session-list (AgenTerm runtime sessions when agenterm server is running)",
+                    "resource-status / power-status (host facts; not OS screen lock)",
+                ],
+            },
+        )
+    }
 }
 
 pub(crate) fn simulator_unsupported(verb: &str) -> CuError {
