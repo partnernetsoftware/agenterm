@@ -833,6 +833,25 @@
         "task.cu-linux-gtk-button-focus-smoke"
       ]
     },
+    "cu-linux-gtk-entry-paste-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-entry-paste-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-entry-paste-smoke"
+      ]
+    },
     "cu-linux-menu-invoke-smoke": {
       "inputs": [
         "built-agenterm",
@@ -3614,6 +3633,46 @@
       "id": "cu-linux-gtk-button-focus-smoke",
       "description": "Prove Linux GTK3 button click --name then three independent focused read-backs name the clicked button; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-button-focus-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-copy-smoke",
+      "description": "Prove Linux GTK entry/label copy --name publishes AT-SPI Text.GetText onto native clipboard and independent clipboard-read matches the seeded entry text and label payload; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-gtk-copy-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-entry-paste-smoke",
+      "description": "Prove Linux GTK entry clipboard-write UTF-8 seed then paste --name with independent get-text == SEED; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-gtk-entry-paste-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
