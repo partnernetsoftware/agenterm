@@ -1,0 +1,33 @@
+{
+  "bundle_sha256": "80ff846fc3473a5ac5a6e0a4b42c06f60d6bd5cad6737a32863881a2b109770e",
+  "completed_at": "2026-09-08T05:00:38.252341+00:00",
+  "court": "lnx-aarch64-desktop",
+  "evidence": "cu.network-routes",
+  "evidence_lines": [
+    "cu.network-routes"
+  ],
+  "exit_code": 0,
+  "guest_exit_code": 0,
+  "interactive_session": {
+    "a11y_connected": true,
+    "adapter": "linux-graphical-session",
+    "agent_pid": 3596,
+    "cell": "lnx-aarch64",
+    "court": "lnx-aarch64-desktop",
+    "dbus_connected": true,
+    "display": ":0",
+    "display_connected": true,
+    "nonce": "court-lnx-aarch64-desktop-27568-326",
+    "session_id": "1",
+    "session_type": "wayland",
+    "status": "ready",
+    "uid": 1000,
+    "wayland_display": "wayland-0"
+  },
+  "manifest_sha256": "6ba6a24f9cab6b9011e915e08be95a34c5cbc1067f6aab547c1a914c3f117dcd",
+  "outcome": "passed",
+  "pass_line": "PASS: agenterm-cu native bounded network route inventory",
+  "run_log_sha256": "2b278d7a885e13ab053042607e496ab075a4278a807741980bb5f67bc45c8802",
+  "schema": 2,
+  "source_sha": "884c180926284ae5fdf3e93b83fc43e46765e1c3"
+}

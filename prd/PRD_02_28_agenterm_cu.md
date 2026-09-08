@@ -2101,8 +2101,10 @@ flowchart LR
   destination prefixes, treats a null gateway as on-link, and refuses
   interrupted or malformed kernel snapshots. Native scanning is capped at
   10,000 records and the public response at 1 MiB. The public macOS qjswasm
-  `network-routes` journey is green; Linux and Windows
-  native route courts remain. `network-dns` now owns the active
+  `network-routes` journey is green; exact source `884c1809` also passed on the
+  Linux arm64 Wayland UTM court and released the VM. Its compact receipt is
+  [`evidence/cu/lnx-aarch64-cu-network-routes-884c1809.json`](../evidence/cu/lnx-aarch64-cu-network-routes-884c1809.json).
+  Windows remains pending. `network-dns` now owns the active
   resolver/search-domain observation shape. It exposes provider, native
   interface/service identity when available, resolver scope, port, coverage,
   completeness and independent scan/response bounds. macOS reads the scoped
