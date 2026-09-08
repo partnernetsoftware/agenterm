@@ -310,9 +310,8 @@ fn internal_mutation_accepts_one_queued_call_while_the_session_starts() {
 }
 
 #[test]
-fn output_disconnect_is_reported_only_after_private_session_cleanup() {
+fn output_disconnect_stops_accepting_before_private_session_start() {
     let provider = Arc::new(FakeProviderState::default());
-    provider.gate_first.store(true, Ordering::Release);
     let (sender, receiver) = mpsc::channel();
     let worker_provider = Arc::clone(&provider);
     let worker = thread::spawn(move || {
@@ -328,21 +327,14 @@ fn output_disconnect_is_reported_only_after_private_session_cleanup() {
         )
     });
     send_fake_initialize(&sender);
-    send_shell_exec(&sender, "first", "disconnect:first", "first");
-    provider.wait_for_calls(2);
-    drop(sender);
-    provider.release_first.store(true, Ordering::Release);
-    provider.changed.notify_all();
 
     let error = worker
         .join()
         .expect("join MCP worker")
         .expect_err("disconnected output must be reported");
     assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
-    assert_eq!(
-        provider_verbs(&provider.wait_for_calls(3)),
-        ["session-start", "shell-exec", "session-end"]
-    );
+    assert!(provider.calls.lock().expect("provider calls").is_empty());
+    drop(sender);
 }
 
 #[test]

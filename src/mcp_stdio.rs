@@ -122,6 +122,10 @@ impl<W> CleanupWriter<W> {
         self.first_error.take()
     }
 
+    fn has_error(&self) -> bool {
+        self.first_error.is_some()
+    }
+
     fn record(&mut self, error: io::Error) {
         if self.first_error.is_none() {
             self.first_error = Some(error);
@@ -217,9 +221,11 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
     let mut output = CleanupWriter::new(output);
     let limit = capabilities().limits.frame_bytes as usize;
     let (sender, receiver) = mpsc::channel();
+    let stop_reader = Arc::new(AtomicBool::new(false));
     let reader = thread::spawn({
         let sender = sender.clone();
-        move || read_input(input, limit, sender)
+        let stop_reader = Arc::clone(&stop_reader);
+        move || read_input(input, limit, sender, &stop_reader)
     });
     let (provider_sender, provider_receiver) = mpsc::channel();
     let provider_worker = thread::spawn({
@@ -230,8 +236,10 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
     let mut active = HashMap::<String, ActiveWait>::new();
     let mut mutation = MutationLifecycle::Dormant;
     let mut input_error = None;
+    let mut output_disconnected = false;
     loop {
         match receiver.recv() {
+            Ok(ServerEvent::Input(_)) | Ok(ServerEvent::InputError(_)) if output_disconnected => {}
             Ok(ServerEvent::Input(BoundedLine::Eof)) => {
                 cancel_and_join_waits(&mut active);
                 receive_eof_and_maybe_end(&mut mutation, &provider_sender)
@@ -344,10 +352,25 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
             }
             Err(_) => break,
         }
+        if output.has_error() && !output_disconnected {
+            output_disconnected = true;
+            stop_reader.store(true, Ordering::Release);
+            cancel_and_join_waits(&mut active);
+            receive_eof_and_maybe_end(&mut mutation, &provider_sender)
+                .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+            if matches!(mutation, MutationLifecycle::Dormant) {
+                break;
+            }
+        }
     }
     let _ = provider_sender.send(ProviderWork::Shutdown);
     let _ = provider_worker.join();
-    let _ = reader.join();
+    // A generic blocking reader cannot be interrupted safely. Once its peer
+    // output is gone, let the process return instead of waiting for unrelated
+    // stdin EOF; the stop flag still lets a reader between frames retire.
+    if !output_disconnected {
+        let _ = reader.join();
+    }
     if let Some(error) = input_error {
         Err(error)
     } else if let Some(error) = output.take_error() {
@@ -357,10 +380,21 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
     }
 }
 
-fn read_input<R: BufRead>(mut input: R, limit: usize, sender: mpsc::Sender<ServerEvent>) {
+fn read_input<R: BufRead>(
+    mut input: R,
+    limit: usize,
+    sender: mpsc::Sender<ServerEvent>,
+    stop: &AtomicBool,
+) {
     loop {
+        if stop.load(Ordering::Acquire) {
+            return;
+        }
         match read_bounded_line(&mut input, limit) {
             Ok(line) => {
+                if stop.load(Ordering::Acquire) {
+                    return;
+                }
                 let eof = matches!(line, BoundedLine::Eof);
                 if sender.send(ServerEvent::Input(line)).is_err() || eof {
                     return;
@@ -882,7 +916,7 @@ fn handle_provider_complete<W: Write>(
     completion: ProviderComplete,
     lifecycle: &mut MutationLifecycle,
     provider: &mpsc::Sender<ProviderWork>,
-    output: &mut W,
+    output: &mut CleanupWriter<W>,
 ) -> io::Result<bool> {
     match completion {
         ProviderComplete::SessionStart(result) => {
@@ -999,8 +1033,10 @@ fn handle_provider_complete<W: Write>(
                         output,
                         &acu_tool_response(mutation_id_value(&completed.json_rpc_id), reply),
                     )?;
-                    dispatch_next(state, provider)
-                        .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+                    if !output.has_error() {
+                        dispatch_next(state, provider)
+                            .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+                    }
                 }
                 CompletionDisposition::SuppressAfterEof(_) => {}
             }
@@ -1766,7 +1802,11 @@ fn read_bounded_line<R: BufRead>(input: &mut R, maximum: usize) -> io::Result<Bo
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufReader, Cursor};
+    use std::{
+        io::{BufReader, Cursor, Read},
+        sync::{Condvar, Mutex},
+        time::{Duration, Instant},
+    };
 
     use super::*;
 
@@ -1782,6 +1822,348 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()
+    }
+
+    struct ChannelInput {
+        receiver: mpsc::Receiver<Vec<u8>>,
+        buffer: Vec<u8>,
+        offset: usize,
+        exit: Arc<DisconnectState>,
+    }
+
+    impl Read for ChannelInput {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            let available = self.fill_buf()?;
+            let count = available.len().min(output.len());
+            output[..count].copy_from_slice(&available[..count]);
+            self.consume(count);
+            Ok(count)
+        }
+    }
+
+    impl BufRead for ChannelInput {
+        fn fill_buf(&mut self) -> io::Result<&[u8]> {
+            if self.offset == self.buffer.len() {
+                self.buffer = self.receiver.recv().unwrap_or_default();
+                self.offset = 0;
+            }
+            Ok(&self.buffer[self.offset..])
+        }
+
+        fn consume(&mut self, amount: usize) {
+            self.offset = (self.offset + amount).min(self.buffer.len());
+        }
+    }
+
+    impl Drop for ChannelInput {
+        fn drop(&mut self) {
+            *self.exit.reader_exited.lock().expect("reader exit lock") = true;
+            self.exit.changed.notify_all();
+        }
+    }
+
+    #[derive(Default)]
+    struct DisconnectState {
+        disconnected: AtomicBool,
+        observed: Mutex<bool>,
+        reader_exited: Mutex<bool>,
+        changed: Condvar,
+    }
+
+    struct ControlledOutput(Arc<DisconnectState>);
+
+    impl Write for ControlledOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.0.disconnected.load(Ordering::Acquire) {
+                *self.0.observed.lock().expect("disconnect lock") = true;
+                self.0.changed.notify_all();
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "fixture stdout disconnected",
+                ))
+            } else {
+                Ok(bytes.len())
+            }
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl DisconnectState {
+        fn wait_until_observed(&self) {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut observed = self.observed.lock().expect("disconnect lock");
+            while !*observed {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(!remaining.is_zero(), "stdout failure was not observed");
+                (observed, _) = self
+                    .changed
+                    .wait_timeout(observed, remaining)
+                    .expect("disconnect wait");
+            }
+        }
+
+        fn wait_for_reader_exit(&self) {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut exited = self.reader_exited.lock().expect("reader exit lock");
+            while !*exited {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(!remaining.is_zero(), "stdin reader did not retire");
+                (exited, _) = self
+                    .changed
+                    .wait_timeout(exited, remaining)
+                    .expect("reader exit wait");
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct ProviderFixture {
+        calls: Mutex<Vec<Value>>,
+        changed: Condvar,
+        block_start: AtomicBool,
+        block_shell: AtomicBool,
+        release_start: AtomicBool,
+        release_shell: AtomicBool,
+    }
+
+    impl ProviderFixture {
+        fn call(&self, request: &str) -> Result<String, String> {
+            let request: Value = serde_json::from_str(request).expect("provider request JSON");
+            let verb = request["command"]["verb"]
+                .as_str()
+                .expect("provider request verb")
+                .to_owned();
+            {
+                let mut calls = self.calls.lock().expect("provider calls lock");
+                calls.push(request);
+                self.changed.notify_all();
+                while (verb == "session-start"
+                    && self.block_start.load(Ordering::Acquire)
+                    && !self.release_start.load(Ordering::Acquire))
+                    || (verb == "shell-exec"
+                        && self.block_shell.load(Ordering::Acquire)
+                        && !self.release_shell.load(Ordering::Acquire))
+                {
+                    calls = self.changed.wait(calls).expect("provider gate wait");
+                }
+            }
+            Ok(match verb.as_str() {
+                "session-start" => json!({
+                    "ok": true,
+                    "target": "current",
+                    "command": verb,
+                    "data": {"session_id": "fixture-session", "lease": "fixture-lease"}
+                }),
+                "shell-exec" => json!({
+                    "ok": true,
+                    "target": "current",
+                    "command": verb,
+                    "data": {"stdout": "done"}
+                }),
+                "session-end" => json!({
+                    "ok": true,
+                    "target": "current",
+                    "command": verb,
+                    "data": {}
+                }),
+                other => panic!("unexpected provider verb {other}"),
+            }
+            .to_string())
+        }
+
+        fn wait_for_calls(&self, count: usize) -> Vec<Value> {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut calls = self.calls.lock().expect("provider calls lock");
+            while calls.len() < count {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(!remaining.is_zero(), "timed out waiting for provider calls");
+                (calls, _) = self
+                    .changed
+                    .wait_timeout(calls, remaining)
+                    .expect("provider calls wait");
+            }
+            calls.clone()
+        }
+
+        fn release_start(&self) {
+            self.release_start.store(true, Ordering::Release);
+            self.changed.notify_all();
+        }
+
+        fn release_shell(&self) {
+            self.release_shell.store(true, Ordering::Release);
+            self.changed.notify_all();
+        }
+    }
+
+    fn send_test_message(sender: &mpsc::Sender<Vec<u8>>, message: Value) {
+        let mut bytes = message.to_string().into_bytes();
+        bytes.push(b'\n');
+        sender.send(bytes).expect("send MCP test message");
+    }
+
+    fn initialize_test_session(sender: &mpsc::Sender<Vec<u8>>) {
+        send_test_message(
+            sender,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "fixture", "version": "1"}
+                }
+            }),
+        );
+        send_test_message(
+            sender,
+            json!({"jsonrpc":"2.0", "method":"notifications/initialized"}),
+        );
+    }
+
+    fn send_test_shell(sender: &mpsc::Sender<Vec<u8>>, id: &str) {
+        send_test_message(
+            sender,
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": {
+                    "name": "agenterm_acu_shell_exec",
+                    "arguments": {
+                        "idempotency_key": format!("disconnect:{id}"),
+                        "command": id,
+                        "timeout_ms": 100,
+                        "max_output_bytes": 1024
+                    }
+                }
+            }),
+        );
+    }
+
+    type DisconnectServer = (
+        mpsc::Sender<Vec<u8>>,
+        Arc<DisconnectState>,
+        mpsc::Receiver<io::Result<()>>,
+        thread::JoinHandle<()>,
+    );
+
+    fn start_disconnect_server(provider: Arc<ProviderFixture>) -> DisconnectServer {
+        let (input_sender, input_receiver) = mpsc::channel();
+        let output = Arc::new(DisconnectState::default());
+        let worker_output = Arc::clone(&output);
+        let reader_exit = Arc::clone(&output);
+        let (done_sender, done_receiver) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let result = serve_stdio_core(
+                ChannelInput {
+                    receiver: input_receiver,
+                    buffer: Vec::new(),
+                    offset: 0,
+                    exit: reader_exit,
+                },
+                ControlledOutput(worker_output),
+                McpStdioConfig::default(),
+                move |request: &str| provider.call(request),
+                true,
+            );
+            done_sender.send(result).expect("report MCP worker result");
+        });
+        (input_sender, output, done_receiver, worker)
+    }
+
+    fn provider_verbs(calls: &[Value]) -> Vec<&str> {
+        calls
+            .iter()
+            .map(|call| call["command"]["verb"].as_str().expect("provider verb"))
+            .collect()
+    }
+
+    fn trigger_disconnect(input: &mpsc::Sender<Vec<u8>>, output: &DisconnectState) {
+        output.disconnected.store(true, Ordering::Release);
+        send_test_message(
+            input,
+            json!({"jsonrpc":"2.0", "id":"disconnect", "method":"ping"}),
+        );
+        output.wait_until_observed();
+    }
+
+    #[test]
+    fn stdout_disconnect_while_session_starts_cancels_all_requests_and_ends_once() {
+        let provider = Arc::new(ProviderFixture::default());
+        provider.block_start.store(true, Ordering::Release);
+        let (input, output, done, worker) = start_disconnect_server(Arc::clone(&provider));
+        initialize_test_session(&input);
+        send_test_shell(&input, "first");
+        send_test_shell(&input, "queued");
+        assert_eq!(
+            provider_verbs(&provider.wait_for_calls(1)),
+            ["session-start"]
+        );
+
+        trigger_disconnect(&input, &output);
+        send_test_shell(&input, "after-disconnect");
+        provider.release_start();
+
+        let result = done
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stdout-only disconnect must complete while stdin remains open");
+        assert_eq!(
+            result
+                .expect_err("stdout disconnect must be reported")
+                .kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert_eq!(
+            provider_verbs(&provider.wait_for_calls(2)),
+            ["session-start", "session-end"]
+        );
+        drop(input);
+        output.wait_for_reader_exit();
+        worker.join().expect("join MCP server");
+    }
+
+    #[test]
+    fn stdout_disconnect_waits_for_dispatched_and_cancels_queued_before_ending_once() {
+        let provider = Arc::new(ProviderFixture::default());
+        provider.block_shell.store(true, Ordering::Release);
+        let (input, output, done, worker) = start_disconnect_server(Arc::clone(&provider));
+        initialize_test_session(&input);
+        send_test_shell(&input, "dispatched");
+        assert_eq!(
+            provider_verbs(&provider.wait_for_calls(2)),
+            ["session-start", "shell-exec"]
+        );
+        send_test_shell(&input, "queued");
+
+        trigger_disconnect(&input, &output);
+        send_test_shell(&input, "after-disconnect");
+        assert!(
+            done.recv_timeout(Duration::from_millis(50)).is_err(),
+            "teardown returned before the dispatched provider call completed"
+        );
+        provider.release_shell();
+
+        let result = done
+            .recv_timeout(Duration::from_secs(2))
+            .expect("stdout-only disconnect teardown exceeded its bounded provider completion");
+        assert_eq!(
+            result
+                .expect_err("stdout disconnect must be reported")
+                .kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert_eq!(
+            provider_verbs(&provider.wait_for_calls(3)),
+            ["session-start", "shell-exec", "session-end"]
+        );
+        drop(input);
+        output.wait_for_reader_exit();
+        worker.join().expect("join MCP server");
     }
 
     #[test]
