@@ -8,6 +8,8 @@
 #[cfg(target_os = "linux")]
 use std::collections::BTreeMap;
 
+use std::time::{Duration, Instant};
+
 use super::*;
 
 /// Resolve one Chromium debugging endpoint without scanning or guessing.
@@ -1219,40 +1221,177 @@ pub(super) fn tab_rows(tree: &mechanism::A11yTree) -> Vec<serde_json::Value> {
         .collect()
 }
 
-fn tab_focused_sibling_index(
+const TAB_SELECT_READBACK: Duration = Duration::from_millis(1_500);
+const TAB_SELECT_READBACK_POLL: Duration = Duration::from_millis(50);
+
+fn tab_browser_siblings(
     windows: &[mechanism::window_enumerate::WindowInfo],
+    stacking: &[mechanism::window_enumerate::WindowStacking],
     pid: u32,
-) -> Option<usize> {
+) -> Vec<crate::tab_strip::TabSiblingWindow> {
     windows
         .iter()
         .filter(|window| {
             window.process_id == pid && observe::looks_like_browser_app(&window.app_name)
         })
-        .position(|window| window.focused)
+        .map(|window| {
+            let z_index = stacking
+                .iter()
+                .find(|row| row.handle == window.handle)
+                .map(|row| row.z_index);
+            crate::tab_strip::TabSiblingWindow {
+                title: window.title.clone(),
+                focused: window.focused,
+                z_index,
+            }
+        })
+        .collect()
+}
+
+fn tab_active_sibling_index_for(
+    entries: &[crate::tab_strip::TabEntry<'_>],
+    windows: &[mechanism::window_enumerate::WindowInfo],
+    pid: u32,
+) -> Option<usize> {
+    if pid == 0 || entries.is_empty() {
+        return None;
+    }
+    let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
+    let siblings = tab_browser_siblings(windows, &stacking, pid);
+    crate::tab_strip::tab_active_sibling_index(entries, &siblings)
+}
+
+fn tab_rows_with_selection(
+    tree: &mechanism::A11yTree,
+    windows: &[mechanism::window_enumerate::WindowInfo],
+    pid: u32,
+) -> Vec<serde_json::Value> {
+    let entries = crate::tab_strip::tab_strip_entries(tree);
+    let active = tab_active_sibling_index_for(&entries, windows, pid);
+    tab_list_rows(&entries, active)
 }
 
 fn tab_list_rows(
     entries: &[crate::tab_strip::TabEntry<'_>],
-    focused_sibling_index: Option<usize>,
+    active_sibling_index: Option<usize>,
 ) -> Vec<serde_json::Value> {
     entries
         .iter()
-        .map(|entry| crate::tab_strip::tab_entry_json(entry, focused_sibling_index))
+        .map(|entry| crate::tab_strip::tab_entry_json(entry, active_sibling_index))
         .collect()
 }
 
 fn tab_list_selected_indexes(
     entries: &[crate::tab_strip::TabEntry<'_>],
-    focused_sibling_index: Option<usize>,
+    active_sibling_index: Option<usize>,
 ) -> Vec<usize> {
     entries
         .iter()
         .filter(|entry| {
-            crate::tab_strip::tab_entry_selected(entry, focused_sibling_index) == observe::Tri::True
+            crate::tab_strip::tab_entry_selected(entry, active_sibling_index) == observe::Tri::True
         })
         .map(|entry| entry.index)
         .collect()
 }
+
+fn tab_strip_is_chromium_application_frames(entries: &[crate::tab_strip::TabEntry<'_>]) -> bool {
+    entries
+        .iter()
+        .any(|entry| observe::normalize_role(&entry.node.role) == "frame")
+}
+
+fn tab_cdp_page_title_matches(strip_title: &str, page_title: &str) -> bool {
+    let strip = strip_title.to_lowercase();
+    let page = page_title.to_lowercase();
+    strip == page || page.contains(&strip) || strip.contains(&page)
+}
+
+fn tab_cdp_candidates_for_entry<'a>(
+    pages: &[&'a crate::cdp::targets::PageTarget],
+    hit: &crate::tab_strip::TabEntry<'_>,
+) -> Vec<&'a crate::cdp::targets::PageTarget> {
+    let wanted = crate::tab_strip::normalize_tab_title(hit.title());
+    pages
+        .iter()
+        .copied()
+        .filter(|page| tab_cdp_page_title_matches(&wanted, &page.title))
+        .collect()
+}
+
+fn tab_activate_cdp_page(port: u16, target_id: &str) -> Result<(), CuError> {
+    crate::cdp::http::http_get_json(port, &format!("/json/activate/{target_id}"))
+        .map(|_| ())
+        .map_err(CuError::from)
+}
+
+fn tab_select_readback_once(
+    window: isize,
+    pid: u32,
+    hit_index: usize,
+) -> Result<(bool, Vec<serde_json::Value>), CuError> {
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let after = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
+    let entries_after = crate::tab_strip::tab_strip_entries(&after);
+    let active_after = tab_active_sibling_index_for(&entries_after, &windows, pid);
+    let rows_after = tab_rows_with_selection(&after, &windows, pid);
+    let verified = entries_after
+        .iter()
+        .find(|entry| entry.index == hit_index)
+        .is_some_and(|entry| {
+            crate::tab_strip::tab_entry_selected(entry, active_after) == observe::Tri::True
+        });
+    Ok((verified, rows_after))
+}
+
+fn tab_select_readback(
+    window: isize,
+    pid: u32,
+    hit_index: usize,
+) -> Result<(bool, Vec<serde_json::Value>), CuError> {
+    let deadline = Instant::now() + TAB_SELECT_READBACK;
+    loop {
+        let (verified, rows_after) = tab_select_readback_once(window, pid, hit_index)?;
+        if verified || Instant::now() >= deadline {
+            return Ok((verified, rows_after));
+        }
+        std::thread::sleep(TAB_SELECT_READBACK_POLL);
+    }
+}
+
+fn tab_select_activate_cdp(
+    port: u16,
+    window: isize,
+    pid: u32,
+    pages: &[&crate::cdp::targets::PageTarget],
+    hit: &crate::tab_strip::TabEntry<'_>,
+) -> Result<String, CuError> {
+    let candidates = tab_cdp_candidates_for_entry(pages, hit);
+    if candidates.is_empty() {
+        return Err(CuError::new(
+            "a11y_tab_not_found",
+            format!(
+                "no CDP page target matches tab strip row {} ({:?})",
+                hit.index,
+                hit.title()
+            ),
+        ));
+    }
+    for page in candidates {
+        tab_activate_cdp_page(port, &page.id)?;
+        if tab_select_readback_once(window, pid, hit.index)?.0 {
+            return Ok(page.id.clone());
+        }
+    }
+    Err(CuError::new(
+        "unverified",
+        format!(
+            "CDP activated {} page target(s) for tab strip row {} but AT-SPI active read-back never matched",
+            candidates.len(),
+            hit.index
+        ),
+    ))
+}
+
 
 fn tab_list_unsupported(window: isize) -> CuError {
     CuError::new(
@@ -1302,7 +1441,12 @@ fn tab_list_cdp_fallback(
     if pages.is_empty() {
         return Ok(None);
     }
-    let focused_sibling_index = tab_focused_sibling_index(windows, pid);
+    let focused_sibling_index = windows
+        .iter()
+        .filter(|window| {
+            window.process_id == pid && observe::looks_like_browser_app(&window.app_name)
+        })
+        .position(|window| window.focused);
     let tabs: Vec<serde_json::Value> = pages
         .iter()
         .enumerate()
@@ -1358,10 +1502,15 @@ pub(super) fn tab_list_payload(window: isize) -> Result<serde_json::Value, CuErr
         }
         return Err(tab_list_unsupported(window));
     }
-    let focused_sibling_index = target
-        .map(|row| tab_focused_sibling_index(&windows, row.process_id))
-        .unwrap_or(None);
-    let selected = tab_list_selected_indexes(&entries, focused_sibling_index);
+    let active_sibling_index = target
+        .and_then(|row| {
+            if row.process_id == 0 {
+                None
+            } else {
+                tab_active_sibling_index_for(&entries, &windows, row.process_id)
+            }
+        });
+    let selected = tab_list_selected_indexes(&entries, active_sibling_index);
     let strip_kind = if entries
         .iter()
         .any(|entry| observe::normalize_role(&entry.node.role) == "frame")
@@ -1377,7 +1526,7 @@ pub(super) fn tab_list_payload(window: isize) -> Result<serde_json::Value, CuErr
         "window": window,
         "returned": entries.len(),
         "selected": selected,
-        "tabs": tab_list_rows(&entries, focused_sibling_index),
+        "tabs": tab_list_rows(&entries, active_sibling_index),
         "visited": tree.visited,
         "truncated": tree.truncated,
         "strip": strip_kind,
@@ -1421,19 +1570,19 @@ pub(super) fn tab_select_payload(
 ) -> Result<serde_json::Value, CuError> {
     tab_window_arg("tab select", window)?;
     let spec = crate::tab_strip::TabSpec::from_parts(title, index).map_err(invalid_input)?;
+    let windows =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let window_row = windows.iter().find(|row| row.handle == window);
+    let pid = window_row.map(|row| row.process_id).unwrap_or(0);
     let before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
     let entries = crate::tab_strip::tab_strip_entries(&before);
-    let rows_before: Vec<serde_json::Value> = entries
-        .iter()
-        .map(crate::tab_strip::TabEntry::json)
-        .collect();
+    let active_before = tab_active_sibling_index_for(&entries, &windows, pid);
+    let rows_before = tab_list_rows(&entries, active_before);
     let hit = crate::tab_strip::match_tab(&entries, &spec)
         .map_err(|error| tab_match_error(error, &rows_before))?;
     let target = hit.node.clone();
-    let tab_json = hit.json();
-    // The same honesty rule as `invoke press`: where the backend publishes
-    // action names, a row that offers no click is refused before anything
-    // is touched; AT-SPI skips actions during the walk and judges at press.
+    let tab_json = crate::tab_strip::tab_entry_json(hit, active_before);
+    let frame_strip = tab_strip_is_chromium_application_frames(&entries);
     let backend_publishes_actions = before.backend != "at-spi2";
     if backend_publishes_actions
         && !target
@@ -1460,7 +1609,8 @@ pub(super) fn tab_select_payload(
             "offered": target.actions,
         })));
     }
-    let already = hit.selected() == observe::Tri::True;
+    let already =
+        crate::tab_strip::tab_entry_selected(hit, active_before) == observe::Tri::True;
     let performed = !already;
     let ticket = receipts.reserve(
         "tab-select",
@@ -1469,33 +1619,72 @@ pub(super) fn tab_select_payload(
             "spec": spec.json(),
             "tab": tab_json,
             "node": observe::node_state_json(&target),
-            "action": "press",
+            "action": if frame_strip { "activate" } else { "press" },
             "performed": performed,
             "before": rows_before,
         }),
     )?;
     let mut mechanism_error = None;
-    if performed
-        && let Err(error) =
-            mechanism::perform_node_action(Some(window), &target.id, mechanism::NodeAction::Press)
-    {
-        mechanism_error = Some(map_mechanism_err(error));
+    let mut via = "tab-select";
+    let mut cdp_target_id = None;
+    if performed {
+        if frame_strip && pid != 0 {
+            match resolve_cdp_port(None, Some(pid)).and_then(|port| {
+                let targets = crate::cdp::targets::list_targets(port).map_err(CuError::from)?;
+                let pages: Vec<&crate::cdp::targets::PageTarget> =
+                    targets.iter().filter(|target| target.is_page()).collect();
+                tab_select_activate_cdp(port, window, pid, &pages, hit)
+            }) {
+                Ok(target_id) => {
+                    cdp_target_id = Some(target_id);
+                    via = "tab-select-cdp";
+                }
+                Err(error)
+                    if matches!(
+                        error.code.as_str(),
+                        "cdp_debug_port_not_found" | "cdp_process_unavailable"
+                    ) =>
+                {
+                    if let Err(error) = mechanism::perform_node_action(
+                        Some(window),
+                        &target.id,
+                        mechanism::NodeAction::Press,
+                    ) {
+                        mechanism_error = Some(map_mechanism_err(error));
+                    }
+                }
+                Err(error) => mechanism_error = Some(error),
+            }
+        } else if let Err(error) = mechanism::perform_node_action(
+            Some(window),
+            &target.id,
+            mechanism::NodeAction::Press,
+        ) {
+            mechanism_error = Some(map_mechanism_err(error));
+        }
     }
+    let (verified, rows_after) = if mechanism_error.is_none() {
+        tab_select_readback(window, pid, hit.index)?
+    } else {
+        tab_select_readback_once(window, pid, hit.index)?
+    };
     let after = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
     let after_node = observe::node_by_id(&after, &target.id).cloned();
-    let rows_after = tab_rows(&after);
-    let (verified, reason) = match &after_node {
-        Some(now) => match observe::selected_state(now) {
-            observe::Tri::True => (true, None),
-            observe::Tri::False => (false, Some("still_unselected")),
-            _ => (false, Some("selected_unobservable")),
-        },
-        None => (false, Some("node_gone")),
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if !verified {
+        Some("selected_readback_mismatch")
+    } else {
+        None
     };
-    let verified = verified && mechanism_error.is_none();
     let verification = serde_json::json!({
-        "method": "selected-readback",
-        "reason": if mechanism_error.is_some() { Some("mechanism_failed") } else { reason },
+        "method": if cdp_target_id.is_some() {
+            "cdp-activate-readback"
+        } else {
+            "selected-readback"
+        },
+        "reason": reason,
+        "cdp_target_id": cdp_target_id,
     });
     let after_state = after_node.as_ref().map(observe::node_state_json);
     let receipt = serde_json::json!({
@@ -1506,8 +1695,8 @@ pub(super) fn tab_select_payload(
         "target": spec.json(),
         "tab": tab_json,
         "node": observe::node_state_json(&target),
-        "action": "press",
-        "via": "tab-select",
+        "action": if frame_strip { "activate" } else { "press" },
+        "via": via,
         "performed": performed,
         "verified": verified,
         "verification": verification,
@@ -1534,6 +1723,7 @@ pub(super) fn tab_select_payload(
     }
     Ok(receipt)
 }
+
 
 // ---------------------------------------------------------------------------
 // `tab close`: the destructive tab verb. Gated like `close` (exact
