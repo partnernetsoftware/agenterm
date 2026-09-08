@@ -1,0 +1,288 @@
+// CEO: Linux process-sockets honesty with independent /proc/<pid>/fd inode join and
+// /proc/<pid>/net read-back. Acceptance is smoke read-back only: CU process-sockets
+// socket rows must agree with facts derived outside agenterm-cu for the same PID.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-process-sockets-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function verify_readback(run_directory, executable, pid, expected_port) {
+  const script = [
+    "import json, os, socket, struct, subprocess, sys",
+    "",
+    "TCP_STATES = {",
+    "    '01': 'established', '02': 'syn-sent', '03': 'syn-received',",
+    "    '04': 'fin-wait-1', '05': 'fin-wait-2', '06': 'time-wait',",
+    "    '07': 'closed', '08': 'close-wait', '09': 'last-ack',",
+    "    '0A': 'listen', '0a': 'listen', '0B': 'closing', '0b': 'closing',",
+    "}",
+    "",
+    "def parse_ipv4_endpoint(hex_addr, hex_port):",
+    "    raw = int(hex_addr, 16)",
+    "    addr = socket.inet_ntoa(struct.pack('<I', raw))",
+    "    port = int(hex_port, 16)",
+    "    return f'{addr}:{port}'",
+    "",
+    "def parse_ipv6_endpoint(hex_addr, hex_port):",
+    "    words = [hex_addr[i:i + 8] for i in range(0, 32, 8)]",
+    "    raw = b''.join(struct.pack('<I', int(word, 16)) for word in words)",
+    "    addr = socket.inet_ntop(socket.AF_INET6, raw)",
+    "    port = int(hex_port, 16)",
+    "    return f'[{addr}]:{port}'",
+    "",
+    "def parse_inet_row(line, family, protocol):",
+    "    fields = line.split()",
+    "    if len(fields) < 10:",
+    "        return None",
+    "    local_field = fields[1]",
+    "    remote_field = fields[2]",
+    "    state_raw = fields[3]",
+    "    inode = int(fields[9])",
+    "    if family == 'IPv4':",
+    "        local = parse_ipv4_endpoint(local_field.split(':')[0], local_field.split(':')[1])",
+    "        remote = parse_ipv4_endpoint(remote_field.split(':')[0], remote_field.split(':')[1])",
+    "    else:",
+    "        local = parse_ipv6_endpoint(local_field.split(':')[0], local_field.split(':')[1])",
+    "        remote = parse_ipv6_endpoint(remote_field.split(':')[0], remote_field.split(':')[1])",
+    "    remote_unspecified = remote in ('0.0.0.0:0', '[::]:0')",
+    "    endpoint = local if remote_unspecified else f'{local}->{remote}'",
+    "    if protocol == 'TCP':",
+    "        state = TCP_STATES.get(state_raw, 'unknown')",
+    "    else:",
+    "        state = 'unconnected' if remote_unspecified else 'connected'",
+    "    return inode, {",
+    "        'family': family,",
+    "        'protocol': protocol,",
+    "        'state': state,",
+    "        'endpoint': endpoint,",
+    "        'inode': str(inode),",
+    "    }",
+    "",
+    "def parse_unix_row(line):",
+    "    parts = line.split(None, 7)",
+    "    if len(parts) < 7:",
+    "        return None",
+    "    inode = int(parts[6])",
+    "    path = parts[7] if len(parts) > 7 else ''",
+    "    socket_type = parts[4]",
+    "    state_raw = parts[5]",
+    "    protocol = {",
+    "        '0001': 'UNIX-STREAM',",
+    "        '0002': 'UNIX-DGRAM',",
+    "        '0005': 'UNIX-SEQPACKET',",
+    "    }.get(socket_type, 'UNIX')",
+    "    state = {",
+    "        '01': 'unconnected',",
+    "        '02': 'connecting',",
+    "        '03': 'connected',",
+    "        '04': 'disconnecting',",
+    "    }.get(state_raw, 'unknown')",
+    "    endpoint = path if path else f'unix:[{inode}]'",
+    "    return inode, {",
+    "        'family': 'Unix',",
+    "        'protocol': protocol,",
+    "        'state': state,",
+    "        'endpoint': endpoint,",
+    "        'inode': str(inode),",
+    "    }",
+    "",
+    "def read_proc_net(pid, name, family, protocol):",
+    "    path = f'/proc/{pid}/net/{name}'",
+    "    if not os.path.exists(path):",
+    "        return {}",
+    "    rows = {}",
+    "    with open(path, 'rb') as handle:",
+    "        lines = handle.read().split(b'\\n')[1:]",
+    "    for raw in lines:",
+    "        if not raw.strip():",
+    "            continue",
+    "        line = raw.decode('ascii', errors='replace')",
+    "        if family is None:",
+    "            parsed = parse_unix_row(line)",
+    "        else:",
+    "            parsed = parse_inet_row(line, family, protocol)",
+    "        if parsed is None:",
+    "            continue",
+    "        inode, row = parsed",
+    "        rows[inode] = row",
+    "    return rows",
+    "",
+    "def independent_sockets(pid):",
+    "    by_inode = {}",
+    "    for name, family, protocol in [",
+    "        ('tcp', 'IPv4', 'TCP'),",
+    "        ('tcp6', 'IPv6', 'TCP'),",
+    "        ('udp', 'IPv4', 'UDP'),",
+    "        ('udp6', 'IPv6', 'UDP'),",
+    "    ]:",
+    "        by_inode.update(read_proc_net(pid, name, family, protocol))",
+    "    by_inode.update(read_proc_net(pid, 'unix', None, None))",
+    "    fd_dir = f'/proc/{pid}/fd'",
+    "    sockets = []",
+    "    for name in sorted(os.listdir(fd_dir), key=lambda value: int(value) if value.isdigit() else value):",
+    "        if not name.isdigit():",
+    "            continue",
+    "        fd = int(name)",
+    "        target = os.readlink(os.path.join(fd_dir, name))",
+    "        if not target.startswith('socket:[') or not target.endswith(']'):",
+    "            continue",
+    "        inode = int(target[8:-1])",
+    "        row = by_inode.get(inode)",
+    "        if row is None:",
+    "            row = {",
+    "                'family': 'Other',",
+    "                'protocol': 'UNKNOWN',",
+    "                'state': None,",
+    "                'endpoint': f'socket:[{inode}]',",
+    "                'inode': str(inode),",
+    "            }",
+    "        sockets.append({",
+    "            'fd': fd,",
+    "            'family': row['family'],",
+    "            'protocol': row['protocol'],",
+    "            'state': row['state'],",
+    "            'endpoint': row['endpoint'],",
+    "            'inode': row['inode'],",
+    "        })",
+    "    return sockets",
+    "",
+    "def text_field(row, key):",
+    "    value = row.get(key)",
+    "    if value is None:",
+    "        return ''",
+    "    if isinstance(value, dict) and 'text' in value:",
+    "        return str(value['text'])",
+    "    return str(value)",
+    "",
+    "pid = int(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "expected_port = int(sys.argv[3])",
+    "independent = independent_sockets(pid)",
+    "out = subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-sockets', '--pid', str(pid), '--limit', '64', '--max-visited', '256'],",
+    "    text=True)",
+    "reply = json.loads(out)",
+    "if not reply.get('ok') or reply.get('command') != 'process-sockets':",
+    "    raise SystemExit('cu_linux_process_sockets_reply_state')",
+    "data = reply['data']",
+    "if data.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_sockets_verified')",
+    "if int(data['pid']) != pid:",
+    "    raise SystemExit('cu_linux_process_sockets_pid')",
+    "cu_rows = data.get('sockets') or []",
+    "if len(cu_rows) != len(independent):",
+    "    raise SystemExit('cu_linux_process_sockets_count:' + str(len(cu_rows)) + ':' + str(len(independent)))",
+    "by_inode = {int(row['inode']): row for row in independent}",
+    "for cu_row in cu_rows:",
+    "    inode = int(text_field(cu_row, 'inode'))",
+    "    ind = by_inode.get(inode)",
+    "    if ind is None:",
+    "        raise SystemExit('cu_linux_process_sockets_missing_inode:' + str(inode))",
+    "    if int(cu_row['fd']) != ind['fd']:",
+    "        raise SystemExit('cu_linux_process_sockets_fd:' + str(inode))",
+    "    if text_field(cu_row, 'family') != ind['family']:",
+    "        raise SystemExit('cu_linux_process_sockets_family:' + str(inode))",
+    "    if text_field(cu_row, 'protocol') != ind['protocol']:",
+    "        raise SystemExit('cu_linux_process_sockets_protocol:' + str(inode))",
+    "    cu_state = text_field(cu_row, 'state')",
+    "    ind_state = ind['state'] or ''",
+    "    if cu_state != ind_state:",
+    "        raise SystemExit('cu_linux_process_sockets_state:' + str(inode))",
+    "    if text_field(cu_row, 'endpoint') != ind['endpoint']:",
+    "        raise SystemExit('cu_linux_process_sockets_endpoint:' + str(inode))",
+    "listen = [row for row in cu_rows",
+    "          if text_field(row, 'protocol') == 'TCP' and text_field(row, 'state') == 'listen']",
+    "if len(listen) != 1:",
+    "    raise SystemExit('cu_linux_process_sockets_listen_count')",
+    "if not text_field(listen[0], 'endpoint').endswith(':' + str(expected_port)):",
+    "    raise SystemExit('cu_linux_process_sockets_listen_port')",
+    "print('pid', pid, 'sockets', len(cu_rows))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid, executable, "" + expected_port], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_process_sockets_readback:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-process-sockets");
+const children = [];
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP start invocation-owned loopback TCP listener");
+  const stdout_path = rh.join(context.run_directory, "listener.stdout");
+  const stderr_path = rh.join(context.run_directory, "listener.stderr");
+  const listener = harness.start_child(context, {
+    program: executable,
+    args: ["--agenterm-cu-internal-network-probe-fixture", "1", "30000"],
+    current_dir: context.run_directory,
+    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+    stdout_path: stdout_path,
+    stderr_path: stderr_path,
+    timeout_ms: 35000,
+  }, "process-sockets-listener");
+  children.push(listener);
+  let ready = null;
+  for (let poll = 0; poll < 400; poll = poll + 1) {
+    if (direct_file(stdout_path)) {
+      const text = rh.read_text(stdout_path).trim();
+      if (text.startsWith("{") && text.endsWith("}")) {
+        const candidate = JSON.parse(text);
+        if (candidate.port > 0) { ready = candidate; break; }
+      }
+    }
+    ensure(harness.child_state(listener) !== "exited", "cu_linux_process_sockets_listener_early_exit");
+    harness.sleep_ms(10);
+  }
+  ensure(ready !== null, "cu_linux_process_sockets_listener_not_ready");
+
+  print("STEP process-sockets observe matches independent /proc fd inode join and net read-back");
+  verify_readback(context.run_directory, executable, listener.pid, ready.port);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+const completion = harness.complete_children(context, children, succeeded !== 0, failure);
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-process-sockets-readback");
+  harness.remove_run(context);
+  print("PASS: Linux process-sockets matches independent /proc/<pid>/fd and net read-back");
+}
+if (failure !== "") { throw failure; }
+ensure(completion.cleanup.completed_pids.length === children.length, "cu_linux_process_sockets_cleanup");
+if (children.length > 0) {
+  ensure(harness.process_present(children[0].pid) === 0, "cu_linux_process_sockets_listener_orphan");
+}
+return;
