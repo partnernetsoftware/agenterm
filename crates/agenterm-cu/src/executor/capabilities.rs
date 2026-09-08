@@ -1163,28 +1163,25 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "verification": "dispatcher-accepted-only",
             }),
         );
-        verbs.insert(
-            "host-notify".into(),
-            {
-                let mut host_notify = serde_json::json!({
+        verbs.insert("host-notify".into(), {
+            let mut host_notify = serde_json::json!({
+                "status": "available",
+                "group": "setup",
+                "grant": "actuate",
+                "mode": "agenterm-platform-desktop-notification",
+                "shell": false,
+                "verification": "dispatcher-accepted-only",
+            });
+            if std::env::consts::OS == "linux" {
+                host_notify["actions"] = serde_json::json!({
                     "status": "available",
-                    "group": "setup",
-                    "grant": "actuate",
-                    "mode": "agenterm-platform-desktop-notification",
-                    "shell": false,
+                    "mode": "fdo-notify-action-pairs",
                     "verification": "dispatcher-accepted-only",
+                    "invoke": "session-bus-action-invoked-only",
                 });
-                if std::env::consts::OS == "linux" {
-                    host_notify["actions"] = serde_json::json!({
-                        "status": "available",
-                        "mode": "fdo-notify-action-pairs",
-                        "verification": "dispatcher-accepted-only",
-                        "invoke": "session-bus-action-invoked-only",
-                    });
-                }
-                host_notify
-            },
-        );
+            }
+            host_notify
+        });
     }
     if let Some(verbs) = payload.get("verbs").cloned() {
         payload["verbs"] = crate::mcu_surface::merge_verbs(verbs);

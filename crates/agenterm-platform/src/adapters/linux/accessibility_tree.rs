@@ -4412,12 +4412,8 @@ async fn invoke_component_click(
                 ));
             }
         };
-        crate::input_inject::pointer_click(
-            PointerPosition { x: cx, y: cy },
-            inject_button,
-            clicks,
-        )
-        .map_err(map_input_inject_err)?;
+        crate::input_inject::pointer_click(PointerPosition { x: cx, y: cy }, inject_button, clicks)
+            .map_err(map_input_inject_err)?;
     }
     Ok(())
 }
@@ -5363,7 +5359,9 @@ fn map_input_inject_err(error: InputInjectError) -> AccessibilityTreeError {
         InputInjectError::Unsupported { reason } => {
             AccessibilityTreeError::failed("a11y_scroll_wheel_unavailable", reason)
         }
-        InputInjectError::Failed { code, message } => AccessibilityTreeError::Failed { code, message },
+        InputInjectError::Failed { code, message } => {
+            AccessibilityTreeError::Failed { code, message }
+        }
     }
 }
 

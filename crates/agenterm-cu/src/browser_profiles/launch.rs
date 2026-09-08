@@ -224,13 +224,14 @@ mod tests {
         let plan = open_launch_plan(&APPS[2], "Default", Some("https://example.com/"))
             .expect("launch plan");
         assert_eq!(plan.mechanism, "chromium --profile-directory+cdp");
-        assert!(
-            plan.argv[0].contains("chrome") || plan.argv[0].ends_with("box-chrome")
-        );
+        assert!(plan.argv[0].contains("chrome") || plan.argv[0].ends_with("box-chrome"));
         assert_eq!(plan.argv[1], "--profile-directory=Default");
         assert!(plan.argv[2].starts_with("--remote-debugging-port="));
         assert_ne!(plan.argv[2], "--remote-debugging-port=0");
         assert_eq!(plan.argv[3], "--remote-debugging-address=127.0.0.1");
-        assert_eq!(plan.argv.last().map(String::as_str), Some("https://example.com/"));
+        assert_eq!(
+            plan.argv.last().map(String::as_str),
+            Some("https://example.com/")
+        );
     }
 }

@@ -1,8 +1,6 @@
 //! Non-Linux answer for keyboard layout observation.
 
-use crate::keyboard_layout::{
-    KeyboardLayoutObserveResult, KeyboardLayoutObserveUnsupported,
-};
+use crate::keyboard_layout::{KeyboardLayoutObserveResult, KeyboardLayoutObserveUnsupported};
 
 pub(crate) fn observe() -> KeyboardLayoutObserveResult {
     KeyboardLayoutObserveResult::Unsupported(KeyboardLayoutObserveUnsupported {

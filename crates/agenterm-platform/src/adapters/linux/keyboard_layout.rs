@@ -26,10 +26,9 @@ pub(crate) fn observe() -> KeyboardLayoutObserveResult {
 
     match read_xkb_rules_names() {
         Ok(observation) => KeyboardLayoutObserveResult::Ok(observation),
-        Err(reason) => KeyboardLayoutObserveResult::Unsupported(unsupported(
-            reason,
-            "x11-xkb-rules-names",
-        )),
+        Err(reason) => {
+            KeyboardLayoutObserveResult::Unsupported(unsupported(reason, "x11-xkb-rules-names"))
+        }
     }
 }
 
@@ -48,8 +47,8 @@ fn unsupported(
 }
 
 fn read_xkb_rules_names() -> Result<KeyboardLayoutObservation, String> {
-    let (connection, screen_index) =
-        x11rb::connect(None).map_err(|error| format!("X11 display could not be opened: {error}"))?;
+    let (connection, screen_index) = x11rb::connect(None)
+        .map_err(|error| format!("X11 display could not be opened: {error}"))?;
     let root = connection
         .setup()
         .roots
