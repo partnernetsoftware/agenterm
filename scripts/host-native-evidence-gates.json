@@ -201,6 +201,15 @@
       ]
     },
     {
+      "id": "cu-linux-cdp-page-fill-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-cdp-page-nav",
+        "cu.linux-cdp-page-fill",
+        "cu.linux-cdp-page-find-readback"
+      ]
+    },
+    {
       "id": "cu-linux-window-move-smoke",
       "platform": "linux",
       "evidence": [

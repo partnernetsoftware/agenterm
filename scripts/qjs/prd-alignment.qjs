@@ -250,6 +250,7 @@ const evidence_suites = {
   "cu-linux-external-terminal-send-smoke": true,
   "cu-scroll-wheel-smoke": true,
   "cu-linux-chrome-text-smoke": true,
+  "cu-linux-cdp-page-fill-smoke": true,
   "cu-linux-browser-profiles-open-smoke": true,
   "cu-linux-browser-tabs-smoke": true,
   "cu-linux-browser-tab-select-smoke": true,

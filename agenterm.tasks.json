@@ -795,6 +795,25 @@
         "task.cu-linux-chrome-text-smoke"
       ]
     },
+    "cu-linux-cdp-page-fill-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-cdp-page-fill-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-cdp-page-fill-smoke"
+      ]
+    },
     "cu-linux-browser-profiles-open-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -3763,6 +3782,26 @@
       "id": "cu-linux-chrome-text-smoke",
       "description": "Prove Linux Chrome focus → send-text --name → get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-cdp-page-fill-smoke",
+      "description": "Prove Linux CDP page-nav to a disposable file:// input fixture, page-fill --clear writes SEED, and independent page-find --selector value read-back equals SEED; --port/--target-id only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-cdp-page-fill-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
