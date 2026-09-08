@@ -937,7 +937,7 @@ fn candidate_runs_one_full_gate_and_seals_six_platform_parts_plus_chassis_produc
 }
 
 #[test]
-fn staged_artifact_gate_pins_the_complete_read_only_mcp_catalog() {
+fn staged_artifact_gate_pins_the_complete_mcp_catalog() {
     assert!(ARTIFACT_VERIFICATION_QJS.contains("mcp_capabilities.tools.length === 3"));
     for name in [
         "agenterm_wait",

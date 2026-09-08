@@ -135,8 +135,8 @@ const descriptor = {
 
 const observe_descriptor = {
   name: "agenterm_acu_observe",
-  title: "Run one read-only agenterm-cu command",
-  description: "Execute one canonical read-only agenterm-cu Command through the shared typed Executor. Commands requiring actuation are rejected before dispatch.",
+  title: "Run one observe-grant agenterm-cu command",
+  description: "Execute one canonical observe-grant agenterm-cu Command through the shared typed Executor. This broad compatibility surface includes caller-named artifact writes, persistent cursors and page JavaScript; commands requiring the actuate grant are rejected before dispatch.",
   inputSchema: {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     type: "object",
@@ -157,10 +157,10 @@ const observe_descriptor = {
   },
   outputSchema: descriptor.outputSchema,
   annotations: {
-    readOnlyHint: true,
-    destructiveHint: false,
+    readOnlyHint: false,
+    destructiveHint: true,
     idempotentHint: false,
-    openWorldHint: false
+    openWorldHint: true
   }
 };
 
