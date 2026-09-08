@@ -345,6 +345,7 @@ fn known_authorization_operation(operation: &str) -> bool {
             | "permissions.open"
             | "audio.status"
             | "ime.status"
+            | "keyboard-layout.status"
             | "audio.plan-volume"
             | "audio.plan-muted"
             | "audio.apply"

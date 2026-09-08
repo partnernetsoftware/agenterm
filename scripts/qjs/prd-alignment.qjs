@@ -256,6 +256,7 @@ const evidence_suites = {
   "cu-linux-browser-tab-select-smoke": true,
   "cu-linux-window-move-smoke": true,
   "cu-linux-raise-activate-smoke": true,
+  "cu-linux-keyboard-layout-smoke": true,
   "cu-linux-resize-expect-smoke": true,
   "cu-linux-minimize-expect-smoke": true,
   "cu-linux-menu-invoke-smoke": true,

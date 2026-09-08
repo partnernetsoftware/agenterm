@@ -35,6 +35,7 @@ pub(crate) mod host_limit;
 pub mod hotkeys;
 pub mod idempotency_store;
 pub mod ime_observe;
+pub mod keyboard_layout_observe;
 pub mod login_session;
 #[cfg(target_os = "macos")]
 pub mod macos_focus;

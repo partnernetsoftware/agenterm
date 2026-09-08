@@ -477,6 +477,7 @@ ime = [
     "windows-sys/Win32_UI_Input_Ime",
     "windows-sys/Win32_UI_HiDpi",
 ]
+keyboard-layout = ["dep:x11rb"]
 activation = ["portable-pixel-window", "window-op", "window-enum"]
 clipboard = [
     "dep:x11rb",

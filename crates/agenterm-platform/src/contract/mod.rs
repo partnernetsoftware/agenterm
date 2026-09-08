@@ -37,6 +37,7 @@ pub mod hardware;
 pub mod host_memory;
 #[cfg(feature = "ime")]
 pub mod ime;
+pub mod keyboard_layout;
 #[cfg(feature = "input")]
 pub mod input;
 #[cfg(feature = "input-inject")]

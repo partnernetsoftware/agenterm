@@ -103,6 +103,7 @@
         "cu.linux-window-move-expect",
         "cu.linux-resize-expect-geometry",
         "cu.linux-minimize-expect-state",
+        "cu.linux-keyboard-layout-name",
         "cu.linux-atspi-orderwin",
         "cu.linux-atspi-raise",
         "cu.linux-atspi-window-activate",

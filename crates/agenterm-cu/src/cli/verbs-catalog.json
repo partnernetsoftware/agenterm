@@ -3074,6 +3074,18 @@
       "args": []
     },
     {
+      "name": "keyboard-layout",
+      "command": "keyboard-layout",
+      "aliases": [
+        "keyboard layout"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read the active XKB keyboard layout on Linux X11",
+      "usage": "keyboard layout\nkeyboard-layout",
+      "args": []
+    },
+    {
       "name": "runtime-status",
       "command": "runtime-status",
       "aliases": [
@@ -6466,6 +6478,10 @@
     {
       "name": "ime-status",
       "text": "agenterm-cu ime-status    (also: ime status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  ime status\n  ime-status\n\nReports the session input-method framework when IBus or Fcitx answers on the\ndesktop bus, including GTK_IM_MODULE, QT_IM_MODULE and XMODIFIERS facts.\nWhen no framework is observable the reply is a typed unsupported result with\nrepair alternatives instead of screenshot or coordinate degradation.\n"
+    },
+    {
+      "name": "keyboard-layout",
+      "text": "agenterm-cu keyboard-layout    (also: keyboard layout)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  keyboard layout\n  keyboard-layout\n\nReports the active XKB rules/model/layout/variant from the X11 root window\n_XKB_RULES_NAMES property. When the mechanism is unavailable the reply is a\ntyped unsupported result with repair alternatives instead of screenshot or\ncoordinate degradation.\n"
     },
     {
       "name": "runtime-status",

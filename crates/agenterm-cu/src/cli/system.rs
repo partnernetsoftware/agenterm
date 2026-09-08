@@ -352,6 +352,18 @@ pub fn parse(
         }
         return Ok(Command::ImeStatus { target });
     }
+    if spec.name == "keyboard-layout" {
+        if args.first().is_some_and(|arg| arg == "status") {
+            args.remove(0);
+        }
+        if !args.is_empty() {
+            return Err(format!(
+                "keyboard-layout accepts no arguments; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::KeyboardLayoutStatus { target });
+    }
     if spec.name == "runtime-status" {
         if args.first().is_some_and(|arg| arg == "service") {
             return Err(

@@ -933,6 +933,14 @@ pub(crate) mod ime;
 #[path = "adapters/macos/ime.rs"]
 pub(crate) mod ime;
 
+#[cfg(all(feature = "keyboard-layout", target_os = "linux"))]
+#[path = "adapters/linux/keyboard_layout.rs"]
+pub(crate) mod keyboard_layout;
+
+#[cfg(all(feature = "keyboard-layout", not(target_os = "linux")))]
+#[path = "adapters/unsupported_keyboard_layout.rs"]
+pub(crate) mod keyboard_layout;
+
 #[cfg(all(feature = "input", target_os = "linux"))]
 #[path = "adapters/linux/input.rs"]
 pub(crate) mod input;

@@ -231,6 +231,13 @@
       ]
     },
     {
+      "id": "cu-linux-keyboard-layout-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-keyboard-layout-name"
+      ]
+    },
+    {
       "id": "cu-linux-raise-activate-smoke",
       "platform": "linux",
       "evidence": [

@@ -1,0 +1,105 @@
+// CEO: Linux keyboard layout observe with independent setxkbmap read-back.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-keyboard-layout-name",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function run_cu(run_directory, executable, arguments) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_keyboard_layout_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_keyboard_layout_empty");
+  const document = JSON.parse(trimmed);
+  return document;
+}
+
+function independent_layout_id() {
+  const output = rh.command("setxkbmap", ["-query"], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "setxkbmap_query_failed:" + output.stderr);
+  let layout = "";
+  let variant = "";
+  for (const line of output.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("layout:")) {
+      layout = trimmed.slice("layout:".length).trim();
+    } else if (trimmed.startsWith("variant:")) {
+      variant = trimmed.slice("variant:".length).trim();
+    }
+  }
+  ensure(layout !== "", "setxkbmap_layout_missing");
+  if (variant === "") { return layout; }
+  return layout + "+" + variant;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-keyboard-layout");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent setxkbmap read-back captures the active layout id");
+  const expected_id = independent_layout_id();
+  ensure(expected_id !== "", "independent_layout_id");
+
+  print("STEP keyboard-layout observe returns the same layout id/name");
+  const reply = run_cu(context.run_directory, executable, ["keyboard-layout"]);
+  ensure(reply.ok === true && reply.command === "keyboard-layout", "keyboard_layout_reply");
+  const observed_id = text_at(reply, "data.id");
+  const observed_name = text_at(reply, "data.name");
+  const observed_layout = text_at(reply, "data.layout");
+  ensure(observed_id === expected_id, "keyboard_layout_id_mismatch:" + observed_id + "!=" + expected_id);
+  ensure(observed_layout !== "", "keyboard_layout_component");
+  ensure(observed_name !== "", "keyboard_layout_name");
+  ensure(text_at(reply, "data.provider") !== "", "keyboard_layout_provider");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-keyboard-layout-name");
+  harness.remove_run(context);
+  print("PASS: CEO Linux keyboard-layout observe with independent setxkbmap read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

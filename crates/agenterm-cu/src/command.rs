@@ -1329,6 +1329,9 @@ pub enum Command {
     ImeStatus {
         target: TargetRef,
     },
+    KeyboardLayoutStatus {
+        target: TargetRef,
+    },
     /// Read the exact current default-output device, volume and mute state.
     AudioStatus {
         target: TargetRef,
@@ -4165,6 +4168,7 @@ impl Command {
             Self::Doctor { .. } => "doctor".into(),
             Self::RuntimeStatus { .. } => "runtime-status".into(),
             Self::ImeStatus { .. } => "ime-status".into(),
+            Self::KeyboardLayoutStatus { .. } => "keyboard-layout".into(),
             Self::AudioStatus { .. }
             | Self::AudioPlanVolume { .. }
             | Self::AudioPlanMuted { .. }
@@ -4410,6 +4414,7 @@ impl Command {
             },
             Self::AudioStatus { .. } => "audio.status".to_owned(),
             Self::ImeStatus { .. } => "ime.status".to_owned(),
+            Self::KeyboardLayoutStatus { .. } => "keyboard-layout.status".to_owned(),
             Self::AudioPlanVolume { .. } => "audio.plan-volume".to_owned(),
             Self::AudioPlanMuted { .. } => "audio.plan-muted".to_owned(),
             Self::AudioApply { .. } => "audio.apply".to_owned(),
@@ -4593,6 +4598,7 @@ impl Command {
             | Self::Doctor { target, .. }
             | Self::RuntimeStatus { target, .. }
             | Self::ImeStatus { target }
+            | Self::KeyboardLayoutStatus { target }
             | Self::AudioStatus { target }
             | Self::AudioPlanVolume { target, .. }
             | Self::AudioPlanMuted { target, .. }

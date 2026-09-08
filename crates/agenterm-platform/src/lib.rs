@@ -402,6 +402,9 @@ pub mod terminal_input;
 #[cfg(feature = "ime")]
 pub mod ime;
 
+#[cfg(feature = "keyboard-layout")]
+pub mod keyboard_layout;
+
 #[cfg(feature = "window")]
 pub mod window;
 
