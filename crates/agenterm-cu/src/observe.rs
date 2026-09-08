@@ -141,6 +141,24 @@ fn is_actionable_role(raw: &str) -> bool {
     )
 }
 
+/// Layout-only containers and passive text chrome that GTK/AT-SPI often
+/// publishes with inflated bounds deeper than the interactive control they
+/// wrap. A point inside a real button or entry must address that control,
+/// not an enclosing filler or a sibling label in a scroll pane.
+fn is_structural_hit_role(raw: &str) -> bool {
+    matches!(
+        normalize_role(raw).as_str(),
+        "filler"
+            | "generic"
+            | "group"
+            | "panel"
+            | "section"
+            | "paragraph"
+            | "label"
+            | "statictext"
+    )
+}
+
 /// AX chrome-only vs page content, absorbed from MCU `classifyAxTree`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AxAvailability {
@@ -1661,13 +1679,14 @@ pub fn node_contains_point(node: &A11yNode, x: i32, y: i32) -> bool {
 /// The node a screen point addresses: the **innermost** node whose own
 /// rectangle contains it.
 ///
-/// Ranking, in order: deepest wins (a button inside a group is what the
-/// user means), then the smallest area (two nodes at one depth that
-/// overlap — a label over its own cell), then the later position in walk
-/// order (a sibling drawn afterwards sits on top). The winner is a node of
-/// the same bounded walk `tree` and `query` return, so its `id` is the one
-/// `invoke --node` / `click --node` already accept; nothing here consults
-/// the pointer or moves it.
+/// Ranking, in order: non-structural layout containers beat structural ones
+/// (GTK `filler` nodes are often deeper than the control they wrap but
+/// must not steal the hit), then deepest wins, then the smallest area (two
+/// nodes at one depth that overlap — a label over its own cell), then the
+/// later position in walk order (a sibling drawn afterwards sits on top).
+/// The winner is a node of the same bounded walk `tree` and `query`
+/// return, so its `id` is the one `invoke --node` / `click --node` already
+/// accept; nothing here consults the pointer or moves it.
 pub fn node_at_point<'a, 'b>(flat: &'b [FlatNode<'a>], x: i32, y: i32) -> Option<&'b FlatNode<'a>> {
     flat.iter()
         .filter(|hit| node_contains_point(hit.node, x, y))
@@ -1675,8 +1694,10 @@ pub fn node_at_point<'a, 'b>(flat: &'b [FlatNode<'a>], x: i32, y: i32) -> Option
             let area = |hit: &FlatNode<'_>| {
                 i64::from(hit.node.bounds.width) * i64::from(hit.node.bounds.height)
             };
-            a.depth
-                .cmp(&b.depth)
+            let semantic = |hit: &FlatNode<'_>| !is_structural_hit_role(&hit.node.role);
+            semantic(a)
+                .cmp(&semantic(b))
+                .then_with(|| a.depth.cmp(&b.depth))
                 .then_with(|| area(b).cmp(&area(a)))
                 .then_with(|| a.index.cmp(&b.index))
         })
@@ -2837,6 +2858,71 @@ mod tests {
         // `invoke --node` directly.
         assert_eq!(hit.index, 2);
         assert_eq!(hit.depth, 2);
+    }
+
+    #[test]
+    fn a_structural_filler_does_not_steal_a_point_from_a_deeper_control() {
+        let boxed = |id: &str, role: &str, bounds: (i32, i32, i32, i32)| A11yNode {
+            id: id.to_owned(),
+            parent_id: None,
+            role: role.to_owned(),
+            subrole: None,
+            name: id.to_owned(),
+            states: Vec::new(),
+            bounds: A11yBounds {
+                x: bounds.0,
+                y: bounds.1,
+                width: bounds.2,
+                height: bounds.3,
+            },
+            actions: Vec::new(),
+            text: None,
+            identifier: None,
+        };
+        let nodes = vec![
+            boxed("/0", "frame", (0, 0, 320, 480)),
+            boxed("/0/1", "filler", (0, 0, 320, 480)),
+            boxed("/0/1/10", "button", (0, 270, 320, 34)),
+            boxed("/0/1/5/0/0", "filler", (0, 0, 320, 397)),
+        ];
+        let walked = tree(nodes, false);
+        let flat = flatten(&walked);
+        let hit = node_at_point(&flat, 160, 287).expect("the button under the point");
+        assert_eq!(hit.node.id, "/0/1/10", "controls beat enclosing fillers");
+        assert_eq!(normalize_role(&hit.node.role), "button");
+    }
+
+    #[test]
+    fn a_scroll_pane_label_does_not_steal_a_point_from_a_named_entry() {
+        let boxed = |id: &str, role: &str, name: &str, bounds: (i32, i32, i32, i32)| A11yNode {
+            id: id.to_owned(),
+            parent_id: None,
+            role: role.to_owned(),
+            subrole: None,
+            name: name.to_owned(),
+            states: Vec::new(),
+            bounds: A11yBounds {
+                x: bounds.0,
+                y: bounds.1,
+                width: bounds.2,
+                height: bounds.3,
+            },
+            actions: Vec::new(),
+            text: None,
+            identifier: None,
+        };
+        let nodes = vec![
+            boxed("/0", "frame", "fixture", (0, 0, 320, 480)),
+            boxed("/0/1", "filler", "", (0, 0, 320, 480)),
+            boxed("/0/1/6", "text", "Fixture Drag Source", (0, 120, 320, 34)),
+            boxed("/0/1/5/0/0", "filler", "", (0, 0, 320, 397)),
+            boxed("/0/1/5/0/0/6", "label", "wheel row 6", (0, 120, 320, 34)),
+        ];
+        let walked = tree(nodes, false);
+        let flat = flatten(&walked);
+        let hit = node_at_point(&flat, 160, 121).expect("the named entry under the point");
+        assert_eq!(hit.node.id, "/0/1/6", "named entries beat scroll-pane labels");
+        assert_eq!(hit.node.name, "Fixture Drag Source");
     }
 
     #[test]

@@ -1,0 +1,284 @@
+// CEO: Linux hit --window point→node honesty with independent AT-SPI name/role
+// read-back. Probe points come from get-extents --name only; acceptance is
+// smoke read-back: CU hit name/role must agree with a separate pyatspi walk
+// of the same named node. AT-SPI/--name only; no --coords or screenshot.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-hit-readback",
+];
+
+const HIT_DEPTH = 8;
+const HIT_MAX_NODES = 500;
+const NAMED_NODES = [
+  "Fixture Press",
+  "Fixture Entry",
+  "Fixture Check",
+  "Fixture Drag Source",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, cu_args) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of cu_args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_hit_honesty_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_hit_honesty_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_hit_honesty_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function independent_probe_script() {
+  return [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "config = json.loads(sys.argv[1])",
+    "title = config['title']",
+    "name = config['name']",
+    "",
+    "def node_name(obj):",
+    "    try: return obj.name or ''",
+    "    except Exception: return ''",
+    "",
+    "def node_role(obj):",
+    "    try:",
+    "        rn = obj.getRoleName()",
+    "        if rn and rn.strip(): return rn",
+    "    except Exception: pass",
+    "    return pyatspi.role.getName(obj.getRole()).lower()",
+    "",
+    "def find_named(root, needle):",
+    "    if node_name(root) == needle:",
+    "        return root",
+    "    try: child_count = root.childCount",
+    "    except Exception: child_count = 0",
+    "    for index in range(child_count):",
+    "        try: child = root.getChildAtIndex(index)",
+    "        except Exception: child = None",
+    "        if child is None: continue",
+    "        found = find_named(child, needle)",
+    "        if found is not None: return found",
+    "    return None",
+    "",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "application = None",
+    "for candidate in desktop:",
+    "    try:",
+    "        for index in range(candidate.childCount):",
+    "            window = candidate.getChildAtIndex(index)",
+    "            if window is not None and node_name(window) == title:",
+    "                application = candidate",
+    "                break",
+    "        if application is not None: break",
+    "    except Exception: continue",
+    "if application is None:",
+    "    raise SystemExit('cu_linux_hit_honesty_probe_window_missing')",
+    "",
+    "node = find_named(application, name)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_hit_honesty_probe_node_missing:' + name)",
+    "",
+    "print(json.dumps({'name': node_name(node), 'role': node_role(node)}))",
+  ].join("\n");
+}
+
+function independent_named_node(run_directory, title, node_name) {
+  const output = rh.command(
+    "python3",
+    ["-c", independent_probe_script(), JSON.stringify({ title: title, name: node_name })],
+    { cwd: run_directory, env: cu_env(""), timeout_ms: 45000 },
+  );
+  ensure(output.success === true, "cu_linux_hit_honesty_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_point_from_extents(extents) {
+  const x = int_at(extents, "data.extents.x") + 1;
+  const y = int_at(extents, "data.extents.y") + 1;
+  return { x: x, y: y };
+}
+
+function assert_hit_honesty(run_directory, executable, handle, title, node_name, label) {
+  const extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", "" + handle, "--name", node_name,
+  ]);
+  const point = probe_point_from_extents(extents);
+  const hit = run_cu(run_directory, executable, "observe", [
+    "hit", "--window", "" + handle,
+    "--x", "" + point.x, "--y", "" + point.y,
+    "--depth", "" + HIT_DEPTH, "--max-nodes", "" + HIT_MAX_NODES,
+  ]);
+  ensure(
+    text_at(hit, "data.resolution") === "bounded-walk-hit-test",
+    "cu_linux_hit_honesty_resolution_" + label + ":" + JSON.stringify(hit.data)
+  );
+  ensure(
+    !flag_at(hit, "data.truncated"),
+    "cu_linux_hit_honesty_truncated_" + label + ":" + JSON.stringify(hit.data)
+  );
+  const probe = independent_named_node(run_directory, title, node_name);
+  ensure(
+    text_at(hit, "data.node.name") === probe.name,
+    "cu_linux_hit_honesty_name_" + label + ":" + JSON.stringify({
+      hit: hit.data.node,
+      probe: probe,
+    })
+  );
+  ensure(
+    text_at(hit, "data.node.role") === probe.role,
+    "cu_linux_hit_honesty_role_" + label + ":" + JSON.stringify({
+      hit: hit.data.node,
+      probe: probe,
+    })
+  );
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-hit-honesty");
+const run_directory = rh.join(repo, "target/cu-linux-hit-honesty-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_hit_honesty_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start owned GTK fixture and resolve window by pid and exact title");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "ok") && flag_at(window_wait, "data.met"), "cu_linux_hit_honesty_window_wait");
+
+  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_row !== null, "cu_linux_hit_honesty_window_identity");
+  const handle = int_at(inventory_row, "handle");
+  ensure(handle > 0, "cu_linux_hit_honesty_handle:" + JSON.stringify(inventory_row));
+
+  for (let index = 0; index < NAMED_NODES.length; index = index + 1) {
+    const node_name = NAMED_NODES[index];
+    print("STEP hit --window point from get-extents --name " + node_name + " agrees with independent AT-SPI name/role");
+    assert_hit_honesty(
+      run_directory, executable, handle, fixture_title, node_name, "node_" + index
+    );
+  }
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  harness.wait(fixture, 5000);
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-hit-readback");
+  harness.remove_run(context);
+  print("PASS: Linux hit --window point→node honesty with independent AT-SPI name/role read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

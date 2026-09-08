@@ -317,6 +317,7 @@ const evidence_suites = {
   "cu-linux-focused-honesty-smoke": true,
   "cu-linux-screenshot-window-smoke": true,
   "cu-linux-get-extents-smoke": true,
+  "cu-linux-hit-honesty-smoke": true,
   "cu-linux-process-usage-smoke": true,
   "cu-linux-process-state-smoke": true,
   "cu-linux-process-signal-smoke": true,
