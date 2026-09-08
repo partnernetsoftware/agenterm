@@ -16,3 +16,8 @@ pub(crate) fn local_civil_now() -> LocalCivilTime {
         .map_or(0, |elapsed| elapsed.as_secs() as i64);
     civil_from_unix_seconds(unix_seconds)
 }
+
+/// TODO(macos): read the real host offset once local civil time is fixed.
+pub(crate) fn local_utc_offset_seconds() -> i32 {
+    0
+}

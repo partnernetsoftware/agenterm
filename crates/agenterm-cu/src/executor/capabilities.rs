@@ -1057,10 +1057,27 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     // A live court must compare this native build fact with its requested
     // platform instead of trusting a caller-supplied label.
     payload["platform"] = serde_json::json!(std::env::consts::OS);
+    payload["host_clock"] = host_clock_json();
     attach_verb_grants(&mut payload);
     attach_invoke_actions(&mut payload);
     attach_verb_status_counts(&mut payload);
     payload
+}
+
+fn host_clock_json() -> serde_json::Value {
+    let now = agenterm_platform::local_clock::local_civil_now();
+    serde_json::json!({
+        "local": {
+            "year": now.year,
+            "month": now.month,
+            "day": now.day,
+            "hour": now.hour,
+            "minute": now.minute,
+            "second": now.second,
+        },
+        "utc_offset": agenterm_platform::local_clock::local_utc_offset_z(),
+        "utc_offset_seconds": agenterm_platform::local_clock::local_utc_offset_seconds(),
+    })
 }
 
 /// Count the final merged public inventory, not the handwritten fragment.

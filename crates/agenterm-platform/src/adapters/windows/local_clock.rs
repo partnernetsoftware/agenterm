@@ -43,3 +43,19 @@ pub(crate) fn local_civil_now() -> LocalCivilTime {
         second: time.second as u8,
     }
 }
+
+/// Reads the host's UTC offset in seconds east of UTC.
+pub(crate) fn local_utc_offset_seconds() -> i32 {
+    let local = local_civil_now();
+    let utc = crate::contract::local_clock::civil_from_unix_seconds(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs() as i64),
+    );
+    let local_seconds =
+        i32::from(local.hour) * 3_600 + i32::from(local.minute) * 60 + i32::from(local.second);
+    let utc_seconds =
+        i32::from(utc.hour) * 3_600 + i32::from(utc.minute) * 60 + i32::from(utc.second);
+    let day_delta = i32::from(local.day) - i32::from(utc.day);
+    local_seconds - utc_seconds + day_delta * 86_400
+}

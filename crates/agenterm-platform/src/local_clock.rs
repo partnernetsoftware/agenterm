@@ -17,6 +17,24 @@ pub fn local_civil_now() -> LocalCivilTime {
     crate::selected::local_clock::local_civil_now()
 }
 
+/// Host UTC offset in seconds east of UTC.
+pub fn local_utc_offset_seconds() -> i32 {
+    crate::selected::local_clock::local_utc_offset_seconds()
+}
+
+/// Host UTC offset formatted like `date +%z` (`+0800`, `-0530`, …).
+pub fn local_utc_offset_z() -> String {
+    format_offset_z(local_utc_offset_seconds())
+}
+
+fn format_offset_z(seconds: i32) -> String {
+    let sign = if seconds >= 0 { '+' } else { '-' };
+    let magnitude = seconds.unsigned_abs();
+    let hours = magnitude / 3_600;
+    let minutes = (magnitude % 3_600) / 60;
+    format!("{sign}{hours:02}{minutes:02}")
+}
+
 /// Local time formatted as `HH:MM:SS`.
 pub fn local_clock_hms() -> String {
     let now = local_civil_now();
@@ -52,7 +70,9 @@ fn weekday_short_en(weekday: u8) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{local_clock_chrome_lines, local_clock_hms, weekday_short_en};
+    use super::{
+        format_offset_z, local_clock_chrome_lines, local_clock_hms, weekday_short_en,
+    };
 
     #[test]
     fn renders_a_fixed_width_clock() {
@@ -80,5 +100,12 @@ mod tests {
         assert_eq!(weekday_short_en(6), "Sat");
         // A bad index must not silently read as a real day.
         assert_eq!(weekday_short_en(7), "???");
+    }
+
+    #[test]
+    fn offset_z_matches_signed_hours_and_minutes() {
+        assert_eq!(format_offset_z(0), "+0000");
+        assert_eq!(format_offset_z(28_800), "+0800");
+        assert_eq!(format_offset_z(-18_000), "-0500");
     }
 }
