@@ -449,7 +449,11 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 // `--all` adds the installed-but-not-running half where the
                 // host can enumerate it.
                 "running_only": true,
-                "installed": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "installed": if cfg!(any(target_os = "macos", target_os = "linux")) {
+                    "available"
+                } else {
+                    "unsupported"
+                },
                 "group": "discover",
             },
             "ps": {
@@ -1741,6 +1745,14 @@ mod tests {
         );
         assert_eq!(data["verbs"]["apps"]["running_only"], true);
         assert_eq!(data["verbs"]["apps"]["group"], "discover");
+        assert_eq!(
+            data["verbs"]["apps"]["installed"],
+            if cfg!(any(target_os = "macos", target_os = "linux")) {
+                "available"
+            } else {
+                "unsupported"
+            }
+        );
         assert_eq!(data["verbs"]["orderwin"]["mode"], "raise");
         assert_eq!(data["verbs"]["orderwin"]["group"], "geometry");
         assert_ne!(data["verbs"]["orderwin"]["status"], "");
