@@ -17,7 +17,8 @@ use crate::{
 
 pub(super) fn simulator_devices_payload(max: usize) -> Result<Value, CuError> {
     validate_max(max)?;
-    let inventory = simulator::list_devices(max).map_err(|error| platform_error("simulator-devices", error))?;
+    let inventory =
+        simulator::list_devices(max).map_err(|error| platform_error("simulator-devices", error))?;
     Ok(json!({
         "devices": inventory.devices.into_iter().map(|device| {
             let booted = device.is_booted();
@@ -47,9 +48,8 @@ pub(super) fn simulator_boot_payload(
             "simulator boot requires the explicit --expect booted acknowledgement",
         ));
     }
-    let receipt =
-        simulator::boot_exact(udid, Duration::from_millis(timeout_ms))
-            .map_err(|error| platform_error("simulator-boot", error))?;
+    let receipt = simulator::boot_exact(udid, Duration::from_millis(timeout_ms))
+        .map_err(|error| platform_error("simulator-boot", error))?;
     boot_receipt(receipt, udid)
 }
 
@@ -78,8 +78,8 @@ fn boot_receipt(receipt: SimulatorBootReceipt, udid: &str) -> Result<Value, CuEr
 pub(super) fn simulator_apps_payload(udid: &str, max: usize) -> Result<Value, CuError> {
     validate_simulator_udid(udid).map_err(udid_error)?;
     validate_max(max)?;
-    let inventory = simulator::list_apps(udid, max)
-        .map_err(|error| platform_error("simulator-apps", error))?;
+    let inventory =
+        simulator::list_apps(udid, max).map_err(|error| platform_error("simulator-apps", error))?;
     if inventory.device_udid != udid {
         return Err(CuError::new(
             "simulator_device_changed",
@@ -157,18 +157,14 @@ pub(super) fn simulator_app_lifecycle_payload(
         ));
     }
     let receipt = match action {
-        SimulatorAppAction::Launch => simulator::launch_exact(
-            udid,
-            bundle_id,
-            Duration::from_millis(timeout_ms),
-        )
-        .map_err(|error| platform_error("simulator-launch", error)),
-        SimulatorAppAction::Terminate => simulator::terminate_exact(
-            udid,
-            bundle_id,
-            Duration::from_millis(timeout_ms),
-        )
-        .map_err(|error| platform_error("simulator-terminate", error)),
+        SimulatorAppAction::Launch => {
+            simulator::launch_exact(udid, bundle_id, Duration::from_millis(timeout_ms))
+                .map_err(|error| platform_error("simulator-launch", error))
+        }
+        SimulatorAppAction::Terminate => {
+            simulator::terminate_exact(udid, bundle_id, Duration::from_millis(timeout_ms))
+                .map_err(|error| platform_error("simulator-terminate", error))
+        }
     }?;
     lifecycle_receipt(receipt, udid, bundle_id, action)
 }
@@ -398,7 +394,11 @@ mod tests {
         let detail = error.detail.expect("detail");
         assert_eq!(detail["os"], crate::mcu_surface::host_os());
         assert_eq!(detail["required_os"], "macos");
-        assert!(detail["alternatives"].as_array().is_some_and(|a| !a.is_empty()));
+        assert!(
+            detail["alternatives"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty())
+        );
         assert_eq!(
             simulator_status_payload(UDID, "com.example.app")
                 .unwrap_err()

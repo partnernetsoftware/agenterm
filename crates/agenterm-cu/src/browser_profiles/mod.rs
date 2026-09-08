@@ -19,7 +19,9 @@ mod discovery;
 mod launch;
 
 pub use discovery::installed_catalog_apps;
-pub use launch::{LaunchPlan, inferred_browser_profile, open_launch_plan, window_matches_catalog_app};
+pub use launch::{
+    LaunchPlan, inferred_browser_profile, open_launch_plan, window_matches_catalog_app,
+};
 
 /// One Chromium-family application whose `Local State` this binary can
 /// read. `macos_dir` / `linux_dir` are relative to the platform's

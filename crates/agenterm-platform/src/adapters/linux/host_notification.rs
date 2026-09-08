@@ -109,7 +109,7 @@ fn notify_via_fdo_session_bus(
     title: &str,
     body: &str,
 ) -> Result<HostNotificationReceipt, HostNotificationError> {
-    use tokio::time::{timeout, Duration as TokioDuration};
+    use tokio::time::{Duration as TokioDuration, timeout};
 
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     fn runtime() -> &'static tokio::runtime::Runtime {
@@ -122,14 +122,17 @@ fn notify_via_fdo_session_bus(
     }
 
     runtime().block_on(async {
-        timeout(TokioDuration::from_secs(10), notify_via_fdo_async(title, body))
-            .await
-            .map_err(|_| {
-                HostNotificationError::new(
-                    HostNotificationErrorKind::TimedOut,
-                    "org.freedesktop.Notifications.Notify did not finish within 10 seconds",
-                )
-            })?
+        timeout(
+            TokioDuration::from_secs(10),
+            notify_via_fdo_async(title, body),
+        )
+        .await
+        .map_err(|_| {
+            HostNotificationError::new(
+                HostNotificationErrorKind::TimedOut,
+                "org.freedesktop.Notifications.Notify did not finish within 10 seconds",
+            )
+        })?
     })
 }
 
@@ -166,16 +169,7 @@ async fn notify_via_fdo_async(
     let _: u32 = proxy
         .call(
             "Notify",
-            &(
-                "agenterm",
-                0u32,
-                "",
-                title,
-                body,
-                actions,
-                hints,
-                -1i32,
-            ),
+            &("agenterm", 0u32, "", title, body, actions, hints, -1i32),
         )
         .await
         .map_err(map_fdo_notify_error)?;

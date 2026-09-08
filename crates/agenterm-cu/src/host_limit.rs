@@ -11,11 +11,7 @@ struct HostLimitDetail {
     alternatives: &'static [&'static str],
 }
 
-fn host_limit_error(
-    code: &str,
-    message: impl Into<String>,
-    detail: HostLimitDetail,
-) -> CuError {
+fn host_limit_error(code: &str, message: impl Into<String>, detail: HostLimitDetail) -> CuError {
     let mut json = serde_json::json!({
         "os": crate::mcu_surface::host_os(),
         "limit": "host",
@@ -151,7 +147,11 @@ mod tests {
         assert_eq!(detail["os"], crate::mcu_surface::host_os());
         assert_eq!(detail["limit"], "host");
         assert_eq!(detail["required_os"], "macos");
-        assert!(detail["alternatives"].as_array().is_some_and(|a| !a.is_empty()));
+        assert!(
+            detail["alternatives"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty())
+        );
     }
 
     #[test]
@@ -162,7 +162,9 @@ mod tests {
         assert_eq!(detail["os"], crate::mcu_surface::host_os());
         assert!(
             detail.get("alternatives").is_none()
-                || detail["alternatives"].as_array().is_some_and(|a| a.is_empty())
+                || detail["alternatives"]
+                    .as_array()
+                    .is_some_and(|a| a.is_empty())
         );
     }
 
