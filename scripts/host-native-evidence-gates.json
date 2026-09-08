@@ -152,7 +152,6 @@
         "cu.linux-file-inspect-readback",
         "cu.linux-terminal-control",
         "cu.linux-external-terminal-observe",
-        "cu.linux-display-scale",
         "cu.linux-atspi-tree-geometry",
         "cu.linux-atspi-query",
         "cu.linux-atspi-invoke",

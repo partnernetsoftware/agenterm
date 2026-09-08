@@ -6,7 +6,6 @@ import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = [
-  "cu.linux-browser-open-window",
   "cu.linux-browser-tabs-inventory",
 ];
 
@@ -170,7 +169,6 @@ try {
       open: open_handle,
       readback: readback_handle,
     }));
-  harness.emit_evidence(context, declared_evidence, "cu.linux-browser-open-window");
 
   print("STEP browser-tabs independently lists the opened tab by title match");
   let tabs = null;

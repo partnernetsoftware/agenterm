@@ -424,12 +424,6 @@
       ]
     },
     {
-      "id": "cu-linux-desktop-state-smoke",
-      "evidence": [
-        "cu.linux-desktop-state"
-      ]
-    },
-    {
       "id": "cu-linux-local-clock-smoke",
       "evidence": [
         "cu.linux-local-clock-readback"
@@ -804,14 +798,6 @@
       ]
     },
     {
-      "id": "cu-linux-chrome-text-smoke",
-      "evidence": [
-        "cu.linux-chrome-text-focus",
-        "cu.linux-chrome-text-send-text",
-        "cu.linux-chrome-text-get-text"
-      ]
-    },
-    {
       "id": "cu-linux-browser-profiles-open-smoke",
       "evidence": [
         "cu.linux-browser-profiles-installed",
@@ -821,7 +807,6 @@
     {
       "id": "cu-linux-browser-tabs-smoke",
       "evidence": [
-        "cu.linux-browser-open-window",
         "cu.linux-browser-tabs-inventory"
       ]
     },

@@ -46,7 +46,6 @@ const declared_evidence = [
   "cu.linux-file-inspect",
   "cu.linux-terminal-control",
   "cu.linux-external-terminal-observe",
-  "cu.linux-display-scale",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
   "cu.linux-atspi-invoke",
@@ -1983,7 +1982,6 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-ob
 if (visible_external_terminal_send) {
   harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-send");
 }
-harness.emit_evidence(context, declared_evidence, "cu.linux-display-scale");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");
