@@ -349,7 +349,7 @@ pub(super) fn send_keys_to_node(
     match mechanism::send_node_keys(window, &resolved.node_id, keys) {
         Ok(()) => keys_device_event_payload(keys, window, &resolved),
         Err(error) if keys_may_use_semantic_fallback(&error) => {
-            if parse_semantic_chord(keys).is_some() {
+            if parse_semantic_key_action(keys).is_some() {
                 send_semantic_keys_to_node(keys, window, resolved)
             } else {
                 Err(chord_delivery_error(keys, map_mechanism_err(error)))
@@ -371,7 +371,7 @@ pub(super) fn send_keys_to_focused_node(
     match mechanism::send_node_keys(window, &resolved.node_id, keys) {
         Ok(()) => keys_device_event_payload(keys, window, &resolved),
         Err(error) if keys_may_use_semantic_fallback(&error) => {
-            if parse_semantic_chord(keys).is_some() {
+            if parse_semantic_key_action(keys).is_some() {
                 send_semantic_keys_to_node(keys, window, resolved)
             } else if focused_keys_may_use_text_write(keys, &error) {
                 mechanism::set_node_text(window, &resolved.node_id, keys)
@@ -416,20 +416,29 @@ fn keys_device_event_payload(
     Ok(payload)
 }
 
-/// Modifier chords this backend can spell without `DeviceEventListener`.
-enum SemanticKeyChord {
+/// Modifier chords and named editing keys this backend can spell without
+/// `DeviceEventListener` on GTK `Text` / `EditableText` nodes.
+enum SemanticKeyAction {
     SelectAll,
     Copy,
     Paste,
     Cut,
+    CaretHome,
+    CaretEnd,
+    Backspace,
+    Delete,
 }
 
-fn parse_semantic_chord(keys: &str) -> Option<SemanticKeyChord> {
+fn parse_semantic_key_action(keys: &str) -> Option<SemanticKeyAction> {
     match keys.trim().to_ascii_lowercase().as_str() {
-        "ctrl+a" | "control+a" => Some(SemanticKeyChord::SelectAll),
-        "ctrl+c" | "control+c" => Some(SemanticKeyChord::Copy),
-        "ctrl+v" | "control+v" => Some(SemanticKeyChord::Paste),
-        "ctrl+x" | "control+x" => Some(SemanticKeyChord::Cut),
+        "ctrl+a" | "control+a" => Some(SemanticKeyAction::SelectAll),
+        "ctrl+c" | "control+c" => Some(SemanticKeyAction::Copy),
+        "ctrl+v" | "control+v" => Some(SemanticKeyAction::Paste),
+        "ctrl+x" | "control+x" => Some(SemanticKeyAction::Cut),
+        "ctrl+home" | "control+home" => Some(SemanticKeyAction::CaretHome),
+        "ctrl+end" | "control+end" => Some(SemanticKeyAction::CaretEnd),
+        "backspace" => Some(SemanticKeyAction::Backspace),
+        "delete" | "del" => Some(SemanticKeyAction::Delete),
         _ => None,
     }
 }
@@ -437,7 +446,8 @@ fn parse_semantic_chord(keys: &str) -> Option<SemanticKeyChord> {
 fn keys_may_use_semantic_fallback(error: &mechanism::MechanismError) -> bool {
     matches!(
         error,
-        mechanism::MechanismError::Failed { code, .. } if code == "a11y_key_unavailable"
+        mechanism::MechanismError::Failed { code, .. }
+            if code == "a11y_key_unavailable" || code == "invalid_input"
     )
 }
 
@@ -471,24 +481,52 @@ fn chord_delivery_error(keys: &str, underlying: CuError) -> CuError {
     CuError::new(underlying.code, underlying.message).with_detail(detail)
 }
 
+fn text_char_count(text: &str) -> i32 {
+    i32::try_from(text.chars().count()).unwrap_or(i32::MAX)
+}
+
+fn delete_char_range(text: &str, start: usize, end: usize) -> (String, i32) {
+    let chars: Vec<char> = text.chars().collect();
+    let start = start.min(chars.len());
+    let end = end.min(chars.len()).max(start);
+    let mut out = String::new();
+    for (index, ch) in chars.iter().enumerate() {
+        if index < start || index >= end {
+            out.push(*ch);
+        }
+    }
+    let caret = i32::try_from(start).unwrap_or(i32::MAX);
+    (out, caret)
+}
+
+fn collapse_caret_selection(
+    window: Option<isize>,
+    node_id: &str,
+    offset: i32,
+) -> Result<(), mechanism::MechanismError> {
+    mechanism::set_node_caret_offset(window, node_id, offset)?;
+    mechanism::set_node_selection(window, node_id, offset, offset)?;
+    Ok(())
+}
+
 fn send_semantic_keys_to_node(
     keys: &str,
     window: Option<isize>,
     resolved: ResolvedNode,
 ) -> Result<serde_json::Value, CuError> {
-    let chord = parse_semantic_chord(keys).expect("caller gates semantic chords");
+    let action = parse_semantic_key_action(keys).expect("caller gates semantic keys");
     let node_id = &resolved.node_id;
-    let (via, extra) = match chord {
-        SemanticKeyChord::SelectAll => {
+    let (via, extra) = match action {
+        SemanticKeyAction::SelectAll => {
             let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
-            let end = i32::try_from(text.chars().count()).unwrap_or(i32::MAX);
+            let end = text_char_count(&text);
             mechanism::set_node_selection(window, node_id, 0, end).map_err(map_mechanism_err)?;
             (
                 "set-selection",
                 serde_json::json!({ "start": 0, "end": end }),
             )
         }
-        SemanticKeyChord::Copy => {
+        SemanticKeyAction::Copy => {
             let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
             mechanism::clipboard::publish_text(&text).map_err(map_mechanism_err)?;
             (
@@ -496,7 +534,7 @@ fn send_semantic_keys_to_node(
                 serde_json::json!({ "text": text, "clipboard": true }),
             )
         }
-        SemanticKeyChord::Paste => {
+        SemanticKeyAction::Paste => {
             let pasted = mechanism::clipboard::get_text().map_err(map_mechanism_err)?;
             mechanism::set_node_text(window, node_id, &pasted).map_err(map_mechanism_err)?;
             let _ = mechanism::accessibility_tree::drain_bus();
@@ -510,7 +548,7 @@ fn send_semantic_keys_to_node(
                 serde_json::json!({ "typed": pasted, "clipboard": true }),
             ));
         }
-        SemanticKeyChord::Cut => {
+        SemanticKeyAction::Cut => {
             let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
             mechanism::clipboard::publish_text(&text).map_err(map_mechanism_err)?;
             mechanism::set_node_text(window, node_id, "").map_err(map_mechanism_err)?;
@@ -523,6 +561,64 @@ fn send_semantic_keys_to_node(
                 &resolved,
                 write_via,
                 serde_json::json!({ "text": text, "clipboard": true, "cleared": true }),
+            ));
+        }
+        SemanticKeyAction::CaretHome => {
+            collapse_caret_selection(window, node_id, 0).map_err(map_mechanism_err)?;
+            ("set-caret-offset", serde_json::json!({ "offset": 0 }))
+        }
+        SemanticKeyAction::CaretEnd => {
+            let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
+            let end = text_char_count(&text);
+            collapse_caret_selection(window, node_id, end).map_err(map_mechanism_err)?;
+            ("set-caret-offset", serde_json::json!({ "offset": end }))
+        }
+        SemanticKeyAction::Backspace | SemanticKeyAction::Delete => {
+            let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
+            let original = text.clone();
+            let selection = mechanism::get_node_selection(window, node_id)
+                .map_err(map_mechanism_err)?;
+            let (new_text, caret) = if selection.n > 0 {
+                let start = usize::try_from(selection.start.max(0)).unwrap_or(0);
+                let end = usize::try_from(selection.end.max(0)).unwrap_or(start);
+                delete_char_range(&text, start, end)
+            } else {
+                let caret = mechanism::get_node_caret_offset(window, node_id)
+                    .map_err(map_mechanism_err)?;
+                let caret_usize = usize::try_from(caret.max(0)).unwrap_or(0);
+                let len = text.chars().count();
+                match action {
+                    SemanticKeyAction::Backspace if caret_usize == 0 => (text, 0),
+                    SemanticKeyAction::Backspace => {
+                        delete_char_range(&text, caret_usize - 1, caret_usize)
+                    }
+                    SemanticKeyAction::Delete if caret_usize >= len => (text, caret),
+                    SemanticKeyAction::Delete => {
+                        delete_char_range(&text, caret_usize, caret_usize + 1)
+                    }
+                    _ => unreachable!("matched only Backspace/Delete"),
+                }
+            };
+            if new_text != original {
+                mechanism::set_node_text(window, node_id, &new_text).map_err(map_mechanism_err)?;
+                let _ = mechanism::accessibility_tree::drain_bus();
+            }
+            collapse_caret_selection(window, node_id, caret).map_err(map_mechanism_err)?;
+            let write_via = if new_text != original {
+                mechanism::accessibility_tree::last_text_write_via().unwrap_or_default()
+            } else {
+                "set-caret-offset".to_string()
+            };
+            return Ok(semantic_keys_payload(
+                keys,
+                window,
+                &resolved,
+                write_via,
+                serde_json::json!({
+                    "typed": new_text,
+                    "offset": caret,
+                    "changed": new_text != original,
+                }),
             ));
         }
     };
@@ -1215,21 +1311,29 @@ mod tests {
     }
 
     #[test]
-    fn semantic_chord_parser_recognizes_common_modifiers() {
+    fn semantic_key_parser_recognizes_common_modifiers() {
         assert!(matches!(
-            parse_semantic_chord("ctrl+a"),
-            Some(SemanticKeyChord::SelectAll)
+            parse_semantic_key_action("ctrl+a"),
+            Some(SemanticKeyAction::SelectAll)
         ));
         assert!(matches!(
-            parse_semantic_chord("Control+C"),
-            Some(SemanticKeyChord::Copy)
+            parse_semantic_key_action("Control+C"),
+            Some(SemanticKeyAction::Copy)
         ));
         assert!(matches!(
-            parse_semantic_chord("ctrl+v"),
-            Some(SemanticKeyChord::Paste)
+            parse_semantic_key_action("ctrl+v"),
+            Some(SemanticKeyAction::Paste)
         ));
-        assert!(parse_semantic_chord("ctrl+z").is_none());
-        assert!(parse_semantic_chord("enter").is_none());
+        assert!(matches!(
+            parse_semantic_key_action("ctrl+home"),
+            Some(SemanticKeyAction::CaretHome)
+        ));
+        assert!(matches!(
+            parse_semantic_key_action("backspace"),
+            Some(SemanticKeyAction::Backspace)
+        ));
+        assert!(parse_semantic_key_action("ctrl+z").is_none());
+        assert!(parse_semantic_key_action("enter").is_none());
     }
 
     #[test]

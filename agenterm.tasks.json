@@ -871,6 +871,25 @@
         "task.cu-linux-gtk-button-focus-smoke"
       ]
     },
+    "cu-linux-gtk-rclick-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-rclick-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-rclick-smoke"
+      ]
+    },
     "cu-linux-host-notify-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -962,6 +981,25 @@
       "network": [],
       "evidence": [
         "task.cu-linux-gtk-entry-paste-smoke"
+      ]
+    },
+    "cu-linux-gtk-entry-send-keys-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-entry-send-keys-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-entry-send-keys-smoke"
       ]
     },
     "cu-linux-menu-invoke-smoke": {
@@ -3802,6 +3840,26 @@
       ]
     },
     {
+      "id": "cu-linux-gtk-rclick-smoke",
+      "description": "Prove Linux GTK secondary click by --name opens a named popover context menu with independent label read-back; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-gtk-rclick-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-host-notify-smoke",
       "description": "Prove Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed subtitle/sound refusal, and an action-button AT-SPI blocker.",
       "entry": "scripts/qjs/cu-linux-host-notify-smoke.qjs",
@@ -3884,6 +3942,26 @@
       "id": "cu-linux-gtk-entry-caret-smoke",
       "description": "Prove Linux GTK entry set-caret / get-caret roundtrip by --name after send-text seeds SEED; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-caret-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-entry-send-keys-smoke",
+      "description": "Prove Linux GTK entry semantic modifier chords (ctrl+home, ctrl+end, ctrl+a, backspace) by --name with independent get-caret/get-selection/get-text read-back; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
