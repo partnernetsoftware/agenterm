@@ -222,7 +222,8 @@ mod tests {
     #[test]
     fn virtio_disks_are_virtual_with_transport_fallback_name() {
         let raw = br#"{"blockdevices":[{"name":"vda","kname":"vda","path":"/dev/vda","type":"disk","size":128,"rota":true,"ro":false,"rm":false,"tran":"virtio","model":null,"state":null,"hotplug":false}]}"#;
-        let device = parse_inventory(raw).unwrap().devices[0];
+        let inventory = parse_inventory(raw).unwrap();
+        let device = &inventory.devices[0];
         assert_eq!(device.name, "virtio disk vda");
         assert_eq!(device.virtual_device, Some(true));
         assert_eq!(device.internal, Some(true));
