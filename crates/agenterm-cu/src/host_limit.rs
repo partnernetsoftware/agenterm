@@ -140,9 +140,7 @@ pub(crate) fn service_unsupported() -> CuError {
                 provider: Some("none"),
                 required_os: None,
                 mechanism: Some("native-service-authority"),
-                alternatives: &[
-                    "process-state (host processes only; not service units)",
-                ],
+                alternatives: &["process-state (host processes only; not service units)"],
             },
         )
     }
