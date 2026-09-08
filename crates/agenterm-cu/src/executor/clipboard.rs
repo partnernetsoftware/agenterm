@@ -260,6 +260,18 @@ pub(super) fn clipboard_write(
             "clipboard-write source must be at most 16777216 bytes",
         ));
     }
+    // UTF-8 plain text must use the publish path so Linux X11 keeps a
+    // detached CLIPBOARD owner alive after this process exits.
+    if type_name == crate::command::CLIPBOARD_UTF8_TEXT_TYPE {
+        let text = std::str::from_utf8(&bytes).map_err(|error| CuError::new(
+            "invalid_input",
+            format!(
+                "clipboard-write --path {path} is not valid UTF-8 for --type {}: {error}",
+                crate::command::CLIPBOARD_UTF8_TEXT_TYPE
+            ),
+        ))?;
+        return clipboard_write_text(type_name, text);
+    }
     let sha256 = clipboard_sha256_hex(&bytes);
     mechanism::clipboard::set_type(type_name, &bytes).map_err(map_mechanism_err)?;
     let stored = mechanism::clipboard::get_type(type_name, MAX_CLIPBOARD_TYPE_BYTES)
@@ -396,6 +408,14 @@ mod tests {
             .code,
             "invalid_input"
         );
+    }
+
+    #[test]
+    fn clipboard_write_path_for_utf8_plain_text_routes_through_publish() {
+        let oversized = "x".repeat(MAX_CLIPBOARD_TEXT_BYTES + 1);
+        let error = validate_clipboard_text(crate::command::CLIPBOARD_UTF8_TEXT_TYPE, &oversized)
+            .expect_err("ceiling");
+        assert_eq!(error.code, "invalid_input");
     }
 
     #[test]

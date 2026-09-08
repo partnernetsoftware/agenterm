@@ -27,15 +27,22 @@ use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME, NONE};
 use super::ClipboardError;
 
 const TARGETS_PROBE_ATOMS: usize = crate::contract::clipboard::MAX_CLIPBOARD_TYPES;
+/// Canonical MCU / CU UTF-8 plain-text clipboard type.
+const PLAIN_UTF8_TYPE: &str = "text/plain;charset=utf-8";
 
 struct Atoms {
     clipboard: Atom,
     utf8_string: Atom,
+    plain_utf8: Atom,
     targets: Atom,
     incr: Atom,
     property: Atom,
     string: Atom,
     atom: Atom,
+}
+
+fn is_plain_utf8_type_name(type_name: &str) -> bool {
+    type_name.eq_ignore_ascii_case(PLAIN_UTF8_TYPE) || type_name.eq_ignore_ascii_case("text/plain")
 }
 
 struct OwnedSelection {
@@ -169,9 +176,18 @@ impl NativeClipboard {
         let bytes = owned.bytes.as_slice();
         if request.target == self.atoms.targets {
             let mut targets = vec![self.atoms.targets, owned.type_atom];
-            if owned.type_atom == self.atoms.utf8_string {
+            if owned.type_atom == self.atoms.utf8_string
+                || owned.type_atom == self.atoms.plain_utf8
+                || is_plain_utf8_type_name(&owned.type_name)
+            {
+                targets.push(self.atoms.utf8_string);
+                targets.push(self.atoms.string);
+                targets.push(self.atoms.plain_utf8);
+            } else if owned.type_atom == self.atoms.utf8_string {
                 targets.push(self.atoms.string);
             }
+            targets.sort_unstable();
+            targets.dedup();
             return self
                 .conn
                 .change_property32(
@@ -187,6 +203,11 @@ impl NativeClipboard {
         if request.target == owned.type_atom
             || (owned.type_atom == self.atoms.utf8_string
                 && (request.target == self.atoms.utf8_string
+                    || request.target == self.atoms.string
+                    || request.target == self.atoms.plain_utf8))
+            || (owned.type_atom == self.atoms.plain_utf8
+                && (request.target == self.atoms.plain_utf8
+                    || request.target == self.atoms.utf8_string
                     || request.target == self.atoms.string))
         {
             return self
@@ -263,7 +284,11 @@ impl NativeClipboard {
     ) -> Result<String, ClipboardError> {
         self.pump()?;
         if let Some(owned) = self.owned.as_ref() {
-            if owned.type_atom == self.atoms.utf8_string || owned.type_name == "UTF8_STRING" {
+            if owned.type_atom == self.atoms.utf8_string
+                || owned.type_atom == self.atoms.plain_utf8
+                || owned.type_name == "UTF8_STRING"
+                || is_plain_utf8_type_name(&owned.type_name)
+            {
                 if owned.bytes.len() > max_read_bytes {
                     return Err(ClipboardError::TooLarge {
                         limit: max_read_bytes,
@@ -286,6 +311,10 @@ impl NativeClipboard {
         if let Some(owned) = self.owned.as_ref() {
             if owned.type_name == type_name
                 || (type_name == "UTF8_STRING" && owned.type_atom == self.atoms.utf8_string)
+                || (is_plain_utf8_type_name(type_name)
+                    && (owned.type_atom == self.atoms.utf8_string
+                        || owned.type_atom == self.atoms.plain_utf8
+                        || is_plain_utf8_type_name(&owned.type_name)))
             {
                 if owned.bytes.len() > max_read_bytes {
                     return Err(ClipboardError::TooLarge {
@@ -296,7 +325,16 @@ impl NativeClipboard {
             }
         }
         let target = intern(&self.conn, type_name.as_bytes())?;
-        self.convert_clipboard_bytes(target, max_read_bytes, timeout)
+        match self.convert_clipboard_bytes(target, max_read_bytes, timeout) {
+            Ok(bytes) => Ok(bytes),
+            Err(error)
+                if is_plain_utf8_type_name(type_name) && target != self.atoms.utf8_string =>
+            {
+                self.convert_clipboard_bytes(self.atoms.utf8_string, max_read_bytes, timeout)
+                    .map_err(|_| error)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn convert_clipboard(
@@ -391,7 +429,17 @@ impl NativeClipboard {
 
     fn owned_type_names(&self, owned: &OwnedSelection) -> Vec<String> {
         let mut names = vec!["TARGETS".to_owned(), owned.type_name.clone()];
-        if owned.type_atom == self.atoms.utf8_string && owned.type_name != "STRING" {
+        let utf8ish = owned.type_atom == self.atoms.utf8_string
+            || owned.type_atom == self.atoms.plain_utf8
+            || owned.type_name == "UTF8_STRING"
+            || is_plain_utf8_type_name(&owned.type_name);
+        if utf8ish {
+            for alias in ["UTF8_STRING", "STRING", PLAIN_UTF8_TYPE] {
+                if !names.iter().any(|name| name == alias) {
+                    names.push(alias.to_owned());
+                }
+            }
+        } else if owned.type_atom == self.atoms.utf8_string && owned.type_name != "STRING" {
             names.push("STRING".to_owned());
         }
         names.truncate(crate::contract::clipboard::MAX_CLIPBOARD_TYPES);
@@ -407,6 +455,9 @@ impl NativeClipboard {
         }
         if atom == self.atoms.string {
             return Ok("STRING".to_owned());
+        }
+        if atom == self.atoms.plain_utf8 {
+            return Ok(PLAIN_UTF8_TYPE.to_owned());
         }
         if atom == self.atoms.incr {
             return Ok("INCR".to_owned());
@@ -539,6 +590,7 @@ fn intern_atoms(conn: &RustConnection) -> Result<Atoms, ClipboardError> {
     Ok(Atoms {
         clipboard: intern(conn, b"CLIPBOARD")?,
         utf8_string: intern(conn, b"UTF8_STRING")?,
+        plain_utf8: intern(conn, PLAIN_UTF8_TYPE.as_bytes())?,
         targets: intern(conn, b"TARGETS")?,
         incr: intern(conn, b"INCR")?,
         property: intern(conn, b"PLATFORM_CLIPBOARD")?,
@@ -624,7 +676,10 @@ pub(super) fn has_unicode_text() -> bool {
         state.pump()?;
         Ok(state.owned.as_ref().is_some_and(|owned| {
             !owned.bytes.is_empty()
-                && (owned.type_atom == state.atoms.utf8_string || owned.type_name == "UTF8_STRING")
+                && (owned.type_atom == state.atoms.utf8_string
+                    || owned.type_atom == state.atoms.plain_utf8
+                    || owned.type_name == "UTF8_STRING"
+                    || is_plain_utf8_type_name(&owned.type_name))
         }))
     }) {
         Ok(true) => true,
@@ -642,6 +697,7 @@ mod tests {
             [
                 "CLIPBOARD",
                 "UTF8_STRING",
+                PLAIN_UTF8_TYPE,
                 "TARGETS",
                 "INCR",
                 "PLATFORM_CLIPBOARD"
@@ -670,6 +726,10 @@ mod tests {
             "expected UTF8_STRING or STRING in {types:?}"
         );
         assert!(types.iter().any(|name| name == "TARGETS"));
+        assert!(
+            types.iter().any(|name| name == PLAIN_UTF8_TYPE),
+            "expected {PLAIN_UTF8_TYPE} in {types:?}"
+        );
         super::clear(Duration::from_millis(500)).expect("clear");
         let empty = super::available_types(Duration::from_millis(500)).expect("empty types");
         assert!(
@@ -692,10 +752,11 @@ mod tests {
         )));
     }
 
-    fn intern_atoms_names() -> [&'static str; 5] {
+    fn intern_atoms_names() -> [&'static str; 6] {
         [
             "CLIPBOARD",
             "UTF8_STRING",
+            PLAIN_UTF8_TYPE,
             "TARGETS",
             "INCR",
             "PLATFORM_CLIPBOARD",
