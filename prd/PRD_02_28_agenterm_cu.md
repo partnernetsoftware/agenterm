@@ -2090,8 +2090,12 @@ flowchart LR
   schema and alias contract on the Linux arm64 Wayland UTM court, then released
   the VM; the compact receipt is
   [`evidence/cu/lnx-aarch64-cu-network-interfaces-100ee73b.json`](../evidence/cu/lnx-aarch64-cu-network-interfaces-100ee73b.json).
-  Windows runtime evidence remains pending, so the ledger truthfully stays
-  `platform-limited`. `network-routes` now adds the matching shell-free route
+  Exact source `fcbfed9a` then passed the unchanged journey on the Windows
+  arm64 UTM court after proving a nonce-bound interactive process outside the
+  launcher Job; its receipt is
+  [`evidence/cu/win-aarch64-cu-network-interfaces-fcbfed9a.json`](../evidence/cu/win-aarch64-cu-network-interfaces-fcbfed9a.json).
+  With both Windows ISAs compiling and native runtime evidence on each OS,
+  `network.interfaces` is now `native`. `network-routes` adds the matching shell-free route
   inventory through Linux NETLINK_ROUTE, macOS PF_ROUTE/NET_RT_DUMP2 and
   Windows GetIpForwardTable2. It preserves ifindex/LUID identities, normalizes
   destination prefixes, treats a null gateway as on-link, and refuses
