@@ -155,6 +155,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │      the same spelling after the legacy verb remains a verb-owned option
   │  ├─ [x] Unix hard-timeout cleanup keeps resident browser/job/PTY/device owners that crossed
   │  │      the explicit `setsid` boundary; same-session descendants remain invocation-owned
+  │  ├─ [x] pure qjs/wasm computation observes the Script invocation's call-scoped cancel token;
+  │  │      blocked native Executor waits remain the next cooperative-cancellation leaf
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] eight compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  ├─ [~] MCP uses the same provider/Executor; bounded shell mutation is implemented but deliberately unadvertised

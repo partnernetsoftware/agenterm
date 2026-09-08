@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "58ec897";
+pub const UPSTREAM_TINYVM_REV: &str = "989be98";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -414,15 +414,16 @@ pub struct Budget {
     /// A1.12). Exceeding this ends the call as [`QjswasmError::Budget`]
     /// (`"max_host_ops"`), the same class as running out of steps.
     pub max_host_ops: usize,
-    /// Set by the embedder to end the call at the next host operation or
-    /// wait: `time.sleep_ms` sleeps in slices and looks; `process.wait` /
+    /// Set by the embedder to end the call at the next interpreter poll, host
+    /// operation, or wait. Pure guest computation is polled by tinyvm without
+    /// storing this invocation's identity in the module or persistent slot;
+    /// `time.sleep_ms` sleeps in slices and looks; `process.wait` /
     /// `process.command` look between polls of the child; every `tool.*`
     /// and `fleet_call` entry looks before running, and `fleet_call` looks
     /// again when the bridge answers, so a bridge that returns early on the
     /// same flag ends the call rather than parking a refusal. The call then
-    /// ends as [`QjswasmError::Cancelled`]. Pure compute is not interrupted
-    /// -- the step budget bounds that -- which is why this is a flag the
-    /// doors read and not a signal. `None` means no one can cancel.
+    /// ends as [`QjswasmError::Cancelled`]. `None` means no one can cancel;
+    /// the ordinary step budget still bounds computation independently.
     pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// A clock the script can replay against. `Some(origin)` makes
     /// `time.now_ms` answer `origin` plus the milliseconds the script has

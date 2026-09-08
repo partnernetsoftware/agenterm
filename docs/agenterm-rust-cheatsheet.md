@@ -3176,6 +3176,15 @@ and `agenterm_qjswasm::UPSTREAM_TINYVM_REV` together. The last value is public
 runtime provenance; leaving it stale makes a correctly linked engine report
 the wrong source revision. The qjswasm crate tests compare all four surfaces.
 
+Cancellation identity belongs to one invocation, not to reusable VM state.
+Borrow the flag down the top-level call stack; do not store an embedder-owned
+`Arc` or pointer in `Limits`, `Module`, or a persistent slot. An interpreter
+poll based on `steps % N == 0` is unsound when bulk instructions charge many
+logical steps at once: an adversarial loop can jump over every exact residue.
+Track the next monotonic polling threshold and treat crossing it as sufficient.
+Keep the step ceiling independent, return a distinct interruption class, and
+retain the worker process deadline for native callbacks that cannot cooperate.
+
 ## Versioned media needs one discriminated SDK boundary
 
 When one guest output channel accepts multiple versioned media schemas, do not

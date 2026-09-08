@@ -21,6 +21,10 @@
 
 mod fixtures;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
 use agenterm_qjswasm::{Budget, Engine, Guest, QjswasmError, Value};
 
 /// Build a budget from tinyvm's defaults with one field overridden, so each
@@ -69,6 +73,50 @@ fn an_infinite_loop_is_stopped_by_max_steps_and_the_host_survives() {
         .expect("the engine is still usable after a budget kill");
     assert_eq!(out.values, vec![Value::I32(fixtures::BENIGN_ANSWER)]);
     assert!(out.steps > 0, "a real call must report a nonzero cost");
+}
+
+#[test]
+fn pure_qjs_compute_observes_the_call_budget_cancel() {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let requester = Arc::clone(&cancelled);
+    let signal_after = Duration::from_millis(100);
+    let mut eng = Engine::with_budget(Budget {
+        limits: tinyvm::Limits {
+            max_steps: u64::MAX,
+            ..tinyvm::Limits::default()
+        },
+        cancel: Some(Arc::clone(&cancelled)),
+        ..Budget::default()
+    });
+    let helper = std::thread::spawn(move || {
+        std::thread::sleep(signal_after);
+        requester.store(true, Ordering::Relaxed);
+    });
+    let started = Instant::now();
+    let error = eng
+        .run_once(
+            Guest::Qjs("let i = 0; while (true) { i = i + 1; } return i;"),
+            None,
+            "main",
+            &[],
+        )
+        .expect_err("pure guest computation must observe cancellation");
+    let elapsed = started.elapsed();
+    helper.join().expect("cancel requester must not panic");
+
+    assert!(matches!(error, QjswasmError::Cancelled), "got {error:?}");
+    assert!(
+        elapsed >= signal_after && elapsed < signal_after + Duration::from_millis(150),
+        "pure-compute cancellation exceeded the bounded grace: {elapsed:?}"
+    );
+    assert_eq!(eng.live_slots(), 0);
+
+    cancelled.store(false, Ordering::Relaxed);
+    let good = fixtures::benign_constant();
+    let out = eng
+        .run_once(Guest::Wasm(&good), None, "answer", &[])
+        .expect("the engine remains usable after cooperative cancellation");
+    assert_eq!(out.values, vec![Value::I32(fixtures::BENIGN_ANSWER)]);
 }
 
 /// Unbounded recursion is stopped by `max_call_depth`, and 20,000 pending

@@ -134,7 +134,12 @@ impl Slot {
             Convention::JsV1 => into_v1_args(args)?,
         };
         self.check_entry(entry, &vals, args.len())?;
-        let result = self.instance.invoke_by_name(entry, &vals);
+        let result = match budget.cancel.as_deref() {
+            Some(cancel) => self
+                .instance
+                .invoke_by_name_with_interrupt(entry, &vals, cancel),
+            None => self.instance.invoke_by_name(entry, &vals),
+        };
 
         // Read the cost counters before doing anything else with the result:
         // they are recorded for a call that trapped too, and a later invocation
@@ -619,6 +624,8 @@ fn into_v1_args(args: &[Value]) -> Result<Vec<tinyvm::Val>, QjswasmError> {
 ///   was given, which is what the caller needs to know.
 /// - [`tinyvm::WasmFaultClass::Load`] -> [`QjswasmError::Load`]. Rejected before it could
 ///   run.
+/// - [`tinyvm::WasmFaultClass::Interruption`] -> [`QjswasmError::Cancelled`]. The
+///   invocation observed the exact borrowed flag supplied by this budget.
 /// - Everything else -> [`QjswasmError::Trap`]: an ordinary guest fault, an
 ///   allocation refusal, or a VM invariant. None of those is the embedder's
 ///   budget, and calling them one would be a guess.
@@ -626,6 +633,7 @@ fn classify(error: tinyvm::WasmError) -> QjswasmError {
     match error.class() {
         tinyvm::WasmFaultClass::ResourceCeiling => QjswasmError::Budget(ceiling_name(&error)),
         tinyvm::WasmFaultClass::Load => QjswasmError::Load(error),
+        tinyvm::WasmFaultClass::Interruption => QjswasmError::Cancelled,
         tinyvm::WasmFaultClass::Allocation
         | tinyvm::WasmFaultClass::Guest
         | tinyvm::WasmFaultClass::Internal => QjswasmError::Trap(error),

@@ -5,18 +5,15 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`58ec897`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`989be98`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
-The earlier opt-in allocation attribution remains diagnostic-only: D0 rejected
-the recovery specialization and no allocator rewind/reuse landed. This revision
-adds the exact first optional-property slice `base?.prop` / `base?.[key]` with
-single base evaluation and skipped computed-key effects on nullish input. It
-adds no VM opcode and keeps the 101,256-byte static core exact; the public
-network-probe journey consumes the computed-key form and the exact `lhs ?? rhs`
-slice. Nullish coalescing evaluates its left operand once, evaluates the right
-only for null/undefined, adds no VM opcode and preserves the same exact static
-core. Optional calls, continuation chains, `??=`, and mixing `??` with boolean
-short-circuit operators remain named gaps rather than approximate semantics.
+This revision adds a generic, call-scoped cooperative-interruption seam: one
+invocation borrows one `AtomicBool`, pure guest computation polls it without a
+host callback, and qjswasm maps the distinct core `Interruption` class to
+`QjswasmError::Cancelled`. The identity is never stored in `Limits`, a module,
+or a persistent slot. The static core remains exactly 101,256 bytes; native
+host callbacks that are already blocked still require their own cooperative
+wait path or the Script worker's hard process-containment deadline.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
 pins are preserved in
@@ -90,14 +87,15 @@ agenterm-qjswasm
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
 │  ├─ [~] ACU cancellation ownership
 │  │  ├─ [x] detached helper rejected: it returns while callback and provider lock remain live
-│  │  ├─ [x] Script worker process remains the bounded hard-containment boundary
+│  │  ├─ [x] Script worker process remains the hard-containment boundary for blocked native calls
+│  │  ├─ [x] pure qjs/wasm computation observes the invocation's borrowed cancel token
 │  │  ├─ [x] `agenterm cli acu` supplies a 650-second worker envelope for provider-owned
 │  │  │      deadlines up to 600 seconds; a leading `--timeout-ms N` explicitly overrides it,
 │  │  │      including longer compatibility operations such as process kill or device watch;
 │  │  │      the same spelling after the legacy verb remains a verb-owned option
 │  │  ├─ [x] Unix hard-timeout cleanup preserves a descendant that crossed the explicit
 │  │  │      `setsid` ownership boundary while still terminating same-session descendants
-│  │  └─ [ ] pass one cooperative token through Executor and interruptible native waits
+│  │  └─ [ ] pass the same cooperative token through Executor and interruptible native waits
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
