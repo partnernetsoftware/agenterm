@@ -1,0 +1,313 @@
+// CEO: Linux process-watch honesty with independent /proc scan diff read-back.
+// Acceptance is smoke read-back only: CU process-watch started/exited events must
+// agree with pid/start-identity add/remove diffs from an independent /proc poll
+// over the same selector window. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-process-watch-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function verify_parent_watch(run_directory, executable) {
+  const script = [
+    "import json, os, subprocess, sys, threading, time",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "parent_pid = os.getpid()",
+    "duration_ms = 6000",
+    "interval_ms = 40",
+    "max_events = 8",
+    "max_processes = 64",
+    "def parse_row(pid):",
+    "    try:",
+    "        stat = open(f'/proc/{pid}/stat').read()",
+    "    except OSError:",
+    "        return None",
+    "    close = stat.rfind(')')",
+    "    if close < 0:",
+    "        return None",
+    "    fields = stat[close + 2:].split()",
+    "    if len(fields) < 20:",
+    "        return None",
+    "    state = fields[0]",
+    "    if state in ('Z', 'X', 'x'):",
+    "        return None",
+    "    ppid = int(fields[1])",
+    "    start_ticks = fields[19]",
+    "    try:",
+    "        exe = os.path.basename(os.readlink(f'/proc/{pid}/exe'))",
+    "    except OSError:",
+    "        return None",
+    "    identity = f'proc-start-ticks:{start_ticks}'",
+    "    return {",
+    "        'pid': pid,",
+    "        'parent_pid': ppid,",
+    "        'executable_name': exe,",
+    "        'start_identity': identity,",
+    "        '_key': (pid, identity),",
+    "    }",
+    "def child_snapshot(parent):",
+    "    rows = {}",
+    "    for entry in os.scandir('/proc'):",
+    "        if not entry.name.isdigit():",
+    "            continue",
+    "        row = parse_row(int(entry.name))",
+    "        if row is None or row['parent_pid'] != parent:",
+    "            continue",
+    "        rows[row['_key']] = row",
+    "    return rows",
+    "def diff_events(previous, current, t_ms):",
+    "    events = []",
+    "    for key, row in previous.items():",
+    "        if key not in current:",
+    "            events.append({'t_ms': t_ms, 'kind': 'exited', 'process': row})",
+    "    for key, row in current.items():",
+    "        if key not in previous:",
+    "            events.append({'t_ms': t_ms, 'kind': 'started', 'process': row})",
+    "    return events",
+    "def public_row(row):",
+    "    return {",
+    "        'pid': row['pid'],",
+    "        'parent_pid': row['parent_pid'],",
+    "        'executable_name': row['executable_name'],",
+    "        'start_identity': row['start_identity'],",
+    "    }",
+    "probe_events = []",
+    "stop_probe = threading.Event()",
+    "def probe_loop():",
+    "    started = time.monotonic()",
+    "    deadline = started + duration_ms / 1000.0",
+    "    previous = child_snapshot(parent_pid)",
+    "    while time.monotonic() < deadline and not stop_probe.is_set():",
+    "        time.sleep(interval_ms / 1000.0)",
+    "        t_ms = int((time.monotonic() - started) * 1000)",
+    "        current = child_snapshot(parent_pid)",
+    "        for event in diff_events(previous, current, t_ms):",
+    "            if len(probe_events) < max_events:",
+    "                probe_events.append(event)",
+    "        previous = current",
+    "thread = threading.Thread(target=probe_loop, daemon=True)",
+    "thread.start()",
+    "cu_proc = subprocess.Popen(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-watch', '--parent', str(parent_pid),",
+    "     '--duration-ms', str(duration_ms),",
+    "     '--interval-ms', str(interval_ms),",
+    "     '--max-events', str(max_events),",
+    "     '--max-processes', str(max_processes)],",
+    "    cwd=run_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)",
+    "time.sleep(0.15)",
+    "child = subprocess.Popen(['sleep', '300'], cwd=run_dir)",
+    "child_pid = child.pid",
+    "time.sleep(0.25)",
+    "child.terminate()",
+    "try:",
+    "    child.wait(timeout=3)",
+    "except subprocess.TimeoutExpired:",
+    "    child.kill()",
+    "    child.wait(timeout=3)",
+    "cu_stdout, cu_stderr = cu_proc.communicate(timeout=duration_ms / 1000 + 10)",
+    "stop_probe.set()",
+    "thread.join(timeout=2)",
+    "if cu_proc.returncode != 0:",
+    "    raise SystemExit('cu_linux_process_watch_parent_cli:' + cu_stderr + cu_stdout)",
+    "reply = json.loads(cu_stdout)",
+    "if not reply.get('ok') or reply.get('command') != 'process-watch':",
+    "    raise SystemExit('cu_linux_process_watch_parent_reply')",
+    "data = reply['data']",
+    "if data.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_watch_parent_verified')",
+    "cu_events = data.get('events') or []",
+    "cu_child = [event for event in cu_events if int(event['process']['pid']) == child_pid]",
+    "probe_child = [event for event in probe_events if int(event['process']['pid']) == child_pid]",
+    "if not any(event['kind'] == 'started' for event in cu_child):",
+    "    raise SystemExit('cu_linux_process_watch_parent_cu_started')",
+    "if not any(event['kind'] == 'exited' for event in cu_child):",
+    "    raise SystemExit('cu_linux_process_watch_parent_cu_exited')",
+    "if not any(event['kind'] == 'started' for event in probe_child):",
+    "    raise SystemExit('cu_linux_process_watch_parent_probe_started')",
+    "if not any(event['kind'] == 'exited' for event in probe_child):",
+    "    raise SystemExit('cu_linux_process_watch_parent_probe_exited')",
+    "def event_identity(event):",
+    "    return (int(event['process']['pid']), event['process']['start_identity'])",
+    "cu_started = next(event for event in cu_child if event['kind'] == 'started')",
+    "cu_exited = next(event for event in cu_child if event['kind'] == 'exited')",
+    "probe_started = next(event for event in probe_child if event['kind'] == 'started')",
+    "probe_exited = next(event for event in probe_child if event['kind'] == 'exited')",
+    "if event_identity(cu_started) != event_identity(probe_started):",
+    "    raise SystemExit('cu_linux_process_watch_parent_started_identity')",
+    "if event_identity(cu_exited) != event_identity(probe_exited):",
+    "    raise SystemExit('cu_linux_process_watch_parent_exited_identity')",
+    "if cu_started['process']['executable_name'] != probe_started['process']['executable_name']:",
+    "    raise SystemExit('cu_linux_process_watch_parent_executable_name')",
+    "baseline_keys = {(int(row['pid']), row['start_identity']) for row in data.get('baseline') or []}",
+    "initial_probe = child_snapshot(parent_pid)",
+    "for key, row in initial_probe.items():",
+    "    if key[0] == child_pid:",
+    "        continue",
+    "    if key not in baseline_keys:",
+    "        raise SystemExit('cu_linux_process_watch_parent_baseline_missing')",
+    "print('parent', parent_pid, 'child', child_pid)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable, run_directory], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true, "cu_linux_process_watch_parent:" + output.stderr + output.stdout);
+}
+
+function verify_pid_exit_watch(run_directory, executable) {
+  const script = [
+    "import json, os, subprocess, sys, threading, time",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "duration_ms = 8000",
+    "interval_ms = 40",
+    "max_events = 4",
+    "def parse_row(pid):",
+    "    try:",
+    "        stat = open(f'/proc/{pid}/stat').read()",
+    "    except OSError:",
+    "        return None",
+    "    close = stat.rfind(')')",
+    "    if close < 0:",
+    "        return None",
+    "    fields = stat[close + 2:].split()",
+    "    if len(fields) < 20:",
+    "        return None",
+    "    state = fields[0]",
+    "    if state in ('Z', 'X', 'x'):",
+    "        return None",
+    "    start_ticks = fields[19]",
+    "    try:",
+    "        exe = os.path.basename(os.readlink(f'/proc/{pid}/exe'))",
+    "    except OSError:",
+    "        return None",
+    "    identity = f'proc-start-ticks:{start_ticks}'",
+    "    return {",
+    "        'pid': pid,",
+    "        'parent_pid': int(fields[1]),",
+    "        'executable_name': exe,",
+    "        'start_identity': identity,",
+    "    }",
+    "child = subprocess.Popen(['sleep', '2'], cwd=run_dir)",
+    "child_pid = child.pid",
+    "row = parse_row(child_pid)",
+    "if row is None:",
+    "    raise SystemExit('cu_linux_process_watch_pid_baseline_missing')",
+    "probe_events = []",
+    "stop_probe = threading.Event()",
+    "def probe_loop():",
+    "    started = time.monotonic()",
+    "    deadline = started + duration_ms / 1000.0",
+    "    seen_live = row is not None",
+    "    while time.monotonic() < deadline and not stop_probe.is_set():",
+    "        time.sleep(interval_ms / 1000.0)",
+    "        t_ms = int((time.monotonic() - started) * 1000)",
+    "        current = parse_row(child_pid)",
+    "        if seen_live and current is None:",
+    "            probe_events.append({'t_ms': t_ms, 'kind': 'exited', 'process': row})",
+    "            break",
+    "        if current is not None:",
+    "            seen_live = True",
+    "thread = threading.Thread(target=probe_loop, daemon=True)",
+    "thread.start()",
+    "cu_proc = subprocess.Popen(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-watch', '--pid', str(child_pid),",
+    "     '--duration-ms', str(duration_ms),",
+    "     '--interval-ms', str(interval_ms),",
+    "     '--max-events', str(max_events), '--max-processes', '4'],",
+    "    cwd=run_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)",
+    "cu_stdout, cu_stderr = cu_proc.communicate(timeout=duration_ms / 1000 + 10)",
+    "stop_probe.set()",
+    "thread.join(timeout=2)",
+    "try:",
+    "    child.wait(timeout=3)",
+    "except subprocess.TimeoutExpired:",
+    "    child.kill()",
+    "    child.wait(timeout=3)",
+    "if cu_proc.returncode != 0:",
+    "    raise SystemExit('cu_linux_process_watch_pid_cli:' + cu_stderr + cu_stdout)",
+    "reply = json.loads(cu_stdout)",
+    "if not reply.get('ok') or reply.get('command') != 'process-watch':",
+    "    raise SystemExit('cu_linux_process_watch_pid_reply')",
+    "data = reply['data']",
+    "if data.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_watch_pid_verified')",
+    "baseline = data.get('baseline') or []",
+    "if len(baseline) != 1:",
+    "    raise SystemExit('cu_linux_process_watch_pid_baseline_count')",
+    "if int(baseline[0]['pid']) != child_pid:",
+    "    raise SystemExit('cu_linux_process_watch_pid_baseline_pid')",
+    "if baseline[0]['start_identity'] != row['start_identity']:",
+    "    raise SystemExit('cu_linux_process_watch_pid_baseline_identity')",
+    "cu_events = [event for event in data.get('events') or [] if event.get('kind') == 'exited']",
+    "if len(cu_events) != 1:",
+    "    raise SystemExit('cu_linux_process_watch_pid_cu_exited_count')",
+    "if len(probe_events) != 1:",
+    "    raise SystemExit('cu_linux_process_watch_pid_probe_exited_count')",
+    "cu_exited = cu_events[0]",
+    "probe_exited = probe_events[0]",
+    "if int(cu_exited['process']['pid']) != child_pid:",
+    "    raise SystemExit('cu_linux_process_watch_pid_cu_pid')",
+    "if cu_exited['process']['start_identity'] != probe_exited['process']['start_identity']:",
+    "    raise SystemExit('cu_linux_process_watch_pid_exited_identity')",
+    "if cu_exited['process']['start_identity'] != row['start_identity']:",
+    "    raise SystemExit('cu_linux_process_watch_pid_exited_identity_drift')",
+    "print('pid', child_pid)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable, run_directory], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true, "cu_linux_process_watch_pid:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-process-watch");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP process-watch --parent diff matches independent /proc child add/remove read-back");
+  verify_parent_watch(context.run_directory, executable);
+
+  print("STEP process-watch --pid exit diff matches independent /proc disappearance read-back");
+  verify_pid_exit_watch(context.run_directory, executable);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-process-watch-readback");
+  harness.remove_run(context);
+  print("PASS: Linux process-watch matches independent /proc scan diff read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
