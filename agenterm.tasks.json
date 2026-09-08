@@ -887,6 +887,25 @@
         "task.cu-linux-raise-activate-smoke"
       ]
     },
+    "cu-linux-desktop-state-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-desktop-state-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-desktop-state-smoke"
+      ]
+    },
     "cu-linux-workspace-desktop-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -1037,6 +1056,23 @@
       "network": [],
       "evidence": [
         "task.cu-linux-menu-invoke-smoke"
+      ]
+    },
+    "cu-linux-power-status-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-power-status-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-power-status-smoke"
       ]
     },
     "cu-linux-gtk-button-focus-smoke": {
@@ -4137,6 +4173,26 @@
       ]
     },
     {
+      "id": "cu-linux-desktop-state-smoke",
+      "description": "Prove Linux desktop-state returns a bounded inventory+tree+pointer snapshot for one fixture window with independent AT-SPI/X11 read-back on title, tree budget, named entry text, and pointer coords; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-desktop-state-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-workspace-desktop-smoke",
       "description": "Prove Linux EWMH workspace/desktop index observe for one fixture window: windows inventory workspace_desktop must match independent xprop _NET_WM_DESKTOP read-back, or answer typed unsupported with alternatives; AT-SPI/--name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-workspace-desktop-smoke.qjs",
@@ -4512,6 +4568,24 @@
         "artifact_write",
         "process_spawn",
         "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-power-status-smoke",
+      "description": "Prove Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-power-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
       ]
     },
     {

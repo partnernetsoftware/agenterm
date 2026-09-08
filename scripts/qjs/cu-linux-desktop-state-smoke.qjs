@@ -1,0 +1,335 @@
+// CEO: Linux desktop-state bounded snapshot with independent AT-SPI/X11 read-back.
+// Acceptance is smoke read-back only: desktop-state window/tree/pointer fields
+// must match separate windows inventory, tree, get-text --name, pointer-position,
+// and xprop WM_NAME observations. AT-SPI/--name only; no --coords or screenshot
+// degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-desktop-state",
+];
+
+const DEPTH = 3;
+const MAX_NODES = 64;
+const FIXTURE_ENTRY_NAME = "Fixture Entry";
+const FIXTURE_ENTRY_SEED = "seed";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_desktop_state_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_desktop_state_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_desktop_state_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function node_named(nodes, name) {
+  if (nodes === undefined) { return null; }
+  for (const node of nodes) {
+    if (text_at(node, "name") === name) { return node; }
+  }
+  return null;
+}
+
+function parse_xprop_wm_name(stdout) {
+  const marker = 'WM_NAME(STRING) = "';
+  const start = stdout.indexOf(marker);
+  if (start < 0) { return ""; }
+  const tail = stdout.slice(start + marker.length);
+  const end = tail.indexOf('"');
+  return end < 0 ? "" : tail.slice(0, end);
+}
+
+function independent_wm_name(run_directory, handle) {
+  const xprop = rh.command("xprop", ["-id", "" + handle, "WM_NAME"], {
+    cwd: run_directory,
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  if (!xprop.success) { return ""; }
+  return parse_xprop_wm_name(xprop.stdout);
+}
+
+function coords_equal(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== 2 || right.length !== 2) {
+    return false;
+  }
+  return int_at({ value: left[0] }, "value") === int_at({ value: right[0] }, "value")
+    && int_at({ value: left[1] }, "value") === int_at({ value: right[1] }, "value");
+}
+
+function assert_desktop_state_schema(data, selection, max_nodes) {
+  ensure(
+    data.snapshot_version === 1
+      && data.selection === selection
+      && data.addressing === "window-inventory+accessibility-tree+absolute-screen-coordinates"
+      && Array.isArray(data.windows)
+      && data.windows.length > 0
+      && typeof data.active_window.handle === "number"
+      && data.window.handle === data.active_window.handle
+      && data.tree.window === data.window.handle
+      && data.tree.returned === data.tree.nodes.length
+      && data.tree.returned <= max_nodes
+      && typeof data.complete.windows === "boolean"
+      && typeof data.complete.tree === "boolean"
+      && data.pointer.effect === "observed"
+      && Array.isArray(data.pointer.coords)
+      && data.pointer.coords.length === 2,
+    "cu_linux_desktop_state_schema"
+  );
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const context = harness.new_context(repo, "cu-linux-desktop-state");
+const run_directory = rh.join(repo, "target/cu-linux-desktop-state-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_desktop_state_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start owned GTK fixture and resolve window by pid and exact title");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_desktop_state_window_wait");
+
+  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_row !== null, "cu_linux_desktop_state_inventory_missing");
+  const handle = int_at(inventory_row, "handle");
+  ensure(handle > 0, "cu_linux_desktop_state_handle:" + JSON.stringify(inventory_row));
+
+  print("STEP activate fixture so focused desktop-state can resolve one window");
+  run_cu(run_directory, executable, "observe,actuate", [
+    "activate", "--window", "" + handle,
+  ]);
+
+  print("STEP desktop-state --window composes bounded inventory, tree and pointer");
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", "" + handle,
+    "--depth", "" + DEPTH, "--max-nodes", "" + MAX_NODES,
+  ]);
+  ensure(
+    state.command === "desktop-state" && state.target === "current",
+    "cu_linux_desktop_state_identity"
+  );
+  const data = state.data;
+  assert_desktop_state_schema(data, "explicit", MAX_NODES);
+
+  print("STEP independent xprop WM_NAME matches desktop-state window title");
+  const xprop_title = independent_wm_name(run_directory, handle);
+  ensure(
+    xprop_title !== "" && xprop_title === text_at(data, "window.title"),
+    "cu_linux_desktop_state_xprop_title:" + JSON.stringify({
+      xprop: xprop_title,
+      cu: text_at(data, "window.title"),
+    })
+  );
+
+  print("STEP independent windows inventory agrees with desktop-state window row");
+  const inventory_again = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_again !== null, "cu_linux_desktop_state_inventory_again_missing");
+  ensure(
+    int_at(inventory_again, "handle") === int_at(data, "window.handle")
+      && text_at(inventory_again, "title") === text_at(data, "window.title")
+      && int_at(inventory_again, "process_id") === int_at(data, "window.process_id"),
+    "cu_linux_desktop_state_inventory_mismatch:" + JSON.stringify({
+      inventory: inventory_again,
+      state_window: data.window,
+    })
+  );
+  let found_in_windows = false;
+  for (const row of data.windows) {
+    if (int_at(row, "handle") === handle) {
+      found_in_windows = true;
+      ensure(
+        text_at(row, "title") === fixture_title,
+        "cu_linux_desktop_state_windows_row:" + JSON.stringify(row)
+      );
+      break;
+    }
+  }
+  ensure(found_in_windows, "cu_linux_desktop_state_windows_missing_handle");
+
+  print("STEP independent tree read-back matches desktop-state tree budget and window");
+  const tree = run_cu(run_directory, executable, "observe", [
+    "tree", "--window", "" + handle,
+    "--depth", "" + DEPTH, "--max-nodes", "" + MAX_NODES,
+  ]);
+  ensure(
+    int_at(tree.data, "window") === int_at(data, "tree.window")
+      && int_at(tree.data, "returned") === int_at(data, "tree.returned")
+      && flag_at(tree.data, "truncated") === flag_at(data, "tree.truncated"),
+    "cu_linux_desktop_state_tree_mismatch:" + JSON.stringify({
+      independent: tree.data,
+      embedded: data.tree,
+    })
+  );
+
+  print("STEP independent get-text --name reads fixture entry seed through AT-SPI");
+  const entry_text = run_cu(run_directory, executable, "observe", [
+    "get-text", "--window", "" + handle, "--name", FIXTURE_ENTRY_NAME,
+  ]);
+  let readback = text_at(entry_text, "data.matched.text");
+  if (readback === "") { readback = text_at(entry_text, "data.text"); }
+  ensure(
+    readback === FIXTURE_ENTRY_SEED,
+    "cu_linux_desktop_state_entry_readback:" + JSON.stringify({
+      expected: FIXTURE_ENTRY_SEED,
+      readback: readback,
+    })
+  );
+  print("STEP independent query --text-exact finds the named entry in the accessibility tree");
+  const query = run_cu(run_directory, executable, "observe", [
+    "query", "--window", "" + handle,
+    "--depth", "" + DEPTH, "--max-nodes", "" + MAX_NODES,
+    "--text-exact", FIXTURE_ENTRY_NAME,
+  ]);
+  const query_nodes = query.data.nodes === undefined ? [] : query.data.nodes;
+  ensure(
+    query_nodes.length >= 1
+      && text_at(query_nodes[0], "name") === FIXTURE_ENTRY_NAME,
+    "cu_linux_desktop_state_query_named_node:" + JSON.stringify(query.data)
+  );
+  ensure(
+    node_named(data.tree.nodes, FIXTURE_ENTRY_NAME) !== null,
+    "cu_linux_desktop_state_tree_named_node_missing"
+  );
+
+  print("STEP independent pointer-position matches desktop-state pointer coords");
+  const pointer = run_cu(run_directory, executable, "observe", [
+    "pointer-position",
+  ]);
+  ensure(
+    text_at(pointer, "data.effect") === "observed"
+      && coords_equal(pointer.data.coords, data.pointer.coords),
+    "cu_linux_desktop_state_pointer_mismatch:" + JSON.stringify({
+      independent: pointer.data,
+      embedded: data.pointer,
+    })
+  );
+
+  print("STEP focused desktop-state without --window resolves the activated fixture");
+  const focused = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--depth", "" + DEPTH, "--max-nodes", "" + MAX_NODES,
+  ]);
+  assert_desktop_state_schema(focused.data, "focused", MAX_NODES);
+  ensure(
+    int_at(focused.data, "window.handle") === handle
+      && text_at(focused.data, "window.title") === fixture_title,
+    "cu_linux_desktop_state_focused_window:" + JSON.stringify(focused.data.window)
+  );
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_desktop_state_failed");
+harness.emit_evidence(context, declared_evidence, "cu.linux-desktop-state");
+harness.remove_run(context);
+print("PASS: Linux desktop-state bounded snapshot with independent AT-SPI/X11 read-back");
+return;

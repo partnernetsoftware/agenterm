@@ -1,0 +1,207 @@
+// CEO: Linux power-status observe with independent /sys and CLOCK_BOOTTIME read-back.
+// Acceptance is smoke read-back only: boot_identity and uptime_milliseconds must
+// match facts derived outside agenterm-cu; boot_id must stay stable across the
+// observation bracket. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-power-status-readback",
+];
+
+const BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id";
+const UPTIME_SLACK_MS = 15000;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function isolated_env(run_directory, prefix) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, prefix + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, prefix + "-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+}
+
+function invoke(run_directory, executable, arguments, expect_success, prefix) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: isolated_env(run_directory, prefix),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_power_status_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_power_status_reply_state");
+  return reply;
+}
+
+function boot_id_shape(value) {
+  if (value.length !== 36) { return false; }
+  for (let index = 0; index < value.length; index = index + 1) {
+    const code = value.charCodeAt(index);
+    if (index === 8 || index === 13 || index === 18 || index === 23) {
+      if (code !== 45) { return false; }
+    } else if (code < 48 || (code > 57 && code < 65) || (code > 70 && code < 97) || code > 102) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function independent_boot_id() {
+  ensure(rh.exists(BOOT_ID_PATH), "cu_linux_power_status_boot_id_missing");
+  const boot_id = rh.read_text(BOOT_ID_PATH).trim();
+  ensure(boot_id_shape(boot_id), "cu_linux_power_status_boot_id_shape:" + boot_id);
+  return boot_id;
+}
+
+function independent_uptime_milliseconds() {
+  const script = [
+    "import time",
+    "print(int(time.clock_gettime(time.CLOCK_BOOTTIME) * 1000))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_power_status_uptime_probe:" + output.stderr);
+  const value = Number(output.stdout.trim());
+  ensure(value === value && value >= 0, "cu_linux_power_status_uptime_shape:" + output.stdout);
+  return value;
+}
+
+function independent_boot_identity(host_identity, boot_id) {
+  const script = [
+    "import hashlib, struct, sys",
+    "host = sys.argv[1]",
+    "material = sys.argv[2].strip().encode('ascii')",
+    "anchor = hashlib.sha256()",
+    "anchor.update(b'agenterm-platform/host-boot-identity/v1\\0')",
+    "anchor.update(struct.pack('<Q', len(material)))",
+    "anchor.update(material)",
+    "anchor = anchor.digest()",
+    "digest = hashlib.sha256()",
+    "digest.update(b'agenterm-cu/power-status/boot/v1\\0')",
+    "digest.update(struct.pack('<Q', len(host)))",
+    "digest.update(host.encode('ascii'))",
+    "digest.update(struct.pack('<Q', len(anchor)))",
+    "digest.update(anchor)",
+    "print('agt-cu-boot-v1-' + digest.hexdigest())",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, host_identity, boot_id], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_power_status_boot_identity_probe:" + output.stderr);
+  const identity = output.stdout.trim();
+  ensure(identity.startsWith("agt-cu-boot-v1-") && identity.length === "agt-cu-boot-v1-".length + 64,
+         "cu_linux_power_status_boot_identity_shape:" + identity);
+  return identity;
+}
+
+function uptime_near(candidate, lower, upper) {
+  return candidate >= lower - UPTIME_SLACK_MS && candidate <= upper + UPTIME_SLACK_MS;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_linux_power_status_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-power-status");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP explicit setup enrolls the private installation identity");
+  const setup = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "actuate", "setup", "--bin-dir",
+     rh.join(context.run_directory, "bin")], true, "setup");
+  ensure(setup.command === "setup" && setup.data.installation_identity.status === "ready",
+         "cu_linux_power_status_setup_identity");
+
+  print("STEP independent /sys boot_id and CLOCK_BOOTTIME bracket one power-status observation");
+  const boot_id_before = independent_boot_id();
+  const uptime_before = independent_uptime_milliseconds();
+  const reply = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "observe", "power-status"], true, "power");
+  const boot_id_after = independent_boot_id();
+  const uptime_after = independent_uptime_milliseconds();
+
+  ensure(reply.command === "power-status" && reply.target === "current", "cu_linux_power_status_command");
+  ensure(text_at(reply, "data.host_identity").startsWith("agt-cu-host-v1-"),
+         "cu_linux_power_status_host_identity");
+  ensure(text_at(reply, "data.boot_identity").startsWith("agt-cu-boot-v1-"),
+         "cu_linux_power_status_boot_identity");
+  ensure(text_at(reply, "data.verified") === "true"
+         && text_at(reply, "data.atomic_snapshot") === "false",
+         "cu_linux_power_status_truth_fields");
+  ensure(reply.data.host_uuid === undefined && reply.data.start_identity === undefined,
+         "cu_linux_power_status_native_identity_leak");
+
+  ensure(boot_id_before === boot_id_after,
+         "cu_linux_power_status_boot_id_changed:" + boot_id_before + "!=" + boot_id_after);
+
+  const uptime_ms = Number(text_at(reply, "data.uptime_milliseconds"));
+  ensure(uptime_ms === uptime_ms && uptime_ms >= 0, "cu_linux_power_status_uptime_shape");
+  ensure(uptime_near(uptime_ms, uptime_before, uptime_after),
+         "cu_linux_power_status_uptime_mismatch:cu=" + uptime_ms
+         + ":before=" + uptime_before + ":after=" + uptime_after);
+
+  print("STEP independent boot_id derivation matches the reported boot_identity");
+  const expected_boot_identity = independent_boot_identity(
+    text_at(reply, "data.host_identity"),
+    boot_id_before
+  );
+  ensure(text_at(reply, "data.boot_identity") === expected_boot_identity,
+         "cu_linux_power_status_boot_identity_mismatch:cu="
+         + text_at(reply, "data.boot_identity") + ":expected=" + expected_boot_identity);
+
+  print("STEP repeated observations preserve host and boot identities");
+  const second = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "observe", "power", "status"], true, "power");
+  ensure(text_at(reply, "data.host_identity") === text_at(second, "data.host_identity"),
+         "cu_linux_power_status_host_stability");
+  ensure(text_at(reply, "data.boot_identity") === text_at(second, "data.boot_identity"),
+         "cu_linux_power_status_boot_stability");
+  ensure(Number(text_at(second, "data.uptime_milliseconds")) >= uptime_ms,
+         "cu_linux_power_status_uptime_monotonic");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-power-status-readback");
+  harness.remove_run(context);
+  print("PASS: Linux power-status host/boot identities and uptime match independent /sys and CLOCK_BOOTTIME read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

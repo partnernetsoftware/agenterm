@@ -109,6 +109,7 @@
         "cu.linux-close-expect-gone",
         "cu.linux-keyboard-layout-name",
         "cu.linux-ime-status",
+        "cu.linux-power-status-readback",
         "cu.linux-atspi-orderwin",
         "cu.linux-atspi-raise",
         "cu.linux-atspi-window-activate",

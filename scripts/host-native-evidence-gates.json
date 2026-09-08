@@ -275,6 +275,13 @@
       ]
     },
     {
+      "id": "cu-linux-desktop-state-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-desktop-state"
+      ]
+    },
+    {
       "id": "cu-linux-raise-activate-smoke",
       "platform": "linux",
       "evidence": [
