@@ -52,6 +52,17 @@ pub(super) fn host_open_payload(
                 _ => ("host_open_failed", "unknown"),
             };
             let typed = CuError::new(code, error.to_string());
+            let mut detail = json!({
+                "effect": effect,
+                "receipt": ticket.json(),
+            });
+            if let Some(native_detail) = error.detail() {
+                detail["os"] = json!(native_detail.os);
+                detail["required_mechanism"] = json!(native_detail.required_mechanism);
+                if !native_detail.alternatives.is_empty() {
+                    detail["alternatives"] = json!(native_detail.alternatives);
+                }
+            }
             receipts.complete(
                 &ticket,
                 "host-open",
@@ -64,10 +75,7 @@ pub(super) fn host_open_payload(
                     "error": error_payload(&typed),
                 }),
             )?;
-            return Err(typed.with_detail(json!({
-                "effect": effect,
-                "receipt": ticket.json(),
-            })));
+            return Err(typed.with_detail(detail));
         }
     };
     receipts.complete(
@@ -99,6 +107,33 @@ pub(super) fn host_open_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_native_detail_surfaces_os_mechanism_and_alternatives() {
+        let directory = std::env::temp_dir().join(format!(
+            "agenterm-cu-host-open-unsupported-{}-{}",
+            std::process::id(),
+            crate::executor::persisted::now_utc_ms().unwrap_or_default()
+        ));
+        let mut receipts =
+            ReceiptLog::open_in(&directory, TargetRef::Current).expect("open receipt log");
+        let error = host_open_payload(
+            "https://example.invalid/no-such-app",
+            Some("agenterm-cu-host-open-missing-app-xyzzy"),
+            false,
+            &mut receipts,
+        )
+        .expect_err("missing application must fail typed");
+        assert_eq!(error.code, "host_open_unsupported");
+        let detail = error.detail.expect("unsupported detail");
+        assert_eq!(detail["effect"], "not_performed");
+        if cfg!(target_os = "linux") {
+            assert_eq!(detail["os"], "linux");
+            assert_eq!(detail["required_mechanism"], "freedesktop-application-launch");
+            assert!(detail["alternatives"].as_array().is_some_and(|values| !values.is_empty()));
+        }
+        std::fs::remove_dir_all(directory).expect("remove receipt fixture");
+    }
 
     #[test]
     fn invalid_target_fails_typed_and_closes_the_reserved_receipt() {

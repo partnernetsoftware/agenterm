@@ -16,10 +16,18 @@ pub enum HostOpenErrorKind {
     Native,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HostOpenErrorDetail {
+    pub os: &'static str,
+    pub required_mechanism: &'static str,
+    pub alternatives: &'static [&'static str],
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HostOpenError {
     kind: HostOpenErrorKind,
     message: String,
+    detail: Option<HostOpenErrorDetail>,
 }
 
 impl HostOpenError {
@@ -27,12 +35,30 @@ impl HostOpenError {
         Self {
             kind,
             message: message.into(),
+            detail: None,
+        }
+    }
+
+    pub(crate) fn with_detail(
+        kind: HostOpenErrorKind,
+        message: impl Into<String>,
+        detail: HostOpenErrorDetail,
+    ) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            detail: Some(detail),
         }
     }
 
     #[must_use]
     pub const fn kind(&self) -> HostOpenErrorKind {
         self.kind
+    }
+
+    #[must_use]
+    pub const fn detail(&self) -> Option<HostOpenErrorDetail> {
+        self.detail
     }
 }
 
