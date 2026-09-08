@@ -1,0 +1,301 @@
+// CEO: Linux tab-select by --title / --index with independent tab-list read-back.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-browser-tab-select",
+];
+
+const TAB_A_PREFIX = "CEO Tab Select A";
+const TAB_B_PREFIX = "CEO Tab Select B";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory) {
+  const env = {
+    HOME: run_directory,
+    XDG_CONFIG_HOME: rh.join(run_directory, ".config"),
+    XDG_DATA_HOME: rh.join(run_directory, ".data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_tab_select_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_tab_select_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_tab_select_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function tab_rows(reply) {
+  const rows = at(reply, "data.tabs");
+  return rows === undefined || rows === null ? [] : rows;
+}
+
+function selected_tabs(rows) {
+  const selected = [];
+  for (const row of rows) {
+    if (rh.field(row, "selected") === true) { selected.push(row); }
+  }
+  return selected;
+}
+
+function any_contains(rows, field, wanted) {
+  for (const row of rows) {
+    const value = text_at(row, field);
+    if (value.indexOf(wanted) >= 0) { return true; }
+  }
+  return false;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(!harness.host_is_windows(),
+  "cu.linux-browser-tab-select requires Linux browser-open + tab-strip read-back");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_tab_select_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_tab_select_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-browser-tab-select");
+const run_directory = context.run_directory;
+const TAB_A = TAB_A_PREFIX + " " + context.run_id;
+const TAB_B = TAB_B_PREFIX + " " + context.run_id;
+const user_data = rh.join(run_directory, ".config/google-chrome");
+const local_state = rh.join(user_data, "Local State");
+const html_dir = rh.join(run_directory, "html");
+const fixture_a = rh.join(html_dir, "tab-a.html");
+const fixture_b = rh.join(html_dir, "tab-b.html");
+const env = isolated_env(run_directory);
+env.AGENTERM_ABI_LIB = abi_library;
+env.CHROME_USER_DATA_DIR = user_data;
+
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP clear stale box-chrome singletons on this display before browser-open");
+  rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+  harness.sleep_ms(1000);
+
+  print("STEP write synthetic Chromium Local State and two fixture pages");
+  rh.create_dir_all(rh.join(user_data, "Default"));
+  rh.create_dir_all(html_dir);
+  rh.write_text(fixture_a, "<!DOCTYPE html><html><head><title>"
+    + TAB_A + "</title></head><body>alpha</body></html>");
+  rh.write_text(fixture_b, "<!DOCTYPE html><html><head><title>"
+    + TAB_B + "</title></head><body>bravo</body></html>");
+  rh.write_text(local_state, JSON.stringify({
+    profile: {
+      last_used: "Profile 7",
+      profiles_order: ["Profile 7", "Default"],
+      info_cache: {
+        Default: { name: "court-alpha" },
+        "Profile 7": { name: "court-beta" },
+      },
+    },
+  }));
+
+  print("STEP browser-open first tab and capture the chrome window by unique title");
+  const before_inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
+  const before_set = {};
+  const before_rows = before_inventory.data.windows === undefined
+    ? before_inventory.data : before_inventory.data.windows;
+  for (const row of before_rows) {
+    before_set["" + at(row, "handle")] = true;
+  }
+
+  let opened = null;
+  for (let open_attempt = 0; open_attempt < 3 && opened === null; open_attempt = open_attempt + 1) {
+    if (open_attempt > 0) {
+      rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+      harness.sleep_ms(2000);
+    }
+    const argv = ["--target", "current", "--grant", "actuate",
+      "browser-open", "--profile", "court-alpha",
+      "--url", "file://" + fixture_a, "--app", "Google Chrome", "--timeout-ms", "30000"];
+    const output = rh.command(executable, argv, { cwd: run_directory, env: env, timeout_ms: 60000 });
+    if (output.success !== true) { continue; }
+    const trimmed = output.stdout.trim();
+    if (trimmed === "") { continue; }
+    const reply = JSON.parse(trimmed);
+    if (reply.command === "browser-open" && flag_at(reply, "ok")) {
+      opened = reply;
+    }
+  }
+  ensure(opened !== null, "cu_linux_tab_select_open_a_failed");
+  const open_handle = "" + at(opened, "data.handle");
+  ensure(open_handle !== "" && open_handle !== "0",
+    "cu_linux_tab_select_open_a_handle:" + JSON.stringify(opened.data));
+
+  let window_handle = null;
+  for (let attempt = 0; attempt < 40 && window_handle === null; attempt = attempt + 1) {
+    const inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
+    const rows = inventory.data.windows === undefined ? inventory.data : inventory.data.windows;
+    for (const row of rows) {
+      const title = text_at(row, "title");
+      const app = text_at(row, "app_name").toLowerCase();
+      const handle = "" + at(row, "handle");
+      if ((app.indexOf("chrome") >= 0 || app === "google-chrome" || app === "google-chrome-stable")
+          && title.indexOf(TAB_A) >= 0
+          && before_set[handle] !== true) {
+        window_handle = handle;
+        break;
+      }
+    }
+    if (window_handle === null) { harness.sleep_ms(250); }
+  }
+  ensure(window_handle !== null, "cu_linux_tab_select_window_missing");
+  ensure(window_handle === open_handle,
+    "cu_linux_tab_select_window_mismatch:" + JSON.stringify({
+      open: open_handle,
+      readback: window_handle,
+    }));
+
+  print("STEP open second tab in the same profile via the running Chromium singleton");
+  const chrome_binary = "/usr/local/bin/box-chrome";
+  const launch_binary = rh.exists(chrome_binary) ? chrome_binary : "google-chrome-stable";
+  const launch_shell = launch_binary
+    + " --profile-directory=Default"
+    + (launch_binary.indexOf("box-chrome") >= 0 ? " --force-renderer-accessibility" : "")
+    + " file://" + fixture_b
+    + " >/dev/null 2>&1 &";
+  rh.command_status("sh", ["-c", launch_shell], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 5000,
+  });
+  harness.sleep_ms(5000);
+
+  print("STEP tab-list shows both tabs with exactly one selected");
+  let tabs = [];
+  for (let attempt = 0; attempt < 80 && tabs.length < 2; attempt = attempt + 1) {
+    const reply = run_cu(run_directory, executable, "observe", [
+      "tab-list", "--window", window_handle,
+    ], env);
+    if (reply.command === "tab-list") { tabs = tab_rows(reply); }
+    if (tabs.length >= 2) { break; }
+    harness.sleep_ms(500);
+  }
+  ensure(tabs.length >= 2, "cu_linux_tab_select_tab_list_count:" + JSON.stringify(tabs));
+  ensure(any_contains(tabs, "title", TAB_A),
+    "cu_linux_tab_select_tab_a_missing:" + JSON.stringify(tabs));
+  ensure(any_contains(tabs, "title", TAB_B),
+    "cu_linux_tab_select_tab_b_missing:" + JSON.stringify(tabs));
+  ensure(selected_tabs(tabs).length === 1,
+    "cu_linux_tab_select_initial_selected_count:" + JSON.stringify(tabs));
+  for (const tab of tabs) {
+    const flag = rh.field(tab, "selected");
+    ensure(flag === true || flag === false,
+      "cu_linux_tab_select_selection_unreadable:" + JSON.stringify(tab));
+  }
+
+  print("STEP tab-select --title " + TAB_B + " with independent tab-list read-back");
+  const select_b = run_cu(run_directory, executable, "actuate", [
+    "tab-select", "--window", window_handle, "--title", TAB_B,
+  ], env);
+  ensure(select_b.command === "tab-select", "cu_linux_tab_select_b_identity");
+  ensure(flag_at(select_b, "data.verified") === true,
+    "cu_linux_tab_select_b_verified:" + JSON.stringify(select_b.data));
+  ensure(flag_at(select_b, "data.focus_changed") === false,
+    "cu_linux_tab_select_b_focus:" + JSON.stringify(select_b.data));
+
+  const after_b = tab_rows(run_cu(run_directory, executable, "observe", [
+    "tab-list", "--window", window_handle,
+  ], env));
+  const selected_b = selected_tabs(after_b);
+  ensure(
+    selected_b.length === 1 && text_at(selected_b[0], "title").indexOf(TAB_B) >= 0,
+    "cu_linux_tab_select_b_readback:" + JSON.stringify(after_b)
+  );
+
+  print("STEP tab-select --index 0 with independent tab-list read-back");
+  const select_a = run_cu(run_directory, executable, "actuate", [
+    "tab-select", "--window", window_handle, "--index", "0",
+  ], env);
+  ensure(select_a.command === "tab-select", "cu_linux_tab_select_a_identity");
+  ensure(flag_at(select_a, "data.verified") === true,
+    "cu_linux_tab_select_a_verified:" + JSON.stringify(select_a.data));
+
+  const after_a = tab_rows(run_cu(run_directory, executable, "observe", [
+    "tab-list", "--window", window_handle,
+  ], env));
+  const selected_a = selected_tabs(after_a);
+  ensure(
+    selected_a.length === 1 && text_at(selected_a[0], "title").indexOf(TAB_A) >= 0,
+    "cu_linux_tab_select_a_readback:" + JSON.stringify(after_a)
+  );
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-browser-tab-select");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+  print("PASS: Linux tab-select by --title / --index with independent tab-list read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

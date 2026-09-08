@@ -927,6 +927,25 @@
         "task.cu-linux-browser-tabs-smoke"
       ]
     },
+    "cu-linux-browser-tab-select-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-browser-tab-select-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-browser-tab-select-smoke"
+      ]
+    },
     "cu-linux-menu-invoke-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4016,6 +4035,26 @@
       "id": "cu-linux-browser-tabs-smoke",
       "description": "Prove Linux browser-open with profile/URL then independent browser-tabs lists the tab with stable CDP title/URL evidence; AT-SPI/--name court only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-browser-tabs-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-browser-tab-select-smoke",
+      "description": "Prove Linux tab-select by --title or --index after browser-open with two tabs; independent tab-list shows exactly one selected with verified=true; AT-SPI/--name court only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-browser-tab-select-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
