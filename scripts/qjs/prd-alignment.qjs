@@ -284,6 +284,7 @@ const evidence_suites = {
   "cu-linux-windows-inventory-smoke": true,
   "cu-linux-menu-invoke-smoke": true,
   "cu-linux-invoke-smoke": true,
+  "cu-linux-observe-smoke": true,
   "cu-linux-power-status-smoke": true,
   "cu-linux-privilege-plan-smoke": true,
   "cu-linux-processor-topology-smoke": true,

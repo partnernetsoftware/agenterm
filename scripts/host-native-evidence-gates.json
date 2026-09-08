@@ -166,6 +166,7 @@
         "cu.linux-atspi-scroll-wheel",
         "cu.linux-atspi-drag",
         "cu.linux-atspi-observe",
+        "cu.linux-atspi-observe-readback",
         "cu.linux-atspi-screenshot",
         "cu.linux-atspi-window-place",
         "cu.linux-atspi-orderwin",

@@ -423,6 +423,12 @@
       ]
     },
     {
+      "id": "cu-linux-observe-smoke",
+      "evidence": [
+        "cu.linux-atspi-observe-readback"
+      ]
+    },
+    {
       "id": "cu-linux-windows-inventory-smoke",
       "evidence": [
         "cu.linux-windows-inventory-readback"
