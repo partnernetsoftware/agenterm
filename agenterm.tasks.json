@@ -909,6 +909,25 @@
         "task.cu-linux-fullscreen-expect-smoke"
       ]
     },
+    "cu-linux-window-move-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-window-move-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-window-move-smoke"
+      ]
+    },
     "cu-linux-hide-show-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4633,6 +4652,26 @@
       ]
     },
     {
+      "id": "cu-linux-window-move-smoke",
+      "description": "Prove Linux movewin --expect XxY on a disposable GTK fixture with independent windows inventory origin read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-window-move-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-a11y-status-smoke",
       "description": "Prove Linux doctor checks.a11y_bus reads org.a11y.Status IsEnabled and ScreenReaderEnabled with session-bus and AT-SPI bus readiness fields; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-a11y-status-smoke.qjs",
@@ -4640,7 +4679,7 @@
       "cwd": ".",
       "args": [
         ".",
-        "target/abi-dev/abi-dev/agenterm-cu"
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [
@@ -6912,7 +6951,7 @@
       "cwd": ".",
       "args": [
         ".",
-        "target/abi-dev/abi-dev/agenterm-cu"
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [
