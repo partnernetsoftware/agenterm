@@ -1,0 +1,143 @@
+// CEO: Linux process argv/cwd honesty with independent /proc/<pid>/cmdline and cwd read-back.
+// Acceptance is smoke read-back only: CU process-argv and process-cwd must agree with argv
+// boundaries and working-directory facts derived outside agenterm-cu for the same live PID.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-process-argv-readback",
+  "cu.linux-process-cwd-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function verify_readback(run_directory, executable, pid) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "pid = int(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "def read_cmdline():",
+    "    with open(f'/proc/{pid}/cmdline', 'rb') as handle:",
+    "        data = handle.read(1024 * 1024 + 1)",
+    "    if len(data) > 1024 * 1024:",
+    "        raise ValueError('process command line exceeds 1 MiB')",
+    "    if data.endswith(b'\\0'):",
+    "        data = data[:-1]",
+    "    if not data:",
+    "        raise ValueError('process arguments are unavailable')",
+    "    return [part.decode('utf-8', 'surrogateescape') for part in data.split(b'\\0')]",
+    "def read_exe():",
+    "    return os.readlink(f'/proc/{pid}/exe')",
+    "def read_cwd():",
+    "    return os.readlink(f'/proc/{pid}/cwd')",
+    "def invoke_argv():",
+    "    out = subprocess.check_output(",
+    "        [cu, '--target', 'current', '--grant', 'observe',",
+    "         'process-argv', '--pid', str(pid), '--values'],",
+    "        text=True)",
+    "    reply = json.loads(out)",
+    "    if not reply.get('ok') or reply.get('command') != 'process-argv':",
+    "        raise SystemExit('cu_linux_process_argv_reply_state')",
+    "    return reply['data']",
+    "def invoke_cwd():",
+    "    out = subprocess.check_output(",
+    "        [cu, '--target', 'current', '--grant', 'observe',",
+    "         'process-cwd', '--pid', str(pid)],",
+    "        text=True)",
+    "    reply = json.loads(out)",
+    "    if not reply.get('ok') or reply.get('command') != 'process-cwd':",
+    "        raise SystemExit('cu_linux_process_cwd_reply_state')",
+    "    return reply['data']",
+    "cmdline = read_cmdline()",
+    "proc_exe = read_exe()",
+    "proc_cwd = read_cwd()",
+    "argv = invoke_argv()",
+    "cwd = invoke_cwd()",
+    "if argv.get('verified') is not True or cwd.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_argv_cwd_verified')",
+    "if int(argv['pid']) != pid or int(cwd['pid']) != pid:",
+    "    raise SystemExit('cu_linux_process_argv_cwd_pid')",
+    "if argv.get('start_identity') != cwd.get('start_identity'):",
+    "    raise SystemExit('cu_linux_process_argv_cwd_start_identity')",
+    "if argv.get('executable') != proc_exe:",
+    "    raise SystemExit(f'cu_linux_process_argv_executable:{argv.get(\"executable\")}:{proc_exe}')",
+    "if int(argv.get('total', -1)) != len(cmdline):",
+    "    raise SystemExit(f'cu_linux_process_argv_total:{argv.get(\"total\")}:{len(cmdline)}')",
+    "arguments = argv.get('arguments') or []",
+    "if len(arguments) != len(cmdline):",
+    "    raise SystemExit(f'cu_linux_process_argv_returned:{len(arguments)}:{len(cmdline)}')",
+    "for index, row in enumerate(arguments):",
+    "    if int(row.get('index', -1)) != index:",
+    "        raise SystemExit(f'cu_linux_process_argv_index:{index}:{row.get(\"index\")}')",
+    "    if row.get('value') != cmdline[index]:",
+    "        raise SystemExit(f'cu_linux_process_argv_value:{index}:{row.get(\"value\")}:{cmdline[index]}')",
+    "if cwd.get('provider') != 'linux-proc-cwd':",
+    "    raise SystemExit('cu_linux_process_cwd_provider')",
+    "if cwd.get('path') != proc_cwd:",
+    "    raise SystemExit(f'cu_linux_process_cwd_path:{cwd.get(\"path\")}:{proc_cwd}')",
+    "print('pid', pid)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid, executable], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_process_argv_cwd_readback:" + output.stderr + output.stdout);
+}
+
+function verify_pid(run_directory, executable, pid) {
+  verify_readback(run_directory, executable, pid);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-process-argv-cwd");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP process argv/cwd observe matches independent /proc cmdline, exe and cwd read-back for self");
+  verify_pid(context.run_directory, executable, rh.pid());
+
+  print("STEP spawn disposable child in an owned directory and verify --pid read-back");
+  const child = harness.start({
+    program: "sleep",
+    args: ["300"],
+    current_dir: context.run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  verify_pid(context.run_directory, executable, harness.spawned_pid(child));
+  harness.kill(child);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-process-argv-readback");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-process-cwd-readback");
+  harness.remove_run(context);
+  print("PASS: Linux process argv/cwd match independent /proc/<pid>/cmdline and cwd read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

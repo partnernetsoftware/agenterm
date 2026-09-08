@@ -1135,6 +1135,23 @@
         "task.cu-linux-privilege-plan-smoke"
       ]
     },
+    "cu-linux-process-argv-cwd-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-argv-cwd-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-argv-cwd-smoke"
+      ]
+    },
     "cu-linux-processor-topology-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -1186,6 +1203,23 @@
         "task.cu-linux-audio-status-smoke"
       ]
     },
+    "cu-linux-app-facts-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-app-facts-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-app-facts-smoke"
+      ]
+    },
     "cu-linux-host-memory-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -1201,6 +1235,59 @@
       "network": [],
       "evidence": [
         "task.cu-linux-host-memory-smoke"
+      ]
+    },
+    "cu-linux-process-fds-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-fds-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-fds-smoke"
+      ]
+    },
+    "cu-linux-process-sockets-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-sockets-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [
+        "loopback"
+      ],
+      "evidence": [
+        "task.cu-linux-process-sockets-smoke"
+      ]
+    },
+    "cu-linux-file-inspect-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-file-inspect-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-file-inspect-smoke"
       ]
     },
     "cu-linux-cache-hierarchy-smoke": {
@@ -5101,6 +5188,24 @@
       ]
     },
     {
+      "id": "cu-linux-process-argv-cwd-smoke",
+      "description": "Prove Linux process-argv and process-cwd match independent /proc/<pid>/cmdline, exe and cwd read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-argv-cwd-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-processor-topology-smoke",
       "description": "Prove Linux processor-topology-status online logical processors, physical cores, packages and NUMA nodes match independent /proc/cpuinfo, lscpu and sysfs read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-processor-topology-smoke.qjs",
@@ -5122,6 +5227,43 @@
       "id": "cu-linux-host-memory-smoke",
       "description": "Prove Linux host-memory-status page geometry, physical_bytes and available_physical_bytes match independent /proc/meminfo MemTotal and MemAvailable read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-host-memory-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-process-sockets-smoke",
+      "description": "Prove Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-sockets-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "network_loopback",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-file-inspect-smoke",
+      "description": "Prove Linux file-inspect size, unix mode, modified time, kind and inode identity match independent os.lstat read-back for a regular file, directory and final symlink; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-file-inspect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
@@ -5176,6 +5318,24 @@
       "id": "cu-linux-audio-status-smoke",
       "description": "Prove Linux audio status default-output volume and mute match independent pactl, wpctl or amixer read-back, or return typed audio_unsupported with linux-default-output alternatives; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-audio-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-app-facts-smoke",
+      "description": "Prove Linux app-facts path, name and desktop_entry_id match independent XDG desktop-entry read-back and executable/running agree with /proc/exe inventory or return typed unavailable reasons; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-app-facts-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

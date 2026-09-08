@@ -339,6 +339,12 @@
       ]
     },
     {
+      "id": "cu-linux-file-inspect-smoke",
+      "evidence": [
+        "cu.linux-file-inspect-readback"
+      ]
+    },
+    {
       "id": "cu-linux-fontconfig-monospace-smoke",
       "evidence": [
         "cu.linux-fontconfig-monospace"
@@ -378,6 +384,19 @@
       "id": "cu-linux-process-usage-smoke",
       "evidence": [
         "cu.linux-process-usage-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-process-argv-cwd-smoke",
+      "evidence": [
+        "cu.linux-process-argv-readback",
+        "cu.linux-process-cwd-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-process-fds-smoke",
+      "evidence": [
+        "cu.linux-process-fds-readback"
       ]
     },
     {
@@ -429,6 +448,12 @@
       ]
     },
     {
+      "id": "cu-linux-app-facts-smoke",
+      "evidence": [
+        "cu.linux-app-facts-readback"
+      ]
+    },
+    {
       "id": "cu-linux-service-smoke",
       "evidence": [
         "cu.linux-service-readback"
@@ -469,6 +494,12 @@
       "id": "cu-process-sockets-smoke",
       "evidence": [
         "cu.process-sockets"
+      ]
+    },
+    {
+      "id": "cu-linux-process-sockets-smoke",
+      "evidence": [
+        "cu.linux-process-sockets-readback"
       ]
     },
     {
