@@ -5253,6 +5253,14 @@ automatic replay. EOF stops admission, cancels queued work, drains dispatched
 work without writing another response, then performs exactly one session-end
 attempt before dropping the lease.
 
+Canonical JSON is not validated merely because Serde can deserialize and
+round-trip it. Any bound enforced by a CLI parser must also live in
+`Command::validate` (preferably through shared constants), and the common
+`execute_command` adapter must reject an invalid command before constructing a
+deadline, allocating output, reserving an idempotency key or touching a native
+mechanism. Otherwise qjs, MCP and dynamic-provider callers can bypass the CLI
+and turn an apparently bounded command into a panic, latch or unbounded call.
+
 ## Join CoreSimulator apps to host processes without identity leaks
 
 `simctl spawn <UDID> ps` reports host-global PIDs, and executable paths can be

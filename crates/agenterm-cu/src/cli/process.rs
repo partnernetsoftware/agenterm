@@ -2,7 +2,11 @@
 
 use agenterm_cu::{
     Command, TargetRef,
-    command::{ProcessKillMode, ProcessPolicyAction, ProcessRunState, ProcessSignalKind},
+    command::{
+        ProcessKillMode, ProcessPolicyAction, ProcessRunState, ProcessSignalKind,
+        SHELL_EXEC_COMMAND_BYTES_MAX, SHELL_EXEC_OUTPUT_BYTES_MAX, SHELL_EXEC_TIMEOUT_MS_MAX,
+        SHELL_EXEC_TIMEOUT_MS_MIN,
+    },
 };
 
 use super::verbs::VerbSpec;
@@ -394,13 +398,13 @@ fn shell_exec(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Stri
         .ok_or_else(|| "shell-exec requires one non-empty --command TEXT".to_owned())?;
     let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(10_000);
     let max_output_bytes = flag_parsed::<usize>(args, "--max-output-bytes")?.unwrap_or(1_048_576);
-    if command.len() > 131_072 || command.as_bytes().contains(&0) {
+    if command.len() > SHELL_EXEC_COMMAND_BYTES_MAX || command.as_bytes().contains(&0) {
         return Err("shell-exec --command must be 1..=131072 UTF-8 bytes without NUL".into());
     }
-    if !(100..=120_000).contains(&timeout_ms) {
+    if !(SHELL_EXEC_TIMEOUT_MS_MIN..=SHELL_EXEC_TIMEOUT_MS_MAX).contains(&timeout_ms) {
         return Err("shell-exec --timeout-ms must be in 100..=120000".into());
     }
-    if !(1..=16_777_216).contains(&max_output_bytes) {
+    if !(1..=SHELL_EXEC_OUTPUT_BYTES_MAX).contains(&max_output_bytes) {
         return Err("shell-exec --max-output-bytes must be in 1..=16777216".into());
     }
     if !args.is_empty() {

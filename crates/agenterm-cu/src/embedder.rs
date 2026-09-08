@@ -313,6 +313,9 @@ pub fn execute_json_with(executor: &Executor, command_json: &str) -> CuReply {
 
 /// The one `Command -> Executor` adapter used by CLI and in-process clients.
 pub fn execute_command(executor: &Executor, command: &Command) -> CuReply {
+    if let Err(message) = command.validate() {
+        return CuReply::err(command, CuError::new("invalid_command", message));
+    }
     executor.execute(command)
 }
 
@@ -686,5 +689,27 @@ mod tests {
             list: true,
         };
         assert_eq!(mcp_exposure(&inventory), McpExposure::ReadOnly);
+    }
+
+    #[test]
+    fn canonical_shell_exec_cannot_bypass_command_budgets() {
+        let executor = Executor::new(Authorization::new(BTreeSet::from([Grant::Observe])));
+        let oversized = serde_json::json!({
+            "verb": "shell-exec",
+            "target": "current",
+            "command": "true",
+            "timeout_ms": u64::MAX,
+            "max_output_bytes": 1
+        });
+        let reply = execute_json_with(&executor, &oversized.to_string());
+        assert!(!reply.ok);
+        assert_eq!(reply.error.expect("typed failure").code, "invalid_command");
+
+        let valid = serde_json::json!({
+            "verb": "capabilities",
+            "target": "current"
+        });
+        let follow_up = execute_json_with(&executor, &valid.to_string());
+        assert!(follow_up.ok);
     }
 }

@@ -81,6 +81,10 @@ pub const QUERY_WATCH_DURATION_MS_MAX: u64 = 30_000;
 pub const QUERY_WATCH_INTERVAL_MS_MIN: u64 = 50;
 pub const QUERY_WATCH_INTERVAL_MS_MAX: u64 = 2_000;
 pub const QUERY_WATCH_EVENTS_MAX: usize = 2_000;
+pub const SHELL_EXEC_COMMAND_BYTES_MAX: usize = 128 * 1024;
+pub const SHELL_EXEC_TIMEOUT_MS_MIN: u64 = 100;
+pub const SHELL_EXEC_TIMEOUT_MS_MAX: u64 = 120_000;
+pub const SHELL_EXEC_OUTPUT_BYTES_MAX: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -5184,6 +5188,26 @@ impl Command {
                 }
                 Ok(())
             }
+            Self::ShellExec {
+                command,
+                timeout_ms,
+                max_output_bytes,
+                ..
+            } => {
+                if command.is_empty()
+                    || command.len() > SHELL_EXEC_COMMAND_BYTES_MAX
+                    || command.as_bytes().contains(&0)
+                {
+                    return Err("shell-exec command must be in 1..=131072 non-NUL UTF-8 bytes");
+                }
+                if !(SHELL_EXEC_TIMEOUT_MS_MIN..=SHELL_EXEC_TIMEOUT_MS_MAX).contains(timeout_ms) {
+                    return Err("shell-exec timeout_ms must be in 100..=120000");
+                }
+                if !(1..=SHELL_EXEC_OUTPUT_BYTES_MAX).contains(max_output_bytes) {
+                    return Err("shell-exec max_output_bytes must be in 1..=16777216");
+                }
+                Ok(())
+            }
             Self::JobAdopt {
                 pid,
                 start_identity,
@@ -6218,6 +6242,7 @@ mod tests {
         assert_eq!(command.verb(), "shell-exec");
         assert_eq!(command.required_grant(), Grant::Actuate);
         assert_eq!(command.target(), TargetRef::Ssh);
+        assert_eq!(command.validate(), Ok(()));
         assert_eq!(
             serde_json::to_value(command).expect("serialize"),
             serde_json::json!({
@@ -6228,6 +6253,35 @@ mod tests {
                 "max_output_bytes": 1_048_576,
             })
         );
+
+        for invalid in [
+            Command::ShellExec {
+                target: TargetRef::Current,
+                command: String::new(),
+                timeout_ms: 10_000,
+                max_output_bytes: 1,
+            },
+            Command::ShellExec {
+                target: TargetRef::Current,
+                command: "x".repeat(SHELL_EXEC_COMMAND_BYTES_MAX + 1),
+                timeout_ms: 10_000,
+                max_output_bytes: 1,
+            },
+            Command::ShellExec {
+                target: TargetRef::Current,
+                command: "true".into(),
+                timeout_ms: SHELL_EXEC_TIMEOUT_MS_MAX + 1,
+                max_output_bytes: 1,
+            },
+            Command::ShellExec {
+                target: TargetRef::Current,
+                command: "true".into(),
+                timeout_ms: 10_000,
+                max_output_bytes: SHELL_EXEC_OUTPUT_BYTES_MAX + 1,
+            },
+        ] {
+            assert!(invalid.validate().is_err());
+        }
     }
 
     #[test]
