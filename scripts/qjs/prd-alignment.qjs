@@ -268,6 +268,7 @@ const evidence_suites = {
   "cu-linux-network-probe-smoke": true,
   "cu-linux-file-inspect-smoke": true,
   "cu-linux-file-mode-smoke": true,
+  "cu-linux-file-attributes-smoke": true,
   "cu-linux-file-copy-smoke": true,
   "cu-linux-resize-expect-smoke": true,
   "cu-linux-a11y-status-smoke": true,
