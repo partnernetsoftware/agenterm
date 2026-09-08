@@ -324,7 +324,9 @@ integration.
   kill, timeout, cancellation and slot reclamation terminate the owned tree and
   reap the direct child; containment setup failure returns typed instead of
   exposing an uncontained handle.
-- [x] `check-many` charges entry files and recursively resolved imports to one
+- [x] `check-many` admits up to 1024 manifest entries so the growing owned qjs
+  corpus remains one repository-wide gate, then charges entry files and
+  recursively resolved imports to one
   aggregate source ledger, applies the per-source byte limit to every imported
   module, caps resolved modules at 1024 and checks the same wall deadline during
   resolution and after compilation. A canonical-path cache charges and counts a

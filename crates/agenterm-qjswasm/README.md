@@ -277,7 +277,8 @@ deadline 仍负责约束总时长；预算对齐不是取消上限。
 证据在 `tests/tool_door.rs` 与 `src/host.rs` / `src/tool.rs` 的单测。
 
 `check-many` 的预算覆盖完整编译闭包，不只清单列出的入口文件。入口与递归
-`import` 共用 8 MiB 源码总账、每模块 `--source-bytes` 上限、1024 次模块解析上限和
+`import` 共用 8 MiB 源码总账、每模块 `--source-bytes` 上限、1024 个清单入口、
+1024 次模块解析上限和
 一条 wall deadline；导入文件在读取前后都复核大小，越界分别以
 `limit_import_source_bytes` / `limit_import_modules` / `limit_wall_time` 失败。解析器仍只
 允许项目根内的规范路径，失败不会退化成无界读取或把普通 “module not found” 冒充预算错误。

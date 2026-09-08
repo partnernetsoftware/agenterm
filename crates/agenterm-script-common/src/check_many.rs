@@ -44,7 +44,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 pub const MANIFEST_MAX_BYTES: usize = 64 * 1024;
-pub const FILES_MAX: usize = 256;
+pub const FILES_MAX: usize = 1_024;
 pub const PATH_MAX_BYTES: usize = 4 * 1024;
 pub const TOTAL_SOURCE_MAX_BYTES: usize = 8 * 1024 * 1024;
 pub const DEFAULT_WALL_TIME_MS: u64 = 10_000;
@@ -585,5 +585,15 @@ mod tests {
         let manifest_path = write_manifest(&dir, &refs);
         let err = read_manifest(&manifest_path, &[KIND]).expect_err("too many files");
         assert!(err.contains("files"), "{err}");
+    }
+
+    #[test]
+    fn check_many_accepts_the_file_limit() {
+        let dir = TempDir::new().unwrap();
+        let files: Vec<String> = (0..FILES_MAX).map(|i| format!("f{i}.txt")).collect();
+        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        let manifest_path = write_manifest(&dir, &refs);
+        let manifest = read_manifest(&manifest_path, &[KIND]).expect("file limit is inclusive");
+        assert_eq!(manifest.files.len(), FILES_MAX);
     }
 }

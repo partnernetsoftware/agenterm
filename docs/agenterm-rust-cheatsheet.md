@@ -4178,6 +4178,12 @@ module the product does not execute. Let the generic engine accept an
 embedder-supplied built-in resolver, account each resolved source against the
 same bytes/module/deadline ledger, and resolve it before filesystem modules.
 
+A repository-wide bounded manifest needs capacity headroom above the owned
+corpus, not a limit equal to yesterday's file count. Keep a finite entry cap,
+an inclusive boundary test and independent byte/deadline budgets; when normal
+growth reaches the cap, raise the documented robustness ceiling rather than
+splitting one authoritative gate into partial scans.
+
 A product-owned qjs entry should be compiled into the executable together with
 all of its imports and run through the ordinary worker, budget, audit and
 cleanup chain. Give it a reserved `.qjs` label, report its audit source as
