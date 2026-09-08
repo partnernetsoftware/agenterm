@@ -719,12 +719,14 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
     assert!(CANDIDATE.contains("Upload exact-source ACU runtime control"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-retirement-cell-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/acu-provider-smoke.qjs"));
+    assert!(CANDIDATE.contains("scripts/qjs/acu-mcp-provider-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-setup-cli-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/cu-setup-runtime-refresh-smoke.qjs"));
     assert!(CANDIDATE.contains("scripts/qjs/lib/test_harness.qjs"));
     assert!(runtime.contains("runtime-control/cu-setup-cli-smoke.qjs"));
     assert!(runtime.contains("runtime-control/cu-setup-runtime-refresh-smoke.qjs"));
     assert!(runtime.contains("runtime-control/cu-retirement-cell-smoke.qjs"));
+    assert!(runtime.contains("runtime-control/acu-mcp-provider-smoke.qjs"));
     assert!(runtime.contains("\"$provider\" \"$abi\""));
     for provider in [
         "runtime/agenterm-cu-provider.dll",
@@ -737,11 +739,12 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
         );
     }
     for contract in [
-        "schema_version: 4",
+        "schema_version: 5",
         "AGENTERM_CU_GRANT: \"observe\"",
         "acu_provider: {",
         "abi_version: 1",
         "cu.retirement-cell.acu-provider",
+        "acu.mcp-provider-capabilities",
     ] {
         assert!(
             CU_RETIREMENT_CELL_QJS.contains(contract),
@@ -749,11 +752,12 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
         );
     }
     for contract in [
-        "cell.schema_version === 4",
+        "cell.schema_version === 5",
         "agenterm_consumer.name === consumer_name",
         "acu_provider.name === provider_name",
         "acu_provider.abi_version === 1",
         "cu.retirement-cell.acu-provider",
+        "acu.mcp-provider-capabilities",
     ] {
         assert!(
             RELEASE_CANDIDATE_QJS.contains(contract),

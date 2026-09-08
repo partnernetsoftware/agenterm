@@ -8,6 +8,7 @@
 // Args: AGENTERM_LAUNCHER AGENTERM_CONSUMER AGENTERM_CU ACU_PROVIDER
 //       LIBAGENTERM PLATFORM_ID SOURCE_SHA ARCHIVE_SHA256 RUN_ID RUN_ATTEMPT
 //       OUTPUT_JSON SETUP_RECEIPT SETUP_REFRESH_RECEIPT ACU_PROVIDER_SMOKE
+//       ACU_MCP_PROVIDER_SMOKE
 import * as rh from "lib/rh_compat";
 
 function require_ok(condition, message) {
@@ -19,7 +20,7 @@ function valid_hex(value, length) {
 }
 
 const args = rh.args();
-require_ok(args.length === 14, "cu_retirement_cell_arguments");
+require_ok(args.length === 15, "cu_retirement_cell_arguments");
 const launcher = rh.absolute(args[0]);
 const consumer = rh.absolute(args[1]);
 const executable = rh.absolute(args[2]);
@@ -34,6 +35,7 @@ const output = rh.absolute(args[10]);
 const setup_receipt_path = rh.absolute(args[11]);
 const setup_refresh_receipt_path = rh.absolute(args[12]);
 const provider_smoke_path = rh.absolute(args[13]);
+const mcp_provider_smoke_path = rh.absolute(args[14]);
 
 const platforms = {
   "windows-x86_64": { os: "windows", arch: "x86_64" },
@@ -52,6 +54,9 @@ require_ok(rh.exists(provider) && rh.metadata(provider).is_file, "cu_retirement_
 require_ok(rh.exists(abi) && rh.metadata(abi).is_file, "cu_retirement_cell_abi");
 require_ok(rh.exists(provider_smoke_path) && rh.metadata(provider_smoke_path).is_file,
            "cu_retirement_cell_provider_smoke");
+require_ok(rh.exists(mcp_provider_smoke_path)
+             && rh.metadata(mcp_provider_smoke_path).is_file,
+           "cu_retirement_cell_mcp_provider_smoke");
 require_ok(valid_hex(source_sha, 40), "cu_retirement_cell_source_sha");
 require_ok(valid_hex(archive_sha256, 64), "cu_retirement_cell_archive_sha256");
 require_ok(run_id !== "" && rh.only_chars(run_id, rh.DIGITS), "cu_retirement_cell_run_id");
@@ -102,6 +107,24 @@ require_ok(provider_probe.exit_code === 0 && provider_probe.success,
 require_ok(provider_probe.stdout.includes(
   "PASS: agenterm:acu fixed-sibling provider executed typed command and argv in-process"
 ), "cu_retirement_cell_provider_pass");
+const mcp_provider_probe = rh.command(
+  launcher,
+  [
+    "cli", "script", "run", "--profile", "tool",
+    "--timeout-ms", "60000", "--max-operations", "100000000",
+    "--max-output-bytes", "262144",
+    mcp_provider_smoke_path, "--", launcher, provider
+  ],
+  {
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 90000
+  }
+);
+require_ok(mcp_provider_probe.exit_code === 0 && mcp_provider_probe.success,
+           "cu_retirement_cell_mcp_provider_exit");
+require_ok(mcp_provider_probe.stdout.includes(
+  "PASS: MCP stdio executed fixed-sibling ACU capabilities with closed schema refusals"
+), "cu_retirement_cell_mcp_provider_pass");
 require_ok(rh.exists(setup_receipt_path) && rh.metadata(setup_receipt_path).is_file,
            "cu_retirement_cell_setup_receipt_missing");
 const setup = rh.parse_file(setup_receipt_path);
@@ -134,7 +157,7 @@ require_ok(setup_refresh.evidence.length === 1
            "cu_retirement_cell_setup_refresh_evidence_invalid");
 
 const receipt = {
-  schema_version: 4,
+  schema_version: 5,
   kind: "agenterm-cu-runtime-cell",
   source_sha: source_sha,
   run: { id: run_id, attempt: run_attempt },
@@ -167,6 +190,7 @@ const receipt = {
   },
   evidence: [
     "cu.retirement-cell.acu-provider",
+    "acu.mcp-provider-capabilities",
     "cu.retirement-cell.capabilities",
     "cu.retirement-cell.runtime-status",
     "cu.setup-cli-entrypoint",
@@ -178,6 +202,7 @@ const receipt = {
 };
 rh.atomic_write(output, rh.stringify_pretty(receipt) + "\n");
 print("EVIDENCE cu.retirement-cell.acu-provider");
+print("EVIDENCE acu.mcp-provider-capabilities");
 print("EVIDENCE cu.retirement-cell.capabilities");
 print("EVIDENCE cu.retirement-cell.runtime-status");
 print("EVIDENCE cu.setup-cli-entrypoint");

@@ -1,0 +1,228 @@
+// Public stdio black box for the fixed-sibling ACU provider exposed through
+// AgenTerm MCP. The provider path is court evidence only: it must already be
+// the canonical sibling of the packaged launcher and is never passed to the
+// product as an override.
+//
+// Args:
+//   --list-evidence
+// or:
+//   AGENTERM_LAUNCHER ACU_PROVIDER
+import * as rh from "lib/rh_compat";
+
+const evidence_id = "acu.mcp-provider-capabilities";
+
+function require_ok(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function normalized_path(value) {
+  return ("" + value).replaceAll("\\", "/");
+}
+
+function exact_keys(value, expected) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  if (keys.length !== expected.length) { return false; }
+  for (const key of expected) {
+    if (!keys.includes(key)) { return false; }
+  }
+  return true;
+}
+
+function exact_value(actual, expected) {
+  if (actual === null || expected === null) { return actual === expected; }
+  if (typeof actual !== typeof expected) { return false; }
+  if (Array.isArray(actual) || Array.isArray(expected)) {
+    if (!Array.isArray(actual) || !Array.isArray(expected)
+        || actual.length !== expected.length) {
+      return false;
+    }
+    for (let i = 0; i < actual.length; i = i + 1) {
+      if (!exact_value(actual[i], expected[i])) { return false; }
+    }
+    return true;
+  }
+  if (typeof actual !== "object") { return actual === expected; }
+  const actual_keys = Object.keys(actual);
+  const expected_keys = Object.keys(expected);
+  if (!exact_keys(actual, expected_keys) || actual_keys.length !== expected_keys.length) {
+    return false;
+  }
+  for (const key of expected_keys) {
+    if (!exact_value(actual[key], expected[key])) { return false; }
+  }
+  return true;
+}
+
+function response_with_id(responses, id) {
+  for (const response of responses) {
+    if (response.id === id) { return response; }
+  }
+  throw "acu_mcp_response_missing:" + id;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  print(evidence_id);
+  return;
+}
+require_ok(args.length === 2, "expected: AGENTERM_LAUNCHER ACU_PROVIDER");
+
+const launcher = normalized_path(rh.absolute(args[0]));
+const provider = normalized_path(rh.absolute(args[1]));
+require_ok(rh.exists(launcher) && rh.metadata(launcher).is_file,
+           "acu_mcp_launcher_missing");
+require_ok(rh.exists(provider) && rh.metadata(provider).is_file,
+           "acu_mcp_provider_missing");
+require_ok(rh.parent(launcher).toLowerCase() === rh.parent(provider).toLowerCase(),
+           "acu_mcp_provider_not_fixed_sibling");
+
+const provider_name = rh.file_name(provider).toLowerCase();
+let expected_launcher = "agenterm";
+if (provider_name === "agenterm-cu-provider.dll") {
+  expected_launcher = "agenterm.com";
+} else {
+  require_ok(
+    provider_name === "agenterm-cu-provider.so"
+      || provider_name === "agenterm-cu-provider.dylib",
+    "acu_mcp_provider_name"
+  );
+}
+require_ok(rh.file_name(launcher).toLowerCase() === expected_launcher,
+           "acu_mcp_launcher_name");
+
+const descriptor = {
+  name: "agenterm_acu_capabilities",
+  title: "Inspect agenterm-cu capabilities",
+  description: "Return the canonical read-only agenterm-cu capability inventory through the shared typed Executor.",
+  inputSchema: {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    additionalProperties: false,
+    properties: {}
+  },
+  outputSchema: {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      ok: { type: "boolean" },
+      target: { type: "string" },
+      command: { type: "string" },
+      data: {},
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          count: { type: "integer", minimum: 0 },
+          detail: {}
+        },
+        required: ["code", "message"]
+      }
+    },
+    required: ["ok", "target", "command"]
+  },
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false
+  }
+};
+
+function request(id, method, params) {
+  const message = { jsonrpc: "2.0", id: id, method: method };
+  if (params !== undefined) { message.params = params; }
+  return JSON.stringify(message) + "\n";
+}
+
+let input = request("initialize", "initialize", {
+  protocolVersion: "2025-11-25",
+  capabilities: {},
+  clientInfo: { name: "acu-mcp-provider-smoke", version: "1" }
+});
+input = input + JSON.stringify({
+  jsonrpc: "2.0", method: "notifications/initialized"
+}) + "\n";
+input = input + request("tools", "tools/list", undefined);
+input = input + request("capabilities", "tools/call", {
+  name: "agenterm_acu_capabilities", arguments: {}
+});
+input = input + request("unknown", "tools/call", {
+  name: "agenterm_acu_unknown", arguments: {}
+});
+input = input + request("extra-argument", "tools/call", {
+  name: "agenterm_acu_capabilities", arguments: { unexpected: true }
+});
+
+const output = rh.command(
+  launcher,
+  ["cli", "mcp", "serve", "--stdio"],
+  {
+    env: { AGENTERM_CU_GRANT: "observe", AGENTERM_NO_ACTIVATE: "1" },
+    stdin: input,
+    timeout_ms: 30000
+  }
+);
+require_ok(output.exit_code === 0 && output.success && !output.timed_out,
+           "acu_mcp_stdio_exit:" + output.stderr);
+require_ok(output.stderr === "", "acu_mcp_stdio_stderr:" + output.stderr);
+
+const responses = [];
+for (const line of output.stdout.replaceAll("\r\n", "\n").split("\n")) {
+  if (line.trim() !== "") { responses.push(JSON.parse(line)); }
+}
+require_ok(responses.length === 5, "acu_mcp_response_count:" + responses.length);
+
+const initialized = response_with_id(responses, "initialize");
+require_ok(initialized.jsonrpc === "2.0"
+             && initialized.result.protocolVersion === "2025-11-25",
+           "acu_mcp_initialize_reply");
+
+const listed = response_with_id(responses, "tools");
+require_ok(Array.isArray(listed.result.tools) && listed.result.tools.length === 2,
+           "acu_mcp_tools_count");
+require_ok(listed.result.tools[0].name === "agenterm_wait",
+           "acu_mcp_wait_descriptor_missing");
+require_ok(exact_value(listed.result.tools[1], descriptor),
+           "acu_mcp_capabilities_descriptor_drift");
+
+const called = response_with_id(responses, "capabilities");
+require_ok(called.result.isError === false, "acu_mcp_capabilities_is_error");
+const reply = called.result.structuredContent;
+require_ok(exact_keys(reply, ["ok", "target", "command", "data"]),
+           "acu_mcp_capabilities_reply_fields");
+require_ok(reply.ok === true && reply.target === "current"
+             && reply.command === "capabilities",
+           "acu_mcp_capabilities_reply");
+require_ok(reply.data !== null && typeof reply.data === "object",
+           "acu_mcp_capabilities_data");
+require_ok(Array.isArray(called.result.content) && called.result.content.length === 1
+             && called.result.content[0].type === "text"
+             && exact_value(JSON.parse(called.result.content[0].text), reply),
+           "acu_mcp_capabilities_text_projection");
+
+const unknown = response_with_id(responses, "unknown");
+require_ok(unknown.error.code === -32602
+             && unknown.error.message === "Unknown tool"
+             && unknown.error.data.name === "agenterm_acu_unknown",
+           "acu_mcp_unknown_tool_not_closed");
+
+const extra = response_with_id(responses, "extra-argument");
+require_ok(extra.result.isError === true, "acu_mcp_extra_argument_is_error");
+const extra_reply = extra.result.structuredContent;
+require_ok(exact_keys(extra_reply, ["ok", "target", "command", "error"])
+             && extra_reply.ok === false
+             && extra_reply.command === "acu.request"
+             && extra_reply.error.code === "invalid_acu_request",
+           "acu_mcp_extra_argument_not_closed");
+require_ok(extra_reply.error.message
+             === "agenterm_acu_capabilities arguments must be an empty object",
+           "acu_mcp_extra_argument_diagnostic");
+
+print("EVIDENCE " + evidence_id);
+print("PASS: MCP stdio executed fixed-sibling ACU capabilities with closed schema refusals");
+return;

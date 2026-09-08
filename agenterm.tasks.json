@@ -859,6 +859,23 @@
         "task.acu-provider-smoke"
       ]
     },
+    "acu-mcp-provider-smoke": {
+      "inputs": [
+        "built-agenterm-with-acu-provider"
+      ],
+      "outputs": [
+        "acu-mcp-provider-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-mcp-provider-smoke"
+      ]
+    },
     "cu-doctor-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3382,6 +3399,26 @@
         "macos"
       ],
       "side_effects": []
+    },
+    {
+      "id": "acu-mcp-provider-smoke",
+      "description": "Prove MCP stdio reaches fixed-sibling ACU capabilities through the shared typed Executor and rejects unknown or malformed calls closed.",
+      "entry": "scripts/qjs/acu-mcp-provider-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "target/debug/agenterm",
+        "target/debug/agenterm-cu-provider.dylib"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
     },
     {
       "id": "cu-doctor-smoke",

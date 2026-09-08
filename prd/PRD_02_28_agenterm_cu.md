@@ -183,10 +183,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `agenterm-cu`, and its `CuReply` passes through unchanged as MCP structured
   content. A macOS public stdio black box has executed this path. The Candidate
   six-cell runtime job now hashes the public launcher and fixed-name provider,
-  executes both `agenterm:acu.call` and `.argv` through `agenterm cli acu`, and
-  seals that result in schema-4 per-cell receipts. The first exact-SHA remote
+  executes both `agenterm:acu.call` and `.argv` through `agenterm cli acu`, then
+  drives `agenterm_acu_capabilities` through MCP stdio and seals all three paths
+  in schema-5 per-cell receipts. The first exact-SHA remote
   execution is still pending, so this is wired evidence rather than six-target
   qualification; broader MCP verbs remain open.
+
+- [~] qjswasm drives MCP stdio into the fixed-sibling ACU provider and preserves the shared typed capability reply; macOS is green and the six native Candidate cells are wired but not yet remotely qualified.
 
   ```mermaid
   flowchart LR
@@ -194,7 +197,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
     OBJ["agenterm:acu.call/argv<br/>one parser · one Executor"]
     PROVIDER["fixed sibling dynamic provider<br/>ABI checked · bounded · no fallback"]
-    COURT["six native Candidate cells [~]<br/>dynamic load · schema-4 receipt"]
+    COURT["six native Candidate cells [~]<br/>dynamic load + MCP · schema-5 receipt"]
     GATE{"typed-object parity · TODO-aware<br/>MCU-absent black box"}
     QJS["acu.qjs [~]<br/>Bun-free native path<br/>42/42 positive · dynamic queue remains"]
     USERS["typed consumers<br/>CLI · MCP · qjs"]

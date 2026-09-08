@@ -327,6 +327,10 @@
       "evidence": ["cu.app-facts.linux"]
     },
     {
+      "id": "acu-mcp-provider-smoke",
+      "evidence": ["acu.mcp-provider-capabilities"]
+    },
+    {
       "id": "cu-process-inventory-smoke",
       "evidence": ["cu.process-inventory-rich"]
     },

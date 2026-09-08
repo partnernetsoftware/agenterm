@@ -261,6 +261,7 @@ const evidence_suites = {
   "cu-network-interfaces-smoke": true,
   "cu-desktop-state-smoke": true,
   "cu-app-facts-smoke": true,
+  "acu-mcp-provider-smoke": true,
   "cu-process-inventory-smoke": true,
   "cu-process-inspection-smoke": true,
   "cu-process-sockets-smoke": true,
