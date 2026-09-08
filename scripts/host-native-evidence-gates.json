@@ -231,6 +231,20 @@
       ]
     },
     {
+      "id": "cu-linux-maximize-expect-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-maximize-expect-state"
+      ]
+    },
+    {
+      "id": "cu-linux-window-close-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-close-expect-gone"
+      ]
+    },
+    {
       "id": "cu-linux-keyboard-layout-smoke",
       "platform": "linux",
       "evidence": [

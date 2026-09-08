@@ -259,6 +259,8 @@ const evidence_suites = {
   "cu-linux-keyboard-layout-smoke": true,
   "cu-linux-resize-expect-smoke": true,
   "cu-linux-minimize-expect-smoke": true,
+  "cu-linux-maximize-expect-smoke": true,
+  "cu-linux-window-close-smoke": true,
   "cu-linux-menu-invoke-smoke": true,
   "cu-linux-clipboard-mime-smoke": true,
   "cu-windows-smoke": true,
