@@ -432,6 +432,13 @@
       ]
     },
     {
+      "id": "cu-linux-spaces-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-spaces-readback"
+      ]
+    },
+    {
       "id": "cu-macos-external-terminal-send-smoke",
       "platform": "macos",
       "evidence": [
