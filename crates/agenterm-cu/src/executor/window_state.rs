@@ -464,6 +464,10 @@ fn read_minimized(window: isize) -> Result<bool, CuError> {
     mechanism::window_op::minimized(window).map_err(map_mechanism_err)
 }
 
+fn read_maximized(window: isize) -> Result<bool, CuError> {
+    mechanism::window_op::maximized(window).map_err(map_mechanism_err)
+}
+
 fn inventory_present(window: isize) -> Option<bool> {
     mechanism::window_enumerate::enumerate_top_level()
         .ok()
@@ -485,9 +489,14 @@ pub(super) fn window_state_payload(
     // The state is read before anything else: an already-minimized window
     // must be a verified no-op, not a second minimize.
     let was_minimized = read_minimized(window).map_err(not_performed)?;
+    let was_maximized = if matches!(state, WindowState::Restored) {
+        read_maximized(window).map_err(not_performed)?
+    } else {
+        false
+    };
     let was_present = inventory_present(window);
     let wanted = state.wants_minimized();
-    let performed = was_minimized != wanted;
+    let performed = was_minimized != wanted || was_maximized;
     let front_before = frontmost_app_now();
     let before = serde_json::json!({
         "minimized": was_minimized,
@@ -615,6 +624,173 @@ pub(super) fn window_state_payload(
             format!(
                 "{} was delivered to window {window} but it reads minimized={now} after {polls} polls",
                 state.verb()
+            ),
+        )
+        .with_detail(serde_json::json!({ "reason": "state_mismatch", "receipt": payload })));
+    }
+    Ok(payload)
+}
+
+/// `maximize --window H --expect maximized`: EWMH maximize with read-back.
+pub(super) fn maximize_payload(
+    window: isize,
+    expect: Option<&str>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    const POSTCONDITION: &str = "maximized";
+    let mut missing = Vec::new();
+    if window == 0 {
+        missing.push("target");
+    }
+    match expect.map(str::trim) {
+        Some(value) if value == POSTCONDITION => {}
+        _ => missing.push("postcondition"),
+    }
+    if !missing.is_empty() {
+        return Err(CuError::new(
+            "refused",
+            format!(
+                "maximize changes what the user sees: it needs an exact target (--window HANDLE) \
+                 and a checkable postcondition (--expect {POSTCONDITION}); nothing was performed"
+            ),
+        )
+        .with_detail(serde_json::json!({
+            "reason": "destructive_gate",
+            "missing": missing,
+            "required": {
+                "target": "--window HANDLE",
+                "postcondition": format!("--expect {POSTCONDITION}"),
+            },
+            "effect": "not_performed",
+        })));
+    }
+    let not_performed = |error: CuError| {
+        let mut detail = error.detail.clone().unwrap_or(serde_json::json!({}));
+        detail["effect"] = serde_json::json!("not_performed");
+        error.with_detail(detail)
+    };
+    let was_maximized = read_maximized(window).map_err(not_performed)?;
+    let was_present = inventory_present(window);
+    let performed = !was_maximized;
+    let front_before = frontmost_app_now();
+    let before = serde_json::json!({
+        "maximized": was_maximized,
+        "inventory_present": was_present,
+    });
+    let ticket = receipts.reserve(
+        "maximize",
+        window,
+        serde_json::json!({
+            "action": "maximize",
+            "postcondition": POSTCONDITION,
+            "performed": performed,
+            "before": before,
+            "frontmost_app": frontmost_json(front_before.as_ref()),
+        }),
+    )?;
+    let mut mechanism_error = None;
+    if performed {
+        mechanism_error = mechanism::window_op::show(window, crate::dynlib::AGT_NATIVE_WINDOW_MAXIMIZE)
+            .err()
+            .map(map_mechanism_err);
+    }
+    let started = Instant::now();
+    let mut polls = 0usize;
+    let mut now = was_maximized;
+    let mut readback_error = None;
+    loop {
+        polls += 1;
+        match read_maximized(window) {
+            Ok(value) => now = value,
+            Err(error) => {
+                readback_error = Some(error);
+                break;
+            }
+        }
+        if now || mechanism_error.is_some() || started.elapsed() >= STATE_READBACK {
+            break;
+        }
+        thread::sleep(STATE_READBACK_POLL);
+    }
+    let is_present = inventory_present(window);
+    let front_after = frontmost_app_now();
+    let front_pid_before = front_before.as_ref().map(|app| app.pid);
+    let front_pid_after = front_after.as_ref().map(|app| app.pid);
+    let foreground_unchanged = front_pid_before == front_pid_after;
+    let verified = now
+        && foreground_unchanged
+        && mechanism_error.is_none()
+        && readback_error.is_none();
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if readback_error.is_some() {
+        Some("readback_failed")
+    } else if !foreground_unchanged {
+        Some("foreground_changed")
+    } else if !now {
+        Some("state_mismatch")
+    } else if !performed {
+        Some("already_maximized")
+    } else {
+        None
+    };
+    let verification = serde_json::json!({
+        "method": "window-maximized-readback",
+        "reason": reason,
+        "polls": polls,
+        "elapsed_ms": started.elapsed().as_millis(),
+    });
+    let after = serde_json::json!({
+        "maximized": now,
+        "inventory_present": is_present,
+    });
+    receipts.complete(
+        &ticket,
+        "maximize",
+        window,
+        verified,
+        serde_json::json!({
+            "performed": performed && mechanism_error.is_none(),
+            "after": after,
+            "verification": verification,
+            "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
+        }),
+    )?;
+    let payload = serde_json::json!({
+        "addressing": "window-handle",
+        "mechanism": "libagenterm",
+        "via": "native-window-maximize",
+        "window": window,
+        "action": "maximize",
+        "postcondition": POSTCONDITION,
+        "performed": performed && mechanism_error.is_none(),
+        "verified": verified,
+        "verification": verification,
+        "before": before,
+        "after": after,
+        "frontmost_app_before": frontmost_json(front_before.as_ref()),
+        "frontmost_app_after": frontmost_json(front_after.as_ref()),
+        "frontmost_app_unchanged": foreground_unchanged,
+        "activated_application": false,
+        "receipt": ticket.json(),
+    });
+    if let Some(error) = mechanism_error.or(readback_error) {
+        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+    }
+    if !foreground_unchanged {
+        return Err(CuError::new(
+            "foreground_changed",
+            format!(
+                "maximize on window {window} moved the system frontmost application from {front_pid_before:?} to {front_pid_after:?}; it must not activate anything"
+            ),
+        )
+        .with_detail(serde_json::json!({ "reason": "foreground_changed", "receipt": payload })));
+    }
+    if !now {
+        return Err(CuError::new(
+            "unverified",
+            format!(
+                "maximize was delivered to window {window} but it reads maximized={now} after {polls} polls"
             ),
         )
         .with_detail(serde_json::json!({ "reason": "state_mismatch", "receipt": payload })));

@@ -33,6 +33,12 @@ pub fn minimized(handle: isize) -> Result<bool, WindowOpError> {
     crate::selected::window_op::minimized(handle)
 }
 
+/// Reads whether the native window is maximized. A pure observation: no
+/// adapter activates, raises or reorders anything to answer it.
+pub fn maximized(handle: isize) -> Result<bool, WindowOpError> {
+    crate::selected::window_op::maximized(handle)
+}
+
 /// Requests foreground activation of one exact native window. This is
 /// intentionally distinct from [`show`]: activation changes the desktop's
 /// global foreground owner, while `Show` only raises within the host-defined

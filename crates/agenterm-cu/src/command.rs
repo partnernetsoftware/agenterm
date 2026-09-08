@@ -3820,6 +3820,14 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expect: Option<String>,
     },
+    /// `maximize --window HANDLE --expect maximized`: EWMH maximize with
+    /// read-back, distinct from the `window-place fullscreen` alias.
+    Maximize {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
     /// `drag`: one press, a bounded series of moves and one release,
     /// delivered as one gesture.
     ///
@@ -4273,6 +4281,7 @@ impl Command {
             Self::Raise { .. } => "raise".into(),
             Self::Minimize { .. } => "minimize".into(),
             Self::Restore { .. } => "restore".into(),
+            Self::Maximize { .. } => "maximize".into(),
             Self::Drag { .. } => "drag".into(),
             Self::Hit { .. } => "hit".into(),
             Self::Zoom { .. } => "zoom".into(),
@@ -4693,6 +4702,7 @@ impl Command {
             | Self::Raise { target, .. }
             | Self::Minimize { target, .. }
             | Self::Restore { target, .. }
+            | Self::Maximize { target, .. }
             | Self::Drag { target, .. }
             | Self::Hit { target, .. }
             | Self::Zoom { target, .. }
@@ -4837,6 +4847,7 @@ impl Command {
             | Self::Raise { .. }
             | Self::Minimize { .. }
             | Self::Restore { .. }
+            | Self::Maximize { .. }
             | Self::Drag { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,

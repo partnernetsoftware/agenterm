@@ -1026,6 +1026,7 @@ mod tests {
             },
             focused: true,
             minimized: false,
+            maximized: false,
         }
     }
 

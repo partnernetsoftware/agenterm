@@ -83,6 +83,20 @@ fn shorthand(verb: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
     let window = parse_optional_window(args)?;
     let command = match verb {
         "maximize" => {
+            let expect = flag_text(args, "--expect")?;
+            if expect.is_some() {
+                if !args.is_empty() {
+                    return Err(format!(
+                        "maximize with --expect accepts only --window H --expect maximized; unexpected {:?}",
+                        args[0]
+                    ));
+                }
+                return Ok(Command::Maximize {
+                    target,
+                    window: window.unwrap_or(0),
+                    expect,
+                });
+            }
             if !args.is_empty() {
                 return Err(format!(
                     "maximize accepts --window H; unexpected {:?}",

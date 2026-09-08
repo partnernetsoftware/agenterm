@@ -34,6 +34,12 @@ pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
     foreign_windows::minimized(handle)
 }
 
+pub(crate) fn maximized(_handle: isize) -> Result<bool, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "reading the maximized state is not wired on macOS yet".into(),
+    })
+}
+
 pub(crate) fn activate(handle: isize) -> Result<(), WindowOpError> {
     foreign_windows::activate(handle)
 }

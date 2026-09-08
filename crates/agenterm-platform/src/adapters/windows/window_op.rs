@@ -3,7 +3,8 @@
 use windows_sys::Win32::{
     Foundation::{HWND, RECT},
     UI::WindowsAndMessaging::{
-        GetWindowRect, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow, MoveWindow, PostMessageW,
+        GetWindowRect, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow, IsZoomed, MoveWindow,
+        PostMessageW,
         SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
         SWP_NOSIZE, SetForegroundWindow, SetWindowPos, ShowWindow, WM_CLOSE,
     },
@@ -52,6 +53,10 @@ pub(crate) fn move_window(
 /// not a window simply answers false), so there is no error path to map.
 pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
     Ok(unsafe { IsIconic(handle as HWND) } != 0)
+}
+
+pub(crate) fn maximized(handle: isize) -> Result<bool, WindowOpError> {
+    Ok(unsafe { IsZoomed(handle as HWND) } != 0)
 }
 
 pub(crate) fn activate(handle: isize) -> Result<(), WindowOpError> {

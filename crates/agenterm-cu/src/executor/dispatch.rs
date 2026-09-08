@@ -2126,6 +2126,11 @@ impl Executor {
                 expect.as_deref(),
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::Maximize { window, expect, .. } => maximize_payload(
+                *window,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::Drag {
                 window,
                 from,

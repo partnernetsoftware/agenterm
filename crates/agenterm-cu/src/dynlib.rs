@@ -295,6 +295,8 @@ pub const APP_INVENTORY_ABI_MINOR: u16 = 21;
 /// read the on-screen inventory cannot carry).
 pub const POINTER_DRAG_ABI_MINOR: u16 = 25;
 pub const WINDOW_MINIMIZED_ABI_MINOR: u16 = 25;
+/// ABI 1.30: `agt_native_window_maximized` (the per-window maximized read).
+pub const WINDOW_MAXIMIZED_ABI_MINOR: u16 = 30;
 /// ABI 1.26: `agt_native_window_activate`, the explicit desktop-foreground
 /// operation (not app-local raise and not accessibility-node focus).
 pub const WINDOW_ACTIVATE_ABI_MINOR: u16 = 26;
@@ -396,6 +398,7 @@ const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[
     b"agt_native_window_rect",
     b"agt_native_window_set_topmost",
     b"agt_native_window_minimized",
+    b"agt_native_window_maximized",
     b"agt_native_window_close",
     b"agt_input_pointer_move",
     b"agt_input_pointer_scroll",

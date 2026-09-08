@@ -504,6 +504,7 @@ pub mod window_enumerate {
         pub bounds: WindowBounds,
         pub focused: bool,
         pub minimized: bool,
+        pub maximized: bool,
     }
 
     /// `agt_window_enumerate`: two-stage (probe, allocate, fetch).
@@ -530,7 +531,7 @@ pub mod window_enumerate {
                     let status = unsafe { f(buf.as_mut_ptr(), capacity, &mut got) };
                     if status == dynlib::AGT_OK {
                         buf.truncate(got);
-                        return Ok(buf.iter().map(record_to_info).collect());
+                        return Ok(enrich_maximized(buf.iter().map(record_to_info).collect()));
                     }
                     if let Some(grown) = retry_capacity(status, capacity, got) {
                         capacity = grown;
@@ -689,7 +690,18 @@ pub mod window_enumerate {
             },
             focused: record.focused != 0,
             minimized: record.minimized != 0,
+            maximized: false,
         }
+    }
+
+    fn enrich_maximized(windows: Vec<WindowInfo>) -> Vec<WindowInfo> {
+        windows
+            .into_iter()
+            .map(|mut window| {
+                window.maximized = super::window_op::maximized(window.handle).unwrap_or(false);
+                window
+            })
+            .collect()
     }
 
     fn record_to_screen(record: &dynlib::agt_screen_info) -> ScreenInfo {
@@ -808,6 +820,25 @@ pub mod window_op {
         let mut out = 0i32;
         let status = unsafe { f(handle, &mut out) };
         map_status("agt_native_window_minimized", status)?;
+        Ok(out != 0)
+    }
+
+    /// Whether a native window is maximized (ABI 1.30
+    /// `agt_native_window_maximized`).
+    pub fn maximized(handle: isize) -> Result<bool, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < crate::dynlib::WINDOW_MAXIMIZED_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "the maximized read requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    crate::dynlib::WINDOW_MAXIMIZED_ABI_MINOR
+                ),
+            });
+        }
+        let f = super::call_sym::<super::WindowMaximized>(b"agt_native_window_maximized")?;
+        let mut out = 0i32;
+        let status = unsafe { f(handle, &mut out) };
+        map_status("agt_native_window_maximized", status)?;
         Ok(out != 0)
     }
 
@@ -2503,6 +2534,7 @@ type WindowRect = unsafe extern "C" fn(isize, *mut i32, *mut i32, *mut u32, *mut
 type WindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
 type WindowClose = unsafe extern "C" fn(isize) -> i32;
 type WindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
+type WindowMaximized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type PointerMove = unsafe extern "C" fn(i32, i32) -> i32;
 type PointerScroll = unsafe extern "C" fn(i32, i32) -> i32;
 type PointerPosition = unsafe extern "C" fn(*mut i32, *mut i32) -> i32;

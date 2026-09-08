@@ -58,10 +58,11 @@ pub(crate) fn show(
     match state {
         WindowShowState::Show => raise(&conn, window),
         WindowShowState::Hide | WindowShowState::Minimize => set_iconified(&conn, window, true),
-        WindowShowState::Restore => set_iconified(&conn, window, false),
-        WindowShowState::Maximize => Err(WindowOpError::Unsupported {
-            reason: "maximize is window-manager policy and is not wired on Linux yet".into(),
-        }),
+        WindowShowState::Restore => {
+            set_maximized(&conn, window, false)?;
+            set_iconified(&conn, window, false)
+        }
+        WindowShowState::Maximize => set_maximized(&conn, window, true),
     }
 }
 
@@ -118,6 +119,52 @@ fn set_iconified(
             .map_err(|error| failed(format!("MapWindow send failed: {error}")))?;
     }
     sync(conn)
+}
+
+/// Whether `_NET_WM_STATE` lists both horizontal and vertical maximization.
+fn window_is_maximized(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+) -> Result<bool, WindowOpError> {
+    let wm_state = atom(conn, b"_NET_WM_STATE")?;
+    let horz = atom(conn, b"_NET_WM_STATE_MAXIMIZED_HORZ")?;
+    let vert = atom(conn, b"_NET_WM_STATE_MAXIMIZED_VERT")?;
+    let reply = conn
+        .get_property(false, window, wm_state, AtomEnum::ATOM, 0, 32)
+        .map_err(|error| failed(format!("_NET_WM_STATE request failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("_NET_WM_STATE reply failed: {error}")))?;
+    let Some(mut states) = reply.value32() else {
+        return Ok(false);
+    };
+    let mut has_horz = false;
+    let mut has_vert = false;
+    for state in states {
+        if state == horz {
+            has_horz = true;
+        } else if state == vert {
+            has_vert = true;
+        }
+    }
+    Ok(has_horz && has_vert)
+}
+
+fn set_maximized(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+    maximized: bool,
+) -> Result<(), WindowOpError> {
+    const NET_WM_STATE_REMOVE: u32 = 0;
+    const NET_WM_STATE_ADD: u32 = 1;
+    let wm_state = atom(conn, b"_NET_WM_STATE")?;
+    let horz = atom(conn, b"_NET_WM_STATE_MAXIMIZED_HORZ")?;
+    let vert = atom(conn, b"_NET_WM_STATE_MAXIMIZED_VERT")?;
+    let action = if maximized {
+        NET_WM_STATE_ADD
+    } else {
+        NET_WM_STATE_REMOVE
+    };
+    send_root_message(&conn, window, wm_state, [action, horz, vert, 2, 0])
 }
 
 /// Whether the window manager reports this window as not on screen.
@@ -309,6 +356,13 @@ pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
     let conn = connect()?;
     let window = window_id(handle)?;
     window_is_iconified(&conn, window)
+}
+
+/// Whether `_NET_WM_STATE` carries both maximized atoms.
+pub(crate) fn maximized(handle: isize) -> Result<bool, WindowOpError> {
+    let conn = connect()?;
+    let window = window_id(handle)?;
+    window_is_maximized(&conn, window)
 }
 
 /// `_NET_ACTIVE_WINDOW`: the explicit foreground-changing counterpart to

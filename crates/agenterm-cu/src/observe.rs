@@ -867,6 +867,7 @@ pub fn window_row_json(window: &WindowInfo) -> serde_json::Value {
         "bounds": window.bounds,
         "focused": window.focused,
         "minimized": window.minimized,
+        "maximized": window.maximized,
         "browser_profile": browser_profile_from_identity(&window.app_name, &window.title),
     })
 }
@@ -3238,6 +3239,7 @@ mod tests {
             },
             focused,
             minimized: false,
+            maximized: false,
         }
     }
 
