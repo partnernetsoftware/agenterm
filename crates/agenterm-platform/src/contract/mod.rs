@@ -78,7 +78,7 @@ pub mod pty;
 pub mod runtime;
 #[cfg(feature = "shared-memory")]
 pub mod shared_memory;
-#[cfg(feature = "storage")]
+#[cfg(any(feature = "storage", feature = "filesystem-open"))]
 pub mod storage;
 #[cfg(feature = "input")]
 pub mod terminal_input;

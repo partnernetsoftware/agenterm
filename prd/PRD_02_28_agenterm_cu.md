@@ -2126,6 +2126,13 @@ flowchart LR
   ledger is `platform-limited`, not yet promoted to native or removed from the
   overall storage family. The exact inventory spelling already routes through
   ACU; mutation and volume sub-shapes remain dynamic compatibility fallbacks.
+  `storage-volumes [--max N]` now closes the mounted-filesystem half without
+  conflating it with physical devices. Its exact decimal reply keeps
+  current-user available capacity distinct from filesystem free capacity,
+  parses Linux mount information as escaped bytes, and emits no backing-device,
+  serial or UUID identifiers. The public `cu.storage-volumes` qjswasm court is
+  green on macOS; native Linux and Windows execution remains explicit schema-2
+  debt, so `resource.disk-volumes` stays `platform-limited`.
   The platform mechanism implements identity-bound Unix mode/xattr
   inspect-plan-apply-readback primitives, including macOS quarantine removal.
   It binds a no-follow opened directory entry to the caller's existing handle

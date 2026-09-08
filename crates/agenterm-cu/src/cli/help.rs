@@ -123,7 +123,7 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-watch  device-list  storage-devices  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
+            "  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
             1,
         );
     }
@@ -292,6 +292,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "runtime-status",
         "setup",
         "storage-devices",
+        "storage-volumes",
         "device-list",
         "device-watch",
         "device-claims",

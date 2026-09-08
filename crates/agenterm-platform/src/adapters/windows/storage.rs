@@ -1,7 +1,8 @@
 use std::os::windows::ffi::OsStrExt;
 
 use crate::contract::storage::{
-    StorageError, StorageErrorKind, VolumeSpace, checked_product, checked_space,
+    MountedVolumeSpace, StorageError, StorageErrorKind, VolumeSpace, checked_mounted_space,
+    checked_product, checked_space,
 };
 
 pub(crate) fn volume_space(path: &std::path::Path) -> Result<VolumeSpace, StorageError> {
@@ -44,6 +45,45 @@ pub(crate) fn volume_space(path: &std::path::Path) -> Result<VolumeSpace, Storag
         "sectors per cluster",
     )?;
     checked_space(total, available, allocation_unit)
+}
+
+pub(crate) fn mounted_volume_space(
+    path: &std::path::Path,
+) -> Result<MountedVolumeSpace, StorageError> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetDiskFreeSpaceW};
+    let root = wide(path)?;
+    let mut available = 0_u64;
+    let mut total = 0_u64;
+    let mut free = 0_u64;
+    if unsafe { GetDiskFreeSpaceExW(root.as_ptr(), &mut available, &mut total, &mut free) } == 0 {
+        return Err(query_error("query mounted volume capacity"));
+    }
+    let mut sectors_per_cluster = 0_u32;
+    let mut bytes_per_sector = 0_u32;
+    let mut free_clusters = 0_u32;
+    let mut total_clusters = 0_u32;
+    if unsafe {
+        GetDiskFreeSpaceW(
+            root.as_ptr(),
+            &mut sectors_per_cluster,
+            &mut bytes_per_sector,
+            &mut free_clusters,
+            &mut total_clusters,
+        )
+    } == 0
+    {
+        return Err(query_error("query mounted volume allocation unit"));
+    }
+    checked_mounted_space(
+        total,
+        free,
+        available,
+        checked_product(
+            u64::from(sectors_per_cluster),
+            u64::from(bytes_per_sector),
+            "sectors per cluster",
+        )?,
+    )
 }
 
 fn wide(path: &std::path::Path) -> Result<Vec<u16>, StorageError> {

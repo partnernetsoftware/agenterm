@@ -1,0 +1,121 @@
+// Platform-neutral public black-box court for bounded mounted-volume capacity.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.storage-volumes"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const receipt_path = rh.join(run_directory, "cu-receipts.jsonl");
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: receipt_path
+    },
+    timeout_ms: 30000
+  });
+  ensure(output.success === expect_success, "cu_storage_volumes_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_storage_volumes_reply_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "", "cu_storage_volumes_effect_receipt_created");
+  return reply;
+}
+
+function canonical_decimal(value) {
+  ensure(typeof value === "string" && value.length > 0, "cu_storage_volumes_decimal");
+  let first = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const digit = value.charCodeAt(index);
+    ensure(digit >= 48 && digit <= 57, "cu_storage_volumes_decimal_digit");
+    if (first === index && digit === 48) { first += 1; }
+  }
+  return first === value.length ? "0" : value.slice(first);
+}
+
+function decimal_le(left, right) {
+  left = canonical_decimal(left);
+  right = canonical_decimal(right);
+  return left.length < right.length || (left.length === right.length && left <= right);
+}
+
+function assert_inventory(reply, max) {
+  ensure(reply.command === "storage-volumes" && reply.target === "current", "cu_storage_volumes_identity");
+  const data = reply.data;
+  ensure(Array.isArray(data.volumes) && data.volumes.length >= 1 && data.volumes.length <= max, "cu_storage_volumes_count");
+  ensure(typeof data.visited === "number" && data.visited >= data.volumes.length, "cu_storage_volumes_visited");
+  ensure(typeof data.read_errors === "number" && data.read_errors >= 0, "cu_storage_volumes_errors");
+  ensure(typeof data.truncated === "boolean" && typeof data.complete === "boolean", "cu_storage_volumes_coverage");
+  ensure(data.mutation_performed === false, "cu_storage_volumes_mutation");
+  ensure(data.privacy.mount_paths_returned === true, "cu_storage_volumes_paths_hidden");
+  ensure(data.privacy.device_identifiers_returned === false && data.privacy.serial_numbers_returned === false, "cu_storage_volumes_private_identity");
+  for (const row of data.volumes) {
+    ensure(typeof row.mount_path === "string" && row.mount_path.length > 0, "cu_storage_volumes_mount_path");
+    ensure(row.mount_path_encoding === "utf8" || row.mount_path_encoding === "lossy", "cu_storage_volumes_path_encoding");
+    ensure(decimal_le(row.available_bytes, row.free_bytes), "cu_storage_volumes_available_gt_free");
+    ensure(decimal_le(row.free_bytes, row.total_bytes), "cu_storage_volumes_free_gt_total");
+    ensure(decimal_le("1", row.total_bytes) && decimal_le("1", row.allocation_unit), "cu_storage_volumes_zero_geometry");
+    ensure(row.device === undefined && row.serial === undefined && row.uuid === undefined && row.wwn === undefined, "cu_storage_volumes_device_identity");
+  }
+  return data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_storage_volumes_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-storage-volumes");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP mounted-volume capacity is bounded, coherent and read-only");
+  assert_inventory(invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "storage-volumes", "--max", "16"
+  ], true), 16);
+
+  print("STEP grouped alias preserves the bounded contract");
+  assert_inventory(invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "storage", "volumes", "--max", "1"
+  ], true), 1);
+
+  print("STEP zero and over-ceiling bounds fail before native observation");
+  for (const max of ["0", "513"]) {
+    const invalid = invoke(context.run_directory, executable, [
+      "--target", "current", "--grant", "observe", "storage-volumes", "--max", max
+    ], false);
+    ensure(invalid.error.code === "usage", "cu_storage_volumes_invalid_code");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.storage-volumes");
+  harness.remove_run(context);
+  print("PASS: native mounted-volume capacity is bounded, coherent and privacy-minimized");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

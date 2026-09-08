@@ -821,6 +821,10 @@ Q3 owned runtime facades
    │  ├─ [x] 10,000-row scan + 2 MiB provider + 1 MiB response ceilings
    │  ├─ [x] macOS + Linux aarch64 + Windows aarch64 public qjswasm journey `cu.storage-devices`
    │  └─ [ ] Linux x86_64 + Windows x86_64 qjswasm journeys; non-inventory storage shapes remain
+   ├─ [~] storage-volumes: mounted-filesystem capacity stays separate from physical devices
+   │  ├─ [x] exact total/free/current-user-available decimal values; bounded and identifier-free
+   │  ├─ [x] macOS public qjswasm journey `cu.storage-volumes`
+   │  └─ [ ] native Linux + Windows public journeys
    ├─ [x] bounded identity-aware network-probe
    ├─ [x] network-interfaces: native ifindex/LUID + bounded stable snapshot
    │  ├─ [x] macOS public qjswasm schema/count/identity court `cu.network-interfaces`

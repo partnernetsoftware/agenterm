@@ -19,6 +19,7 @@ pub mod placement;
 pub mod privilege;
 pub mod process;
 pub mod simulator;
+pub mod storage;
 pub mod system;
 pub mod terminal;
 pub mod verbs;
@@ -40,6 +41,9 @@ pub fn parse_command(
 ) -> Result<Command, String> {
     if spec.name.starts_with("simulator-") {
         return simulator::parse(spec, spelled, target, args);
+    }
+    if spec.name == "storage-volumes" {
+        return storage::parse(spec, target, args);
     }
     match spec.family {
         Family::System => system::parse(spec, target, args),

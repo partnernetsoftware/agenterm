@@ -391,6 +391,10 @@
       "evidence": ["cu.storage-devices"]
     },
     {
+      "id": "cu-storage-volumes-smoke",
+      "evidence": ["cu.storage-volumes"]
+    },
+    {
       "id": "cu-privilege-plan-smoke",
       "evidence": ["cu.privilege-plan"]
     },

@@ -369,13 +369,34 @@ pub(crate) mod native_virtualization;
 #[path = "adapters/macos/native_virtualization.rs"]
 pub(crate) mod native_virtualization;
 
-#[cfg(all(feature = "storage", windows))]
+#[cfg(all(any(feature = "storage", feature = "filesystem-open"), windows))]
 #[path = "adapters/windows/storage.rs"]
 pub(crate) mod storage;
 
-#[cfg(all(feature = "storage", any(target_os = "linux", target_os = "macos")))]
+#[cfg(all(
+    any(feature = "storage", feature = "filesystem-open"),
+    any(target_os = "linux", target_os = "macos")
+))]
 #[path = "adapters/unix/storage.rs"]
 pub(crate) mod storage;
+
+#[cfg(all(
+    any(feature = "storage", feature = "filesystem-open"),
+    target_os = "linux"
+))]
+#[path = "adapters/linux/storage_volumes.rs"]
+pub(crate) mod storage_volumes;
+
+#[cfg(all(
+    any(feature = "storage", feature = "filesystem-open"),
+    target_os = "macos"
+))]
+#[path = "adapters/macos/storage_volumes.rs"]
+pub(crate) mod storage_volumes;
+
+#[cfg(all(any(feature = "storage", feature = "filesystem-open"), windows))]
+#[path = "adapters/windows/storage_volumes.rs"]
+pub(crate) mod storage_volumes;
 
 #[cfg(all(feature = "host-memory", windows))]
 #[path = "adapters/windows/host_memory.rs"]

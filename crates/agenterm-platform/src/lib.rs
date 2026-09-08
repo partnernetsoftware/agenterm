@@ -157,7 +157,10 @@ pub fn capability_status(capability: Capability) -> CapabilityStatus {
         Capability::HostMemory => (cfg!(feature = "host-memory"), true),
         Capability::HostResourceSnapshot => (cfg!(feature = "host-resource-snapshot"), true),
         Capability::HostBootIdentity => (cfg!(feature = "host-boot-identity"), true),
-        Capability::Storage => (cfg!(feature = "storage"), true),
+        Capability::Storage => (
+            cfg!(any(feature = "storage", feature = "filesystem-open")),
+            true,
+        ),
         Capability::StorageDeviceInventory => (cfg!(feature = "storage-device-inventory"), true),
         Capability::DeviceInventory => (cfg!(feature = "device-inventory"), true),
         Capability::DeviceIo => (cfg!(feature = "device-io"), true),
@@ -294,7 +297,7 @@ pub mod host_pressure;
 #[cfg(feature = "host-boot-identity")]
 pub mod host_boot_identity;
 
-#[cfg(feature = "storage")]
+#[cfg(any(feature = "storage", feature = "filesystem-open"))]
 pub mod storage;
 
 #[cfg(feature = "storage-device-inventory")]

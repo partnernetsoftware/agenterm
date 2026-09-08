@@ -5047,6 +5047,17 @@ remaining budget into each provider call so a final poll cannot overrun the
 watch. Bound sample rows, accumulated events and the encoded response
 independently.
 
+Mounted filesystem capacity is a different contract from physical-device
+inventory. Preserve `free` bytes reported for the filesystem separately from
+bytes available to the current user, and require
+`available <= free <= total`; quotas and reserved blocks make the two values
+legitimately differ. Keep the established path-oriented `VolumeSpace` facade
+stable and add a separate mounted-volume record when enumeration needs mount
+metadata. On Linux, parse `/proc/self/mountinfo` as bounded bytes and decode its
+octal escapes before converting paths; `read_to_string` incorrectly rejects a
+valid mount table containing non-UTF-8 names. Never expose the backing-device
+field merely because mountinfo supplies it.
+
 Linux `current` target identity must prove the calling process is inside the
 one active local graphical session; an effective uid alone is not a desktop
 session. Query the fixed sd-login ABI in-process, reject root, remote,

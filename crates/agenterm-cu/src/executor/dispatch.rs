@@ -1839,6 +1839,7 @@ impl Executor {
             Command::ResourcePressure { .. } => resource_pressure_payload(),
             Command::PowerStatus { .. } => power_status_payload(),
             Command::StorageDevices { max, .. } => storage_devices_payload(*max),
+            Command::StorageVolumes { max, .. } => storage_volumes_payload(*max),
             Command::DeviceList { selector, max, .. } => device_inventory_payload(*selector, *max),
             Command::DeviceWatch {
                 selector,

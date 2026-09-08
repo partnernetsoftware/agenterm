@@ -94,6 +94,7 @@ mod shell_exec;
 mod simulator;
 mod snapshots;
 mod storage_devices;
+mod storage_volumes;
 mod terminal;
 #[cfg(test)]
 mod test_support;
@@ -147,6 +148,7 @@ use shell_exec::*;
 use simulator::*;
 use snapshots::*;
 use storage_devices::*;
+use storage_volumes::*;
 use terminal::*;
 #[cfg(test)]
 use test_support::*;

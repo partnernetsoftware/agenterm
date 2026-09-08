@@ -9,6 +9,17 @@ pub struct VolumeSpace {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MountedVolumeSpace {
+    pub total_bytes: std::num::NonZeroU64,
+    /// Free bytes reported by the filesystem, including space reserved from
+    /// ordinary callers.
+    pub free_bytes: u64,
+    /// Bytes available to the current user, including quota effects.
+    pub available_bytes: u64,
+    pub allocation_unit: std::num::NonZeroU64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum StorageErrorKind {
     Path,
@@ -78,6 +89,27 @@ pub(crate) fn checked_space(
     })
 }
 
+pub(crate) fn checked_mounted_space(
+    total_bytes: u64,
+    free_bytes: u64,
+    available_bytes: u64,
+    allocation_unit: u64,
+) -> Result<MountedVolumeSpace, StorageError> {
+    let basic = checked_space(total_bytes, available_bytes, allocation_unit)?;
+    if available_bytes > free_bytes || free_bytes > basic.total_bytes.get() {
+        return Err(StorageError::new(
+            StorageErrorKind::InvalidValue,
+            "volume capacity must satisfy available <= free <= total",
+        ));
+    }
+    Ok(MountedVolumeSpace {
+        total_bytes: basic.total_bytes,
+        free_bytes,
+        available_bytes,
+        allocation_unit: basic.allocation_unit,
+    })
+}
+
 pub(crate) fn checked_product(
     count: impl Into<u64>,
     unit: u64,
@@ -105,6 +137,19 @@ mod tests {
         ] {
             assert_eq!(
                 result.expect_err("reject invalid volume facts").kind(),
+                StorageErrorKind::InvalidValue
+            );
+        }
+    }
+
+    #[test]
+    fn mounted_space_rejects_incoherent_free_capacity() {
+        for result in [
+            checked_mounted_space(1024, 511, 512, 512),
+            checked_mounted_space(1024, 1025, 512, 512),
+        ] {
+            assert_eq!(
+                result.expect_err("reject incoherent mounted volume").kind(),
                 StorageErrorKind::InvalidValue
             );
         }

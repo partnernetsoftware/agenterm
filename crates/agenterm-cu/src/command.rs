@@ -68,6 +68,7 @@ const JOB_PRUNE_MAX_AGE_SECONDS_MAX: u64 = 10 * 365 * 24 * 60 * 60;
 pub const SIMULATOR_RESULTS_MAX: usize = 200;
 pub const SIMULATOR_TIMEOUT_MS_MAX: u64 = 600_000;
 pub const STORAGE_DEVICES_MAX: usize = 5_000;
+pub const STORAGE_VOLUMES_MAX: usize = 512;
 pub const DEVICE_INVENTORY_MAX: usize = 5_000;
 pub const DEVICE_WATCH_DURATION_MS_MAX: u64 = 3_600_000;
 pub const DEVICE_WATCH_INTERVAL_MS_MIN: u64 = 250;
@@ -213,6 +214,19 @@ where
     if !(1..=STORAGE_DEVICES_MAX).contains(&value) {
         return Err(serde::de::Error::custom(
             "storage devices max must be in 1..=5000",
+        ));
+    }
+    Ok(value)
+}
+
+fn deserialize_storage_volumes_max<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = usize::deserialize(deserializer)?;
+    if !(1..=STORAGE_VOLUMES_MAX).contains(&value) {
+        return Err(serde::de::Error::custom(
+            "storage volumes max must be in 1..=512",
         ));
     }
     Ok(value)
@@ -2661,6 +2675,11 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_storage_devices_max")]
         max: usize,
     },
+    StorageVolumes {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_storage_volumes_max")]
+        max: usize,
+    },
     DeviceList {
         target: TargetRef,
         selector: DeviceInventorySelector,
@@ -4207,6 +4226,7 @@ impl Command {
             Self::ResourcePressure { .. } => "resource-pressure".into(),
             Self::PowerStatus { .. } => "power-status".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
+            Self::StorageVolumes { .. } => "storage-volumes".into(),
             Self::DeviceList { .. } => "device-list".into(),
             Self::DeviceWatch { .. } => "device-watch".into(),
             Self::DeviceClaims { .. } => "device-claims".into(),
@@ -4631,6 +4651,7 @@ impl Command {
             | Self::ResourcePressure { target }
             | Self::PowerStatus { target }
             | Self::StorageDevices { target, .. }
+            | Self::StorageVolumes { target, .. }
             | Self::DeviceList { target, .. }
             | Self::DeviceWatch { target, .. }
             | Self::DeviceClaims { target, .. }
@@ -5455,6 +5476,12 @@ impl Command {
             Self::StorageDevices { max, .. } => {
                 if !(1..=STORAGE_DEVICES_MAX).contains(max) {
                     return Err("storage devices max must be in 1..=5000");
+                }
+                Ok(())
+            }
+            Self::StorageVolumes { max, .. } => {
+                if !(1..=STORAGE_VOLUMES_MAX).contains(max) {
+                    return Err("storage volumes max must be in 1..=512");
                 }
                 Ok(())
             }

@@ -267,6 +267,7 @@
         "cu.resource-top-ranked",
         "cu.resource-process-policy",
         "cu.storage-devices",
+        "cu.storage-volumes",
         "cu.privilege-plan",
         "cu.privilege-provider-lifecycle-contract",
         "cu.privileged-signal-plan",

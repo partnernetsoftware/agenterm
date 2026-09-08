@@ -570,6 +570,20 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-watch".into(), process_watch_verb);
         verbs.insert("process-cgroup".into(), process_cgroup_verb);
         verbs.insert(
+            "storage-volumes".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "storage",
+                "grant": "observe",
+                "mode": "bounded-native-mounted-volume-capacity",
+                "result_ceiling": 512,
+                "capacity_order": "available<=free<=total",
+                "mount_paths_returned": true,
+                "device_identifiers_returned": false,
+                "mutation_performed": false,
+            }),
+        );
+        verbs.insert(
             "network-interfaces".into(),
             serde_json::json!({
                 "status": "available",

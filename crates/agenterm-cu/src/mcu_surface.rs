@@ -408,7 +408,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "resource" => (
             "available",
-            "resource-status is a native bounded host snapshot; resource-pressure preserves native per-dimension semantics without deriving a shared level; open and notify dispatch to host-open / host-notify (linux xdg-open / desktop notification where mapped); top maps to bounded ps sorting while disk/volumes/affinity/limits/scope remain typed gaps",
+            "resource-status is a native bounded host snapshot; resource-pressure preserves native per-dimension semantics without deriving a shared level; storage-volumes returns bounded mounted-volume capacity without device identifiers; open and notify dispatch to host-open / host-notify (linux xdg-open / desktop notification where mapped); top maps to bounded ps sorting while pressure ranking, affinity, limits and scope remain typed gaps",
         ),
         "power" => (
             "available",
@@ -420,7 +420,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "storage" => (
             "available",
-            "storage-devices is a bounded privacy-minimized native block-device inventory; mount, eject, format and metadata mutation remain typed gaps",
+            "storage-devices is a bounded privacy-minimized native block-device inventory and storage-volumes is a bounded mounted-volume capacity inventory; mount, eject, format and metadata mutation remain typed gaps",
         ),
         "file" => (
             "available",

@@ -2083,18 +2083,20 @@
         {
           "id": "resource.disk-volumes",
           "mcu_shape": "resource disk|volumes with filesystem and device-backed capacity facts",
-          "acu_shape": null,
+          "acu_shape": "storage-volumes [--max N] provides bounded mounted-filesystem capacity without physical-device identity",
           "state": "platform-limited",
-          "platforms": {"macos": "inventory-gap", "linux": "inventory-gap", "windows": "inventory-gap"},
+          "platforms": {"macos": "native-qualified", "linux": "native-court-pending", "windows": "native-court-pending"},
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
-              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
-              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-storage-volumes-smoke", "evidence": ["cu.storage-volumes"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
             }
           },
-          "next": "compose the shipped storage-devices inventory with a separate bounded filesystem-volume inventory; keep mounted capacity and physical-device identity distinct"
+          "evidence": ["cu.storage-volumes"],
+          "next": "run the unchanged public qjswasm court on native Linux and Windows; do not infer physical-device identity from mounted filesystems",
+          "note": "The separate storage-volumes facade reports mounted filesystem total, free and current-user-available capacity as exact decimal strings. It keeps current-user available distinct from filesystem free, parses Linux mountinfo as escaped bytes, bounds rows and errors, and never emits backing-device, serial or UUID identifiers. The public macOS court is green; Linux and Windows have compile evidence but remain pending until native execution."
         },
         {
           "id": "resource.process-policy",

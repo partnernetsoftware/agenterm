@@ -277,6 +277,7 @@ const evidence_suites = {
   "cu-resource-pressure-top-smoke": true,
   "cu-host-resource-smoke": true,
   "cu-storage-devices-smoke": true,
+  "cu-storage-volumes-smoke": true,
   "cu-privilege-plan-smoke": true,
   "cu-privilege-provider-contract-smoke": true,
   "cu-privileged-signal-plan-smoke": true,
