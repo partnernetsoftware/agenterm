@@ -198,6 +198,13 @@
       ]
     },
     {
+      "id": "cu-linux-resize-expect-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-resize-expect-geometry"
+      ]
+    },
+    {
       "id": "cu-macos-external-terminal-send-smoke",
       "platform": "macos",
       "evidence": [
