@@ -215,6 +215,13 @@
       ]
     },
     {
+      "id": "cu-linux-minimize-expect-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-minimize-expect-state"
+      ]
+    },
+    {
       "id": "cu-macos-external-terminal-send-smoke",
       "platform": "macos",
       "evidence": [

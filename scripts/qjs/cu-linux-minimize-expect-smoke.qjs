@@ -1,0 +1,184 @@
+// CEO: minimize/restore --expect minimized|restored on Linux.
+// Acceptance is smoke read-back only: independent windows inventory
+// minimized field must match --expect after each verb. No --coords or screenshot.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-minimize-expect-state",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_minimize_expect_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_minimize_expect_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_minimize_expect_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_rows(reply) {
+  const data = reply.data;
+  if (data.windows !== undefined) { return data.windows; }
+  return data;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  for (const row of window_rows(reply)) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const run_directory = rh.join(repo, "target/cu-linux-minimize-expect-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_minimize_expect_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+try {
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_minimize_expect_window_wait");
+
+  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(row !== null, "cu_linux_minimize_expect_window_missing");
+  const handle_text = "" + int_at(row, "handle");
+  ensure(int_at(row, "handle") > 0, "cu_linux_minimize_expect_handle:" + JSON.stringify(row));
+  ensure(
+    flag_at(row, "minimized") === false,
+    "cu_linux_minimize_expect_baseline_not_minimized:" + JSON.stringify(row)
+  );
+
+  print("STEP minimize --window " + handle_text + " --expect minimized");
+  const minimized = run_cu(run_directory, executable, "actuate", [
+    "minimize", "--window", handle_text, "--expect", "minimized",
+  ]);
+  ensure(
+    flag_at(minimized, "data.verified")
+      && flag_at(minimized, "data.after.minimized") === true,
+    "cu_linux_minimize_expect_reply_minimized:" + JSON.stringify(minimized.data)
+  );
+
+  print("STEP independent windows inventory read-back: minimized must be true");
+  const minimized_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(minimized_row !== null, "cu_linux_minimize_expect_minimized_row_missing");
+  ensure(
+    flag_at(minimized_row, "minimized") === true,
+    "cu_linux_minimize_expect_inventory_minimized:" + JSON.stringify(minimized_row)
+  );
+
+  print("STEP restore --window " + handle_text + " --expect restored");
+  const restored = run_cu(run_directory, executable, "actuate", [
+    "restore", "--window", handle_text, "--expect", "restored",
+  ]);
+  ensure(
+    flag_at(restored, "data.verified")
+      && flag_at(restored, "data.after.minimized") === false,
+    "cu_linux_minimize_expect_reply_restored:" + JSON.stringify(restored.data)
+  );
+
+  print("STEP independent windows inventory read-back: minimized must be false");
+  const restored_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(restored_row !== null, "cu_linux_minimize_expect_restored_row_missing");
+  ensure(
+    flag_at(restored_row, "minimized") === false,
+    "cu_linux_minimize_expect_inventory_restored:" + JSON.stringify(restored_row)
+  );
+} finally {
+  if (fixture_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  }
+  if (fixture >= 0) {
+    try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+  }
+}
+
+const context = harness.new_context(repo, "cu-linux-minimize-expect");
+harness.emit_evidence(context, declared_evidence, "cu.linux-minimize-expect-state");
+harness.remove_run(context);
+print("PASS: CEO Linux minimize/restore --expect with independent windows inventory minimized read-back");
+return;

@@ -757,6 +757,25 @@
         "task.cu-linux-resize-expect-smoke"
       ]
     },
+    "cu-linux-minimize-expect-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-minimize-expect-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-minimize-expect-smoke"
+      ]
+    },
     "cu-linux-chrome-text-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -3648,6 +3667,26 @@
       "id": "cu-linux-resize-expect-smoke",
       "description": "Prove Linux resize --expect WxH on a named GTK fixture window: independent windows inventory bounds must match --expect after resize; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-resize-expect-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-minimize-expect-smoke",
+      "description": "Prove Linux minimize/restore --expect minimized|restored on a disposable GTK fixture window: independent windows inventory minimized field must match --expect after each verb; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-minimize-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
