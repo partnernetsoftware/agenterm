@@ -197,6 +197,8 @@ const ACU_RESULT_TOO_LARGE: &str =
 /// see.
 const BRIDGE_PANICKED: &str = "agenterm door: the fleet bridge panicked";
 const ACU_BRIDGE_PANICKED: &str = "agenterm door: the ACU bridge panicked";
+const ACU_CANCEL_ACK_WITHOUT_SIGNAL: &str =
+    "agenterm door: the ACU bridge acknowledged cancellation without a signal";
 
 /// The exact shape of each door import: `(field, params, results)`. Every
 /// parameter and result is `i32`, which `ImportDesc::i32_only` reports in one
@@ -531,6 +533,7 @@ pub(crate) fn install(
     let state = Rc::clone(&pending);
     let max_result = budget.max_bridge_result_bytes;
     let meter_for_acu = Rc::clone(&meter);
+    let cancel_for_acu = budget.cancel.clone();
     let acu_bridge = bridges.acu;
     bind(module, DOOR, "acu_call", move |args, memory| {
         let command = guest_slice(memory, arg(args, 0)?, arg(args, 1)?)?;
@@ -545,9 +548,21 @@ pub(crate) fn install(
             Err(_) => (STATUS_ERR, ACU_NOT_UTF8.as_bytes().to_vec()),
             Ok(command) => match &acu_bridge {
                 None => (STATUS_NO_BRIDGE, NO_ACU_BRIDGE.as_bytes().to_vec()),
-                Some(bridge) => match call_acu_bridge(&meter_for_acu, bridge, command) {
-                    Ok(Ok(answer)) => (STATUS_OK, answer.into_bytes()),
-                    Ok(Err(message)) => (STATUS_ERR, message.into_bytes()),
+                Some(bridge) => match call_acu_bridge(
+                    &meter_for_acu,
+                    bridge,
+                    command,
+                    cancel_for_acu.as_deref(),
+                ) {
+                    Ok((_, true)) => {
+                        meter_for_acu
+                            .borrow_mut()
+                            .check_cancel()
+                            .map_err(WasmError::Trap)?;
+                        return Err(WasmError::Trap(ACU_CANCEL_ACK_WITHOUT_SIGNAL));
+                    }
+                    Ok((Ok(answer), false)) => (STATUS_OK, answer.into_bytes()),
+                    Ok((Err(message), false)) => (STATUS_ERR, message.into_bytes()),
                     Err(panic) => {
                         state.borrow_mut().fault = Some(panic);
                         return Err(WasmError::Trap(ACU_BRIDGE_PANICKED));
@@ -555,10 +570,6 @@ pub(crate) fn install(
                 },
             },
         };
-        meter_for_acu
-            .borrow_mut()
-            .check_cancel()
-            .map_err(WasmError::Trap)?;
         let (status, payload) = if payload.len() > max_result {
             (STATUS_ERR, ACU_RESULT_TOO_LARGE.as_bytes().to_vec())
         } else {
@@ -752,17 +763,24 @@ fn call_acu_bridge(
     meter: &Rc<RefCell<Meter>>,
     bridge: &AcuBridgeFn,
     command: &str,
-) -> Result<Result<String, String>, String> {
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<(Result<String, String>, bool), String> {
     let started = Instant::now();
+    let cancellation_acknowledged = std::sync::atomic::AtomicBool::new(false);
     let answer = contain("the ACU bridge panicked while serving a command", || {
-        bridge(command)
+        bridge(command, cancel, &cancellation_acknowledged)
     });
     let mut meter = meter.borrow_mut();
     meter.waited(started.elapsed());
     if let Ok(Ok(text)) = &answer {
         meter.answered(text.len());
     }
-    answer
+    answer.map(|answer| {
+        (
+            answer,
+            cancellation_acknowledged.load(std::sync::atomic::Ordering::Acquire),
+        )
+    })
 }
 
 fn result_len(result: &[u8]) -> Result<i32, WasmError> {

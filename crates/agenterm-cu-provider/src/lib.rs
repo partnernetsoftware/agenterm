@@ -39,6 +39,19 @@ pub const STATUS_REPLY_TOO_LARGE: i32 = 4;
 pub const STATUS_SERIALIZE_FAILED: i32 = 5;
 /// A provider panic was contained; this loaded provider is permanently failed.
 pub const STATUS_PROVIDER_PANICKED: i32 = 6;
+/// The caller's cancellation descriptor was absent, short or unsupported.
+pub const STATUS_INVALID_CANCEL: i32 = 7;
+
+pub type IsCancelledFn = unsafe extern "C" fn(*const std::ffi::c_void) -> u8;
+
+/// Caller-owned cancellation probe borrowed for one synchronous v2 call.
+#[repr(C)]
+pub struct CancelV1 {
+    pub struct_size: usize,
+    pub version: u32,
+    pub context: *const std::ffi::c_void,
+    pub is_cancelled: Option<IsCancelledFn>,
+}
 
 static PROVIDER_FAILED: AtomicBool = AtomicBool::new(false);
 // The public ABI is synchronous and process-global. Serialize the complete
@@ -86,7 +99,7 @@ pub unsafe extern "C" fn agenterm_cu_provider_call(
     let result = catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: the exported ABI passes its documented call-scoped pointer
         // contract unchanged into the contained implementation.
-        unsafe { call_inner(request, request_len, reply, reply_capacity, reply_len) }
+        unsafe { call_inner(request, request_len, reply, reply_capacity, reply_len, None) }
     }));
     match result {
         Ok(status) => status,
@@ -102,12 +115,89 @@ pub unsafe extern "C" fn agenterm_cu_provider_call(
     }
 }
 
+/// Execute one request with a call-scoped cooperative cancellation probe.
+///
+/// This is an additive symbol: ABI-v1 callers continue to use
+/// [`agenterm_cu_provider_call`] unchanged. The descriptor and its context are
+/// borrowed only until this synchronous function returns and are never stored
+/// or called from another thread.
+///
+/// # Safety
+///
+/// The v1 pointer rules apply. `cancel` must name one readable [`CancelV1`]
+/// whose callback and context remain valid for the complete call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn agenterm_cu_provider_call_v2(
+    request: *const u8,
+    request_len: usize,
+    reply: *mut u8,
+    reply_capacity: usize,
+    reply_len: *mut usize,
+    cancel: *const CancelV1,
+) -> i32 {
+    let _call_guard = PROVIDER_CALL_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if PROVIDER_FAILED.load(Ordering::Acquire) {
+        if !reply_len.is_null() {
+            // SAFETY: the public contract makes a non-null reply length writable.
+            unsafe { ptr::write(reply_len, 0) };
+        }
+        return STATUS_PROVIDER_PANICKED;
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if cancel.is_null() {
+            if !reply_len.is_null() {
+                // SAFETY: the public contract makes a non-null reply length writable.
+                unsafe { ptr::write(reply_len, 0) };
+            }
+            return STATUS_INVALID_CANCEL;
+        }
+        // SAFETY: the v2 contract requires one readable descriptor for this call.
+        let descriptor = unsafe { &*cancel };
+        if descriptor.struct_size < std::mem::size_of::<CancelV1>()
+            || descriptor.version != 1
+            || descriptor.context.is_null()
+            || descriptor.is_cancelled.is_none()
+        {
+            if !reply_len.is_null() {
+                // SAFETY: the public contract makes a non-null reply length writable.
+                unsafe { ptr::write(reply_len, 0) };
+            }
+            return STATUS_INVALID_CANCEL;
+        }
+        // SAFETY: v2 retains v1's pointer contract and the descriptor was validated above.
+        unsafe {
+            call_inner(
+                request,
+                request_len,
+                reply,
+                reply_capacity,
+                reply_len,
+                Some(descriptor),
+            )
+        }
+    }));
+    match result {
+        Ok(status) => status,
+        Err(_) => {
+            PROVIDER_FAILED.store(true, Ordering::Release);
+            if !reply_len.is_null() {
+                // SAFETY: the public contract makes a non-null reply length writable.
+                unsafe { ptr::write(reply_len, 0) };
+            }
+            STATUS_PROVIDER_PANICKED
+        }
+    }
+}
+
 unsafe fn call_inner(
     request: *const u8,
     request_len: usize,
     reply: *mut u8,
     reply_capacity: usize,
     reply_len: *mut usize,
+    cancel: Option<&CancelV1>,
 ) -> i32 {
     if reply_len.is_null() {
         return STATUS_INVALID_POINTER;
@@ -137,7 +227,17 @@ unsafe fn call_inner(
         panic!("test-only provider panic");
     }
 
-    let response = agenterm_cu::embedder::execute_request_from_environment(request);
+    let response = if let Some(cancel) = cancel {
+        let callback = cancel.is_cancelled.expect("validated cancel callback");
+        // SAFETY: v2 requires the context and callback to remain valid until return.
+        let probe = || unsafe { callback(cancel.context) != 0 };
+        agenterm_cu::embedder::execute_request_from_environment_controlled(
+            request,
+            agenterm_cu::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        )
+    } else {
+        agenterm_cu::embedder::execute_request_from_environment(request)
+    };
     let Ok(encoded) = serde_json::to_vec(&response) else {
         return STATUS_SERIALIZE_FAILED;
     };
@@ -182,10 +282,86 @@ mod tests {
         }
     }
 
+    unsafe extern "C" fn read_cancelled(context: *const std::ffi::c_void) -> u8 {
+        // SAFETY: every test descriptor points at its live AtomicBool fixture.
+        let flag = unsafe { &*context.cast::<AtomicBool>() };
+        u8::from(flag.load(Ordering::Acquire))
+    }
+
+    fn call_v2(request: &[u8], reply: &mut [u8], reply_len: &mut usize, cancel: &CancelV1) -> i32 {
+        // SAFETY: the slices, length and descriptor remain live for the synchronous call.
+        unsafe {
+            agenterm_cu_provider_call_v2(
+                request.as_ptr(),
+                request.len(),
+                reply.as_mut_ptr(),
+                reply.len(),
+                reply_len,
+                cancel,
+            )
+        }
+    }
+
     #[test]
     fn abi_version_is_exact() {
         let _guard = isolate();
         assert_eq!(agenterm_cu_provider_abi_version(), 1);
+    }
+
+    #[test]
+    fn v2_rejects_a_short_cancel_descriptor_before_execution() {
+        let _guard = isolate();
+        let flag = AtomicBool::new(false);
+        let cancel = CancelV1 {
+            struct_size: std::mem::size_of::<CancelV1>() - 1,
+            version: 1,
+            context: (&flag as *const AtomicBool).cast(),
+            is_cancelled: Some(read_cancelled),
+        };
+        let mut reply = [0_u8; 64];
+        let mut reply_len = 99;
+        assert_eq!(
+            call_v2(b"{}", &mut reply, &mut reply_len, &cancel),
+            STATUS_INVALID_CANCEL
+        );
+        assert_eq!(reply_len, 0);
+
+        let cancel = CancelV1 {
+            struct_size: std::mem::size_of::<CancelV1>(),
+            version: 1,
+            context: ptr::null(),
+            is_cancelled: Some(read_cancelled),
+        };
+        reply_len = 99;
+        assert_eq!(
+            call_v2(b"{}", &mut reply, &mut reply_len, &cancel),
+            STATUS_INVALID_CANCEL
+        );
+        assert_eq!(reply_len, 0);
+    }
+
+    #[test]
+    fn v2_pre_cancel_returns_the_executor_typed_reply() {
+        let _guard = isolate();
+        let flag = AtomicBool::new(true);
+        let cancel = CancelV1 {
+            struct_size: std::mem::size_of::<CancelV1>(),
+            version: 1,
+            context: (&flag as *const AtomicBool).cast(),
+            is_cancelled: Some(read_cancelled),
+        };
+        let request = br#"{"acu_request":1,"kind":"argv","argv":["--target","current","--grant","observe","process-watch","--pid","4294967295","--duration-ms","60000","--interval-ms","60000"]}"#;
+        let mut reply = vec![0_u8; MAX_REPLY_BYTES];
+        let mut reply_len = 0;
+        assert_eq!(
+            call_v2(request, &mut reply, &mut reply_len, &cancel),
+            STATUS_OK
+        );
+        let value: serde_json::Value =
+            serde_json::from_slice(&reply[..reply_len]).expect("typed CuReply JSON");
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["error"]["code"], "cancelled");
+        assert_eq!(value["error"]["detail"]["effect"], "not_performed");
     }
 
     #[test]

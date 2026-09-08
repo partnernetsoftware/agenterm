@@ -6,8 +6,12 @@
 //! provider or qjs/MCP fails with a typed boundary diagnostic.
 
 use std::{
+    ffi::c_void,
     path::Path,
-    sync::{Mutex, OnceLock},
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 #[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
@@ -22,12 +26,25 @@ const MAX_REPLY_BYTES: usize = 4 * 1024 * 1024;
 
 type AbiVersionFn = unsafe extern "C" fn() -> u32;
 type CallFn = unsafe extern "C" fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32;
+type IsCancelledFn = unsafe extern "C" fn(*const c_void) -> u8;
+
+#[repr(C)]
+struct CancelV1 {
+    struct_size: usize,
+    version: u32,
+    context: *const c_void,
+    is_cancelled: Option<IsCancelledFn>,
+}
+
+type CallV2Fn =
+    unsafe extern "C" fn(*const u8, usize, *mut u8, usize, *mut usize, *const CancelV1) -> i32;
 
 struct Provider {
     // Symbols are copied to plain function pointers only after their version
     // is checked. Keeping the library owned here makes those pointers valid.
     _library: Library,
     call: CallFn,
+    call_v2: Option<CallV2Fn>,
     // The provider is synchronous. One reusable bounded buffer both avoids a
     // 4 MiB allocation per call and serializes access to provider-global state.
     reply: Mutex<Vec<u8>>,
@@ -37,10 +54,20 @@ static PROVIDER: OnceLock<Result<Provider, String>> = OnceLock::new();
 
 #[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
 pub(crate) fn bridge() -> AcuBridgeFn {
-    Arc::new(call)
+    Arc::new(|request, cancel, acknowledged| {
+        let reply = call_controlled(request, cancel)?;
+        if reply_is_cooperative_cancel(&reply) {
+            acknowledged.store(true, Ordering::Release);
+        }
+        Ok(reply)
+    })
 }
 
 pub(crate) fn call(request: &str) -> Result<String, String> {
+    call_controlled(request, None)
+}
+
+fn call_controlled(request: &str, cancel: Option<&AtomicBool>) -> Result<String, String> {
     if request.len() > MAX_REQUEST_BYTES {
         return Err("acu_provider_request_too_large".to_owned());
     }
@@ -48,7 +75,7 @@ pub(crate) fn call(request: &str) -> Result<String, String> {
         .get_or_init(|| Provider::load_sibling().map_err(|error| error.to_owned()))
         .as_ref()
         .map_err(Clone::clone)?;
-    provider.execute(request)
+    provider.execute(request, cancel)
 }
 
 impl Provider {
@@ -84,14 +111,21 @@ impl Provider {
                 .get::<CallFn>(b"agenterm_cu_provider_call\0")
                 .map_err(|_| "acu_provider_call_symbol_missing")?
         };
+        let call_v2 = unsafe {
+            library
+                .get::<CallV2Fn>(b"agenterm_cu_provider_call_v2\0")
+                .ok()
+                .map(|symbol| *symbol)
+        };
         Ok(Self {
             _library: library,
             call,
+            call_v2,
             reply: Mutex::new(vec![0_u8; MAX_REPLY_BYTES]),
         })
     }
 
-    fn execute(&self, request: &str) -> Result<String, String> {
+    fn execute(&self, request: &str, cancel: Option<&AtomicBool>) -> Result<String, String> {
         let mut reply = self
             .reply
             .lock()
@@ -100,13 +134,33 @@ impl Provider {
         // SAFETY: both slices and reply_len remain live for this synchronous
         // call; load_from verified the provider's ABI before saving the pointer.
         let status = unsafe {
-            (self.call)(
-                request.as_ptr(),
-                request.len(),
-                reply.as_mut_ptr(),
-                reply.len(),
-                &mut reply_len,
-            )
+            if let Some(cancel) = cancel {
+                let call_v2 = self
+                    .call_v2
+                    .ok_or_else(|| "acu_provider_cooperative_cancel_unavailable".to_owned())?;
+                let descriptor = CancelV1 {
+                    struct_size: std::mem::size_of::<CancelV1>(),
+                    version: 1,
+                    context: (cancel as *const AtomicBool).cast(),
+                    is_cancelled: Some(read_cancelled),
+                };
+                call_v2(
+                    request.as_ptr(),
+                    request.len(),
+                    reply.as_mut_ptr(),
+                    reply.len(),
+                    &mut reply_len,
+                    &descriptor,
+                )
+            } else {
+                (self.call)(
+                    request.as_ptr(),
+                    request.len(),
+                    reply.as_mut_ptr(),
+                    reply.len(),
+                    &mut reply_len,
+                )
+            }
         };
         if status != 0 {
             return Err(provider_status(status).to_owned());
@@ -118,11 +172,31 @@ impl Provider {
     }
 }
 
+unsafe extern "C" fn read_cancelled(context: *const c_void) -> u8 {
+    let flag = unsafe { &*context.cast::<AtomicBool>() };
+    u8::from(flag.load(Ordering::Acquire))
+}
+
 fn decode_reply(reply: &[u8]) -> Result<String, String> {
     let text = std::str::from_utf8(reply).map_err(|_| "acu_provider_reply_not_utf8".to_owned())?;
     serde_json::from_str::<serde_json::Value>(text)
         .map_err(|_| "acu_provider_reply_not_json".to_owned())?;
     Ok(text.to_owned())
+}
+
+#[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
+fn reply_is_cooperative_cancel(reply: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(reply) else {
+        return false;
+    };
+    value
+        .pointer("/error/code")
+        .and_then(serde_json::Value::as_str)
+        == Some("cancelled")
+        && value
+            .pointer("/error/detail/effect")
+            .and_then(serde_json::Value::as_str)
+            == Some("not_performed")
 }
 
 fn provider_file_name() -> &'static str {
@@ -143,6 +217,7 @@ fn provider_status(status: i32) -> &'static str {
         4 => "acu_provider_reply_too_large",
         5 => "acu_provider_serialize_failed",
         6 => "acu_provider_panicked",
+        7 => "acu_provider_invalid_cancel",
         _ => "acu_provider_unknown_status",
     }
 }
@@ -173,7 +248,22 @@ mod tests {
     fn every_version_one_status_has_a_stable_name() {
         assert_eq!(provider_status(1), "acu_provider_invalid_pointer");
         assert_eq!(provider_status(6), "acu_provider_panicked");
+        assert_eq!(provider_status(7), "acu_provider_invalid_cancel");
         assert_eq!(provider_status(99), "acu_provider_unknown_status");
+    }
+
+    #[test]
+    #[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
+    fn only_pre_effect_typed_cancellation_is_acknowledged() {
+        assert!(reply_is_cooperative_cancel(
+            r#"{"ok":false,"error":{"code":"cancelled","detail":{"effect":"not_performed"}}}"#
+        ));
+        assert!(!reply_is_cooperative_cancel(
+            r#"{"ok":false,"error":{"code":"cancelled","detail":{"effect":"unknown"}}}"#
+        ));
+        assert!(!reply_is_cooperative_cancel(
+            r#"{"ok":true,"data":{"effect":"committed"}}"#
+        ));
     }
 
     #[test]

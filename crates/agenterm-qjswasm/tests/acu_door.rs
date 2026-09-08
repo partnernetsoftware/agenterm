@@ -40,7 +40,7 @@ fn absent_bridge_is_status_2_without_a_fallback() {
 
 #[test]
 fn command_and_complete_reply_round_trip() {
-    let acu: AcuBridgeFn = Arc::new(|command| {
+    let acu: AcuBridgeFn = Arc::new(|command, _, _| {
         assert_eq!(command, r#"{"verb":"capabilities","target":"current"}"#);
         Ok(r#"{"ok":false,"target":"current","command":"capabilities","error":{"code":"refused","message":"no"}}"#.to_owned())
     });
@@ -58,7 +58,7 @@ fn command_and_complete_reply_round_trip() {
 fn bad_guest_bytes_are_status_1_and_oob_traps_before_dispatch() {
     let calls = Arc::new(AtomicUsize::new(0));
     let calls_for_bridge = Arc::clone(&calls);
-    let acu: AcuBridgeFn = Arc::new(move |_| {
+    let acu: AcuBridgeFn = Arc::new(move |_, _, _| {
         calls_for_bridge.fetch_add(1, Ordering::Relaxed);
         Ok("{}".to_owned())
     });
@@ -99,7 +99,7 @@ fn oversize_host_op_cancel_and_panic_are_contained() {
         max_bridge_result_bytes: 3,
         ..Budget::default()
     };
-    let acu: AcuBridgeFn = Arc::new(|_| Ok("1234".to_owned()));
+    let acu: AcuBridgeFn = Arc::new(|_, _, _| Ok("1234".to_owned()));
     let answer = returned_string(
         Engine::with_budget(budget)
             .run_once_with_bridges(
@@ -119,7 +119,7 @@ fn oversize_host_op_cancel_and_panic_are_contained() {
     let error = Engine::with_budget(budget)
         .run_once_with_bridges(
             Guest::Qjs(r#"return acu_call("{}");"#),
-            bridges(Some(Arc::new(|_| Ok("{}".to_owned())))),
+            bridges(Some(Arc::new(|_, _, _| Ok("{}".to_owned())))),
             "main",
             &[],
         )
@@ -134,7 +134,7 @@ fn oversize_host_op_cancel_and_panic_are_contained() {
     let error = Engine::with_budget(budget)
         .run_once_with_bridges(
             Guest::Qjs(r#"return acu_call("{}");"#),
-            bridges(Some(Arc::new(|_| Ok("{}".to_owned())))),
+            bridges(Some(Arc::new(|_, _, _| Ok("{}".to_owned())))),
             "main",
             &[],
         )
@@ -143,12 +143,60 @@ fn oversize_host_op_cancel_and_panic_are_contained() {
 
     let error = run(
         r#"return acu_call("{}");"#,
-        Some(Arc::new(|_| -> Result<String, String> { panic!("boom") })),
+        Some(Arc::new(|_, _, _| -> Result<String, String> {
+            panic!("boom")
+        })),
     )
     .expect_err("panic is contained");
     assert!(
         matches!(error, QjswasmError::Door(message) if message.contains("ACU bridge panicked") && message.contains("boom"))
     );
+}
+
+#[test]
+fn only_a_cooperatively_acknowledged_acu_cancel_discards_the_reply() {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let raised = Arc::clone(&cancelled);
+    let budget = Budget {
+        cancel: Some(cancelled),
+        ..Budget::default()
+    };
+    let error = Engine::with_budget(budget)
+        .run_once_with_bridges(
+            Guest::Qjs(r#"acu_call("{}"); return acu_result();"#),
+            bridges(Some(Arc::new(move |_, token, acknowledged| {
+                assert!(token.is_some());
+                raised.store(true, Ordering::Release);
+                acknowledged.store(true, Ordering::Release);
+                Ok("cancelled observe reply".to_owned())
+            }))),
+            "main",
+            &[],
+        )
+        .expect_err("an acknowledged pre-effect cancellation is not script-catchable data");
+    assert!(matches!(error, QjswasmError::Cancelled));
+}
+
+#[test]
+fn a_late_cancel_does_not_hide_an_authoritative_acu_reply() {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let raised = Arc::clone(&cancelled);
+    let budget = Budget {
+        cancel: Some(cancelled),
+        ..Budget::default()
+    };
+    let outcome = Engine::with_budget(budget)
+        .run_once_with_bridges(
+            Guest::Qjs(r#"acu_call("{}"); return acu_result();"#),
+            bridges(Some(Arc::new(move |_, _, _| {
+                raised.store(true, Ordering::Release);
+                Ok("authoritative reply".to_owned())
+            }))),
+            "main",
+            &[],
+        )
+        .expect("an unacknowledged late cancel preserves the bridge reply");
+    assert_eq!(returned_string(outcome), "authoritative reply");
 }
 
 #[test]
@@ -158,13 +206,13 @@ fn slots_keep_bridges_and_results_isolated() {
     let first = engine
         .spawn_with_bridges(
             Guest::CompiledQjs(&bytes),
-            bridges(Some(Arc::new(|_| Ok("first".to_owned())))),
+            bridges(Some(Arc::new(|_, _, _| Ok("first".to_owned())))),
         )
         .expect("first slot");
     let second = engine
         .spawn_with_bridges(
             Guest::CompiledQjs(&bytes),
-            bridges(Some(Arc::new(|_| Ok("second".to_owned())))),
+            bridges(Some(Arc::new(|_, _, _| Ok("second".to_owned())))),
         )
         .expect("second slot");
     assert_eq!(
@@ -187,7 +235,7 @@ fn check_execute_share_bytes_and_unused_acu_costs_zero_guest_bytes() {
 
     let source = r#"acu_call("{}"); return acu_result();"#;
     let bytes = compile_qjs(source).expect("check compile");
-    let acu: AcuBridgeFn = Arc::new(|_| Ok("same".to_owned()));
+    let acu: AcuBridgeFn = Arc::new(|_, _, _| Ok("same".to_owned()));
     let direct = returned_string(run(source, Some(Arc::clone(&acu))).expect("source"));
     let artifact = returned_string(
         Engine::new()

@@ -9,6 +9,7 @@ impl Executor {
         &self,
         command: &Command,
         job_request: Option<&JobRequestContext<'_>>,
+        control: crate::execution_control::ExecutionControl<'_>,
     ) -> Result<serde_json::Value, CuError> {
         match command {
             Command::Capabilities { .. } => Ok(capabilities_payload()),
@@ -908,6 +909,7 @@ impl Executor {
                 *interval_ms,
                 *max_events,
                 *max_processes,
+                control,
             ),
             Command::ShellExec {
                 command,

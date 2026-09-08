@@ -230,7 +230,12 @@ fn browser_tabs_via_cdp_linux(
     }
     let selector = match_text.map(str::trim).filter(|value| !value.is_empty());
     let selected = if selector.is_some() || tab_id.is_some() {
-        let matching: Vec<(u32, u16, Vec<crate::cdp::targets::PageTarget>, Vec<crate::browser_bridge::BrowserTab>)> = live
+        let matching: Vec<(
+            u32,
+            u16,
+            Vec<crate::cdp::targets::PageTarget>,
+            Vec<crate::browser_bridge::BrowserTab>,
+        )> = live
             .iter()
             .filter_map(|(pid, port, targets)| {
                 let pages: Vec<_> = targets.iter().filter(|target| target.is_page()).collect();
@@ -246,11 +251,7 @@ fn browser_tabs_via_cdp_linux(
         match matching.as_slice() {
             [] => {
                 verify_focus_unchanged(focus_before, deadline)?;
-                let pages: Vec<_> = live[0]
-                    .2
-                    .iter()
-                    .filter(|target| target.is_page())
-                    .collect();
+                let pages: Vec<_> = live[0].2.iter().filter(|target| target.is_page()).collect();
                 return Ok(cdp_tabs_payload(
                     live[0].0,
                     live[0].1,
@@ -309,12 +310,7 @@ fn browser_tabs_via_cdp_linux(
         .filter(|target| target.is_page())
         .collect();
     Ok(cdp_tabs_payload(
-        selected.0,
-        selected.1,
-        &pages,
-        match_text,
-        tab_id,
-        selected.3,
+        selected.0, selected.1, &pages, match_text, tab_id, selected.3,
     ))
 }
 

@@ -967,10 +967,16 @@ the blockers were measured, never that MCU may be removed.
 The `agenterm:acu` cancellation policy rejects a tempting detached helper when
 it reports cancellation while callback authority remains live. A controlled
 probe demonstrates the violation and measures the resulting next-call lock
-delay; it does not pretend to discover the policy. Cooperative cancellation
-satisfies the structural control, but the current provider ABI cannot yet carry
-that token. Until it reaches Executor and interruptible native waits, the Script
-worker process is the hard containment boundary.
+delay; it does not pretend to discover the policy. Cooperative cancellation now
+satisfies the first product vertical slice. The provider keeps ABI v1
+byte-for-byte and adds a caller-sized v2 callback/context descriptor whose
+lifetime is the synchronous call; `process-watch` checks that identity during
+its observe-only wait and acknowledges cancellation only before an effect. The
+public worker journey returns typed cancellation inside its grace and the next
+provider call succeeds immediately. This does not generalize to mutation: late
+cancellation must preserve an authoritative reply, and every remaining native
+wait stays under the Script worker's hard-containment boundary until it owns
+phase-aware cancellation evidence.
 
 The latest report contains 67 blockers: zero capability gaps, 11 available
 leaves without registered evidence and 56 incomplete schema-2 platform

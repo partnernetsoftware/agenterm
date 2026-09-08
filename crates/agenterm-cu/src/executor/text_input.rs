@@ -576,15 +576,15 @@ fn send_semantic_keys_to_node(
         SemanticKeyAction::Backspace | SemanticKeyAction::Delete => {
             let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
             let original = text.clone();
-            let selection = mechanism::get_node_selection(window, node_id)
-                .map_err(map_mechanism_err)?;
+            let selection =
+                mechanism::get_node_selection(window, node_id).map_err(map_mechanism_err)?;
             let (new_text, caret) = if selection.n > 0 {
                 let start = usize::try_from(selection.start.max(0)).unwrap_or(0);
                 let end = usize::try_from(selection.end.max(0)).unwrap_or(start);
                 delete_char_range(&text, start, end)
             } else {
-                let caret = mechanism::get_node_caret_offset(window, node_id)
-                    .map_err(map_mechanism_err)?;
+                let caret =
+                    mechanism::get_node_caret_offset(window, node_id).map_err(map_mechanism_err)?;
                 let caret_usize = usize::try_from(caret.max(0)).unwrap_or(0);
                 let len = text.chars().count();
                 match action {

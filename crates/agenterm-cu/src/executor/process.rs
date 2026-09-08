@@ -2667,6 +2667,7 @@ pub(super) fn process_watch_payload(
     interval_ms: Option<u64>,
     max_events: Option<usize>,
     max_processes: Option<usize>,
+    control: crate::execution_control::ExecutionControl<'_>,
 ) -> Result<Value, CuError> {
     let interval_ms = interval_ms.unwrap_or(DEFAULT_PROCESS_WATCH_INTERVAL_MS);
     let max_events = max_events.unwrap_or(DEFAULT_PROCESS_WATCH_MAX_EVENTS);
@@ -2688,6 +2689,7 @@ pub(super) fn process_watch_payload(
 
     let started = Instant::now();
     let deadline = started + Duration::from_millis(duration_ms);
+    control.check_observe()?;
     let initial = process_watch_snapshot(pid, parent, name, max_processes)?;
     let mut previous = initial.processes;
     let mut excluded_unidentified = initial.excluded_unidentified;
@@ -2700,8 +2702,17 @@ pub(super) fn process_watch_payload(
 
     while Instant::now() < deadline {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        std::thread::sleep(Duration::from_millis(interval_ms).min(remaining));
+        let sleep_deadline = Instant::now() + Duration::from_millis(interval_ms).min(remaining);
+        while Instant::now() < sleep_deadline {
+            control.check_observe()?;
+            std::thread::sleep(
+                Duration::from_millis(10)
+                    .min(sleep_deadline.saturating_duration_since(Instant::now())),
+            );
+        }
+        control.check_observe()?;
         let next = process_watch_snapshot(pid, parent, name, max_processes)?;
+        control.check_observe()?;
         excluded_unidentified = excluded_unidentified.max(next.excluded_unidentified);
         let current = next.processes;
         let t_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
@@ -3728,9 +3739,18 @@ mod tests {
     #[test]
     fn process_watch_returns_an_identity_bound_bounded_baseline() {
         let pid = std::process::id();
-        let value =
-            process_watch_payload(Some(pid), None, None, false, 1, Some(1), Some(4), Some(4))
-                .expect("watch");
+        let value = process_watch_payload(
+            Some(pid),
+            None,
+            None,
+            false,
+            1,
+            Some(1),
+            Some(4),
+            Some(4),
+            crate::execution_control::ExecutionControl::none(),
+        )
+        .expect("watch");
         assert_eq!(value["mode"], "bounded-diff");
         assert_eq!(value["baseline_count"], 1);
         assert_eq!(value["baseline"][0]["pid"], pid);
@@ -3743,8 +3763,18 @@ mod tests {
 
     #[test]
     fn process_watch_rejects_missing_or_unbounded_shapes() {
-        let error = process_watch_payload(None, None, None, false, 1, Some(1), Some(1), Some(1))
-            .expect_err("missing selector");
+        let error = process_watch_payload(
+            None,
+            None,
+            None,
+            false,
+            1,
+            Some(1),
+            Some(1),
+            Some(1),
+            crate::execution_control::ExecutionControl::none(),
+        )
+        .expect_err("missing selector");
         assert_eq!(error.code, "invalid_input");
         let error = process_watch_payload(
             None,
@@ -3755,9 +3785,67 @@ mod tests {
             Some(1),
             Some(1),
             Some(MAX_RESULTS + 1),
+            crate::execution_control::ExecutionControl::none(),
         )
         .expect_err("oversized inventory");
         assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
+    fn process_watch_observes_call_scoped_cancellation_inside_a_long_interval() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let raised = Arc::clone(&cancelled);
+        let trigger = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            raised.store(true, Ordering::Release);
+        });
+        let probe = || cancelled.load(Ordering::Acquire);
+        let started = Instant::now();
+        let error = process_watch_payload(
+            Some(std::process::id()),
+            None,
+            None,
+            false,
+            60_000,
+            Some(60_000),
+            Some(4),
+            Some(4),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("cancelled watch");
+        trigger.join().expect("cancel trigger");
+
+        assert_eq!(error.code, "cancelled");
+        let detail = error.detail.expect("typed cancellation detail");
+        assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["phase"], "observe_wait");
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "cooperative cancellation exceeded the worker grace"
+        );
+    }
+
+    #[test]
+    fn process_watch_pre_cancel_stops_before_native_inventory() {
+        let probe = || true;
+        let error = process_watch_payload(
+            Some(u32::MAX),
+            None,
+            None,
+            false,
+            60_000,
+            Some(60_000),
+            Some(4),
+            Some(4),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        )
+        .expect_err("pre-cancelled watch");
+        assert_eq!(error.code, "cancelled");
     }
 
     #[test]

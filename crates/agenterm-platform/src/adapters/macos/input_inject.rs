@@ -212,8 +212,9 @@ pub(crate) fn pointer_grab() -> Result<(PointerPosition, u8, u8), InputInjectErr
 
 pub(crate) fn pointer_ungrab() -> Result<(PointerPosition, u8), InputInjectError> {
     Err(InputInjectError::Unsupported {
-        reason: "pointer-ungrab is not mapped on macOS; use pointer-position to observe coordinates"
-            .into(),
+        reason:
+            "pointer-ungrab is not mapped on macOS; use pointer-position to observe coordinates"
+                .into(),
     })
 }
 

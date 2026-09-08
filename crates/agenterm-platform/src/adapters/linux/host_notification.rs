@@ -182,7 +182,16 @@ async fn notify_via_fdo_async(
     let _: u32 = proxy
         .call(
             "Notify",
-            &("agenterm", 0u32, "", title, body, flat_actions, hints, -1i32),
+            &(
+                "agenterm",
+                0u32,
+                "",
+                title,
+                body,
+                flat_actions,
+                hints,
+                -1i32,
+            ),
         )
         .await
         .map_err(map_fdo_notify_error)?;

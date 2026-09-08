@@ -302,6 +302,8 @@ fn clipboard_write_text(type_name: &str, text: &str) -> Result<serde_json::Value
 }
 
 fn uses_linux_x11_publish(type_name: &str) -> bool {
+    #[cfg(not(target_os = "linux"))]
+    let _ = type_name;
     #[cfg(target_os = "linux")]
     {
         if std::env::var_os("DISPLAY").is_some()

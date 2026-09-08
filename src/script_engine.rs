@@ -1133,11 +1133,22 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
 #[cfg(feature = "script-qjswasm")]
 fn qjs_host_bridges(fleet: Option<ScriptFleetBridgeFn>) -> agenterm_qjswasm::HostBridges {
     #[cfg(feature = "script-acu-embedder")]
-    let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|request_json| {
-        serde_json::to_string(&agenterm_cu::embedder::execute_request_from_environment(
+    let acu: agenterm_qjswasm::AcuBridgeFn = Arc::new(|request_json, cancel, acknowledged| {
+        let probe = || cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire));
+        let reply = agenterm_cu::embedder::execute_request_from_environment_controlled(
             request_json,
-        ))
-        .map_err(|error| format!("serializing ACU reply: {error}"))
+            agenterm_cu::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        );
+        if reply.error.as_ref().is_some_and(|error| {
+            error.code == "cancelled"
+                && error.detail.as_ref().is_some_and(|detail| {
+                    detail.get("effect").and_then(serde_json::Value::as_str)
+                        == Some("not_performed")
+                })
+        }) {
+            acknowledged.store(true, std::sync::atomic::Ordering::Release);
+        }
+        serde_json::to_string(&reply).map_err(|error| format!("serializing ACU reply: {error}"))
     });
     #[cfg(not(feature = "script-acu-embedder"))]
     let acu = crate::acu_provider::bridge();

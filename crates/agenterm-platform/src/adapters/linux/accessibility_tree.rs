@@ -1279,10 +1279,7 @@ async fn a11y_bus_readiness_async() -> Result<serde_json::Value, AccessibilityTr
     }))
 }
 
-async fn read_a11y_status_flag(
-    properties: &zbus::Proxy<'_>,
-    flag: &str,
-) -> serde_json::Value {
+async fn read_a11y_status_flag(properties: &zbus::Proxy<'_>, flag: &str) -> serde_json::Value {
     match properties
         .call::<_, _, zbus::zvariant::OwnedValue>("Get", &(A11Y_STATUS_IFACE, flag))
         .await
@@ -4412,12 +4409,8 @@ async fn invoke_component_click(
                 ));
             }
         };
-        crate::input_inject::pointer_click(
-            PointerPosition { x: cx, y: cy },
-            inject_button,
-            clicks,
-        )
-        .map_err(map_input_inject_err)?;
+        crate::input_inject::pointer_click(PointerPosition { x: cx, y: cy }, inject_button, clicks)
+            .map_err(map_input_inject_err)?;
     }
     Ok(())
 }
@@ -5363,7 +5356,9 @@ fn map_input_inject_err(error: InputInjectError) -> AccessibilityTreeError {
         InputInjectError::Unsupported { reason } => {
             AccessibilityTreeError::failed("a11y_scroll_wheel_unavailable", reason)
         }
-        InputInjectError::Failed { code, message } => AccessibilityTreeError::Failed { code, message },
+        InputInjectError::Failed { code, message } => {
+            AccessibilityTreeError::Failed { code, message }
+        }
     }
 }
 
