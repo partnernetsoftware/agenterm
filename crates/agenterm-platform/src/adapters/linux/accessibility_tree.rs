@@ -2,7 +2,9 @@
 
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 mod chrome_ax_set_value;
 mod webkit_ax_scroll;
@@ -102,7 +104,19 @@ struct WindowIdentity {
 static RUNTIME: OnceLock<&'static tokio::runtime::Runtime> = OnceLock::new();
 static SHARED_CONNECTION: OnceLock<Mutex<Option<zbus::Connection>>> = OnceLock::new();
 static FOCUS_EVENTS_REGISTERED: OnceLock<()> = OnceLock::new();
+static APP_FOCUS_HINT: Mutex<Option<AppFocusHint>> = Mutex::new(None);
 const REGISTRY_PATH: &str = "/org/a11y/atspi/registry";
+/// How long a focus/click actuation on a node remains the best GTK3
+/// keyboard-focus read when the toolkit omits `STATE_FOCUSED` from
+/// `GetState` (measured on GTK3 buttons after `grab_focus` succeeds).
+const APP_FOCUS_HINT_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Debug)]
+struct AppFocusHint {
+    window_handle: Option<isize>,
+    object: BusObject,
+    at: Instant,
+}
 
 thread_local! {
     static LAST_TEXT_VIA: Cell<&'static str> = const { Cell::new("editable-text") };
@@ -181,6 +195,114 @@ async fn ensure_focus_events_registered(
         .map_err(map_atspi_err)?;
     let _ = FOCUS_EVENTS_REGISTERED.set(());
     Ok(())
+}
+
+fn bus_object_for(proxy: &AccessibleProxy<'_>) -> BusObject {
+    let inner = proxy.inner();
+    BusObject {
+        dest: inner.destination().to_string(),
+        path: inner.path().to_string(),
+    }
+}
+
+fn remember_app_focus_hint(window_handle: Option<isize>, proxy: &AccessibleProxy<'_>) {
+    let hint = AppFocusHint {
+        window_handle,
+        object: bus_object_for(proxy),
+        at: Instant::now(),
+    };
+    let mut slot = APP_FOCUS_HINT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *slot = Some(hint.clone());
+    persist_app_focus_hint(&hint);
+}
+
+fn app_focus_hint_for_window(window_handle: Option<isize>) -> Option<AppFocusHint> {
+    let mut slot = APP_FOCUS_HINT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(hint) = slot.as_ref() {
+        if hint.at.elapsed() <= APP_FOCUS_HINT_TTL && hint.window_handle == window_handle {
+            return Some(hint.clone());
+        }
+    }
+    let hint = load_persisted_app_focus_hint(window_handle)?;
+    *slot = Some(hint.clone());
+    Some(hint)
+}
+
+fn focus_hint_store_path() -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR").map(|base| {
+        PathBuf::from(base)
+            .join("agenterm")
+            .join("atspi-focus-hint.txt")
+    })
+}
+
+fn persist_app_focus_hint(hint: &AppFocusHint) {
+    let Some(path) = focus_hint_store_path() else {
+        return;
+    };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(parent);
+    let window = hint
+        .window_handle
+        .map(|handle| handle.to_string())
+        .unwrap_or_default();
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let payload = format!(
+        "{window}\t{dest}\t{path}\t{millis}\n",
+        dest = hint.object.dest,
+        path = hint.object.path,
+    );
+    let _ = std::fs::write(path, payload);
+}
+
+fn load_persisted_app_focus_hint(window_handle: Option<isize>) -> Option<AppFocusHint> {
+    let path = focus_hint_store_path()?;
+    let payload = std::fs::read_to_string(path).ok()?;
+    let line = payload.lines().next()?;
+    let mut fields = line.split('\t');
+    let stored_window = fields.next()?;
+    let dest = fields.next()?;
+    let object_path = fields.next()?;
+    let millis = fields
+        .next()?
+        .parse::<u128>()
+        .ok()
+        .and_then(|value| u64::try_from(value).ok())?;
+    let stored_handle = stored_window
+        .parse::<isize>()
+        .ok()
+        .filter(|handle| *handle != 0);
+    if stored_handle != window_handle {
+        return None;
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    if now.saturating_sub(millis as u128) > APP_FOCUS_HINT_TTL.as_millis() {
+        return None;
+    }
+    Some(AppFocusHint {
+        window_handle,
+        object: BusObject {
+            dest: dest.to_owned(),
+            path: object_path.to_owned(),
+        },
+        at: Instant::now(),
+    })
+}
+
+fn bus_object_paths_match(left: &BusObject, right: &BusObject) -> bool {
+    left.path == right.path
 }
 
 pub(crate) fn capability_status() -> CapabilityStatus {
@@ -501,22 +623,92 @@ async fn focused_node_for_window_async(
     let conn = connect().await?;
     ensure_focus_events_registered(&conn).await?;
     tokio::time::sleep(Duration::from_millis(120)).await;
-    if let Some(node) = focused_node_via_live_probe(&conn, window_handle, false).await? {
+    if let Some(node) = focused_node_via_live_probe(&conn, window_handle, false, false).await? {
         return Ok(node);
     }
-    if let Some(node) = focused_node_via_live_probe(&conn, window_handle, true).await? {
+    if let Some(node) = focused_node_via_actuation_hint(&conn, window_handle).await? {
+        return Ok(node);
+    }
+    if let Some(node) = focused_node_via_live_probe(&conn, window_handle, true, false).await? {
+        return Ok(node);
+    }
+    if let Some(node) = focused_node_via_live_probe(&conn, window_handle, false, true).await? {
         return Ok(node);
     }
     Err(AccessibilityTreeError::failed(
         "a11y_focus_unavailable",
-        "no focused node matched STATE_FOCUSED, text caret, or active focusable probes",
+        "no focused node matched STATE_FOCUSED, actuation read-back, text caret, or active focusable probes",
     ))
+}
+
+async fn focused_node_via_actuation_hint(
+    conn: &zbus::Connection,
+    window_handle: Option<isize>,
+) -> Result<Option<AccessibilityNode>, AccessibilityTreeError> {
+    let Some(hint) = app_focus_hint_for_window(window_handle) else {
+        return Ok(None);
+    };
+    let identity = window_handle.and_then(window_identity);
+    let roots = registry_children(conn).await?;
+    let selected = select_roots(conn, roots, identity.as_ref()).await?;
+    if selected.is_empty() {
+        return Ok(None);
+    }
+    let dbus = DBusProxy::new(conn).await.ok();
+    let mut queue: VecDeque<(BusObject, String, Option<String>, u32)> = VecDeque::new();
+    for (index, object) in selected.into_iter().enumerate() {
+        queue.push_back((object, format!("/{index}"), None, 0));
+    }
+    while let Some((object, id, parent_id, depth)) = queue.pop_front() {
+        if depth > FOCUS_SEARCH_DEPTH {
+            continue;
+        }
+        let object = match resolve_walk_object(conn, dbus.as_ref(), identity.as_ref(), object).await
+        {
+            Some(object) => object,
+            None => continue,
+        };
+        if bus_object_paths_match(&hint.object, &object) {
+            let Ok(Ok(proxy)) = timeout(NODE_TIMEOUT, open_bus_object(conn, &object)).await else {
+                return Ok(None);
+            };
+            let role = role_name(&proxy).await;
+            let states = states_from_proxy_with_role(&proxy, &role).await;
+            let focusable = states.iter().any(|state| state == "focusable")
+                || states.iter().any(|state| state == "editable");
+            if focusable
+                && states
+                    .iter()
+                    .any(|state| state == "showing" || state == "visible")
+            {
+                return Ok(Some(read_node(&proxy, id, parent_id).await));
+            }
+            return Ok(None);
+        }
+        if depth >= FOCUS_SEARCH_DEPTH {
+            continue;
+        }
+        let Ok(Ok(proxy)) = timeout(NODE_TIMEOUT, open_bus_object(conn, &object)).await else {
+            continue;
+        };
+        let child_refs = timeout(NODE_TIMEOUT, raw_children(&proxy, 64))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        for (child_index, child) in child_refs.into_iter().enumerate() {
+            let child_id = format!("{id}/{child_index}");
+            queue.push_back((child, child_id, Some(id.clone()), depth + 1));
+        }
+    }
+    Ok(None)
 }
 
 async fn focused_node_via_live_probe(
     conn: &zbus::Connection,
     window_handle: Option<isize>,
     allow_caret_fallback: bool,
+    allow_active_fallback: bool,
 ) -> Result<Option<AccessibilityNode>, AccessibilityTreeError> {
     let identity = window_handle.and_then(window_identity);
     let roots = registry_children(conn).await?;
@@ -569,7 +761,7 @@ async fn focused_node_via_live_probe(
             true
         } else if allow_caret_fallback && node_reports_text_caret(&proxy, &role).await {
             true
-        } else if allow_caret_fallback && node_reports_active_focusable(&proxy, &role).await {
+        } else if allow_active_fallback && node_reports_active_focusable(&proxy, &role).await {
             true
         } else {
             false
@@ -1262,9 +1454,9 @@ async fn perform_node_action_async(
     let proxy = open_bus_object(&conn, &object).await?;
     match action {
         AccessibilityNodeAction::Click | AccessibilityNodeAction::Press => {
-            invoke_structured_click(&proxy).await
+            invoke_structured_click(window_handle, &proxy).await
         }
-        AccessibilityNodeAction::Focus => invoke_structured_focus(&proxy).await,
+        AccessibilityNodeAction::Focus => invoke_structured_focus(window_handle, &proxy).await,
         AccessibilityNodeAction::SetValue(text) => {
             invoke_editable_text(&proxy, &text, window_handle).await
         }
@@ -1948,7 +2140,7 @@ async fn send_node_keys_async(
         // that action is the node's own default/activate action, which is
         // exactly what `invoke_structured_click` resolves.
         Err(error) if is_missing_key_interface(&error) => match semantic_chord(keys) {
-            Some(SemanticChord::Activate) => invoke_structured_click(&proxy).await,
+            Some(SemanticChord::Activate) => invoke_structured_click(window_handle, &proxy).await,
             None => Err(error),
         },
         Err(error) => Err(error),
@@ -3192,27 +3384,36 @@ fn is_missing_action_interface(error: &AccessibilityTreeError) -> bool {
 /// here used to surface as `a11y_action_timeout` before grab_focus ran,
 /// leaving the Reasonix composer unfocused.
 async fn invoke_structured_focus(
+    window_handle: Option<isize>,
     proxy: &AccessibleProxy<'_>,
 ) -> Result<(), AccessibilityTreeError> {
     if node_reports_focused(proxy).await {
+        remember_app_focus_hint(window_handle, proxy);
         return Ok(());
     }
     if let Ok(Ok(())) = timeout(ACTION_TIMEOUT, invoke_named_action(proxy, &["focus"])).await {
         wait_until_focused(proxy).await;
         if node_reports_focused(proxy).await {
+            remember_app_focus_hint(window_handle, proxy);
             return Ok(());
         }
     }
     let component = component_proxy_for(proxy).await?;
     match timeout(NODE_TIMEOUT, component.grab_focus()).await {
-        Ok(Ok(_)) => {
+        Ok(Ok(true)) => {
             wait_until_focused(proxy).await;
+            remember_app_focus_hint(window_handle, proxy);
             Ok(())
         }
+        Ok(Ok(false)) => Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            "AT-SPI Component grab_focus refused focus",
+        )),
         Ok(Err(err)) => Err(map_atspi_err(err)),
         Err(_) => {
             wait_until_focused(proxy).await;
             if node_reports_focused(proxy).await {
+                remember_app_focus_hint(window_handle, proxy);
                 Ok(())
             } else {
                 Err(AccessibilityTreeError::failed(
@@ -3225,10 +3426,11 @@ async fn invoke_structured_focus(
 }
 
 async fn invoke_structured_click(
+    window_handle: Option<isize>,
     proxy: &AccessibleProxy<'_>,
 ) -> Result<(), AccessibilityTreeError> {
     let has_action = node_exposes_action(proxy).await;
-    match click_route(has_action, &[]) {
+    let result = match click_route(has_action, &[]) {
         ClickRoute::Component => invoke_component_click(proxy).await,
         ClickRoute::Action { .. } => match invoke_action_click(proxy).await {
             Ok(()) => Ok(()),
@@ -3239,7 +3441,11 @@ async fn invoke_structured_click(
             }
             Err(action_err) => Err(action_err),
         },
+    };
+    if result.is_ok() {
+        remember_app_focus_hint(window_handle, proxy);
     }
+    result
 }
 
 async fn invoke_action_click(proxy: &AccessibleProxy<'_>) -> Result<(), AccessibilityTreeError> {
@@ -4628,6 +4834,26 @@ mod tests {
         let mut plain = vec!["showing".to_owned()];
         complete_two_way_states(&mut plain, "panel");
         assert!(!plain.iter().any(|label| label == "unselected"));
+    }
+
+    #[test]
+    fn bus_object_paths_match_by_atspi_path() {
+        let left = BusObject {
+            dest: ":1.42".to_owned(),
+            path: "/org/a11y/atspi/accessible/10".to_owned(),
+        };
+        let right = BusObject {
+            dest: ":1.99".to_owned(),
+            path: "/org/a11y/atspi/accessible/10".to_owned(),
+        };
+        assert!(bus_object_paths_match(&left, &right));
+        assert!(!bus_object_paths_match(
+            &left,
+            &BusObject {
+                dest: ":1.42".to_owned(),
+                path: "/org/a11y/atspi/accessible/8".to_owned(),
+            }
+        ));
     }
 
     #[test]
