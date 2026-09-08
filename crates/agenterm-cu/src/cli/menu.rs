@@ -68,15 +68,27 @@ pub fn parse_app_invoke(target: TargetRef, args: &mut Vec<String>) -> Result<Com
     Ok(Command::AppMenuInvoke { target, app, path })
 }
 
+pub fn parse_inspect(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    parse_action(target, args, "inspect")
+}
+
+pub fn parse_invoke(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    parse_action(target, args, "invoke")
+}
+
 pub fn parse(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let Some(sub) = args.first().cloned() else {
         return Err("menu requires a subcommand: inspect | invoke".into());
     };
     args.remove(0);
+    parse_action(target, args, &sub)
+}
+
+fn parse_action(target: TargetRef, args: &mut Vec<String>, sub: &str) -> Result<Command, String> {
     let Some(window) = flag_window(args)? else {
         return Err(format!("menu {sub} requires --window <handle>"));
     };
-    match sub.as_str() {
+    match sub {
         "inspect" => {
             let depth = flag_parsed::<u32>(args, "--depth")?;
             let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
@@ -139,6 +151,47 @@ pub fn parse(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Strin
         other => Err(format!(
             "unknown menu subcommand {other:?}; expected inspect | invoke"
         )),
+    }
+}
+
+#[cfg(test)]
+mod hyphen_alias_tests {
+    use super::*;
+
+    #[test]
+    fn hyphen_inspect_parses_like_space_form() {
+        let mut args = vec![
+            "--window".into(),
+            "27262979".into(),
+            "--depth".into(),
+            "3".into(),
+        ];
+        assert!(matches!(
+            parse_inspect(TargetRef::Current, &mut args).unwrap(),
+            Command::MenuInspect {
+                window: 27262979,
+                depth: Some(3),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn hyphen_invoke_parses_like_space_form() {
+        let mut args = vec![
+            "--window".into(),
+            "7".into(),
+            "--path".into(),
+            "File/Quit".into(),
+        ];
+        assert!(matches!(
+            parse_invoke(TargetRef::Current, &mut args).unwrap(),
+            Command::MenuInvoke {
+                window: 7,
+                path,
+                ..
+            } if path == ["File", "Quit"]
+        ));
     }
 }
 

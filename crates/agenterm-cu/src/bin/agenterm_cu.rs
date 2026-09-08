@@ -113,25 +113,11 @@ fn valid_parent_window_arg(argument: &str) -> bool {
         && value.parse::<usize>().is_ok()
 }
 
-fn reply_exit_code(reply: &CuReply) -> i32 {
-    if reply.ok {
-        0
-    } else if reply
-        .error
-        .as_ref()
-        .is_some_and(|error| error.code == "usage")
-    {
-        2
-    } else {
-        1
-    }
-}
-
 fn print_reply(reply: &CuReply) -> i32 {
     match serde_json::to_string(reply) {
         Ok(json) => {
             println!("{json}");
-            reply_exit_code(reply)
+            reply.exit_code()
         }
         Err(_) => {
             println!(
@@ -185,9 +171,25 @@ mod tests {
             data: None,
             error: Some(agenterm_cu::CuError::new("usage", "bad arguments")),
         };
-        assert_eq!(reply_exit_code(&success), 0);
-        assert_eq!(reply_exit_code(&failure), 1);
-        assert_eq!(reply_exit_code(&usage), 2);
+        assert_eq!(success.exit_code(), 0);
+        assert_eq!(failure.exit_code(), 1);
+        assert_eq!(usage.exit_code(), 2);
+        let wait_unmet = CuReply {
+            ok: true,
+            target: "current".into(),
+            command: "wait".into(),
+            data: Some(serde_json::json!({ "met": false, "timeout_ms": 800 })),
+            error: None,
+        };
+        assert_eq!(wait_unmet.exit_code(), 1);
+        let wait_met = CuReply {
+            ok: true,
+            target: "current".into(),
+            command: "wait".into(),
+            data: Some(serde_json::json!({ "met": true })),
+            error: None,
+        };
+        assert_eq!(wait_met.exit_code(), 0);
     }
 
     #[test]

@@ -179,7 +179,7 @@ pub fn parse(
                 expect,
             })
         }
-        "menu-inspect" => menu::parse(target, args),
+        "menu-inspect" => menu::parse_inspect(target, args),
         "app-menu-inspect" => menu::parse_app_inspect(target, args),
         "get-text" => {
             let window = flag_window_opt(args);

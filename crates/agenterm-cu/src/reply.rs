@@ -70,4 +70,28 @@ impl CuReply {
             error: Some(error),
         }
     }
+
+    /// Process exit code for this reply. `wait` keeps `ok:true` with
+    /// `data.met=false` but still exits non-zero so shell gates work.
+    pub fn exit_code(&self) -> i32 {
+        if self.ok {
+            if self.command == "wait"
+                && self
+                    .data
+                    .as_ref()
+                    .is_some_and(|data| data.get("met") == Some(&serde_json::Value::Bool(false)))
+            {
+                return 1;
+            }
+            0
+        } else if self
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == "usage")
+        {
+            2
+        } else {
+            1
+        }
+    }
 }

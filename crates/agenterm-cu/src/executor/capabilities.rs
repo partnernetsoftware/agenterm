@@ -1375,6 +1375,13 @@ fn doctor_service(scope: crate::service_control::ServiceScope) -> serde_json::Va
             "status": "not-applicable",
             "reason": error.code,
         }),
+        Err(error) if error.code == "service_query_failed" => serde_json::json!({
+            "required": false,
+            "status": "skipped",
+            "reason": error.code,
+            "detail": error_payload(&error),
+            "note": "service inventory is optional when the host has no reachable native service authority",
+        }),
         Err(error) => serde_json::json!({
             "required": true,
             "status": "failed",
@@ -1433,6 +1440,14 @@ fn doctor_target_binding() -> serde_json::Value {
                     "target_binding_invalid"
                 }
             };
+            if code == "target_binding_unsupported" && cfg!(target_os = "linux") {
+                return serde_json::json!({
+                    "required": false,
+                    "status": "not-applicable",
+                    "reason": code,
+                    "note": "Linux session binding is not implemented; desktop observe/actuate does not require it",
+                });
+            }
             serde_json::json!({
                 "required": true,
                 "status": "failed",
@@ -1444,6 +1459,10 @@ fn doctor_target_binding() -> serde_json::Value {
             })
         }
     }
+}
+
+fn doctor_check_failed(check: &serde_json::Value) -> bool {
+    check["required"].as_bool().unwrap_or(true) && check["status"] == "failed"
 }
 
 /// One bounded, read-only answer for an agent deciding whether this host is
@@ -1480,7 +1499,7 @@ pub(super) fn doctor_payload() -> Result<serde_json::Value, CuError> {
         &target_binding,
     ]
     .iter()
-    .any(|check| check["status"] == "failed");
+    .any(|check| doctor_check_failed(check));
     let degraded = mechanism_degraded || permission_degraded || system_degraded;
     let report = serde_json::json!({
         "schema": 2,
@@ -1877,10 +1896,10 @@ mod tests {
         assert_eq!(data["action"]["performed"], false);
         let checks_failed = ["windows", "displays", "runtime", "abi", "target_binding"]
             .iter()
-            .any(|check| data["checks"][check]["status"] != "available");
+            .any(|check| doctor_check_failed(&data["checks"][check]));
         let service_failed = ["user", "system"]
             .iter()
-            .any(|scope| data["checks"]["services"][scope]["status"] == "failed");
+            .any(|scope| doctor_check_failed(&data["checks"]["services"][scope]));
         let permission_failed = data["permissions"]
             .pointer("/accessibility/grant/status")
             .and_then(serde_json::Value::as_str)
