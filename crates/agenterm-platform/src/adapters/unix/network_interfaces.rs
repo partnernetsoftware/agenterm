@@ -78,6 +78,7 @@ pub(crate) fn enumerate_native() -> Result<NetworkInterfaceInventory, NetworkInt
             // record is not guaranteed to precede the interface's IP rows.
             mac: None,
             internal: entry.ifa_flags & libc::IFF_LOOPBACK as u32 != 0 || address.is_loopback(),
+            up: entry.ifa_flags & libc::IFF_UP as u32 != 0,
             scope_id,
             native_id: u64::from(native_id),
             native_id_kind: NetworkInterfaceNativeIdKind::IfIndex,

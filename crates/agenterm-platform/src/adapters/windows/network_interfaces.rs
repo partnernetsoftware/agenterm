@@ -106,6 +106,7 @@ fn parse_adapters(head: *const IP_ADAPTER_ADDRESSES_LH) -> NetworkInterfaceInven
             (physical_length != 0).then(|| current.PhysicalAddress[..physical_length].to_vec())
         };
         let internal = current.IfType == IF_TYPE_SOFTWARE_LOOPBACK;
+        let up = current.OperStatus == 1;
         let mut unicast = current.FirstUnicastAddress;
         while !unicast.is_null() {
             if scanned == NETWORK_INTERFACE_SCAN_CEILING {
@@ -130,6 +131,7 @@ fn parse_adapters(head: *const IP_ADAPTER_ADDRESSES_LH) -> NetworkInterfaceInven
                     cidr,
                     mac: mac.clone(),
                     internal: internal || ip.is_loopback(),
+                    up,
                     scope_id,
                     native_id: luid,
                     native_id_kind: NetworkInterfaceNativeIdKind::AdapterLuid,

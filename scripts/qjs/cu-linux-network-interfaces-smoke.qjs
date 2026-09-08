@@ -1,0 +1,245 @@
+// CEO: Linux network-interfaces observe with independent ip + sysfs read-back.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-network-interfaces-ip-sysfs",
+];
+
+const IFF_UP = 1;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function flag_at(value, dotted) {
+  const text = text_at(value, dotted);
+  if (text === "true") { return true; }
+  if (text === "false") { return false; }
+  return value[dotted.split(".").pop()];
+}
+
+function split_whitespace(text) {
+  const parts = [];
+  let current = "";
+  for (let index = 0; index < text.length; index = index + 1) {
+    const code = text.charCodeAt(index);
+    if (code === 9 || code === 10 || code === 13 || code === 32) {
+      if (current.length > 0) {
+        parts.push(current);
+        current = "";
+      }
+    } else {
+      current = current + text.charAt(index);
+    }
+  }
+  if (current.length > 0) { parts.push(current); }
+  return parts;
+}
+
+function parse_hex(value) {
+  let start = 0;
+  if (value.length >= 2 && value.charAt(0) === "0"
+      && (value.charAt(1) === "x" || value.charAt(1) === "X")) {
+    start = 2;
+  }
+  let result = 0;
+  for (let index = start; index < value.length; index = index + 1) {
+    const code = value.charCodeAt(index);
+    let digit = -1;
+    if (code >= 48 && code <= 57) { digit = code - 48; }
+    else if (code >= 97 && code <= 102) { digit = code - 87; }
+    else if (code >= 65 && code <= 70) { digit = code - 55; }
+    else { return -1; }
+    result = result * 16 + digit;
+  }
+  return result;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_network_interfaces_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_network_interfaces_reply_state");
+  return reply;
+}
+
+function normalize_address(family, address) {
+  if (family !== "IPv6") { return address; }
+  const output = rh.command("ip", ["-6", "addr", "show", "to", address], {
+    timeout_ms: 10000,
+  });
+  if (!output.success) { return address.toLowerCase(); }
+  const lines = output.stdout.split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index].trim();
+    if (line.indexOf("inet6 ") === 0) {
+      const parts = split_whitespace(line);
+      if (parts.length >= 2) {
+        const slash = parts[1].indexOf("/");
+        const candidate = slash < 0 ? parts[1] : parts[1].slice(0, slash);
+        if (candidate !== "") { return candidate.toLowerCase(); }
+      }
+    }
+  }
+  return address.toLowerCase();
+}
+
+function independent_ip_rows() {
+  const output = rh.command("ip", ["-j", "addr", "show"], { timeout_ms: 15000 });
+  ensure(output.success === true, "ip_addr_show_failed:" + output.stderr);
+  const document = JSON.parse(output.stdout.trim());
+  ensure(Array.isArray(document), "ip_addr_show_shape");
+  const rows = [];
+  for (let index = 0; index < document.length; index = index + 1) {
+    const iface = document[index];
+    const name = "" + iface.ifname;
+    const ifindex = Number(iface.ifindex);
+    ensure(name !== "" && ifindex > 0, "ip_addr_iface_shape:" + JSON.stringify(iface));
+    const addrinfo = iface.addr_info;
+    if (!Array.isArray(addrinfo)) { continue; }
+    for (let addr_index = 0; addr_index < addrinfo.length; addr_index = addr_index + 1) {
+      const addr = addrinfo[addr_index];
+      const family = addr.family === "inet" ? "IPv4" : (addr.family === "inet6" ? "IPv6" : "");
+      if (family === "" || addr.local === undefined) { continue; }
+      rows.push({
+        name: name,
+        family: family,
+        address: normalize_address(family, "" + addr.local),
+        ifindex: ifindex,
+      });
+    }
+  }
+  return rows;
+}
+
+function sysfs_text(path) {
+  if (!rh.exists(path)) { return ""; }
+  return rh.read_text(path).trim();
+}
+
+function sysfs_ifindex(name) {
+  const text = sysfs_text("/sys/class/net/" + name + "/ifindex");
+  if (text === "") { return 0; }
+  const value = Number(text);
+  ensure(value > 0, "sysfs_ifindex_shape:" + name + ":" + text);
+  return value;
+}
+
+function sysfs_iff_up(name) {
+  const text = sysfs_text("/sys/class/net/" + name + "/flags");
+  if (text === "") { return null; }
+  const flags = parse_hex(text);
+  ensure(flags >= 0, "sysfs_flags_shape:" + name + ":" + text);
+  return (flags & IFF_UP) !== 0;
+}
+
+function find_ip_row(rows, name, family, address) {
+  const normalized = normalize_address(family, address);
+  for (let index = 0; index < rows.length; index = index + 1) {
+    const row = rows[index];
+    if (row.name === name && row.family === family && row.address === normalized) {
+      return row;
+    }
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-network-interfaces");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent ip -j addr show captures a non-empty address inventory");
+  const ip_rows = independent_ip_rows();
+  ensure(ip_rows.length > 0, "cu_linux_network_interfaces_ip_empty");
+
+  print("STEP network-interfaces observe returns a non-empty bounded inventory");
+  const reply = invoke(context.run_directory, executable, [
+    "network-interfaces", "--max", "5000"
+  ], true);
+  ensure(reply.command === "network-interfaces" && reply.target === "current",
+         "cu_linux_network_interfaces_identity");
+  const data = reply.data;
+  const interfaces = data.interfaces;
+  ensure(Array.isArray(interfaces) && interfaces.length > 0,
+         "cu_linux_network_interfaces_empty");
+  ensure(data.returned === interfaces.length && data.returned <= 5000,
+         "cu_linux_network_interfaces_counts");
+
+  print("STEP each CU row matches independent ip/sysfs name, address, ifindex and IFF_UP");
+  for (let index = 0; index < interfaces.length; index = index + 1) {
+    const row = interfaces[index];
+    const name = text_at(row, "name");
+    const family = text_at(row, "family");
+    const address = text_at(row, "address");
+    const native_id = text_at(row, "native_id");
+    const up = flag_at(row, "up");
+    ensure(name !== "" && (family === "IPv4" || family === "IPv6") && address !== "",
+           "cu_linux_network_interfaces_row_schema:" + JSON.stringify(row));
+    ensure(text_at(row, "native_id_kind") === "ifindex",
+           "cu_linux_network_interfaces_native_kind:" + name);
+
+    const ip_row = find_ip_row(ip_rows, name, family, address);
+    ensure(ip_row !== null,
+           "cu_linux_network_interfaces_ip_missing:" + JSON.stringify({ name: name, family: family, address: address }));
+
+    const sysfs_index = sysfs_ifindex(name);
+    ensure("" + ip_row.ifindex === native_id,
+           "cu_linux_network_interfaces_ifindex_mismatch:cu=" + native_id + ":ip=" + ip_row.ifindex);
+    ensure("" + sysfs_index === native_id,
+           "cu_linux_network_interfaces_sysfs_ifindex_mismatch:cu=" + native_id + ":sysfs=" + sysfs_index);
+
+    const sysfs_up = sysfs_iff_up(name);
+    ensure(sysfs_up !== null,
+           "cu_linux_network_interfaces_sysfs_flags_missing:" + name);
+    ensure(up === sysfs_up,
+           "cu_linux_network_interfaces_up_mismatch:" + JSON.stringify({
+             name: name, cu: up, sysfs: sysfs_up
+           }));
+  }
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-network-interfaces-ip-sysfs");
+  harness.remove_run(context);
+  print("PASS: CEO Linux network-interfaces with independent ip and sysfs read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

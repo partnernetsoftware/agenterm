@@ -319,6 +319,10 @@
       "evidence": ["cu.network-interfaces"]
     },
     {
+      "id": "cu-linux-network-interfaces-smoke",
+      "evidence": ["cu.linux-network-interfaces-ip-sysfs"]
+    },
+    {
       "id": "cu-desktop-state-smoke",
       "evidence": ["cu.desktop-state"]
     },

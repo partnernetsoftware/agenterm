@@ -63,6 +63,7 @@ mod tests {
             cidr: None,
             mac: None,
             internal: false,
+            up: true,
             scope_id: None,
             native_id,
             native_id_kind: NetworkInterfaceNativeIdKind::IfIndex,

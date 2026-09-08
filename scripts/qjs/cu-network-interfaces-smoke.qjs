@@ -53,6 +53,7 @@ function assert_payload(reply, max) {
         && (row.family === "IPv4" || row.family === "IPv6")
         && typeof row.address === "string"
         && row.address.length > 0
+        && typeof row.up === "boolean"
         && typeof row.native_id === "string"
         && row.native_id.length > 0
         && (row.native_id_kind === "ifindex" || row.native_id_kind === "adapter-luid")

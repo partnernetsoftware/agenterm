@@ -47,6 +47,8 @@ pub struct NetworkInterfaceAddress {
     pub cidr: Option<u8>,
     pub mac: Option<Vec<u8>>,
     pub internal: bool,
+    /// Administrative up (`IFF_UP` on Unix; operational-up on Windows).
+    pub up: bool,
     pub scope_id: Option<u32>,
     pub native_id: u64,
     pub native_id_kind: NetworkInterfaceNativeIdKind,
