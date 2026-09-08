@@ -15,8 +15,9 @@ use atspi::proxy::device_event_controller::{DeviceEvent, DeviceEventControllerPr
 use atspi::proxy::device_event_listener::DeviceEventListenerProxy;
 use atspi::proxy::editable_text::EditableTextProxy;
 use atspi::proxy::proxy_ext::ProxyExt;
+use atspi::proxy::registry::RegistryProxy;
 use atspi::proxy::text::TextProxy;
-use atspi::{CoordType, Interface, Role, ScrollType, StateSet};
+use atspi::{CoordType, Interface, Role, ScrollType, State, StateSet};
 use tokio::time::{Duration, timeout};
 use zbus::fdo::DBusProxy;
 use zbus::names::BusName;
@@ -100,6 +101,8 @@ struct WindowIdentity {
 
 static RUNTIME: OnceLock<&'static tokio::runtime::Runtime> = OnceLock::new();
 static SHARED_CONNECTION: OnceLock<Mutex<Option<zbus::Connection>>> = OnceLock::new();
+static FOCUS_EVENTS_REGISTERED: OnceLock<()> = OnceLock::new();
+const REGISTRY_PATH: &str = "/org/a11y/atspi/registry";
 
 thread_local! {
     static LAST_TEXT_VIA: Cell<&'static str> = const { Cell::new("editable-text") };
@@ -151,6 +154,28 @@ fn remember_connection(conn: zbus::Connection) -> zbus::Connection {
     let leaked: &'static zbus::Connection = Box::leak(Box::new(conn.clone()));
     *slot = Some(leaked.clone());
     conn
+}
+
+async fn ensure_focus_events_registered(conn: &zbus::Connection) -> Result<(), AccessibilityTreeError> {
+    if FOCUS_EVENTS_REGISTERED.get().is_some() {
+        return Ok(());
+    }
+    let registry = RegistryProxy::builder(conn)
+        .destination(REGISTRY_DEST)
+        .map_err(map_atspi_err)?
+        .path(REGISTRY_PATH)
+        .map_err(map_atspi_err)?
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await
+        .map_err(map_atspi_err)?;
+    registry.register_event("focus:").await.map_err(map_atspi_err)?;
+    registry
+        .register_event("object:state-changed")
+        .await
+        .map_err(map_atspi_err)?;
+    let _ = FOCUS_EVENTS_REGISTERED.set(());
+    Ok(())
 }
 
 pub(crate) fn capability_status() -> CapabilityStatus {
@@ -403,14 +428,29 @@ pub(crate) fn invoke_menu_path(
     })
 }
 
-/// The window's App-local focused control, read from the tree the window
-/// already publishes: AT-SPI marks the focused element with `STATE_FOCUSED`,
-/// so a bounded walk that finds it needs no event subscription and never
-/// activates or raises anything. The deepest marked node wins -- a frame
-/// and its focused child can both carry the state, and the control is the
-/// answer the caller wants. A truncated walk that found nothing says so,
-/// rather than reporting "no focus" from a search that stopped early.
+/// The window's App-local focused control. Prefer `STATE_FOCUSED` in a
+/// bounded tree walk; when a toolkit omits that state from `GetState`
+/// (measured on GTK3 fixtures), fall back to a live probe and the focus
+/// events the registry forwards after registration.
 pub(crate) fn focused_node_for_window(
+    window_handle: Option<isize>,
+) -> Result<AccessibilityNode, AccessibilityTreeError> {
+    if let Ok(node) = focused_node_from_tree_snapshot(window_handle) {
+        return Ok(node);
+    }
+    runtime().block_on(async {
+        timeout(SNAPSHOT_TIMEOUT, focused_node_for_window_async(window_handle))
+            .await
+            .map_err(|_| {
+                AccessibilityTreeError::failed(
+                    "a11y_tree_timeout",
+                    "AT-SPI focused read exceeded its deadline",
+                )
+            })?
+    })
+}
+
+fn focused_node_from_tree_snapshot(
     window_handle: Option<isize>,
 ) -> Result<AccessibilityNode, AccessibilityTreeError> {
     let tree = tree_for_window(
@@ -445,6 +485,109 @@ pub(crate) fn focused_node_for_window(
             "no node in the window tree carries STATE_FOCUSED",
         )),
     }
+}
+
+async fn focused_node_for_window_async(
+    window_handle: Option<isize>,
+) -> Result<AccessibilityNode, AccessibilityTreeError> {
+    let conn = connect().await?;
+    ensure_focus_events_registered(&conn).await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if let Some(node) = focused_node_via_live_probe(&conn, window_handle, false).await? {
+        return Ok(node);
+    }
+    if let Some(node) = focused_node_via_live_probe(&conn, window_handle, true).await? {
+        return Ok(node);
+    }
+    Err(AccessibilityTreeError::failed(
+        "a11y_focus_unavailable",
+        "no focused node matched STATE_FOCUSED, text caret, or active focusable probes",
+    ))
+}
+
+async fn focused_node_via_live_probe(
+    conn: &zbus::Connection,
+    window_handle: Option<isize>,
+    allow_caret_fallback: bool,
+) -> Result<Option<AccessibilityNode>, AccessibilityTreeError> {
+    let identity = window_handle.and_then(window_identity);
+    let roots = registry_children(conn).await?;
+    let selected = select_roots(conn, roots, identity.as_ref()).await?;
+    if selected.is_empty() {
+        return Ok(None);
+    }
+    let dbus = DBusProxy::new(conn).await.ok();
+    let mut best: Option<(usize, AccessibilityNode)> = None;
+    let mut queue: VecDeque<(BusObject, String, Option<String>, u32)> = VecDeque::new();
+    for (index, object) in selected.into_iter().enumerate() {
+        queue.push_back((object, format!("/{index}"), None, 0));
+    }
+    while let Some((object, id, parent_id, depth)) = queue.pop_front() {
+        if depth > FOCUS_SEARCH_DEPTH {
+            continue;
+        }
+        let object =
+            match resolve_walk_object(conn, dbus.as_ref(), identity.as_ref(), object).await {
+                Some(object) => object,
+                None => continue,
+            };
+        let Ok(Ok(proxy)) = timeout(NODE_TIMEOUT, open_bus_object(conn, &object)).await else {
+            continue;
+        };
+        let role = role_name(&proxy).await;
+        let states = states_from_proxy_with_role(&proxy, &role).await;
+        let focusable = states.iter().any(|state| state == "focusable")
+            || states.iter().any(|state| state == "editable");
+        if !focusable || !states.iter().any(|state| state == "showing" || state == "visible") {
+            if depth >= FOCUS_SEARCH_DEPTH {
+                continue;
+            }
+            let child_refs = timeout(NODE_TIMEOUT, raw_children(&proxy, 64))
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or_default();
+            for (child_index, child) in child_refs.into_iter().enumerate() {
+                let child_id = format!("{id}/{child_index}");
+                queue.push_back((child, child_id, Some(id.clone()), depth + 1));
+            }
+            continue;
+        }
+        let focused = if node_reports_focused(&proxy).await {
+            true
+        } else if allow_caret_fallback && node_reports_text_caret(&proxy, &role).await {
+            true
+        } else if allow_caret_fallback && node_reports_active_focusable(&proxy, &role).await {
+            true
+        } else {
+            false
+        };
+        if focused {
+            let depth_score = id.matches('/').count();
+            let replace = best
+                .as_ref()
+                .is_none_or(|(current_depth, _)| depth_score > *current_depth);
+            if replace {
+                best = Some((
+                    depth_score,
+                    read_node(&proxy, id.clone(), parent_id.clone()).await,
+                ));
+            }
+        }
+        if depth >= FOCUS_SEARCH_DEPTH {
+            continue;
+        }
+        let child_refs = timeout(NODE_TIMEOUT, raw_children(&proxy, 64))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        for (child_index, child) in child_refs.into_iter().enumerate() {
+            let child_id = format!("{id}/{child_index}");
+            queue.push_back((child, child_id, Some(id.clone()), depth + 1));
+        }
+    }
+    Ok(best.map(|(_, node)| node))
 }
 
 /// No poke is needed or available here: unlike macOS, this backend does
@@ -2535,10 +2678,39 @@ async fn states_from_proxy_with_role(proxy: &AccessibleProxy<'_>, role: &str) ->
 }
 
 async fn node_reports_focused(proxy: &AccessibleProxy<'_>) -> bool {
-    states_from_proxy(proxy)
-        .await
-        .iter()
-        .any(|state| state == "focused")
+    match timeout(NODE_TIMEOUT, proxy.get_state()).await {
+        Ok(Ok(state)) => state.contains(State::Focused),
+        _ => false,
+    }
+}
+
+async fn node_reports_text_caret(proxy: &AccessibleProxy<'_>, role: &str) -> bool {
+    if !matches!(
+        role,
+        "text" | "entry" | "password text" | "edit" | "editable text"
+    ) {
+        return false;
+    }
+    match text_proxy_for(proxy).await {
+        Ok(text) => match timeout(NODE_TIMEOUT, text.caret_offset()).await {
+            Ok(Ok(offset)) => offset >= 0,
+            _ => false,
+        },
+        Err(_) => false,
+    }
+}
+
+async fn node_reports_active_focusable(proxy: &AccessibleProxy<'_>, role: &str) -> bool {
+    if matches!(
+        role,
+        "text" | "entry" | "password text" | "edit" | "editable text"
+    ) {
+        return false;
+    }
+    match timeout(NODE_TIMEOUT, proxy.get_state()).await {
+        Ok(Ok(state)) => state.contains(State::Active) && state.contains(State::Focusable),
+        _ => false,
+    }
 }
 
 async fn wait_until_focused(proxy: &AccessibleProxy<'_>) {
