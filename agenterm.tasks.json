@@ -4321,6 +4321,23 @@
       "evidence": [
         "task.cu-linux-process-signal-smoke"
       ]
+    },
+    "cu-linux-process-kill-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-kill-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-kill-smoke"
+      ]
     }
   },
   "tasks": [
@@ -6027,6 +6044,24 @@
       "id": "cu-linux-process-signal-smoke",
       "description": "Prove Linux process-signal STOP/CONT/TERM/USR1 delivery matches independent /proc scheduler state, wait outcome or handler-marker read-back; ignored USR1 remains verified=false with live-process agreement; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-process-signal-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-process-kill-smoke",
+      "description": "Prove Linux process-kill graceful and forceful termination with start-identity matches independent waitpid exit read-back on disposable children; graceful refusal on TERM-ignoring child then forceful kill is verified; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-kill-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
