@@ -91,9 +91,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   manifest hashes, guest/host exit zero and owned cleanup. The runtime receipt
   is local and gitignored; the exact source/court verdict is retained here.
 - [~] Linux current-target process, terminal and AT-SPI desktop behavior runs
-  through the public qjswasm journey. Its 32 evidence identities are registered
-  in the host-native gate; exact source `7c489577` passed all 32 on a real
-  Linux x86_64 X11 court and retained the matching compact receipt.
+  through the public qjswasm journey. The journey now declares 40 evidence
+  identities: exact source `7c489577` proved 32 on a real Linux x86_64 X11
+  court, while eight later identities (including named wheel delivery) remain
+  pending until that public court is rerun.
 - [~] Windows browser window, tab, page-text and CDP targeting use one owned
   Chromium-family profile. The existing eight-token journey is now a named
   task and qualification gate; typed browser absence emits no evidence.
@@ -589,7 +590,9 @@ ACU-only cutover
 │  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
 │  ├─ [~] acu.dynamic.074 · window-local scroll without physical-pointer movement
 │  │  └─ current-host SkyLight research passed C1–C8, but the public AppKit baseline
-│  │     also delivered; C9 and a discriminating Chromium/Electron fixture remain
+│  │     also delivered; C9 and a discriminating Chromium/Electron fixture remain.
+│  │     This is distinct from Linux named `scroll-wheel`, which temporarily moves
+│  │     and then restores the physical pointer.
 │  ├─ [~] acu.dynamic.075 · native `browser-tabs` resolves one exact MV3 profile connection;
 │  │  ├─ complete profile-wide background tabs retain stable tab/window ids, title and URL
 │  │  ├─ truncated/ambiguous connection or tab inventories fail typed; no AX/CDP heuristic fallback
@@ -2583,7 +2586,7 @@ independent implementation.
 | 已有面 | owning 模块 | cu 的关系 |
 |--------|-------------|-----------|
 | OS 级 screenshot / window / input / process 机制 | [20 Native platform](PRD_02_20_native_platform.md) `agenterm-platform` | **消费**。cu 不得直调 OS API，新机制先沉入 platform 并带 typed `Unsupported`/`Failed` |
-| OS 级 accessibility-tree 机制（观察 + 节点动作） | `crates/agenterm-abi` libagenterm `agt_a11y_*`（里程碑 6）→ `agenterm-platform` 适配器 | **消费**。Linux `current` 的 `tree` / 结构化 `click` / `focus` / named `hover` / named `send-text` / focused `send-text --window` / named `copy` / focused `copy --window` / named `paste` / focused `paste --window` / named `send-keys` / focused `send-keys --window` 经 ABI 机制层，不在 cu 内复刻 AT-SPI/UIA/AX；macOS/Windows 对没有等价指针移动式节点 hover 的路径 typed-refuse。ABI 1.31 另以 caller-sized `agt_screen_physical_v1` 查询显示器物理尺寸，不改变既有 `agt_screen_info[]` 数组步长。 |
+| OS 级 accessibility-tree 机制（观察 + 节点动作） | `crates/agenterm-abi` libagenterm `agt_a11y_*`（里程碑 6）→ `agenterm-platform` 适配器 | **消费**。Linux `current` 的 `tree` / 结构化 `click` / `focus` / named `hover` / named `scroll-wheel` / named `send-text` / focused `send-text --window` / named `copy` / focused `copy --window` / named `paste` / focused `paste --window` / named `send-keys` / focused `send-keys --window` 经 ABI 机制层，不在 cu 内复刻 AT-SPI/UIA/AX。named wheel 以目标子节点的独立前后几何读回证明交付，错误路径仍必须释放 wheel button 并恢复真实指针；Linux native X11 court 未实跑前保持 platform-limited。macOS/Windows 对 named hover / scroll-wheel 没有等价节点指针路径，均 typed-refuse。ABI 1.31 另以 caller-sized `agt_screen_physical_v1` 查询显示器物理尺寸，不改变既有 `agt_screen_info[]` 数组步长。 |
 | 工作台观察/控制、确定性等待、身份 | [07 Agent control plane](PRD_02_07_agent_control_plane.md) | **复用，不分叉**。cu 的 terminal facade 只能调用这条既有控制平面并验证同一 scope/epoch/@tab；不得提供第二个 tab/PTY owner |
 | `agenterm-cc` 的 screenshot/snapshot 投影 | [21 Control Center](PRD_02_21_control_center.md) | **不重叠**。CC 是产品投影，不是通用机器控制面 |
 | `agenterm-con cli` 的输入/截图/等待 | [26 con control CLI](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_26_con_control_cli.md) | **不重叠**。con 是 GUI 生命期内的本进程终端控制 |

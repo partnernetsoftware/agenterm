@@ -109,6 +109,7 @@ pub fn parse(
             let role = flag_text(args, "--role")?;
             let dx = required_pointer_i32_flag(args, "scroll-wheel", "--dx")?;
             let dy = required_pointer_i32_flag(args, "scroll-wheel", "--dy")?;
+            validate_scroll_delta(dx, dy)?;
             if !args.is_empty() {
                 return Err(format!(
                     "scroll-wheel accepts only --window HANDLE --name PAT [--role ROLE] --dx DX --dy DY; unexpected {args:?}"
@@ -512,6 +513,75 @@ mod tests {
             &["--to", "desktop", "--dx", "0", "--dy", "-1", "extra"][..],
         ] {
             assert!(pointer_scroll(TargetRef::Current, &mut args(words)).is_err());
+        }
+    }
+
+    #[test]
+    fn scroll_wheel_parser_requires_exact_named_bounded_shape() {
+        let spec = crate::cli::verbs::lookup("scroll-wheel").expect("catalog verb");
+        let command = parse(
+            spec,
+            "scroll-wheel",
+            TargetRef::Current,
+            &mut args(&[
+                "--window",
+                "42",
+                "--name",
+                "Fixture Wheel Target",
+                "--role",
+                "label",
+                "--dx",
+                "0",
+                "--dy",
+                "-3",
+            ]),
+        )
+        .expect("parse");
+        assert!(matches!(
+            command,
+            Command::ScrollWheel {
+                window: Some(42),
+                dx: 0,
+                dy: -3,
+                ..
+            }
+        ));
+        for words in [
+            &[
+                "--window",
+                "42",
+                "--name",
+                "Fixture Wheel Target",
+                "--dx",
+                "0",
+                "--dy",
+                "0",
+            ][..],
+            &["--name", "Fixture Wheel Target", "--dx", "0", "--dy", "-1"][..],
+            &["--window", "42", "--dx", "0", "--dy", "-1"][..],
+            &[
+                "--window",
+                "42",
+                "--name",
+                "Fixture Wheel Target",
+                "--dx",
+                "not-i32",
+                "--dy",
+                "-1",
+            ][..],
+            &[
+                "--window",
+                "42",
+                "--name",
+                "Fixture Wheel Target",
+                "--dx",
+                "0",
+                "--dy",
+                "-1",
+                "extra",
+            ][..],
+        ] {
+            assert!(parse(spec, "scroll-wheel", TargetRef::Current, &mut args(words),).is_err());
         }
     }
 }

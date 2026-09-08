@@ -126,6 +126,9 @@ struct agt_window_placement_info_v1;
 struct agt_screen_info;
 #[repr(C)]
 #[allow(non_camel_case_types)]
+struct agt_screen_physical_v1;
+#[repr(C)]
+#[allow(non_camel_case_types)]
 struct agt_desktop_action;
 
 // --- export fn types -----------------------------------------------------
@@ -159,6 +162,9 @@ type A11yTreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type A11yNodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type A11yNodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
 type A11yNodePerform = unsafe extern "C" fn(isize, *const c_char, i32) -> i32;
+type A11yNodeClick = unsafe extern "C" fn(isize, *const c_char, i32, u32) -> i32;
+type A11yNodeHover = unsafe extern "C" fn(isize, *const c_char) -> i32;
+type A11yNodeWheel = unsafe extern "C" fn(isize, *const c_char, i32, i32) -> i32;
 type A11yNodeInvoke = unsafe extern "C" fn(isize, *const c_char, i32, *const u8, usize) -> i32;
 type A11yMenuSnapshot = unsafe extern "C" fn(isize, i32, u32, *mut usize) -> i32;
 type A11yMenuInvoke = unsafe extern "C" fn(isize, *const u8, usize, *mut u32, *mut u32) -> i32;
@@ -199,10 +205,12 @@ type WindowEnumerate = unsafe extern "C" fn(*mut agt_window_info, usize, *mut us
 type WindowPlacementQuery =
     unsafe extern "C" fn(isize, u32, *mut agt_window_placement_info_v1) -> i32;
 type ScreenList = unsafe extern "C" fn(*mut agt_screen_info, usize, *mut usize) -> i32;
+type ScreenPhysical = unsafe extern "C" fn(usize, *mut agt_screen_physical_v1) -> i32;
 type A11yLastTextWriteVia = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type NativeWindowShow = unsafe extern "C" fn(isize, i32) -> i32;
 type NativeWindowActivate = unsafe extern "C" fn(isize) -> i32;
 type NativeWindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
+type NativeWindowMaximized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type NativeWindowMove = unsafe extern "C" fn(isize, i32, i32, u32, u32) -> i32;
 type NativeWindowRect = unsafe extern "C" fn(isize, *mut i32, *mut i32, *mut u32, *mut u32) -> i32;
 type NativeWindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
@@ -446,6 +454,11 @@ fn screen_list_cap1(lib: &Library) -> i32 {
     unsafe { f(std::ptr::null_mut(), 1, &mut n) }
 }
 
+fn screen_physical_null(lib: &Library) -> i32 {
+    let f: Symbol<ScreenPhysical> = unsafe { sym(lib, b"agt_screen_physical") };
+    unsafe { f(0, std::ptr::null_mut()) }
+}
+
 fn a11y_last_text_write_via_bad_args(lib: &Library) -> i32 {
     let f: Symbol<A11yLastTextWriteVia> = unsafe { sym(lib, b"agt_a11y_last_text_write_via") };
     unsafe { f(std::ptr::null_mut(), 1, std::ptr::null_mut()) }
@@ -477,6 +490,12 @@ fn native_window_minimized_handle0(lib: &Library) -> i32 {
     let f: Symbol<NativeWindowMinimized> = unsafe { sym(lib, b"agt_native_window_minimized") };
     let mut minimized = 0;
     unsafe { f(0, &mut minimized) }
+}
+
+fn native_window_maximized_handle0(lib: &Library) -> i32 {
+    let f: Symbol<NativeWindowMaximized> = unsafe { sym(lib, b"agt_native_window_maximized") };
+    let mut maximized = 0;
+    unsafe { f(0, &mut maximized) }
 }
 
 fn native_window_move_handle0(lib: &Library) -> i32 {
@@ -834,6 +853,30 @@ fn null_group() -> Vec<SweepCase> {
             }),
         },
         SweepCase {
+            label: "agt_a11y_node_click[window_handle=0,node_id=NULL,button=0,clicks=1]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yNodeClick> = unsafe { sym(lib, b"agt_a11y_node_click") };
+                unsafe { CallResult::Status(f(0, std::ptr::null(), 0, 1)) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_node_hover[window_handle=0,node_id=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yNodeHover> = unsafe { sym(lib, b"agt_a11y_node_hover") };
+                unsafe { CallResult::Status(f(0, std::ptr::null())) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_node_wheel[window_handle=0,node_id=NULL,dx=0,dy=0]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yNodeWheel> = unsafe { sym(lib, b"agt_a11y_node_wheel") };
+                unsafe { CallResult::Status(f(0, std::ptr::null(), 0, 0)) }
+            }),
+        },
+        SweepCase {
             label: "agt_a11y_node_invoke[window_handle=0,node_id=NULL,action=2,value=NULL,len=0]",
             kind: Kind::MustFail,
             call: Box::new(|lib| {
@@ -1178,6 +1221,11 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| CallResult::Status(screen_list_bad_args(lib))),
         },
         SweepCase {
+            label: "agt_screen_physical[index=0,out=NULL]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(screen_physical_null(lib))),
+        },
+        SweepCase {
             label: "agt_native_window_show[handle=0,state=0]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(native_window_show_handle0(lib))),
@@ -1191,6 +1239,11 @@ fn null_group() -> Vec<SweepCase> {
             label: "agt_native_window_minimized[handle=0,out_minimized=&value]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(native_window_minimized_handle0(lib))),
+        },
+        SweepCase {
+            label: "agt_native_window_maximized[handle=0,out_maximized=&value]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(native_window_maximized_handle0(lib))),
         },
         SweepCase {
             label: "agt_native_window_move[handle=0,x=0,y=0,w=0,h=0]",
@@ -1609,9 +1662,10 @@ fn cap_group() -> Vec<SweepCase> {
     ]
 }
 
-/// Milestone 12+63 sweep entry point: 44 pointer/handle-taking exports (the
+/// Milestone 12+63 sweep entry point: 49 pointer/handle-taking exports (the
 /// original 33 + the 11 milestone 43/45 computer-use exports swept since
-/// milestone 63) + the `agt_process_kill(pid=0)` safety boundary, 79
+/// milestone 63 + five additive ABI exports) plus the
+/// `agt_process_kill(pid=0)` safety boundary, 84
 /// combinations in total.
 #[test]
 fn null_sweep_every_pointer_export() {

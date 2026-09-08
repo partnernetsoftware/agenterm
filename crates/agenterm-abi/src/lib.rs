@@ -3260,6 +3260,8 @@ fn map_a11y_error(operation: &'static CStr, error: AccessibilityTreeError) -> ag
                 "a11y_key_timeout" => c"a11y_key_timeout",
                 "a11y_scroll_unavailable" => c"a11y_scroll_unavailable",
                 "a11y_scroll_no_effect" => c"a11y_scroll_no_effect",
+                "a11y_scroll_wheel_unavailable" => c"a11y_scroll_wheel_unavailable",
+                "a11y_scroll_wheel_no_effect" => c"a11y_scroll_wheel_no_effect",
                 "a11y_extents_unavailable" => c"a11y_extents_unavailable",
                 "a11y_selection_unavailable" => c"a11y_selection_unavailable",
                 "a11y_selection_no_effect" => c"a11y_selection_no_effect",

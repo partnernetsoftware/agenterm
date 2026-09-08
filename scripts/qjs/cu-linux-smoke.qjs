@@ -58,6 +58,7 @@ const declared_evidence = [
   "cu.linux-atspi-dclick",
   "cu.linux-atspi-focus",
   "cu.linux-atspi-hover",
+  "cu.linux-atspi-scroll-wheel",
   "cu.linux-atspi-drag",
   "cu.linux-atspi-observe",
   "cu.linux-atspi-screenshot",
@@ -1243,6 +1244,40 @@ try {
   ensure(flag_at(hovered, "data.performed"), "cu_linux_smoke_hover:" + JSON.stringify(hovered.data));
   ensure(label_text(run_directory, executable, handle_text, "hover ") === "hover active", "cu_linux_smoke_hover_active");
 
+  print("STEP named wheel delivery moves owned scroll content and rejects a zero delta before delivery");
+  const wheel_before = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-extents",
+    "--window", handle_text, "--name", "Fixture Wheel Target"
+  ]);
+  const wheel = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "scroll-wheel",
+    "--window", handle_text, "--name", "Fixture Wheel Target", "--dx", "0", "--dy", "-1"
+  ]);
+  ensure(
+    flag_at(wheel, "data.verified")
+      && int_at(wheel, "data.before.y") === int_at(wheel_before, "data.extents.y")
+      && int_at(wheel, "data.delta.y") < 0,
+    "cu_linux_smoke_scroll_wheel:" + JSON.stringify(wheel.data)
+  );
+  const wheel_after = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "get-extents",
+    "--window", handle_text, "--name", "Fixture Wheel Target"
+  ]);
+  ensure(
+    int_at(wheel_after, "data.extents.y") !== int_at(wheel_before, "data.extents.y")
+      && ((int_at(wheel_after, "data.extents.y") - int_at(wheel_before, "data.extents.y"))
+        * int_at(wheel, "data.delta.y")) > 0,
+    "cu_linux_smoke_scroll_wheel_readback:" + JSON.stringify(wheel_after.data)
+  );
+  const wheel_refused = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "scroll-wheel",
+    "--window", handle_text, "--name", "Fixture Wheel Target", "--dx", "0", "--dy", "0"
+  ]);
+  ensure(
+    !flag_at(wheel_refused, "ok") && text_at(wheel_refused, "error.code") === "usage",
+    "cu_linux_smoke_scroll_wheel_zero:" + JSON.stringify(wheel_refused)
+  );
+
   print("STEP named drag between fixture entries delivers GenerateMouseEvent press/moves/release and lands the pointer on the target extents center");
   const drag_nodes_before = tree_nodes(run_directory, executable, handle_text, "8");
   const drag_source_before = node_named(drag_nodes_before, "Fixture Drag Source");
@@ -1887,6 +1922,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-snapshot-diff"
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-dclick");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-focus");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-hover");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-scroll-wheel");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-drag");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-screenshot");

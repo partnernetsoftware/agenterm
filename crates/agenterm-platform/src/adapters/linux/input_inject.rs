@@ -316,13 +316,42 @@ pub(crate) fn pointer_scroll_at(
         .map_err(|_| failed("pointer x coordinate is outside the X11 range"))?;
     let y = i16::try_from(position.y)
         .map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
-    xtest_input(&context, MOTION_NOTIFY_EVENT, 0, x, y)?;
-    for button in wheel_buttons(dx, dy) {
-        xtest_input(&context, BUTTON_PRESS_EVENT, button, 0, 0)?;
-        xtest_input(&context, BUTTON_RELEASE_EVENT, button, 0, 0)?;
+    deliver_wheel_at(
+        &wheel_buttons(dx, dy),
+        (x, y),
+        (home_x, home_y),
+        |event_type, detail, event_x, event_y| {
+            xtest_input(&context, event_type, detail, event_x, event_y)
+        },
+    )
+}
+
+fn deliver_wheel_at(
+    buttons: &[u8],
+    target: (i16, i16),
+    home: (i16, i16),
+    mut post: impl FnMut(u8, u8, i16, i16) -> Result<(), InputInjectError>,
+) -> Result<(), InputInjectError> {
+    let delivery = (|| {
+        post(MOTION_NOTIFY_EVENT, 0, target.0, target.1)?;
+        for &button in buttons {
+            post(BUTTON_PRESS_EVENT, button, 0, 0)?;
+            if let Err(error) = post(BUTTON_RELEASE_EVENT, button, 0, 0) {
+                // A failed release is still followed by one best-effort
+                // release before returning the original typed failure.
+                let _ = post(BUTTON_RELEASE_EVENT, button, 0, 0);
+                return Err(error);
+            }
+        }
+        Ok(())
+    })();
+    // Restoration is a finally-style obligation: a failed wheel event must
+    // not leave the real pointer parked over the addressed node.
+    let restored = post(MOTION_NOTIFY_EVENT, 0, home.0, home.1);
+    match delivery {
+        Err(error) => Err(error),
+        Ok(()) => restored,
     }
-    xtest_input(&context, MOTION_NOTIFY_EVENT, 0, home_x, home_y)?;
-    Ok(())
 }
 
 fn wheel_buttons(dx: i32, dy: i32) -> Vec<u8> {
@@ -499,5 +528,84 @@ mod tests {
         assert!(x11_screen_available(Some(":2")));
         assert!(!x11_screen_available(Some("")));
         assert!(!x11_screen_available(None));
+    }
+
+    #[test]
+    fn failed_wheel_release_is_retried_and_pointer_is_restored() {
+        let mut calls = Vec::new();
+        let mut release_attempts = 0;
+        let result = deliver_wheel_at(&[5], (30, 40), (10, 20), |event, detail, x, y| {
+            calls.push((event, detail, x, y));
+            if event == BUTTON_RELEASE_EVENT {
+                release_attempts += 1;
+                if release_attempts == 1 {
+                    return Err(failed("synthetic release failure"));
+                }
+            }
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(InputInjectError::Failed { message, .. }) if message == "synthetic release failure"
+        ));
+        assert_eq!(
+            calls,
+            [
+                (MOTION_NOTIFY_EVENT, 0, 30, 40),
+                (BUTTON_PRESS_EVENT, 5, 0, 0),
+                (BUTTON_RELEASE_EVENT, 5, 0, 0),
+                (BUTTON_RELEASE_EVENT, 5, 0, 0),
+                (MOTION_NOTIFY_EVENT, 0, 10, 20),
+            ]
+        );
+    }
+
+    #[test]
+    fn failed_wheel_press_still_restores_pointer_and_preserves_delivery_error() {
+        let mut calls = Vec::new();
+        let result = deliver_wheel_at(&[5], (30, 40), (10, 20), |event, detail, x, y| {
+            calls.push((event, detail, x, y));
+            if event == BUTTON_PRESS_EVENT {
+                return Err(failed("synthetic press failure"));
+            }
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(InputInjectError::Failed { message, .. }) if message == "synthetic press failure"
+        ));
+        assert_eq!(
+            calls,
+            [
+                (MOTION_NOTIFY_EVENT, 0, 30, 40),
+                (BUTTON_PRESS_EVENT, 5, 0, 0),
+                (MOTION_NOTIFY_EVENT, 0, 10, 20),
+            ]
+        );
+    }
+
+    #[test]
+    fn restoration_failure_is_reported_after_successful_wheel_delivery() {
+        let mut calls = Vec::new();
+        let result = deliver_wheel_at(&[5], (30, 40), (10, 20), |event, detail, x, y| {
+            calls.push((event, detail, x, y));
+            if event == MOTION_NOTIFY_EVENT && (x, y) == (10, 20) {
+                return Err(failed("synthetic restoration failure"));
+            }
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(InputInjectError::Failed { message, .. }) if message == "synthetic restoration failure"
+        ));
+        assert_eq!(
+            calls,
+            [
+                (MOTION_NOTIFY_EVENT, 0, 30, 40),
+                (BUTTON_PRESS_EVENT, 5, 0, 0),
+                (BUTTON_RELEASE_EVENT, 5, 0, 0),
+                (MOTION_NOTIFY_EVENT, 0, 10, 20),
+            ]
+        );
     }
 }

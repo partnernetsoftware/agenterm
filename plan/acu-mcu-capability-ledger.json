@@ -496,7 +496,7 @@
         {
           "id": "desktop.pointer.wheel",
           "mcu_shape": "scroll up|down|left|right AMOUNT --to desktop",
-          "acu_shape": "pointer-scroll --to desktop --dx DX --dy DY with a bounded signed detent, durable receipt and independent pointer/focus read-back",
+          "acu_shape": "pointer-scroll --to desktop --dx DX --dy DY with a bounded signed detent, durable receipt and independent pointer/focus read-back; or Linux X11 scroll-wheel --window HANDLE --name PAT with bounded deltas and independent AT-SPI geometry read-back",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm", "linux": "native-x11-court-pending-wayland-typed-limited", "windows": "native-court-pending"},
           "qualification": {
@@ -517,10 +517,10 @@
               }
             }
           },
-          "evidence": ["cu.pointer-scroll-content-delivery"],
-          "declared_evidence": ["cu.pointer-scroll-content-delivery"],
-          "next": "run the same owned fixture journey on Linux X11 and Windows native desktop courts before clearing the MCU desktop-scroll route",
-          "note": "Mechanism acceptance is not delivery proof: the CU reply deliberately keeps delivery_verified=false; only the fixture's independent sequence and content-offset change provides delivery evidence. Pointer and focused top-level window identities are unchanged."
+          "evidence": ["cu.pointer-scroll-content-delivery", "cu.linux-atspi-scroll-wheel"],
+          "declared_evidence": ["cu.pointer-scroll-content-delivery", "cu.linux-atspi-scroll-wheel"],
+          "next": "run the registered Linux X11 named-content wheel journey and the Windows native desktop court before marking the MCU archive desktop-scroll shape replaced",
+          "note": "Mechanism acceptance is not delivery proof: the macOS court independently measures content offset while the Linux AT-SPI court independently reads the named child geometry before and after XTest wheel delivery. Pointer restoration is a finally-style native obligation. Linux remains pending until that public journey runs on the native X11 court; Windows remains pending."
         },
         {
           "id": "desktop.pointer.exact-window",

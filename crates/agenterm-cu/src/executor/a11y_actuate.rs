@@ -361,12 +361,17 @@ fn wait_for_extents_change(
     node_id: &str,
     before: &mechanism::A11yBounds,
 ) -> Result<mechanism::A11yBounds, mechanism::MechanismError> {
-    for _ in 0..40 {
+    let mut previous_moved = None;
+    for _ in 0..15 {
         let after = mechanism::get_node_extents(window, node_id)?;
-        if after.x != before.x || after.y != before.y {
+        let moved = after.x != before.x || after.y != before.y;
+        if moved && previous_moved.as_ref() == Some(&after) {
             return Ok(after);
         }
-        std::thread::sleep(std::time::Duration::from_millis(25));
+        if moved {
+            previous_moved = Some(after);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
     mechanism::get_node_extents(window, node_id)
 }
@@ -378,6 +383,7 @@ pub(super) fn scroll_wheel(
     dx: i32,
     dy: i32,
 ) -> Result<serde_json::Value, CuError> {
+    pointer::validate_pointer_scroll(dx, dy)?;
     let name = name.filter(|value| !value.is_empty()).ok_or_else(|| {
         CuError::new(
             "invalid_input",
@@ -394,8 +400,8 @@ pub(super) fn scroll_wheel(
     let before =
         mechanism::get_node_extents(window, &resolved.node_id).map_err(map_mechanism_err)?;
     mechanism::wheel_node(window, &resolved.node_id, dx, dy).map_err(map_scroll_wheel_err)?;
-    let after = wait_for_extents_change(window, &resolved.node_id, &before)
-        .map_err(map_mechanism_err)?;
+    let after =
+        wait_for_extents_change(window, &resolved.node_id, &before).map_err(map_mechanism_err)?;
     let delta_x = after.x - before.x;
     let delta_y = after.y - before.y;
     if delta_x == 0 && delta_y == 0 {
@@ -483,6 +489,7 @@ fn extents_center(bounds: &mechanism::A11yBounds) -> [i32; 2] {
 /// AT-SPI `Component.GetExtents(Screen)` centers, then deliver one bounded
 /// `GenerateMouseEvent` press / moves / release between them. No `--coords`,
 /// no `--degraded`, and no pointer-position readback gating.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn drag_by_name(
     window: isize,
     from_name: Option<&str>,
@@ -671,6 +678,7 @@ fn selection_text_from_range(full: &str, start: i32, end: i32) -> String {
 
 /// `get-selection --name` reads independent AT-SPI `Text.GetNSelections`
 /// + `GetSelection(0)` (`agt_a11y_node_get_selection`), then one
+///
 /// independent `Text.GetText` slice for the selected scalar range. The
 /// `select` / semantic `ctrl+a` reply payload does not count. Missing Text
 /// typed-fails (`a11y_selection_unavailable`). `n == 0` is empty success
@@ -1335,6 +1343,23 @@ mod tests {
             ),
             "unexpected code: {code}"
         );
+    }
+
+    #[test]
+    fn scroll_wheel_rejects_invalid_delta_before_resolving_the_window() {
+        for (dx, dy) in [(0, 0), (101, 0), (0, -101), (i32::MIN, 0)] {
+            let command = Command::ScrollWheel {
+                target: TargetRef::Current,
+                dx,
+                dy,
+                window: Some(-1),
+                name: Some("agenterm-no-such-node".into()),
+                role: None,
+            };
+            let reply = actuate_executor().execute(&command);
+            assert!(!reply.ok);
+            assert_eq!(reply.error.as_ref().unwrap().code, "invalid_input");
+        }
     }
 
     #[test]

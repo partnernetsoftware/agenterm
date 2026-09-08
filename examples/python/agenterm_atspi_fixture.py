@@ -25,8 +25,12 @@ PID = os.getpid()
 presses = [0]
 things = [0]
 
+settings = Gtk.Settings.get_default()
+if settings is not None:
+    settings.set_property("gtk-enable-animations", False)
+
 main_window = Gtk.Window(title="agenterm-linux-fixture-%d" % PID)
-main_window.set_default_size(320, 320)
+main_window.set_default_size(320, 480)
 box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
 menubar = Gtk.MenuBar()
@@ -57,6 +61,17 @@ drag_source_entry.get_accessible().set_name("Fixture Drag Source")
 drag_target_entry = Gtk.Entry()
 drag_target_entry.set_text("drag target")
 drag_target_entry.get_accessible().set_name("Fixture Drag Target")
+wheel_viewport = Gtk.ScrolledWindow()
+wheel_viewport.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.ALWAYS)
+wheel_viewport.set_size_request(-1, 120)
+wheel_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+wheel_rows.add(Gtk.Label(label="wheel row 0"))
+wheel_rows.add(Gtk.Label(label="wheel row 1"))
+wheel_target = Gtk.Label(label="Fixture Wheel Target")
+wheel_rows.add(wheel_target)
+for row in range(3, 20):
+    wheel_rows.add(Gtk.Label(label="wheel row %d" % row))
+wheel_viewport.add(wheel_rows)
 entry = Gtk.Entry()
 entry.set_text("seed")
 entry.get_accessible().set_name("Fixture Entry")
@@ -88,7 +103,19 @@ hover_area.connect("enter-notify-event", on_hover_enter)
 hover_area.connect("leave-notify-event", on_hover_leave)
 minimize_item.connect("activate", lambda _w: main_window.iconify())
 
-for widget in (menubar, press_label, menu_label, hover_label, hover_area, drag_source_entry, drag_target_entry, entry, check, button):
+for widget in (
+    menubar,
+    press_label,
+    menu_label,
+    hover_label,
+    hover_area,
+    wheel_viewport,
+    drag_source_entry,
+    drag_target_entry,
+    entry,
+    check,
+    button,
+):
     box.add(widget)
 main_window.add(box)
 main_window.connect("destroy", Gtk.main_quit)

@@ -94,6 +94,7 @@
         "cu.linux-atspi-dclick",
         "cu.linux-atspi-focus",
         "cu.linux-atspi-hover",
+        "cu.linux-atspi-scroll-wheel",
         "cu.linux-atspi-drag",
         "cu.linux-atspi-observe",
         "cu.linux-atspi-screenshot",

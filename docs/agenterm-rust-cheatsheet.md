@@ -2286,6 +2286,13 @@ named `OffscreenField` Session child (layout snapshots stay
 unscrolled). Independent `GetExtents` is the proof; do not treat
 snapshot `node.bounds` as movement.
 
+Synthetic wheel delivery that temporarily moves the real pointer is a
+fallible transaction: every press must receive a best-effort release and the
+pointer must return to its captured origin on every error path, not only after
+successful delivery. Preserve the first delivery failure after cleanup. XTest
+sync proves server acceptance, not toolkit layout completion; verify the
+effect through an independent, short deadline-bounded AT-SPI geometry poll.
+
 WebKitGTK `Component.GetExtents(Screen)` works as a single-node call
 (snapshot `bounds` stay `0,0,0,0`). `Component.ScrollTo` returns true
 without changing those extents. GetChildren under the embed already

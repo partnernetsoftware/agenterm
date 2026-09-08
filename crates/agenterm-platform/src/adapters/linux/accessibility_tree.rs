@@ -32,9 +32,7 @@ use crate::contract::accessibility_tree::{
     AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
     AccessibilityTreeError, ApplicationVisibility,
 };
-use crate::contract::input_inject::{
-    InputInjectError, MAX_POINTER_DRAG_STEPS, PointerPosition,
-};
+use crate::contract::input_inject::{InputInjectError, MAX_POINTER_DRAG_STEPS, PointerPosition};
 const MAX_NODES: usize = 1_000;
 const MAX_DEPTH: u32 = 32;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -3937,12 +3935,10 @@ async fn apply_atspi_wheel_delta(
     let horizontal = dx.unsigned_abs();
     let steps = vertical.max(horizontal).max(1);
     for step in 1..=steps {
-        let scroll_x = target_x.saturating_add(
-            dx.signum() * horizontal.min(step) as i32 * WHEEL_PIXELS_PER_DETENT,
-        );
-        let scroll_y = target_y.saturating_add(
-            dy.signum() * vertical.min(step) as i32 * WHEEL_PIXELS_PER_DETENT,
-        );
+        let scroll_x = target_x
+            .saturating_add(dx.signum() * horizontal.min(step) as i32 * WHEEL_PIXELS_PER_DETENT);
+        let scroll_y = target_y
+            .saturating_add(dy.signum() * vertical.min(step) as i32 * WHEEL_PIXELS_PER_DETENT);
         for ancestor_obj in &ancestors {
             let ancestor_proxy = match open_bus_object(conn, ancestor_obj).await {
                 Ok(proxy) => proxy,
@@ -4114,10 +4110,12 @@ async fn drag_between_nodes_async(
         .build()
         .await
         .map_err(map_atspi_err)?;
-    let (from_x, from_y) =
-        component_center_for_node(&conn, window_handle, from_node_id).await?;
+    let (from_x, from_y) = component_center_for_node(&conn, window_handle, from_node_id).await?;
     let (to_x, to_y) = component_center_for_node(&conn, window_handle, to_node_id).await?;
-    let from = PointerPosition { x: from_x, y: from_y };
+    let from = PointerPosition {
+        x: from_x,
+        y: from_y,
+    };
     let to = PointerPosition { x: to_x, y: to_y };
     generate_mouse_event(&dec, from_x, from_y, format_mouse_event(b, 'p')).await?;
     for (x, y) in drag_points(from, to, steps) {
@@ -5140,10 +5138,7 @@ fn map_input_inject_err(error: InputInjectError) -> AccessibilityTreeError {
         InputInjectError::Unsupported { reason } => {
             AccessibilityTreeError::failed("a11y_scroll_wheel_unavailable", reason)
         }
-        InputInjectError::Failed { code, message } => AccessibilityTreeError::failed(
-            "a11y_scroll_wheel_unavailable",
-            format!("{code}: {message}"),
-        ),
+        InputInjectError::Failed { code, message } => AccessibilityTreeError::failed(code, message),
     }
 }
 

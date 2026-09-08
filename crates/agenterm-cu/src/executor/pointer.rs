@@ -19,7 +19,7 @@ pub(super) struct FocusedWindowIdentity {
     process_id: u32,
 }
 
-fn validate_pointer_scroll(dx: i32, dy: i32) -> Result<(), CuError> {
+pub(super) fn validate_pointer_scroll(dx: i32, dy: i32) -> Result<(), CuError> {
     if dx == 0 && dy == 0 {
         return Err(invalid_input(
             "pointer-scroll requires at least one non-zero axis".into(),

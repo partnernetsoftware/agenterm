@@ -4950,6 +4950,17 @@ impl Command {
     /// the same field bounds before constructing managed-job variants.
     pub fn validate(&self) -> Result<(), &'static str> {
         match self {
+            Self::ScrollWheel { dx, dy, .. }
+                if (*dx == 0 && *dy == 0)
+                    || dx.unsigned_abs()
+                        > agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS
+                    || dy.unsigned_abs()
+                        > agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS =>
+            {
+                Err(
+                    "scroll-wheel requires one non-zero axis and each axis within the bounded detent limit",
+                )
+            }
             Self::PrivilegePlanPowerAction { ttl_seconds, .. } => {
                 if !(1..=600).contains(ttl_seconds) {
                     return Err("privilege power-action plan ttl_seconds must be in 1..=600");
@@ -9173,5 +9184,32 @@ mod tests {
         let debug = format!("{source:?}");
         assert_eq!(debug, "Text { text: <redacted> }");
         assert!(!debug.contains("private"));
+    }
+
+    #[test]
+    fn scroll_wheel_direct_commands_enforce_the_bounded_contract() {
+        let valid = Command::ScrollWheel {
+            target: TargetRef::Current,
+            dx: 0,
+            dy: -3,
+            window: Some(42),
+            name: Some("Fixture Wheel Target".into()),
+            role: None,
+        };
+        valid.validate().expect("valid bounded wheel command");
+        for (dx, dy) in [(0, 0), (101, 0), (0, -101), (i32::MIN, 0)] {
+            let invalid = Command::ScrollWheel {
+                target: TargetRef::Current,
+                dx,
+                dy,
+                window: Some(42),
+                name: Some("Fixture Wheel Target".into()),
+                role: None,
+            };
+            assert!(
+                invalid.validate().is_err(),
+                "unexpectedly accepted {dx},{dy}"
+            );
+        }
     }
 }

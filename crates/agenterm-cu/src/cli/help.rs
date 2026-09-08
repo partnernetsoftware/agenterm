@@ -107,6 +107,19 @@ pub fn top_level_text() -> String {
         "",
     );
     append_missing_top_level_rows(&mut text);
+    text = text.replace(
+        "  desktop-state                     observe  bounded coherent desktop observation without a screenshot\n  device-screenshot                 observe  inventory or capture a host-published wired-device screen source\n  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
+        "  desktop-state  device-screenshot  device-watch  device-list  device-claims  ime-status  power-status\n  device-claim  device-status  device-read  device-write  device-renew  device-release\n  storage-devices  storage-volumes  resource-status  resource-pressure  runtime-status",
+    );
+    text = text.replace(
+        "  ime-status                        observe  read the session input-method framework and environment facts\n  hover                             actuate  AT-SPI GenerateMouseEvent(abs) at a named node's extents center\n  scroll-wheel                      actuate  bounded wheel at a named node's AT-SPI extents center\n  unmaximize                        actuate  EWMH unmaximize with read-back",
+        "  hover  scroll-wheel  unmaximize actuate named desktop state",
+    );
+    text = text.replace("  browser-session-stop  browser-session-remove\n", "");
+    text = text.replace(
+        "  simulator-apps  simulator-status  simulator-boot",
+        "  simulator-apps  simulator-status  simulator-boot  browser-session-stop  browser-session-remove",
+    );
     text = text.replace("Transports\n  exec", "Transports  exec");
     text = text.replace(
         "  file-inspect                      observe  inspect one final filesystem entry without following it\n  file-watch                        observe  watch one directory for bounded native create/modify events\n  file-attributes                   observe  inspect bounded extended-attribute metadata for one regular file\n  file-mode                         actuate  plan or apply one identity-bound Unix permission mode\n  file-xattr-set                    actuate  plan or apply one bounded extended-attribute value\n  file-xattr-remove                 actuate  plan or apply removal of one extended attribute\n  file-quarantine-clear             actuate  plan or apply removal of macOS quarantine metadata\n  process-signal                    actuate  deliver one closed signal through exact native process objects\n  term-read                         observe  read one exact external terminal window's bounded accessibility buffer\n  term-send                         actuate  send to one exact external terminal with independent buffer verification\n  term-wait                         observe  wait for a regex in one exact external terminal without leaking timeout content",
@@ -148,6 +161,10 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(&format!("{row}\n"), "", 1);
     }
+    text = text.replace(
+        "  desktop-state                     observe  bounded coherent desktop observation without a screenshot\n  device-screenshot                 observe  inventory or capture a host-published wired-device screen source\n  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
+        "  desktop-state  device-screenshot  device-watch  device-list  device-claims  ime-status  power-status\n  device-claim  device-status  device-read  device-write  device-renew  device-release\n  storage-devices  storage-volumes  resource-status  resource-pressure  runtime-status",
+    );
     while text.lines().count() > 166 {
         let Some(blank) = text.find("\n\n") else {
             break;
