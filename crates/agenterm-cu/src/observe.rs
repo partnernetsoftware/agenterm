@@ -869,6 +869,7 @@ pub fn window_row_json(window: &WindowInfo) -> serde_json::Value {
         "minimized": window.minimized,
         "maximized": window.maximized,
         "fullscreen": window.fullscreen,
+        "above": window.above,
         "browser_profile": browser_profile_from_identity(&window.app_name, &window.title),
     })
 }
@@ -3270,6 +3271,7 @@ mod tests {
             minimized: false,
             maximized: false,
             fullscreen: false,
+            above: false,
         }
     }
 

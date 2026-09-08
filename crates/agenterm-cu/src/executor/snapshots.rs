@@ -355,6 +355,7 @@ mod tests {
             minimized: false,
             maximized: false,
             fullscreen: false,
+            above: false,
         }
     }
 

@@ -252,6 +252,13 @@
       ]
     },
     {
+      "id": "cu-linux-topmost-expect-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-topmost-expect-state"
+      ]
+    },
+    {
       "id": "cu-linux-window-close-smoke",
       "platform": "linux",
       "evidence": [

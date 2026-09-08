@@ -178,6 +178,22 @@ fn window_is_fullscreen(
         .is_some_and(|mut states| states.any(|state| state == fullscreen)))
 }
 
+fn window_is_above(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+) -> Result<bool, WindowOpError> {
+    let wm_state = atom(conn, b"_NET_WM_STATE")?;
+    let above = atom(conn, b"_NET_WM_STATE_ABOVE")?;
+    let reply = conn
+        .get_property(false, window, wm_state, AtomEnum::ATOM, 0, 32)
+        .map_err(|error| failed(format!("_NET_WM_STATE request failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("_NET_WM_STATE reply failed: {error}")))?;
+    Ok(reply
+        .value32()
+        .is_some_and(|mut states| states.any(|state| state == above)))
+}
+
 fn set_fullscreen(
     conn: &x11rb::rust_connection::RustConnection,
     window: Window,
@@ -438,6 +454,12 @@ pub(crate) fn fullscreen(handle: isize) -> Result<bool, WindowOpError> {
     let conn = connect()?;
     let window = window_id(handle)?;
     window_is_fullscreen(&conn, window)
+}
+
+pub(crate) fn above(handle: isize) -> Result<bool, WindowOpError> {
+    let conn = connect()?;
+    let window = window_id(handle)?;
+    window_is_above(&conn, window)
 }
 
 /// EWMH `_NET_WM_DESKTOP`: the 0-based virtual-desktop index for one

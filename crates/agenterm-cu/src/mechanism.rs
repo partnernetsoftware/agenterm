@@ -526,6 +526,7 @@ pub mod window_enumerate {
         pub minimized: bool,
         pub maximized: bool,
         pub fullscreen: bool,
+        pub above: bool,
     }
 
     /// `agt_window_enumerate`: two-stage (probe, allocate, fetch).
@@ -717,6 +718,7 @@ pub mod window_enumerate {
             minimized: record.minimized != 0,
             maximized: false,
             fullscreen: false,
+            above: false,
         }
     }
 
@@ -728,6 +730,7 @@ pub mod window_enumerate {
                     super::window_op::maximized(window.handle).unwrap_or(false);
                 window.fullscreen =
                     super::window_op::fullscreen(window.handle).unwrap_or(false);
+                window.above = super::window_op::above(window.handle).unwrap_or(false);
                 window
             })
             .collect()
@@ -920,6 +923,23 @@ pub mod window_op {
         let mut out = 0i32;
         let status = unsafe { f(handle, &mut out) };
         map_status("agt_native_window_fullscreen", status)?;
+        Ok(out != 0)
+    }
+
+    pub fn above(handle: isize) -> Result<bool, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < crate::dynlib::WINDOW_ABOVE_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "the above read requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    crate::dynlib::WINDOW_ABOVE_ABI_MINOR
+                ),
+            });
+        }
+        let f = super::call_sym::<super::WindowAbove>(b"agt_native_window_above")?;
+        let mut out = 0i32;
+        let status = unsafe { f(handle, &mut out) };
+        map_status("agt_native_window_above", status)?;
         Ok(out != 0)
     }
 
@@ -2824,6 +2844,7 @@ type WindowClose = unsafe extern "C" fn(isize) -> i32;
 type WindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type WindowMaximized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type WindowFullscreen = unsafe extern "C" fn(isize, *mut i32) -> i32;
+type WindowAbove = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type WindowWorkspaceDesktop = unsafe extern "C" fn(isize, *mut u32) -> i32;
 type WindowOpacity = unsafe extern "C" fn(isize, *mut u32) -> i32;
 type WindowSetOpacity = unsafe extern "C" fn(isize, u32) -> i32;

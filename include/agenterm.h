@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 33
+#define AGT_ABI_MINOR 35
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -1012,6 +1012,9 @@ agt_status agt_native_window_close(intptr_t handle);
  * are different claims. */
 agt_status agt_native_window_minimized(intptr_t handle, int32_t* out_minimized);
 agt_status agt_native_window_maximized(intptr_t handle, int32_t* out_maximized);
+
+/* ABI 1.35: read EWMH `_NET_WM_STATE_ABOVE` for one native window. */
+agt_status agt_native_window_above(intptr_t handle, int32_t* out_above);
 
 /* ABI 1.32: read the EWMH `_NET_WM_DESKTOP` index for one native window.
  * handle == 0 -> AGT_FAILED{code="bad_handle"}; out_desktop == NULL ->

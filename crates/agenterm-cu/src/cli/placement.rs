@@ -15,7 +15,7 @@ pub fn parse(
     match spec.name {
         "window-place" => window_place(target, args),
         "frame" | "movewin" | "resize" | "maximize" | "unmaximize" | "fullscreen"
-        | "unfullscreen" => shorthand(spec.name, target, args),
+        | "unfullscreen" | "topmost" | "untopmost" => shorthand(spec.name, target, args),
         "orderwin" => orderwin(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
@@ -161,6 +161,34 @@ fn shorthand(verb: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
                 ));
             }
             return Ok(Command::Unfullscreen {
+                target,
+                window: window.unwrap_or(0),
+                expect,
+            });
+        }
+        "topmost" => {
+            let expect = flag_text(args, "--expect")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "topmost with --expect accepts only --window H --expect topmost; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            return Ok(Command::Topmost {
+                target,
+                window: window.unwrap_or(0),
+                expect,
+            });
+        }
+        "untopmost" => {
+            let expect = flag_text(args, "--expect")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "untopmost with --expect accepts only --window H --expect untopmost; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            return Ok(Command::Untopmost {
                 target,
                 window: window.unwrap_or(0),
                 expect,

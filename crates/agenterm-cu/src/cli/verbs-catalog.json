@@ -3626,6 +3626,16 @@
       "args": []
     },
     {
+      "name": "host-memory-status",
+      "command": "host-memory-status",
+      "aliases": [],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read host page geometry, installed physical memory and availability estimate",
+      "usage": "host-memory-status",
+      "args": []
+    },
+    {
       "name": "font-discovery",
       "command": "font-discovery",
       "aliases": [
@@ -7534,6 +7544,10 @@
     {
       "name": "cache-hierarchy-status",
       "text": "agenterm-cu cache-hierarchy-status    (also: cache hierarchy status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  cache hierarchy status\n  cache-hierarchy-status\n\nReturns grouped CPU cache geometry from the native provider: level, kind,\nper-instance capacity, coherency line size, instance count and shared logical\nprocessor count when sysfs exposes them honestly. The query is read-only and\natomic_snapshot is always false.\n"
+    },
+    {
+      "name": "host-memory-status",
+      "text": "agenterm-cu host-memory-status\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  host-memory-status\n\nReturns stable host page geometry, installed physical memory and a separate\npoint-in-time availability estimate with explicit semantics. Linux uses\n/proc/meminfo MemTotal and MemAvailable. The query is read-only and\natomic_snapshot is always false.\n"
     },
     {
       "name": "font-discovery",

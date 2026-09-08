@@ -220,6 +220,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::PowerStatus { .. }
         | Command::ProcessorTopologyStatus { .. }
         | Command::CacheHierarchyStatus { .. }
+        | Command::HostMemoryStatus { .. }
         | Command::FontDiscovery { .. }
         | Command::ImeStatus { .. }
         | Command::KeyboardLayoutStatus { .. }

@@ -317,6 +317,8 @@ pub const WINDOW_WORKSPACE_DESKTOP_ABI_MINOR: u16 = 32;
 pub const WINDOW_OPACITY_ABI_MINOR: u16 = 33;
 /// ABI 1.34: `agt_native_window_fullscreen` (the per-window EWMH fullscreen read).
 pub const WINDOW_FULLSCREEN_ABI_MINOR: u16 = 34;
+/// ABI 1.35: `agt_native_window_above` (the per-window EWMH above read).
+pub const WINDOW_ABOVE_ABI_MINOR: u16 = 35;
 /// ABI 1.31: caller-sized physical display facts.
 pub const DISPLAY_PHYSICAL_ABI_MINOR: u16 = 31;
 /// ABI 1.26: `agt_native_window_activate`, the explicit desktop-foreground

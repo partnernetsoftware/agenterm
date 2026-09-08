@@ -2702,6 +2702,9 @@ pub enum Command {
     CacheHierarchyStatus {
         target: TargetRef,
     },
+    HostMemoryStatus {
+        target: TargetRef,
+    },
     FontDiscovery {
         target: TargetRef,
     },
@@ -4347,6 +4350,7 @@ impl Command {
             Self::PowerStatus { .. } => "power-status".into(),
             Self::ProcessorTopologyStatus { .. } => "processor-topology-status".into(),
             Self::CacheHierarchyStatus { .. } => "cache-hierarchy-status".into(),
+            Self::HostMemoryStatus { .. } => "host-memory-status".into(),
             Self::FontDiscovery { .. } => "font-discovery".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::StorageVolumes { .. } => "storage-volumes".into(),
@@ -4787,6 +4791,7 @@ impl Command {
             | Self::PowerStatus { target }
             | Self::ProcessorTopologyStatus { target }
             | Self::CacheHierarchyStatus { target }
+            | Self::HostMemoryStatus { target }
             | Self::FontDiscovery { target }
             | Self::StorageDevices { target, .. }
             | Self::StorageVolumes { target, .. }
