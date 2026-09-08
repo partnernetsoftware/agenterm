@@ -1266,12 +1266,20 @@ fn named(result: Result<(), AccessibilityTreeError>) -> Result<(), Accessibility
 /// `AXValue` write for `send-text --name` / `paste`: the same settable-check
 /// plus read-back as `set-value`.
 pub(crate) fn click_node(
-    window_handle: Option<isize>, node_id: &str, _button: u8, clicks: u32,
+    window_handle: Option<isize>,
+    node_id: &str,
+    _button: u8,
+    clicks: u32,
 ) -> Result<(), AccessibilityTreeError> {
     if clicks == 0 || clicks > 3 {
-        return Err(AccessibilityTreeError::failed("invalid_input", format!("click count must be 1..=3, got {clicks}")));
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("click count must be 1..=3, got {clicks}"),
+        ));
     }
-    for _ in 0..clicks { perform_node_action(window_handle, node_id, AccessibilityNodeAction::Click)?; }
+    for _ in 0..clicks {
+        perform_node_action(window_handle, node_id, AccessibilityNodeAction::Click)?;
+    }
     Ok(())
 }
 

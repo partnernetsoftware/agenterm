@@ -29,10 +29,10 @@ pub mod file_move_transactions;
 pub mod file_transactions;
 pub mod grant_management;
 pub mod host_actions;
-pub mod ime_observe;
 pub(crate) mod host_limit;
 pub mod hotkeys;
 pub mod idempotency_store;
+pub mod ime_observe;
 pub mod login_session;
 #[cfg(target_os = "macos")]
 pub mod macos_focus;

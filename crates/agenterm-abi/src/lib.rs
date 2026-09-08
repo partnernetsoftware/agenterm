@@ -4719,28 +4719,71 @@ pub extern "C" fn agt_a11y_node_get_extents(
     }
 }
 
-
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn agt_a11y_node_click(window_handle: isize, node_id: *const c_char, button: i32, clicks: u32) -> agt_status {
+pub extern "C" fn agt_a11y_node_click(
+    window_handle: isize,
+    node_id: *const c_char,
+    button: i32,
+    clicks: u32,
+) -> agt_status {
     fn inner(window_handle: isize, node_id: *const c_char, button: i32, clicks: u32) -> agt_status {
-        if let Some(status) = a11y_mechanism_gate() { return status; }
-        if node_id.is_null() { record_error(c"agt_a11y_node_click", c"bad_pointer", "node_id is null"); return agt_status::AGT_FAILED; }
-        if !(0..=2).contains(&button) { record_error(c"agt_a11y_node_click", c"invalid_input", "button must be 0 (left)..=2 (middle)"); return agt_status::AGT_FAILED; }
-        if clicks == 0 || clicks > 3 { record_error(c"agt_a11y_node_click", c"invalid_input", "clicks must be 1..=3"); return agt_status::AGT_FAILED; }
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
+        }
+        if node_id.is_null() {
+            record_error(c"agt_a11y_node_click", c"bad_pointer", "node_id is null");
+            return agt_status::AGT_FAILED;
+        }
+        if !(0..=2).contains(&button) {
+            record_error(
+                c"agt_a11y_node_click",
+                c"invalid_input",
+                "button must be 0 (left)..=2 (middle)",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if clicks == 0 || clicks > 3 {
+            record_error(
+                c"agt_a11y_node_click",
+                c"invalid_input",
+                "clicks must be 1..=3",
+            );
+            return agt_status::AGT_FAILED;
+        }
         let node_id = match unsafe { CStr::from_ptr(node_id) }.to_str() {
             Ok(s) => s,
-            Err(_) => { record_error(c"agt_a11y_node_click", c"bad_encoding", "node_id is not UTF-8"); return agt_status::AGT_FAILED; }
+            Err(_) => {
+                record_error(
+                    c"agt_a11y_node_click",
+                    c"bad_encoding",
+                    "node_id is not UTF-8",
+                );
+                return agt_status::AGT_FAILED;
+            }
         };
-        let filter = if window_handle == 0 { None } else { Some(window_handle) };
+        let filter = if window_handle == 0 {
+            None
+        } else {
+            Some(window_handle)
+        };
         match click_node(filter, node_id, button as u8, clicks) {
             Ok(()) => agt_status::AGT_OK,
             Err(e) => map_a11y_error(c"agt_a11y_node_click", e),
         }
     }
-    match catch_unwind(AssertUnwindSafe(|| inner(window_handle, node_id, button, clicks))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        inner(window_handle, node_id, button, clicks)
+    })) {
         Ok(s) => s,
-        Err(_) => { record_error(c"agt_a11y_node_click", c"panic", "panic in agt_a11y_node_click"); agt_status::AGT_FAILED }
+        Err(_) => {
+            record_error(
+                c"agt_a11y_node_click",
+                c"panic",
+                "panic in agt_a11y_node_click",
+            );
+            agt_status::AGT_FAILED
+        }
     }
 }
 

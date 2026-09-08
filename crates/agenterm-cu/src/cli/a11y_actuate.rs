@@ -313,9 +313,13 @@ fn click(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Com
     let clicks = if spelled == "dclick" {
         2
     } else {
-        flag_u32(args, "--clicks").or_else(|| flag_u32(args, "--count")).unwrap_or(1)
+        flag_u32(args, "--clicks")
+            .or_else(|| flag_u32(args, "--count"))
+            .unwrap_or(1)
     };
-    if !(1..=3).contains(&clicks) { return Err("click --clicks/--count accepts 1..=3".into()); }
+    if !(1..=3).contains(&clicks) {
+        return Err("click --clicks/--count accepts 1..=3".into());
+    }
     let button = if spelled == "rclick" {
         PointerButton::Right
     } else {

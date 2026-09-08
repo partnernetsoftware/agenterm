@@ -298,7 +298,9 @@ pub(crate) fn pointer_click(
         xtest_input(&context, MOTION_NOTIFY_EVENT, 0, x, y)?;
         xtest_input(&context, BUTTON_PRESS_EVENT, detail, 0, 0)?;
         xtest_input(&context, BUTTON_RELEASE_EVENT, detail, 0, 0)?;
-        if index + 1 < repeats { std::thread::sleep(Duration::from_millis(40)); }
+        if index + 1 < repeats {
+            std::thread::sleep(Duration::from_millis(40));
+        }
     }
     Ok(())
 }

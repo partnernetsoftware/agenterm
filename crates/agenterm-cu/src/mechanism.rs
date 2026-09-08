@@ -1650,7 +1650,10 @@ pub fn perform_node_action(
 }
 
 pub fn click_node(
-    window: Option<isize>, node_id: &str, button: input_inject::PointerButton, clicks: u32,
+    window: Option<isize>,
+    node_id: &str,
+    button: input_inject::PointerButton,
+    clicks: u32,
 ) -> Result<(), MechanismError> {
     let handle = window.unwrap_or(0);
     let node_c = CStringOrStack::new(node_id)?;

@@ -68,7 +68,9 @@ pub(super) fn click_command(
             PointerButton::Right => mechanism::input_inject::PointerButton::Right,
             PointerButton::Middle => mechanism::input_inject::PointerButton::Middle,
         };
-        if let Err(error) = mechanism::click_node(window, &resolved.node_id, inject_button, clicks.max(1)) {
+        if let Err(error) =
+            mechanism::click_node(window, &resolved.node_id, inject_button, clicks.max(1))
+        {
             mechanism_error = Some(map_mechanism_err(error));
         }
         let after = window

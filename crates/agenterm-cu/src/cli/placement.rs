@@ -15,7 +15,9 @@ pub fn parse(
 ) -> Result<Command, String> {
     match spec.name {
         "window-place" => window_place(target, args),
-        "frame" | "movewin" | "resize" | "maximize" | "unmaximize" => shorthand(spec.name, target, args),
+        "frame" | "movewin" | "resize" | "maximize" | "unmaximize" => {
+            shorthand(spec.name, target, args)
+        }
         "orderwin" => orderwin(target, args),
         other => Err(format!("unknown command '{other}'")),
     }

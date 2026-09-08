@@ -967,7 +967,7 @@ satisfies the structural control, but the current provider ABI cannot yet carry
 that token. Until it reaches Executor and interruptible native waits, the Script
 worker process is the hard containment boundary.
 
-The latest report contains 68 blockers: zero capability gaps, 12 available
+The latest report contains 67 blockers: zero capability gaps, 11 available
 leaves without registered evidence and 56 incomplete schema-2 platform
 qualifications. The count rose because the old composite
 `browser.profile.inventory-open` row was split into separately falsifiable
@@ -986,6 +986,9 @@ Linux arm64 Wayland and Windows arm64 public journeys share one gate and exact
 schema, while both Windows ISAs remain compile-covered. The Linux and Windows
 UTM receipts are retained locally under the gitignored `evidence/cu/` runtime
 area, and both VMs were stopped after release.
+The new mounted-filesystem inventory accounts for the one-alert reduction: its
+macOS public court is green, while Linux and Windows remain explicit native
+qualification debt rather than inferred successes.
 
 At source `9837cf81`, the public report measures 76 blockers: one capability
 gap, 18 available leaves without registered evidence, and 57 incomplete

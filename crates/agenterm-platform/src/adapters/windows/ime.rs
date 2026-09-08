@@ -252,34 +252,30 @@ pub(crate) fn status() -> Option<ImeStatus> {
 
 pub(crate) fn observe() -> crate::ime::ImeObserveResult {
     match status() {
-        Some(status) if status.available => crate::ime::ImeObserveResult::Ok(
-            crate::ime::ImeHostObservation::from_status(
+        Some(status) if status.available => {
+            crate::ime::ImeObserveResult::Ok(crate::ime::ImeHostObservation::from_status(
                 "windows-imm32",
                 "imm32",
                 status,
                 crate::ime::ImeEnvSnapshot::default(),
                 false,
-            ),
-        ),
+            ))
+        }
         Some(_) => crate::ime::ImeObserveResult::Unsupported(crate::ime::ImeObserveUnsupported {
-            reason: "the focused surface has no active IMM32 input context",
+            reason: "the focused surface has no active IMM32 input context".into(),
             env: crate::ime::ImeEnvSnapshot::default(),
             probed_frameworks: vec!["imm32".into()],
             session_bus_available: false,
-            required_mechanism: "windows-imm32-focus",
-            alternatives: vec![
-                "focus an AgenTerm window before observing IME state".into(),
-            ],
+            required_mechanism: "windows-imm32-focus".into(),
+            alternatives: vec!["focus an AgenTerm window before observing IME state".into()],
         }),
         None => crate::ime::ImeObserveResult::Unsupported(crate::ime::ImeObserveUnsupported {
-            reason: "no focused window is available for IMM32 IME observation",
+            reason: "no focused window is available for IMM32 IME observation".into(),
             env: crate::ime::ImeEnvSnapshot::default(),
             probed_frameworks: vec!["imm32".into()],
             session_bus_available: false,
-            required_mechanism: "windows-imm32-focus",
-            alternatives: vec![
-                "focus an AgenTerm window before observing IME state".into(),
-            ],
+            required_mechanism: "windows-imm32-focus".into(),
+            alternatives: vec!["focus an AgenTerm window before observing IME state".into()],
         }),
     }
 }

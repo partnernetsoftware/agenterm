@@ -70,9 +70,7 @@ fn weekday_short_en(weekday: u8) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        format_offset_z, local_clock_chrome_lines, local_clock_hms, weekday_short_en,
-    };
+    use super::{format_offset_z, local_clock_chrome_lines, local_clock_hms, weekday_short_en};
 
     #[test]
     fn renders_a_fixed_width_clock() {

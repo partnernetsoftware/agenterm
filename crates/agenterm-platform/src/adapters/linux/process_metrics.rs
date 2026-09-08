@@ -244,7 +244,6 @@ fn error(kind: ProcessMetricsErrorKind, detail: impl Into<String>) -> ProcessMet
     ProcessMetricsError::new(kind, detail)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,7 +257,10 @@ mod tests {
                 .kind(),
             ProcessMetricsErrorKind::Parse
         );
-        assert_eq!(parse_statm_resident_pages("12345 6789 1 2 3 4 5").unwrap(), 6789);
+        assert_eq!(
+            parse_statm_resident_pages("12345 6789 1 2 3 4 5").unwrap(),
+            6789
+        );
     }
 
     fn parse_statm_resident_pages(statm: &str) -> Result<u64, ProcessMetricsError> {

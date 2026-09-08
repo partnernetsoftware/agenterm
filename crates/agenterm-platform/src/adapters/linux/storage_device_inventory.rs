@@ -209,7 +209,10 @@ mod tests {
         assert_eq!(inventory.visited, 2);
         assert_eq!(inventory.devices[0].size_bytes, Some(9_007_199_254_740_993));
         assert_eq!(inventory.devices[0].solid_state, Some(true));
-        assert_eq!(inventory.devices[0].media_type.as_deref(), Some("solid-state"));
+        assert_eq!(
+            inventory.devices[0].media_type.as_deref(),
+            Some("solid-state")
+        );
         assert_eq!(inventory.devices[0].virtual_device, Some(false));
         assert_eq!(inventory.devices[0].operational, ["running"]);
         assert_eq!(inventory.devices[1].size_bytes, Some(4_096));

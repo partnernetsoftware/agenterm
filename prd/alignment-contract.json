@@ -88,6 +88,7 @@
         "cu.linux-atspi-menu-inspect",
         "cu.linux-atspi-menu-invoke",
         "cu.linux-atspi-node-text",
+        "cu.linux-atspi-dclick",
         "cu.linux-atspi-focus",
         "cu.linux-atspi-observe",
         "cu.linux-atspi-screenshot",

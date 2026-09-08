@@ -3723,7 +3723,10 @@ fn atspi_button_index(button: u8) -> Result<u8, AccessibilityTreeError> {
     }
 }
 
-fn atspi_mouse_events(button: u8, clicks: u32) -> Result<Vec<&'static str>, AccessibilityTreeError> {
+fn atspi_mouse_events(
+    button: u8,
+    clicks: u32,
+) -> Result<Vec<&'static str>, AccessibilityTreeError> {
     let b = atspi_button_index(button)?;
     Ok(match clicks {
         1 if b == 3 => vec![format_mouse_event(b, 'p'), format_mouse_event(b, 'r')],

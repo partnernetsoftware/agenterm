@@ -7,26 +7,22 @@ use crate::reply::CuError;
 
 pub fn status_payload() -> Result<Value, CuError> {
     if std::env::var_os("DISPLAY").is_none() {
-        return Err(
-            CuError::new(
-                "headless-display",
-                "ime status requires a graphical desktop session",
-            )
-            .with_detail(json!({
-                "effect": "not_performed",
-                "required_mechanism": "x11-display",
-                "alternatives": [
-                    "export DISPLAY to the active X11 session before calling ime-status",
-                ],
-            })),
-        );
+        return Err(CuError::new(
+            "headless-display",
+            "ime status requires a graphical desktop session",
+        )
+        .with_detail(json!({
+            "effect": "not_performed",
+            "required_mechanism": "x11-display",
+            "alternatives": [
+                "export DISPLAY to the active X11 session before calling ime-status",
+            ],
+        })));
     }
 
     match agenterm_platform::ime::observe_host() {
         ImeObserveResult::Ok(observation) => Ok(project_observation(observation)),
-        ImeObserveResult::Unsupported(unsupported) => {
-            Err(unsupported_error(unsupported))
-        }
+        ImeObserveResult::Unsupported(unsupported) => Err(unsupported_error(unsupported)),
     }
 }
 

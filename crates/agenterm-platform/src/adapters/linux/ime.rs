@@ -4,9 +4,7 @@ use std::process::{Command, Stdio};
 use crate::{
     CapabilityStatus,
     contract::ime::{ImeComposition, ImeStatus},
-    ime::{
-        ImeEnvSnapshot, ImeHostObservation, ImeObserveResult, ImeObserveUnsupported,
-    },
+    ime::{ImeEnvSnapshot, ImeHostObservation, ImeObserveResult, ImeObserveUnsupported},
 };
 
 const IBUS_SERVICE: &str = "org.freedesktop.IBus";
@@ -97,9 +95,21 @@ fn env_var(key: &str) -> Option<String> {
 
 fn framework_probe_order(env: &ImeEnvSnapshot) -> Vec<String> {
     let mut order = Vec::new();
-    let gtk = env.gtk_im_module.as_deref().unwrap_or_default().to_ascii_lowercase();
-    let qt = env.qt_im_module.as_deref().unwrap_or_default().to_ascii_lowercase();
-    let xmod = env.xmodifiers.as_deref().unwrap_or_default().to_ascii_lowercase();
+    let gtk = env
+        .gtk_im_module
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let qt = env
+        .qt_im_module
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let xmod = env
+        .xmodifiers
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
 
     for hint in [gtk.as_str(), qt.as_str()] {
         push_framework_hint(&mut order, hint);
@@ -165,13 +175,23 @@ fn probe_framework(
 
 fn probe_ibus(env: &ImeEnvSnapshot, session_bus_available: bool) -> Option<ImeHostObservation> {
     if let Some(engine) = read_ibus_engine_cli() {
-        return Some(ibus_observation(engine, env, session_bus_available, "ibus-cli"));
+        return Some(ibus_observation(
+            engine,
+            env,
+            session_bus_available,
+            "ibus-cli",
+        ));
     }
     if !session_bus_available || !dbus_name_has_owner(IBUS_SERVICE) {
         return None;
     }
     let engine = read_ibus_engine_dbus()?;
-    Some(ibus_observation(engine, env, session_bus_available, "ibus-dbus"))
+    Some(ibus_observation(
+        engine,
+        env,
+        session_bus_available,
+        "ibus-dbus",
+    ))
 }
 
 fn probe_fcitx5(env: &ImeEnvSnapshot, session_bus_available: bool) -> Option<ImeHostObservation> {
@@ -242,7 +262,13 @@ fn fcitx_observation(
         native_mode,
         full_shape: false,
     };
-    ImeHostObservation::from_status(provider, framework, status, env.clone(), session_bus_available)
+    ImeHostObservation::from_status(
+        provider,
+        framework,
+        status,
+        env.clone(),
+        session_bus_available,
+    )
 }
 
 fn looks_like_cjk_engine(name: &str) -> bool {
@@ -265,8 +291,8 @@ fn looks_like_cjk_engine(name: &str) -> bool {
         "japanese",
         "korean",
     ]
-        .iter()
-        .any(|needle| lower.contains(needle))
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 fn read_ibus_engine_cli() -> Option<String> {
@@ -303,7 +329,7 @@ fn dbus_name_has_owner(service: &str) -> bool {
             &format!("string:{service}"),
         ],
     )
-        .is_some_and(|output| output.stdout.contains("boolean true"))
+    .is_some_and(|output| output.stdout.contains("boolean true"))
 }
 
 fn read_fcitx5_cli() -> Option<(String, bool)> {
