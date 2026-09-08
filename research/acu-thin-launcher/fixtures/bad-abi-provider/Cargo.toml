@@ -1,0 +1,11 @@
+[package]
+name = "acu-bad-abi-provider"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "agenterm_cu_bad_abi_provider"
+crate-type = ["cdylib"]

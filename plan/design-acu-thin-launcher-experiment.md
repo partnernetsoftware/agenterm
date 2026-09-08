@@ -148,5 +148,17 @@ research/acu-thin-launcher/
 
 ## 8. Result
 
-Pending. Record the exact decision-tree path, paired byte table, deviations,
-reproduction commands and any result that overturns the expected B route.
+**B remains alive but is not accepted.** The ordinary fixed-sibling seam is
+real: its Linux x86_64 stripped launcher is 389,096 bytes and macOS arm64
+native help, capabilities and legal refusal preserve product exits while
+missing/wrong providers fail at the boundary. The tree then stops at G1 red:
+all 12 current binary-entry families are classified before ordinary dispatch
+but intentionally return `provider_entry_mode_unimplemented`; framing,
+resident lifetime, cleanup and exact exit parity are not implemented.
+
+Decision path: A is over budget → B passes the measured G0 subset and one G2
+cell → G1 red → no topology promotion. The result overturns only the fear that
+the loader itself might be too large; it does not prove a complete replacement.
+No criterion or budget was changed after measurement. Exact bytes, L1/L2/L3,
+deviations and reproduction commands live in
+`research/acu-thin-launcher/RESULTS.md`.

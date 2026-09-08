@@ -75,8 +75,8 @@ ACU replaces MCU
 │  │  locally green, with first exact-SHA remote execution and broader MCP still pending
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  │  ├─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
-│  │  └─ [~] standalone `agenterm-cu` thin-launcher experiment: preserve every entry mode while
-│  │     recovering Linux 4 MiB / Windows 2 MiB courts; no capability pruning or budget increase
+│  │  └─ [~] standalone thin launcher: Linux x86_64 L1 = 389,096 B, but 12 binary-entry
+│  │     families remain G1-red until provider preserves framing/lifetime/cleanup parity
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
 │  │  all 3 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
