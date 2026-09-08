@@ -1176,6 +1176,25 @@
         "task.cu-linux-menu-invoke-smoke"
       ]
     },
+    "cu-linux-invoke-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-invoke-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-invoke-smoke"
+      ]
+    },
     "cu-windows-external-terminal-send-smoke": {
       "inputs": [
         "built-agenterm",
@@ -5532,6 +5551,26 @@
       "args": [
         ".",
         "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-invoke-smoke",
+      "description": "Prove Linux CU invoke --name press and set-checked on disposable GTK controls agree with independent pyatspi label/state read-back and DoAction(0) side effects; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-invoke-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [

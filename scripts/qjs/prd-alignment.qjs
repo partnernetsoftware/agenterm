@@ -281,6 +281,7 @@ const evidence_suites = {
   "cu-linux-topmost-expect-smoke": true,
   "cu-linux-window-close-smoke": true,
   "cu-linux-menu-invoke-smoke": true,
+  "cu-linux-invoke-smoke": true,
   "cu-linux-power-status-smoke": true,
   "cu-linux-privilege-plan-smoke": true,
   "cu-linux-processor-topology-smoke": true,

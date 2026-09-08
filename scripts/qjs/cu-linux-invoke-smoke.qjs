@@ -1,0 +1,262 @@
+// CEO: Linux invoke honesty with independent AT-SPI read-back.
+// Acceptance is smoke read-back only: CU invoke --name press and
+// set-checked must agree with independent pyatspi label/state probes or
+// observable side-effect read-back after independent DoAction(0). No
+// --coords, screenshot, or coordinate degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-atspi-invoke-readback",
+];
+
+const PRESS_BUTTON = "Fixture Press";
+const CHECK_BUTTON = "Fixture Check";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_invoke_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_invoke_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_invoke_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_invoke_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function independent_atspi_probe(title, mode, expected) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "mode = sys.argv[2]",
+    "expected = sys.argv[3] if len(sys.argv) > 3 else ''",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and w.name == title:",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    name = node.name or ''",
+    "    if mode == 'press_label' and name.startswith('pressed '):",
+    "        return name",
+    "    if mode == 'check_state' and name == 'Fixture Check':",
+    "        return 'checked' if node.getState().contains(pyatspi.STATE_CHECKED) else 'unchecked'",
+    "    if mode == 'do_action' and name == 'Fixture Press':",
+    "        return 'true' if node.do_action(0) else 'false'",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_invoke_atspi_no_frame')",
+    "value = walk(frame)",
+    "if value is None:",
+    "    raise SystemExit('cu_linux_invoke_atspi_probe_miss:' + mode)",
+    "if expected and value != expected:",
+    "    raise SystemExit('cu_linux_invoke_atspi_mismatch:' + mode + ':' + value + ':' + expected)",
+    "print(json.dumps({'mode': mode, 'value': value}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title, mode, expected], {
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_invoke_atspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const context = harness.new_context(repo, "cu-linux-invoke");
+const run_directory = rh.join(repo, "target/cu-linux-invoke-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_invoke_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_invoke_window_wait");
+  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(row !== null, "cu_linux_invoke_window_identity");
+  const handle_text = "" + int_at(row, "handle");
+  ensure(int_at(row, "handle") > 0, "cu_linux_invoke_handle:" + JSON.stringify(row));
+
+  print("STEP independent AT-SPI read-back reports press label before CU invoke");
+  const press_before = independent_atspi_probe(fixture_title, "press_label", "pressed 0");
+  ensure(press_before.value === "pressed 0", "cu_linux_invoke_press_before:" + JSON.stringify(press_before));
+
+  print("STEP CU invoke press --name advances the count and independent read-back agrees");
+  const pressed = run_cu(run_directory, executable, "observe,actuate", [
+    "invoke", "--window", handle_text, "--name", PRESS_BUTTON, "press",
+  ]);
+  ensure(
+    flag_at(pressed, "data.performed")
+      && text_at(pressed, "data.addressing") === "accessibility-tree",
+    "cu_linux_invoke_press:" + JSON.stringify(pressed.data)
+  );
+  const press_after = independent_atspi_probe(fixture_title, "press_label", "pressed 1");
+  ensure(press_after.value === "pressed 1", "cu_linux_invoke_press_after:" + JSON.stringify(press_after));
+
+  print("STEP independent AT-SPI DoAction(0) on the same button matches observable side-effect read-back");
+  const do_action = independent_atspi_probe(fixture_title, "do_action", "true");
+  ensure(do_action.value === "true", "cu_linux_invoke_do_action:" + JSON.stringify(do_action));
+  const press_do_action = independent_atspi_probe(fixture_title, "press_label", "pressed 2");
+  ensure(press_do_action.value === "pressed 2", "cu_linux_invoke_do_action_after:" + JSON.stringify(press_do_action));
+
+  print("STEP CU invoke set-checked true toggles check state and independent AT-SPI state agrees");
+  const check_before = independent_atspi_probe(fixture_title, "check_state", "unchecked");
+  ensure(check_before.value === "unchecked", "cu_linux_invoke_check_before:" + JSON.stringify(check_before));
+  const checked_once = run_cu(run_directory, executable, "observe,actuate", [
+    "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "true",
+  ]);
+  ensure(
+    flag_at(checked_once, "data.performed")
+      && flag_at(checked_once, "data.verified"),
+    "cu_linux_invoke_check_first:" + JSON.stringify(checked_once.data)
+  );
+  const check_on = independent_atspi_probe(fixture_title, "check_state", "checked");
+  ensure(check_on.value === "checked", "cu_linux_invoke_check_on:" + JSON.stringify(check_on));
+
+  print("STEP repeated set-checked true is a verified no-op with unchanged independent state");
+  const checked_again = run_cu(run_directory, executable, "observe,actuate", [
+    "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "true",
+  ]);
+  ensure(
+    !flag_at(checked_again, "data.performed")
+      && flag_at(checked_again, "data.verified"),
+    "cu_linux_invoke_check_noop:" + JSON.stringify(checked_again.data)
+  );
+  const check_still = independent_atspi_probe(fixture_title, "check_state", "checked");
+  ensure(check_still.value === "checked", "cu_linux_invoke_check_still:" + JSON.stringify(check_still));
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke-readback");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  harness.wait(fixture, 5000);
+}
+
+ensure(succeeded === 1, failure || "cu_linux_invoke_failed");
+harness.remove_run(context);
+print("PASS: CEO Linux invoke --name honesty (CU press/set-checked agree with independent AT-SPI read-back)");
