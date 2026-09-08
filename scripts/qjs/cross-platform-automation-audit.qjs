@@ -1,4 +1,4 @@
-// Reject duplicated Cargo executable lists and packaging rules outside rh tasks.
+// Reject duplicated Cargo executable lists and packaging rules outside named tasks.
 //
 // Args: REPO
 // Ported from scripts/rh/cross-platform-automation-audit.rh; runs under
@@ -70,10 +70,10 @@ for (const source_line of batch_text.split("\n")) {
     batch_count = batch_count + 1;
   }
 }
-rh.require(batch_count === 7, "cross_platform_batch_inventory_count:" + batch_count);
+rh.require(batch_count === 5, "cross_platform_batch_inventory_count:" + batch_count);
 for (const expected of [
   "build.bat", "check.cmd", "lint.cmd", "release.cmd",
-  "rh-check.cmd", "scripts/rh-check.cmd", "scripts/bootstrap.cmd"
+  "scripts/bootstrap.cmd"
 ]) {
   rh.require(actual_batch[expected] === true, "cross_platform_batch_inventory_missing:" + expected);
 }
@@ -111,7 +111,7 @@ rh.require(
   "cross_platform_macos_bsd_chmod"
 );
 
-const check_source = read_repo("scripts/rh/check.rh");
+const check_source = read_repo("scripts/qjs/check.qjs");
 rh.require(
   check_source.includes("\"native public catalog clients\"")
     && check_source.includes("\"client-build\"")
