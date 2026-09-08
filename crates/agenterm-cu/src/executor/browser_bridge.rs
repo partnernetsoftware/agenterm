@@ -211,28 +211,118 @@ fn browser_tabs_via_cdp_linux(
     focus_before: Option<isize>,
     deadline: Instant,
 ) -> Result<Value, CuError> {
-    let ports = super::browser::discover_linux_cdp_ports()?;
-    let (pid, port) = match ports.as_slice() {
-        [] => return Err(browser_tabs_inventory_unsupported()),
-        [(pid, port)] => (*pid, *port),
-        many => {
-            return Err(CuError::new(
-                "browser_tabs_cdp_ambiguous",
-                "more than one live Chromium instance publishes a remote debugging port; refusing to guess",
-            )
-            .with_count(many.len())
-            .with_detail(json!({
-                "instances": many
+    let candidates = super::browser::discover_linux_cdp_ports()?;
+    if candidates.is_empty() {
+        return Err(browser_tabs_inventory_unsupported());
+    }
+    let mut live = Vec::new();
+    for (pid, port) in candidates {
+        match crate::cdp::targets::list_targets(port) {
+            Ok(targets) => live.push((pid, port, targets)),
+            Err(error) if error.code == "unsupported" => {}
+            Err(error) => {
+                return Err(CuError::new(error.code, error.message).with_detail(error.detail));
+            }
+        }
+    }
+    if live.is_empty() {
+        return Err(browser_tabs_inventory_unsupported());
+    }
+    let selector = match_text.map(str::trim).filter(|value| !value.is_empty());
+    let selected = if selector.is_some() || tab_id.is_some() {
+        let matching: Vec<(u32, u16, Vec<crate::cdp::targets::PageTarget>, Vec<crate::browser_bridge::BrowserTab>)> = live
+            .iter()
+            .filter_map(|(pid, port, targets)| {
+                let pages: Vec<_> = targets.iter().filter(|target| target.is_page()).collect();
+                let tabs = cdp_page_targets_to_tabs(&pages);
+                let filtered = filter_profile_tabs(tabs, match_text, tab_id);
+                if filtered.is_empty() {
+                    None
+                } else {
+                    Some((*pid, *port, targets.clone(), filtered))
+                }
+            })
+            .collect();
+        match matching.as_slice() {
+            [] => {
+                verify_focus_unchanged(focus_before, deadline)?;
+                let pages: Vec<_> = live[0]
+                    .2
                     .iter()
-                    .map(|(pid, port)| json!({ "pid": pid, "port": port }))
-                    .collect::<Vec<_>>(),
-            })));
+                    .filter(|target| target.is_page())
+                    .collect();
+                return Ok(cdp_tabs_payload(
+                    live[0].0,
+                    live[0].1,
+                    &pages,
+                    match_text,
+                    tab_id,
+                    Vec::new(),
+                ));
+            }
+            [one] => one.clone(),
+            many => {
+                return Err(CuError::new(
+                    "browser_tabs_cdp_ambiguous",
+                    "more than one live Chromium CDP listener matches the requested tab filter; refusing to guess",
+                )
+                .with_count(many.len())
+                .with_detail(json!({
+                    "instances": many
+                        .iter()
+                        .map(|(pid, port, _, tabs)| json!({
+                            "pid": pid,
+                            "port": port,
+                            "returned": tabs.len(),
+                        }))
+                        .collect::<Vec<_>>(),
+                })));
+            }
+        }
+    } else {
+        match live.as_slice() {
+            [(pid, port, targets)] => {
+                let pages: Vec<_> = targets.iter().filter(|target| target.is_page()).collect();
+                let tabs = cdp_page_targets_to_tabs(&pages);
+                let filtered = filter_profile_tabs(tabs, match_text, tab_id);
+                (*pid, *port, targets.clone(), filtered)
+            }
+            many => {
+                return Err(CuError::new(
+                    "browser_tabs_cdp_ambiguous",
+                    "more than one live Chromium instance publishes a remote debugging port; refusing to guess",
+                )
+                .with_count(many.len())
+                .with_detail(json!({
+                    "instances": many
+                        .iter()
+                        .map(|(pid, port, _)| json!({ "pid": pid, "port": port }))
+                        .collect::<Vec<_>>(),
+                })));
+            }
         }
     };
-    let targets = crate::cdp::targets::list_targets(port)
-        .map_err(|error| CuError::new(error.code, error.message).with_detail(error.detail))?;
-    let pages: Vec<_> = targets.iter().filter(|target| target.is_page()).collect();
-    let tabs: Vec<crate::browser_bridge::BrowserTab> = pages
+    verify_focus_unchanged(focus_before, deadline)?;
+    let pages: Vec<_> = selected
+        .2
+        .iter()
+        .filter(|target| target.is_page())
+        .collect();
+    Ok(cdp_tabs_payload(
+        selected.0,
+        selected.1,
+        &pages,
+        match_text,
+        tab_id,
+        selected.3,
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn cdp_page_targets_to_tabs(
+    pages: &[&crate::cdp::targets::PageTarget],
+) -> Vec<crate::browser_bridge::BrowserTab> {
+    pages
         .iter()
         .enumerate()
         .map(|(index, target)| crate::browser_bridge::BrowserTab {
@@ -242,10 +332,19 @@ fn browser_tabs_via_cdp_linux(
             title: target.title.clone(),
             url: target.url.clone(),
         })
-        .collect();
-    verify_focus_unchanged(focus_before, deadline)?;
-    let filtered = filter_profile_tabs(tabs, match_text, tab_id);
-    Ok(json!({
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn cdp_tabs_payload(
+    pid: u32,
+    port: u16,
+    pages: &[&crate::cdp::targets::PageTarget],
+    match_text: Option<&str>,
+    tab_id: Option<u32>,
+    filtered: Vec<crate::browser_bridge::BrowserTab>,
+) -> Value {
+    json!({
         "mechanism": "cdp-json",
         "backend": crate::cdp::backend(),
         "port": port,
@@ -266,7 +365,7 @@ fn browser_tabs_via_cdp_linux(
             .collect::<Vec<_>>(),
         "focus_changed": false,
         "verified": true,
-    }))
+    })
 }
 
 #[cfg(not(target_os = "linux"))]

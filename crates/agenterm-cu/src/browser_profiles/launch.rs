@@ -86,12 +86,21 @@ pub fn open_launch_plan(
     }
     if cfg!(target_os = "linux") {
         let binary = resolve_linux_binary(app)?;
-        let mut argv = vec![binary, format!("--profile-directory={directory}")];
+        let debug_port = allocate_local_debug_port()?;
+        let mut argv = vec![
+            binary,
+            format!("--profile-directory={directory}"),
+            format!("--remote-debugging-port={debug_port}"),
+            "--remote-debugging-address=127.0.0.1".into(),
+        ];
+        if argv[0].ends_with("box-chrome") {
+            argv.push("--force-renderer-accessibility".into());
+        }
         if let Some(url) = url {
             argv.push(url.to_owned());
         }
         return Ok(LaunchPlan {
-            mechanism: "chromium --profile-directory",
+            mechanism: "chromium --profile-directory+cdp",
             argv,
         });
     }
@@ -99,6 +108,12 @@ pub fn open_launch_plan(
 }
 
 fn resolve_linux_binary(app: &BrowserApp) -> Result<String, String> {
+    if cfg!(target_os = "linux") && app.name == "Google Chrome" {
+        let box_chrome = std::path::Path::new("/usr/local/bin/box-chrome");
+        if box_chrome.is_file() {
+            return Ok(box_chrome.display().to_string());
+        }
+    }
     for name in discovery::linux_launch_binary_names(app) {
         if let Some(path) = discovery::resolve_linux_executable(name) {
             return Ok(path.display().to_string());
@@ -108,6 +123,21 @@ fn resolve_linux_binary(app: &BrowserApp) -> Result<String, String> {
         "no Linux launcher found for {}; install google-chrome, chromium, or brave-browser",
         app.name
     ))
+}
+
+fn allocate_local_debug_port() -> Result<u16, String> {
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| {
+        format!("could not allocate a local CDP port for browser open: {error}")
+    })?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("could not read the allocated local CDP port: {error}"))?
+        .port();
+    if port == 0 {
+        return Err("allocated local CDP port was zero".into());
+    }
+    Ok(port)
 }
 
 #[cfg(test)]
@@ -187,14 +217,20 @@ mod tests {
         }
         if discovery::resolve_linux_executable("google-chrome").is_none()
             && discovery::resolve_linux_executable("google-chrome-stable").is_none()
+            && !std::path::Path::new("/usr/local/bin/box-chrome").is_file()
         {
             return;
         }
         let plan = open_launch_plan(&APPS[2], "Default", Some("https://example.com/"))
             .expect("launch plan");
-        assert_eq!(plan.mechanism, "chromium --profile-directory");
-        assert!(plan.argv[0].contains("chrome"));
+        assert_eq!(plan.mechanism, "chromium --profile-directory+cdp");
+        assert!(
+            plan.argv[0].contains("chrome") || plan.argv[0].ends_with("box-chrome")
+        );
         assert_eq!(plan.argv[1], "--profile-directory=Default");
-        assert_eq!(plan.argv[2], "https://example.com/");
+        assert!(plan.argv[2].starts_with("--remote-debugging-port="));
+        assert_ne!(plan.argv[2], "--remote-debugging-port=0");
+        assert_eq!(plan.argv[3], "--remote-debugging-address=127.0.0.1");
+        assert_eq!(plan.argv.last().map(String::as_str), Some("https://example.com/"));
     }
 }

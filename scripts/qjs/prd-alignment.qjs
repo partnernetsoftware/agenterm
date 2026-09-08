@@ -251,6 +251,7 @@ const evidence_suites = {
   "cu-scroll-wheel-smoke": true,
   "cu-linux-chrome-text-smoke": true,
   "cu-linux-browser-profiles-open-smoke": true,
+  "cu-linux-browser-tabs-smoke": true,
   "cu-linux-window-move-smoke": true,
   "cu-linux-resize-expect-smoke": true,
   "cu-linux-menu-invoke-smoke": true,

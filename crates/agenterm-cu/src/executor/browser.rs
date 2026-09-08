@@ -158,6 +158,7 @@ fn linux_cdp_port_not_discovered() -> CuError {
 }
 
 fn debug_port_from_command_line(command_line: &str) -> Option<u16> {
+    let mut selected = None;
     let mut words = command_line.split_whitespace();
     while let Some(word) = words.next() {
         let raw = if let Some(raw) = word.strip_prefix("--remote-debugging-port=") {
@@ -168,11 +169,12 @@ fn debug_port_from_command_line(command_line: &str) -> Option<u16> {
             continue;
         };
         if let Ok(port @ 1..=u16::MAX) = raw.parse::<u16>() {
-            return Some(port);
+            selected = Some(port);
+            continue;
         }
         return None;
     }
-    None
+    selected
 }
 
 /// `unlock`: read the window's tree, ask the owning application to build
@@ -2557,6 +2559,12 @@ mod tests {
         assert_eq!(
             debug_port_from_command_line("browser --remote-debugging-port 9333 about:blank"),
             Some(9333)
+        );
+        assert_eq!(
+            debug_port_from_command_line(
+                "browser --remote-debugging-port=9224 --user-data-dir=/tmp/profile --remote-debugging-port=9232 about:blank"
+            ),
+            Some(9232)
         );
         for line in [
             "browser --headless",

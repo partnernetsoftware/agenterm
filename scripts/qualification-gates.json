@@ -566,6 +566,13 @@
       ]
     },
     {
+      "id": "cu-linux-browser-tabs-smoke",
+      "evidence": [
+        "cu.linux-browser-open-window",
+        "cu.linux-browser-tabs-inventory"
+      ]
+    },
+    {
       "id": "cu-tree-selector-smoke",
       "evidence": [
         "cu.tree-selector-subtree"
