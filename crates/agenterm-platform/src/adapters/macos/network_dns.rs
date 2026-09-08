@@ -472,7 +472,7 @@ Ethernet Address: 00:00:00:00:00:00
 Device: en9
 
 VLAN Configurations
-===================
+(separator)
 ";
         let (map, skipped) = parse_hardware_ports(raw).unwrap();
         assert_eq!(map.get("en0").map(String::as_str), Some("Wi-Fi"));

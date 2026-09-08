@@ -2136,9 +2136,7 @@ async fn raw_extents_at_coord(
         Err(error) => return Err(error),
     };
     match timeout(NODE_TIMEOUT, component.get_extents(coord_type)).await {
-        Ok(Ok((x, y, width, height))) if is_readable_rect(x, y, width, height) => {
-            Ok(Some((x, y)))
-        }
+        Ok(Ok((x, y, width, height))) if is_readable_rect(x, y, width, height) => Ok(Some((x, y))),
         Ok(Ok(_)) => Ok(None),
         Ok(Err(error)) => {
             let mapped = map_atspi_err(error);
