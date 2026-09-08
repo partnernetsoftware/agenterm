@@ -363,6 +363,50 @@ pub(crate) fn stacking() -> Result<Vec<WindowStacking>, WindowEnumerateError> {
     Ok(stacking_from_front_to_back(&ordered))
 }
 
+/// Resolve a CU `windows` handle to the live top-level X11 client XID that
+/// `GetImage` must use as its drawable.
+///
+/// Inventory handles are the same numeric ids as `_NET_CLIENT_LIST`, but a
+/// caller may hold a stale value or one that is no longer a viewable client
+/// window. `GetGeometry` can still answer on an iconified or unmapped id while
+/// `GetImage` returns `Match` on that same number, so capture maps through the
+/// current client list and refuses before treating the raw handle as a drawable.
+pub(crate) fn resolve_screenshot_xid(handle: isize) -> Result<u32, WindowEnumerateError> {
+    if handle == 0 {
+        return Err(WindowEnumerateError::failed(
+            "screenshot_window_unavailable",
+            "screenshot window handle must be non-zero",
+        ));
+    }
+    let requested = u32::try_from(handle).map_err(|_| {
+        WindowEnumerateError::failed(
+            "screenshot_window_unavailable",
+            format!("window handle {handle} is not a valid X11 XID"),
+        )
+    })?;
+    let context = connect()?;
+    if requested == context.root {
+        return Ok(requested);
+    }
+    if !client_windows(&context)?.contains(&requested) {
+        return Err(WindowEnumerateError::failed(
+            "screenshot_window_unavailable",
+            format!(
+                "window handle {handle} is not a current top-level X11 client window"
+            ),
+        ));
+    }
+    if map_state(&context, requested)? != MapState::VIEWABLE {
+        return Err(WindowEnumerateError::failed(
+            "screenshot_window_unavailable",
+            format!(
+                "window {handle} is not viewable (minimized, hidden, or unmapped)"
+            ),
+        ));
+    }
+    Ok(requested)
+}
+
 pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
     let context = connect()?;
     let foreground = active_window(&context)?;
@@ -456,7 +500,7 @@ mod tests {
     fn resolve_screenshot_xid_rejects_zero_handle() {
         assert_eq!(
             resolve_screenshot_xid(0),
-            Err(failed(
+            Err(WindowEnumerateError::failed(
                 "screenshot_window_unavailable",
                 "screenshot window handle must be non-zero"
             ))
