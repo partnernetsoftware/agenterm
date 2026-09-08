@@ -35,10 +35,9 @@ pub fn running_catalog_apps(running: &[String]) -> Vec<&'static BrowserApp> {
         if let Some(app) = APPS
             .iter()
             .find(|app| window_matches_catalog_app(name, app))
+            && !found.iter().any(|existing| existing.name == app.name)
         {
-            if !found.iter().any(|existing| existing.name == app.name) {
-                found.push(app);
-            }
+            found.push(app);
         }
     }
     found
@@ -65,10 +64,7 @@ pub fn open_launch_plan(
     }
     if cfg!(target_os = "linux") {
         let binary = resolve_linux_binary(app)?;
-        let mut argv = vec![
-            binary,
-            format!("--profile-directory={directory}"),
-        ];
+        let mut argv = vec![binary, format!("--profile-directory={directory}")];
         if let Some(url) = url {
             argv.push(url.to_owned());
         }

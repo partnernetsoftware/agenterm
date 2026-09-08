@@ -135,8 +135,8 @@ const descriptor = {
 
 const observe_descriptor = {
   name: "agenterm_acu_observe",
-  title: "Run one observe-grant agenterm-cu command",
-  description: "Execute one canonical observe-grant agenterm-cu Command through the shared typed Executor. This broad compatibility surface includes caller-named artifact writes, persistent cursors and page JavaScript; commands requiring the actuate grant are rejected before dispatch.",
+  title: "Run one read-only agenterm-cu command",
+  description: "Execute one canonical agenterm-cu Command classified read-only by the compiler-exhaustive MCP exposure gate. Artifact writes, persistent cursors, arbitrary effects and actuation are rejected before dispatch.",
   inputSchema: {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     type: "object",
@@ -157,8 +157,8 @@ const observe_descriptor = {
   },
   outputSchema: descriptor.outputSchema,
   annotations: {
-    readOnlyHint: false,
-    destructiveHint: true,
+    readOnlyHint: true,
+    destructiveHint: false,
     idempotentHint: false,
     openWorldHint: true
   }
@@ -190,6 +190,17 @@ input = input + request("actuation", "tools/call", {
   name: "agenterm_acu_observe",
   arguments: { command: { verb: "clipboard-clear", target: "current", apply: true } }
 });
+input = input + request("artifact-write", "tools/call", {
+  name: "agenterm_acu_observe",
+  arguments: {
+    command: {
+      verb: "screenshot",
+      target: "current",
+      path: "target/acu-mcp-forbidden.png",
+      window: 1
+    }
+  }
+});
 input = input + request("unknown", "tools/call", {
   name: "agenterm_acu_unknown", arguments: {}
 });
@@ -214,7 +225,7 @@ const responses = [];
 for (const line of output.stdout.replaceAll("\r\n", "\n").split("\n")) {
   if (line.trim() !== "") { responses.push(JSON.parse(line)); }
 }
-require_ok(responses.length === 7, "acu_mcp_response_count:" + responses.length);
+require_ok(responses.length === 8, "acu_mcp_response_count:" + responses.length);
 
 const initialized = response_with_id(responses, "initialize");
 require_ok(initialized.jsonrpc === "2.0"
@@ -261,6 +272,16 @@ require_ok(actuation_reply.ok === false
              && actuation_reply.command === "clipboard-clear"
              && actuation_reply.error.code === "mcp_observe_actuation_forbidden",
            "acu_mcp_actuation_not_refused:" + JSON.stringify(actuation_reply));
+
+const artifact_write = response_with_id(responses, "artifact-write");
+require_ok(artifact_write.result.isError === true,
+           "acu_mcp_artifact_write_false_success");
+const artifact_reply = artifact_write.result.structuredContent;
+require_ok(artifact_reply.ok === false
+             && artifact_reply.command === "screenshot"
+             && artifact_reply.error.code === "mcp_observe_effect_forbidden"
+             && artifact_reply.error.message.indexOf("artifact-write") >= 0,
+           "acu_mcp_artifact_write_not_refused:" + JSON.stringify(artifact_reply));
 
 const unknown = response_with_id(responses, "unknown");
 require_ok(unknown.error.code === -32602

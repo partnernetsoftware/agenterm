@@ -184,11 +184,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   `agenterm-cu`, and their `CuReply` passes through unchanged as MCP structured
   content. The generic observation tool accepts one exact canonical `Command`
   and rejects any non-observe grant before dispatch. Grant class is not effect
-  class: the accepted set still contains artifact writes, persistent cursor
-  advancement and arbitrary page JavaScript. Its MCP annotations therefore
-  declare it effectful/open-world until an exhaustive Rust `McpExposure` match
-  admits only commands proven read-only; no wildcard may silently classify a
-  new command.
+  class: the former accepted set included artifact writes, persistent cursor
+  advancement and arbitrary page JavaScript. An exhaustive Rust `McpExposure`
+  match now rejects those classes before provider dispatch and restores the
+  descriptor's read-only claim; it remains open-world because read-only
+  network/CDP observation can reach external systems. The match has no
+  wildcard, so a new command cannot silently inherit read-only status.
   A macOS public stdio black box has executed both paths. The Candidate
   six-cell runtime job now hashes the public launcher and fixed-name provider,
   executes both `agenterm:acu.call` and `.argv` through `agenterm cli acu`, then
@@ -222,7 +223,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     QJS["acu.qjs [~]<br/>Bun-free native path<br/>42/42 positive · dynamic queue remains"]
     USERS["typed consumers<br/>CLI · MCP · qjs"]
     MCPCLASS{"MCP exposure [~]<br/>ReadOnly · artifact · cursor<br/>arbitrary effect · Actuate"}
-    MCPRO["read-only MCP subset [ ]<br/>compiler-exhaustive admission"]
+    MCPRO["read-only MCP subset [x]<br/>compiler-exhaustive admission"]
     MCPMUT["mutation lifecycle [ ]<br/>session · idempotency · cancel · EOF"]
     LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]

@@ -150,7 +150,7 @@ pub fn capabilities() -> McpCapabilities {
                 name: "agenterm_acu_observe",
                 schema_id: "agenterm.cu.mcp.observe.v1",
                 availability: McpAvailability::Shipped,
-                read_only: false,
+                read_only: true,
             },
         ],
         limits: McpLimits {
@@ -314,7 +314,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn current_catalog_marks_the_broad_observe_tool_as_effectful_and_is_bounded() {
+    fn current_catalog_is_read_only_and_bounded() {
         let catalog = capabilities();
         assert_eq!(catalog.protocol_revision, "2025-11-25");
         assert_eq!(catalog.transports, vec!["stdio"]);
@@ -324,8 +324,7 @@ mod tests {
         assert_eq!(catalog.tools[0].name, "agenterm_wait");
         assert_eq!(catalog.tools[1].name, "agenterm_acu_capabilities");
         assert_eq!(catalog.tools[2].name, "agenterm_acu_observe");
-        assert!(catalog.tools[..2].iter().all(|tool| tool.read_only));
-        assert!(!catalog.tools[2].read_only);
+        assert!(catalog.tools.iter().all(|tool| tool.read_only));
         assert!(catalog.limits.frame_bytes > 0);
         assert!(catalog.limits.resource_bytes <= catalog.limits.response_bytes);
         assert!(catalog.limits.resource_items > 0);
@@ -348,8 +347,8 @@ mod tests {
         ))
         .expect("agenterm-cu MCP observe descriptor");
         assert_eq!(observe["name"], catalog.tools[2].name);
-        assert_eq!(observe["annotations"]["readOnlyHint"], false);
-        assert_eq!(observe["annotations"]["destructiveHint"], true);
+        assert_eq!(observe["annotations"]["readOnlyHint"], true);
+        assert_eq!(observe["annotations"]["destructiveHint"], false);
         assert_eq!(observe["annotations"]["openWorldHint"], true);
     }
 

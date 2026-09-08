@@ -5230,12 +5230,18 @@ preserves typed failure and existing receipts without accidental translation,
 retry, or fallback at a new protocol boundary.
 
 A generic read-only protocol tool must accept the canonical `Command`, not a
-parallel verb schema. Deserialize it strictly, ask the command itself for its
-required grant, and reject anything other than `Observe` before constructing an
-executor or touching a mechanism. A read-only annotation is a promise about
-dispatch reachability, not merely UI metadata. Test one real observation for
-structural equality with direct execution and one actuating command for a typed
-pre-dispatch refusal.
+parallel verb schema. Deserialize it strictly, then pass it through a
+compiler-exhaustive effect classifier before constructing an executor or
+touching a mechanism. `Grant::Observe` is not proof of read-only behavior:
+screenshots can write caller-named files, diffs can advance persistent cursors,
+and page JavaScript can perform arbitrary effects. Give every command variant
+an explicit class such as read-only, artifact write, persistent cursor,
+arbitrary effect, or actuation; do not use a wildcard that would silently make
+a future variant read-only. A read-only annotation is a promise about dispatch
+reachability, not merely UI metadata. Keep `openWorldHint` true when allowed
+reads can contact network or browser targets. Test one real observation for
+structural equality with direct execution and every rejected effect class for
+a typed pre-dispatch refusal.
 
 ## Join CoreSimulator apps to host processes without identity leaks
 

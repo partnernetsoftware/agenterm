@@ -193,10 +193,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       persistent cursor advancement and arbitrary page JavaScript, so the
       compatibility tool is advertised as effectful/open-world rather than
       falsely carrying MCP `readOnlyHint`
-    - [ ] replace grant-based admission with a compiler-exhaustive
+    - [x] replace grant-based admission with a compiler-exhaustive
       `McpExposure` classification. Only variants proven `ReadOnly` may enter
-      the eventual read-only tool; artifact writes, persistent cursors,
-      arbitrary effects and actuation fail before provider dispatch
+      the read-only tool; artifact writes, persistent cursors, arbitrary
+      effects and actuation fail before provider dispatch. The descriptor is
+      read-only again, remains open-world because network/CDP observation can
+      reach external systems, and a new `Command` variant cannot compile until
+      it is assigned an exposure class
   - [ ] run the same exact provider bytes through Windows/Linux native courts,
     then design mutation tools only after cancellation and receipt semantics
     are explicit; no mutation tool is advertised in this slice
@@ -221,8 +224,8 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   ```mermaid
   flowchart LR
     CMD["canonical Command"] --> CLASS{"exhaustive MCP exposure"}
-    CLASS -->|ReadOnly| RO["read-only MCP tool"]
-    CLASS -->|artifact / cursor / arbitrary effect| BROAD["observe-grant compatibility tool<br/>effectful · open-world"]
+    CLASS -->|ReadOnly| RO["read-only MCP tool [x]<br/>open-world observation"]
+    CLASS -->|artifact / cursor / arbitrary effect| BROAD["typed refusal before dispatch"]
     CLASS -->|Actuate| LIFE{"connection-owned session<br/>idempotency · cancel · EOF"}
     LIFE -->|not complete| CLOSED["mutation tool stays closed"]
     LIFE -->|proved| MUT["future typed mutation tools"]

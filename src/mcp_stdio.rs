@@ -1017,7 +1017,7 @@ mod tests {
     }
 
     #[test]
-    fn ready_session_marks_the_broad_observe_tool_as_effectful() {
+    fn ready_session_lists_three_bounded_read_only_tools() {
         let responses = exchange(concat!(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":",
             "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},",
@@ -1038,8 +1038,8 @@ mod tests {
         );
         assert_eq!(tools[0]["annotations"]["readOnlyHint"], true);
         assert_eq!(tools[1]["annotations"]["readOnlyHint"], true);
-        assert_eq!(tools[2]["annotations"]["readOnlyHint"], false);
-        assert_eq!(tools[2]["annotations"]["destructiveHint"], true);
+        assert_eq!(tools[2]["annotations"]["readOnlyHint"], true);
+        assert_eq!(tools[2]["annotations"]["destructiveHint"], false);
         assert_eq!(tools[2]["annotations"]["openWorldHint"], true);
         assert_eq!(
             tools[0]["inputSchema"]["properties"]["timeout_ms"]["maximum"],
