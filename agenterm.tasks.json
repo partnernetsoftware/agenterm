@@ -1230,6 +1230,25 @@
         "task.cu-linux-page-targets-smoke"
       ]
     },
+    "cu-linux-page-hover-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-hover-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-hover-smoke"
+      ]
+    },
     "cu-linux-browser-tabs-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5646,6 +5665,26 @@
       "id": "cu-linux-page-targets-smoke",
       "description": "Prove Linux page-targets --port CDP /json inventory matches independent curl read of the same debugging port; disposable Chrome profile, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-page-targets-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-page-hover-smoke",
+      "description": "Prove Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-page-hover-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

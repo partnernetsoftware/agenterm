@@ -1,0 +1,251 @@
+// CEO: Linux CDP page-hover honesty — hover a page control; prove CSS :hover,
+// title, and computed style change via independent page-js read-back.
+// Distinct from AT-SPI hover→click. Disposable Chrome profile; no --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-hover-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_page_hover_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_hover_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_page_hover_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (text_at(row, "type") === "page") { return row; }
+  }
+  return null;
+}
+
+function center(box) {
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  };
+}
+
+const hover_readback_expr = "(function(){"
+  + "const btn=document.getElementById('hover-btn');"
+  + "if(!btn){return{missing:true};}"
+  + "const hovered=Array.from(document.querySelectorAll(':hover'));"
+  + "const is_hovered=hovered.some(function(el){return el===btn;});"
+  + "const style=getComputedStyle(btn);"
+  + "return{"
+  + "is_hovered:is_hovered,"
+  + "background:style.backgroundColor,"
+  + "title:btn.getAttribute('title'),"
+  + "hover_green:style.backgroundColor==='rgb(0, 128, 0)'"
+  + "};"
+  + "})()";
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_hover_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_hover_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-hover");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+
+const fixture_title = "CEO CDP Hover " + context.run_id;
+const tooltip = "CEO hover tooltip " + context.run_id;
+const fixture = rh.join(run_directory, "cdp-hover.html");
+const fixture_html = "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title><style>"
+  + "#hover-btn{display:block;width:200px;height:60px;margin:40px;background-color:rgb(200,200,200);}"
+  + "#hover-btn:hover{background-color:rgb(0,128,0);}"
+  + "</style></head><body>"
+  + "<button id='hover-btn' title='" + tooltip + "'>Hover me</button>"
+  + "</body></html>";
+rh.write_text(fixture, fixture_html);
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9600 + (rh.pid() % 500);
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_hover_port_in_use:" + port);
+
+  print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "about:blank",
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+      cwd: run_directory,
+      timeout_ms: 3000,
+    });
+    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+    harness.sleep_ms(250);
+  }
+
+  const targets = run_cu(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  const target = page_target(targets.data.targets);
+  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_hover_target_missing");
+  const target_id = text_at(target, "id");
+
+  print("STEP page-nav loads the disposable hover fixture");
+  const nav = run_cu(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", target_id,
+    "--url", "file://" + fixture, "--wait-ms", "10000",
+  ], env);
+  ensure(
+    flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
+    "cu_linux_page_hover_nav:" + JSON.stringify(nav.data)
+  );
+
+  print("STEP page-find locates the hover button and its viewport box");
+  const found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#hover-btn",
+  ], env);
+  const found_nodes = at(found, "data.nodes");
+  ensure(
+    at(found, "data.returned") === 1
+      && found_nodes !== undefined
+      && found_nodes.length === 1
+      && at(found_nodes[0], "box.width") > 0
+      && at(found_nodes[0], "box.height") > 0,
+    "cu_linux_page_hover_find_button:" + JSON.stringify(found.data)
+  );
+  const button_xy = center(found_nodes[0].box);
+
+  print("STEP independent page-js baseline proves the button is not hovered yet");
+  const baseline = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", hover_readback_expr,
+  ], env);
+  const baseline_value = at(baseline, "data.value");
+  ensure(
+    flag_at(baseline_value, "is_hovered") === false
+      && flag_at(baseline_value, "hover_green") === false
+      && text_at(baseline_value, "title") === tooltip,
+    "cu_linux_page_hover_baseline:" + JSON.stringify(baseline_value)
+  );
+
+  print("STEP page-hover dispatches mouseMoved at the button center");
+  const hovered = run_cu(run_directory, executable, "observe,actuate", [
+    "page-hover", "--port", "" + port, "--target-id", target_id,
+    "--x", "" + button_xy.x, "--y", "" + button_xy.y,
+  ], env);
+  ensure(
+    flag_at(hovered, "data.performed"),
+    "cu_linux_page_hover_actuate:" + JSON.stringify(hovered.data)
+  );
+
+  print("STEP independent page-js read-back proves :hover CSS and computed style change");
+  const readback = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", hover_readback_expr,
+  ], env);
+  const readback_value = at(readback, "data.value");
+  ensure(
+    flag_at(readback_value, "is_hovered") === true
+      && flag_at(readback_value, "hover_green") === true
+      && text_at(readback_value, "title") === tooltip,
+    "cu_linux_page_hover_readback:" + JSON.stringify(readback_value)
+  );
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-hover-readback");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_hover_failed");
+harness.remove_run(context);
+print("PASS: Linux page-hover CSS :hover + computed style + title read-back (no --coords)");
+return;

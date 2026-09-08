@@ -963,6 +963,12 @@
       ]
     },
     {
+      "id": "cu-linux-page-hover-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-hover-readback"
+      ]
+    },
+    {
       "id": "cu-linux-browser-tabs-smoke",
       "evidence": [
         "cu.linux-browser-tabs-inventory"
