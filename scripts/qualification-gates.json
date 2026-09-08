@@ -333,9 +333,21 @@
       ]
     },
     {
+      "id": "cu-linux-network-probe-smoke",
+      "evidence": [
+        "cu.linux-network-probe-readback"
+      ]
+    },
+    {
       "id": "cu-linux-fontconfig-monospace-smoke",
       "evidence": [
         "cu.linux-fontconfig-monospace"
+      ]
+    },
+    {
+      "id": "cu-linux-privilege-plan-smoke",
+      "evidence": [
+        "cu.linux-privilege-plan-readback"
       ]
     },
     {

@@ -147,6 +147,7 @@
         "cu.linux-process-kill",
         "cu.linux-process-lifecycle-watch",
         "cu.linux-network-probe",
+        "cu.linux-network-probe-readback",
         "cu.linux-file-inspect",
         "cu.linux-terminal-control",
         "cu.linux-external-terminal-observe",
