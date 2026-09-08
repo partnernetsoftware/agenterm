@@ -191,3 +191,20 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   - [ ] run the same exact provider bytes through Windows/Linux native courts,
     then design mutation tools only after cancellation and receipt semantics
     are explicit; no mutation tool is advertised in this slice
+    - [x] architecture ruling: an MCP connection owns one lazily created ACU
+      runtime session; `session_lease` is private in-memory bearer material and
+      never appears in tool arguments, model context, transcript, result or
+      error text
+    - [x] transport identity and effect identity stay separate: JSON-RPC `id`
+      locates one active call/cancellation, while a public non-secret
+      `idempotency_key` becomes the durable `RequestIdentity.request_id`
+    - [ ] first implementation knife remains internal and unadvertised:
+      queued cancellation proves zero provider call/reservation/effect;
+      cancellation after dispatch never overwrites the authoritative
+      `CuReply`; EOF drains bounded dispatched work, ends the owned session and
+      writes no response after EOF
+    - [ ] only canonical commands with a product-owned execution deadline may
+      enter the synchronous provider. Provider loss after dispatch is
+      `outcome_unknown` and the durable reservation forbids automatic replay;
+      hard cancellation after FFI entry requires a future cancellable ABI or
+      process-isolated worker, never an abandoned thread

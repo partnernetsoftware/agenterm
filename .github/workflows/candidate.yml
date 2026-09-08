@@ -88,6 +88,7 @@ jobs:
             scripts/qjs/cu-retirement-cell-smoke.qjs
             scripts/qjs/acu-provider-smoke.qjs
             scripts/qjs/acu-mcp-provider-smoke.qjs
+            scripts/qjs/acu-power-action-provider-smoke.qjs
             scripts/qjs/cu-setup-cli-smoke.qjs
             scripts/qjs/cu-setup-runtime-refresh-smoke.qjs
             scripts/qjs/lib/rh_compat.qjs
@@ -1179,7 +1180,8 @@ jobs:
             "runtime-evidence/setup-$PLATFORM_ID.json" \
             "runtime-evidence/setup-refresh-$PLATFORM_ID.json" \
             "runtime-control/acu-provider-smoke.qjs" \
-            "runtime-control/acu-mcp-provider-smoke.qjs"
+            "runtime-control/acu-mcp-provider-smoke.qjs" \
+            "runtime-control/acu-power-action-provider-smoke.qjs"
 
       - name: Upload ACU native runtime receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

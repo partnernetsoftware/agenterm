@@ -1,0 +1,76 @@
+// Candidate black box for power-action planning through the in-process
+// `agenterm:acu` object. The caller owns one isolated, pre-enrolled HOME and
+// supplies an observe-only provider grant. This script never spawns agenterm-cu.
+import * as acu from "agenterm:acu";
+
+if (arg_count() !== 0) { throw "expected: no arguments"; }
+
+function require_ok(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function validate_plan(reply, action) {
+  require_ok(reply !== null && typeof reply === "object", "acu_power_object_reply");
+  require_ok(reply.ok === true && reply.command === "privilege-plan",
+             "acu_power_object_command:" + JSON.stringify(reply));
+  require_ok(reply.data.operation === "system.power-action"
+               && reply.data.action === action,
+             "acu_power_object_intent");
+  require_ok(reply.data.host_identity.startsWith("agt-cu-host-v1-")
+               && reply.data.boot_identity.startsWith("agt-cu-boot-v1-"),
+             "acu_power_object_identity");
+  require_ok(reply.data.expires_at_utc_ms - reply.data.issued_at_utc_ms === 60000,
+             "acu_power_object_expiry");
+  require_ok(reply.data.contract_digest.length === 64
+               && reply.data.approval_digest.length === 64,
+             "acu_power_object_digest");
+  require_ok(reply.data.approval === reply.data.approval_digest
+               && typeof reply.data.request === "string"
+               && reply.data.request.length > 0,
+             "acu_power_object_apply_projection");
+  require_ok(reply.data.consent_requested === false
+               && reply.data.mutation_performed === false,
+             "acu_power_object_no_effect");
+  return reply;
+}
+
+const first = validate_plan(acu.call({
+  verb: "privilege-plan-power-action",
+  target: "current",
+  action: "sleep",
+  ttl_seconds: 60
+}), "sleep");
+const second = validate_plan(acu.call({
+  verb: "privilege-plan-power-action",
+  target: "current",
+  action: "restart",
+  ttl_seconds: 60
+}), "restart");
+const argv = validate_plan(acu.argv([
+  "--target", "current", "--grant", "observe",
+  "privilege", "plan", "system.power-action", "shutdown",
+  "--ttl-seconds", "60"
+]), "shutdown");
+
+require_ok(first.data.host_identity === second.data.host_identity
+             && first.data.host_identity === argv.data.host_identity,
+           "acu_power_object_host_stability");
+require_ok(first.data.boot_identity === second.data.boot_identity
+             && first.data.boot_identity === argv.data.boot_identity,
+           "acu_power_object_boot_stability");
+require_ok(first.data.contract_digest !== second.data.contract_digest
+             && first.data.contract_digest !== argv.data.contract_digest,
+           "acu_power_object_intent_digest");
+
+const invalid = acu.call({
+  verb: "privilege-plan-power-action",
+  target: "current",
+  action: "sleep",
+  ttl_seconds: 0
+});
+require_ok(invalid.ok === false && invalid.error.code === "privilege_plan_ttl_invalid",
+           "acu_power_object_invalid_ttl:" + JSON.stringify(invalid));
+
+print("EVIDENCE cu.power-action-plan.acu-object");
+print("PASS: agenterm:acu planned three power intents without consent or effect");
+return;

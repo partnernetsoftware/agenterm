@@ -190,12 +190,20 @@ already uses the embedded qjswasm `agenterm:acu` object (available to qjs as
 archive reference, never a runtime or qualification fallback. The remaining
 work is to close stable dynamic TODOs, widen MCP deliberately and prove the
 dynamic provider in native courts. The Candidate six-cell job now executes and
-hash-binds that provider in schema-5 cell receipts; local macOS is green and the
-first exact-SHA remote run remains the qualification frontier. Immutable Git
+hash-binds that provider in schema-6 cell receipts, including mutation-free
+power planning through both `agenterm:acu.call` and `.argv`; local macOS is
+green and the first exact-SHA remote run remains the qualification frontier.
+Immutable Git
 blob ids preserve corpus provenance:
 CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical
 deadlines, cleanup, errors and receipts. Moving TypeScript logic line-for-line
 into qjswasm would preserve the duplication and is explicitly rejected.
+
+MCP mutation will use a server-owned ACU session. Its private session lease
+never enters public arguments or transcripts; JSON-RPC ids own transport
+cancellation while a separate non-secret idempotency key owns durable
+at-most-once effect identity. Queued cancellation is zero-effect, but a cancel
+after provider dispatch cannot overwrite the authoritative effect receipt.
 
 ```text
 MCU retirement blockers

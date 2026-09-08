@@ -1,7 +1,7 @@
 use agenterm_platform::host_resource_snapshot::{
     HostResourceSnapshotError, HostResourceSnapshotErrorKind,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use std::fmt::Write as _;
 

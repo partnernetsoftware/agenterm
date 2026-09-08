@@ -186,10 +186,20 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   A macOS public stdio black box has executed both paths. The Candidate
   six-cell runtime job now hashes the public launcher and fixed-name provider,
   executes both `agenterm:acu.call` and `.argv` through `agenterm cli acu`, then
-  drives both tools through MCP stdio and seals all four paths
-  in schema-5 per-cell receipts. The first exact-SHA remote
+  drives both tools through MCP stdio, executes mutation-free power planning
+  through both `agenterm:acu.call` and `.argv`, and seals all five paths in
+  schema-6 per-cell receipts. The local macOS object court is green. The first
+  exact-SHA remote
   execution is still pending, so this is wired evidence rather than six-target
   qualification; mutation-bearing MCP verbs remain open.
+
+  The first complete local Candidate-cell rehearsal also exposed a macOS
+  packaging blocker: the executable and fixed sibling provider currently
+  register the same Objective-C device-capture class in one process. The
+  runtime warns about the duplicate class and the public court fails closed on
+  stderr. Promotion requires one process-global class owner or a genuinely
+  collision-free runtime identity; suppressing or allowlisting the warning is
+  not evidence.
 
 - [~] qjswasm drives MCP stdio into the fixed-sibling ACU provider and preserves shared typed capability and generic observation replies; macOS is green and the six native Candidate cells are wired but not yet remotely qualified.
 
@@ -199,7 +209,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     OWNER["typed native/delegated owner<br/>schema · Executor · postcondition"]
     OBJ["agenterm:acu.call/argv<br/>one parser · one Executor"]
     PROVIDER["fixed sibling dynamic provider<br/>ABI checked · bounded · no fallback"]
-    COURT["six native Candidate cells [~]<br/>dynamic load + MCP · schema-5 receipt"]
+    COURT["six native Candidate cells [~]<br/>dynamic load + MCP + power plan · schema-6 receipt"]
     GATE{"typed-object parity · TODO-aware<br/>MCU-absent black box"}
     QJS["acu.qjs [~]<br/>Bun-free native path<br/>42/42 positive · dynamic queue remains"]
     USERS["typed consumers<br/>CLI · MCP · qjs"]

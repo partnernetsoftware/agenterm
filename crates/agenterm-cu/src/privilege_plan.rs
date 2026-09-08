@@ -11,7 +11,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{command::ProcessSignalKind, CuError};
+use crate::{CuError, command::ProcessSignalKind};
 
 pub const DEFAULT_PLAN_TTL_SECONDS: u64 = 120;
 pub const MIN_PLAN_TTL_SECONDS: u64 = 1;

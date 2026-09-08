@@ -1,10 +1,10 @@
 //! Read-only preparation of canonical privileged-operation plans.
 
 use agenterm_cu::{
-    command::{PrivilegeProviderAction, ProcessSignalKind},
-    privilege_apply::{decode_plan_request, DEFAULT_PROVIDER_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS},
-    privilege_plan::{PowerAction, PROCESS_SIGNAL_TREE_MAX_DESCENDANTS},
     Command, TargetRef,
+    command::{PrivilegeProviderAction, ProcessSignalKind},
+    privilege_apply::{DEFAULT_PROVIDER_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS, decode_plan_request},
+    privilege_plan::{PROCESS_SIGNAL_TREE_MAX_DESCENDANTS, PowerAction},
 };
 
 use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
@@ -263,14 +263,16 @@ mod tests {
         ));
 
         let mut kill_without_force = vec!["process.signal".into(), "42".into(), "KILL".into()];
-        assert!(parse(
-            spec,
-            "privilege-plan",
-            TargetRef::Current,
-            &mut kill_without_force
-        )
-        .unwrap_err()
-        .contains("--force"));
+        assert!(
+            parse(
+                spec,
+                "privilege-plan",
+                TargetRef::Current,
+                &mut kill_without_force
+            )
+            .unwrap_err()
+            .contains("--force")
+        );
 
         let mut power = vec![
             "plan".into(),

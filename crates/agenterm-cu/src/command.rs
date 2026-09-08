@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     browser_bridge::ConnectionId,
-    privilege_apply::{PrivilegePlanV1, MAX_PROVIDER_TIMEOUT_MS},
+    privilege_apply::{MAX_PROVIDER_TIMEOUT_MS, PrivilegePlanV1},
     privilege_plan::{PowerAction, PrivilegeOperation},
     service_control::{ServiceOperation, ServiceScope},
     target::TargetRef,
@@ -6157,18 +6157,22 @@ mod tests {
         let too_many_environment = (0..=JOB_ENVIRONMENT_ENTRIES_MAX)
             .map(|index| serde_json::json!({"name": format!("K{index}"), "value": "x"}))
             .collect::<Vec<_>>();
-        assert!(serde_json::from_value::<Command>(serde_json::json!({
-            "verb": "job-spawn", "target": "current", "command": ["x"],
-            "environment": too_many_environment, "ttl_seconds": 1
-        }))
-        .is_err());
+        assert!(
+            serde_json::from_value::<Command>(serde_json::json!({
+                "verb": "job-spawn", "target": "current", "command": ["x"],
+                "environment": too_many_environment, "ttl_seconds": 1
+            }))
+            .is_err()
+        );
 
         let oversized_base64 = "A".repeat((JOB_WRITE_DECODED_BYTES_MAX / 3 + 1) * 4);
-        assert!(serde_json::from_value::<Command>(serde_json::json!({
-            "verb": "job-write", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
-            "data_base64": oversized_base64
-        }))
-        .is_err());
+        assert!(
+            serde_json::from_value::<Command>(serde_json::json!({
+                "verb": "job-write", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+                "data_base64": oversized_base64
+            }))
+            .is_err()
+        );
     }
 
     #[test]
