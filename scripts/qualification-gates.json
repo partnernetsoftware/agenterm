@@ -417,6 +417,12 @@
       ]
     },
     {
+      "id": "cu-linux-process-signal-smoke",
+      "evidence": [
+        "cu.linux-process-signal-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-argv-cwd-smoke",
       "evidence": [
         "cu.linux-process-argv-readback",
