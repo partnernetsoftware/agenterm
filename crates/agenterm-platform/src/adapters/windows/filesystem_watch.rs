@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-use crate::filesystem_watch::{FilesystemWatchError, FilesystemWatchErrorKind, FilesystemWatchResult};
+use crate::filesystem_watch::{
+    FilesystemWatchError, FilesystemWatchErrorKind, FilesystemWatchResult,
+};
 
 pub fn watch_directory(
     _path: &Path,

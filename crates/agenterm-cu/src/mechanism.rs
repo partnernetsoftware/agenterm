@@ -1739,15 +1739,7 @@ pub fn drag_between_nodes(
     };
     write_ledger::note();
     let f = call_sym::<NodeDragBetween>(b"agt_a11y_drag_between_nodes")?;
-    let status = unsafe {
-        f(
-            handle,
-            from_c.as_ptr(),
-            to_c.as_ptr(),
-            button_id,
-            steps,
-        )
-    };
+    let status = unsafe { f(handle, from_c.as_ptr(), to_c.as_ptr(), button_id, steps) };
     map_status("agt_a11y_drag_between_nodes", status)?;
     Ok(())
 }

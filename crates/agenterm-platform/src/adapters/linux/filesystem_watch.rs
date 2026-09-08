@@ -55,10 +55,8 @@ pub fn watch_directory(
 
     let c_path = CString::new(path.to_string_lossy().as_bytes())
         .map_err(|_| invalid_input("path must not contain interior NUL bytes"))?;
-    let fd = retry_eintr(|| unsafe {
-        libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK)
-    })
-    .map_err(map_io_error)?;
+    let fd = retry_eintr(|| unsafe { libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK) })
+        .map_err(map_io_error)?;
     if fd < 0 {
         return Err(native_error("inotify_init1 failed"));
     }
@@ -116,9 +114,7 @@ pub fn watch_directory(
         }
         let mut offset = 0usize;
         while offset + std::mem::size_of::<libc::inotify_event>() <= read_len as usize {
-            let header = unsafe {
-                &*(buffer.as_ptr().add(offset) as *const libc::inotify_event)
-            };
+            let header = unsafe { &*(buffer.as_ptr().add(offset) as *const libc::inotify_event) };
             let name_len = header.len as usize;
             let record_len = std::mem::size_of::<libc::inotify_event>() + name_len;
             if offset + record_len > read_len as usize {
@@ -130,10 +126,7 @@ pub fn watch_directory(
                 let start = offset + std::mem::size_of::<libc::inotify_event>();
                 let end = start + name_len;
                 let raw = &buffer[start..end];
-                let trimmed = raw
-                    .split(|byte| *byte == 0)
-                    .next()
-                    .unwrap_or(raw);
+                let trimmed = raw.split(|byte| *byte == 0).next().unwrap_or(raw);
                 String::from_utf8_lossy(trimmed).into_owned()
             };
             let mask = header.mask;
