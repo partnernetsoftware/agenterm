@@ -547,11 +547,11 @@ fn semantic_keys_payload(
         "via": via,
         "semantic": true,
     });
-    if let Some(object) = payload.as_object_mut() {
-        if let Some(extra_object) = extra.as_object() {
-            for (key, value) in extra_object {
-                object.insert(key.clone(), value.clone());
-            }
+    if let Some(object) = payload.as_object_mut()
+        && let Some(extra_object) = extra.as_object()
+    {
+        for (key, value) in extra_object {
+            object.insert(key.clone(), value.clone());
         }
     }
     attach_name_match(&mut payload, resolved);

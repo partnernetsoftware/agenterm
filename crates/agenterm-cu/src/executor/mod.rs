@@ -25,8 +25,8 @@ use crate::{
     auth::{Authorization, Grant},
     auth_store::{AuthStore, AuthStoreErrorKind, GrantAttempt, GrantDecision, GrantDenialKind},
     command::{
-        Command, InvokeAction, InvokeValueKind, JobPolicyAction, OrderRelation, PermissionAction,
-        PermissionKind, PointerButton, QueryWatchUntil, WaitCondition,
+        Command, InvokeAction, InvokeValueKind, JobPolicyAction, PermissionAction, PermissionKind,
+        PointerButton, QueryWatchUntil, WaitCondition,
     },
     idempotency_store::{
         FinalOutcome, FinalOutcomeKind, FinalReplay, IdempotencyStore, MAX_RETENTION_TTL_MS,
@@ -42,6 +42,9 @@ use crate::{
     target_binding::{CurrentIdentityProvider, resolve_target_binding},
     vnc_transport::{self, VncEndpoint},
 };
+
+#[cfg(test)]
+use crate::command::OrderRelation;
 
 mod a11y_actuate;
 mod a11y_observe;

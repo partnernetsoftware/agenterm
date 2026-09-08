@@ -391,17 +391,13 @@ pub(crate) fn resolve_screenshot_xid(handle: isize) -> Result<u32, WindowEnumera
     if !client_windows(&context)?.contains(&requested) {
         return Err(WindowEnumerateError::failed(
             "screenshot_window_unavailable",
-            format!(
-                "window handle {handle} is not a current top-level X11 client window"
-            ),
+            format!("window handle {handle} is not a current top-level X11 client window"),
         ));
     }
     if map_state(&context, requested)? != MapState::VIEWABLE {
         return Err(WindowEnumerateError::failed(
             "screenshot_window_unavailable",
-            format!(
-                "window {handle} is not viewable (minimized, hidden, or unmapped)"
-            ),
+            format!("window {handle} is not viewable (minimized, hidden, or unmapped)"),
         ));
     }
     Ok(requested)

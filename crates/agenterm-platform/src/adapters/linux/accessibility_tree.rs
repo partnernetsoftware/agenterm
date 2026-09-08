@@ -1771,7 +1771,9 @@ async fn try_component_scroll_to(
     }
 }
 
-async fn try_component_scroll_to_point(proxy: &AccessibleProxy<'_>) -> Result<bool, AccessibilityTreeError> {
+async fn try_component_scroll_to_point(
+    proxy: &AccessibleProxy<'_>,
+) -> Result<bool, AccessibilityTreeError> {
     let Some((x, y)) = read_screen_origin(proxy).await? else {
         return Ok(false);
     };
@@ -1780,7 +1782,12 @@ async fn try_component_scroll_to_point(proxy: &AccessibleProxy<'_>) -> Result<bo
         Err(error) if is_missing_scroll_interface(&error) => return Ok(false),
         Err(error) => return Err(error),
     };
-    match timeout(NODE_TIMEOUT, component.scroll_to_point(CoordType::Screen, x, y)).await {
+    match timeout(
+        NODE_TIMEOUT,
+        component.scroll_to_point(CoordType::Screen, x, y),
+    )
+    .await
+    {
         Ok(Ok(scrolled)) => Ok(scrolled),
         Ok(Err(error)) => {
             let mapped = map_atspi_err(error);
@@ -1807,7 +1814,12 @@ async fn try_scroll_to_point_at(
         Err(error) if is_missing_scroll_interface(&error) => return Ok(false),
         Err(error) => return Err(error),
     };
-    match timeout(NODE_TIMEOUT, component.scroll_to_point(CoordType::Screen, x, y)).await {
+    match timeout(
+        NODE_TIMEOUT,
+        component.scroll_to_point(CoordType::Screen, x, y),
+    )
+    .await
+    {
         Ok(Ok(scrolled)) => Ok(scrolled),
         Ok(Err(error)) => {
             let mapped = map_atspi_err(error);
@@ -1834,7 +1846,9 @@ async fn read_screen_origin(
     }
 }
 
-async fn try_ancestor_viewport_scroll(proxy: &AccessibleProxy<'_>) -> Result<bool, AccessibilityTreeError> {
+async fn try_ancestor_viewport_scroll(
+    proxy: &AccessibleProxy<'_>,
+) -> Result<bool, AccessibilityTreeError> {
     let conn = proxy.inner().connection();
     let target_origin = read_screen_origin(proxy).await?;
     let ancestors = collect_parent_objects(conn, proxy).await?;
@@ -4865,7 +4879,10 @@ mod tests {
             scroll_failure_kind(Some(&Role::ScrollPane)),
             "scrollable_no_effect"
         );
-        assert_eq!(scroll_failure_kind(Some(&Role::Frame)), "no_scrollable_ancestor");
+        assert_eq!(
+            scroll_failure_kind(Some(&Role::Frame)),
+            "no_scrollable_ancestor"
+        );
         assert_eq!(scroll_failure_kind(None), "no_scrollable_ancestor");
     }
 

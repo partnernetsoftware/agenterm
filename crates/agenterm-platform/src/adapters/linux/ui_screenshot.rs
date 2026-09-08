@@ -40,7 +40,9 @@ fn failed_code(code: &'static str, message: impl ToString) -> UiScreenshotError 
 fn map_resolve_err(error: WindowEnumerateError) -> UiScreenshotError {
     match error {
         WindowEnumerateError::Unsupported { reason } => UiScreenshotError::Unsupported { reason },
-        WindowEnumerateError::Failed { code, message } => UiScreenshotError::Failed { code, message },
+        WindowEnumerateError::Failed { code, message } => {
+            UiScreenshotError::Failed { code, message }
+        }
     }
 }
 
@@ -92,11 +94,12 @@ pub(crate) fn capture_native_window_png(
     area: NativeCaptureArea,
 ) -> Result<ScreenshotWriteResult, UiScreenshotError> {
     let raw = window.raw();
-    let window_id = crate::selected::window_enumerate::resolve_screenshot_xid(raw)
-        .map_err(map_resolve_err)?;
-    let (connection, screen) = x11rb::connect(None).map_err(|error| UiScreenshotError::Unsupported {
-        reason: Cow::Owned(format!("X11 display could not be opened: {error}")),
-    })?;
+    let window_id =
+        crate::selected::window_enumerate::resolve_screenshot_xid(raw).map_err(map_resolve_err)?;
+    let (connection, screen) =
+        x11rb::connect(None).map_err(|error| UiScreenshotError::Unsupported {
+            reason: Cow::Owned(format!("X11 display could not be opened: {error}")),
+        })?;
     let root = connection
         .setup()
         .roots
@@ -150,7 +153,9 @@ pub(crate) fn capture_native_window_png(
         Err(error) if get_image_match(&error) => {
             let translated = connection
                 .translate_coordinates(window_id, root, local_x, local_y)
-                .map_err(|error| failed(format!("translate_coordinates could not be sent: {error}")))?
+                .map_err(|error| {
+                    failed(format!("translate_coordinates could not be sent: {error}"))
+                })?
                 .reply()
                 .map_err(|error| failed(format!("translate_coordinates failed: {error}")))?;
             if !translated.same_screen {
