@@ -5627,6 +5627,24 @@
       ]
     },
     {
+      "id": "cu-linux-process-state-smoke",
+      "description": "Prove Linux process-state pid, live/dead classification and start identity match independent /proc/<pid>/stat and status read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-state-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-cache-hierarchy-smoke",
       "description": "Prove Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-cache-hierarchy-smoke.qjs",
