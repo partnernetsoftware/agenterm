@@ -201,7 +201,7 @@
         "resources",
         "job-1"
       ],
-      "classification": "typed-rejection"
+      "classification": "resolved"
     },
     {
       "gap_id": "acu.dynamic.019",

@@ -179,6 +179,14 @@ function known_dynamic_boundary(argv) {
     return todo("acu.dynamic.018", "job",
       "legacy job resource sampling options need a typed adapter");
   }
+  if (verb === "job" && sub === "resources" && !has_arg(argv, "--generation")) {
+    if (argv.length !== 3 || argv[2].startsWith("--")) {
+      return { kind: "usage", command: "job", message: "job resources needs JOB_ID" };
+    }
+    return compound_plan("job-generation", "job", {
+      job_id: argv[2], native_verb: "job-resources", tail: []
+    });
+  }
   if (verb === "device" && sub === "claim" && argv.length >= 3) {
     return todo("acu.dynamic.054", "device",
       "legacy raw-path device claims are not lossless aliases of opaque device ids");

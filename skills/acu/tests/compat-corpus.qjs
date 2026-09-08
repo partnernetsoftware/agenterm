@@ -67,6 +67,7 @@ const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.078", "acu.dynamic.083",
   "acu.dynamic.088", "acu.dynamic.094"];
 const resolved_compound = {
+  "acu.dynamic.018": "job-generation",
   "acu.dynamic.019": "job-generation",
   "acu.dynamic.020": "job-generation",
   "acu.dynamic.023": "job-generation",
@@ -139,7 +140,20 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
 }
 require(dynamic_stays === 2, "dynamic stay corpus count");
 require(permanent_rejections === 2, "permanent rejection corpus count");
-require(resolved_checked === 31, "resolved dynamic corpus count");
+require(resolved_checked === 32, "resolved dynamic corpus count");
+
+const point_job_resources = compat.canonicalize(["job", "resources", "job-1"]);
+require(point_job_resources.kind === "job-generation",
+  "point job resources must resolve generation through the typed compound");
+require(point_job_resources.job_id === "job-1", "point job resources keeps job id");
+require(point_job_resources.native_verb === "job-resources",
+  "point job resources selects the native resource verb");
+require(point_job_resources.tail.length === 0,
+  "point job resources invents no sampling arguments");
+
+const missing_job_resources_id = compat.canonicalize(["job", "resources"]);
+require(missing_job_resources_id.kind === "usage",
+  "job resources without an id is a local typed usage failure");
 
 const irreducible_wait = compat.canonicalize([
   "pty", "wait", "job-1", "text[0-9]+", "--provider", "native"
