@@ -142,6 +142,12 @@ BUNDLE_SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
 ready_timeout=180
 interactive_timeout=180
 case "$COURT" in
+  lnx-aarch64-desktop)
+    # GNOME/Wayland user services can lag QGA after a disposable restore. An
+    # unchanged nonce probe missed 180 seconds and then proved the exact
+    # graphical session under this bounded recovery budget.
+    interactive_timeout=300
+    ;;
   lnx-x86_64-desktop)
     # Apple Silicon fully emulates this guest. Its cold QGA boot has exceeded
     # the native-cell budget without indicating a failed VM.

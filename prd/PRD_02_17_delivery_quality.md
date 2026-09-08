@@ -1178,6 +1178,11 @@ costs a full candidate cycle:
   arm64 therefore owns a 360-second interactive recovery budget, while fully
   emulated Windows x86_64 owns 600 seconds. A timeout remains BLOCKED and may
   never be recast as an ACU product failure.
+- [x] Linux arm64 likewise separates a responsive QGA transport from a ready
+  GNOME/Wayland user session. An unchanged nonce probe missed 180 seconds and
+  then proved display, D-Bus and AT-SPI connectivity under 300 seconds, so the
+  runner now owns that bounded interactive budget without weakening product
+  assertions or accepting a headless session.
 - [x] Windows interactive recovery uses one stable ONLOGON task and script
   path. Deleting the task immediately after a successful nonce also terminated
   its live worker; retaining random tasks then produced stale `Running` state
