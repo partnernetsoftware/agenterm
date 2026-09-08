@@ -2344,9 +2344,11 @@ straight into invoke --node / click --node. `containing` lists every node
 whose rectangle holds the point, so an ambiguous spot is visible rather
 than hidden behind the winner.
 
-Ranking: deepest wins, then smallest area, then the later position in
-walk order (a sibling drawn afterwards sits on top). A zero-area
-rectangle is never a hit. Nothing here reads or moves the pointer.
+Ranking: non-structural layout containers beat structural ones (GTK
+`filler` must not steal a point from the control it wraps), then deepest
+wins, then smallest area, then the later position in walk order (a
+sibling drawn afterwards sits on top). A zero-area rectangle is never a
+hit. Nothing here reads or moves the pointer.
 
 The point is resolved inside the window's own bounded walk, not through
 the platform's point-to-element call (macOS

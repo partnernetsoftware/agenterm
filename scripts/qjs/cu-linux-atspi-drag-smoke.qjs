@@ -1,0 +1,229 @@
+// CEO: Linux AT-SPI drag --from-name/--to-name via GenerateMouseEvent between
+// named node extents centers. Acceptance is smoke read-back only: independent
+// get-extents geometry before drag, drag receipt must name both nodes and
+// report performed without worker data.verified, then independent
+// pointer-position must equal the target extents center. AT-SPI/--name only;
+// no --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-atspi-drag",
+];
+
+const DRAG_SOURCE = "Fixture Drag Source";
+const DRAG_TARGET = "Fixture Drag Target";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, cu_args) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of cu_args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_atspi_drag_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_atspi_drag_empty");
+  return JSON.parse(trimmed);
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  ensure(flag_at(reply, "ok"), "cu_linux_atspi_drag_windows:" + JSON.stringify(reply));
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-atspi-drag");
+const run_directory = rh.join(repo, "target/cu-linux-atspi-drag-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_atspi_drag_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start owned GTK fixture and resolve window by pid and exact title");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "ok") && flag_at(window_wait, "data.met"), "cu_linux_atspi_drag_window_wait");
+
+  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_row !== null, "cu_linux_atspi_drag_window_identity");
+  const handle = "" + int_at(inventory_row, "handle");
+  ensure(int_at(inventory_row, "handle") > 0, "cu_linux_atspi_drag_handle:" + JSON.stringify(inventory_row));
+
+  print("STEP independent get-extents proves source is above target before drag");
+  const source_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", DRAG_SOURCE,
+  ]);
+  const target_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", DRAG_TARGET,
+  ]);
+  ensure(
+    flag_at(source_extents, "ok") && flag_at(target_extents, "ok"),
+    "cu_linux_atspi_drag_extents_baseline:" + JSON.stringify({
+      source_extents: source_extents.data,
+      target_extents: target_extents.data,
+    })
+  );
+  const source_center_y = int_at(source_extents, "data.extents.y")
+    + int_at(source_extents, "data.extents.height") / 2;
+  const target_center_x = int_at(target_extents, "data.extents.x")
+    + int_at(target_extents, "data.extents.width") / 2;
+  const target_center_y = int_at(target_extents, "data.extents.y")
+    + int_at(target_extents, "data.extents.height") / 2;
+  ensure(
+    source_center_y < target_center_y,
+    "cu_linux_atspi_drag_geometry_before:" + JSON.stringify({
+      source_center_y,
+      target_center_y,
+    })
+  );
+
+  print("STEP drag --from-name/--to-name delivers GenerateMouseEvent and names both nodes");
+  const drag = run_cu(run_directory, executable, "observe,actuate", [
+    "drag",
+    "--window", handle,
+    "--from-name", DRAG_SOURCE,
+    "--to-name", DRAG_TARGET,
+  ]);
+  ensure(
+    text_at(drag, "data.addressing") === "accessibility-tree"
+      && flag_at(drag, "data.performed")
+      && !flag_at(drag, "data.verified")
+      && text_at(drag, "data.from_name") === DRAG_SOURCE
+      && text_at(drag, "data.to_name") === DRAG_TARGET
+      && text_at(drag, "data.path") === "named-extents-generate-mouse-drag",
+    "cu_linux_atspi_drag_receipt:" + JSON.stringify(drag.data)
+  );
+
+  print("STEP independent pointer-position lands on the target extents center");
+  const pointer_after = run_cu(run_directory, executable, "observe", [
+    "pointer-position",
+  ]);
+  const pointer_coords = at(pointer_after, "data.coords");
+  const pointer_x = rh.int_of(pointer_coords[0]);
+  const pointer_y = rh.int_of(pointer_coords[1]);
+  ensure(
+    pointer_x === target_center_x && pointer_y === target_center_y,
+    "cu_linux_atspi_drag_pointer:" + JSON.stringify({
+      pointer_x,
+      pointer_y,
+      target_center_x,
+      target_center_y,
+    })
+  );
+  ensure(
+    pointer_y > source_center_y,
+    "cu_linux_atspi_drag_pointer_geometry:" + JSON.stringify({
+      source_center_y,
+      pointer_y,
+    })
+  );
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  harness.wait(fixture, 5000);
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-drag");
+  harness.remove_run(context);
+  print("PASS: Linux named drag matches independent get-extents geometry and pointer-position read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
