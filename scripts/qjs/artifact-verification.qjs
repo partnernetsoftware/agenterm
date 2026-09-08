@@ -241,7 +241,7 @@ rh.require(
     && ("" + mcp_tool2.name) === "agenterm_acu_observe"
     && mcp_tool0.read_only === true
     && mcp_tool1.read_only === true
-    && mcp_tool2.read_only === true,
+    && mcp_tool2.read_only === false,
   "artifact_mcp_capabilities_invalid"
 );
 

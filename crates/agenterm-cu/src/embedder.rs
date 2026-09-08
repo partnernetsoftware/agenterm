@@ -313,7 +313,9 @@ mod tests {
         let observe: serde_json::Value =
             serde_json::from_str(MCP_OBSERVE_TOOL_JSON).expect("MCP observe descriptor JSON");
         assert_eq!(observe["name"], "agenterm_acu_observe");
-        assert_eq!(observe["annotations"]["readOnlyHint"], true);
+        assert_eq!(observe["annotations"]["readOnlyHint"], false);
+        assert_eq!(observe["annotations"]["destructiveHint"], true);
+        assert_eq!(observe["annotations"]["openWorldHint"], true);
         assert_eq!(observe["inputSchema"]["additionalProperties"], false);
         assert_eq!(
             observe["inputSchema"]["properties"]["command"]["required"],

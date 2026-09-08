@@ -170,7 +170,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       autonomous actions remain outside this first-delivery gate
 
 - [~] post-v0.1.16 ACU convergence: keep the first-delivery history above, but
-  evolve the current read-only catalog from one to three tools
+  evolve the current catalog from one to three tools
   - [x] add `agenterm_acu_capabilities` without adding a second command,
     authorization, error, or receipt implementation: MCP sends one versioned
     `mcp_call` envelope through the fixed-sibling provider and the canonical
@@ -188,6 +188,15 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     it shares the same provider, schema and Executor, rejects every command
     whose canonical grant is not `observe` before dispatch, and returns the
     unchanged `CuReply` rather than inventing MCP-specific observation shapes
+    - [x] correct the first broad descriptor: `observe` is a grant class, not
+      an effect proof. Its command set includes caller-named artifact writes,
+      persistent cursor advancement and arbitrary page JavaScript, so the
+      compatibility tool is advertised as effectful/open-world rather than
+      falsely carrying MCP `readOnlyHint`
+    - [ ] replace grant-based admission with a compiler-exhaustive
+      `McpExposure` classification. Only variants proven `ReadOnly` may enter
+      the eventual read-only tool; artifact writes, persistent cursors,
+      arbitrary effects and actuation fail before provider dispatch
   - [ ] run the same exact provider bytes through Windows/Linux native courts,
     then design mutation tools only after cancellation and receipt semantics
     are explicit; no mutation tool is advertised in this slice
@@ -208,3 +217,13 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       `outcome_unknown` and the durable reservation forbids automatic replay;
       hard cancellation after FFI entry requires a future cancellable ABI or
       process-isolated worker, never an abandoned thread
+
+  ```mermaid
+  flowchart LR
+    CMD["canonical Command"] --> CLASS{"exhaustive MCP exposure"}
+    CLASS -->|ReadOnly| RO["read-only MCP tool"]
+    CLASS -->|artifact / cursor / arbitrary effect| BROAD["observe-grant compatibility tool<br/>effectful · open-world"]
+    CLASS -->|Actuate| LIFE{"connection-owned session<br/>idempotency · cancel · EOF"}
+    LIFE -->|not complete| CLOSED["mutation tool stays closed"]
+    LIFE -->|proved| MUT["future typed mutation tools"]
+  ```
