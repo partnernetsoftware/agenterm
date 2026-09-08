@@ -831,6 +831,25 @@
         "task.cu-linux-maximize-expect-smoke"
       ]
     },
+    "cu-linux-fullscreen-expect-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-fullscreen-expect-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-fullscreen-expect-smoke"
+      ]
+    },
     "cu-linux-window-close-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -2324,6 +2343,17 @@
       },
       "network": [],
       "evidence": ["task.cu-linux-network-interfaces-smoke"]
+    },
+    "cu-linux-proxy-env-smoke": {
+      "inputs": ["built-agenterm-cu"],
+      "outputs": ["cu-linux-proxy-env-evidence"],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": ["task.cu-linux-proxy-env-smoke"]
     },
     "cu-desktop-state-smoke": {
       "inputs": ["built-agenterm-cu", "desktop-session"],
@@ -4160,6 +4190,26 @@
       ]
     },
     {
+      "id": "cu-linux-fullscreen-expect-smoke",
+      "description": "Prove Linux fullscreen/unfullscreen --expect fullscreen|unfullscreen on a disposable GTK fixture window: independent xprop _NET_WM_STATE and windows inventory fullscreen field must match --expect after each verb; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-fullscreen-expect-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-window-close-smoke",
       "description": "Prove Linux close --snapshot --expect gone on a disposable GTK fixture window: independent windows inventory must no longer list the closed handle; typed refusals when the destructive gate is incomplete; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-window-close-smoke.qjs",
@@ -5820,6 +5870,20 @@
       "args": [
         ".",
         "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": ["linux"],
+      "side_effects": ["artifact_write", "process_spawn"]
+    },
+    {
+      "id": "cu-linux-proxy-env-smoke",
+      "description": "Prove Linux capabilities proxy_env matches independent printenv read-back for http_proxy, HTTPS_PROXY and no_proxy; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-proxy-env-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": ["linux"],

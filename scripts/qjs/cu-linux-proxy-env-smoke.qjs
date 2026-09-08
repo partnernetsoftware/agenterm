@@ -1,0 +1,152 @@
+// CEO: Linux proxy env facts via capabilities with independent printenv read-back.
+// Acceptance is smoke read-back only: http_proxy, HTTPS_PROXY and no_proxy must
+// match process env (or empty honesty). No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-proxy-env-readback",
+];
+
+const TEST_HTTP_PROXY = "http://ceo-proxy-env-smoke.example:8080";
+const TEST_NO_PROXY = "localhost,127.0.0.1,.example";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke(run_directory, executable, arguments, extra_env) {
+  const env = cu_env(executable);
+  if (extra_env !== undefined) {
+    for (const key of Object.keys(extra_env)) {
+      env[key] = extra_env[key];
+    }
+  }
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_proxy_env_exit:" + output.exit_code + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_linux_proxy_env_reply:" + JSON.stringify(reply));
+  return reply;
+}
+
+function independent_env_value(name, env) {
+  const output = rh.command("printenv", [name], {
+    env: env,
+    timeout_ms: 10000,
+  });
+  if (!output.success) { return ""; }
+  return output.stdout.trim();
+}
+
+function proxy_env(reply) {
+  const data = rh.field(reply, "data");
+  const facts = rh.field(data, "proxy_env");
+  ensure(facts !== undefined && facts !== null, "cu_linux_proxy_env_missing");
+  return facts;
+}
+
+function expect_proxy_field(facts, field, expected, label) {
+  const actual = text_at(facts, field);
+  if (expected === "") {
+    ensure(actual === "" || facts[field] === null || facts[field] === undefined,
+           label + ":expected_empty:cu=" + JSON.stringify(facts[field]));
+    return;
+  }
+  ensure(actual === expected,
+         label + ":mismatch:cu=" + actual + ":host=" + expected);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_linux_proxy_env_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-proxy-env");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP explicit proxy env matches independent printenv and capabilities proxy_env");
+  const bracket_env = cu_env(executable);
+  bracket_env.http_proxy = TEST_HTTP_PROXY;
+  bracket_env.HTTPS_PROXY = TEST_HTTP_PROXY;
+  bracket_env.no_proxy = TEST_NO_PROXY;
+
+  const host_http = independent_env_value("http_proxy", bracket_env);
+  const host_https = independent_env_value("HTTPS_PROXY", bracket_env);
+  const host_no = independent_env_value("no_proxy", bracket_env);
+  ensure(host_http === TEST_HTTP_PROXY, "cu_linux_proxy_env_host_http:" + host_http);
+  ensure(host_https === TEST_HTTP_PROXY, "cu_linux_proxy_env_host_https:" + host_https);
+  ensure(host_no === TEST_NO_PROXY, "cu_linux_proxy_env_host_no:" + host_no);
+
+  const reply = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "capabilities",
+  ], {
+    http_proxy: TEST_HTTP_PROXY,
+    HTTPS_PROXY: TEST_HTTP_PROXY,
+    no_proxy: TEST_NO_PROXY,
+  });
+  ensure(reply.command === "capabilities" && reply.target === "current",
+         "cu_linux_proxy_env_command");
+  const facts = proxy_env(reply);
+  expect_proxy_field(facts, "http_proxy", host_http, "cu_linux_proxy_env_http");
+  expect_proxy_field(facts, "HTTPS_PROXY", host_https, "cu_linux_proxy_env_https");
+  expect_proxy_field(facts, "no_proxy", host_no, "cu_linux_proxy_env_no");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-proxy-env-readback");
+  harness.remove_run(context);
+  print("PASS: Linux capabilities proxy_env matches independent printenv read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

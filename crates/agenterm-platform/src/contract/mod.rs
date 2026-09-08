@@ -56,6 +56,7 @@ pub mod network_interfaces;
 #[cfg(feature = "network-routes")]
 pub mod network_routes;
 pub mod pixel_present;
+pub mod proxy_env;
 #[cfg(feature = "process")]
 pub mod process;
 #[cfg(feature = "process-control")]

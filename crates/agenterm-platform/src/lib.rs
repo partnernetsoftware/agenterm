@@ -315,6 +315,7 @@ pub mod entropy;
 
 // Host-neutral today (std only), so it needs no feature gate or adapter split.
 pub mod local_clock;
+pub mod proxy_env;
 
 #[cfg(feature = "network-dns")]
 pub mod network_dns;

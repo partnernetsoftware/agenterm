@@ -1191,6 +1191,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     // platform instead of trusting a caller-supplied label.
     payload["platform"] = serde_json::json!(std::env::consts::OS);
     payload["host_clock"] = host_clock_json();
+    payload["proxy_env"] = proxy_env_json();
     attach_verb_grants(&mut payload);
     attach_invoke_actions(&mut payload);
     attach_verb_status_counts(&mut payload);
@@ -1210,6 +1211,15 @@ fn host_clock_json() -> serde_json::Value {
         },
         "utc_offset": agenterm_platform::local_clock::local_utc_offset_z(),
         "utc_offset_seconds": agenterm_platform::local_clock::local_utc_offset_seconds(),
+    })
+}
+
+fn proxy_env_json() -> serde_json::Value {
+    let facts = agenterm_platform::proxy_env::current_process_facts();
+    serde_json::json!({
+        "http_proxy": facts.http_proxy,
+        "HTTPS_PROXY": facts.https_proxy,
+        "no_proxy": facts.no_proxy,
     })
 }
 
