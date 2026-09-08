@@ -60,7 +60,11 @@ pub(crate) fn show(
         WindowShowState::Hide | WindowShowState::Minimize => set_iconified(&conn, window, true),
         WindowShowState::Restore => {
             set_maximized(&conn, window, false)?;
-            set_iconified(&conn, window, false)
+            if window_is_iconified(&conn, window)? {
+                set_iconified(&conn, window, false)
+            } else {
+                sync(&conn)
+            }
         }
         WindowShowState::Maximize => set_maximized(&conn, window, true),
     }

@@ -184,6 +184,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::MenuInvoke { .. }
         | Command::Minimize { .. }
         | Command::Maximize { .. }
+        | Command::Unmaximize { .. }
         | Command::NetworkDns { .. }
         | Command::NetworkInterfaces { .. }
         | Command::NetworkProbe { .. }

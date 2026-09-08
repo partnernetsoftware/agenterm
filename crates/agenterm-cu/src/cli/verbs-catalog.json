@@ -5664,6 +5664,27 @@
       ]
     },
     {
+      "name": "unmaximize",
+      "command": "unmaximize",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "placement",
+      "summary": "EWMH unmaximize with read-back",
+      "usage": "unmaximize --window HANDLE --expect unmaximized",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--expect",
+          "value": "unmaximized",
+          "help": "checkable postcondition: the window reads back not maximized"
+        }
+      ]
+    },
+    {
       "name": "orderwin",
       "command": "orderwin",
       "aliases": [],
@@ -6641,6 +6662,10 @@
     {
       "name": "maximize",
       "text": "agenterm-cu maximize\n  scope: actuate    family: Window placement    reply.command: window-place\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  maximize HANDLE|--window H\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n\nAlias of window-place --action fullscreen. The reply's command is\nwindow-place.\n"
+    },
+    {
+      "name": "unmaximize",
+      "text": "agenterm-cu unmaximize\n  scope: actuate    family: Window placement\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  unmaximize --window HANDLE --expect unmaximized\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --expect unmaximized          checkable postcondition: the window reads back not maximized\n\nClears EWMH maximization on one exact window without activating its\napplication. Same destructive gate as `maximize --expect maximized`, with\nmaximized read-back and the windows inventory `maximized` field.\n"
     },
     {
       "name": "orderwin",

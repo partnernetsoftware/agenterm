@@ -3828,6 +3828,14 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expect: Option<String>,
     },
+    /// `unmaximize --window HANDLE --expect unmaximized`: EWMH unmaximize with
+    /// read-back, distinct from restore-from-minimize.
+    Unmaximize {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
     /// `drag`: one press, a bounded series of moves and one release,
     /// delivered as one gesture.
     ///
@@ -4282,6 +4290,7 @@ impl Command {
             Self::Minimize { .. } => "minimize".into(),
             Self::Restore { .. } => "restore".into(),
             Self::Maximize { .. } => "maximize".into(),
+            Self::Unmaximize { .. } => "unmaximize".into(),
             Self::Drag { .. } => "drag".into(),
             Self::Hit { .. } => "hit".into(),
             Self::Zoom { .. } => "zoom".into(),
@@ -4703,6 +4712,7 @@ impl Command {
             | Self::Minimize { target, .. }
             | Self::Restore { target, .. }
             | Self::Maximize { target, .. }
+            | Self::Unmaximize { target, .. }
             | Self::Drag { target, .. }
             | Self::Hit { target, .. }
             | Self::Zoom { target, .. }
@@ -4848,6 +4858,7 @@ impl Command {
             | Self::Minimize { .. }
             | Self::Restore { .. }
             | Self::Maximize { .. }
+            | Self::Unmaximize { .. }
             | Self::Drag { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,
