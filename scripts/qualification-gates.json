@@ -951,6 +951,12 @@
       ]
     },
     {
+      "id": "cu-linux-page-targets-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-targets-readback"
+      ]
+    },
+    {
       "id": "cu-linux-browser-tabs-smoke",
       "evidence": [
         "cu.linux-browser-tabs-inventory"

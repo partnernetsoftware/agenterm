@@ -170,6 +170,7 @@
         "cu.linux-cdp-page-nav",
         "cu.linux-cdp-page-fill",
         "cu.linux-cdp-page-find-readback",
+        "cu.linux-cdp-page-targets-readback",
         "cu.linux-browser-profiles-installed",
         "cu.linux-browser-open-window",
         "cu.linux-browser-tabs-inventory",

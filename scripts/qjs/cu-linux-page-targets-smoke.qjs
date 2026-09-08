@@ -1,0 +1,261 @@
+// CEO: Linux page-targets honesty — CU CDP /json inventory matches independent curl read.
+// Acceptance is smoke read-back only: page-targets --port must agree with curl /json
+// on the same debugging port. Disposable Chrome profile; no --coords or screenshot.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-targets-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_page_targets_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_targets_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_page_targets_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function curl_json(run_directory, port, path) {
+  const output = rh.command("curl", ["-s", "--max-time", "5", "http://127.0.0.1:" + port + path], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true && output.stdout.trim() !== "",
+    "cu_linux_page_targets_curl:" + path + ":" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function normalize_curl_target(raw) {
+  return {
+    id: raw.id === undefined || raw.id === null ? "" : "" + raw.id,
+    url: raw.url === undefined || raw.url === null ? "" : "" + raw.url,
+    title: raw.title === undefined || raw.title === null ? "" : "" + raw.title,
+    description: raw.description === undefined || raw.description === null ? "" : "" + raw.description,
+    type: raw.type === undefined || raw.type === null ? "" : "" + raw.type,
+    attached: raw.attached === undefined ? null : raw.attached,
+    websocket: raw.webSocketDebuggerUrl !== undefined
+      && raw.webSocketDebuggerUrl !== null
+      && ("" + raw.webSocketDebuggerUrl) !== "",
+  };
+}
+
+function normalize_cu_target(row) {
+  const attached = at(row, "attached");
+  return {
+    id: text_at(row, "id"),
+    url: text_at(row, "url"),
+    title: text_at(row, "title"),
+    description: text_at(row, "description"),
+    type: text_at(row, "type"),
+    attached: attached === undefined ? null : attached,
+    websocket: flag_at(row, "websocket"),
+  };
+}
+
+function targets_agree(cu_rows, curl_rows) {
+  const curl_by_id = {};
+  for (const raw of curl_rows) {
+    const normalized = normalize_curl_target(raw);
+    if (normalized.id !== "") { curl_by_id[normalized.id] = normalized; }
+  }
+  ensure(cu_rows.length === curl_rows.length,
+    "cu_linux_page_targets_count:" + JSON.stringify({
+      cu: cu_rows.length,
+      curl: curl_rows.length,
+    }));
+  for (const row of cu_rows) {
+    const cu = normalize_cu_target(row);
+    const curl = curl_by_id[cu.id];
+    ensure(curl !== undefined, "cu_linux_page_targets_missing_id:" + cu.id);
+    ensure(JSON.stringify(cu) === JSON.stringify(curl),
+      "cu_linux_page_targets_mismatch:" + JSON.stringify({ cu: cu, curl: curl }));
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_targets_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_targets_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-targets");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+
+const fixture_title = "CEO Page Targets " + context.run_id;
+const fixture = rh.join(run_directory, "page-targets.html");
+rh.write_text(fixture, "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title></head><body>ok</body></html>");
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9500 + (rh.pid() % 500);
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_targets_port_in_use:" + port);
+
+  print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "file://" + fixture,
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+      cwd: run_directory,
+      timeout_ms: 3000,
+    });
+    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+    harness.sleep_ms(250);
+  }
+
+  print("STEP independent curl /json inventory on the owned debugging port");
+  let curl_targets = null;
+  for (let attempt = 0; attempt < 40 && curl_targets === null; attempt = attempt + 1) {
+    const raw = curl_json(run_directory, port, "/json");
+    if (Array.isArray(raw) && raw.length >= 1) {
+      let found_title = false;
+      for (let index = 0; index < raw.length && !found_title; index = index + 1) {
+        const title = normalize_curl_target(raw[index]).title;
+        if (title.indexOf(fixture_title) >= 0) { found_title = true; }
+      }
+      if (found_title) {
+        curl_targets = raw;
+        break;
+      }
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(curl_targets !== null, "cu_linux_page_targets_curl_inventory_missing");
+
+  print("STEP page-targets --port agrees with the independent curl /json inventory");
+  let targets = null;
+  for (let attempt = 0; attempt < 40 && targets === null; attempt = attempt + 1) {
+    const reply = run_cu(run_directory, executable, "observe", [
+      "page-targets", "--port", "" + port,
+    ], env);
+    if (reply.command === "page-targets"
+        && text_at(reply, "data.via") === "/json"
+        && at(reply, "data.returned") >= 1) {
+      targets = reply;
+      break;
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(targets !== null, "cu_linux_page_targets_reply_missing");
+  ensure(at(targets, "data.port") === port,
+    "cu_linux_page_targets_port:" + JSON.stringify(targets.data));
+  ensure(text_at(targets, "data.via") === "/json",
+    "cu_linux_page_targets_via:" + JSON.stringify(targets.data));
+
+  const cu_rows = at(targets, "data.targets");
+  ensure(Array.isArray(cu_rows), "cu_linux_page_targets_rows:" + JSON.stringify(cu_rows));
+  targets_agree(cu_rows, curl_targets);
+
+  const page_rows = [];
+  for (const row of cu_rows) {
+    if (text_at(row, "type") === "page") { page_rows.push(row); }
+  }
+  let fixture_seen = false;
+  for (let index = 0; index < page_rows.length && !fixture_seen; index = index + 1) {
+    if (text_at(page_rows[index], "title").indexOf(fixture_title) >= 0) { fixture_seen = true; }
+  }
+  ensure(fixture_seen,
+    "cu_linux_page_targets_fixture_title:" + JSON.stringify(page_rows));
+  ensure(at(targets, "data.pages") === page_rows.length,
+    "cu_linux_page_targets_pages:" + JSON.stringify(targets.data));
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-targets-readback");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_targets_failed");
+harness.remove_run(context);
+print("PASS: Linux page-targets CDP /json inventory matches independent curl read-back");
+return;

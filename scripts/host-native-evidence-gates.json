@@ -216,6 +216,13 @@
       ]
     },
     {
+      "id": "cu-linux-page-targets-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-cdp-page-targets-readback"
+      ]
+    },
+    {
       "id": "cu-linux-window-move-smoke",
       "platform": "linux",
       "evidence": [

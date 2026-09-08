@@ -253,6 +253,7 @@ const evidence_suites = {
   "cu-linux-double-click-smoke": true,
   "cu-linux-chrome-text-smoke": true,
   "cu-linux-cdp-page-fill-smoke": true,
+  "cu-linux-page-targets-smoke": true,
   "cu-linux-browser-profiles-open-smoke": true,
   "cu-linux-gtk-entry-focused-send-text-smoke": true,
   "cu-linux-desktop-state-smoke": true,

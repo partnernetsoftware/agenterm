@@ -1192,6 +1192,25 @@
         "task.cu-linux-browser-profiles-open-smoke"
       ]
     },
+    "cu-linux-page-targets-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-targets-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-targets-smoke"
+      ]
+    },
     "cu-linux-browser-tabs-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5530,6 +5549,26 @@
       "id": "cu-linux-browser-profiles-open-smoke",
       "description": "Prove Linux browser-profiles reads installed Google Chrome Local State without a live profile window and browser-open yields a new chrome window verified by independent windows inventory read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-browser-profiles-open-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-page-targets-smoke",
+      "description": "Prove Linux page-targets --port CDP /json inventory matches independent curl read of the same debugging port; disposable Chrome profile, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-page-targets-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
