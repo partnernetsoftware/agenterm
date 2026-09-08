@@ -149,6 +149,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::FileXattrRemove { .. }
         | Command::FileXattrSet { .. }
         | Command::Focus { .. }
+        | Command::Hover { .. }
         | Command::Focused { .. }
         | Command::GetCaret { .. }
         | Command::GetExtents { .. }
