@@ -1597,10 +1597,7 @@ pub(super) fn window_opacity_payload(
         missing.push("target");
     }
     let expected_permille = match expect.map(str::trim) {
-        Some(value) => match parse_opacity_permille(value) {
-            Ok(permille) => Some(permille),
-            Err(error) => return Err(error),
-        },
+        Some(value) => Some(parse_opacity_permille(value)?),
         None => {
             missing.push("postcondition");
             None
@@ -1617,11 +1614,10 @@ pub(super) fn window_opacity_payload(
     if !missing.is_empty() {
         return Err(CuError::new(
             "refused",
-            format!(
-                "window-opacity changes what the user sees: it needs an exact target \
-                 (--window HANDLE), a requested opacity (--opacity 0..1), and a checkable \
-                 postcondition (--expect matching --opacity); nothing was performed"
-            ),
+            "window-opacity changes what the user sees: it needs an exact target \
+             (--window HANDLE), a requested opacity (--opacity 0..1), and a checkable \
+             postcondition (--expect matching --opacity); nothing was performed"
+                .to_owned(),
         )
         .with_detail(serde_json::json!({
             "reason": "destructive_gate",

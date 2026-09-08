@@ -736,10 +736,6 @@ pub mod window_enumerate {
             .collect()
     }
 
-    fn enrich_maximized(windows: Vec<WindowInfo>) -> Vec<WindowInfo> {
-        enrich_window_states(windows)
-    }
-
     fn physical_for_screen(index: usize) -> Result<DisplayPhysicalFacts, MechanismError> {
         let (major, minor) = super::loaded_abi_version()?;
         if major != 1 || minor < dynlib::DISPLAY_PHYSICAL_ABI_MINOR {
