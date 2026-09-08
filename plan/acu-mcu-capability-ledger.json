@@ -1148,9 +1148,9 @@
               "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
             }
           },
-          "evidence": ["cu.managed-job-resources"],
-          "next": "prove the same public containment-resource court on Linux and Windows, align the MCU adapter's exact flags, and separately design an explicit secret-bearing environment observation context",
-          "note": "Point and bounded-series replies carry a stable-membership digest, all current containment members, and lossless decimal aggregate/per-member RSS, CPU and page-fault counters. The durable root must remain present and every member is identity-bracketed. Windows Job Objects report breakaway_prevented=true and therefore tree_complete=true; POSIX process groups report current membership completely but do not claim genealogy after breakaway. MCU job env remains a typed gap."
+          "evidence": ["cu.managed-job-resources", "acu.compat-job-resources"],
+          "next": "prove the same public containment-resource court on Linux and Windows, close acu.dynamic.018 sampling flags without weakening the bounded-series contract, and separately design an explicit secret-bearing environment observation context",
+          "note": "Point and bounded-series replies carry a stable-membership digest, all current containment members, and lossless decimal aggregate/per-member RSS, CPU and page-fault counters. The durable root must remain present and every member is identity-bracketed. Windows Job Objects report breakaway_prevented=true and therefore tree_complete=true; POSIX process groups report current membership completely but do not claim genealogy after breakaway. The Bun-free compatibility path now resolves the omitted generation through typed job-status and returns the native point reply; sampling flags remain the exact acu.dynamic.018 TODO. MCU job env remains a typed gap."
         },
         {
           "id": "job.policy-priority-state",

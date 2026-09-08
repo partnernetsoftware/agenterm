@@ -331,6 +331,10 @@
       "evidence": ["acu.mcp-provider-capabilities", "acu.mcp-provider-observe"]
     },
     {
+      "id": "acu-job-resources-compat-smoke",
+      "evidence": ["acu.compat-job-resources"]
+    },
+    {
       "id": "cu-process-inventory-smoke",
       "evidence": ["cu.process-inventory-rich"]
     },

@@ -2816,6 +2816,24 @@
         "task.acu-compat-todo-smoke"
       ]
     },
+    "acu-job-resources-compat-smoke": {
+      "inputs": [
+        "built-agenterm-with-acu-provider",
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "acu-job-resources-compat-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-job-resources-compat-smoke"
+      ]
+    },
     "acu-compound-projection": {
       "inputs": [
         "acu-compound-fixtures"
@@ -5756,6 +5774,28 @@
         "macos"
       ],
       "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "acu-job-resources-compat-smoke",
+      "description": "Prove the real embedded ACU compatibility entry discovers one owned managed job's generation and returns the shared typed point-in-time resource reply while unsupported sampling flags retain acu.dynamic.018.",
+      "entry": "scripts/qjs/acu-job-resources-compat-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
         "process_spawn"
       ]
     },

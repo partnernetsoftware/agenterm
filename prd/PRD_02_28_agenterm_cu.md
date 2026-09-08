@@ -1509,8 +1509,12 @@ flowchart LR
   `tree_complete=true`; POSIX process groups report complete current
   membership but deliberately do not claim genealogy after breakaway. The
   macOS public qjswasm court proves both point and bounded-watch projections;
-  Linux and Windows native evidence and exact MCU flag alignment remain before
-  routing. `job-set-state` and the retry-safe `job-signal STOP|CONT` subset now
+  Linux and Windows native evidence remain open. The Bun-free compatibility
+  entry now resolves legacy `job resources JOB_ID` through typed `job-status`,
+  forwards the exact generation into `job-resources`, and preserves the shared
+  point reply. Public evidence `acu.compat-job-resources` owns that compound;
+  legacy sampling flags remain the explicit `acu.dynamic.018` TODO rather than
+  inventing weaker sampling. `job-set-state` and the retry-safe `job-signal STOP|CONT` subset now
   require the owning session, exact generation and durable root start identity,
   then reuse the same write-ahead exact-tree transaction as `process-signal
   --tree`: every temporary freeze is recoverable, every final member is read

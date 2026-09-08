@@ -940,11 +940,14 @@ Q5 retirement
 ```
 
 The current `acu-retirement-readiness` run is intentionally red as a promotion
-decision while remaining a successful bounded audit: the integrated tree's 139
-ledger capabilities include zero `gap` and 62 `platform-limited` rows. The compatibility
-adapter has zero static `STAY` spellings and its argument-sensitive corpus is
-complete and no longer requires MCU at runtime, but the report still truthfully
-blocks physical source retirement while registered-evidence and
+decision while remaining a successful bounded audit: the integrated tree's
+140 ledger capabilities include zero `gap` and 64 `platform-limited` rows. The
+compatibility adapter has zero static `STAY` spellings and its
+argument-sensitive corpus is complete and no longer requires MCU at runtime,
+and the public `acu.compat-job-resources` court now proves that legacy point
+resource inspection resolves its generation and returns the native typed
+reply. Sampling flags stay visible as `acu.dynamic.018`. The report still
+truthfully blocks physical source retirement while registered-evidence and
 native-qualification debt remains. The Candidate workflow now includes
 `cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
 removed; release authority and dispatch remain owned by the release skill and
