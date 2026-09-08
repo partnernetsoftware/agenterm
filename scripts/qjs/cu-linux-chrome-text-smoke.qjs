@@ -119,12 +119,18 @@ rh.write_text(fixture, fixture_html);
 
 const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
 const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
-const port = 9232;
+const port = 9400 + (rh.pid() % 500);
 let chrome_child = -1;
 let succeeded = 0;
 let failure = "";
 
 try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0), "cu_linux_chrome_text_port_in_use:" + port);
+
   print("STEP launch owned Chrome with AT-SPI and a visible named GetTextField");
   chrome_child = harness.start({
     program: launcher,
@@ -161,6 +167,12 @@ try {
   ensure(window !== null, "cu_linux_chrome_text_window_missing");
   const handle = window.handle;
 
+  print("STEP unlock enables the Chrome renderer accessibility tree before named writes");
+  const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+    "unlock", "--window", handle,
+  ]);
+  ensure(flag_at(unlocked, "data.poked"), "cu_linux_chrome_text_unlock:" + JSON.stringify(unlocked.data));
+
   print("STEP focus --name GetTextField moves AT-SPI focus to the Chrome entry");
   const focused = run_cu(run_directory, executable, "observe,actuate", [
     "focus", "--window", handle, "--name", "GetTextField",
@@ -173,8 +185,9 @@ try {
 
   const seed = "ceo3-chrome-" + context.run_id;
   print("STEP send-text --name writes SEED through AT-SPI/CDP honesty");
+  const dash_end = "-" + "-";
   const sent = run_cu(run_directory, executable, "observe,actuate", [
-    "send-text", "--window", handle, "--name", "GetTextField", "--", seed,
+    "send-text", "--window", handle, "--name", "GetTextField", dash_end, seed,
   ]);
   ensure(
     text_at(sent, "data.typed") === seed
