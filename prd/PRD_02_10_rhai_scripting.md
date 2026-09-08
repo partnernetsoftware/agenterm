@@ -89,9 +89,9 @@ flowchart LR
   already calibrated higher; direct task execution is now green.
 - [x] the authoritative task catalog has bounded growth headroom: a manifest
   may contain up to 512 tasks, 512 contracts and 384 KiB. Inclusive boundary
-  tests own all three limits; the 257-task repository catalog remains one
-  public gate instead of being split when it crossed the former 256-entry and
-  256-KiB ceilings. Tasks that read the manifest inside the guest declare a
+  tests own all three limits; the 264-task repository catalog remains one
+  public gate instead of being split when it crossed the former 256-KiB byte
+  ceiling. Tasks that read the manifest inside the guest declare a
   separate 1-MiB string budget; raising the Rust parser ceiling does not raise
   qjswasm bridge-result limits implicitly.
 - [~] release-critical task migration is still audited by v0.1.18 G4. A task
