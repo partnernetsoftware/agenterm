@@ -85,6 +85,7 @@ agenterm-qjswasm
 │  ├─ [x] typed load, host, throw and budget failures; failed stdout retained
 │  ├─ [x] child stdout/stderr truncation is explicit through read/wait/command
 │  ├─ [x] process.spawn refuses a 33rd retained handle before native spawn/drain allocation
+│  ├─ [x] evidence-declaration scans use synchronous commands, so completed probes do not consume retained handles
 │  ├─ [x] advisory locks retain stable tombstones and refuse a 33rd lifetime handle before file creation
 │  ├─ [x] text and i32-returning host operations apply one parked-result cap to diagnostics
 │  ├─ [x] bare declared-host values fail by name; no implicit zero-argument effect
@@ -299,9 +300,10 @@ integration.
 - [x] One qjswasm slot retains at most 32 `process.spawn` handles, including
   completed handles whose first wait answer remains replayable. The 33rd call
   is rejected before parsing into a host command, spawning an OS process, or
-  creating stdout/stderr drain threads. Current public scripts need at most
-  nine, so the ceiling leaves measured headroom without turning the general
-  host-operation budget into thousands of native resources.
+  creating stdout/stderr drain threads. Real gates that need PID-tree sampling
+  stay on this retained-handle path. The unbounded-by-catalog declaration scan
+  uses synchronous `process.command` instead, so adding a 33rd evidence suite
+  cannot consume a long-lived handle or weaken the ceiling.
 - [x] child-process wait and incremental-read limits reject negative values
   before consuming or mutating the owned handle. A negative timeout is not an
   alias for an unbounded wait, and a negative capture size is not an alias for

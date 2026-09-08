@@ -732,7 +732,16 @@ function assert_declarations(worker, repo, scratch, sequence, gate_manifest, rep
       if (report_each) { print("EVIDENCE-DECLARATIONS " + gate_id + ": suite missing (" + suite_path + ")"); }
       continue;
     }
-    const result = execute(evidence_list_spec(worker, repo, suite_id), repo, scratch, sequence_value);
+    const declaration_spec = evidence_list_spec(worker, repo, suite_id);
+    // Declaration probes are short, sequential and read-only. They do not
+    // need the retained process handle used by real gates for PID-tree
+    // sampling and replayable wait results; retaining every completed probe
+    // would exhaust the intentional 32-handle ceiling as the catalog grows.
+    const result = rh.command(declaration_spec.program, declaration_spec.arguments, {
+      cwd: repo,
+      env: declaration_spec.environment,
+      timeout_ms: declaration_spec.timeout_ms
+    });
     sequence_value = sequence_value + 1;
     if (!result.success) {
       problems.push("check_evidence_declaration_failed:" + gate_id + ":" + result.stderr);
