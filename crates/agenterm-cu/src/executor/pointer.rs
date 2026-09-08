@@ -1,4 +1,5 @@
-//! `pointer-move` / `pointer-scroll` / `pointer-position` / `drag`: the pointer verbs.
+//! `pointer-move` / `pointer-scroll` / `pointer-position` / `pointer-grab` /
+//! `pointer-ungrab` / `drag`: the pointer verbs.
 
 use super::*;
 use agenterm_platform::input_inject::MAX_POINTER_SCROLL_DETENTS;
@@ -11,6 +12,59 @@ pub(super) fn pointer_move(x: i32, y: i32) -> Result<serde_json::Value, CuError>
 
 pub(super) fn pointer_position() -> Result<serde_json::Value, CuError> {
     pointer_position_with(|| mechanism::input_inject::pointer_position().map_err(map_mechanism_err))
+}
+
+fn map_input_inject_err(error: agenterm_platform::input_inject::InputInjectError) -> CuError {
+    match error {
+        agenterm_platform::input_inject::InputInjectError::Unsupported { reason } => {
+            CuError::new("unsupported", reason).with_detail(serde_json::json!({
+                "effect": "not_performed",
+                "required_mechanism": "x11-pointer-grab",
+                "alternatives": [
+                    "pointer-position observes absolute screen coordinates without grabbing",
+                ],
+            }))
+        }
+        agenterm_platform::input_inject::InputInjectError::Failed { code, message } => {
+            CuError::new(code, message)
+        }
+        _ => CuError::new("input_inject_failed", "pointer grab/ungrab failed"),
+    }
+}
+
+pub(super) fn pointer_grab() -> Result<serde_json::Value, CuError> {
+    let (position, grab_status, verify_status) =
+        agenterm_platform::input_inject::pointer_grab().map_err(map_input_inject_err)?;
+    Ok(serde_json::json!({
+        "effect": "verified",
+        "addressing": "desktop-root-pointer-grab",
+        "mechanism": "libagenterm",
+        "pointer": [position.x, position.y],
+        "grab_status": grab_status,
+        "verify_status": verify_status,
+        "verification": {
+            "method": "independent-x11-grab-probe",
+            "expected_verify_status": 1,
+            "verified": verify_status == 1,
+        },
+    }))
+}
+
+pub(super) fn pointer_ungrab() -> Result<serde_json::Value, CuError> {
+    let (position, verify_status) =
+        agenterm_platform::input_inject::pointer_ungrab().map_err(map_input_inject_err)?;
+    Ok(serde_json::json!({
+        "effect": "verified",
+        "addressing": "desktop-root-pointer-ungrab",
+        "mechanism": "libagenterm",
+        "pointer": [position.x, position.y],
+        "verify_status": verify_status,
+        "verification": {
+            "method": "independent-x11-grab-probe",
+            "expected_verify_status": 0,
+            "verified": verify_status == 0,
+        },
+    }))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]

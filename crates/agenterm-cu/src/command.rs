@@ -2845,6 +2845,12 @@ pub enum Command {
     PointerPosition {
         target: TargetRef,
     },
+    PointerGrab {
+        target: TargetRef,
+    },
+    PointerUngrab {
+        target: TargetRef,
+    },
     Click {
         target: TargetRef,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -4315,6 +4321,8 @@ impl Command {
             Self::PointerMove { .. } => "pointer-move".into(),
             Self::PointerScroll { .. } => "pointer-scroll".into(),
             Self::PointerPosition { .. } => "pointer-position".into(),
+            Self::PointerGrab { .. } => "pointer-grab".into(),
+            Self::PointerUngrab { .. } => "pointer-ungrab".into(),
             Self::Click { .. } => "click".into(),
             Self::Focus { .. } => "focus".into(),
             Self::Hover { .. } => "hover".into(),
@@ -4745,6 +4753,8 @@ impl Command {
             | Self::PointerMove { target, .. }
             | Self::PointerScroll { target, .. }
             | Self::PointerPosition { target, .. }
+            | Self::PointerGrab { target, .. }
+            | Self::PointerUngrab { target, .. }
             | Self::Click { target, .. }
             | Self::Focus { target, .. }
             | Self::Hover { target, .. }
@@ -4857,6 +4867,8 @@ impl Command {
             | Self::LoginSessionApplyLock { .. }
             | Self::PointerMove { .. }
             | Self::PointerScroll { .. }
+            | Self::PointerGrab { .. }
+            | Self::PointerUngrab { .. }
             | Self::AuditCompact { apply: true, .. }
             | Self::JobPrune { apply: true, .. }
             | Self::SessionStart { .. }

@@ -52,6 +52,21 @@ pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
     })
 }
 
+pub(crate) fn pointer_grab() -> Result<(PointerPosition, u8, u8), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer-grab is not mapped on Windows; use pointer-position to observe coordinates"
+            .into(),
+    })
+}
+
+pub(crate) fn pointer_ungrab() -> Result<(PointerPosition, u8), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason:
+            "pointer-ungrab is not mapped on Windows; use pointer-position to observe coordinates"
+                .into(),
+    })
+}
+
 pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
     validate_pointer_scroll(dx, dy)?;
     send_batch(&wheel_inputs(dx, dy))

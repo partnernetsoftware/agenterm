@@ -1975,6 +1975,8 @@ impl Executor {
                 pointer_scroll(*dx, *dy, &mut self.open_receipts(command.target())?)
             }
             Command::PointerPosition { .. } => pointer_position(),
+            Command::PointerGrab { .. } => pointer_grab(),
+            Command::PointerUngrab { .. } => pointer_ungrab(),
             Command::Click { .. } => {
                 click_command(command, &mut self.open_receipts(command.target())?)
             }

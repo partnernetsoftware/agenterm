@@ -1,0 +1,160 @@
+// CEO: Linux pointer-position observe plus pointer-grab/ungrab with
+// independent X11 read-back on DISPLAY=:2.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-pointer-position",
+  "cu.linux-pointer-grab",
+  "cu.linux-pointer-ungrab",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function int_at(value, dotted) {
+  return rh.int_of(at(value, dotted));
+}
+
+function flag_at(value, dotted) {
+  return at(value, dotted) === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function remove_directory_bounded(path) {
+  if (!rh.exists(path)) { return true; }
+  return rh.remove_dir_all(path);
+}
+
+function cu_env(run_directory) {
+  return {
+    AGENTERM_WORKSPACE_PATH: run_directory,
+    AGENTERM_IPC_ADDRESS: "cu-linux-pointer-smoke",
+    DISPLAY: ":2",
+    XDG_RUNTIME_DIR: "/tmp/xdg-runtime-box-2",
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/tmp/dbus-sHZ4cfPDF4,guid=a3377782fc9878e89e5808586a8e3b0d",
+  };
+}
+
+function run_cu_json(run_directory, executable, arguments) {
+  const reply = run_cu_reply(run_directory, executable, arguments);
+  ensure(flag_at(reply, "ok"), "cu_linux_pointer_failed:" + JSON.stringify(reply));
+  return reply;
+}
+
+function run_cu_reply(run_directory, executable, arguments) {
+  const output = rh.command(
+    executable, arguments,
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_pointer_cli_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function pointer_xy(run_directory, executable) {
+  const reply = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "pointer-position"
+  ]);
+  const coords = reply.data.coords;
+  ensure(coords.length === 2, "cu_linux_pointer_coords:" + JSON.stringify(reply.data));
+  return [int_at(reply, "data.coords.0"), int_at(reply, "data.coords.1")];
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_pointer_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-pointer");
+const run_directory = rh.join(repo, "target/cu-linux-pointer-smoke-run");
+ensure(remove_directory_bounded(run_directory), "cu_linux_pointer_stale_directory_locked");
+rh.create_dir_all(run_directory);
+
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP pointer-position observes absolute screen coordinates on :2");
+  const before = pointer_xy(run_directory, executable);
+  ensure(
+    before[0] === rh.parse_int("" + before[0]) && before[1] === rh.parse_int("" + before[1]),
+    "cu_linux_pointer_position_not_integers:" + JSON.stringify(before)
+  );
+  const second = pointer_xy(run_directory, executable);
+  ensure(
+    second[0] === before[0] && second[1] === before[1],
+    "cu_linux_pointer_position_stable:" + JSON.stringify({ before, second })
+  );
+  succeeded += 1;
+
+  print("STEP pointer-grab verifies an independent X11 grab probe");
+  const grab = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "pointer-grab"
+  ]);
+  ensure(
+    text_at(grab, "data.effect") === "verified"
+      && int_at(grab, "data.grab_status") === 0
+      && int_at(grab, "data.verify_status") === 1
+      && flag_at(grab, "data.verification.verified"),
+    "cu_linux_pointer_grab:" + JSON.stringify(grab.data)
+  );
+  const after_grab = pointer_xy(run_directory, executable);
+  ensure(
+    after_grab[0] === before[0] && after_grab[1] === before[1],
+    "cu_linux_pointer_grab_moved_pointer:" + JSON.stringify({ before, after_grab })
+  );
+  succeeded += 1;
+
+  print("STEP pointer-ungrab proves grab is available again");
+  const ungrab = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "pointer-ungrab"
+  ]);
+  ensure(
+    text_at(ungrab, "data.effect") === "verified"
+      && int_at(ungrab, "data.verify_status") === 0
+      && flag_at(ungrab, "data.verification.verified"),
+    "cu_linux_pointer_ungrab:" + JSON.stringify(ungrab.data)
+  );
+  const after_ungrab = pointer_xy(run_directory, executable);
+  ensure(
+    after_ungrab[0] === before[0] && after_ungrab[1] === before[1],
+    "cu_linux_pointer_ungrab_moved_pointer:" + JSON.stringify({ before, after_ungrab })
+  );
+  succeeded += 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+ensure(remove_directory_bounded(run_directory), "cu_linux_pointer_cleanup_failed");
+ensure(failure === "", failure);
+ensure(succeeded === declared_evidence.length, "cu_linux_pointer_incomplete:" + succeeded);
+print("PASS: cu-linux-pointer-smoke (" + succeeded + " evidence ids)");

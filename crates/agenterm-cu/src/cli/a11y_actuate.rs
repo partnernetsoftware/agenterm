@@ -167,6 +167,24 @@ pub fn parse(
         }
         "pointer-move" => pointer_move(target, args),
         "pointer-scroll" => pointer_scroll(target, args),
+        "pointer-grab" => {
+            if !args.is_empty() {
+                return Err(format!(
+                    "pointer-grab accepts no command arguments; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::PointerGrab { target })
+        }
+        "pointer-ungrab" => {
+            if !args.is_empty() {
+                return Err(format!(
+                    "pointer-ungrab accepts no command arguments; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            Ok(Command::PointerUngrab { target })
+        }
         other => Err(format!("unknown command '{other}'")),
     }
 }
@@ -583,5 +601,31 @@ mod tests {
         ] {
             assert!(parse(spec, "scroll-wheel", TargetRef::Current, &mut args(words),).is_err());
         }
+    }
+
+    #[test]
+    fn click_count_alias_maps_to_multi_click_command() {
+        let command = click(
+            "click",
+            TargetRef::Current,
+            &mut args(&[
+                "--window",
+                "42",
+                "--name",
+                "Fixture Press",
+                "--count",
+                "2",
+            ]),
+        )
+        .expect("parse");
+        assert!(matches!(
+            command,
+            Command::Click {
+                window: Some(42),
+                name: Some(name),
+                clicks: 2,
+                ..
+            } if name == "Fixture Press"
+        ));
     }
 }

@@ -21,6 +21,18 @@ pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
     })
 }
 
+pub(crate) fn pointer_grab() -> Result<(PointerPosition, u8, u8), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer-grab not wired on unix".into(),
+    })
+}
+
+pub(crate) fn pointer_ungrab() -> Result<(PointerPosition, u8), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer-ungrab not wired on unix".into(),
+    })
+}
+
 pub(crate) fn pointer_click(
     _position: PointerPosition,
     _button: PointerButton,

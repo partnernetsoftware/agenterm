@@ -3586,6 +3586,26 @@
       "args": []
     },
     {
+      "name": "pointer-grab",
+      "command": "pointer-grab",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "a11y-actuate",
+      "summary": "grab the desktop pointer, verify with an independent X11 probe, then release",
+      "usage": "pointer-grab",
+      "args": []
+    },
+    {
+      "name": "pointer-ungrab",
+      "command": "pointer-ungrab",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "a11y-actuate",
+      "summary": "release the desktop pointer grab and verify grab is available again",
+      "usage": "pointer-ungrab",
+      "args": []
+    },
+    {
       "name": "invoke",
       "command": "invoke",
       "aliases": [],
@@ -6570,6 +6590,14 @@
     {
       "name": "pointer-position",
       "text": "agenterm-cu pointer-position    (also: cursor)\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  pointer-position\n  cursor                                              (alias)\n\nObserves absolute screen coordinates without injecting any pointer event\n(macOS: a read-only CGEvent sample; the journey reads it around every\nclick / close to prove the real pointer stayed put). `cursor` is the MCU\nspelling.\n"
+    },
+    {
+      "name": "pointer-grab",
+      "text": "agenterm-cu pointer-grab\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  pointer-grab\n\nGrabs the root-window pointer on Linux X11, proves the grab with an\nindependent X11 connection, then releases before returning. Other hosts\nanswer typed unsupported; use pointer-position to observe coordinates.\n"
+    },
+    {
+      "name": "pointer-ungrab",
+      "text": "agenterm-cu pointer-ungrab\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  pointer-ungrab\n\nReleases any grab held by this connection and proves grab is available\nagain through an independent X11 probe. Other hosts answer typed\nunsupported; use pointer-position to observe coordinates.\n"
     },
     {
       "name": "invoke",

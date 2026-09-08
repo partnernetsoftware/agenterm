@@ -139,6 +139,40 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         "mode": "read-only",
         "group": "pointer",
     });
+    let pointer_grab_verb = if cfg!(target_os = "linux") {
+        serde_json::json!({
+            "status": "available",
+            "scope": "desktop",
+            "group": "pointer",
+            "grant": "actuate",
+            "mode": "x11-root-grab-verify-release",
+        })
+    } else {
+        serde_json::json!({
+            "status": "unsupported",
+            "scope": "desktop",
+            "group": "pointer",
+            "grant": "actuate",
+            "reason": "pointer-grab is wired on Linux X11 hosts only",
+        })
+    };
+    let pointer_ungrab_verb = if cfg!(target_os = "linux") {
+        serde_json::json!({
+            "status": "available",
+            "scope": "desktop",
+            "group": "pointer",
+            "grant": "actuate",
+            "mode": "x11-root-ungrab-verify",
+        })
+    } else {
+        serde_json::json!({
+            "status": "unsupported",
+            "scope": "desktop",
+            "group": "pointer",
+            "grant": "actuate",
+            "reason": "pointer-ungrab is wired on Linux X11 hosts only",
+        })
+    };
     // Injection is the opposite: it moves the *user's* real cursor or types
     // into whatever is frontmost, so the declaration says `desktop` scope
     // out loud. macOS has no window-local pointer route at all -- events
@@ -529,6 +563,8 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             "spaces": crate::mcu_surface::verb_declaration("spaces"),
             "displays": crate::mcu_surface::verb_declaration("displays"),
             "pointer-position": pointer_position_verb,
+            "pointer-grab": pointer_grab_verb,
+            "pointer-ungrab": pointer_ungrab_verb,
             "pointer-move": pointer_inject_verb,
             "send-keys": capability_verb(
                 mechanism::Capability::InputInject,
@@ -1558,6 +1594,7 @@ pub(super) fn doctor_payload() -> Result<serde_json::Value, CuError> {
     let abi = doctor_abi();
     let target_binding = doctor_target_binding();
     let browser_bridge = doctor_result(browser_bridge_connections_payload());
+    let a11y_bus = doctor_a11y_bus_check();
     let mechanism_degraded = [&windows, &displays]
         .iter()
         .any(|check| check["status"] != "available");
@@ -1593,6 +1630,7 @@ pub(super) fn doctor_payload() -> Result<serde_json::Value, CuError> {
             "abi": abi,
             "target_binding": target_binding,
             "browser_bridge": browser_bridge,
+            "a11y_bus": a11y_bus,
         },
         "permissions": permissions,
         "capabilities": capabilities_payload(),
@@ -1652,6 +1690,8 @@ fn attach_verb_grants(payload: &mut serde_json::Value) {
             ("device-list", "observe"),
             ("device-watch", "observe"),
             ("pointer-position", "observe"),
+            ("pointer-grab", "actuate"),
+            ("pointer-ungrab", "actuate"),
             ("clipboard-read", "observe"),
             ("get-text", "observe"),
             ("capabilities", "observe"),

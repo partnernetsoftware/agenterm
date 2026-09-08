@@ -203,6 +203,20 @@ pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
     })
 }
 
+pub(crate) fn pointer_grab() -> Result<(PointerPosition, u8, u8), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer-grab is not mapped on macOS; use pointer-position to observe coordinates"
+            .into(),
+    })
+}
+
+pub(crate) fn pointer_ungrab() -> Result<(PointerPosition, u8), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer-ungrab is not mapped on macOS; use pointer-position to observe coordinates"
+            .into(),
+    })
+}
+
 /// Post line-based wheel detents at the current pointer location. Quartz
 /// scroll events carry no pointer position and therefore cannot move it.
 pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {

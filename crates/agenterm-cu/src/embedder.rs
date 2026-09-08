@@ -209,6 +209,8 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::Permissions { .. }
         | Command::PointerMove { .. }
         | Command::PointerPosition { .. }
+        | Command::PointerGrab { .. }
+        | Command::PointerUngrab { .. }
         | Command::PointerScroll { .. }
         | Command::PowerStatus { .. }
         | Command::ImeStatus { .. }
