@@ -131,3 +131,54 @@ Script worker remains the hard containment
 boundary until Executor/native waits accept and honor one cooperative cancel
 token. Exact measurements and the replay command live in
 `research/acu-bridge-cancellation/RESULTS.md`.
+
+## 9. Product-integration experiment: one observe-only vertical slice
+
+The next experiment narrows the unanswered cooperative branch to
+`process-watch`. It does not claim that every Executor wait or any mutation is
+cancellable.
+
+```text
+outcome: one ACU observe wait retires before the worker's hard-kill grace
+├─ A selected: call-scoped cancellation probe
+│  ├─ qjswasm lends the invocation AtomicBool to the synchronous bridge
+│  ├─ provider ABI v2 carries callback + opaque context, never AtomicBool layout
+│  └─ Executor polls the borrowed probe only inside process-watch
+├─ B rejected unless A proves invasive: scoped mirror thread
+│  ├─ would copy callback state into a provider-owned Arc<AtomicBool>
+│  └─ adds scheduling, unwind and join obligations with no product benefit
+└─ unchanged fallback: worker cancel → 150 ms grace → owned-process hard kill
+```
+
+Fixed compatibility boundary:
+
+1. Provider ABI v1 and its existing call symbol remain byte-for-byte intact.
+2. ABI v2 is one optional new call symbol with a caller-sized versioned cancel
+   descriptor. A new provider continues to serve old hosts through v1.
+3. An invocation carrying cancellation may not silently use an old v1-only
+   provider. It fails before execution with
+   `acu_provider_cooperative_cancel_unavailable`.
+4. The callback and context are borrowed only for the synchronous v2 call and
+   are never stored, called from another thread, or touched after return.
+
+Predetermined product gates:
+
+| id | pass condition |
+|---|---|
+| P1 | pre-cancelled `process-watch` exits before its first process snapshot with typed `cancelled` / `effect:not_performed` |
+| P2 | a running watch with a 60-second requested interval observes cancellation and returns within 50 ms |
+| P3 | public Script-worker execution returns inside the existing 150 ms grace and the next provider call starts without lock delay |
+| P4 | cancellation emits no receipt, durable request state or machine-control effect |
+| P5 | v1 callers behave exactly as before; v2 rejects null, short or unknown descriptors before command execution |
+| P6 | compiled `.wasm` and source `.qjs` routes retain the same invocation token and failure class |
+
+Kill criteria: reject the implementation if any callback/context remains live
+after the provider call, any provider lock remains held when cancellation is
+reported, a controlled call falls back to v1, the 150 ms hard-kill grace wins,
+or cancellation hides a reply after an effect was dispatched. The final rule
+is why this slice is observe-only: mutation needs phase-aware
+`not_performed`/authoritative-reply/`outcome_unknown` semantics, not a generic
+post-call cancellation check.
+
+Timebox: stop after the `process-watch` slice and its provider/qjswasm/worker
+tests. Do not spread polling through other waits until this slice passes P1-P6.
