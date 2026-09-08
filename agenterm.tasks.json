@@ -1454,6 +1454,23 @@
         "task.cu-linux-process-usage-smoke"
       ]
     },
+    "cu-linux-process-state-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-state-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-state-smoke"
+      ]
+    },
     "cu-linux-cache-hierarchy-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -4111,6 +4128,23 @@
       "network": [],
       "evidence": [
         "task.cu-linux-topmost-expect-smoke"
+      ]
+    },
+    "cu-linux-process-environment-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-environment-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-environment-smoke"
       ]
     }
   },
