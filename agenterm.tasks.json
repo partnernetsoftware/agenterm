@@ -851,6 +851,25 @@
         "task.cu-linux-raise-activate-smoke"
       ]
     },
+    "cu-linux-workspace-desktop-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-workspace-desktop-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-workspace-desktop-smoke"
+      ]
+    },
     "cu-linux-chrome-text-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -944,6 +963,25 @@
       "network": [],
       "evidence": [
         "task.cu-linux-browser-tab-select-smoke"
+      ]
+    },
+    "cu-linux-tab-close-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-tab-close-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-tab-close-smoke"
       ]
     },
     "cu-linux-menu-invoke-smoke": {
@@ -1113,6 +1151,25 @@
       "network": [],
       "evidence": [
         "task.cu-linux-gtk-entry-send-keys-smoke"
+      ]
+    },
+    "cu-linux-gtk-entry-focused-send-text-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-entry-focused-send-text-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-entry-focused-send-text-smoke"
       ]
     },
     "cu-linux-keyboard-layout-smoke": {
@@ -3972,6 +4029,26 @@
       ]
     },
     {
+      "id": "cu-linux-workspace-desktop-smoke",
+      "description": "Prove Linux EWMH workspace/desktop index observe for one fixture window: windows inventory workspace_desktop must match independent xprop _NET_WM_DESKTOP read-back, or answer typed unsupported with alternatives; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-workspace-desktop-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-chrome-text-smoke",
       "description": "Prove Linux Chrome focus → send-text --name → get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
@@ -4214,6 +4291,26 @@
       "id": "cu-linux-gtk-entry-send-keys-smoke",
       "description": "Prove Linux GTK entry semantic modifier chords (ctrl+home, ctrl+end, ctrl+a, backspace) by --name with independent get-caret/get-selection/get-text read-back; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-entry-focused-send-text-smoke",
+      "description": "Prove Linux GTK entry focus --name then send-text --window without --name into the focused control with independent get-text --window read-back == SEED; AT-SPI live-probe only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-gtk-entry-focused-send-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

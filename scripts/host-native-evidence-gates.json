@@ -252,6 +252,15 @@
       ]
     },
     {
+      "id": "cu-linux-gtk-entry-focused-send-text-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-gtk-entry-focus",
+        "cu.linux-gtk-entry-focused-send-text",
+        "cu.linux-gtk-entry-focused-get-text"
+      ]
+    },
+    {
       "id": "cu-linux-raise-activate-smoke",
       "platform": "linux",
       "evidence": [
