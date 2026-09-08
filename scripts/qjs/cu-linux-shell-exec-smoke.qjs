@@ -1,0 +1,164 @@
+// CEO: Linux shell-exec honesty with independent /bin/sh read-back.
+// Acceptance is smoke read-back only: CU shell-exec stdout, stderr and exit
+// must agree with the identical bounded command run outside agenterm-cu through
+// /bin/sh for disposable seeds. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-shell-exec-readback",
+];
+
+const TIMEOUT_MS = 10000;
+const MAX_OUTPUT_BYTES = 65536;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: rh.join(run_directory, "home"),
+    USERPROFILE: rh.join(run_directory, "home"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+}
+
+function verify_readback(run_directory, executable, command) {
+  const script = [
+    "import json, subprocess, sys",
+    "command = sys.argv[1]",
+    "cu = sys.argv[2]",
+    "timeout_ms = int(sys.argv[3])",
+    "max_output_bytes = int(sys.argv[4])",
+    "def lossy_utf8(data):",
+    "    return data.decode('utf-8', errors='replace')",
+    "def probe_shell():",
+    "    completed = subprocess.run(",
+    "        ['/bin/sh', '-c', command],",
+    "        capture_output=True,",
+    "        timeout=timeout_ms / 1000.0)",
+    "    return {",
+    "        'stdout': lossy_utf8(completed.stdout),",
+    "        'stderr': lossy_utf8(completed.stderr),",
+    "        'exit_code': int(completed.returncode),",
+    "        'stdout_bytes': len(completed.stdout),",
+    "        'stderr_bytes': len(completed.stderr),",
+    "    }",
+    "def invoke_cu():",
+    "    completed = subprocess.run(",
+    "        [cu, '--target', 'current', '--grant', 'actuate',",
+    "         'shell-exec', '--command', command,",
+    "         '--timeout-ms', str(timeout_ms),",
+    "         '--max-output-bytes', str(max_output_bytes)],",
+    "        capture_output=True,",
+    "        timeout=(timeout_ms / 1000.0) + 5.0)",
+    "    if completed.returncode != 0:",
+    "        raise SystemExit('cu_linux_shell_exec_cli_exit:' + str(completed.returncode) + ':' + completed.stderr.decode('utf-8', 'replace'))",
+    "    reply = json.loads(completed.stdout.decode('utf-8', 'replace'))",
+    "    if reply.get('command') != 'shell-exec':",
+    "        raise SystemExit('cu_linux_shell_exec_command:' + json.dumps(reply))",
+    "    if reply.get('ok') is not True:",
+    "        raise SystemExit('cu_linux_shell_exec_ok:' + json.dumps(reply.get('error')))",
+    "    return reply['data']",
+    "probe = probe_shell()",
+    "data = invoke_cu()",
+    "if data.get('schema_version') != 1:",
+    "    raise SystemExit('cu_linux_shell_exec_schema')",
+    "if data.get('shell') != 'sh':",
+    "    raise SystemExit('cu_linux_shell_exec_shell:' + str(data.get('shell')))",
+    "if data.get('cleanup') != 'verified':",
+    "    raise SystemExit('cu_linux_shell_exec_cleanup:' + str(data.get('cleanup')))",
+    "if data.get('output_complete') is not True:",
+    "    raise SystemExit('cu_linux_shell_exec_output_complete')",
+    "if data.get('stdout') != probe['stdout']:",
+    "    raise SystemExit('cu_linux_shell_exec_stdout:' + repr(data.get('stdout')) + ':' + repr(probe['stdout']))",
+    "if data.get('stderr') != probe['stderr']:",
+    "    raise SystemExit('cu_linux_shell_exec_stderr:' + repr(data.get('stderr')) + ':' + repr(probe['stderr']))",
+    "if int(data.get('stdout_bytes', -1)) != probe['stdout_bytes']:",
+    "    raise SystemExit('cu_linux_shell_exec_stdout_bytes:' + str(data.get('stdout_bytes')) + ':' + str(probe['stdout_bytes']))",
+    "if int(data.get('stderr_bytes', -1)) != probe['stderr_bytes']:",
+    "    raise SystemExit('cu_linux_shell_exec_stderr_bytes:' + str(data.get('stderr_bytes')) + ':' + str(probe['stderr_bytes']))",
+    "exit_code = int(data.get('exit', {}).get('code', -1))",
+    "if exit_code != probe['exit_code']:",
+    "    raise SystemExit('cu_linux_shell_exec_exit:' + str(exit_code) + ':' + str(probe['exit_code']))",
+    "if bool(data.get('success')) != (probe['exit_code'] == 0):",
+    "    raise SystemExit('cu_linux_shell_exec_success:' + str(data.get('success')) + ':' + str(probe['exit_code']))",
+    "print('exit', exit_code)",
+  ].join("\n");
+  const output = rh.command("python3", [
+    "-c", script, command, executable, "" + TIMEOUT_MS, "" + MAX_OUTPUT_BYTES,
+  ], {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_shell_exec_readback:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(rh.exists(executable), "cu_linux_shell_exec_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_shell_exec_requires_linux");
+
+const context = harness.new_context(repo, "cu-linux-shell-exec");
+const run_directory = context.run_directory;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const seed_output = rh.command("python3", ["-c", "import os; print(os.urandom(6).hex())"], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(seed_output.success === true, "cu_linux_shell_exec_seed_failed:" + seed_output.stderr);
+  const seed = seed_output.stdout.trim();
+  ensure(seed.length > 0, "cu_linux_shell_exec_seed_empty");
+
+  print("STEP zero-exit disposable command stdout/stderr/exit matches independent /bin/sh read-back");
+  verify_readback(
+    run_directory,
+    executable,
+    "printf 'cu-shell-exec-out-" + seed + "\\n'; printf 'cu-shell-exec-err-" + seed + "\\n' >&2"
+  );
+
+  print("STEP nonzero-exit disposable command stdout/stderr/exit matches independent /bin/sh read-back");
+  verify_readback(
+    run_directory,
+    executable,
+    "printf 'cu-shell-exec-fail-" + seed + "\\n'; printf 'cu-shell-exec-fail-err-" + seed + "\\n' >&2; exit 42"
+  );
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-shell-exec-readback");
+  harness.remove_run(context);
+  print("PASS: Linux shell-exec matches independent /bin/sh read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

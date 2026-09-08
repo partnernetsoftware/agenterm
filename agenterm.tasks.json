@@ -4163,6 +4163,23 @@
       "evidence": [
         "task.cu-linux-process-environment-smoke"
       ]
+    },
+    "cu-linux-shell-exec-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-shell-exec-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-shell-exec-smoke"
+      ]
     }
   },
   "tasks": [
@@ -5897,6 +5914,24 @@
       "id": "cu-linux-service-smoke",
       "description": "Prove Linux service list|status|system-list|system-status match independent systemctl or sd-bus probe read-back, or return typed service_unsupported with systemd alternatives; observe-only, no lifecycle mutation.",
       "entry": "scripts/qjs/cu-linux-service-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-shell-exec-smoke",
+      "description": "Prove Linux shell-exec bounded command stdout, stderr and exit match independent identical /bin/sh read-back for disposable seeds; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-shell-exec-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

@@ -351,6 +351,18 @@
       ]
     },
     {
+      "id": "cu-linux-file-attributes-smoke",
+      "evidence": [
+        "cu.linux-file-attributes-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-file-copy-smoke",
+      "evidence": [
+        "cu.linux-file-copy-readback"
+      ]
+    },
+    {
       "id": "cu-linux-fontconfig-monospace-smoke",
       "evidence": [
         "cu.linux-fontconfig-monospace"
@@ -421,6 +433,12 @@
       "id": "cu-linux-process-fds-smoke",
       "evidence": [
         "cu.linux-process-fds-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-process-watch-smoke",
+      "evidence": [
+        "cu.linux-process-watch-readback"
       ]
     },
     {
