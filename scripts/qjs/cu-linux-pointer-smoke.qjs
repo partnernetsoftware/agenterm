@@ -46,7 +46,12 @@ function direct_file(path) {
 
 function remove_directory_bounded(path) {
   if (!rh.exists(path)) { return true; }
-  return rh.remove_dir_all(path);
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    rh.try_remove_dir_all(path);
+    if (!rh.exists(path)) { return true; }
+    harness.sleep_ms(50);
+  }
+  return false;
 }
 
 function cu_env(run_directory) {
@@ -154,7 +159,19 @@ try {
   failure = "" + error;
 }
 
+if (succeeded === 0) {
+  if (!remove_directory_bounded(run_directory)) {
+    failure = failure + ":cu_linux_pointer_cleanup_locked";
+  }
+  harness.remove_run(context);
+  throw failure;
+}
+
 ensure(remove_directory_bounded(run_directory), "cu_linux_pointer_cleanup_failed");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pointer-position");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pointer-grab");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pointer-ungrab");
+harness.remove_run(context);
 ensure(failure === "", failure);
 ensure(succeeded === declared_evidence.length, "cu_linux_pointer_incomplete:" + succeeded);
 print("PASS: cu-linux-pointer-smoke (" + succeeded + " evidence ids)");
