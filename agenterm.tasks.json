@@ -1333,6 +1333,23 @@
         "task.cu-linux-host-memory-smoke"
       ]
     },
+    "cu-linux-process-watch-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-watch-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-watch-smoke"
+      ]
+    },
     "cu-linux-process-fds-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -1435,6 +1452,23 @@
       "network": [],
       "evidence": [
         "task.cu-linux-file-mode-smoke"
+      ]
+    },
+    "cu-linux-file-attributes-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-file-attributes-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-file-attributes-smoke"
       ]
     },
     "cu-linux-file-copy-smoke": {
@@ -4197,6 +4231,23 @@
       "evidence": [
         "task.cu-linux-shell-exec-smoke"
       ]
+    },
+    "cu-linux-process-wait-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-wait-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-wait-smoke"
+      ]
     }
   },
   "tasks": [
@@ -5584,6 +5635,24 @@
       ]
     },
     {
+      "id": "cu-linux-process-watch-smoke",
+      "description": "Prove Linux process-watch started/exited diffs match independent /proc scan pid/start-identity add/remove read-back over the same selector window; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-watch-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-process-fds-smoke",
       "description": "Prove Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-process-fds-smoke.qjs",
@@ -5694,6 +5763,25 @@
       ]
     },
     {
+      "id": "cu-linux-file-attributes-smoke",
+      "description": "Prove Linux file-attributes xattr inventory for one regular file matches independent os.listxattr/getxattr read-back (and getfattr when installed); digest-only default, explicit value disclosure, and final-symlink refusal; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-file-attributes-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-file-copy-smoke",
       "description": "Prove Linux file-copy dry plan and actuate apply agree with independent src/dst byte+mode read-back on disposable temp files; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-file-copy-smoke.qjs",
@@ -5752,6 +5840,24 @@
       "id": "cu-linux-process-state-smoke",
       "description": "Prove Linux process-state pid, live/dead classification and start identity match independent /proc/<pid>/stat and status read-back for current and chosen PID; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-process-state-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-process-wait-smoke",
+      "description": "Prove Linux process-wait exit observation, start identity and exit code match independent waitpid read-back on a disposable child; bounded timeout on a live child is verified without claiming exit; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-wait-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

@@ -1,0 +1,168 @@
+// CEO: Linux process-wait honesty with independent waitpid read-back.
+// Acceptance is smoke read-back only: CU process-wait must agree with an
+// independent reap on the same disposable child for exit observation,
+// start identity and exit code. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-process-wait-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function verify_exit_readback(run_directory, executable, exit_code) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "cu = sys.argv[1]",
+    "expected_exit = int(sys.argv[2])",
+    "proc = subprocess.Popen(",
+    "    ['sh', '-c', f'sleep 0.3; exit {expected_exit}'],",
+    "    stdout=subprocess.DEVNULL,",
+    "    stderr=subprocess.DEVNULL,",
+    ")",
+    "pid = proc.pid",
+    "def invoke_state():",
+    "    out = subprocess.check_output(",
+    "        [cu, '--target', 'current', '--grant', 'observe',",
+    "         'process-state', '--pid', str(pid)],",
+    "        text=True)",
+    "    reply = json.loads(out)",
+    "    if not reply.get('ok') or reply.get('command') != 'process-state':",
+    "        raise SystemExit('cu_linux_process_wait_reply_state')",
+    "    return reply['data']",
+    "def invoke_wait(identity, timeout_ms):",
+    "    out = subprocess.check_output(",
+    "        [cu, '--target', 'current', '--grant', 'observe',",
+    "         'process-wait', '--pid', str(pid),",
+    "         '--start-identity', identity,",
+    "         '--timeout-ms', str(timeout_ms)],",
+    "        text=True)",
+    "    reply = json.loads(out)",
+    "    if not reply.get('ok') or reply.get('command') != 'process-wait':",
+    "        raise SystemExit('cu_linux_process_wait_reply_wait')",
+    "    return reply['data']",
+    "state = invoke_state()",
+    "if int(state.get('pid', -1)) != pid:",
+    "    raise SystemExit('cu_linux_process_wait_pid')",
+    "if state.get('state') != 'live':",
+    "    raise SystemExit(f'cu_linux_process_wait_not_live:{state.get(\"state\")}')",
+    "identity = state.get('start_identity')",
+    "if not identity:",
+    "    raise SystemExit('cu_linux_process_wait_missing_identity')",
+    "if state.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_wait_state_not_verified')",
+    "wait = invoke_wait(identity, 30000)",
+    "if wait.get('state') != 'exited':",
+    "    raise SystemExit(f'cu_linux_process_wait_not_exited:{wait.get(\"state\")}')",
+    "if wait.get('completed') is not True:",
+    "    raise SystemExit('cu_linux_process_wait_not_completed')",
+    "if wait.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_wait_not_verified')",
+    "if wait.get('start_identity') != identity:",
+    "    raise SystemExit('cu_linux_process_wait_identity_changed')",
+    "if wait.get('mechanism') != 'native-process-reference':",
+    "    raise SystemExit('cu_linux_process_wait_mechanism')",
+    "actual_exit = proc.wait()",
+    "if actual_exit != expected_exit:",
+    "    raise SystemExit(f'cu_linux_process_wait_exit_code:{actual_exit}:{expected_exit}')",
+    "print('pid', pid, 'exit', actual_exit)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable, "" + exit_code], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_process_wait_exit_readback:" + output.stderr + output.stdout);
+}
+
+function verify_timeout_readback(run_directory, executable) {
+  const script = [
+    "import json, subprocess, sys",
+    "cu = sys.argv[1]",
+    "proc = subprocess.Popen(",
+    "    ['sleep', '300'],",
+    "    stdout=subprocess.DEVNULL,",
+    "    stderr=subprocess.DEVNULL,",
+    ")",
+    "pid = proc.pid",
+    "out = subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-state', '--pid', str(pid)],",
+    "    text=True)",
+    "state = json.loads(out)",
+    "if not state.get('ok'):",
+    "    raise SystemExit('cu_linux_process_wait_timeout_state')",
+    "identity = state['data']['start_identity']",
+    "out = subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-wait', '--pid', str(pid),",
+    "     '--start-identity', identity,",
+    "     '--timeout-ms', '50'],",
+    "    text=True)",
+    "wait = json.loads(out)",
+    "if not wait.get('ok'):",
+    "    raise SystemExit('cu_linux_process_wait_timeout_reply')",
+    "data = wait['data']",
+    "if data.get('state') != 'timeout':",
+    "    raise SystemExit(f'cu_linux_process_wait_timeout_state:{data.get(\"state\")}')",
+    "if data.get('completed') is not False:",
+    "    raise SystemExit('cu_linux_process_wait_timeout_completed')",
+    "if data.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_wait_timeout_verified')",
+    "if data.get('start_identity') != identity:",
+    "    raise SystemExit('cu_linux_process_wait_timeout_identity')",
+    "proc.terminate()",
+    "proc.wait(timeout=5)",
+    "print('pid', pid, 'timeout')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_process_wait_timeout_readback:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-process-wait");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP process-wait observes disposable child exit and matches independent waitpid read-back");
+  verify_exit_readback(context.run_directory, executable, 42);
+
+  print("STEP process-wait times out on a live disposable child without claiming exit");
+  verify_timeout_readback(context.run_directory, executable);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-process-wait-readback");
+  harness.remove_run(context);
+  print("PASS: Linux process-wait matches independent waitpid exit read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

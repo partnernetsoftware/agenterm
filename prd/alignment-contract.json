@@ -89,6 +89,7 @@
         "cu.linux-process-threads-readback",
         "cu.linux-process-sockets-readback",
         "cu.linux-process-wait",
+        "cu.linux-process-wait-readback",
         "cu.linux-process-kill",
         "cu.linux-process-lifecycle-watch",
         "cu.linux-process-watch-readback",
