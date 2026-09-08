@@ -1137,6 +1137,175 @@ async fn poke_manual_accessibility_async() -> Result<(), AccessibilityTreeError>
     Ok(())
 }
 
+/// Zero-write readiness for `doctor` / `unlock`: session-bus presence, how the
+/// AT-SPI bus address was resolved, whether that bus answers, and the current
+/// `org.a11y.Status` flag values Chromium watches before it bridges a web tree.
+pub(crate) fn a11y_bus_readiness() -> Result<serde_json::Value, AccessibilityTreeError> {
+    runtime().block_on(async {
+        timeout(SNAPSHOT_TIMEOUT, a11y_bus_readiness_async())
+            .await
+            .map_err(|_| {
+                AccessibilityTreeError::failed(
+                    "a11y_bus_readiness_timeout",
+                    "org.a11y.Status / AT-SPI bus readiness exceeded its deadline",
+                )
+            })?
+    })
+}
+
+async fn a11y_bus_readiness_async() -> Result<serde_json::Value, AccessibilityTreeError> {
+    hydrate_session_bus_env();
+    let session_bus_present = std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some();
+    let session = match zbus::Connection::session().await {
+        Ok(conn) => conn,
+        Err(error) => {
+            return Ok(serde_json::json!({
+                "status": "failed",
+                "platform": "linux",
+                "session_bus": {
+                    "present": session_bus_present,
+                    "connected": false,
+                    "error": error.to_string(),
+                },
+                "a11y_bus": {
+                    "address_source": "unavailable",
+                    "address": serde_json::Value::Null,
+                    "connected": false,
+                },
+                "org_a11y_status": serde_json::Value::Null,
+                "repair": "start or export a D-Bus session bus (DBUS_SESSION_BUS_ADDRESS) in this desktop session, then repeat doctor",
+            }));
+        }
+    };
+
+    let (address_source, address) = if let Some(explicit) = explicit_a11y_bus_address() {
+        ("explicit_env", explicit)
+    } else {
+        match a11y_bus_address_from_registry(&session).await {
+            Ok(registry) => ("registry", registry),
+            Err(error) => {
+                return Ok(serde_json::json!({
+                    "status": "failed",
+                    "platform": "linux",
+                    "session_bus": {
+                        "present": session_bus_present,
+                        "connected": true,
+                    },
+                    "a11y_bus": {
+                        "address_source": "unavailable",
+                        "address": serde_json::Value::Null,
+                        "connected": false,
+                        "error": format!("{error:?}"),
+                    },
+                    "org_a11y_status": serde_json::Value::Null,
+                    "repair": "ensure org.a11y.Bus is running on the session bus (at-spi-bus-launcher) or export AT_SPI_BUS_ADDRESS / AT_SPI_BUS, then repeat doctor",
+                }));
+            }
+        }
+    };
+
+    let a11y_bus_connected = connect_a11y_address(&address).await.is_ok();
+    let properties = match zbus::Proxy::new(
+        &session,
+        A11Y_BUS_DEST,
+        A11Y_BUS_PATH,
+        DBUS_PROPERTIES_IFACE,
+    )
+    .await
+    {
+        Ok(proxy) => proxy,
+        Err(error) => {
+            return Ok(serde_json::json!({
+                "status": "failed",
+                "platform": "linux",
+                "session_bus": {
+                    "present": session_bus_present,
+                    "connected": true,
+                },
+                "a11y_bus": {
+                    "address_source": address_source,
+                    "address": address,
+                    "connected": a11y_bus_connected,
+                },
+                "org_a11y_status": {
+                    "interface": A11Y_STATUS_IFACE,
+                    "destination": A11Y_BUS_DEST,
+                    "path": A11Y_BUS_PATH,
+                    "read": "error",
+                    "error": error.to_string(),
+                    "flags": serde_json::Value::Null,
+                },
+                "repair": format!(
+                    "ensure {A11Y_BUS_DEST}{A11Y_BUS_PATH} exposes {A11Y_STATUS_IFACE} on the session bus, then repeat doctor"
+                ),
+            }));
+        }
+    };
+
+    let mut flags = serde_json::Map::new();
+    let mut readable = 0usize;
+    for flag in A11Y_STATUS_FLAGS {
+        let entry = read_a11y_status_flag(&properties, flag).await;
+        if entry["read"] == "ok" {
+            readable += 1;
+        }
+        flags.insert(flag.to_owned(), entry);
+    }
+    let status = if readable == A11Y_STATUS_FLAGS.len() {
+        "ok"
+    } else if readable > 0 {
+        "partial"
+    } else {
+        "failed"
+    };
+    Ok(serde_json::json!({
+        "status": status,
+        "platform": "linux",
+        "session_bus": {
+            "present": session_bus_present,
+            "connected": true,
+        },
+        "a11y_bus": {
+            "address_source": address_source,
+            "address": address,
+            "connected": a11y_bus_connected,
+        },
+        "org_a11y_status": {
+            "interface": A11Y_STATUS_IFACE,
+            "destination": A11Y_BUS_DEST,
+            "path": A11Y_BUS_PATH,
+            "flags": flags,
+        },
+    }))
+}
+
+async fn read_a11y_status_flag(
+    properties: &zbus::Proxy<'_>,
+    flag: &str,
+) -> serde_json::Value {
+    match properties
+        .call::<_, _, zbus::zvariant::OwnedValue>("Get", &(A11Y_STATUS_IFACE, flag))
+        .await
+    {
+        Ok(value) => match &*value {
+            zbus::zvariant::Value::Bool(enabled) => serde_json::json!({
+                "read": "ok",
+                "value": enabled,
+            }),
+            other => serde_json::json!({
+                "read": "error",
+                "value": serde_json::Value::Null,
+                "error": format!("{flag} is not a boolean: {other:?}"),
+            }),
+        },
+        Err(error) => serde_json::json!({
+            "read": "error",
+            "value": serde_json::Value::Null,
+            "error": format!("{flag}: {error}"),
+        }),
+    }
+}
+
 pub(crate) fn drain_bus() {
     if cached_connection().is_none() {
         return;

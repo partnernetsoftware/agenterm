@@ -292,3 +292,10 @@ pub fn set_application_visibility(
 pub fn drain_bus() {
     crate::selected::accessibility_tree::drain_bus()
 }
+
+/// Read-only Linux `org.a11y.Status` / AT-SPI bus readiness for `doctor` and
+/// `unlock`. Other hosts answer typed `Unsupported` with repair guidance in
+/// the CU layer.
+pub fn a11y_bus_readiness() -> Result<serde_json::Value, AccessibilityTreeError> {
+    crate::selected::accessibility_tree::a11y_bus_readiness()
+}

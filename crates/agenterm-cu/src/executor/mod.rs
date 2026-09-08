@@ -49,6 +49,7 @@ use crate::{
 use crate::command::OrderRelation;
 
 mod a11y_actuate;
+mod a11y_bus_readiness;
 mod a11y_observe;
 mod app_facts;
 mod app_lifecycle;
@@ -107,6 +108,7 @@ mod windows;
 pub use errors::{ACCESSIBILITY_REPAIR_PATH, SCREEN_RECORDING_REPAIR_PATH};
 
 use a11y_actuate::*;
+use a11y_bus_readiness::{a11y_bus_readiness_json, doctor_a11y_bus_check};
 use a11y_observe::*;
 use app_facts::*;
 use app_lifecycle::*;

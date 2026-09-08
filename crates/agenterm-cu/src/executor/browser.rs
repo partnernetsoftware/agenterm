@@ -270,6 +270,7 @@ pub(super) fn unlock_payload(window: isize) -> Result<serde_json::Value, CuError
     )?;
     let before =
         mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
+    let a11y_status_before = a11y_bus_readiness_json();
     let (poked, poke_reason) = match mechanism::poke_manual_accessibility(window) {
         Ok(()) => (true, None),
         Err(error) => {
@@ -305,6 +306,7 @@ pub(super) fn unlock_payload(window: isize) -> Result<serde_json::Value, CuError
     let app = window_app_name(Some(window));
     let web_before = web_content_nodes(&before);
     let web_after = web_content_nodes(&after);
+    let a11y_status_after = a11y_bus_readiness_json();
     let mut payload = serde_json::json!({
         "ax": ax.as_str(),
         "poked": poked,
@@ -314,6 +316,8 @@ pub(super) fn unlock_payload(window: isize) -> Result<serde_json::Value, CuError
         "web_nodes_before": web_before,
         "web_nodes_after": web_after,
         "rereads": rereads,
+        "a11y_status_before": a11y_status_before,
+        "a11y_status_after": a11y_status_after,
         // The mechanism differs per host, so the reply must not describe
         // the macOS one everywhere: Linux flips the `org.a11y.Status`
         // session-bus switch a Chromium browser watches, and Windows has

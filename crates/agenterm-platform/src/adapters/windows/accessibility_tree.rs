@@ -554,6 +554,12 @@ pub(crate) fn poke_manual_accessibility(
 
 pub(crate) fn drain_bus() {}
 
+pub(crate) fn a11y_bus_readiness() -> Result<serde_json::Value, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "org.a11y.Status is a Linux AT-SPI session-bus switch; on Windows a Chromium process enables accessibility when it answers WM_GETOBJECT for its window, which the UIA tree walk itself sends — use unlock --window HANDLE and read poked/reason instead".into(),
+    })
+}
+
 pub(crate) fn perform_node_action(
     window_handle: Option<isize>,
     node_id: &str,

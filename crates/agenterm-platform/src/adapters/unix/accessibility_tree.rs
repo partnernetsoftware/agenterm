@@ -194,3 +194,9 @@ pub(crate) fn get_node_caret_offset(
         reason: "accessibility-tree not wired on this unix host".into(),
     })
 }
+
+pub(crate) fn a11y_bus_readiness() -> Result<serde_json::Value, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "org.a11y.Status is a Linux AT-SPI session-bus switch and is not available on this unix host".into(),
+    })
+}

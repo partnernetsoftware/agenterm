@@ -1608,6 +1608,7 @@ pub(super) fn doctor_payload() -> Result<serde_json::Value, CuError> {
     let abi = doctor_abi();
     let target_binding = doctor_target_binding();
     let browser_bridge = doctor_result(browser_bridge_connections_payload());
+    let a11y_bus = doctor_a11y_bus_check();
     let mechanism_degraded = [&windows, &displays]
         .iter()
         .any(|check| check["status"] != "available");
@@ -1643,6 +1644,7 @@ pub(super) fn doctor_payload() -> Result<serde_json::Value, CuError> {
             "abi": abi,
             "target_binding": target_binding,
             "browser_bridge": browser_bridge,
+            "a11y_bus": a11y_bus,
         },
         "permissions": permissions,
         "capabilities": capabilities_payload(),

@@ -901,6 +901,12 @@ fn wake_renderer_accessibility(app: AxUiElementRef, window: AxUiElementRef, budg
 
 pub(crate) fn drain_bus() {}
 
+pub(crate) fn a11y_bus_readiness() -> Result<serde_json::Value, AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "org.a11y.Status is a Linux AT-SPI session-bus switch; on macOS use unlock --window HANDLE (AXManualAccessibility + AXEnhancedUserInterface poke) and re-read the tree instead".into(),
+    })
+}
+
 /// The application element that owns `handle`, plus its pid.
 fn application_for_handle(
     handle: isize,
