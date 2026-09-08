@@ -177,6 +177,13 @@
       ]
     },
     {
+      "id": "cu-linux-file-watch-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-file-watch"
+      ]
+    },
+    {
       "id": "cu-linux-external-terminal-send-smoke",
       "platform": "linux",
       "evidence": [
@@ -369,6 +376,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-ime-status"
+      ]
+    },
+    {
+      "id": "cu-linux-a11y-status-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-screen-reader-status"
       ]
     },
     {

@@ -363,6 +363,12 @@
       ]
     },
     {
+      "id": "cu-linux-file-watch-smoke",
+      "evidence": [
+        "cu.linux-file-watch"
+      ]
+    },
+    {
       "id": "cu-linux-fontconfig-monospace-smoke",
       "evidence": [
         "cu.linux-fontconfig-monospace"

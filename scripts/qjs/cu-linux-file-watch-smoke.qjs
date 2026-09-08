@@ -43,7 +43,7 @@ const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
 ensure(uname.success === true && uname.stdout.trim() === "Linux",
   "cu_file_watch_requires_linux");
 
-const context = harness.new_context(repo, "cu-file-watch");
+const context = harness.new_context(repo, "cu-linux-file-watch");
 const run_directory = context.run_directory;
 const watch_dir = rh.join(run_directory, "watch-root");
 const fixture = rh.join(watch_dir, "fixture.txt");
@@ -69,7 +69,7 @@ try {
     args: [
       "--target", "current", "--grant", "observe",
       "file", "observe", watch_dir,
-      "--duration-ms", "5000", "--max-events", "8"
+      "--duration-ms", "1000", "--max-events", "8"
     ],
     current_dir: run_directory,
     env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "watch-audit.jsonl") },
@@ -80,7 +80,7 @@ try {
   harness.sleep_ms(100);
   rh.write_text(fixture, "modified");
 
-  const output = harness.wait(watcher, 20000);
+  const output = harness.wait(watcher, 2000);
   ensure(output.success === true, "cu_file_watch_process:" + JSON.stringify(output));
   const watched = JSON.parse(output.stdout.trim());
   ensure(watched.command === "file-watch" && watched.ok === true,

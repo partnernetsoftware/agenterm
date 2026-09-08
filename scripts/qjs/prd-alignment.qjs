@@ -286,6 +286,7 @@ const evidence_suites = {
   "cu-linux-file-mode-smoke": true,
   "cu-linux-file-attributes-smoke": true,
   "cu-linux-file-copy-smoke": true,
+  "cu-linux-file-watch-smoke": true,
   "cu-linux-resize-expect-smoke": true,
   "cu-linux-a11y-status-smoke": true,
   "cu-linux-app-inventory-smoke": true,
