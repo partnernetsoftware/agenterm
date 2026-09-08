@@ -172,6 +172,8 @@
         "cu.linux-cdp-page-nav",
         "cu.linux-cdp-page-fill",
         "cu.linux-cdp-page-find-readback",
+        "cu.linux-cdp-page-click",
+        "cu.linux-cdp-page-click-readback",
         "cu.linux-cdp-page-targets-readback",
         "cu.linux-cdp-page-screenshot-readback",
         "cu.linux-cdp-page-hover-readback",

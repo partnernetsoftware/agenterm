@@ -963,6 +963,13 @@
       ]
     },
     {
+      "id": "cu-linux-page-click-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-click",
+        "cu.linux-cdp-page-click-readback"
+      ]
+    },
+    {
       "id": "cu-linux-page-screenshot-smoke",
       "evidence": [
         "cu.linux-cdp-page-screenshot-readback"
