@@ -136,6 +136,7 @@
         "cu.linux-boot-identity-readback",
         "cu.linux-login-session-readback",
         "cu.linux-app-facts-readback",
+        "cu.linux-service-readback",
         "cu.linux-network-dns-resolv",
         "cu.linux-network-probe-readback",
         "cu.linux-gtk-entry-focus",
