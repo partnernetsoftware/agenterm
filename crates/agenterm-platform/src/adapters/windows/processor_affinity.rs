@@ -17,7 +17,7 @@ pub(crate) fn process(pid: u32) -> Result<ProcessorAffinityFacts, ProcessorAffin
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if handle == 0 {
+    if handle.is_null() {
         return Err(query_error("OpenProcess"));
     }
     let result = affinity_for_handle(handle);
