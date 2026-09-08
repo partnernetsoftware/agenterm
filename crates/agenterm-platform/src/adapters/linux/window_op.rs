@@ -73,6 +73,8 @@ pub(crate) fn show(
             }
         }
         WindowShowState::Maximize => set_maximized(&conn, window, true),
+        WindowShowState::Fullscreen => set_fullscreen(&conn, window, true),
+        WindowShowState::Unfullscreen => set_fullscreen(&conn, window, false),
     }
 }
 
@@ -158,6 +160,35 @@ fn window_is_maximized(
         }
     }
     Ok(has_horz && has_vert)
+}
+
+fn window_is_fullscreen(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+) -> Result<bool, WindowOpError> {
+    let wm_state = atom(conn, b"_NET_WM_STATE")?;
+    let fullscreen = atom(conn, b"_NET_WM_STATE_FULLSCREEN")?;
+    let reply = conn
+        .get_property(false, window, wm_state, AtomEnum::ATOM, 0, 32)
+        .map_err(|error| failed(format!("_NET_WM_STATE request failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("_NET_WM_STATE reply failed: {error}")))?;
+    Ok(reply
+        .value32()
+        .is_some_and(|mut states| states.any(|state| state == fullscreen)))
+}
+
+fn set_fullscreen(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+    fullscreen: bool,
+) -> Result<(), WindowOpError> {
+    const NET_WM_STATE_REMOVE: u32 = 0;
+    const NET_WM_STATE_ADD: u32 = 1;
+    let wm_state = atom(conn, b"_NET_WM_STATE")?;
+    let fullscreen_atom = atom(conn, b"_NET_WM_STATE_FULLSCREEN")?;
+    let action = if fullscreen { NET_WM_STATE_ADD } else { NET_WM_STATE_REMOVE };
+    send_root_message(&conn, window, wm_state, [action, fullscreen_atom, 0, 2, 0])
 }
 
 fn set_maximized(
@@ -401,6 +432,12 @@ pub(crate) fn maximized(handle: isize) -> Result<bool, WindowOpError> {
     let conn = connect()?;
     let window = window_id(handle)?;
     window_is_maximized(&conn, window)
+}
+
+pub(crate) fn fullscreen(handle: isize) -> Result<bool, WindowOpError> {
+    let conn = connect()?;
+    let window = window_id(handle)?;
+    window_is_fullscreen(&conn, window)
 }
 
 /// EWMH `_NET_WM_DESKTOP`: the 0-based virtual-desktop index for one

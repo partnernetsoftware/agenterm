@@ -1,0 +1,207 @@
+// CEO: fullscreen/unfullscreen --expect fullscreen|unfullscreen on Linux.
+// Acceptance is smoke read-back only: independent xprop _NET_WM_STATE and
+// windows inventory fullscreen field must match --expect after each verb.
+// No --coords or screenshot.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-fullscreen-expect-state",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_fullscreen_expect_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_fullscreen_expect_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_fullscreen_expect_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_rows(reply) {
+  const data = reply.data;
+  if (data.windows !== undefined) { return data.windows; }
+  return data;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  for (const row of window_rows(reply)) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function independent_net_wm_fullscreen(run_directory, handle) {
+  const xprop = rh.command("xprop", ["-id", "" + handle, "_NET_WM_STATE"], {
+    cwd: run_directory,
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  if (!xprop.success) { return false; }
+  return xprop.stdout.indexOf("_NET_WM_STATE_FULLSCREEN") >= 0;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const run_directory = rh.join(repo, "target/cu-linux-fullscreen-expect-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_fullscreen_expect_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+try {
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_fullscreen_expect_window_wait");
+
+  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(row !== null, "cu_linux_fullscreen_expect_window_missing");
+  const handle_text = "" + int_at(row, "handle");
+  ensure(int_at(row, "handle") > 0, "cu_linux_fullscreen_expect_handle:" + JSON.stringify(row));
+  ensure(
+    flag_at(row, "fullscreen") === false,
+    "cu_linux_fullscreen_expect_baseline_not_fullscreen:" + JSON.stringify(row)
+  );
+
+  print("STEP fullscreen --window " + handle_text + " --expect fullscreen");
+  const fullscreen = run_cu(run_directory, executable, "actuate", [
+    "fullscreen", "--window", handle_text, "--expect", "fullscreen",
+  ]);
+  ensure(
+    flag_at(fullscreen, "data.verified")
+      && flag_at(fullscreen, "data.after.fullscreen") === true,
+    "cu_linux_fullscreen_expect_reply_fullscreen:" + JSON.stringify(fullscreen.data)
+  );
+
+  print("STEP independent xprop _NET_WM_STATE read-back: fullscreen must be true");
+  ensure(
+    independent_net_wm_fullscreen(run_directory, int_at(row, "handle")) === true,
+    "cu_linux_fullscreen_expect_xprop_fullscreen"
+  );
+
+  print("STEP independent windows inventory read-back: fullscreen must be true");
+  const fullscreen_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(fullscreen_row !== null, "cu_linux_fullscreen_expect_fullscreen_row_missing");
+  ensure(
+    flag_at(fullscreen_row, "fullscreen") === true,
+    "cu_linux_fullscreen_expect_inventory_fullscreen:" + JSON.stringify(fullscreen_row)
+  );
+
+  print("STEP unfullscreen --window " + handle_text + " --expect unfullscreen");
+  const unfullscreen = run_cu(run_directory, executable, "actuate", [
+    "unfullscreen", "--window", handle_text, "--expect", "unfullscreen",
+  ]);
+  ensure(
+    flag_at(unfullscreen, "data.verified")
+      && flag_at(unfullscreen, "data.after.fullscreen") === false,
+    "cu_linux_fullscreen_expect_reply_unfullscreen:" + JSON.stringify(unfullscreen.data)
+  );
+
+  print("STEP independent xprop _NET_WM_STATE read-back: fullscreen must be false");
+  ensure(
+    independent_net_wm_fullscreen(run_directory, int_at(row, "handle")) === false,
+    "cu_linux_fullscreen_expect_xprop_unfullscreen"
+  );
+
+  print("STEP independent windows inventory read-back: fullscreen must be false");
+  const restored_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(restored_row !== null, "cu_linux_fullscreen_expect_unfullscreen_row_missing");
+  ensure(
+    flag_at(restored_row, "fullscreen") === false,
+    "cu_linux_fullscreen_expect_inventory_unfullscreen:" + JSON.stringify(restored_row)
+  );
+} finally {
+  if (fixture_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  }
+  if (fixture >= 0) {
+    try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+  }
+}
+
+const context = harness.new_context(repo, "cu-linux-fullscreen-expect");
+harness.emit_evidence(context, declared_evidence, "cu.linux-fullscreen-expect-state");
+harness.remove_run(context);
+print("PASS: CEO Linux fullscreen/unfullscreen --expect with independent xprop and windows inventory fullscreen read-back");
+return;

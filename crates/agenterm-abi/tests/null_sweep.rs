@@ -213,6 +213,7 @@ type NativeWindowShow = unsafe extern "C" fn(isize, i32) -> i32;
 type NativeWindowActivate = unsafe extern "C" fn(isize) -> i32;
 type NativeWindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type NativeWindowMaximized = unsafe extern "C" fn(isize, *mut i32) -> i32;
+type NativeWindowFullscreen = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type NativeWindowWorkspaceDesktop = unsafe extern "C" fn(isize, *mut u32) -> i32;
 type NativeWindowOpacity = unsafe extern "C" fn(isize, *mut u32) -> i32;
 type NativeWindowSetOpacity = unsafe extern "C" fn(isize, u32) -> i32;
@@ -501,6 +502,12 @@ fn native_window_maximized_handle0(lib: &Library) -> i32 {
     let f: Symbol<NativeWindowMaximized> = unsafe { sym(lib, b"agt_native_window_maximized") };
     let mut maximized = 0;
     unsafe { f(0, &mut maximized) }
+}
+
+fn native_window_fullscreen_handle0(lib: &Library) -> i32 {
+    let f: Symbol<NativeWindowFullscreen> = unsafe { sym(lib, b"agt_native_window_fullscreen") };
+    let mut fullscreen = 0;
+    unsafe { f(0, &mut fullscreen) }
 }
 
 fn native_window_workspace_desktop_handle0(lib: &Library) -> i32 {
@@ -1276,6 +1283,11 @@ fn null_group() -> Vec<SweepCase> {
             label: "agt_native_window_maximized[handle=0,out_maximized=&value]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(native_window_maximized_handle0(lib))),
+        },
+        SweepCase {
+            label: "agt_native_window_fullscreen[handle=0,out_fullscreen=&value]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(native_window_fullscreen_handle0(lib))),
         },
         SweepCase {
             label: "agt_native_window_workspace_desktop[handle=0,out_desktop=&value]",

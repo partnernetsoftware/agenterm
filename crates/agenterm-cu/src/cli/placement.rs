@@ -14,9 +14,8 @@ pub fn parse(
 ) -> Result<Command, String> {
     match spec.name {
         "window-place" => window_place(target, args),
-        "frame" | "movewin" | "resize" | "maximize" | "unmaximize" => {
-            shorthand(spec.name, target, args)
-        }
+        "frame" | "movewin" | "resize" | "maximize" | "unmaximize" | "fullscreen"
+        | "unfullscreen" => shorthand(spec.name, target, args),
         "orderwin" => orderwin(target, args),
         other => Err(format!("unknown command '{other}'")),
     }
@@ -134,6 +133,34 @@ fn shorthand(verb: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
                 ));
             }
             return Ok(Command::Unmaximize {
+                target,
+                window: window.unwrap_or(0),
+                expect,
+            });
+        }
+        "fullscreen" => {
+            let expect = flag_text(args, "--expect")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "fullscreen with --expect accepts only --window H --expect fullscreen; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            return Ok(Command::Fullscreen {
+                target,
+                window: window.unwrap_or(0),
+                expect,
+            });
+        }
+        "unfullscreen" => {
+            let expect = flag_text(args, "--expect")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "unfullscreen with --expect accepts only --window H --expect unfullscreen; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            return Ok(Command::Unfullscreen {
                 target,
                 window: window.unwrap_or(0),
                 expect,

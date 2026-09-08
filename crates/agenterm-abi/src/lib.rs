@@ -141,9 +141,10 @@ use agenterm_platform::window_host::{
     run_pixel_window,
 };
 use agenterm_platform::window_op::{
-    WindowShowState, activate as activate_native_window, close, maximized as window_maximized,
-    minimized as window_minimized, move_window, opacity as window_opacity, set_opacity,
-    set_topmost, show, window_rect, workspace_desktop as window_workspace_desktop,
+    WindowShowState, activate as activate_native_window, close, fullscreen as window_fullscreen,
+    maximized as window_maximized, minimized as window_minimized, move_window,
+    opacity as window_opacity, set_opacity, set_topmost, show, window_rect,
+    workspace_desktop as window_workspace_desktop,
 };
 
 // §3.8 panic fence: building this crate under an abort profile would neuter
@@ -301,7 +302,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 33);
+abi_version!(1, 34);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -6890,6 +6891,8 @@ const AGT_NATIVE_WINDOW_SHOW: i32 = 1;
 const AGT_NATIVE_WINDOW_MINIMIZE: i32 = 2;
 const AGT_NATIVE_WINDOW_MAXIMIZE: i32 = 3;
 const AGT_NATIVE_WINDOW_RESTORE: i32 = 4;
+const AGT_NATIVE_WINDOW_FULLSCREEN: i32 = 5;
+const AGT_NATIVE_WINDOW_UNFULLSCREEN: i32 = 6;
 
 fn show_state_from_i32(state: i32) -> Option<WindowShowState> {
     match state {
@@ -6898,6 +6901,8 @@ fn show_state_from_i32(state: i32) -> Option<WindowShowState> {
         AGT_NATIVE_WINDOW_MINIMIZE => Some(WindowShowState::Minimize),
         AGT_NATIVE_WINDOW_MAXIMIZE => Some(WindowShowState::Maximize),
         AGT_NATIVE_WINDOW_RESTORE => Some(WindowShowState::Restore),
+        AGT_NATIVE_WINDOW_FULLSCREEN => Some(WindowShowState::Fullscreen),
+        AGT_NATIVE_WINDOW_UNFULLSCREEN => Some(WindowShowState::Unfullscreen),
         _ => None,
     }
 }
@@ -6918,7 +6923,7 @@ pub extern "C" fn agt_native_window_show(handle: isize, state: i32) -> agt_statu
             record_error(
                 c"agt_native_window_show",
                 c"bad_state",
-                "state is not 0 (Hide)..=4 (Restore)",
+                "state is not 0 (Hide)..=6 (Unfullscreen)",
             );
             return agt_status::AGT_FAILED;
         };
@@ -7284,6 +7289,59 @@ pub extern "C" fn agt_native_window_maximized(
                 c"agt_native_window_maximized",
                 c"panic",
                 "panic in agt_native_window_maximized",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// ABI 1.34: read EWMH `_NET_WM_STATE_FULLSCREEN` for one native window.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_native_window_fullscreen(
+    handle: isize,
+    out_fullscreen: *mut i32,
+) -> agt_status {
+    fn inner(handle: isize, out_fullscreen: *mut i32) -> agt_status {
+        if native_handle_error(c"agt_native_window_fullscreen", handle) {
+            return agt_status::AGT_FAILED;
+        }
+        if out_fullscreen.is_null() {
+            record_error(
+                c"agt_native_window_fullscreen",
+                c"bad_pointer",
+                "out_fullscreen is null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if !window_op_available() {
+            return agt_status::AGT_UNSUPPORTED;
+        }
+        match window_fullscreen(handle) {
+            Ok(value) => {
+                unsafe { *out_fullscreen = i32::from(value) };
+                agt_status::AGT_OK
+            }
+            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(e) => {
+                record_error(
+                    c"agt_native_window_fullscreen",
+                    c"window_op_failed",
+                    format!("{e:?}"),
+                );
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(handle, out_fullscreen))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_native_window_fullscreen",
+                c"panic",
+                "panic in agt_native_window_fullscreen",
             );
             agt_status::AGT_FAILED
         }
@@ -7821,7 +7879,7 @@ mod tests {
 
     #[test]
     fn current_abi_maps_show_menu_without_a_value() {
-        assert_eq!(ABI_MINOR, 33);
+        assert_eq!(ABI_MINOR, 34);
         assert_eq!(
             a11y_action_from_abi(AGT_A11Y_ACTION_SHOW_MENU, None),
             Ok(AccessibilityNodeAction::ShowMenu)

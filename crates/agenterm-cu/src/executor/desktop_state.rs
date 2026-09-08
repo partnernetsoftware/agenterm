@@ -143,6 +143,7 @@ mod tests {
             focused,
             minimized: false,
             maximized: false,
+            fullscreen: false,
         }
     }
 

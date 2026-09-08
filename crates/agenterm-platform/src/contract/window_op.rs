@@ -12,6 +12,8 @@ pub enum WindowShowState {
     Minimize,
     Maximize,
     Restore,
+    Fullscreen,
+    Unfullscreen,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,6 +71,8 @@ mod tests {
             WindowShowState::Minimize,
             WindowShowState::Maximize,
             WindowShowState::Restore,
+            WindowShowState::Fullscreen,
+            WindowShowState::Unfullscreen,
         ];
         for (i, a) in states.iter().enumerate() {
             for (j, b) in states.iter().enumerate() {

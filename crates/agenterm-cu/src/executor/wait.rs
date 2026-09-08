@@ -763,6 +763,7 @@ mod tests {
             focused: false,
             minimized: false,
             maximized: false,
+            fullscreen: false,
         }];
         assert!(condition_met(
             &WaitCondition::WindowTitleContains {

@@ -33,6 +33,10 @@ pub(crate) fn minimized(_handle: isize) -> Result<bool, WindowOpError> {
     })
 }
 
+pub(crate) fn fullscreen(_handle: isize) -> Result<bool, WindowOpError> {
+    Err(WindowOpError::Unsupported { reason: "window-op not wired on unix".into() })
+}
+
 pub(crate) fn maximized(_handle: isize) -> Result<bool, WindowOpError> {
     Err(WindowOpError::Unsupported {
         reason: "window-op not wired on unix".into(),

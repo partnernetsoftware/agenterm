@@ -23,6 +23,10 @@ pub(crate) fn show(handle: isize, state: WindowShowState) -> Result<(), WindowOp
         WindowShowState::Minimize => SW_MINIMIZE,
         WindowShowState::Maximize => SW_MAXIMIZE,
         WindowShowState::Restore => SW_RESTORE,
+        WindowShowState::Fullscreen | WindowShowState::Unfullscreen => {
+            return Err(WindowOpError::Unsupported { reason: "EWMH fullscreen is not wired on Windows yet".into() });
+        }
+
     };
     unsafe {
         ShowWindow(handle as HWND, cmd);
@@ -56,6 +60,10 @@ pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
 
 pub(crate) fn maximized(handle: isize) -> Result<bool, WindowOpError> {
     Ok(unsafe { IsZoomed(handle as HWND) } != 0)
+}
+
+pub(crate) fn fullscreen(_handle: isize) -> Result<bool, WindowOpError> {
+    Err(WindowOpError::Unsupported { reason: "reading the EWMH fullscreen state is not wired on Windows yet".into() })
 }
 
 pub(crate) fn workspace_desktop(_handle: isize) -> Result<u32, WindowOpError> {

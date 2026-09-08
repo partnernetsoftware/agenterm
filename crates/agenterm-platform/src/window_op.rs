@@ -39,6 +39,10 @@ pub fn maximized(handle: isize) -> Result<bool, WindowOpError> {
     crate::selected::window_op::maximized(handle)
 }
 
+pub fn fullscreen(handle: isize) -> Result<bool, WindowOpError> {
+    crate::selected::window_op::fullscreen(handle)
+}
+
 /// Reads the EWMH virtual-desktop index for one native window when the host
 /// publishes `_NET_WM_DESKTOP`. `0xFFFFFFFF` means sticky (all desktops).
 pub fn workspace_desktop(handle: isize) -> Result<u32, WindowOpError> {

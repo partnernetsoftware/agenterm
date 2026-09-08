@@ -714,8 +714,9 @@ pub(crate) fn show(
         // *button press*, not a maximize: what it does depends entirely on
         // the application (zoom-to-fit, full screen, nothing). Neither is
         // invented here.
-        WindowShowState::Hide | WindowShowState::Maximize => Err(WindowOpError::Unsupported {
-            reason: "macOS wires Show (AXRaise), Minimize and Restore (AXMinimized); hide and maximize stay unmapped"
+        WindowShowState::Hide | WindowShowState::Maximize | WindowShowState::Fullscreen
+        | WindowShowState::Unfullscreen => Err(WindowOpError::Unsupported {
+            reason: "macOS wires Show (AXRaise), Minimize and Restore (AXMinimized); hide, maximize and EWMH fullscreen stay unmapped"
                 .into(),
         }),
     }

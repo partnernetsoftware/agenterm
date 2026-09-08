@@ -256,6 +256,8 @@ pub const AGT_NATIVE_WINDOW_SHOW: i32 = 1;
 pub const AGT_NATIVE_WINDOW_MINIMIZE: i32 = 2;
 pub const AGT_NATIVE_WINDOW_MAXIMIZE: i32 = 3;
 pub const AGT_NATIVE_WINDOW_RESTORE: i32 = 4;
+pub const AGT_NATIVE_WINDOW_FULLSCREEN: i32 = 5;
+pub const AGT_NATIVE_WINDOW_UNFULLSCREEN: i32 = 6;
 
 /// The ABI major this build of cu speaks. libagenterm promises that a major
 /// bump means breaking changes, so a library with a different major must be
@@ -313,6 +315,8 @@ pub const WINDOW_MAXIMIZED_ABI_MINOR: u16 = 30;
 /// ABI 1.32 `agt_native_window_workspace_desktop`.
 pub const WINDOW_WORKSPACE_DESKTOP_ABI_MINOR: u16 = 32;
 pub const WINDOW_OPACITY_ABI_MINOR: u16 = 33;
+/// ABI 1.34: `agt_native_window_fullscreen` (the per-window EWMH fullscreen read).
+pub const WINDOW_FULLSCREEN_ABI_MINOR: u16 = 34;
 /// ABI 1.31: caller-sized physical display facts.
 pub const DISPLAY_PHYSICAL_ABI_MINOR: u16 = 31;
 /// ABI 1.26: `agt_native_window_activate`, the explicit desktop-foreground

@@ -40,6 +40,10 @@ pub(crate) fn maximized(_handle: isize) -> Result<bool, WindowOpError> {
     })
 }
 
+pub(crate) fn fullscreen(_handle: isize) -> Result<bool, WindowOpError> {
+    Err(WindowOpError::Unsupported { reason: "reading the EWMH fullscreen state is not wired on macOS yet".into() })
+}
+
 pub(crate) fn workspace_desktop(_handle: isize) -> Result<u32, WindowOpError> {
     Err(WindowOpError::Unsupported {
         reason: "EWMH workspace index is Linux X11 only; macOS uses managed Spaces".into(),
