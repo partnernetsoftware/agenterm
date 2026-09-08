@@ -1494,7 +1494,7 @@
           },
           "evidence": ["cu.network-dns-services"],
           "next": "run the unchanged public DNS service-identity journey on both Linux ISAs and both Windows ISAs before promoting their provider-specific cells",
-          "note": "Exact source 53add9de passed the public macOS qjswasm court. It independently joins each scutil interface to /usr/sbin/networksetup -listallhardwareports Device -> Hardware Port output, requires at least one observed mapped row and keeps resolver data when the supplemental provider fails while marking the result incomplete. Windows defines service as the native adapter FriendlyName; Linux intentionally returns null. No provider contacts a resolver or treats a macOS Hardware Port label as portable."
+          "note": "Exact source f0fd7062 passed the public macOS qjswasm court. It independently joins each scutil interface to /usr/sbin/networksetup -listallhardwareports Device -> Hardware Port output, requires at least one observed mapped row and keeps resolver data when the supplemental provider fails while marking the result incomplete. Windows defines service as the native adapter FriendlyName; Linux intentionally returns null. No provider contacts a resolver or treats a macOS Hardware Port label as portable."
         },
         {
           "id": "network.sockets",
