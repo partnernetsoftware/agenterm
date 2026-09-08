@@ -257,6 +257,7 @@ const evidence_suites = {
   "cu-linux-gtk-entry-focused-send-text-smoke": true,
   "cu-linux-desktop-state-smoke": true,
   "cu-linux-tree-honesty-smoke": true,
+  "cu-linux-snapshot-diff-smoke": true,
   "cu-linux-verify-expect-honesty-smoke": true,
   "cu-linux-browser-tabs-smoke": true,
   "cu-linux-browser-tab-select-smoke": true,

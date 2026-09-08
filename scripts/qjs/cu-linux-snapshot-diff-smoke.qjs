@@ -1,0 +1,623 @@
+// CEO: Linux snapshot/diff honesty with independent AT-SPI tree delta read-back.
+// Acceptance is smoke read-back only: CU snapshot baseline then a named send-text
+// change must yield diff that matches an independent pyatspi before/after tree
+// delta on the same bounded walk budget. AT-SPI/--name only; no --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-atspi-snapshot-diff",
+];
+
+const TREE_DEPTH = 16;
+const MAX_NODES = 2000;
+const ENTRY_NAME = "Fixture Entry";
+const BEFORE_TEXT = "seed";
+const AFTER_TEXT = "snapdiff-delta";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable, run_directory) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable, run_directory),
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true,
+    "cu_linux_snapshot_diff_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_snapshot_diff_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"),
+    "cu_linux_snapshot_diff_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function independent_entry_text(pid, title) {
+  const script = [
+    "import sys",
+    "import pyatspi",
+    "",
+    "pid = int(sys.argv[1])",
+    "title = sys.argv[2]",
+    "entry_name = sys.argv[3]",
+    "",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "app = None",
+    "for i in range(desktop.childCount):",
+    "    child = desktop.getChildAtIndex(i)",
+    "    try:",
+    "        if child.get_process_id() == pid:",
+    "            app = child",
+    "            break",
+    "    except Exception:",
+    "        pass",
+    "if app is None:",
+    "    raise SystemExit('cu_linux_snapshot_diff_no_app')",
+    "",
+    "def find_named(obj, name):",
+    "    if (obj.name or '') == name:",
+    "        return obj",
+    "    try:",
+    "        count = obj.childCount",
+    "    except Exception:",
+    "        return None",
+    "    for i in range(count):",
+    "        try:",
+    "            child = obj.getChildAtIndex(i)",
+    "        except Exception:",
+    "            child = None",
+    "        if child is None:",
+    "            continue",
+    "        hit = find_named(child, name)",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "",
+    "entry = find_named(app, entry_name)",
+    "if entry is None:",
+    "    raise SystemExit('cu_linux_snapshot_diff_entry_missing')",
+    "try:",
+    "    text_iface = entry.queryText()",
+    "    text = text_iface.getText(0, text_iface.characterCount)",
+    "except Exception:",
+    "    raise SystemExit('cu_linux_snapshot_diff_entry_text')",
+    "print(text)",
+  ].join("\n");
+  const output = rh.command("/usr/bin/python3", [
+    "-c", script, "" + pid, title, ENTRY_NAME,
+  ], { timeout_ms: 45000 });
+  ensure(output.success === true,
+    "cu_linux_snapshot_diff_entry_probe:" + output.stderr + output.stdout);
+  return output.stdout.trim();
+}
+
+function capture_independent_tree(run_directory, fixture_pid, output_path) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "pid = int(sys.argv[1])",
+    "out_path = sys.argv[2]",
+    "max_depth = int(sys.argv[3])",
+    "max_nodes = int(sys.argv[4])",
+    "",
+    "def node_role(obj):",
+    "    try:",
+    "        rn = obj.getRoleName()",
+    "        if rn and rn.strip():",
+    "            return rn.lower()",
+    "    except Exception:",
+    "        pass",
+    "    return pyatspi.role.getName(obj.getRole()).lower()",
+    "",
+    "def node_name(obj):",
+    "    try: return obj.name or ''",
+    "    except Exception: return ''",
+    "",
+    "def node_text(obj, role):",
+    "    role = role.lower()",
+    "    if role not in ('entry', 'text', 'password text', 'edit'):",
+    "        return None",
+    "    try:",
+    "        text_iface = obj.queryText()",
+    "        return text_iface.getText(0, text_iface.characterCount)",
+    "    except Exception:",
+    "        return None",
+    "",
+    "def state_labels(obj):",
+    "    labels = []",
+    "    st = obj.getState()",
+    "    for attr in dir(pyatspi):",
+    "        if not attr.startswith('STATE_') or attr in ('STATE_LAST_DEFINED', 'STATE_VALUE_TO_NAME'):",
+    "            continue",
+    "        if st.contains(getattr(pyatspi, attr)):",
+    "            word = attr[6:].lower()",
+    "            if word == 'multi_line': word = 'multiline'",
+    "            if word == 'single_line': word = 'singleline'",
+    "            labels.append(word)",
+    "    return sorted(labels)",
+    "",
+    "def walk_bfs(root, max_depth, budget):",
+    "    out = []",
+    "    queue = [(root, '/0', None, 0)]",
+    "    while queue and len(out) < budget:",
+    "        obj, node_id, parent_id, depth = queue.pop(0)",
+    "        role = node_role(obj)",
+    "        out.append({",
+    "            'id': node_id,",
+    "            'parent_id': parent_id,",
+    "            'role': role,",
+    "            'name': node_name(obj),",
+    "            'states': state_labels(obj),",
+    "            'text': node_text(obj, role),",
+    "        })",
+    "        if depth >= max_depth:",
+    "            continue",
+    "        try: child_count = obj.childCount",
+    "        except Exception: continue",
+    "        for i in range(child_count):",
+    "            try: child = obj.getChildAtIndex(i)",
+    "            except Exception: child = None",
+    "            if child is None: continue",
+    "            queue.append((child, f'{node_id}/{i}', node_id, depth + 1))",
+    "    return out",
+    "",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "app = None",
+    "for i in range(desktop.childCount):",
+    "    child = desktop.getChildAtIndex(i)",
+    "    try:",
+    "        if child.get_process_id() == pid:",
+    "            app = child",
+    "            break",
+    "    except Exception:",
+    "        pass",
+    "if app is None:",
+    "    raise SystemExit('cu_linux_snapshot_diff_no_app')",
+    "json.dump(walk_bfs(app, max_depth, max_nodes), open(out_path, 'w'))",
+  ].join("\n");
+  const output = rh.command("/usr/bin/python3", [
+    "-c", script,
+    "" + fixture_pid,
+    output_path,
+    "" + TREE_DEPTH,
+    "" + MAX_NODES,
+  ], { cwd: run_directory, timeout_ms: 45000 });
+  ensure(output.success === true,
+    "cu_linux_snapshot_diff_capture:" + output.stderr + output.stdout);
+}
+
+function verify_diff_readback(
+  run_directory, executable, fixture_pid, handle,
+  baseline_reply_path, independent_before_path, diff_path
+) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "pid = int(sys.argv[1])",
+    "handle = int(sys.argv[2])",
+    "baseline_reply_path = sys.argv[3]",
+    "independent_before_path = sys.argv[4]",
+    "diff_path = sys.argv[5]",
+    "max_depth = int(sys.argv[6])",
+    "max_nodes = int(sys.argv[7])",
+    "entry_name = sys.argv[8]",
+    "before_text = sys.argv[9]",
+    "after_text = sys.argv[10]",
+    "",
+    "VOLATILE = {'focused', 'active', 'armed', 'selected'}",
+    "",
+    "def node_role(obj):",
+    "    try:",
+    "        rn = obj.getRoleName()",
+    "        if rn and rn.strip():",
+    "            return rn.lower()",
+    "    except Exception:",
+    "        pass",
+    "    return pyatspi.role.getName(obj.getRole()).lower()",
+    "",
+    "def node_name(obj):",
+    "    try: return obj.name or ''",
+    "    except Exception: return ''",
+    "",
+    "def node_text(obj, role):",
+    "    role = role.lower()",
+    "    if role not in ('entry', 'text', 'password text', 'edit'):",
+    "        return None",
+    "    try:",
+    "        text_iface = obj.queryText()",
+    "        return text_iface.getText(0, text_iface.characterCount)",
+    "    except Exception:",
+    "        return None",
+    "",
+    "def state_labels(obj):",
+    "    labels = []",
+    "    st = obj.getState()",
+    "    for attr in dir(pyatspi):",
+    "        if not attr.startswith('STATE_') or attr in ('STATE_LAST_DEFINED', 'STATE_VALUE_TO_NAME'):",
+    "            continue",
+    "        if st.contains(getattr(pyatspi, attr)):",
+    "            word = attr[6:].lower()",
+    "            if word == 'multi_line': word = 'multiline'",
+    "            if word == 'single_line': word = 'singleline'",
+    "            labels.append(word)",
+    "    return sorted(labels)",
+    "",
+    "def walk_bfs(root, max_depth, budget):",
+    "    out = []",
+    "    queue = [(root, '/0', None, 0)]",
+    "    while queue and len(out) < budget:",
+    "        obj, node_id, parent_id, depth = queue.pop(0)",
+    "        role = node_role(obj)",
+    "        name = node_name(obj)",
+    "        states = state_labels(obj)",
+    "        text = node_text(obj, role)",
+    "        out.append({",
+    "            'id': node_id,",
+    "            'parent_id': parent_id,",
+    "            'role': role,",
+    "            'name': name,",
+    "            'states': states,",
+    "            'text': text,",
+    "        })",
+    "        if depth >= max_depth:",
+    "            continue",
+    "        try: child_count = obj.childCount",
+    "        except Exception: continue",
+    "        for i in range(child_count):",
+    "            try: child = obj.getChildAtIndex(i)",
+    "            except Exception: child = None",
+    "            if child is None: continue",
+    "            child_id = f'{node_id}/{i}'",
+    "            queue.append((child, child_id, node_id, depth + 1))",
+    "    return out",
+    "",
+    "def changed_fields(before, after):",
+    "    fields = []",
+    "    for key in ('role', 'name', 'parent_id', 'states', 'text'):",
+    "        if before.get(key) != after.get(key):",
+    "            fields.append(key)",
+    "    return fields",
+    "",
+    "def diff_nodes(before, after):",
+    "    previous = {node['id']: node for node in before}",
+    "    added, removed, changed = [], [], []",
+    "    seen = set()",
+    "    for node in after:",
+    "        was = previous.get(node['id'])",
+    "        if was is None:",
+    "            added.append(node['id'])",
+    "            continue",
+    "        seen.add(node['id'])",
+    "        fields = changed_fields(was, node)",
+    "        if fields:",
+    "            changed.append((node['id'], fields, was, node))",
+    "    for node in before:",
+    "        if node['id'] not in seen:",
+    "            removed.append(node['id'])",
+    "    return added, removed, changed",
+    "",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "app = None",
+    "for i in range(desktop.childCount):",
+    "    child = desktop.getChildAtIndex(i)",
+    "    try:",
+    "        if child.get_process_id() == pid:",
+    "            app = child",
+    "            break",
+    "    except Exception:",
+    "        pass",
+    "if app is None:",
+    "    raise SystemExit('cu_linux_snapshot_diff_no_app')",
+    "",
+    "baseline_reply = json.load(open(baseline_reply_path))",
+    "if not baseline_reply.get('ok') or baseline_reply.get('command') != 'snapshot':",
+    "    raise SystemExit('cu_linux_snapshot_diff_baseline_reply')",
+    "before_flat = json.load(open(independent_before_path))",
+    "if not before_flat:",
+    "    raise SystemExit('cu_linux_snapshot_diff_independent_before')",
+    "",
+    "cu_diff = json.load(open(diff_path))",
+    "if not cu_diff.get('ok') or cu_diff.get('command') != 'diff':",
+    "    raise SystemExit('cu_linux_snapshot_diff_diff_reply')",
+    "data = cu_diff['data']",
+    "",
+    "after_native = walk_bfs(app, max_depth, max_nodes)",
+    "after_flat = []",
+    "for node in after_native:",
+    "    after_flat.append({",
+    "        'id': node['id'],",
+    "        'parent_id': node['parent_id'],",
+    "        'role': node['role'],",
+    "        'name': node['name'],",
+    "        'states': sorted(s for s in node['states'] if s not in VOLATILE),",
+    "        'text': node['text'],",
+    "    })",
+    "before_norm = []",
+    "for node in before_flat:",
+    "    before_norm.append({",
+    "        'id': node.get('id'),",
+    "        'parent_id': node.get('parent_id'),",
+    "        'role': (node.get('role') or '').lower(),",
+    "        'name': node.get('name') or '',",
+    "        'states': sorted(s for s in (node.get('states') or []) if s not in VOLATILE),",
+    "        'text': node.get('text'),",
+    "    })",
+    "",
+    "added, removed, changed = diff_nodes(before_norm, after_flat)",
+    "entry_changes = [",
+    "    item for item in changed",
+    "    if item[3].get('name') == entry_name and 'text' in item[1]",
+    "]",
+    "if not entry_changes:",
+    "    raise SystemExit('cu_linux_snapshot_diff_independent_entry_change')",
+    "_, fields, was, now = entry_changes[0]",
+    "if was.get('text') != before_text or now.get('text') != after_text:",
+    "    raise SystemExit('cu_linux_snapshot_diff_independent_text:' + str(was.get('text')) + ':' + str(now.get('text')))",
+    "",
+    "cu_changed = data.get('changed') or []",
+    "cu_entry = [node for node in cu_changed if (node.get('name') or '') == entry_name]",
+    "if not cu_entry:",
+    "    raise SystemExit('cu_linux_snapshot_diff_cu_entry_missing')",
+    "cu_fields = cu_entry[0].get('changed') or []",
+    "if 'text' not in cu_fields:",
+    "    raise SystemExit('cu_linux_snapshot_diff_cu_text_field:' + str(cu_fields))",
+    "if int(data.get('changes') or 0) < 1:",
+    "    raise SystemExit('cu_linux_snapshot_diff_cu_changes')",
+    "if int((data.get('counts') or {}).get('changed') or 0) < 1:",
+    "    raise SystemExit('cu_linux_snapshot_diff_cu_changed_count')",
+    "cu_entry_text = cu_entry[0].get('text')",
+    "if cu_entry_text is not None and cu_entry_text != after_text:",
+    "    raise SystemExit('cu_linux_snapshot_diff_cu_entry_text:' + str(cu_entry_text))",
+    "",
+    "indep_by_id = {node_id: (fields, was, now) for node_id, fields, was, now in changed}",
+    "for cu_node in cu_changed:",
+    "    cu_id = cu_node.get('id')",
+    "    cu_fields = set(cu_node.get('changed') or [])",
+    "    if cu_id not in indep_by_id:",
+    "        raise SystemExit('cu_linux_snapshot_diff_cu_not_in_independent:' + str(cu_id))",
+    "    indep_fields, was, now = indep_by_id[cu_id]",
+    "    for field in cu_fields:",
+    "        if field not in indep_fields:",
+    "            raise SystemExit('cu_linux_snapshot_diff_field_mismatch:' + str(cu_id) + ':' + str(field))",
+    "    if 'text' in cu_fields and cu_node.get('text') != now.get('text'):",
+    "        raise SystemExit('cu_linux_snapshot_diff_cu_text_value:' + str(cu_node.get('text')))",
+    "",
+    "cu_added = len(data.get('added') or [])",
+    "cu_removed = len(data.get('removed') or [])",
+    "cu_changed_n = len(cu_changed)",
+    "if cu_added != len(added) or cu_removed != len(removed) or cu_changed_n != len(changed):",
+    "    raise SystemExit('cu_linux_snapshot_diff_count_mismatch:cu=' + str(cu_added) + '/' + str(cu_removed) + '/' + str(cu_changed_n) + ':native=' + str(len(added)) + '/' + str(len(removed)) + '/' + str(len(changed)))",
+    "",
+    "reply_id = baseline_reply['data']['snapshot_id']",
+    "if data.get('base', {}).get('snapshot_id') != reply_id:",
+    "    raise SystemExit('cu_linux_snapshot_diff_base_id')",
+    "if data.get('base_selected_by') != 'explicit':",
+    "    raise SystemExit('cu_linux_snapshot_diff_base_selected_by')",
+    "next_base = data.get('next_base') or ''",
+    "if next_base == '' or next_base == reply_id:",
+    "    raise SystemExit('cu_linux_snapshot_diff_next_base')",
+    "",
+    "print('native_changed', len(changed), 'cu_changed', cu_changed_n, 'handle', handle)",
+  ].join("\n");
+  const output = rh.command("/usr/bin/python3", [
+    "-c", script,
+    "" + fixture_pid,
+    "" + handle,
+    baseline_reply_path,
+    independent_before_path,
+    diff_path,
+    "" + TREE_DEPTH,
+    "" + MAX_NODES,
+    ENTRY_NAME,
+    BEFORE_TEXT,
+    AFTER_TEXT,
+  ], {
+    cwd: run_directory,
+    env: cu_env(executable, run_directory),
+    timeout_ms: 90000,
+  });
+  ensure(output.success === true,
+    "cu_linux_snapshot_diff_readback:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_snapshot_diff_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_snapshot_diff_requires_linux");
+
+const context = harness.new_context(repo, "cu-linux-snapshot-diff");
+const run_directory = rh.join(repo, "target/cu-linux-snapshot-diff-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_snapshot_diff_fixture_missing");
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start owned GTK fixture and resolve one window handle");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_snapshot_diff_window_wait");
+
+  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_row !== null, "cu_linux_snapshot_diff_inventory_missing");
+  const handle = int_at(inventory_row, "handle");
+  ensure(handle > 0, "cu_linux_snapshot_diff_handle:" + JSON.stringify(inventory_row));
+  const handle_text = "" + handle;
+
+  print("STEP independent AT-SPI read-back reports seed entry text before snapshot");
+  ensure(
+    independent_entry_text(fixture_pid, fixture_title) === BEFORE_TEXT,
+    "cu_linux_snapshot_diff_before_text"
+  );
+
+  print("STEP snapshot names one bounded baseline");
+  const baseline_stored_path = rh.join(run_directory, "baseline-stored.json");
+  const baseline_reply_path = rh.join(run_directory, "baseline-reply.json");
+  const baseline = run_cu(run_directory, executable, "observe", [
+    "snapshot",
+    "--window", handle_text,
+    "--depth", "" + TREE_DEPTH,
+    "--max-nodes", "" + MAX_NODES,
+    "--out", baseline_stored_path,
+  ]);
+  rh.write_text(baseline_reply_path, JSON.stringify(baseline));
+  const baseline_id = text_at(baseline, "data.snapshot_id");
+  ensure(
+    baseline_id !== ""
+      && int_at(baseline, "data.nodes") > 1
+      && !flag_at(baseline, "data.truncated")
+      && text_at(baseline, "data.addressing") === "accessibility-tree"
+      && text_at(baseline, "data.backend") === "at-spi2",
+    "cu_linux_snapshot_diff_snapshot:" + JSON.stringify(baseline.data)
+  );
+  ensure(direct_file(baseline_stored_path), "cu_linux_snapshot_diff_baseline_file");
+
+  const independent_before_path = rh.join(run_directory, "independent-before.json");
+  print("STEP independent AT-SPI tree captured immediately after snapshot baseline");
+  capture_independent_tree(run_directory, fixture_pid, independent_before_path);
+  ensure(direct_file(independent_before_path), "cu_linux_snapshot_diff_independent_before");
+
+  print("STEP send-text mutates the named entry on a disposable target");
+  run_cu(run_directory, executable, "observe,actuate", [
+    "send-text",
+    "--window", handle_text,
+    "--name", ENTRY_NAME,
+    "--", AFTER_TEXT,
+  ]);
+  ensure(
+    independent_entry_text(fixture_pid, fixture_title) === AFTER_TEXT,
+    "cu_linux_snapshot_diff_after_text"
+  );
+
+  print("STEP diff returns the entry text change and advances the baseline");
+  const diff_path = rh.join(run_directory, "diff.json");
+  const diff = run_cu(run_directory, executable, "observe", [
+    "diff",
+    "--window", handle_text,
+    "--base", baseline_id,
+    "--advance",
+    "--max", "100",
+  ]);
+  rh.write_text(diff_path, JSON.stringify(diff));
+
+  print("STEP CU diff agrees with independent before/after AT-SPI tree delta");
+  verify_diff_readback(
+    run_directory, executable, fixture_pid, handle,
+    baseline_reply_path, independent_before_path, diff_path
+  );
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: Linux snapshot/diff matches independent AT-SPI tree delta read-back");
+}
+if (failure !== "") { throw failure; }
+return;
