@@ -2033,7 +2033,10 @@ records an actuation focus hint under `XDG_RUNTIME_DIR/agenterm/atspi-focus-hint
 `focused --window` must resolve that hint (direct D-Bus open of the hinted
 AT-SPI object) before the bounded tree walk: GTK3 buttons often omit
 `STATE_FOCUSED` while a sibling scroll pane still carries it after
-`click --name` (CEO#8 `cu-linux-gtk-button-focus-smoke`). `DISPLAY=:2` box-chrome
+`click --name` (CEO#8 `cu-linux-gtk-button-focus-smoke`). `copy --name` on GTK
+entry/label (CEO#9 `cu-linux-gtk-copy-smoke`) seeds via `send-text`, publishes
+AT-SPI `Text.GetText` onto native CLIPBOARD, and proves payload with
+independent `clipboard-read` (not the copy reply `text`). `DISPLAY=:2` box-chrome
 defaults to 9224, which standing `chrome-profile-2` already owns on
 `127.0.0.1` — a second window whose cmdline still says 9224 then
 writes the wrong CDP tree (`no writable node named …`). Launch the
