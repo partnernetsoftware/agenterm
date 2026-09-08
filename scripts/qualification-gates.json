@@ -335,6 +335,10 @@
       "evidence": ["cu.linux-processor-topology-readback"]
     },
     {
+      "id": "cu-linux-host-memory-smoke",
+      "evidence": ["cu.linux-host-memory-readback"]
+    },
+    {
       "id": "cu-linux-cache-hierarchy-smoke",
       "evidence": ["cu.linux-cache-hierarchy-readback"]
     },

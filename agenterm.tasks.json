@@ -1116,6 +1116,23 @@
         "task.cu-linux-processor-topology-smoke"
       ]
     },
+    "cu-linux-processor-affinity-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-processor-affinity-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-processor-affinity-smoke"
+      ]
+    },
     "cu-linux-host-memory-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -4943,7 +4960,23 @@
       ]
     },
     {
-      "id": "cu-linux-cache-hierarchy-smoke",
+      "id": "cu-linux-processor-affinity-smoke",
+      "description": "Prove Linux processor-affinity-status scheduler-allowed CPU set matches independent /proc/<pid>/status Cpus_allowed_list or taskset read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-processor-affinity-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
       "description": "Prove Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-cache-hierarchy-smoke.qjs",
       "profile": "tool",

@@ -112,6 +112,7 @@
         "cu.linux-ime-status",
         "cu.linux-power-status-readback",
         "cu.linux-processor-topology-readback",
+        "cu.linux-host-memory-readback",
         "cu.linux-cache-hierarchy-readback",
         "cu.linux-resource-status-readback",
         "cu.linux-device-inventory-readback",

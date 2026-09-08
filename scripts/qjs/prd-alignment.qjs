@@ -274,6 +274,7 @@ const evidence_suites = {
   "cu-linux-menu-invoke-smoke": true,
   "cu-linux-power-status-smoke": true,
   "cu-linux-processor-topology-smoke": true,
+  "cu-linux-host-memory-smoke": true,
   "cu-linux-cache-hierarchy-smoke": true,
   "cu-linux-resource-status-smoke": true,
   "cu-linux-device-inventory-smoke": true,
