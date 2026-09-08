@@ -1561,23 +1561,6 @@
         "task.cu-linux-ps-smoke"
       ]
     },
-    "cu-linux-query-smoke": {
-      "inputs": [
-        "built-agenterm-cu"
-      ],
-      "outputs": [
-        "cu-linux-query-evidence"
-      ],
-      "budget": {
-        "timeout_ms": 120000,
-        "max_operations": 100000000,
-        "max_output_bytes": 262144
-      },
-      "network": [],
-      "evidence": [
-        "task.cu-linux-query-smoke"
-      ]
-    },
     "cu-linux-process-usage-smoke": {
       "inputs": [
         "built-agenterm-cu"

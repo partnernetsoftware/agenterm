@@ -107,6 +107,7 @@
         "cu.linux-atspi-tree-geometry",
         "cu.linux-atspi-tree-honesty",
         "cu.linux-atspi-query",
+        "cu.linux-query-readback",
         "cu.linux-atspi-invoke",
         "cu.linux-atspi-invoke-readback",
         "cu.linux-atspi-menu-inspect",
