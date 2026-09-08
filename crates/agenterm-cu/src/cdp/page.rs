@@ -594,6 +594,50 @@ fn not_found(query: &NodeQuery) -> CdpError {
     .with_detail(json!({ "query": query.json() }))
 }
 
+/// CSS for any enabled editable control on the page (used only to shape fill
+/// guidance when the caller's selector misses).
+const ANY_EDITABLE_CSS: &str =
+    "input:not([type=file]):not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly]), [contenteditable='true'], [contenteditable='']";
+
+/// When `page fill` cannot resolve the named field, say whether the page has
+/// any editable control at all and name the next CDP step (never coords).
+fn fill_target_not_found<T: Transport>(
+    session: &mut Session<T>,
+    query: &NodeQuery,
+) -> CdpError {
+    let editable_on_page = resolve_ids(session, &NodeQuery::Css(ANY_EDITABLE_CSS.into()))
+        .map(|(ids, _)| ids.len())
+        .unwrap_or(0);
+    if editable_on_page == 0 {
+        return CdpError::typed(
+            "cdp_node_not_found",
+            format!(
+                "no editable field matches {} and this page target has no enabled input, textarea, or contenteditable; nothing was written",
+                query.describe()
+            ),
+        )
+        .with_detail(json!({
+            "query": query.json(),
+            "effect": "not_performed",
+            "editable_fields_on_page": 0,
+            "next_actions": [
+                "page nav --url 'data:text/html,<title>form</title><input id=q>' loads a throwaway field in this tab without external accounts",
+                "page find --selector 'input,textarea' confirms whether any field exists before fill",
+            ],
+            "alternatives": ["page-nav", "page-find"],
+        }));
+    }
+    not_found(query).with_detail(json!({
+        "effect": "not_performed",
+        "editable_fields_on_page": editable_on_page,
+        "next_actions": [
+            "page find --selector 'input,textarea' lists editable nodes and their --node ids",
+            format!("narrow {} to one node, or pass --node ID from page find", query.describe()),
+        ],
+        "alternatives": ["page-find"],
+    }))
+}
+
 /// `page find`: every match (bounded), described with a path and a box.
 pub fn find<T: Transport>(
     session: &mut Session<T>,
@@ -1979,7 +2023,13 @@ pub fn plan_fill<T: Transport>(
             "page fill --text is empty; pass --clear to empty the field on purpose",
         ));
     }
-    let node = resolve_one(session, query)?;
+    let node = resolve_one(session, query).map_err(|error| {
+        if error.code == "cdp_node_not_found" {
+            fill_target_not_found(session, query)
+        } else {
+            error
+        }
+    })?;
     if !node.is_editable() {
         return Err(CdpError::typed(
             "cdp_node_not_editable",
@@ -3262,6 +3312,30 @@ mod tests {
             "hello world"
         );
         assert!(outcome.payload["submitted"].is_null());
+    }
+
+    #[test]
+    fn fill_on_a_page_with_no_editable_fields_names_page_nav_alternatives() {
+        let mut session = fake::session(|method, _| match method {
+            "DOM.getDocument" => Ok(json!({ "root": { "nodeId": 1 } })),
+            "DOM.querySelectorAll" => Ok(json!({ "nodeIds": [] })),
+            "Runtime.evaluate" => Ok(json!({ "result": { "value": { "url": "https://example.com/", "title": "Example Domain", "ready": "complete" } } })),
+            other => Err(format!("unexpected {other}")),
+        });
+        let err = plan_fill(
+            &mut session,
+            &NodeQuery::Css("input".into()),
+            "hello",
+            false,
+            false,
+        )
+        .expect_err("static page");
+        assert_eq!(err.code, "cdp_node_not_found");
+        assert_eq!(err.detail["editable_fields_on_page"], 0);
+        assert_eq!(err.detail["effect"], "not_performed");
+        assert_eq!(err.detail["alternatives"], json!(["page-nav", "page-find"]));
+        let actions = err.detail["next_actions"].as_array().expect("next_actions");
+        assert!(actions.iter().any(|step| step.as_str().is_some_and(|s| s.contains("page nav"))));
     }
 
     #[test]
