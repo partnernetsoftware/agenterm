@@ -138,18 +138,21 @@ impl<W: Write> Write for CleanupWriter<W> {
         if self.first_error.is_some() {
             return Ok(bytes.len());
         }
-        match self.inner.write(bytes) {
-            Ok(0) if !bytes.is_empty() => {
-                self.record(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "MCP output closed",
-                ));
-                Ok(bytes.len())
-            }
-            Ok(written) => Ok(written),
-            Err(error) => {
-                self.record(error);
-                Ok(bytes.len())
+        loop {
+            match self.inner.write(bytes) {
+                Ok(0) if !bytes.is_empty() => {
+                    self.record(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "MCP output closed",
+                    ));
+                    return Ok(bytes.len());
+                }
+                Ok(written) => return Ok(written),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    self.record(error);
+                    return Ok(bytes.len());
+                }
             }
         }
     }
@@ -158,10 +161,16 @@ impl<W: Write> Write for CleanupWriter<W> {
         if self.first_error.is_some() {
             return Ok(());
         }
-        if let Err(error) = self.inner.flush() {
-            self.record(error);
+        loop {
+            match self.inner.flush() {
+                Ok(()) => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    self.record(error);
+                    return Ok(());
+                }
+            }
         }
-        Ok(())
     }
 }
 
@@ -1889,6 +1898,41 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    #[derive(Default)]
+    struct InterruptOnceOutput {
+        write_interrupted: bool,
+        flush_interrupted: bool,
+        bytes: Vec<u8>,
+    }
+
+    impl Write for InterruptOnceOutput {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if !self.write_interrupted {
+                self.write_interrupted = true;
+                return Err(io::Error::from(io::ErrorKind::Interrupted));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if !self.flush_interrupted {
+                self.flush_interrupted = true;
+                return Err(io::Error::from(io::ErrorKind::Interrupted));
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn cleanup_writer_retries_interrupted_without_entering_disconnect_teardown() {
+        let mut output = CleanupWriter::new(InterruptOnceOutput::default());
+        output.write_all(b"reply").unwrap();
+        output.flush().unwrap();
+        assert!(!output.has_error());
+        assert_eq!(output.inner.bytes, b"reply");
     }
 
     impl DisconnectState {
