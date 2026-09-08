@@ -2086,16 +2086,19 @@ flowchart LR
   10,000-record native scan budget and ACU adds a 1 MiB response ceiling.
   `--max` is rejected outside 1..=5000 before enumeration. The public macOS
   qjswasm journey `cu.network-interfaces` is green and both Windows ISAs
-  compile under strict Clippy; Linux and
-  Windows runtime courts remain, so the ledger truthfully stays
+  compile under strict Clippy. Exact source `100ee73b` also passed its bounded
+  schema and alias contract on the Linux arm64 Wayland UTM court, then released
+  the VM; the compact receipt is
+  [`evidence/cu/lnx-aarch64-cu-network-interfaces-100ee73b.json`](../evidence/cu/lnx-aarch64-cu-network-interfaces-100ee73b.json).
+  Windows runtime evidence remains pending, so the ledger truthfully stays
   `platform-limited`. `network-routes` now adds the matching shell-free route
   inventory through Linux NETLINK_ROUTE, macOS PF_ROUTE/NET_RT_DUMP2 and
   Windows GetIpForwardTable2. It preserves ifindex/LUID identities, normalizes
   destination prefixes, treats a null gateway as on-link, and refuses
   interrupted or malformed kernel snapshots. Native scanning is capped at
   10,000 records and the public response at 1 MiB. The public macOS qjswasm
-  journey `cu.network-routes` is green; Linux and Windows native courts remain,
-  so this leaf is also `platform-limited`. `network-dns` now owns the active
+  `network-routes` journey is green; Linux and Windows
+  native route courts remain. `network-dns` now owns the active
   resolver/search-domain observation shape. It exposes provider, native
   interface/service identity when available, resolver scope, port, coverage,
   completeness and independent scan/response bounds. macOS reads the scoped
