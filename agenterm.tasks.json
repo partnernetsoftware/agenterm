@@ -1263,6 +1263,25 @@
         "task.cu-linux-gtk-entry-focused-send-text-smoke"
       ]
     },
+    "cu-linux-display-scale-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-display-scale-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 60000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-display-scale-smoke"
+      ]
+    },
     "cu-linux-keyboard-layout-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4540,6 +4559,25 @@
         "artifact_write",
         "process_spawn",
         "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-display-scale-smoke",
+      "description": "Prove Linux displays inventory returns frame geometry plus physical size/DPI/scale with independent xrandr/X11 read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-display-scale-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
       ]
     },
     {

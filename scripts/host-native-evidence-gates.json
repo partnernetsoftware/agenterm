@@ -252,6 +252,13 @@
       ]
     },
     {
+      "id": "cu-linux-display-scale-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-display-scale"
+      ]
+    },
+    {
       "id": "cu-linux-keyboard-layout-smoke",
       "platform": "linux",
       "evidence": [

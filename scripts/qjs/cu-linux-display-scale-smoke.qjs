@@ -1,0 +1,251 @@
+// CEO: Linux displays inventory with independent xrandr/X11 read-back.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-display-scale",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function run_cu(run_directory, executable, arguments) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_display_scale_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_display_scale_empty");
+  return JSON.parse(trimmed);
+}
+
+function parse_int_token(text) {
+  let value = 0;
+  let found = false;
+  for (let index = 0; index < text.length; index = index + 1) {
+    const code = text.charCodeAt(index);
+    if (code >= 48 && code <= 57) {
+      value = value * 10 + (code - 48);
+      found = true;
+    } else if (found) {
+      break;
+    }
+  }
+  return found ? value : 0;
+}
+
+function parse_xrandr_geometry(stdout) {
+  let width = 0;
+  let height = 0;
+  let width_mm = 0;
+  let height_mm = 0;
+  for (const line of stdout.split("\n")) {
+    const current = line.indexOf("current ");
+    if (current >= 0) {
+      const tail = line.slice(current + "current ".length);
+      const x = tail.indexOf(" x ");
+      if (x > 0) {
+        width = parse_int_token(tail.slice(0, x));
+        height = parse_int_token(tail.slice(x + 3));
+      }
+    }
+    const connected = line.indexOf(" connected ");
+    if (connected >= 0) {
+      const tail = line.slice(connected + " connected ".length);
+      const x = tail.indexOf("x");
+      const plus = tail.indexOf("+");
+      const mm = tail.indexOf("mm x ");
+      if (x > 0 && plus > x) {
+        width = parse_int_token(tail.slice(0, x));
+        height = parse_int_token(tail.slice(x + 1, plus));
+      }
+      if (mm > 0) {
+        const before_mm = tail.slice(0, mm).trim();
+        let space = -1;
+        for (let index = 0; index < before_mm.length; index = index + 1) {
+          if (before_mm.charCodeAt(index) === 32) {
+            space = index;
+          }
+        }
+        if (space >= 0) {
+          width_mm = parse_int_token(before_mm.slice(space + 1));
+          height_mm = parse_int_token(tail.slice(mm + "mm x ".length));
+        }
+      }
+    }
+  }
+  ensure(width > 0 && height > 0, "xrandr_geometry_missing:" + stdout);
+  return { width, height, width_mm, height_mm };
+}
+
+function parse_xdpyinfo_physical(stdout) {
+  let width = 0;
+  let height = 0;
+  let width_mm = 0;
+  let height_mm = 0;
+  let dpi_x = 0;
+  let dpi_y = 0;
+  for (const line of stdout.split("\n")) {
+    const dimensions = line.indexOf("dimensions:");
+    if (dimensions >= 0) {
+      const tail = line.slice(dimensions + "dimensions:".length).trim();
+      const x = tail.indexOf("x");
+      const pixels = tail.indexOf(" pixels (");
+      const close = tail.indexOf(" millimeters)");
+      if (x > 0 && pixels > x && close > pixels) {
+        width = parse_int_token(tail.slice(0, x));
+        height = parse_int_token(tail.slice(x + 1, pixels));
+        const inner = tail.slice(pixels + " pixels (".length, close);
+        const inner_x = inner.indexOf("x");
+        if (inner_x > 0) {
+          width_mm = parse_int_token(inner.slice(0, inner_x));
+          height_mm = parse_int_token(inner.slice(inner_x + 1));
+        }
+      }
+    }
+    const resolution = line.indexOf("resolution:");
+    if (resolution >= 0) {
+      const tail = line.slice(resolution + "resolution:".length).trim();
+      const x = tail.indexOf("x");
+      const dpi = tail.indexOf(" dots per inch");
+      if (x > 0 && dpi > x) {
+        dpi_x = parse_int_token(tail.slice(0, x));
+        dpi_y = parse_int_token(tail.slice(x + 1, dpi));
+      }
+    }
+  }
+  ensure(width > 0 && height > 0, "xdpyinfo_geometry_missing:" + stdout);
+  return { width, height, width_mm, height_mm, dpi_x, dpi_y };
+}
+
+function independent_display_facts() {
+  const xrandr = rh.command("xrandr", ["--query"], { timeout_ms: 10000 });
+  ensure(xrandr.success === true, "xrandr_query_failed:" + xrandr.stderr);
+  const geometry = parse_xrandr_geometry(xrandr.stdout);
+
+  let width_mm = geometry.width_mm;
+  let height_mm = geometry.height_mm;
+  let dpi_x = 0;
+  let dpi_y = 0;
+
+  if (width_mm <= 0 || height_mm <= 0) {
+    const xdpyinfo = rh.command("xdpyinfo", [], { timeout_ms: 10000 });
+    ensure(xdpyinfo.success === true, "xdpyinfo_query_failed:" + xdpyinfo.stderr);
+    const physical = parse_xdpyinfo_physical(xdpyinfo.stdout);
+    ensure(
+      physical.width === geometry.width && physical.height === geometry.height,
+      "xrandr_xdpyinfo_geometry_mismatch:" + JSON.stringify({ xrandr: geometry, xdpyinfo: physical })
+    );
+    width_mm = physical.width_mm;
+    height_mm = physical.height_mm;
+    dpi_x = physical.dpi_x;
+    dpi_y = physical.dpi_y;
+  }
+
+  if (dpi_x <= 0 || dpi_y <= 0) {
+    ensure(width_mm > 0 && height_mm > 0, "display_physical_size_unavailable");
+    dpi_x = Math.round(geometry.width * 25.4 / width_mm);
+    dpi_y = Math.round(geometry.height * 25.4 / height_mm);
+  }
+
+  const scale_factor = ((dpi_x + dpi_y) / 2.0) / 96.0;
+  ensure(scale_factor > 0.0, "display_scale_unavailable");
+  return {
+    width: geometry.width,
+    height: geometry.height,
+    width_mm,
+    height_mm,
+    dpi_x,
+    dpi_y,
+    scale_factor,
+  };
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-display-scale");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent xrandr/X11 read-back captures frame geometry and physical size");
+  const independent = independent_display_facts();
+  ensure(
+    independent.width_mm > 0 && independent.height_mm > 0
+      && independent.dpi_x > 0 && independent.dpi_y > 0 && independent.scale_factor > 0.0,
+    "independent_display_facts:" + JSON.stringify(independent)
+  );
+
+  print("STEP displays returns size/DPI/scale matching independent read-back");
+  const reply = run_cu(context.run_directory, executable, ["displays"]);
+  ensure(reply.ok === true && reply.command === "displays", "displays_reply");
+  ensure(text_at(reply, "data.via") === "agt_screen_list", "displays_via");
+  const rows = at(reply, "data.displays");
+  ensure(rows !== undefined && rows.length > 0, "displays_empty");
+  let primary = rows[0];
+  for (let index = 0; index < rows.length; index = index + 1) {
+    if (rows[index].primary === true) {
+      primary = rows[index];
+      break;
+    }
+  }
+
+  ensure(int_at(primary, "frame.width") === independent.width, "frame_width_mismatch");
+  ensure(int_at(primary, "frame.height") === independent.height, "frame_height_mismatch");
+  ensure(int_at(primary, "widthMm") === independent.width_mm, "width_mm_mismatch");
+  ensure(int_at(primary, "heightMm") === independent.height_mm, "height_mm_mismatch");
+  ensure(Math.abs(int_at(primary, "dpiX") - independent.dpi_x) <= 1, "dpi_x_mismatch");
+  ensure(Math.abs(int_at(primary, "dpiY") - independent.dpi_y) <= 1, "dpi_y_mismatch");
+  ensure(Math.abs(Number(at(primary, "scaleFactor")) - independent.scale_factor) < 0.01, "scale_factor_mismatch");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-display-scale");
+  harness.remove_run(context);
+  print("PASS: CEO Linux displays inventory with independent xrandr/X11 read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
