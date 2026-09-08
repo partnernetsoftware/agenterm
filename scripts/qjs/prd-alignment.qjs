@@ -350,6 +350,7 @@ const evidence_suites = {
   "cu-doctor-smoke": true,
   "cu-power-status-smoke": true,
   "cu-power-action-plan-smoke": true,
+  "cu-clipboard-roundtrip-smoke": true,
   "cu-host-open-smoke": true,
   "cu-permissions-open-smoke": true,
   "cu-host-notify-smoke": true,

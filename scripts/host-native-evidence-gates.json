@@ -253,6 +253,13 @@
       ]
     },
     {
+      "id": "cu-linux-hide-show-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-app-hide-show-state"
+      ]
+    },
+    {
       "id": "cu-linux-topmost-expect-smoke",
       "platform": "linux",
       "evidence": [
@@ -301,6 +308,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-desktop-state"
+      ]
+    },
+    {
+      "id": "cu-linux-power-status-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-power-status-readback"
       ]
     },
     {

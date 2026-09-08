@@ -909,6 +909,25 @@
         "task.cu-linux-fullscreen-expect-smoke"
       ]
     },
+    "cu-linux-hide-show-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-hide-show-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-hide-show-smoke"
+      ]
+    },
     "cu-linux-window-close-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4711,6 +4730,26 @@
       "id": "cu-linux-fullscreen-expect-smoke",
       "description": "Prove Linux fullscreen/unfullscreen --expect fullscreen|unfullscreen on a disposable GTK fixture window: independent xprop _NET_WM_STATE and windows inventory fullscreen field must match --expect after each verb; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-fullscreen-expect-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-hide-show-smoke",
+      "description": "Prove Linux app hide/show state on a disposable GTK fixture with independent windows inventory read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-hide-show-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
