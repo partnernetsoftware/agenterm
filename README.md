@@ -66,7 +66,9 @@ client, and a deliberately bounded tmux/RMUX frontend.
   entry for typed computer use. Its qjswasm source is built into AgenTerm, so
   it works outside the source checkout and never falls back to the archived
   MCU runtime. The worker envelope defaults to 650 seconds so CU's narrower
-  provider-owned deadlines remain authoritative.
+  provider-owned deadlines remain authoritative. Put `--timeout-ms N` before
+  the legacy verb to tighten that envelope or admit an operation longer than
+  650 seconds; a same-named option after the verb remains that verb's option.
 - `agenterm cli mcp` is the on-demand read-only MCP surface (no separate
   `agenterm-mcp` PE). Its first v0.1.10 slice serves four metadata-only Fleet
   resources and one bounded `agenterm_wait` tool over stdio; it exposes no

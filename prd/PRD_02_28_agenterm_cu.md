@@ -151,7 +151,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
   │  │      and its worker envelope is 650 seconds by default so provider-owned deadlines up to
   │  │      600 seconds remain authoritative; leading `--timeout-ms N` is an explicit override,
-  │  │      including longer compatibility operations such as process kill or device watch
+  │  │      including longer compatibility operations such as process kill or device watch;
+  │  │      the same spelling after the legacy verb remains a verb-owned option
   │  ├─ [x] Unix hard-timeout cleanup keeps resident browser/job/PTY/device owners that crossed
   │  │      the explicit `setsid` boundary; same-session descendants remain invocation-owned
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime

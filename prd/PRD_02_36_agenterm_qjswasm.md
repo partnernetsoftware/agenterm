@@ -93,7 +93,8 @@ agenterm-qjswasm
 │  │  ├─ [x] Script worker process remains the bounded hard-containment boundary
 │  │  ├─ [x] `agenterm cli acu` supplies a 650-second worker envelope for provider-owned
 │  │  │      deadlines up to 600 seconds; a leading `--timeout-ms N` explicitly overrides it,
-│  │  │      including longer compatibility operations such as process kill or device watch
+│  │  │      including longer compatibility operations such as process kill or device watch;
+│  │  │      the same spelling after the legacy verb remains a verb-owned option
 │  │  ├─ [x] Unix hard-timeout cleanup preserves a descendant that crossed the explicit
 │  │  │      `setsid` ownership boundary while still terminating same-session descendants
 │  │  └─ [ ] pass one cooperative token through Executor and interruptible native waits
