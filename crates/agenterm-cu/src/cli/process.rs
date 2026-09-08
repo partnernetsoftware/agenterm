@@ -73,6 +73,33 @@ fn inspection_bounds(args: &mut Vec<String>) -> Result<InspectionBounds, String>
     let offset = flag_parsed::<usize>(args, "--offset")?;
     let limit = flag_parsed::<usize>(args, "--limit")?;
     let max_visited = flag_parsed::<usize>(args, "--max-visited")?;
+    validate_inspection_bounds(offset, limit, max_visited)
+}
+
+fn flag_max_visited_with_max_alias(args: &mut Vec<String>) -> Result<Option<usize>, String> {
+    let max_visited = flag_parsed::<usize>(args, "--max-visited")?;
+    let max = flag_parsed::<usize>(args, "--max")?;
+    match (max_visited, max) {
+        (Some(left), Some(right)) if left != right => Err(
+            "process-fds --max and --max-visited disagree; use one scan-ceiling flag".into(),
+        ),
+        (Some(value), Some(_)) | (Some(value), None) | (None, Some(value)) => Ok(Some(value)),
+        (None, None) => Ok(None),
+    }
+}
+
+fn process_fds_inspection_bounds(args: &mut Vec<String>) -> Result<InspectionBounds, String> {
+    let offset = flag_parsed::<usize>(args, "--offset")?;
+    let limit = flag_parsed::<usize>(args, "--limit")?;
+    let max_visited = flag_max_visited_with_max_alias(args)?;
+    validate_inspection_bounds(offset, limit, max_visited)
+}
+
+fn validate_inspection_bounds(
+    offset: Option<usize>,
+    limit: Option<usize>,
+    max_visited: Option<usize>,
+) -> Result<InspectionBounds, String> {
     if offset.is_some_and(|value| value > 100_000) {
         return Err("process inspection --offset must be in 0..=100000".into());
     }
@@ -114,7 +141,7 @@ fn process_fds(target: TargetRef, args: &mut Vec<String>) -> Result<Command, Str
         offset,
         limit,
         max_visited,
-    } = inspection_bounds(args)?;
+    } = process_fds_inspection_bounds(args)?;
     if !args.is_empty() {
         return Err(format!("process-fds received unexpected {:?}", args[0]));
     }
@@ -1325,6 +1352,72 @@ mod tests {
         ));
         let mut max_without_tree = vec!["42".into(), "TERM".into(), "--max".into(), "500".into()];
         assert!(parse(spec, "signal", TargetRef::Current, &mut max_without_tree).is_err());
+    }
+
+    #[test]
+    fn process_fds_accepts_max_as_max_visited_alias() {
+        let spec = verbs::lookup("process-fds").expect("process-fds verb");
+        let mut with_max = vec!["--pid".into(), "42".into(), "--max".into(), "5".into()];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut with_max).expect("parse --max"),
+            Command::ProcessFds {
+                pid: 42,
+                max_visited: Some(5),
+                ..
+            }
+        ));
+
+        let mut with_both = vec![
+            "--pid".into(),
+            "42".into(),
+            "--max".into(),
+            "5".into(),
+            "--max-visited".into(),
+            "5".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut with_both).expect("parse both"),
+            Command::ProcessFds {
+                pid: 42,
+                max_visited: Some(5),
+                ..
+            }
+        ));
+
+        let mut disagree = vec![
+            "--pid".into(),
+            "42".into(),
+            "--max".into(),
+            "5".into(),
+            "--max-visited".into(),
+            "9".into(),
+        ];
+        assert!(
+            parse(spec, spec.name, TargetRef::Current, &mut disagree)
+                .expect_err("disagree")
+                .contains("disagree")
+        );
+
+        let mut pagination = vec![
+            "--pid".into(),
+            "42".into(),
+            "--offset".into(),
+            "1".into(),
+            "--limit".into(),
+            "3".into(),
+            "--max".into(),
+            "100".into(),
+        ];
+        assert!(matches!(
+            parse(spec, spec.name, TargetRef::Current, &mut pagination).expect("pagination"),
+            Command::ProcessFds {
+                pid: 42,
+                offset: Some(1),
+                limit: Some(3),
+                max_visited: Some(100),
+                ..
+            }
+        ));
     }
 
     #[test]
