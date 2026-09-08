@@ -668,35 +668,54 @@ pub(crate) fn get_type(
 }
 
 pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
-    let facts = ClipboardBackendFacts::probe();
-    let helpers: &[&[&str]] = if facts.wayland_read() {
-        &[WL_PASTE_TYPES]
-    } else {
-        &[XCLIP_TARGETS, XSEL_TARGETS]
-    };
-    let mut last: Option<ClipboardError> = None;
-    for helper in helpers {
-        match read_via_command(helper, TYPE_LIST_LIMIT_BYTES, HELPER_TIMEOUT) {
-            Ok(listing) => return Ok(parse_target_list(&listing)),
-            Err(error) => last = Some(error),
+    let display = display_facts_from_env();
+    if display.headless {
+        return Err(ClipboardError::Unavailable {
+            message: "clipboard unsupported (headless-display)".to_string(),
+        });
+    }
+    let backends = ClipboardBackendFacts::probe();
+    let mut errors = Vec::new();
+
+    if display.x11 {
+        match x11_clipboard::available_types(HELPER_TIMEOUT) {
+            Ok(types) => return Ok(types),
+            Err(error) => {
+                if !can_read_helper(display, backends) && !display.wayland {
+                    return Err(error);
+                }
+                errors.push(format!("native-x11: {}", error.message()));
+            }
         }
     }
-    // Name the mechanism that is missing. The raw spawn error ("No such
-    // file or directory") reaches the caller as a reason for a refusal, and
-    // on a host with no helper installed at all that reads like a bug in
-    // the clipboard rather than a tool that is not there.
-    let names: Vec<&str> = helpers
-        .iter()
-        .filter_map(|helper| helper.first().copied())
-        .collect();
-    let detail = last
-        .as_ref()
-        .map(|error| format!(" (last: {})", error.message()))
-        .unwrap_or_default();
+
+    if display.wayland && backends.wl_paste {
+        match read_via_command(WL_PASTE_TYPES, TYPE_LIST_LIMIT_BYTES, HELPER_TIMEOUT) {
+            Ok(listing) => return Ok(parse_target_list(&listing)),
+            Err(error) => errors.push(format!("wl-paste: {}", error.message())),
+        }
+    }
+
+    if display.x11 {
+        for helper in [XCLIP_TARGETS, XSEL_TARGETS] {
+            match read_via_command(helper, TYPE_LIST_LIMIT_BYTES, HELPER_TIMEOUT) {
+                Ok(listing) => return Ok(parse_target_list(&listing)),
+                Err(error) => {
+                    let label = helper.first().copied().unwrap_or("helper");
+                    errors.push(format!("{label}: {}", error.message()));
+                }
+            }
+        }
+    }
+
+    let detail = if errors.is_empty() {
+        "no clipboard type probe was attempted".to_string()
+    } else {
+        errors.join("; ")
+    };
     Err(ClipboardError::Unavailable {
         message: format!(
-            "no clipboard helper answered a TARGETS probe; this host needs one of: {}{detail}",
-            names.join(", ")
+            "clipboard type enumeration failed on this host ({detail})"
         ),
     })
 }

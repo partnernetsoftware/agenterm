@@ -26,6 +26,8 @@ use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME, NONE};
 
 use super::ClipboardError;
 
+const TARGETS_PROBE_ATOMS: usize = crate::contract::clipboard::MAX_CLIPBOARD_TYPES;
+
 struct Atoms {
     clipboard: Atom,
     utf8_string: Atom,
@@ -361,6 +363,152 @@ impl NativeClipboard {
         }
     }
 
+    fn available_types(&mut self, timeout: Duration) -> Result<Vec<String>, ClipboardError> {
+        self.pump()?;
+        if let Some(owned) = self.owned.as_ref() {
+            return Ok(self.owned_type_names(owned));
+        }
+        let owner = self
+            .conn
+            .get_selection_owner(self.atoms.clipboard)
+            .map_err(|error| backend(format!("X11 GetSelectionOwner send failed: {error}")))?
+            .reply()
+            .map_err(|error| backend(format!("X11 GetSelectionOwner failed: {error}")))?
+            .owner;
+        if owner == NONE {
+            return Ok(Vec::new());
+        }
+        let atoms = self.convert_clipboard_atoms(self.atoms.targets, timeout)?;
+        let mut names = Vec::new();
+        for atom in atoms {
+            if names.len() >= crate::contract::clipboard::MAX_CLIPBOARD_TYPES {
+                break;
+            }
+            names.push(self.atom_name(atom)?);
+        }
+        Ok(names)
+    }
+
+    fn owned_type_names(&self, owned: &OwnedSelection) -> Vec<String> {
+        let mut names = vec!["TARGETS".to_owned(), owned.type_name.clone()];
+        if owned.type_atom == self.atoms.utf8_string && owned.type_name != "STRING" {
+            names.push("STRING".to_owned());
+        }
+        names.truncate(crate::contract::clipboard::MAX_CLIPBOARD_TYPES);
+        names
+    }
+
+    fn atom_name(&self, atom: Atom) -> Result<String, ClipboardError> {
+        if atom == self.atoms.targets {
+            return Ok("TARGETS".to_owned());
+        }
+        if atom == self.atoms.utf8_string {
+            return Ok("UTF8_STRING".to_owned());
+        }
+        if atom == self.atoms.string {
+            return Ok("STRING".to_owned());
+        }
+        if atom == self.atoms.incr {
+            return Ok("INCR".to_owned());
+        }
+        if atom == self.atoms.clipboard {
+            return Ok("CLIPBOARD".to_owned());
+        }
+        if atom == self.atoms.atom {
+            return Ok("ATOM".to_owned());
+        }
+        self.conn
+            .get_atom_name(atom)
+            .map_err(|error| backend(format!("X11 GetAtomName send failed: {error}")))?
+            .reply()
+            .map(|reply| String::from_utf8_lossy(&reply.name).into_owned())
+            .map_err(|error| backend(format!("X11 GetAtomName failed: {error}")))
+    }
+
+    fn convert_clipboard_atoms(
+        &mut self,
+        target: Atom,
+        timeout: Duration,
+    ) -> Result<Vec<Atom>, ClipboardError> {
+        let _ = self.conn.delete_property(self.window, self.atoms.property);
+        self.conn
+            .convert_selection(
+                self.window,
+                self.atoms.clipboard,
+                target,
+                self.atoms.property,
+                CURRENT_TIME,
+            )
+            .map_err(|error| backend(format!("X11 ConvertSelection send failed: {error}")))?;
+        self.conn
+            .flush()
+            .map_err(|error| backend(format!("X11 ConvertSelection flush failed: {error}")))?;
+        let deadline = Instant::now() + timeout;
+        loop {
+            match self.conn.poll_for_event() {
+                Ok(Some(Event::SelectionNotify(notify)))
+                    if notify.selection == self.atoms.clipboard
+                        && notify.requestor == self.window
+                        && notify.target == target =>
+                {
+                    if notify.property == NONE {
+                        return Err(backend("X11 selection owner did not offer TARGETS"));
+                    }
+                    return self.read_property_atoms(notify.property);
+                }
+                Ok(Some(event)) => self.handle_event(event)?,
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        return Err(ClipboardError::Timeout {
+                            message: format!(
+                                "clipboard_timeout: X11 ConvertSelection exceeded {} ms",
+                                timeout.as_millis()
+                            ),
+                        });
+                    }
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => {
+                    return Err(backend(format!("X11 poll_for_event failed: {error}")));
+                }
+            }
+        }
+    }
+
+    fn read_property_atoms(&self, property: Atom) -> Result<Vec<Atom>, ClipboardError> {
+        let reply = self
+            .conn
+            .get_property(
+                true,
+                self.window,
+                property,
+                AtomEnum::ANY,
+                0,
+                TARGETS_PROBE_ATOMS as u32,
+            )
+            .map_err(|error| backend(format!("X11 GetProperty send failed: {error}")))?
+            .reply()
+            .map_err(|error| backend(format!("X11 GetProperty failed: {error}")))?;
+        if reply.format == 0 {
+            return Ok(Vec::new());
+        }
+        if reply.format != 32 {
+            return Err(backend(format!(
+                "X11 TARGETS property has format {}, expected 32",
+                reply.format
+            )));
+        }
+        reply
+            .value32()
+            .map(|values| {
+                values
+                    .take(TARGETS_PROBE_ATOMS)
+                    .map(Atom::from)
+                    .collect()
+            })
+            .ok_or_else(|| backend("X11 TARGETS property is not a 32-bit atom array"))
+    }
+
     fn read_property_bytes(
         &self,
         property: Atom,
@@ -445,6 +593,10 @@ pub(super) fn set_type(
     with_state(|state| state.set_type(type_name, bytes))
 }
 
+pub(super) fn available_types(timeout: Duration) -> Result<Vec<String>, ClipboardError> {
+    with_state(|state| state.available_types(timeout))
+}
+
 pub(super) fn clear(_timeout: Duration) -> Result<(), ClipboardError> {
     with_state(|state| {
         state.pump()?;
@@ -500,6 +652,30 @@ mod tests {
                 "PLATFORM_CLIPBOARD"
             ]
         );
+    }
+
+    #[test]
+    fn native_x11_available_types_when_display_is_set() {
+        if std::env::var_os("DISPLAY").is_none() {
+            return;
+        }
+        let marker = format!(
+            "agenterm-linux-x11-types-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        );
+        super::set_text(&marker, Duration::from_millis(500)).expect("set_text");
+        let types = super::available_types(Duration::from_millis(500)).expect("available_types");
+        assert!(
+            types.iter().any(|name| name == "UTF8_STRING" || name == "STRING"),
+            "expected UTF8_STRING or STRING in {types:?}"
+        );
+        assert!(types.iter().any(|name| name == "TARGETS"));
+        super::clear(Duration::from_millis(500)).expect("clear");
+        let empty = super::available_types(Duration::from_millis(500)).expect("empty types");
+        assert!(empty.is_empty(), "cleared clipboard should enumerate no types");
     }
 
     #[test]
