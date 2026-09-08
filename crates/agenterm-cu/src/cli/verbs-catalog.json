@@ -3883,6 +3883,42 @@
       ]
     },
     {
+      "name": "scroll-wheel",
+      "command": "scroll-wheel",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "a11y-actuate",
+      "summary": "bounded wheel at a named node's AT-SPI extents center",
+      "usage": "scroll-wheel --window HANDLE --name PAT [--role ROLE] --dx DX --dy DY",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--name",
+          "value": "PAT",
+          "help": "unique showing node whose name contains PAT (wait matching)"
+        },
+        {
+          "flag": "--role",
+          "value": "ROLE",
+          "help": "narrow --name to one role"
+        },
+        {
+          "flag": "--dx",
+          "value": "DX",
+          "help": "-100..=100; positive is left, negative is right"
+        },
+        {
+          "flag": "--dy",
+          "value": "DY",
+          "help": "-100..=100; positive is up, negative is down"
+        }
+      ]
+    },
+    {
       "name": "select",
       "command": "select",
       "aliases": [],
@@ -6511,6 +6547,10 @@
     {
       "name": "scroll",
       "text": "agenterm-cu scroll\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  scroll --window HANDLE --name PAT [--role ROLE]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --name PAT                    unique showing node whose name contains PAT (wait matching)\n  --role ROLE                   narrow --name to one role\n\nOne-shot AT-SPI Component.ScrollTo(TopEdge). addressing=accessibility-tree\nvia=scroll-to. Missing / false / UnknownMethod typed-fails\n(a11y_scroll_unavailable). Never Action scroll*, XTest wheel, --coords, or\nscreenshot.\n"
+    },
+    {
+      "name": "scroll-wheel",
+      "text": "agenterm-cu scroll-wheel\n  scope: actuate    family: Accessibility: actuate\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  scroll-wheel --window HANDLE --name PAT [--role ROLE] --dx DX --dy DY\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --name PAT                    unique showing node whose name contains PAT (wait matching)\n  --role ROLE                   narrow --name to one role\n  --dx DX                       -100..=100; positive is left, negative is right\n  --dy DY                       -100..=100; positive is up, negative is down\n\nBounded wheel delivery at the named node's AT-SPI screen center without\nleaving the physical pointer displaced. addressing=accessibility-tree\nvia=xtest-wheel-at-extents-center. Independent Component.GetExtents before\nand after must move or the command typed-fails (a11y_scroll_wheel_no_effect).\nNever --coords or screenshot.\n"
     },
     {
       "name": "select",

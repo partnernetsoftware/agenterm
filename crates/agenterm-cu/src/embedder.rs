@@ -254,6 +254,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::Restore { .. }
         | Command::RuntimeStatus { .. }
         | Command::Scroll { .. }
+        | Command::ScrollWheel { .. }
         | Command::Select { .. }
         | Command::SendKeys { .. }
         | Command::SendText { .. }

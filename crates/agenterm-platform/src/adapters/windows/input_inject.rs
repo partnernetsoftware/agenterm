@@ -57,6 +57,16 @@ pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
     send_batch(&wheel_inputs(dx, dy))
 }
 
+pub(crate) fn pointer_scroll_at(
+    _position: PointerPosition,
+    _dx: i32,
+    _dy: i32,
+) -> Result<(), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer scroll at position is not wired on Windows yet".into(),
+    })
+}
+
 fn wheel_inputs(dx: i32, dy: i32) -> Vec<INPUT> {
     let mut inputs = Vec::with_capacity(2);
     if dy != 0 {

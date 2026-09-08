@@ -3873,7 +3873,37 @@ async fn wheel_node_center_async(
     }
     let object = resolve_path(&conn, &selected, &indices).await?;
     let proxy = open_bus_object(&conn, &object).await?;
-    let component = component_proxy_for(&proxy).await?;
+    wheel_delivery_center_for_proxy(&proxy).await
+}
+
+async fn wheel_delivery_center_for_proxy(
+    proxy: &AccessibleProxy<'_>,
+) -> Result<PointerPosition, AccessibilityTreeError> {
+    let role = proxy.get_role().await.ok();
+    if role.as_ref().is_some_and(role_is_non_scrollable_leaf) {
+        let conn = proxy.inner().connection();
+        let ancestors = collect_parent_objects(conn, proxy).await?;
+        for ancestor_obj in ancestors {
+            let ancestor_proxy = match open_bus_object(conn, &ancestor_obj).await {
+                Ok(proxy) => proxy,
+                Err(_) => continue,
+            };
+            let ancestor_role = ancestor_proxy.get_role().await.ok();
+            if ancestor_role
+                .as_ref()
+                .is_some_and(role_supports_viewport_scroll)
+            {
+                return component_center_for_wheel(&ancestor_proxy).await;
+            }
+        }
+    }
+    component_center_for_wheel(proxy).await
+}
+
+async fn component_center_for_wheel(
+    proxy: &AccessibleProxy<'_>,
+) -> Result<PointerPosition, AccessibilityTreeError> {
+    let component = component_proxy_for(proxy).await?;
     let (x, y, width, height) = timeout(NODE_TIMEOUT, component.get_extents(CoordType::Screen))
         .await
         .map_err(|_| {
@@ -4905,9 +4935,10 @@ fn map_input_inject_err(error: InputInjectError) -> AccessibilityTreeError {
             "a11y_scroll_wheel_unavailable",
             reason,
         ),
-        InputInjectError::Failed { code, message } => {
-            AccessibilityTreeError::failed(code, message)
-        }
+        InputInjectError::Failed { code, message } => AccessibilityTreeError::failed(
+            "a11y_scroll_wheel_unavailable",
+            format!("{code}: {message}"),
+        ),
     }
 }
 

@@ -270,6 +270,38 @@ pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
     Ok(())
 }
 
+/// Post signed wheel detents at `position` in absolute screen coordinates.
+/// The physical pointer is warped to the target only for delivery and then
+/// restored so callers can scroll a named AT-SPI region without leaving the
+/// cursor displaced.
+pub(crate) fn pointer_scroll_at(
+    position: PointerPosition,
+    dx: i32,
+    dy: i32,
+) -> Result<(), InputInjectError> {
+    validate_pointer_scroll(dx, dy)?;
+    let context = connect()?;
+    let reply = context
+        .connection
+        .query_pointer(context.root)
+        .map_err(|_| failed("X11 pointer query could not be sent"))?
+        .reply()
+        .map_err(|_| failed("X11 pointer query failed"))?;
+    let home_x = reply.root_x;
+    let home_y = reply.root_y;
+    let x = i16::try_from(position.x)
+        .map_err(|_| failed("pointer x coordinate is outside the X11 range"))?;
+    let y = i16::try_from(position.y)
+        .map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
+    xtest_input(&context, MOTION_NOTIFY_EVENT, 0, x, y)?;
+    for button in wheel_buttons(dx, dy) {
+        xtest_input(&context, BUTTON_PRESS_EVENT, button, 0, 0)?;
+        xtest_input(&context, BUTTON_RELEASE_EVENT, button, 0, 0)?;
+    }
+    xtest_input(&context, MOTION_NOTIFY_EVENT, 0, home_x, home_y)?;
+    Ok(())
+}
+
 fn wheel_buttons(dx: i32, dy: i32) -> Vec<u8> {
     let mut buttons = Vec::with_capacity((dx.unsigned_abs() + dy.unsigned_abs()) as usize);
     buttons.extend(std::iter::repeat_n(

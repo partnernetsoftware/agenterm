@@ -94,7 +94,7 @@ use agenterm_platform::accessibility_tree::{
     get_node_caret_offset, get_node_extents, get_node_selection, get_node_text, hover_node, invoke_menu_path,
     last_text_write_via, menu_tree_for_window, observe_window, perform_node_action,
     poke_manual_accessibility, scroll_node, send_node_keys, set_application_visibility,
-    set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded,
+    set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded, wheel_node,
 };
 use agenterm_platform::app_inventory::{launch as launch_app, list_installed};
 use agenterm_platform::clipboard::{
@@ -299,7 +299,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 30);
+abi_version!(1, 31);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -4806,6 +4806,52 @@ pub extern "C" fn agt_a11y_node_hover(window_handle: isize, node_id: *const c_ch
     match catch_unwind(AssertUnwindSafe(|| inner(window_handle, node_id))) {
         Ok(s) => s,
         Err(_) => { record_error(c"agt_a11y_node_hover", c"panic", "panic in agt_a11y_node_hover"); agt_status::AGT_FAILED }
+    }
+}
+
+/// Bounded wheel delivery at the named node's AT-SPI screen center without
+/// leaving the physical pointer displaced. `dx`/`dy` are signed detents in
+/// the portable pointer-scroll convention. NULL `node_id` → `bad_pointer`.
+/// Never `--coords` or screenshot.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_node_wheel(
+    window_handle: isize,
+    node_id: *const c_char,
+    dx: i32,
+    dy: i32,
+) -> agt_status {
+    fn inner(window_handle: isize, node_id: *const c_char, dx: i32, dy: i32) -> agt_status {
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
+        }
+        if node_id.is_null() {
+            record_error(c"agt_a11y_node_wheel", c"bad_pointer", "node_id is null");
+            return agt_status::AGT_FAILED;
+        }
+        let node_id = match unsafe { CStr::from_ptr(node_id) }.to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                record_error(c"agt_a11y_node_wheel", c"bad_encoding", "node_id is not UTF-8");
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let filter = if window_handle == 0 {
+            None
+        } else {
+            Some(window_handle)
+        };
+        match wheel_node(filter, node_id, dx, dy) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(e) => map_a11y_error(c"agt_a11y_node_wheel", e),
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(window_handle, node_id, dx, dy))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(c"agt_a11y_node_wheel", c"panic", "panic in agt_a11y_node_wheel");
+            agt_status::AGT_FAILED
+        }
     }
 }
 

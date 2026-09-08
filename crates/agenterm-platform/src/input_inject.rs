@@ -30,6 +30,18 @@ pub fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
     crate::selected::input_inject::pointer_scroll(dx, dy)
 }
 
+/// Post signed wheel detents at absolute screen `position`. Linux restores
+/// the physical pointer after delivery; other hosts answer typed
+/// `Unsupported`.
+pub fn pointer_scroll_at(
+    position: PointerPosition,
+    dx: i32,
+    dy: i32,
+) -> Result<(), InputInjectError> {
+    crate::contract::input_inject::validate_pointer_scroll(dx, dy)?;
+    crate::selected::input_inject::pointer_scroll_at(position, dx, dy)
+}
+
 pub fn pointer_click(
     position: PointerPosition,
     button: PointerButton,

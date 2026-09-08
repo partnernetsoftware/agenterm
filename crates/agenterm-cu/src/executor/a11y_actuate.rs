@@ -332,6 +332,91 @@ pub(super) fn hover(
     Ok(payload)
 }
 
+pub(crate) fn map_scroll_wheel_err(error: mechanism::MechanismError) -> CuError {
+    let mapped = map_mechanism_err(error);
+    if mapped.code != "a11y_scroll_wheel_unavailable" && mapped.code != "a11y_scroll_wheel_no_effect"
+        || crate::mcu_surface::host_os() != "linux"
+    {
+        return mapped;
+    }
+    mapped.with_detail(serde_json::json!({
+        "os": "linux",
+        "mechanism": "at-spi2-component+xtest-wheel",
+        "alternatives": [
+            "scroll-wheel a Gtk.ScrolledWindow, Chrome scroll pane, or other scrollable AT-SPI region",
+            "name scrollable content whose screen geometry should move (for example OffscreenField)",
+            "use scroll --name for one-shot Component.ScrollTo(TopEdge) instead of wheel deltas",
+            "get-extents before and after to observe independent geometry movement",
+        ],
+    }))
+}
+
+/// `scroll-wheel --name` delivers bounded wheel detents at the named node's
+/// AT-SPI screen center (`agt_a11y_node_wheel`) without leaving the physical
+/// pointer displaced. Independent `Component.GetExtents(Screen)` before/after
+/// must show movement or the command typed-fails (`a11y_scroll_wheel_no_effect`).
+pub(super) fn scroll_wheel(
+    window: Option<isize>,
+    name: Option<&str>,
+    role: Option<&str>,
+    dx: i32,
+    dy: i32,
+) -> Result<serde_json::Value, CuError> {
+    let name = name.filter(|value| !value.is_empty()).ok_or_else(|| {
+        CuError::new(
+            "invalid_input",
+            "scroll-wheel requires --window <handle> --name <pattern>",
+        )
+    })?;
+    let resolved = resolve_actuation_node(window, None, Some(name), role, "scroll-wheel")?
+        .ok_or_else(|| {
+            CuError::new(
+                "invalid_input",
+                "scroll-wheel requires --window <handle> --name <pattern>",
+            )
+        })?;
+    let before =
+        mechanism::get_node_extents(window, &resolved.node_id).map_err(map_mechanism_err)?;
+    mechanism::wheel_node(window, &resolved.node_id, dx, dy).map_err(map_scroll_wheel_err)?;
+    let after =
+        mechanism::get_node_extents(window, &resolved.node_id).map_err(map_mechanism_err)?;
+    let delta_x = after.x - before.x;
+    let delta_y = after.y - before.y;
+    if delta_x == 0 && delta_y == 0 {
+        return Err(map_scroll_wheel_err(mechanism::MechanismError::Failed {
+            code: "a11y_scroll_wheel_no_effect".into(),
+            message: "wheel delivery was accepted but independent Component.GetExtents did not move"
+                .into(),
+        }));
+    }
+    let mut payload = serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "node": resolved.node_id,
+        "window": window,
+        "action": "scroll-wheel",
+        "via": "xtest-wheel-at-extents-center",
+        "dx": dx,
+        "dy": dy,
+        "before": {
+            "x": before.x,
+            "y": before.y,
+            "width": before.width,
+            "height": before.height,
+        },
+        "after": {
+            "x": after.x,
+            "y": after.y,
+            "width": after.width,
+            "height": after.height,
+        },
+        "delta": { "x": delta_x, "y": delta_y },
+        "verified": true,
+    });
+    attach_name_match(&mut payload, &resolved);
+    Ok(payload)
+}
+
 /// `get-extents --name` reads independent AT-SPI `Component.GetExtents(Screen)`
 /// (`agt_a11y_node_get_extents`). Snapshot `node.bounds` do not count.
 /// Empty extents typed-fail (`a11y_extents_unavailable`).

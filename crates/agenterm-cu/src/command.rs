@@ -2991,6 +2991,21 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         role: Option<String>,
     },
+    /// Bounded wheel delivery at the unique showing named node's AT-SPI screen
+    /// center without leaving the physical pointer displaced. Independent
+    /// `Component.GetExtents` before/after must move or typed-fails
+    /// (`a11y_scroll_wheel_no_effect`). Never `--coords` or screenshot.
+    ScrollWheel {
+        target: TargetRef,
+        dx: i32,
+        dy: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window: Option<isize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+    },
     /// Independent AT-SPI `Component.GetExtents(Screen)` for the unique
     /// showing named node. Snapshot `node.bounds` do not count. Empty
     /// extents typed-fail (`a11y_extents_unavailable`).
@@ -4278,6 +4293,7 @@ impl Command {
             Self::Paste { .. } => "paste".into(),
             Self::SendKeys { .. } => "send-keys".into(),
             Self::Scroll { .. } => "scroll".into(),
+            Self::ScrollWheel { .. } => "scroll-wheel".into(),
             Self::GetExtents { .. } => "get-extents".into(),
             Self::Select { .. } => "select".into(),
             Self::GetSelection { .. } => "get-selection".into(),
@@ -4704,6 +4720,7 @@ impl Command {
             | Self::Paste { target, .. }
             | Self::SendKeys { target, .. }
             | Self::Scroll { target, .. }
+            | Self::ScrollWheel { target, .. }
             | Self::GetExtents { target, .. }
             | Self::Select { target, .. }
             | Self::GetSelection { target, .. }
@@ -4872,6 +4889,7 @@ impl Command {
             | Self::Paste { .. }
             | Self::SendKeys { .. }
             | Self::Scroll { .. }
+            | Self::ScrollWheel { .. }
             | Self::Select { .. }
             | Self::SetCaret { .. }
             | Self::WindowPlace { .. }

@@ -1679,6 +1679,21 @@ pub fn hover_node(window: Option<isize>, node_id: &str) -> Result<(), MechanismE
     Ok(())
 }
 
+pub fn wheel_node(
+    window: Option<isize>,
+    node_id: &str,
+    dx: i32,
+    dy: i32,
+) -> Result<(), MechanismError> {
+    let handle = window.unwrap_or(0);
+    let node_c = CStringOrStack::new(node_id)?;
+    write_ledger::note();
+    let f = call_sym::<NodeWheel>(b"agt_a11y_node_wheel")?;
+    let status = unsafe { f(handle, node_c.as_ptr(), dx, dy) };
+    map_status("agt_a11y_node_wheel", status)?;
+    Ok(())
+}
+
 pub fn set_node_text(
     window: Option<isize>,
     node_id: &str,
@@ -2597,6 +2612,7 @@ type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -
 type NodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
 type NodeClick = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, u32) -> i32;
 type NodeHover = unsafe extern "C" fn(isize, *const std::ffi::c_char) -> i32;
+type NodeWheel = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, i32) -> i32;
 type NodePerform = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32) -> i32;
 type NodeInvoke =
     unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, *const u8, usize) -> i32;

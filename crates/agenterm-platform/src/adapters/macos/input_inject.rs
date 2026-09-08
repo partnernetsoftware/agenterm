@@ -217,6 +217,16 @@ pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {
     Ok(())
 }
 
+pub(crate) fn pointer_scroll_at(
+    _position: PointerPosition,
+    _dx: i32,
+    _dy: i32,
+) -> Result<(), InputInjectError> {
+    Err(InputInjectError::Unsupported {
+        reason: "pointer scroll at position is not wired on macOS yet".into(),
+    })
+}
+
 /// Press and release at `position`, `clicks` times. The click state field
 /// carries the repeat count, so a double click reads as a double click to
 /// the application and not as two unrelated singles.

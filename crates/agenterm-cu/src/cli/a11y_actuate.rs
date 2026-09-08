@@ -98,6 +98,31 @@ pub fn parse(
                 role,
             })
         }
+        "scroll-wheel" => {
+            let window = flag_window(args)?
+                .ok_or_else(|| "scroll-wheel requires --window <handle>".to_string())?;
+            let name = flag_text(args, "--name")?
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    "scroll-wheel requires --window <handle> --name <pattern>".to_string()
+                })?;
+            let role = flag_text(args, "--role")?;
+            let dx = required_pointer_i32_flag(args, "scroll-wheel", "--dx")?;
+            let dy = required_pointer_i32_flag(args, "scroll-wheel", "--dy")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "scroll-wheel accepts only --window HANDLE --name PAT [--role ROLE] --dx DX --dy DY; unexpected {args:?}"
+                ));
+            }
+            Ok(Command::ScrollWheel {
+                target,
+                window: Some(window),
+                name: Some(name),
+                role,
+                dx,
+                dy,
+            })
+        }
         "select" => {
             let window = flag_window_opt(args);
             let name = flag_value(args, "--name");

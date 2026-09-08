@@ -2054,6 +2054,14 @@ impl Executor {
             Command::Scroll {
                 window, name, role, ..
             } => scroll(*window, name.as_deref(), role.as_deref()),
+            Command::ScrollWheel {
+                window,
+                name,
+                role,
+                dx,
+                dy,
+                ..
+            } => scroll_wheel(*window, name.as_deref(), role.as_deref(), *dx, *dy),
             Command::GetExtents {
                 window, name, role, ..
             } => get_extents(*window, name.as_deref(), role.as_deref()),
