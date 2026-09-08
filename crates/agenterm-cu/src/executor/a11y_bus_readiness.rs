@@ -107,6 +107,6 @@ mod tests {
     fn unsupported_hosts_name_alternatives() {
         let value = unsupported_readiness("fixture".into());
         assert_eq!(value["status"], "unsupported");
-        assert!(value["alternatives"].as_array().unwrap().len() >= 1);
+        assert!(!value["alternatives"].as_array().unwrap().is_empty());
     }
 }

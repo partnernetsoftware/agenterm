@@ -54,21 +54,11 @@ pub struct HostNotificationAction<'a> {
     pub label: &'a str,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HostNotificationOptions<'a> {
     pub subtitle: Option<&'a str>,
     pub sound: bool,
     pub actions: &'a [HostNotificationAction<'a>],
-}
-
-impl<'a> Default for HostNotificationOptions<'a> {
-    fn default() -> Self {
-        Self {
-            subtitle: None,
-            sound: false,
-            actions: &[],
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

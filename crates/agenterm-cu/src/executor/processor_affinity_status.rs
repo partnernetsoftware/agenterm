@@ -75,7 +75,7 @@ mod tests {
     fn payload_reports_nonempty_scheduler_allowed_set_for_current_process() {
         let value = processor_affinity_status_payload(None).unwrap_or_else(|error| {
             assert_eq!(error.code, "processor_affinity_unsupported");
-            return json!({});
+            json!({})
         });
         if value.is_object() && !value.as_object().unwrap().is_empty() {
             assert!(value["count"].as_u64().unwrap_or(0) > 0);
