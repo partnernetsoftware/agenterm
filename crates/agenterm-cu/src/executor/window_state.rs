@@ -690,9 +690,10 @@ pub(super) fn maximize_payload(
     )?;
     let mut mechanism_error = None;
     if performed {
-        mechanism_error = mechanism::window_op::show(window, crate::dynlib::AGT_NATIVE_WINDOW_MAXIMIZE)
-            .err()
-            .map(map_mechanism_err);
+        mechanism_error =
+            mechanism::window_op::show(window, crate::dynlib::AGT_NATIVE_WINDOW_MAXIMIZE)
+                .err()
+                .map(map_mechanism_err);
     }
     let started = Instant::now();
     let mut polls = 0usize;
@@ -717,10 +718,8 @@ pub(super) fn maximize_payload(
     let front_pid_before = front_before.as_ref().map(|app| app.pid);
     let front_pid_after = front_after.as_ref().map(|app| app.pid);
     let foreground_unchanged = front_pid_before == front_pid_after;
-    let verified = now
-        && foreground_unchanged
-        && mechanism_error.is_none()
-        && readback_error.is_none();
+    let verified =
+        now && foreground_unchanged && mechanism_error.is_none() && readback_error.is_none();
     let reason = if mechanism_error.is_some() {
         Some("mechanism_failed")
     } else if readback_error.is_some() {

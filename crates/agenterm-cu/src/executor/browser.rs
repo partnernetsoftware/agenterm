@@ -1469,12 +1469,10 @@ fn tab_select_activate_cdp(
         "unverified",
         format!(
             "CDP activated {} page target(s) for tab strip row {} but AT-SPI active read-back never matched",
-            candidate_count,
-            hit.index
+            candidate_count, hit.index
         ),
     ))
 }
-
 
 fn tab_list_unsupported(window: isize) -> CuError {
     CuError::new(
@@ -1585,14 +1583,13 @@ pub(super) fn tab_list_payload(window: isize) -> Result<serde_json::Value, CuErr
         }
         return Err(tab_list_unsupported(window));
     }
-    let active_sibling_index = target
-        .and_then(|row| {
-            if row.process_id == 0 {
-                None
-            } else {
-                tab_active_sibling_index_for(&entries, &windows, row.process_id)
-            }
-        });
+    let active_sibling_index = target.and_then(|row| {
+        if row.process_id == 0 {
+            None
+        } else {
+            tab_active_sibling_index_for(&entries, &windows, row.process_id)
+        }
+    });
     let selected = tab_list_selected_indexes(&entries, active_sibling_index);
     let strip_kind = if entries
         .iter()
@@ -1653,8 +1650,7 @@ pub(super) fn tab_select_payload(
 ) -> Result<serde_json::Value, CuError> {
     tab_window_arg("tab select", window)?;
     let spec = crate::tab_strip::TabSpec::from_parts(title, index).map_err(invalid_input)?;
-    let windows =
-        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     let window_row = windows.iter().find(|row| row.handle == window);
     let pid = window_row.map(|row| row.process_id).unwrap_or(0);
     let before = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
@@ -1692,8 +1688,7 @@ pub(super) fn tab_select_payload(
             "offered": target.actions,
         })));
     }
-    let already =
-        crate::tab_strip::tab_entry_selected(hit, active_before) == observe::Tri::True;
+    let already = crate::tab_strip::tab_entry_selected(hit, active_before) == observe::Tri::True;
     let performed = !already;
     let ticket = receipts.reserve(
         "tab-select",
@@ -1738,11 +1733,9 @@ pub(super) fn tab_select_payload(
                 }
                 Err(error) => mechanism_error = Some(error),
             }
-        } else if let Err(error) = mechanism::perform_node_action(
-            Some(window),
-            &target.id,
-            mechanism::NodeAction::Press,
-        ) {
+        } else if let Err(error) =
+            mechanism::perform_node_action(Some(window), &target.id, mechanism::NodeAction::Press)
+        {
             mechanism_error = Some(map_mechanism_err(error));
         }
     }
@@ -1806,7 +1799,6 @@ pub(super) fn tab_select_payload(
     }
     Ok(receipt)
 }
-
 
 // ---------------------------------------------------------------------------
 // `tab close`: the destructive tab verb. Gated like `close` (exact

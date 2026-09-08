@@ -4,9 +4,8 @@ use windows_sys::Win32::{
     Foundation::{HWND, RECT},
     UI::WindowsAndMessaging::{
         GetWindowRect, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindow, IsZoomed, MoveWindow,
-        PostMessageW,
-        SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
-        SWP_NOSIZE, SetForegroundWindow, SetWindowPos, ShowWindow, WM_CLOSE,
+        PostMessageW, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE,
+        SWP_NOMOVE, SWP_NOSIZE, SetForegroundWindow, SetWindowPos, ShowWindow, WM_CLOSE,
     },
 };
 

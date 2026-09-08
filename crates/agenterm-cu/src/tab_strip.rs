@@ -853,7 +853,13 @@ mod tests {
     fn active_sibling_index_prefers_atspi_active_frame() {
         let mut tree = fake_tree(vec![
             node("/0", None, "application", "Google Chrome", &["showing"]),
-            node("/0/0", Some("/0"), "frame", "Example Domain - Google Chrome", &["showing"]),
+            node(
+                "/0/0",
+                Some("/0"),
+                "frame",
+                "Example Domain - Google Chrome",
+                &["showing"],
+            ),
             node(
                 "/0/1",
                 Some("/0"),
