@@ -2267,7 +2267,7 @@ flowchart LR
   provider joins Device to Hardware Port without retaining hardware addresses;
   its failure preserves the scoped resolver rows but makes completeness false.
   Windows keeps the native adapter FriendlyName and Linux returns `null`.
-  Exact source `f0fd7062` passed the macOS public qjswasm journey against an
+  Exact source `7e28a89e` passed the macOS public qjswasm journey against an
   independent `networksetup` oracle. Linux and Windows service-identity courts
   remain pending and cannot borrow that macOS result.
   The schema-2 verdict still leaves Windows pending: its x86_64 interactive
