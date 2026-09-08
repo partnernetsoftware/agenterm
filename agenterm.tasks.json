@@ -1116,6 +1116,23 @@
         "task.cu-linux-local-clock-smoke"
       ]
     },
+    "cu-linux-boot-identity-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-boot-identity-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-boot-identity-smoke"
+      ]
+    },
     "cu-linux-gtk-button-focus-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4805,6 +4822,24 @@
       "id": "cu-linux-local-clock-smoke",
       "description": "Prove Linux capabilities host_clock utc_offset and local civil time match independent date +%z read-back and stay stable across repeated observations; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-local-clock-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-boot-identity-smoke",
+      "description": "Prove Linux capabilities host_boot_identity boot_id, machine_id and uptime_milliseconds match independent /proc/sys/kernel/random/boot_id, /etc/machine-id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-boot-identity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

@@ -1,5 +1,13 @@
 //! Product-neutral identity for one operating-system boot.
 
+/// Bounded host facts that a live court can compare with independent probes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HostBootIdentityFacts {
+    pub boot_id: String,
+    pub machine_id: String,
+    pub uptime_milliseconds: u64,
+}
+
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct HostBootIdentity([u8; 32]);
 

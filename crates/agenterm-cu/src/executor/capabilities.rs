@@ -659,6 +659,16 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "processor-topology-status".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "host",
+                "grant": "observe",
+                "mode": "native-processor-and-numa-topology",
+                "mutation_performed": false,
+            }),
+        );
+        verbs.insert(
             "font-discovery".into(),
             if cfg!(target_os = "linux") {
                 serde_json::json!({
@@ -1211,6 +1221,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
     payload["platform"] = serde_json::json!(std::env::consts::OS);
     payload["host_clock"] = host_clock_json();
     payload["proxy_env"] = proxy_env_json();
+    payload["host_boot_identity"] = host_boot_identity_json();
     attach_verb_grants(&mut payload);
     attach_invoke_actions(&mut payload);
     attach_verb_status_counts(&mut payload);
@@ -1240,6 +1251,28 @@ fn proxy_env_json() -> serde_json::Value {
         "HTTPS_PROXY": facts.https_proxy,
         "no_proxy": facts.no_proxy,
     })
+}
+
+fn host_boot_identity_json() -> serde_json::Value {
+    if !cfg!(target_os = "linux") {
+        return serde_json::json!({
+            "status": "unsupported",
+            "reason": "host_boot_identity facts are wired on Linux hosts only",
+        });
+    }
+    match agenterm_platform::host_boot_identity::facts() {
+        Ok(facts) => serde_json::json!({
+            "status": "available",
+            "boot_id": facts.boot_id,
+            "machine_id": facts.machine_id,
+            "uptime_milliseconds": facts.uptime_milliseconds,
+        }),
+        Err(error) => serde_json::json!({
+            "status": "unavailable",
+            "reason": error.to_string(),
+            "kind": format!("{:?}", error.kind()),
+        }),
+    }
 }
 
 /// Count the final merged public inventory, not the handwritten fragment.

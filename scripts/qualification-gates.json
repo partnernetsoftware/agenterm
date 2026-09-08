@@ -343,6 +343,10 @@
       "evidence": ["cu.linux-local-clock-readback"]
     },
     {
+      "id": "cu-linux-boot-identity-smoke",
+      "evidence": ["cu.linux-boot-identity-readback"]
+    },
+    {
       "id": "cu-app-facts-smoke",
       "evidence": ["cu.app-facts.linux"]
     },

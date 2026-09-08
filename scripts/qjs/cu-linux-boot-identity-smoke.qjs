@@ -1,0 +1,199 @@
+// CEO: Linux host boot identity honesty via capabilities with independent read-back.
+// Acceptance is smoke read-back only: boot_id, machine_id and uptime_milliseconds
+// must match facts derived outside agenterm-cu. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-boot-identity-readback",
+];
+
+const BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id";
+const MACHINE_ID_PATH = "/etc/machine-id";
+const UPTIME_SLACK_MS = 15000;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_boot_identity_exit:" + output.exit_code + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_linux_boot_identity_reply:" + JSON.stringify(reply));
+  return reply;
+}
+
+function boot_id_shape(value) {
+  if (value.length !== 36) { return false; }
+  for (let index = 0; index < value.length; index = index + 1) {
+    const code = value.charCodeAt(index);
+    if (index === 8 || index === 13 || index === 18 || index === 23) {
+      if (code !== 45) { return false; }
+    } else if (code < 48 || (code > 57 && code < 65) || (code > 70 && code < 97) || code > 102) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function machine_id_shape(value) {
+  if (value.length !== 32) { return false; }
+  for (let index = 0; index < value.length; index = index + 1) {
+    const code = value.charCodeAt(index);
+    if (code < 48 || (code > 57 && code < 97) || code > 102) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function independent_boot_id() {
+  ensure(rh.exists(BOOT_ID_PATH), "cu_linux_boot_identity_boot_id_missing");
+  const boot_id = rh.read_text(BOOT_ID_PATH).trim();
+  ensure(boot_id_shape(boot_id), "cu_linux_boot_identity_boot_id_shape:" + boot_id);
+  return boot_id;
+}
+
+function independent_machine_id() {
+  ensure(rh.exists(MACHINE_ID_PATH), "cu_linux_boot_identity_machine_id_missing");
+  const machine_id = rh.read_text(MACHINE_ID_PATH).trim().toLowerCase();
+  ensure(machine_id_shape(machine_id), "cu_linux_boot_identity_machine_id_shape:" + machine_id);
+  return machine_id;
+}
+
+function independent_uptime_milliseconds() {
+  const script = [
+    "import time",
+    "print(int(time.clock_gettime(time.CLOCK_BOOTTIME) * 1000))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_boot_identity_uptime_probe:" + output.stderr);
+  const value = Number(output.stdout.trim());
+  ensure(value === value && value >= 0, "cu_linux_boot_identity_uptime_shape:" + output.stdout);
+  return value;
+}
+
+function uptime_near(candidate, lower, upper) {
+  return candidate >= lower - UPTIME_SLACK_MS && candidate <= upper + UPTIME_SLACK_MS;
+}
+
+function host_boot_identity(reply) {
+  const data = rh.field(reply, "data");
+  const facts = rh.field(data, "host_boot_identity");
+  ensure(facts !== undefined && facts !== null, "cu_linux_boot_identity_missing");
+  ensure(text_at(facts, "status") === "available", "cu_linux_boot_identity_status:" + JSON.stringify(facts));
+  return facts;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_linux_boot_identity_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-boot-identity");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent boot_id, machine-id and CLOCK_BOOTTIME bracket one capabilities observation");
+  const boot_id_before = independent_boot_id();
+  const machine_id_before = independent_machine_id();
+  const uptime_before = independent_uptime_milliseconds();
+  const reply = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "capabilities",
+  ]);
+  const boot_id_after = independent_boot_id();
+  const machine_id_after = independent_machine_id();
+  const uptime_after = independent_uptime_milliseconds();
+
+  ensure(reply.command === "capabilities" && reply.target === "current",
+         "cu_linux_boot_identity_command");
+  const facts = host_boot_identity(reply);
+
+  ensure(boot_id_before === boot_id_after,
+         "cu_linux_boot_identity_boot_id_changed:" + boot_id_before + "!=" + boot_id_after);
+  ensure(machine_id_before === machine_id_after,
+         "cu_linux_boot_identity_machine_id_changed:" + machine_id_before + "!=" + machine_id_after);
+  ensure(text_at(facts, "boot_id") === boot_id_before,
+         "cu_linux_boot_identity_boot_id_mismatch:cu="
+         + text_at(facts, "boot_id") + ":host=" + boot_id_before);
+  ensure(text_at(facts, "machine_id") === machine_id_before,
+         "cu_linux_boot_identity_machine_id_mismatch:cu="
+         + text_at(facts, "machine_id") + ":host=" + machine_id_before);
+
+  const uptime_ms = Number(text_at(facts, "uptime_milliseconds"));
+  ensure(uptime_ms === uptime_ms && uptime_ms >= 0, "cu_linux_boot_identity_uptime_shape");
+  ensure(uptime_near(uptime_ms, uptime_before, uptime_after),
+         "cu_linux_boot_identity_uptime_mismatch:cu=" + uptime_ms
+         + ":before=" + uptime_before + ":after=" + uptime_after);
+
+  print("STEP repeated capabilities observations keep boot_id and machine_id stable");
+  const second = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "capabilities",
+  ]);
+  const second_facts = host_boot_identity(second);
+  ensure(text_at(second_facts, "boot_id") === text_at(facts, "boot_id"),
+         "cu_linux_boot_identity_boot_id_unstable");
+  ensure(text_at(second_facts, "machine_id") === text_at(facts, "machine_id"),
+         "cu_linux_boot_identity_machine_id_unstable");
+  ensure(Number(text_at(second_facts, "uptime_milliseconds")) >= uptime_ms,
+         "cu_linux_boot_identity_uptime_monotonic");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-boot-identity-readback");
+  harness.remove_run(context);
+  print("PASS: Linux capabilities host_boot_identity matches independent boot_id, machine-id and CLOCK_BOOTTIME read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

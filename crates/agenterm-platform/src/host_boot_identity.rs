@@ -5,7 +5,15 @@ use sha2::{Digest as _, Sha256};
 #[path = "contract/host_boot_identity.rs"]
 mod contract;
 
-pub use contract::{HostBootIdentity, HostBootIdentityError, HostBootIdentityErrorKind};
+pub use contract::{
+    HostBootIdentity, HostBootIdentityError, HostBootIdentityErrorKind, HostBootIdentityFacts,
+};
+
+/// Read the host boot anchor facts that `capabilities` can publish for live
+/// read-back courts. Non-Linux hosts return [`HostBootIdentityErrorKind::Query`].
+pub fn facts() -> Result<HostBootIdentityFacts, HostBootIdentityError> {
+    crate::selected::host_boot_identity::query_facts()
+}
 
 pub fn query() -> Result<HostBootIdentity, HostBootIdentityError> {
     let material = crate::selected::host_boot_identity::query_material()?;
