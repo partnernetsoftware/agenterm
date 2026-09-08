@@ -756,8 +756,11 @@ pub(super) fn process_cgroup_payload(
 
     let snapshot = agenterm_platform::process::cgroup_v2(pid, expected_start_identity)
         .map_err(process_cgroup_error)?;
+    let hierarchy = cgroup_membership_hierarchy(&snapshot.path);
+    let filesystem_path = cgroup_filesystem_path(&snapshot.path);
     let mut membership = serde_json::Map::from_iter([
         ("path".to_owned(), Value::Null),
+        ("filesystem_path".to_owned(), Value::Null),
         (
             "directory_device".to_owned(),
             json!(snapshot.directory_device.to_string()),
@@ -768,6 +771,8 @@ pub(super) fn process_cgroup_payload(
         ),
     ]);
     insert_raw_text(&mut membership, "path", &snapshot.path, true);
+    insert_raw_text(&mut membership, "filesystem_path", &filesystem_path, true);
+    membership.insert("hierarchy".to_owned(), cgroup_hierarchy_json(&hierarchy));
     let io = snapshot
         .io
         .iter()
@@ -841,6 +846,51 @@ pub(super) fn process_cgroup_payload(
         "unavailable": unavailable,
         "consistency": "exact-process-and-membership-bracketed-point-reads",
     }))
+}
+
+const CGROUP_V2_MOUNT_PATH: &[u8] = b"/sys/fs/cgroup";
+
+fn cgroup_membership_hierarchy(path: &[u8]) -> Vec<Vec<u8>> {
+    if path == b"/" {
+        return vec![b"/".to_vec()];
+    }
+    let mut hierarchy = vec![b"/".to_vec()];
+    let mut cumulative = b"/".to_vec();
+    for component in path[1..].split(|byte| *byte == b'/') {
+        if component.is_empty() {
+            continue;
+        }
+        if cumulative.len() > 1 {
+            cumulative.push(b'/');
+        }
+        cumulative.extend_from_slice(component);
+        hierarchy.push(cumulative.clone());
+    }
+    hierarchy
+}
+
+fn cgroup_filesystem_path(path: &[u8]) -> Vec<u8> {
+    if path == b"/" {
+        return CGROUP_V2_MOUNT_PATH.to_vec();
+    }
+    let mut filesystem_path = CGROUP_V2_MOUNT_PATH.to_vec();
+    filesystem_path.extend_from_slice(path);
+    filesystem_path
+}
+
+fn cgroup_hierarchy_json(hierarchy: &[Vec<u8>]) -> Value {
+    Value::Array(
+        hierarchy
+            .iter()
+            .map(|path| match std::str::from_utf8(path) {
+                Ok(text) => json!(text),
+                Err(_) => json!({
+                    "encoding": "hex",
+                    "hex": encode_hex(path),
+                }),
+            })
+            .collect(),
+    )
 }
 
 fn process_cgroup_error(error: agenterm_platform::process::ProcessCgroupError) -> CuError {
@@ -3379,6 +3429,31 @@ mod tests {
         assert_eq!(value["max_depth"], 1);
         assert_eq!(value["max_descendants"], 16);
         assert_eq!(value["verified"], true);
+    }
+
+    #[test]
+    fn process_cgroup_membership_enrichment_derives_hierarchy_and_filesystem_path() {
+        assert_eq!(
+            cgroup_membership_hierarchy(b"/agent"),
+            vec![b"/".to_vec(), b"/agent".to_vec()]
+        );
+        assert_eq!(cgroup_filesystem_path(b"/agent"), b"/sys/fs/cgroup/agent");
+        let hierarchy = cgroup_hierarchy_json(&cgroup_membership_hierarchy(b"/agent"));
+        assert_eq!(hierarchy, json!(["/", "/agent"]));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn current_process_cgroup_payload_publishes_membership_hierarchy() {
+        let pid = std::process::id();
+        let state = process_state_payload(pid).expect("state");
+        let identity = state["start_identity"].as_str().expect("identity");
+        let payload = process_cgroup_payload(pid, Some(identity)).expect("current process cgroup");
+        assert!(payload["membership"]["path"].as_str().is_some_and(|path| path.starts_with('/')));
+        assert!(payload["membership"]["filesystem_path"].as_str().is_some_and(|path| path.starts_with("/sys/fs/cgroup")));
+        let hierarchy = payload["membership"]["hierarchy"].as_array().expect("hierarchy");
+        assert!(!hierarchy.is_empty());
+        assert_eq!(hierarchy.last().and_then(|value| value.as_str()), payload["membership"]["path"].as_str());
     }
 
     #[test]
