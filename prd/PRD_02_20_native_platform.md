@@ -174,7 +174,7 @@ being forced through an OS widget API.
 
 The migration is complete only when all of the following are true:
 
-- [x] production `#[cfg(windows|unix|target_os|target_family)]` selection for
+- [~] production `#[cfg(windows|unix|target_os|target_family)]` selection for
   reusable mechanisms is confined to `crates/agenterm-platform` private
   selection/adapters and unavoidable binary-entry bootstrap code; test-only
   fixtures are excluded from this count. Root product extensions contain no
@@ -190,14 +190,14 @@ The migration is complete only when all of the following are true:
   adapter-owned implementation details while shared UI state remains platform
   neutral; physical ownership is complete, while further state normalization
   remains open
-- [x] manual and repository-enforced source scanning finds no production
+- [~] manual and repository-enforced source scanning finds no production
   OS-selection cfg or native API import outside the reusable crate's private
   adapters and necessary binary subsystem attrs. The gate scans every Rust
   source, allows only exact structural exceptions, and its fixture proves
   product markers are rejected while comments and test items are ignored.
 - [x] a repository boundary test fails when a new non-platform production
   source file imports OS-native crates or contains an OS-selection `cfg`
-- [x] the crate's `selected.rs` is the sole reusable adapter assembly point;
+- [~] the crate's `selected.rs` is the sole reusable adapter assembly point;
   former root Windows/Linux/macOS native mechanism trees are deleted or moved
   behind crate-private adapters, root product extensions contain no production
   OS selection, and the internal gate rejects selection cfg and native API
@@ -207,6 +207,18 @@ The migration is complete only when all of the following are true:
   fallback. One host test loads all three OS-neutral adapter manifests and
   validates revision 3, all eight capabilities, and typed Unsupported/Failed
   probes without compiling another platform's native APIs.
+
+The 2026-09-09 Quick gate exposed that the three `[~]` claims above had moved
+ahead of the source. Its first-hit report identifies 30 OS-selection/native
+markers across 23 platform facade or contract files. Product-side provider
+filename selection now goes through `platform_kind`, and the Unix device court
+fixture no longer publishes AgenTerm-branded platform metadata, but facade
+assembly is not yet closed. Migrate the mechanically identical adapter selectors
+into the root `selected.rs` first. Keep system-broker authority,
+privilege/consent lifetimes, contained-process cleanup, device locators, and IPC
+selection as separate reviewed increments with their existing typed failure
+contracts. The boundary scanner remains strict; do not add facade allowlists to
+hide this debt.
 
 ## Shared contract
 
