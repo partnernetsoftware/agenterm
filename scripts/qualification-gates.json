@@ -535,7 +535,8 @@
     {
       "id": "cu-network-dns-smoke",
       "evidence": [
-        "cu.network-dns"
+        "cu.network-dns",
+        "cu.network-dns-services"
       ]
     },
     {

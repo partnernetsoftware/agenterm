@@ -325,6 +325,7 @@
         "cu.process-signal",
         "cu.network-routes",
         "cu.network-dns",
+        "cu.network-dns-services",
         "cu.network-probe",
         "cu.resource-status",
         "cu.resource-pressure-native",

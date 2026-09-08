@@ -4,7 +4,10 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.network-dns"];
+const declared_evidence = [
+  "cu.network-dns",
+  "cu.network-dns-services",
+];
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -35,6 +38,79 @@ function invoke(run_directory, executable, arguments, expect_success) {
 
 function optional_text(value) {
   return value === null || typeof value === "string";
+}
+
+function host_is_macos() {
+  return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
+}
+
+function hardware_port_pairs() {
+  const output = rh.command("/usr/sbin/networksetup", ["-listallhardwareports"], {
+    env: { LANG: "C", LC_ALL: "C" },
+    timeout_ms: 30000
+  });
+  ensure(output.success === true, "cu_network_dns_networksetup_failed:" + output.exit_code);
+  const pairs = [];
+  let hardware_port = "";
+  for (const source_line of output.stdout.split("\n")) {
+    let line = source_line.trim();
+    while (line.startsWith("*")) { line = line.slice(1).trim(); }
+    if (line.startsWith("Hardware Port:")) {
+      hardware_port = line.slice("Hardware Port:".length).trim();
+    } else if (line.startsWith("Device:")) {
+      const device = line.slice("Device:".length).trim();
+      if (hardware_port !== "" && device !== "") {
+        pairs.push({ device: device, service: hardware_port });
+      }
+      hardware_port = "";
+    }
+  }
+  ensure(pairs.length > 0, "cu_network_dns_networksetup_empty");
+  return pairs;
+}
+
+function service_for_interface(pairs, interface_name) {
+  for (const pair of pairs) {
+    if (pair.device === interface_name) { return pair.service; }
+  }
+  return null;
+}
+
+function assert_service_identity(reply) {
+  const rows = [];
+  for (const row of reply.data.resolvers) { rows.push(row); }
+  for (const row of reply.data.search_domains) { rows.push(row); }
+  ensure(rows.length > 0, "cu_network_dns_service_rows_empty");
+
+  if (host_is_macos()) {
+    ensure(
+      reply.data.provider === "scutil --dns + networksetup -listallhardwareports",
+      "cu_network_dns_macos_join_provider"
+    );
+    const pairs = hardware_port_pairs();
+    let mapped = 0;
+    for (const row of rows) {
+      const expected = row.interface === null ? null : service_for_interface(pairs, row.interface);
+      ensure(row.service === expected, "cu_network_dns_macos_service_identity");
+      if (expected !== null) { mapped = mapped + 1; }
+    }
+    ensure(mapped > 0, "cu_network_dns_macos_service_identity_unobserved");
+    return;
+  }
+
+  if (harness.host_is_windows()) {
+    let mapped = 0;
+    for (const row of rows) {
+      ensure(row.service === row.interface, "cu_network_dns_windows_service_identity");
+      if (row.service !== null) { mapped = mapped + 1; }
+    }
+    ensure(mapped > 0, "cu_network_dns_windows_service_identity_unobserved");
+    return;
+  }
+
+  for (const row of rows) {
+    ensure(row.service === null, "cu_network_dns_linux_service_must_be_null");
+  }
 }
 
 function assert_payload(reply, max) {
@@ -99,9 +175,12 @@ let failure = "";
 try {
   print("STEP canonical DNS inventory is bounded, typed and honest about coverage");
   const canonical = invoke(context.run_directory, executable, [
-    "--target", "current", "--grant", "observe", "network-dns", "--max", "20"
+    "--target", "current", "--grant", "observe", "network-dns", "--max", "5000"
   ], true);
-  assert_payload(canonical, 20);
+  assert_payload(canonical, 5000);
+
+  print("STEP DNS rows expose the host-defined service identity without fabricating a portable one");
+  assert_service_identity(canonical);
 
   print("STEP grouped alias preserves the same public resolver contract");
   const alias = invoke(context.run_directory, executable, [
@@ -124,6 +203,7 @@ try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.network-dns");
+  harness.emit_evidence(context, declared_evidence, "cu.network-dns-services");
   harness.remove_run(context);
   print("PASS: agenterm-cu native bounded effective DNS inventory");
 }
