@@ -2784,10 +2784,7 @@ pub extern "C" fn agt_screenshot_write_png(
 /// `path`. `native_window` is the platform window handle as `intptr_t`;
 /// `area_kind` 0 = whole window, 1 = client rectangle given by
 /// `left/top/width/height`.
-fn map_screenshot_error(
-    operation: &'static CStr,
-    error: UiScreenshotError,
-) -> agt_status {
+fn map_screenshot_error(operation: &'static CStr, error: UiScreenshotError) -> agt_status {
     match error {
         UiScreenshotError::Unsupported { reason } => {
             unsupported_because(operation, format!("{reason}"))
