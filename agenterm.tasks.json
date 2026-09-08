@@ -859,6 +859,25 @@
         "display-session"
       ],
       "outputs": [
+        "cu-linux-minimize-expect-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-minimize-expect-smoke"
+      ]
+    },
+    "cu-linux-maximize-expect-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
         "cu-linux-maximize-expect-evidence"
       ],
       "budget": {
@@ -1099,6 +1118,27 @@
       ]
     },
     "cu-linux-menu-invoke-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "desktop-session",
+        "explicit-visible-input-court"
+      ],
+      "outputs": [
+        "cu-linux-menu-invoke-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 300000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-menu-invoke-smoke"
+      ]
+    },
+    "cu-windows-external-terminal-send-smoke": {
       "inputs": [
         "built-agenterm",
         "built-agenterm-cu",
