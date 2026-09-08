@@ -2966,7 +2966,7 @@ spellings).
 ### `drag`
 
 ```text
-drag --window HANDLE --from X,Y --to X,Y [--button left|right|middle] [--steps N] [--degraded]
+drag --window HANDLE (--from-name PAT --to-name PAT [--from-role ROLE] [--to-role ROLE] | --from X,Y --to X,Y) [--button left|right|middle] [--steps N] [--degraded]
 ```
 
 ```text
@@ -2974,20 +2974,31 @@ agenterm-cu drag
   scope: actuate    family: Accessibility: actuate
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant actuate):
-  drag --window HANDLE --from X,Y --to X,Y [--button left|right|middle] [--steps N] [--degraded]
+  drag --window HANDLE (--from-name PAT --to-name PAT [--from-role ROLE] [--to-role ROLE] | --from X,Y --to X,Y) [--button left|right|middle] [--steps N] [--degraded]
 
 arguments:
   --window HANDLE               window handle from `windows` (numeric or App#N)
+  --from-name PAT               unique showing source node whose name contains PAT
+  --to-name PAT                 unique showing target node whose name contains PAT
+  --from-role ROLE              narrow --from-name to one role
+  --to-role ROLE                narrow --to-name to one role
   --from X,Y                    screen point of the press; must be inside the window
   --to X,Y                      screen point of the release
   --button left|right|middle    pointer button (default left)
   --steps N                     intermediate moves between press and release (default 12, at most 64)
   --degraded                    admit the path that moves the user's real pointer
 
-One press, a bounded series of moves and one release, delivered as one
-gesture. There is no semantic a11y path for a drag, so this is the
-pointer, and the reply always says WHICH path ran (`path`) plus whether a
-window-local one existed (window_local_available).
+Two addressing modes, never mixed. `--from-name` / `--to-name` resolve both
+nodes, read independent AT-SPI `Component.GetExtents(Screen)` centers, then
+deliver one bounded `GenerateMouseEvent` press / moves / release between
+them (`path`: `named-extents-generate-mouse-drag`). No `--coords`, no
+`--degraded`, and no `data.verified` on that path — independent
+`get-extents` geometry plus `pointer-position` is the read-back.
+
+The coordinate path is one press, a bounded series of moves and one release,
+delivered as one gesture. There is no semantic a11y path for a coordinate
+drag, so this is the pointer, and the reply always says WHICH path ran
+(`path`) plus whether a window-local one existed (window_local_available).
 
 macOS has no window-local pointer injection at all: mouse events posted
 to a pid arrive with no window for AppKit to route them through, so the
