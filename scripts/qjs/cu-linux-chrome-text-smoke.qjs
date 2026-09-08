@@ -1,0 +1,209 @@
+// CEO#3: Chrome focus → send-text SEED → get-text == SEED on Linux.
+// Acceptance is independent AT-SPI --name read-back only; no --coords or
+// screenshot. send-text may write through Chrome CDP AX set-value when
+// EditableText is absent; get-text must still poll Text.GetText.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-chrome-text-focus",
+  "cu.linux-chrome-text-send-text",
+  "cu.linux-chrome-text-get-text",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_chrome_text_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_chrome_text_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_chrome_text_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function chrome_window(run_directory, executable, title_prefix) {
+  const inventory = run_cu(run_directory, executable, "observe", ["windows"]);
+  const rows = inventory.data.windows === undefined ? inventory.data : inventory.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "app_name") === "chrome"
+      && text_at(row, "title").indexOf(title_prefix) === 0) {
+      return {
+        handle: "" + at(row, "handle"),
+      };
+    }
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_chrome_text_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_chrome_text_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-chrome-text");
+const run_directory = rh.join(repo, "target/cu-linux-chrome-text-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_title = "CEO3 Chrome Text " + context.run_id;
+const fixture_source = rh.join(repo, "fixtures/cu/311b-chrome-gettext.html");
+const fixture = rh.join(run_directory, "311b-chrome-gettext.html");
+let fixture_html = rh.read_text(fixture_source);
+fixture_html = fixture_html.replace("311b Chrome GetText Fixture", fixture_title);
+fixture_html = fixture_html.replace(
+  "Prefill HELLO. Independent get-text --name GetTextField must equal HELLO.",
+  "Prefill HELLO for independent get-text read-back."
+);
+rh.write_text(fixture, fixture_html);
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9232;
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP launch owned Chrome with AT-SPI and a visible named GetTextField");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "file://" + fixture,
+    ],
+    current_dir: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+      cwd: run_directory,
+      timeout_ms: 3000,
+    });
+    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+    harness.sleep_ms(250);
+  }
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_chrome_text_window_wait");
+
+  let window = null;
+  for (let attempt = 0; attempt < 40 && window === null; attempt = attempt + 1) {
+    window = chrome_window(run_directory, executable, fixture_title);
+    if (window === null) { harness.sleep_ms(250); }
+  }
+  ensure(window !== null, "cu_linux_chrome_text_window_missing");
+  const handle = window.handle;
+
+  print("STEP focus --name GetTextField moves AT-SPI focus to the Chrome entry");
+  const focused = run_cu(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", "GetTextField",
+  ]);
+  ensure(
+    text_at(focused, "data.after.name") === "GetTextField",
+    "cu_linux_chrome_text_focused:" + JSON.stringify(focused.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-focus");
+
+  const seed = "ceo3-chrome-" + context.run_id;
+  print("STEP send-text --name writes SEED through AT-SPI/CDP honesty");
+  const sent = run_cu(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--name", "GetTextField", "--", seed,
+  ]);
+  ensure(
+    text_at(sent, "data.typed") === seed
+      && text_at(sent, "data.addressing") === "accessibility-tree",
+    "cu_linux_chrome_text_send:" + JSON.stringify(sent.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-send-text");
+
+  print("STEP get-text --name reads SEED back through AT-SPI Text.GetText");
+  const got = run_cu(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--name", "GetTextField",
+  ]);
+  const readback = text_at(got, "data.matched.text");
+  ensure(
+    readback === seed,
+    "cu_linux_chrome_text_get:" + JSON.stringify({ seed: seed, readback: readback })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-chrome-text-get-text");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_chrome_text_failed");
+harness.remove_run(context);
+print("PASS: CEO#3 Chrome focus → send-text → get-text (AT-SPI --name, get-text == SEED)");
+return;

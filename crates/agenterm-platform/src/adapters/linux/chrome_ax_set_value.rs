@@ -32,7 +32,23 @@ pub(super) fn set_named_field_value(
 }
 
 fn debug_port_from_pids(pids: impl IntoIterator<Item = u32>) -> Option<u16> {
-    pids.into_iter().find_map(port_from_cmdline)
+    let mut ports = Vec::new();
+    for pid in pids {
+        if let Some(port) = port_from_cmdline(pid) {
+            if !ports.contains(&port) {
+                ports.push(port);
+            }
+        }
+    }
+    ports
+        .iter()
+        .copied()
+        .find(|port| cdp_port_reachable(*port))
+        .or_else(|| ports.last().copied())
+}
+
+fn cdp_port_reachable(port: u16) -> bool {
+    http_get(port, "/json/version").is_ok()
 }
 
 fn port_from_cmdline(pid: u32) -> Option<u16> {
@@ -40,11 +56,12 @@ fn port_from_cmdline(pid: u32) -> Option<u16> {
     bytes
         .split(|byte| *byte == 0)
         .filter_map(|arg| std::str::from_utf8(arg).ok())
-        .find_map(|arg| {
+        .filter_map(|arg| {
             arg.strip_prefix("--remote-debugging-port=")
                 .and_then(|port| port.parse().ok())
                 .filter(|port| *port > 0)
         })
+        .last()
 }
 
 fn set_named_field_on_port(
@@ -547,5 +564,25 @@ mod tests {
             json_string_field(r#"{"objectId":"node\n1"}"#, "objectId").as_deref(),
             Some("node\n1")
         );
+    }
+
+    #[test]
+    fn port_from_cmdline_prefers_last_remote_debugging_port() {
+        let args = [
+            "/opt/google/chrome/chrome",
+            "--remote-debugging-port=9224",
+            "--user-data-dir=/tmp/profile",
+            "--remote-debugging-port=9232",
+            "about:blank",
+        ];
+        let selected = args
+            .iter()
+            .filter_map(|arg| {
+                arg.strip_prefix("--remote-debugging-port=")
+                    .and_then(|port| port.parse::<u16>().ok())
+                    .filter(|port| *port > 0)
+            })
+            .last();
+        assert_eq!(selected, Some(9232));
     }
 }

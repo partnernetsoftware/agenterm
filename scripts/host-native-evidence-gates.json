@@ -192,6 +192,15 @@
       ]
     },
     {
+      "id": "cu-linux-chrome-text-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-chrome-text-focus",
+        "cu.linux-chrome-text-send-text",
+        "cu.linux-chrome-text-get-text"
+      ]
+    },
+    {
       "id": "cu-linux-window-move-smoke",
       "platform": "linux",
       "evidence": [

@@ -3534,7 +3534,7 @@
     },
     {
       "id": "cu-linux-chrome-text-smoke",
-      "description": "Prove Linux Chrome CDP page-fill/page-text and AT-SPI send-text/get-text --name on OffscreenField with independent read-back; no --coords or screenshot degradation.",
+      "description": "Prove Linux Chrome focus → send-text --name → get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

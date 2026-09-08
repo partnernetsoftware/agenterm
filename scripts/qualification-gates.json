@@ -547,6 +547,14 @@
       ]
     },
     {
+      "id": "cu-linux-chrome-text-smoke",
+      "evidence": [
+        "cu.linux-chrome-text-focus",
+        "cu.linux-chrome-text-send-text",
+        "cu.linux-chrome-text-get-text"
+      ]
+    },
+    {
       "id": "cu-tree-selector-smoke",
       "evidence": [
         "cu.tree-selector-subtree"

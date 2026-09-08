@@ -249,6 +249,7 @@ const evidence_suites = {
   "cu-linux-smoke": true,
   "cu-linux-external-terminal-send-smoke": true,
   "cu-scroll-wheel-smoke": true,
+  "cu-linux-chrome-text-smoke": true,
   "cu-linux-window-move-smoke": true,
   "cu-linux-resize-expect-smoke": true,
   "cu-linux-menu-invoke-smoke": true,
