@@ -330,6 +330,13 @@
       ]
     },
     {
+      "id": "cu-linux-hit-honesty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-hit-readback"
+      ]
+    },
+    {
       "id": "cu-linux-topmost-expect-smoke",
       "platform": "linux",
       "evidence": [

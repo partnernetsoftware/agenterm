@@ -985,6 +985,25 @@
         "task.cu-linux-hide-show-smoke"
       ]
     },
+    "cu-linux-hit-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-hit-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-hit-honesty-smoke"
+      ]
+    },
     "cu-linux-window-close-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5625,6 +5644,25 @@
       ],
       "side_effects": [
         "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-hit-honesty-smoke",
+      "description": "Linux hit --window point→node honesty with independent AT-SPI name/role read-back; probe points from get-extents --name only; no --coords.",
+      "entry": "scripts/qjs/cu-linux-hit-honesty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
         "process_spawn",
         "gui_spawn"
       ]
