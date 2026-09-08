@@ -1,0 +1,362 @@
+// CEO: Linux tree honesty with independent pyatspi BFS read-back.
+// Acceptance is smoke read-back only: CU tree --flat node names/roles/states
+// for one owned GTK fixture window must agree with an independent AT-SPI dump
+// of the same application walk (BFS order, matching depth/node budget, volatile
+// focus/active/armed/selected states excluded). AT-SPI/--name only; no --coords
+// or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-atspi-tree-honesty",
+];
+
+const TREE_DEPTH = 6;
+const MAX_NODES = 300;
+const NAMED_FIXTURE_NODES = [
+  "Fixture Entry",
+  "Fixture Press",
+  "Fixture Check",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_tree_honesty_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_tree_honesty_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_tree_honesty_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function verify_readback(run_directory, executable, fixture_pid, handle, cu_tree_path) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "pid = int(sys.argv[1])",
+    "handle = int(sys.argv[2])",
+    "cu_path = sys.argv[3]",
+    "max_depth = int(sys.argv[4])",
+    "max_nodes = int(sys.argv[5])",
+    "",
+    "ROLE_CHECKABLE = {'check box', 'radio button', 'check menu item', 'radio menu item', 'toggle button'}",
+    "ROLE_EXPANDABLE = {'combo box', 'tree item', 'list item', 'menu'}",
+    "ROLE_SELECTABLE = {'page tab'}",
+    "VOLATILE = {'focused', 'active', 'armed', 'selected'}",
+    "",
+    "def role_is_checkable(role): return role in ROLE_CHECKABLE",
+    "def role_is_expandable(role): return role in ROLE_EXPANDABLE",
+    "def role_is_selectable(role): return role in ROLE_SELECTABLE",
+    "",
+    "def complete_two_way(labels, role):",
+    "    has = lambda w: w in labels",
+    "    if (has('checkable') or role_is_checkable(role)) and not has('mixed'):",
+    "        if has('indeterminate'):",
+    "            labels.append('mixed')",
+    "        elif not has('checked'):",
+    "            labels.append('unchecked')",
+    "    if (has('expandable') or role_is_expandable(role)) and not has('expanded') and not has('collapsed'):",
+    "        labels.append('collapsed')",
+    "    if (has('selectable') or role_is_selectable(role)) and not has('selected'):",
+    "        labels.append('unselected')",
+    "    return labels",
+    "",
+    "def normalize_state(word):",
+    "    if word == 'multi_line': return 'multiline'",
+    "    if word == 'single_line': return 'singleline'",
+    "    return word",
+    "",
+    "def state_labels(obj, role):",
+    "    labels = []",
+    "    st = obj.getState()",
+    "    for attr in dir(pyatspi):",
+    "        if not attr.startswith('STATE_') or attr in ('STATE_LAST_DEFINED', 'STATE_VALUE_TO_NAME'):",
+    "            continue",
+    "        if st.contains(getattr(pyatspi, attr)):",
+    "            labels.append(normalize_state(attr[6:].lower()))",
+    "    labels = complete_two_way(labels, role)",
+    "    return sorted(labels)",
+    "",
+    "def node_name(obj):",
+    "    try: return obj.name or ''",
+    "    except Exception: return ''",
+    "",
+    "def node_role(obj):",
+    "    try:",
+    "        rn = obj.getRoleName()",
+    "        if rn and rn.strip(): return rn",
+    "    except Exception: pass",
+    "    return pyatspi.role.getName(obj.getRole()).lower()",
+    "",
+    "def walk_bfs(obj, max_depth, budget):",
+    "    out = []",
+    "    queue = [(obj, 0)]",
+    "    while queue and len(out) < budget:",
+    "        current, depth = queue.pop(0)",
+    "        role = node_role(current)",
+    "        out.append({",
+    "            'depth': depth,",
+    "            'role': role,",
+    "            'name': node_name(current),",
+    "            'states': state_labels(current, role),",
+    "        })",
+    "        if depth >= max_depth: continue",
+    "        try: child_count = current.childCount",
+    "        except Exception: continue",
+    "        for i in range(child_count):",
+    "            try: child = current.getChildAtIndex(i)",
+    "            except Exception: child = None",
+    "            if child is not None: queue.append((child, depth + 1))",
+    "    return out",
+    "",
+    "def norm_states(st): return sorted(s for s in st if s not in VOLATILE)",
+    "",
+    "def node_key(node):",
+    "    return (",
+    "        node.get('depth'),",
+    "        node.get('role'),",
+    "        node.get('name') or '',",
+    "        tuple(norm_states(node.get('states') or [])),",
+    "    )",
+    "",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "app = None",
+    "for i in range(desktop.childCount):",
+    "    child = desktop.getChildAtIndex(i)",
+    "    try:",
+    "        if child.get_process_id() == pid:",
+    "            app = child",
+    "            break",
+    "    except Exception: pass",
+    "if app is None:",
+    "    raise SystemExit('cu_linux_tree_honesty_no_app')",
+    "",
+    "native = walk_bfs(app, max_depth, max_nodes)",
+    "cu = json.load(open(cu_path))",
+    "if not cu.get('ok') or cu.get('command') != 'tree':",
+    "    raise SystemExit('cu_linux_tree_honesty_cu_reply')",
+    "cu_nodes = cu['data']['nodes']",
+    "if len(native) != len(cu_nodes):",
+    "    raise SystemExit(f'cu_linux_tree_honesty_count:{len(native)}:{len(cu_nodes)}')",
+    "",
+    "mismatches = []",
+    "for i, (n, c) in enumerate(zip(native, cu_nodes)):",
+    "    cn = {",
+    "        'depth': c.get('depth'),",
+    "        'role': c.get('role'),",
+    "        'name': c.get('name') or '',",
+    "        'states': norm_states(c.get('states') or []),",
+    "    }",
+    "    nn = {",
+    "        'depth': n['depth'],",
+    "        'role': n['role'],",
+    "        'name': n['name'],",
+    "        'states': norm_states(n['states']),",
+    "    }",
+    "    if cn != nn:",
+    "        mismatches.append((i, nn, cn))",
+    "if mismatches:",
+    "    raise SystemExit(f'cu_linux_tree_honesty_mismatch:{mismatches[0]}')",
+    "",
+    "named = {name: None for name in sys.argv[6:]}",
+    "for node in cu_nodes:",
+    "    name = node.get('name') or ''",
+    "    if name in named:",
+    "        named[name] = node",
+    "for name, node in named.items():",
+    "    if node is None:",
+    "        raise SystemExit(f'cu_linux_tree_honesty_named_missing:{name}')",
+    "    if not node.get('role'):",
+    "        raise SystemExit(f'cu_linux_tree_honesty_named_role:{name}')",
+    "    if not isinstance(node.get('states'), list) or len(node.get('states')) == 0:",
+    "        raise SystemExit(f'cu_linux_tree_honesty_named_states:{name}')",
+    "",
+    "print('native', len(native), 'cu', len(cu_nodes), 'handle', handle)",
+  ].join("\n");
+  const output = rh.command("/usr/bin/python3", [
+    "-c", script,
+    "" + fixture_pid,
+    "" + handle,
+    cu_tree_path,
+    "" + TREE_DEPTH,
+    "" + MAX_NODES,
+  ].concat(NAMED_FIXTURE_NODES), {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true,
+    "cu_linux_tree_honesty_readback:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_tree_honesty_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_tree_honesty_requires_linux");
+
+const context = harness.new_context(repo, "cu-linux-tree-honesty");
+const run_directory = rh.join(repo, "target/cu-linux-tree-honesty-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_tree_honesty_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start owned GTK fixture and resolve one window handle");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_tree_honesty_window_wait");
+
+  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_row !== null, "cu_linux_tree_honesty_inventory_missing");
+  const handle = int_at(inventory_row, "handle");
+  ensure(handle > 0, "cu_linux_tree_honesty_handle:" + JSON.stringify(inventory_row));
+
+  print("STEP CU tree --flat returns a bounded flat projection for the fixture window");
+  const tree = run_cu(run_directory, executable, "observe", [
+    "tree", "--window", "" + handle,
+    "--depth", "" + TREE_DEPTH,
+    "--max-nodes", "" + MAX_NODES,
+    "--flat",
+  ]);
+  ensure(
+    text_at(tree, "data.backend") === "at-spi2"
+      && text_at(tree, "data.addressing") === "accessibility-tree"
+      && int_at(tree, "data.window") === handle
+      && Array.isArray(tree.data.nodes)
+      && tree.data.nodes.length > 5,
+    "cu_linux_tree_honesty_tree_shape:" + JSON.stringify(tree.data)
+  );
+  for (let index = 0; index < tree.data.nodes.length; index += 1) {
+    const node = tree.data.nodes[index];
+    ensure(
+      int_at(node, "index") === index
+        && typeof node.depth === "number"
+        && typeof node.role === "string",
+      "cu_linux_tree_honesty_flat_index:" + JSON.stringify(node)
+    );
+  }
+
+  const cu_tree_path = rh.join(run_directory, "cu-tree-flat.json");
+  rh.write_text(cu_tree_path, JSON.stringify(tree));
+
+  print("STEP independent pyatspi BFS dump agrees on names/roles/states");
+  verify_readback(run_directory, executable, fixture_pid, handle, cu_tree_path);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: Linux tree --flat names/roles/states match independent AT-SPI dump");
+}
+if (failure !== "") { throw failure; }
+return;

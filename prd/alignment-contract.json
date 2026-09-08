@@ -103,6 +103,7 @@
         "cu.linux-terminal-control",
         "cu.linux-display-scale",
         "cu.linux-atspi-tree-geometry",
+        "cu.linux-atspi-tree-honesty",
         "cu.linux-atspi-query",
         "cu.linux-atspi-invoke",
         "cu.linux-atspi-invoke-readback",

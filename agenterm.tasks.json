@@ -1022,6 +1022,25 @@
         "task.cu-linux-desktop-state-smoke"
       ]
     },
+    "cu-linux-tree-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-tree-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-tree-honesty-smoke"
+      ]
+    },
     "cu-linux-workspace-desktop-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5129,6 +5148,26 @@
       "id": "cu-linux-desktop-state-smoke",
       "description": "Prove Linux desktop-state returns a bounded inventory+tree+pointer snapshot for one fixture window with independent AT-SPI/X11 read-back on title, tree budget, named entry text, and pointer coords; AT-SPI/--name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-desktop-state-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-tree-honesty-smoke",
+      "description": "Prove Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk; volatile focus/active/armed/selected states excluded; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-tree-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
