@@ -1,3 +1,8 @@
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
+
 use ab_glyph::{Font, FontRef, ScaleFont};
 
 use crate::contract::font::{
@@ -5,73 +10,144 @@ use crate::contract::font::{
     RasterGlyph,
 };
 
+fn intern_string(value: &str) -> &'static str {
+    Box::leak(value.to_owned().into_boxed_str())
+}
+
+fn path_to_candidate(name: &str, path: &Path) -> Option<FontFileCandidate> {
+    if !path.is_file() {
+        return None;
+    }
+    let components: Vec<&'static str> = path
+        .iter()
+        .filter_map(|component| component.to_str().map(intern_string))
+        .collect();
+    if components.is_empty() {
+        return None;
+    }
+    let components = Box::leak(components.into_boxed_slice());
+    Some(FontFileCandidate {
+        name: intern_string(name),
+        components,
+    })
+}
+
+/// Queries fontconfig for the system monospace face (`fc-match monospace`).
+///
+/// Returns `None` when `fc-match` is missing, exits non-zero, or resolves to a
+/// path that is not a readable font file.
+fn fontconfig_monospace() -> Option<FontFileCandidate> {
+    let output = std::process::Command::new("fc-match")
+        .args(["-f", "%{family}\n%{file}\n", "monospace"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines = text.lines();
+    let family = lines.next()?.trim();
+    let file = lines.next()?.trim();
+    if family.is_empty() || file.is_empty() {
+        return None;
+    }
+    path_to_candidate(family, Path::new(file))
+}
+
+/// Hard-coded Debian/Ubuntu-style paths used when fontconfig is unavailable or
+/// does not resolve to a readable file.
+const HARDCODED_CANDIDATES: &[FontFileCandidate] = &[
+    FontFileCandidate {
+        name: "DejaVu Sans Mono",
+        components: &[
+            "usr",
+            "share",
+            "fonts",
+            "truetype",
+            "dejavu",
+            "DejaVuSansMono.ttf",
+        ],
+    },
+    FontFileCandidate {
+        name: "Liberation Mono",
+        components: &[
+            "usr",
+            "share",
+            "fonts",
+            "truetype",
+            "liberation",
+            "LiberationMono-Regular.ttf",
+        ],
+    },
+    FontFileCandidate {
+        name: "Liberation Mono",
+        components: &[
+            "usr",
+            "share",
+            "fonts",
+            "truetype",
+            "liberation2",
+            "LiberationMono-Regular.ttf",
+        ],
+    },
+    FontFileCandidate {
+        name: "Noto Sans Mono",
+        components: &[
+            "usr",
+            "share",
+            "fonts",
+            "truetype",
+            "noto",
+            "NotoSansMono-Regular.ttf",
+        ],
+    },
+    FontFileCandidate {
+        name: "Noto Sans Mono CJK",
+        components: &[
+            "usr",
+            "share",
+            "fonts",
+            "opentype",
+            "noto",
+            "NotoSansCJK-Regular.ttc",
+        ],
+    },
+];
+
+fn dedupe_candidates(candidates: Vec<FontFileCandidate>) -> Vec<FontFileCandidate> {
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        let path = candidate.absolute_path();
+        if unique
+            .iter()
+            .any(|existing: &FontFileCandidate| existing.absolute_path() == path)
+        {
+            continue;
+        }
+        unique.push(candidate);
+    }
+    unique
+}
+
+fn resolved_candidates() -> &'static [FontFileCandidate] {
+    static CANDIDATES: OnceLock<&'static [FontFileCandidate]> = OnceLock::new();
+    CANDIDATES.get_or_init(|| {
+        let mut candidates = Vec::new();
+        if let Some(fontconfig) = fontconfig_monospace() {
+            candidates.push(fontconfig);
+        }
+        candidates.extend(HARDCODED_CANDIDATES.iter().copied());
+        Box::leak(dedupe_candidates(candidates).into_boxed_slice())
+    })
+}
+
 /// Font files probed in order, by absolute path.
 ///
-/// TODO(linux): query fontconfig (`fc-match monospace`) before falling back to
-/// this list. The paths below follow the Debian/Ubuntu layout; on Arch, Fedora,
-/// NixOS, Alpine and slim containers none of them may exist, and the frontend
-/// then silently drops to its built-in 8x8 bitmap face
-/// (`src/platform/adapters/unix/frontend/font.rs` `resolved_name`), which looks
-/// broken rather than merely unstyled. macOS does not share this risk: its
-/// candidates live at stable system paths.
+/// The first entry is resolved through fontconfig (`fc-match monospace`) when
+/// available; the remainder follow the Debian/Ubuntu layout for hosts without
+/// fontconfig or with non-standard install paths.
 pub(crate) fn candidates() -> &'static [FontFileCandidate] {
-    &[
-        FontFileCandidate {
-            name: "DejaVu Sans Mono",
-            components: &[
-                "usr",
-                "share",
-                "fonts",
-                "truetype",
-                "dejavu",
-                "DejaVuSansMono.ttf",
-            ],
-        },
-        FontFileCandidate {
-            name: "Liberation Mono",
-            components: &[
-                "usr",
-                "share",
-                "fonts",
-                "truetype",
-                "liberation",
-                "LiberationMono-Regular.ttf",
-            ],
-        },
-        FontFileCandidate {
-            name: "Liberation Mono",
-            components: &[
-                "usr",
-                "share",
-                "fonts",
-                "truetype",
-                "liberation2",
-                "LiberationMono-Regular.ttf",
-            ],
-        },
-        FontFileCandidate {
-            name: "Noto Sans Mono",
-            components: &[
-                "usr",
-                "share",
-                "fonts",
-                "truetype",
-                "noto",
-                "NotoSansMono-Regular.ttf",
-            ],
-        },
-        FontFileCandidate {
-            name: "Noto Sans Mono CJK",
-            components: &[
-                "usr",
-                "share",
-                "fonts",
-                "opentype",
-                "noto",
-                "NotoSansCJK-Regular.ttc",
-            ],
-        },
-    ]
+    resolved_candidates()
 }
 
 /// Fonts consulted only for glyphs the primary face does not have, so CJK and
@@ -120,7 +196,7 @@ pub(crate) fn fallback_candidates() -> &'static [FontFileCandidate] {
 
 pub(crate) fn probe() -> FontDiscovery {
     let mut available_families = Vec::new();
-    for &candidate in candidates() {
+    for candidate in candidates() {
         if candidate.exists() && !available_families.contains(&candidate.name) {
             available_families.push(candidate.name);
         }
@@ -200,5 +276,38 @@ mod tests {
                 .iter()
                 .any(|candidate| candidate.name == *family && candidate.exists())
         }));
+    }
+
+    #[test]
+    fn fontconfig_monospace_is_primary_when_available() {
+        let output = std::process::Command::new("fc-match")
+            .args(["-f", "%{family}\n%{file}\n", "monospace"])
+            .output();
+        let Ok(output) = output else {
+            return;
+        };
+        if !output.status.success() {
+            return;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut lines = text.lines();
+        let expected_family = lines.next().unwrap_or("").trim();
+        let expected_file = lines.next().unwrap_or("").trim();
+        if expected_family.is_empty() || !Path::new(expected_file).is_file() {
+            return;
+        }
+
+        let facts = probe();
+        let primary = facts
+            .primary_family
+            .expect("fontconfig resolved a monospace file on this host");
+        assert_eq!(primary, expected_family);
+
+        let primary_path = candidates()
+            .iter()
+            .find(|candidate| candidate.name == primary && candidate.exists())
+            .expect("primary family must map to an existing candidate")
+            .absolute_path();
+        assert_eq!(primary_path, PathBuf::from(expected_file));
     }
 }
