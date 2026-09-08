@@ -1,4 +1,6 @@
 // Public black-box journey for Linux cgroup v2 process membership.
+// On Linux, acceptance also requires independent /proc/{pid}/cgroup read-back
+// for membership path, hierarchy, filesystem path and directory identity.
 // Args: REPO AGENTERM_CU_EXE | --list-evidence
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
@@ -46,6 +48,110 @@ function sorted_unique(values) {
     if (index > 0 && values[index - 1] >= values[index]) { return false; }
   }
   return true;
+}
+
+function split_cgroup_line(line) {
+  let first = -1;
+  let second = -1;
+  for (let index = 0; index < line.length; index = index + 1) {
+    if (line.charAt(index) === ":") {
+      if (first < 0) { first = index; }
+      else if (second < 0) { second = index; break; }
+    }
+  }
+  ensure(first >= 0 && second > first, "cu_process_cgroup_proc_row_shape:" + line);
+  return {
+    hierarchy: line.substring(0, first),
+    controllers: line.substring(first + 1, second),
+    path: line.substring(second + 1)
+  };
+}
+
+function parse_proc_cgroup_unified_path(text) {
+  let found = null;
+  const lines = text.split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index];
+    if (line === "") { continue; }
+    const row = split_cgroup_line(line);
+    if (row.hierarchy === "0" && row.controllers === "") {
+      ensure(found === null, "cu_process_cgroup_proc_duplicate_unified");
+      ensure(row.path.length > 0 && row.path.charAt(0) === "/", "cu_process_cgroup_proc_path_shape");
+      found = row.path;
+    }
+  }
+  ensure(found !== null, "cu_process_cgroup_proc_no_unified");
+  return found;
+}
+
+function derive_membership_hierarchy(path) {
+  if (path === "/") { return ["/"]; }
+  const hierarchy = ["/"];
+  let cumulative = "/";
+  const parts = path.split("/");
+  for (let index = 0; index < parts.length; index = index + 1) {
+    const component = parts[index];
+    if (component === "") { continue; }
+    if (cumulative.length > 1) { cumulative = cumulative + "/"; }
+    cumulative = cumulative + component;
+    hierarchy.push(cumulative);
+  }
+  return hierarchy;
+}
+
+function derive_filesystem_path(path) {
+  if (path === "/") { return "/sys/fs/cgroup"; }
+  return "/sys/fs/cgroup" + path;
+}
+
+function hierarchy_path_text(entry) {
+  if (typeof entry === "string") { return entry; }
+  throw "cu_process_cgroup_hierarchy_non_utf8";
+}
+
+function independent_directory_identity(filesystem_path) {
+  ensure(rh.exists(filesystem_path), "cu_process_cgroup_proc_fs_path_missing:" + filesystem_path);
+  const stat = rh.command("stat", ["-c", "%d:%i", "--", filesystem_path], { timeout_ms: 5000 });
+  ensure(stat.success === true, "cu_process_cgroup_proc_stat_failed:" + filesystem_path);
+  const parts = stat.stdout.trim().split(":");
+  ensure(parts.length === 2 && decimal(parts[0]) && decimal(parts[1]), "cu_process_cgroup_proc_stat_shape");
+  return { directory_device: parts[0], directory_inode: parts[1] };
+}
+
+function assert_linux_independent_readback(pid, data) {
+  const proc_path = "/proc/" + pid + "/cgroup";
+  ensure(rh.exists(proc_path), "cu_process_cgroup_proc_missing:" + pid);
+  const independent_path = parse_proc_cgroup_unified_path(rh.read_text(proc_path));
+  ensure(
+    data.membership.path === independent_path,
+    "cu_process_cgroup_proc_path_mismatch:cu=" + data.membership.path + ":proc=" + independent_path
+  );
+
+  const expected_hierarchy = derive_membership_hierarchy(independent_path);
+  const hierarchy = data.membership.hierarchy;
+  ensure(
+    Array.isArray(hierarchy) && hierarchy.length === expected_hierarchy.length,
+    "cu_process_cgroup_hierarchy_len"
+  );
+  for (let index = 0; index < expected_hierarchy.length; index = index + 1) {
+    ensure(
+      hierarchy_path_text(hierarchy[index]) === expected_hierarchy[index],
+      "cu_process_cgroup_hierarchy_mismatch:" + index
+    );
+  }
+
+  const expected_fs = derive_filesystem_path(independent_path);
+  ensure(
+    data.membership.filesystem_path === expected_fs,
+    "cu_process_cgroup_fs_path_mismatch:cu=" + data.membership.filesystem_path + ":expected=" + expected_fs
+  );
+
+  const identity = independent_directory_identity(expected_fs);
+  ensure(
+    data.membership.directory_device === identity.directory_device
+      && data.membership.directory_inode === identity.directory_inode,
+    "cu_process_cgroup_directory_identity_mismatch"
+  );
 }
 
 const args = rh.args();
@@ -98,6 +204,21 @@ try {
     ensure(data.consistency === "exact-process-and-membership-bracketed-point-reads",
       "cu_process_cgroup_consistency");
     ensure(Array.isArray(data.unavailable), "cu_process_cgroup_unavailable_shape");
+    ensure(
+      typeof data.membership.filesystem_path === "string"
+        && data.membership.filesystem_path.indexOf("/sys/fs/cgroup") === 0,
+      "cu_process_cgroup_filesystem_path"
+    );
+    ensure(Array.isArray(data.membership.hierarchy) && data.membership.hierarchy.length > 0,
+      "cu_process_cgroup_hierarchy_shape");
+    ensure(
+      hierarchy_path_text(data.membership.hierarchy[data.membership.hierarchy.length - 1])
+        === data.membership.path,
+      "cu_process_cgroup_hierarchy_leaf"
+    );
+
+    print("STEP linux cgroup membership matches independent /proc cgroup read-back");
+    assert_linux_independent_readback(pid, data);
 
     print("STEP grouped compatibility spelling returns the same membership and directory identity");
     const grouped = invoke_reply(context.run_directory, executable, [
