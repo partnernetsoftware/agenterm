@@ -1350,7 +1350,13 @@ try {
     "--target", "current", "--grant", "observe", "get-selection",
     "--window", handle_text, "--name", "Fixture Entry"
   ]);
-  ensure(int_at(dclick_selection, "data.start") === 0 && int_at(dclick_selection, "data.end") === 4, "cu_linux_smoke_dclick_selection:" + JSON.stringify(dclick_selection.data));
+  ensure(
+    text_at(dclick_selection, "data.via") === "get-selection"
+      && int_at(dclick_selection, "data.n") === 1
+      && int_at(dclick_selection, "data.start") === 0 && int_at(dclick_selection, "data.end") === 4
+      && text_at(dclick_selection, "data.text") === "seed",
+    "cu_linux_smoke_dclick_selection:" + JSON.stringify(dclick_selection.data)
+  );
   const before_dclick_press = label_text(run_directory, executable, handle_text, "pressed ");
   const click_twice = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "click",
@@ -1375,7 +1381,10 @@ try {
     "--window", handle_text, "--name", "Fixture Entry"
   ]);
   ensure(
-    int_at(selection, "data.start") === 2 && int_at(selection, "data.end") === 7,
+    text_at(selection, "data.via") === "get-selection"
+      && int_at(selection, "data.n") === 1
+      && int_at(selection, "data.start") === 2 && int_at(selection, "data.end") === 7
+      && text_at(selection, "data.text") === "nuxty",
     "cu_linux_smoke_selection:" + JSON.stringify(selection.data)
   );
   run_cu_json(run_directory, executable, [
