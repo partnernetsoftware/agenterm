@@ -114,6 +114,7 @@
         "cu.linux-processor-topology-readback",
         "cu.linux-cache-hierarchy-readback",
         "cu.linux-resource-status-readback",
+        "cu.linux-device-inventory-readback",
         "cu.linux-local-clock-readback",
         "cu.linux-boot-identity-readback",
         "cu.linux-network-dns-resolv",

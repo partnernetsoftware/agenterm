@@ -1116,6 +1116,23 @@
         "task.cu-linux-processor-topology-smoke"
       ]
     },
+    "cu-linux-host-memory-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-host-memory-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-host-memory-smoke"
+      ]
+    },
     "cu-linux-cache-hierarchy-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -1148,6 +1165,23 @@
       "network": [],
       "evidence": [
         "task.cu-linux-resource-status-smoke"
+      ]
+    },
+    "cu-linux-device-inventory-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-device-inventory-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-device-inventory-smoke"
       ]
     },
     "cu-linux-local-clock-smoke": {
@@ -4930,6 +4964,24 @@
       "id": "cu-linux-resource-status-smoke",
       "description": "Prove Linux resource-status load, uptime, memory and process count match independent /proc loadavg, uptime, meminfo and executable-backed process inventory read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-resource-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-device-inventory-smoke",
+      "description": "Prove Linux device-list kind/count/provider status and identity continuity match independent sysfs read-back from the same class roots; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-device-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

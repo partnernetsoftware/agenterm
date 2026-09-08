@@ -343,6 +343,10 @@
       "evidence": ["cu.linux-resource-status-readback"]
     },
     {
+      "id": "cu-linux-device-inventory-smoke",
+      "evidence": ["cu.linux-device-inventory-readback"]
+    },
+    {
       "id": "cu-desktop-state-smoke",
       "evidence": ["cu.desktop-state"]
     },

@@ -276,6 +276,7 @@ const evidence_suites = {
   "cu-linux-processor-topology-smoke": true,
   "cu-linux-cache-hierarchy-smoke": true,
   "cu-linux-resource-status-smoke": true,
+  "cu-linux-device-inventory-smoke": true,
   "cu-linux-fontconfig-monospace-smoke": true,
   "cu-linux-local-clock-smoke": true,
   "cu-linux-boot-identity-smoke": true,

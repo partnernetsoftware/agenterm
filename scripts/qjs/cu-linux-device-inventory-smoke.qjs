@@ -1,0 +1,297 @@
+// CEO: Linux device-inventory honesty with independent sysfs read-back.
+// Acceptance is smoke read-back only: CU device-list must agree with facts
+// derived outside agenterm-cu from the same sysfs class roots the Linux
+// adapter scans. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-device-inventory-readback",
+];
+
+const KINDS = ["usb", "bluetooth", "audio", "camera", "gpu"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory, prefix) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, prefix + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, prefix + "-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+}
+
+function invoke(run_directory, executable, auth, arguments, expect_success) {
+  const output = rh.command(executable, auth.concat(arguments), {
+    cwd: run_directory,
+    env: isolated_env(run_directory, "observe"),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_device_inventory_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_device_inventory_reply_state");
+  return reply;
+}
+
+function setup(run_directory, executable) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "actuate", "setup",
+    "--bin-dir", rh.join(run_directory, "bin"),
+  ], { cwd: run_directory, env: isolated_env(run_directory, "setup"), timeout_ms: 30000 });
+  ensure(output.success === true, "cu_linux_device_inventory_setup_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true && reply.command === "setup", "cu_linux_device_inventory_setup_reply");
+  return ["--target", "current", "--grant", "observe"];
+}
+
+function independent_sysfs_inventory() {
+  const script = [
+    "import os",
+    "",
+    "SPECS = [",
+    "    ('usb', '/sys/bus/usb/devices', None, ['serial'],",
+    "     ['idVendor', 'idProduct', 'busnum', 'devpath']),",
+    "    ('bluetooth', '/sys/class/bluetooth', 'hci', ['address'],",
+    "     ['name', 'uevent']),",
+    "    ('audio', '/sys/class/sound', 'card', ['id'], ['id', 'uevent']),",
+    "    ('camera', '/sys/class/video4linux', 'video', [], ['name', 'uevent']),",
+    "    ('gpu', '/sys/class/drm', 'card', ['device/uevent'],",
+    "     ['device/vendor', 'device/device', 'device/uevent']),",
+    "]",
+    "",
+    "def trim_bytes(data):",
+    "    start = 0",
+    "    end = len(data)",
+    "    while start < end and data[start:start + 1].isspace():",
+    "        start += 1",
+    "    while end > start and data[end - 1:end].isspace():",
+    "        end -= 1",
+    "    return data[start:end]",
+    "",
+    "def read_bounded(path):",
+    "    try:",
+    "        with open(path, 'rb') as handle:",
+    "            data = handle.read(513)",
+    "    except FileNotFoundError:",
+    "        return None",
+    "    except OSError:",
+    "        return 'error'",
+    "    if len(data) > 512:",
+    "        return 'error'",
+    "    return trim_bytes(data)",
+    "",
+    "def matches_entry(kind, prefix, name):",
+    "    if prefix is None:",
+    "        return True",
+    "    if not name.startswith(prefix):",
+    "        return False",
+    "    if kind == 'gpu':",
+    "        suffix = name[len(prefix):]",
+    "        return suffix.isdigit()",
+    "    return True",
+    "",
+    "def scan_class(kind, root, prefix, stable_fields, identity_fields):",
+    "    if not os.path.isdir(root):",
+    "        if not os.path.exists(root):",
+    "            return ('unavailable', 0, 0, 0, 0, 'provider-path-unavailable')",
+    "        return ('unavailable', 0, 0, 0, 0, 'provider-open-failed')",
+    "    visited = 0",
+    "    read_errors = 0",
+    "    devices = 0",
+    "    provider_stable = 0",
+    "    topology = 0",
+    "    for name in os.listdir(root):",
+    "        visited += 1",
+    "        if not matches_entry(kind, prefix, name):",
+    "            continue",
+    "        path = os.path.join(root, name)",
+    "        stable_parts = []",
+    "        for field in stable_fields:",
+    "            value = read_bounded(os.path.join(path, field))",
+    "            if value == 'error':",
+    "                read_errors += 1",
+    "            elif value and len(value) > 0:",
+    "                stable_parts.append(value)",
+    "        identity_found = len(stable_parts) > 0",
+    "        for field in identity_fields:",
+    "            if stable_parts and field not in ('idVendor', 'idProduct', 'device/vendor', 'device/device'):",
+    "                continue",
+    "            value = read_bounded(os.path.join(path, field))",
+    "            if value == 'error':",
+    "                read_errors += 1",
+    "            elif value and len(value) > 0:",
+    "                identity_found = True",
+    "        if not identity_found:",
+    "            continue",
+    "        devices += 1",
+    "        if stable_parts:",
+    "            provider_stable += 1",
+    "        else:",
+    "            topology += 1",
+    "    state = 'partial' if read_errors else 'complete'",
+    "    return (state, visited, devices, provider_stable, topology, None)",
+    "",
+    "for kind, root, prefix, stable_fields, identity_fields in SPECS:",
+    "    state, visited, devices, provider_stable, topology, code = scan_class(",
+    "        kind, root, prefix, stable_fields, identity_fields)",
+    "    print('KIND', kind, state, visited, devices, provider_stable, topology,",
+    "          code if code else '-', sep=' ')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 30000 });
+  ensure(output.success === true, "cu_linux_device_inventory_probe:" + output.stderr);
+  const facts = {};
+  const lines = output.stdout.trim().split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index].trim();
+    if (line === "" || !line.startsWith("KIND ")) { continue; }
+    const parts = line.split(" ");
+    ensure(parts.length === 8, "cu_linux_device_inventory_probe_shape:" + line);
+    facts[parts[1]] = {
+      state: parts[2],
+      visited: Number(parts[3]),
+      devices: Number(parts[4]),
+      provider_stable: Number(parts[5]),
+      topology: Number(parts[6]),
+      code: parts[7] === "-" ? null : parts[7],
+    };
+  }
+  for (let index = 0; index < KINDS.length; index = index + 1) {
+    ensure(facts[KINDS[index]] !== undefined, "cu_linux_device_inventory_probe_missing:" + KINDS[index]);
+  }
+  return facts;
+}
+
+function count_continuity(devices, kind, continuity) {
+  let count = 0;
+  for (let index = 0; index < devices.length; index = index + 1) {
+    const row = devices[index];
+    if (text_at(row, "kind") === kind && text_at(row, "identity_continuity") === continuity) {
+      count = count + 1;
+    }
+  }
+  return count;
+}
+
+function provider_for(reply, kind) {
+  const providers = reply.data.providers;
+  ensure(Array.isArray(providers), "cu_linux_device_inventory_providers_shape");
+  for (let index = 0; index < providers.length; index = index + 1) {
+    if (text_at(providers[index], "kind") === kind) {
+      return providers[index];
+    }
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_linux_device_inventory_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-device-inventory");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent sysfs probe captures per-kind inventory facts");
+  const probe = independent_sysfs_inventory();
+
+  print("STEP explicit isolated setup enrolls installation identity");
+  const auth = setup(context.run_directory, executable);
+
+  print("STEP device-list observe matches independent sysfs read-back");
+  const reply = invoke(context.run_directory, executable, auth,
+    ["device-list", "--type", "all", "--max", "5000"], true);
+  ensure(reply.command === "device-list" && reply.target === "current",
+         "cu_linux_device_inventory_identity");
+  ensure(text_at(reply, "data.identity_scope") === "installation",
+         "cu_linux_device_inventory_scope");
+  ensure(text_at(reply, "data.provider") === "",
+         "cu_linux_device_inventory_no_root_provider");
+
+  const devices = reply.data.devices;
+  ensure(Array.isArray(devices), "cu_linux_device_inventory_devices_shape");
+  ensure(reply.data.providers.length === 5, "cu_linux_device_inventory_provider_coverage");
+
+  for (let index = 0; index < KINDS.length; index = index + 1) {
+    const kind = KINDS[index];
+    const facts = probe[kind];
+    const provider = provider_for(reply, kind);
+    ensure(provider !== null, "cu_linux_device_inventory_provider_missing:" + kind);
+    ensure(text_at(provider, "provider") === "linux-sysfs-v1",
+           "cu_linux_device_inventory_provider_name:" + kind);
+    ensure(text_at(provider, "state") === facts.state,
+           "cu_linux_device_inventory_state_mismatch:" + kind
+             + ":cu=" + text_at(provider, "state") + ":probe=" + facts.state);
+    ensure(Number(text_at(provider, "visited")) === facts.visited,
+           "cu_linux_device_inventory_visited_mismatch:" + kind
+             + ":cu=" + text_at(provider, "visited") + ":probe=" + facts.visited);
+    const code = text_at(provider, "code");
+    if (facts.code === null) {
+      ensure(code === "" || code === "null" || code === "undefined",
+             "cu_linux_device_inventory_code_unexpected:" + kind + ":" + code);
+    } else {
+      ensure(code === facts.code,
+             "cu_linux_device_inventory_code_mismatch:" + kind
+               + ":cu=" + code + ":probe=" + facts.code);
+    }
+    const cu_count = count_continuity(devices, kind, "provider-stable")
+      + count_continuity(devices, kind, "topology");
+    ensure(cu_count === facts.devices,
+           "cu_linux_device_inventory_count_mismatch:" + kind
+             + ":cu=" + cu_count + ":probe=" + facts.devices);
+    ensure(count_continuity(devices, kind, "provider-stable") === facts.provider_stable,
+           "cu_linux_device_inventory_stable_mismatch:" + kind);
+    ensure(count_continuity(devices, kind, "topology") === facts.topology,
+           "cu_linux_device_inventory_topology_mismatch:" + kind);
+  }
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-device-inventory-readback");
+  harness.remove_run(context);
+  print("PASS: Linux device-list matches independent sysfs kind/count/continuity read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
