@@ -1,7 +1,8 @@
-// CEO: app hide / show on Linux with independent windows inventory read-back.
-// Acceptance is smoke read-back only: hide must leave every process window
-// off screen (minimized or absent from on-screen count); show must restore
-// them. GTK fixture ok; no --coords or screenshot degradation.
+// CEO: app hide / show on Linux with independent map-state, inventory and
+// AT-SPI read-back. Acceptance is smoke read-back only: hide must leave
+// every process window off screen and read back as unmapped/iconified;
+// show must restore viewable inventory rows. GTK fixture ok; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -45,7 +46,10 @@ function direct_file(path) {
 }
 
 function cu_env(executable) {
-  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
   for (const key of [
     "DISPLAY",
     "XDG_RUNTIME_DIR",
@@ -103,6 +107,76 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
+function independent_visibility_probe(title, handle) {
+  const script = [
+    "import json, sys, subprocess, pyatspi",
+    "title = sys.argv[1]",
+    "handle = int(sys.argv[2])",
+    "def run(argv):",
+    "    return subprocess.run(argv, capture_output=True, text=True)",
+    "def map_state(wid):",
+    "    result = run(['xwininfo', '-id', str(wid)])",
+    "    if result.returncode != 0:",
+    "        return None",
+    "    for line in result.stdout.splitlines():",
+    "        if 'Map State:' in line:",
+    "            return line.split(':', 1)[1].strip()",
+    "    return None",
+    "def wm_hidden(wid):",
+    "    result = run(['xprop', '-id', str(wid), '_NET_WM_STATE'])",
+    "    if result.returncode != 0:",
+    "        return False",
+    "    return '_NET_WM_STATE_HIDDEN' in result.stdout",
+    "def atspi_frame(title):",
+    "    desktop = pyatspi.Registry.getDesktop(0)",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            frame = app.getChildAtIndex(j)",
+    "            if frame is not None and frame.name == title:",
+    "                return frame",
+    "    return None",
+    "frame = atspi_frame(title)",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_hide_show_atspi_no_frame')",
+    "states = frame.getState()",
+    "print(json.dumps({",
+    "    'map_state': map_state(handle),",
+    "    'wm_hidden': wm_hidden(handle),",
+    "    'iconified': states.contains(pyatspi.STATE_ICONIFIED),",
+    "    'showing': states.contains(pyatspi.STATE_SHOWING),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title, "" + handle], {
+    timeout_ms: 30000,
+  });
+  ensure(
+    output.success === true,
+    "cu_linux_hide_show_visibility_probe:" + output.stderr + output.stdout
+  );
+  return JSON.parse(output.stdout.trim());
+}
+
+function ensure_hidden_probe(probe) {
+  ensure(
+    probe.map_state !== "IsViewable"
+      && probe.wm_hidden === true
+      && probe.iconified === true,
+    "cu_linux_hide_show_probe_hidden:" + JSON.stringify(probe)
+  );
+}
+
+function ensure_shown_probe(probe) {
+  ensure(
+    probe.map_state === "IsViewable"
+      && probe.wm_hidden === false
+      && probe.iconified === false,
+    "cu_linux_hide_show_probe_shown:" + JSON.stringify(probe)
+  );
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -146,6 +220,8 @@ try {
     "cu_linux_hide_show_baseline_on_screen:" + JSON.stringify(baseline)
   );
   const baseline_on_screen = baseline.on_screen;
+  const baseline_probe = independent_visibility_probe(fixture_title, int_at(row, "handle"));
+  ensure_shown_probe(baseline_probe);
 
   print("STEP app hide --window " + handle_text + " puts every owned window away");
   const hidden = run_cu(run_directory, executable, "observe,actuate", [
@@ -167,6 +243,10 @@ try {
     "cu_linux_hide_show_hide_killed_process"
   );
 
+  print("STEP independent xwininfo/xprop + AT-SPI read-back after hide: unmapped and iconified");
+  const hidden_probe = independent_visibility_probe(fixture_title, int_at(row, "handle"));
+  ensure_hidden_probe(hidden_probe);
+
   print("STEP app show --pid " + fixture_pid + " restores every owned window");
   const shown = run_cu(run_directory, executable, "observe,actuate", [
     "app", "show", "--pid", "" + fixture_pid,
@@ -187,6 +267,15 @@ try {
     window_row(run_directory, executable, fixture_pid, fixture_title) !== null,
     "cu_linux_hide_show_primary_window_missing_after_show"
   );
+
+  print("STEP independent xwininfo/xprop + AT-SPI read-back after show: viewable and not iconified");
+  const shown_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(shown_row !== null, "cu_linux_hide_show_shown_row_missing");
+  const shown_probe = independent_visibility_probe(
+    fixture_title,
+    int_at(shown_row, "handle")
+  );
+  ensure_shown_probe(shown_probe);
 } finally {
   if (fixture_pid !== 0) {
     rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
@@ -199,5 +288,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-hide-show");
 harness.emit_evidence(context, declared_evidence, "cu.linux-app-hide-show-state");
 harness.remove_run(context);
-print("PASS: CEO Linux app hide/show with independent windows inventory read-back");
+print("PASS: CEO Linux app hide/show with independent map-state, inventory and AT-SPI read-back");
 return;
