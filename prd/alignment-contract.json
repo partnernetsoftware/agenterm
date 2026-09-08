@@ -141,6 +141,7 @@
         "cu.linux-atspi-send-keys",
         "cu.linux-atspi-app-lifecycle",
         "cu.linux-atspi-app-inventory",
+        "cu.linux-app-inventory-readback",
         "cu.linux-atspi-destructive-close",
         "cu.linux-atspi-refusal-reasons",
         "cu.linux-atspi-fixture-cleanup"

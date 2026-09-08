@@ -1,0 +1,320 @@
+// CEO: Linux apps inventory honesty with independent XDG desktop-entry and
+// visible-window /proc comm read-back. Acceptance is smoke read-back only:
+// CU apps --all must agree with facts derived outside agenterm-cu from the
+// same desktop-entry precedence the Linux adapter uses, and each running flag
+// must match the window-app-name join measured independently. No --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-app-inventory-readback",
+];
+
+const MAX_INSTALLED_APPS = 2048;
+const MAX_ENTRY_BYTES = 128 * 1024;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function flag_at(value, dotted) {
+  return rh.field(value, dotted) === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env() {
+  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  for (const key of ["DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  return env;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: cu_env(),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success,
+         "cu_linux_app_inventory_exit:" + output.exit_code + ":" + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_app_inventory_empty");
+  const reply = JSON.parse(trimmed);
+  ensure(reply.ok === expect_success, "cu_linux_app_inventory_reply:" + trimmed);
+  return reply;
+}
+
+function probe_script() {
+  return [
+    "import json, os, subprocess, sys",
+    "from pathlib import Path",
+    "MAX_INSTALLED_APPS = " + MAX_INSTALLED_APPS,
+    "MAX_ENTRY_BYTES = " + MAX_ENTRY_BYTES,
+    "def application_directories():",
+    "    directories = []",
+    "    home_data = os.environ.get('XDG_DATA_HOME')",
+    "    if home_data and os.path.isabs(home_data):",
+    "        directories.append(Path(home_data) / 'applications')",
+    "    else:",
+    "        home = os.environ.get('HOME')",
+    "        if home:",
+    "            directories.append(Path(home) / '.local' / 'share' / 'applications')",
+    "    system = os.environ.get('XDG_DATA_DIRS') or '/usr/local/share:/usr/share'",
+    "    for entry in system.split(':'):",
+    "        path = Path(entry)",
+    "        if path.is_absolute():",
+    "            directories.append(path / 'applications')",
+    "    return directories",
+    "def parse_entry(path):",
+    "    try:",
+    "        if not path.is_file() or path.stat().st_size > MAX_ENTRY_BYTES:",
+    "            return None",
+    "        text = path.read_text(encoding='utf-8')",
+    "    except OSError:",
+    "        return None",
+    "    in_group = False",
+    "    name = None",
+    "    kind = None",
+    "    no_display = False",
+    "    hidden = False",
+    "    for line in text.splitlines():",
+    "        line = line.strip()",
+    "        if line.startswith('['):",
+    "            in_group = line == '[Desktop Entry]'",
+    "            continue",
+    "        if not in_group or not line or line.startswith('#'):",
+    "            continue",
+    "        if '=' not in line:",
+    "            continue",
+    "        key, value = line.split('=', 1)",
+    "        key, value = key.strip(), value.strip()",
+    "        if key == 'Name':",
+    "            name = value",
+    "        elif key == 'Type':",
+    "            kind = value",
+    "        elif key == 'NoDisplay':",
+    "            no_display = value.lower() == 'true'",
+    "        elif key == 'Hidden':",
+    "            hidden = value.lower() == 'true'",
+    "    if kind != 'Application' or not name:",
+    "        return None",
+    "    if no_display or hidden:",
+    "        return None",
+    "    return {'name': name, 'path': str(path)}",
+    "def desktop_inventory():",
+    "    directories = application_directories()",
+    "    if not directories:",
+    "        return {'available': False, 'reason': 'no_xdg_directories'}",
+    "    by_id = {}",
+    "    read_any = False",
+    "    for directory in directories:",
+    "        if not directory.is_dir():",
+    "            continue",
+    "        read_any = True",
+    "        for entry in directory.iterdir():",
+    "            if entry.suffix != '.desktop':",
+    "                continue",
+    "            entry_id = entry.name",
+    "            if entry_id in by_id:",
+    "                continue",
+    "            parsed = parse_entry(entry)",
+    "            if parsed is None:",
+    "                continue",
+    "            parsed['id'] = entry_id",
+    "            by_id[entry_id] = parsed",
+    "    if not read_any:",
+    "        return {'available': False, 'reason': 'no_readable_applications_directory'}",
+    "    apps = sorted(by_id.values(), key=lambda row: (row['name'], row['path']))",
+    "    truncated = len(apps) > MAX_INSTALLED_APPS",
+    "    if truncated:",
+    "        apps = apps[:MAX_INSTALLED_APPS]",
+    "    return {",
+    "        'available': True,",
+    "        'provider': 'linux-xdg-desktop-entry',",
+    "        'count': len(apps),",
+    "        'truncated': truncated,",
+    "        'apps': apps,",
+    "    }",
+    "def visible_window_app_names():",
+    "    names = set()",
+    "    search = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', ''],",
+    "                            capture_output=True, text=True)",
+    "    if search.returncode != 0:",
+    "        return sorted(names)",
+    "    for window_id in search.stdout.split():",
+    "        if window_id == '':",
+    "            continue",
+    "        prop = subprocess.run(['xprop', '-id', window_id, '_NET_WM_PID'],",
+    "                              capture_output=True, text=True)",
+    "        if prop.returncode != 0 or '_NET_WM_PID' not in prop.stdout:",
+    "            continue",
+    "        token = prop.stdout.strip().split()[-1]",
+    "        try:",
+    "            pid = int(token)",
+    "        except ValueError:",
+    "            continue",
+    "        comm_path = Path('/proc') / str(pid) / 'comm'",
+    "        try:",
+    "            comm = comm_path.read_text(encoding='utf-8').strip()",
+    "        except OSError:",
+    "            continue",
+    "        if comm != '':",
+    "            names.add(comm)",
+    "    return sorted(names)",
+    "inventory = desktop_inventory()",
+    "print(json.dumps({",
+    "    'inventory': inventory,",
+    "    'window_app_names': visible_window_app_names(),",
+    "}))",
+  ].join("\n");
+}
+
+function independent_probe() {
+  const output = rh.command("python3", ["-c", probe_script()], {
+    env: cu_env(),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_app_inventory_probe:" + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function desktop_id(path) {
+  let slash = -1;
+  for (let index = 0; index < path.length; index += 1) {
+    if (path.charAt(index) === "/") { slash = index; }
+  }
+  return slash >= 0 ? path.slice(slash + 1) : path;
+}
+
+function assert_inventory_shape(reply) {
+  ensure(reply.command === "apps" && reply.target === "current",
+         "cu_linux_app_inventory_identity");
+  const data = reply.data;
+  ensure(flag_at(data, "installed_available") === true,
+         "cu_linux_app_inventory_unavailable:" + JSON.stringify(data.installed_reason));
+  ensure(flag_at(data, "installed") === true, "cu_linux_app_inventory_installed_flag");
+  ensure(text_at(data, "running_match") === "window-app-name",
+         "cu_linux_app_inventory_running_match:" + text_at(data, "running_match"));
+  ensure(Array.isArray(data.installed_apps), "cu_linux_app_inventory_rows");
+  return data;
+}
+
+function assert_readback(data, probe) {
+  const inventory = probe.inventory;
+  ensure(inventory.available === true, "cu_linux_app_inventory_probe_unavailable:" + inventory.reason);
+  ensure(text_at(inventory, "provider") === "linux-xdg-desktop-entry",
+         "cu_linux_app_inventory_provider");
+  ensure(data.installed_apps.length === inventory.count,
+         "cu_linux_app_inventory_count:cu=" + data.installed_apps.length
+           + ":probe=" + inventory.count);
+  ensure(data.installed_truncated === inventory.truncated,
+         "cu_linux_app_inventory_truncated:cu=" + data.installed_truncated
+           + ":probe=" + inventory.truncated);
+  const window_names = {};
+  for (let index = 0; index < probe.window_app_names.length; index += 1) {
+    window_names[probe.window_app_names[index]] = true;
+  }
+  const probe_by_id = {};
+  for (let index = 0; index < inventory.apps.length; index += 1) {
+    const row = inventory.apps[index];
+    probe_by_id[row.id] = row;
+  }
+  for (let index = 0; index < data.installed_apps.length; index += 1) {
+    const row = data.installed_apps[index];
+    const path = text_at(row, "path");
+    const name = text_at(row, "name");
+    const id = desktop_id(path);
+    ensure(path.endsWith(".desktop"), "cu_linux_app_inventory_path:" + path);
+    ensure(name !== "", "cu_linux_app_inventory_name:" + id);
+    const probe_row = probe_by_id[id];
+    ensure(probe_row !== undefined, "cu_linux_app_inventory_missing_in_probe:" + id);
+    ensure(name === probe_row.name,
+           "cu_linux_app_inventory_name_mismatch:" + id
+             + ":cu=" + name + ":probe=" + probe_row.name);
+    ensure(path === probe_row.path,
+           "cu_linux_app_inventory_path_mismatch:" + id
+             + ":cu=" + path + ":probe=" + probe_row.path);
+    const expected_running = window_names[name] === true;
+    ensure(row.running === expected_running,
+           "cu_linux_app_inventory_running:" + id
+             + ":cu=" + row.running + ":probe=" + expected_running
+             + ":window_names=" + JSON.stringify(probe.window_app_names));
+  }
+}
+
+function verify_unavailable(run_directory, executable, reason) {
+  const reply = invoke(run_directory, executable, ["apps", "--all"], true);
+  ensure(reply.command === "apps", "cu_linux_app_inventory_unavailable_command");
+  const data = reply.data;
+  ensure(flag_at(data, "installed_available") !== true,
+         "cu_linux_app_inventory_false_available");
+  ensure(text_at(data, "installed_reason").length > 0 || text_at(data, "error.code").length > 0,
+         "cu_linux_app_inventory_unavailable_reason:" + reason);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-app-inventory");
+const probe = independent_probe();
+
+if (probe.inventory.available !== true) {
+  print("STEP typed gap when independent desktop-entry probe cannot read applications");
+  verify_unavailable(context.run_directory, executable, probe.inventory.reason);
+  harness.emit_evidence(context, declared_evidence, "cu.linux-app-inventory-readback");
+  harness.remove_run(context);
+  print("PASS: CEO Linux apps inventory typed gap with independent probe absence read-back");
+  return;
+}
+
+print("STEP apps --all installed inventory matches independent XDG desktop-entry read-back");
+const reply = invoke(context.run_directory, executable, ["apps", "--all"], true);
+const data = assert_inventory_shape(reply);
+ensure(data.installed_apps.length > 0, "cu_linux_app_inventory_empty_host");
+assert_readback(data, probe);
+
+print("STEP running-only apps inventory still reports window-backed running applications");
+const running = invoke(context.run_directory, executable, ["apps"], true);
+ensure(running.command === "apps", "cu_linux_app_inventory_running_command");
+ensure(flag_at(running.data, "running_only") === true,
+       "cu_linux_app_inventory_running_only");
+ensure(Array.isArray(running.data.apps), "cu_linux_app_inventory_running_rows");
+for (let index = 0; index < running.data.apps.length; index += 1) {
+  const row = running.data.apps[index];
+  ensure(text_at(row, "app_name") !== "", "cu_linux_app_inventory_running_name");
+  ensure(rh.int_of(rh.field(row, "window_count")) >= 1,
+         "cu_linux_app_inventory_running_window_count");
+}
+
+harness.emit_evidence(context, declared_evidence, "cu.linux-app-inventory-readback");
+harness.remove_run(context);
+print("PASS: CEO Linux apps inventory matches independent desktop-entry and window comm read-back");
+return;

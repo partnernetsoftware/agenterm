@@ -816,6 +816,24 @@
         "task.cu-linux-a11y-status-smoke"
       ]
     },
+    "cu-linux-app-inventory-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-app-inventory-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-app-inventory-smoke"
+      ]
+    },
     "cu-linux-ime-status-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4547,6 +4565,24 @@
       "args": [
         ".",
         "target/abi-dev/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-app-inventory-smoke",
+      "description": "Prove Linux apps --all rows match independent XDG desktop-entry and visible-window /proc comm read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-app-inventory-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [

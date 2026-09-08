@@ -460,6 +460,12 @@
       ]
     },
     {
+      "id": "cu-linux-app-inventory-smoke",
+      "evidence": [
+        "cu.linux-app-inventory-readback"
+      ]
+    },
+    {
       "id": "cu-app-facts-smoke",
       "evidence": [
         "cu.app-facts.linux"
