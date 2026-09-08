@@ -220,9 +220,17 @@ fn paste_to_node(
 }
 
 /// `send-keys` with `--name` delivers the chord through native AT-SPI
-/// Device/key events (`DeviceEventListener.NotifyEvent`). A named showing
-/// node with no key interface typed-fails (`a11y_key_unavailable`) and
-/// never falls through to XTest / `input_inject::send_keys`.
+/// Device/key events (`DeviceEventListener.NotifyEvent`) when present.
+/// When that interface is absent (GTK `GtkEntry`, Chrome renderer entry,
+/// WebKitGTK textarea) common modifier chords map to AT-SPI Text /
+/// clipboard semantics instead of XTest: `ctrl+a` →
+/// `Text.SetSelection(0, len)`, `ctrl+c` → `Text.GetText` +
+/// clipboard publish, `ctrl+v` → clipboard read + `EditableText` /
+/// `Text` write, `ctrl+x` → copy then clear. `enter` / `return` map to
+/// the node's default/activate action. A named showing node with no key
+/// interface and no semantic spelling for the chord typed-fails
+/// (`a11y_key_unavailable`) with `alternatives` naming `select`, `copy`,
+/// `send-text`, and `paste` — never XTest / `input_inject::send_keys`.
 ///
 /// `--window` without `--name` targets the showing focused node — the
 /// same innermost `Text.GetText` candidate `get-text --window` reads —
@@ -236,10 +244,9 @@ fn paste_to_node(
 /// (con Command; Chrome renderer entry; WebKitGTK textarea) and `KEYS`
 /// is plain typeable text, write through the same AT-SPI
 /// `EditableText` / `Text` path as focused `send-text` so the typed
-/// string is still native AT-SPI and never XTest. Special chords
-/// (`enter`, `ctrl+a`, …) without a key interface still typed-fail.
-/// Without `--window` it stays the plain "send to whatever is focused"
-/// inject.
+/// string is still native AT-SPI and never XTest. Modifier chords use
+/// the semantic map above before typed-failing. Without `--window` it
+/// stays the plain "send to whatever is focused" inject.
 pub(super) fn send_keys(
     keys: &str,
     window: Option<isize>,
@@ -339,19 +346,17 @@ pub(super) fn send_keys_to_node(
     window: Option<isize>,
     resolved: ResolvedNode,
 ) -> Result<serde_json::Value, CuError> {
-    mechanism::send_node_keys(window, &resolved.node_id, keys).map_err(map_mechanism_err)?;
-    let _ = mechanism::accessibility_tree::drain_bus();
-    let mut payload = serde_json::json!({
-        "addressing": "accessibility-tree",
-        "mechanism": "libagenterm",
-        "node": resolved.node_id,
-        "window": window,
-        "action": "send-keys",
-        "keys": keys,
-        "via": local_key_delivery_via(),
-    });
-    attach_name_match(&mut payload, &resolved);
-    Ok(payload)
+    match mechanism::send_node_keys(window, &resolved.node_id, keys) {
+        Ok(()) => keys_device_event_payload(keys, window, &resolved),
+        Err(error) if keys_may_use_semantic_fallback(&error) => {
+            if parse_semantic_chord(keys).is_some() {
+                send_semantic_keys_to_node(keys, window, resolved)
+            } else {
+                Err(chord_delivery_error(keys, map_mechanism_err(error)))
+            }
+        }
+        Err(error) => Err(map_mechanism_err(error)),
+    }
 }
 
 /// Focused-node key delivery: Device/key first; plain typeable text may
@@ -364,44 +369,199 @@ pub(super) fn send_keys_to_focused_node(
     resolved: ResolvedNode,
 ) -> Result<serde_json::Value, CuError> {
     match mechanism::send_node_keys(window, &resolved.node_id, keys) {
-        Ok(()) => {
-            let _ = mechanism::accessibility_tree::drain_bus();
-            let mut payload = serde_json::json!({
-                "addressing": "accessibility-tree",
-                "mechanism": "libagenterm",
-                "node": resolved.node_id,
-                "window": window,
-                "action": "send-keys",
-                "keys": keys,
-                "via": local_key_delivery_via(),
-            });
-            attach_name_match(&mut payload, &resolved);
-            Ok(payload)
-        }
-        Err(error) if focused_keys_may_use_text_write(keys, &error) => {
-            mechanism::set_node_text(window, &resolved.node_id, keys).map_err(map_mechanism_err)?;
-            let _ = mechanism::accessibility_tree::drain_bus();
-            let via = mechanism::accessibility_tree::last_text_write_via().unwrap_or_default();
-            let mut payload = serde_json::json!({
-                "addressing": "accessibility-tree",
-                "mechanism": "libagenterm",
-                "node": resolved.node_id,
-                "window": window,
-                "action": "send-keys",
-                "keys": keys,
-                "via": via,
-            });
-            attach_name_match(&mut payload, &resolved);
-            Ok(payload)
+        Ok(()) => keys_device_event_payload(keys, window, &resolved),
+        Err(error) if keys_may_use_semantic_fallback(&error) => {
+            if parse_semantic_chord(keys).is_some() {
+                send_semantic_keys_to_node(keys, window, resolved)
+            } else if focused_keys_may_use_text_write(keys, &error) {
+                mechanism::set_node_text(window, &resolved.node_id, keys)
+                    .map_err(map_mechanism_err)?;
+                let _ = mechanism::accessibility_tree::drain_bus();
+                let via = mechanism::accessibility_tree::last_text_write_via().unwrap_or_default();
+                let mut payload = serde_json::json!({
+                    "addressing": "accessibility-tree",
+                    "mechanism": "libagenterm",
+                    "node": resolved.node_id,
+                    "window": window,
+                    "action": "send-keys",
+                    "keys": keys,
+                    "via": via,
+                });
+                attach_name_match(&mut payload, &resolved);
+                Ok(payload)
+            } else {
+                Err(chord_delivery_error(keys, map_mechanism_err(error)))
+            }
         }
         Err(error) => Err(map_mechanism_err(error)),
     }
 }
 
+fn keys_device_event_payload(
+    keys: &str,
+    window: Option<isize>,
+    resolved: &ResolvedNode,
+) -> Result<serde_json::Value, CuError> {
+    let _ = mechanism::accessibility_tree::drain_bus();
+    let mut payload = serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "node": resolved.node_id,
+        "window": window,
+        "action": "send-keys",
+        "keys": keys,
+        "via": local_key_delivery_via(),
+    });
+    attach_name_match(&mut payload, resolved);
+    Ok(payload)
+}
+
+/// Modifier chords this backend can spell without `DeviceEventListener`.
+enum SemanticKeyChord {
+    SelectAll,
+    Copy,
+    Paste,
+    Cut,
+}
+
+fn parse_semantic_chord(keys: &str) -> Option<SemanticKeyChord> {
+    match keys.trim().to_ascii_lowercase().as_str() {
+        "ctrl+a" | "control+a" => Some(SemanticKeyChord::SelectAll),
+        "ctrl+c" | "control+c" => Some(SemanticKeyChord::Copy),
+        "ctrl+v" | "control+v" => Some(SemanticKeyChord::Paste),
+        "ctrl+x" | "control+x" => Some(SemanticKeyChord::Cut),
+        _ => None,
+    }
+}
+
+fn keys_may_use_semantic_fallback(error: &mechanism::MechanismError) -> bool {
+    matches!(
+        error,
+        mechanism::MechanismError::Failed { code, .. } if code == "a11y_key_unavailable"
+    )
+}
+
+fn chord_delivery_error(keys: &str, underlying: CuError) -> CuError {
+    let mut detail = underlying.detail.unwrap_or_else(|| serde_json::json!({}));
+    match detail.as_object_mut() {
+        Some(object) => {
+            object.insert("keys".into(), serde_json::json!(keys));
+            object.insert(
+                "alternatives".into(),
+                serde_json::json!(["select", "copy", "send-text", "paste", "get-selection"]),
+            );
+            object.insert(
+                "hint".into(),
+                serde_json::json!(format!(
+                    "modifier chord '{keys}' has no AT-SPI DeviceEventListener and no semantic equivalent on this node; try the named verbs in alternatives"
+                )),
+            );
+        }
+        None => {
+            detail = serde_json::json!({
+                "cause": detail,
+                "keys": keys,
+                "alternatives": ["select", "copy", "send-text", "paste", "get-selection"],
+                "hint": format!(
+                    "modifier chord '{keys}' has no AT-SPI DeviceEventListener and no semantic equivalent on this node; try the named verbs in alternatives"
+                ),
+            });
+        }
+    }
+    CuError::new(underlying.code, underlying.message).with_detail(detail)
+}
+
+fn send_semantic_keys_to_node(
+    keys: &str,
+    window: Option<isize>,
+    resolved: ResolvedNode,
+) -> Result<serde_json::Value, CuError> {
+    let chord = parse_semantic_chord(keys).expect("caller gates semantic chords");
+    let node_id = &resolved.node_id;
+    let (via, extra) = match chord {
+        SemanticKeyChord::SelectAll => {
+            let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
+            let end = i32::try_from(text.chars().count()).unwrap_or(i32::MAX);
+            mechanism::set_node_selection(window, node_id, 0, end).map_err(map_mechanism_err)?;
+            (
+                "set-selection",
+                serde_json::json!({ "start": 0, "end": end }),
+            )
+        }
+        SemanticKeyChord::Copy => {
+            let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
+            mechanism::clipboard::publish_text(&text).map_err(map_mechanism_err)?;
+            (
+                "gettext",
+                serde_json::json!({ "text": text, "clipboard": true }),
+            )
+        }
+        SemanticKeyChord::Paste => {
+            let pasted = mechanism::clipboard::get_text().map_err(map_mechanism_err)?;
+            mechanism::set_node_text(window, node_id, &pasted).map_err(map_mechanism_err)?;
+            let _ = mechanism::accessibility_tree::drain_bus();
+            let write_via =
+                mechanism::accessibility_tree::last_text_write_via().unwrap_or_default();
+            return Ok(semantic_keys_payload(
+                keys,
+                window,
+                &resolved,
+                write_via,
+                serde_json::json!({ "typed": pasted, "clipboard": true }),
+            ));
+        }
+        SemanticKeyChord::Cut => {
+            let text = mechanism::get_node_text(window, node_id).map_err(map_mechanism_err)?;
+            mechanism::clipboard::publish_text(&text).map_err(map_mechanism_err)?;
+            mechanism::set_node_text(window, node_id, "").map_err(map_mechanism_err)?;
+            let _ = mechanism::accessibility_tree::drain_bus();
+            let write_via =
+                mechanism::accessibility_tree::last_text_write_via().unwrap_or_default();
+            return Ok(semantic_keys_payload(
+                keys,
+                window,
+                &resolved,
+                write_via,
+                serde_json::json!({ "text": text, "clipboard": true, "cleared": true }),
+            ));
+        }
+    };
+    Ok(semantic_keys_payload(keys, window, &resolved, via, extra))
+}
+
+fn semantic_keys_payload(
+    keys: &str,
+    window: Option<isize>,
+    resolved: &ResolvedNode,
+    via: impl Into<String>,
+    extra: serde_json::Value,
+) -> serde_json::Value {
+    let via = via.into();
+    let mut payload = serde_json::json!({
+        "addressing": "accessibility-tree",
+        "mechanism": "libagenterm",
+        "node": resolved.node_id,
+        "window": window,
+        "action": "send-keys",
+        "keys": keys,
+        "via": via,
+        "semantic": true,
+    });
+    if let Some(object) = payload.as_object_mut() {
+        if let Some(extra_object) = extra.as_object() {
+            for (key, value) in extra_object {
+                object.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    attach_name_match(&mut payload, resolved);
+    payload
+}
+
 /// Plain typeable text (no modifier chords / named special keys) may use
 /// the AT-SPI Text write path when Device/key is missing or the chord
-/// parser rejects a multi-character literal. `enter` / `ctrl+a` stay on
-/// the Device/key typed-fail contract.
+/// parser rejects a multi-character literal. Modifier chords use the
+/// semantic map (`ctrl+a`, `ctrl+c`, …) before this gate.
 pub(super) fn focused_keys_may_use_text_write(
     keys: &str,
     error: &mechanism::MechanismError,
@@ -1052,6 +1212,40 @@ mod tests {
         assert!(!is_plain_typeable_text("enter"));
         assert!(!is_plain_typeable_text("ctrl+a"));
         assert!(!is_plain_typeable_text(""));
+    }
+
+    #[test]
+    fn semantic_chord_parser_recognizes_common_modifiers() {
+        assert!(matches!(
+            parse_semantic_chord("ctrl+a"),
+            Some(SemanticKeyChord::SelectAll)
+        ));
+        assert!(matches!(
+            parse_semantic_chord("Control+C"),
+            Some(SemanticKeyChord::Copy)
+        ));
+        assert!(matches!(
+            parse_semantic_chord("ctrl+v"),
+            Some(SemanticKeyChord::Paste)
+        ));
+        assert!(parse_semantic_chord("ctrl+z").is_none());
+        assert!(parse_semantic_chord("enter").is_none());
+    }
+
+    #[test]
+    fn chord_delivery_error_names_alternatives() {
+        let error = chord_delivery_error(
+            "ctrl+z",
+            CuError::new(
+                "a11y_key_unavailable",
+                "node does not expose the AT-SPI DeviceEventListener interface",
+            ),
+        );
+        assert_eq!(error.code, "a11y_key_unavailable");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["keys"], "ctrl+z");
+        assert!(detail["alternatives"].is_array());
+        assert!(detail["hint"].as_str().unwrap().contains("alternatives"));
     }
 
     #[test]
