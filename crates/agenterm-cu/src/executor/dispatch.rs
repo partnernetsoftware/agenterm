@@ -1849,6 +1849,7 @@ impl Executor {
             Command::ResourceStatus { .. } => resource_status_payload(),
             Command::ResourcePressure { .. } => resource_pressure_payload(),
             Command::PowerStatus { .. } => power_status_payload(),
+            Command::FontDiscovery { .. } => font_discovery_payload(),
             Command::StorageDevices { max, .. } => storage_devices_payload(*max),
             Command::StorageVolumes { max, .. } => storage_volumes_payload(*max),
             Command::DeviceList { selector, max, .. } => device_inventory_payload(*selector, *max),
@@ -2159,6 +2160,16 @@ impl Executor {
                 &mut self.open_receipts(command.target())?,
             ),
             Command::Unmaximize { window, expect, .. } => unmaximize_payload(
+                *window,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::Fullscreen { window, expect, .. } => fullscreen_payload(
+                *window,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::Unfullscreen { window, expect, .. } => unfullscreen_payload(
                 *window,
                 expect.as_deref(),
                 &mut self.open_receipts(command.target())?,

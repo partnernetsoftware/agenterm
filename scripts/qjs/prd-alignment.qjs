@@ -271,6 +271,7 @@ const evidence_suites = {
   "cu-linux-window-close-smoke": true,
   "cu-linux-menu-invoke-smoke": true,
   "cu-linux-power-status-smoke": true,
+  "cu-linux-fontconfig-monospace-smoke": true,
   "cu-linux-local-clock-smoke": true,
   "cu-linux-clipboard-mime-smoke": true,
   "cu-windows-smoke": true,

@@ -1,0 +1,131 @@
+// CEO: Linux fontconfig monospace discovery with independent fc-match read-back.
+// Acceptance is smoke read-back only: CU font-discovery must agree with an
+// independent `fc-match monospace` probe or declare a typed hardcoded fallback.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-fontconfig-monospace",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_font_discovery_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_font_discovery_reply_state");
+  return reply;
+}
+
+function independent_fc_match() {
+  const output = rh.command("fc-match", [
+    "-f", "%{family}\n%{file}\n", "monospace",
+  ], { timeout_ms: 15000 });
+  if (!output.success) {
+    return { available: false, family: "", file: "" };
+  }
+  const lines = output.stdout.split("\n");
+  const family = (lines[0] || "").trim();
+  const file = (lines[1] || "").trim();
+  if (family === "" || file === "") {
+    return { available: false, family: "", file: "" };
+  }
+  if (!rh.exists(file)) {
+    return { available: false, family: family, file: file };
+  }
+  return { available: true, family: family, file: file };
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-fontconfig-monospace");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent fc-match monospace captures fontconfig facts");
+  const fc = independent_fc_match();
+
+  print("STEP font-discovery observe returns explicit source and primary face");
+  const reply = invoke(context.run_directory, executable, ["font-discovery"], true);
+  ensure(reply.command === "font-discovery" && reply.target === "current",
+         "cu_linux_font_discovery_identity");
+  const data = reply.data;
+  const source = text_at(data, "source");
+  ensure(
+    source === "fontconfig"
+      || source === "hardcoded-fallback"
+      || source === "unavailable",
+    "cu_linux_font_discovery_source:" + source
+  );
+
+  if (fc.available) {
+    ensure(source === "fontconfig", "cu_linux_font_discovery_expected_fontconfig:" + source);
+    ensure(text_at(data, "primary_family") === fc.family,
+           "cu_linux_font_discovery_family_mismatch:cu=" + text_at(data, "primary_family")
+             + ":fc=" + fc.family);
+    ensure(text_at(data, "primary_path") === fc.file,
+           "cu_linux_font_discovery_path_mismatch:cu=" + text_at(data, "primary_path")
+             + ":fc=" + fc.file);
+    ensure(text_at(data, "fontconfig.family") === fc.family,
+           "cu_linux_font_discovery_fontconfig_family_mismatch");
+    ensure(text_at(data, "fontconfig.file") === fc.file,
+           "cu_linux_font_discovery_fontconfig_file_mismatch");
+  } else if (source === "hardcoded-fallback") {
+    const primary_path = text_at(data, "primary_path");
+    ensure(primary_path !== "" && rh.exists(primary_path),
+           "cu_linux_font_discovery_fallback_path_missing:" + primary_path);
+    const alternatives = data.alternatives;
+    ensure(Array.isArray(alternatives),
+           "cu_linux_font_discovery_alternatives_shape");
+  } else {
+    ensure(source === "unavailable",
+           "cu_linux_font_discovery_unexpected_unavailable:" + source);
+  }
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-fontconfig-monospace");
+  harness.remove_run(context);
+  print("PASS: CEO Linux fontconfig monospace discovery with independent fc-match read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

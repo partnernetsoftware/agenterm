@@ -659,6 +659,25 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "font-discovery".into(),
+            if cfg!(target_os = "linux") {
+                serde_json::json!({
+                    "status": "available",
+                    "group": "font",
+                    "grant": "observe",
+                    "mode": "linux-fontconfig-monospace-or-hardcoded-fallback",
+                    "mutation_performed": false,
+                })
+            } else {
+                serde_json::json!({
+                    "status": "unsupported",
+                    "group": "font",
+                    "grant": "observe",
+                    "reason": "font-discovery is wired on Linux hosts only",
+                })
+            },
+        );
+        verbs.insert(
             "network-probe".into(),
             serde_json::json!({
                 "status": "available",

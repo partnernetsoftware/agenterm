@@ -2696,6 +2696,9 @@ pub enum Command {
     PowerStatus {
         target: TargetRef,
     },
+    FontDiscovery {
+        target: TargetRef,
+    },
     StorageDevices {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_storage_devices_max")]
@@ -3919,6 +3922,22 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expect: Option<String>,
     },
+    /// `fullscreen --window HANDLE --expect fullscreen`: EWMH fullscreen with
+    /// read-back, distinct from the `window-place fullscreen` geometry alias.
+    Fullscreen {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
+    /// `unfullscreen --window HANDLE --expect unfullscreen`: EWMH unfullscreen
+    /// with read-back.
+    Unfullscreen {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
     WindowOpacity {
         target: TargetRef,
         window: isize,
@@ -4308,6 +4327,7 @@ impl Command {
             Self::ResourceStatus { .. } => "resource-status".into(),
             Self::ResourcePressure { .. } => "resource-pressure".into(),
             Self::PowerStatus { .. } => "power-status".into(),
+            Self::FontDiscovery { .. } => "font-discovery".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::StorageVolumes { .. } => "storage-volumes".into(),
             Self::DeviceList { .. } => "device-list".into(),
@@ -4403,6 +4423,8 @@ impl Command {
             Self::Restore { .. } => "restore".into(),
             Self::Maximize { .. } => "maximize".into(),
             Self::Unmaximize { .. } => "unmaximize".into(),
+            Self::Fullscreen { .. } => "fullscreen".into(),
+            Self::Unfullscreen { .. } => "unfullscreen".into(),
             Self::WindowOpacity { .. } => "window-opacity".into(),
             Self::Drag { .. } => "drag".into(),
             Self::Hit { .. } => "hit".into(),
@@ -4741,6 +4763,7 @@ impl Command {
             | Self::ResourceStatus { target }
             | Self::ResourcePressure { target }
             | Self::PowerStatus { target }
+            | Self::FontDiscovery { target }
             | Self::StorageDevices { target, .. }
             | Self::StorageVolumes { target, .. }
             | Self::DeviceList { target, .. }
@@ -4836,6 +4859,8 @@ impl Command {
             | Self::Restore { target, .. }
             | Self::Maximize { target, .. }
             | Self::Unmaximize { target, .. }
+            | Self::Fullscreen { target, .. }
+            | Self::Unfullscreen { target, .. }
             | Self::WindowOpacity { target, .. }
             | Self::Drag { target, .. }
             | Self::Hit { target, .. }
@@ -4987,6 +5012,8 @@ impl Command {
             | Self::Restore { .. }
             | Self::Maximize { .. }
             | Self::Unmaximize { .. }
+            | Self::Fullscreen { .. }
+            | Self::Unfullscreen { .. }
             | Self::WindowOpacity { .. }
             | Self::Drag { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,

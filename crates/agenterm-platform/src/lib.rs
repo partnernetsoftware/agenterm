@@ -270,6 +270,9 @@ pub mod control_window;
 #[cfg(feature = "font")]
 pub mod font;
 
+#[cfg(all(feature = "font", target_os = "linux"))]
+pub mod font_discovery;
+
 #[cfg(feature = "hardware")]
 pub mod hardware;
 

@@ -18,14 +18,24 @@
     {
       "name": "setup",
       "command": "setup",
-      "aliases": ["path-install"],
+      "aliases": [
+        "path-install"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "inspect or refresh the stable launcher while preserving resident owners",
       "usage": "setup [--check] [--bin-dir PATH]\npath-install [--bin-dir PATH]",
       "args": [
-        {"flag": "--check", "value": "", "help": "strictly read-only inspection; requires observe rather than actuate"},
-        {"flag": "--bin-dir", "value": "PATH", "help": "override the user launcher directory for an isolated court"}
+        {
+          "flag": "--check",
+          "value": "",
+          "help": "strictly read-only inspection; requires observe rather than actuate"
+        },
+        {
+          "flag": "--bin-dir",
+          "value": "PATH",
+          "help": "override the user launcher directory for an isolated court"
+        }
       ]
     },
     {
@@ -37,9 +47,21 @@
       "summary": "inspect permission state or open one exact consent settings pane",
       "usage": "permissions [status]\npermissions open [accessibility|screen-capture]",
       "args": [
-        {"flag": "status", "value": "", "help": "read-only canonical permission state (default)"},
-        {"flag": "open", "value": "", "help": "open one exact missing settings pane; requires actuate"},
-        {"flag": "accessibility|screen-capture", "value": "", "help": "optional exact permission; omission selects the next known missing grant"}
+        {
+          "flag": "status",
+          "value": "",
+          "help": "read-only canonical permission state (default)"
+        },
+        {
+          "flag": "open",
+          "value": "",
+          "help": "open one exact missing settings pane; requires actuate"
+        },
+        {
+          "flag": "accessibility|screen-capture",
+          "value": "",
+          "help": "optional exact permission; omission selects the next known missing grant"
+        }
       ]
     },
     {
@@ -55,7 +77,9 @@
     {
       "name": "host-open",
       "command": "host-open",
-      "aliases": ["open"],
+      "aliases": [
+        "open"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "dispatch one path or URL to its registered host application",
@@ -81,17 +105,39 @@
     {
       "name": "host-notify",
       "command": "host-notify",
-      "aliases": ["notify"],
+      "aliases": [
+        "notify"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "dispatch one bounded desktop notification",
       "usage": "host-notify TITLE [BODY] [--subtitle TEXT] [--sound] [--action KEY LABEL]...\nnotify TITLE [BODY] [--subtitle TEXT] [--sound] [--action KEY LABEL]...",
       "args": [
-        { "flag": "TITLE", "value": "TEXT", "help": "required notification title" },
-        { "flag": "BODY", "value": "TEXT", "help": "optional notification body" },
-        { "flag": "--subtitle", "value": "TEXT", "help": "macOS subtitle; unsupported hosts fail typed" },
-        { "flag": "--sound", "value": "", "help": "macOS notification sound; unsupported hosts fail typed" },
-        { "flag": "--action", "value": "KEY LABEL", "help": "Linux FDO action pair; repeatable; unsupported hosts fail typed" }
+        {
+          "flag": "TITLE",
+          "value": "TEXT",
+          "help": "required notification title"
+        },
+        {
+          "flag": "BODY",
+          "value": "TEXT",
+          "help": "optional notification body"
+        },
+        {
+          "flag": "--subtitle",
+          "value": "TEXT",
+          "help": "macOS subtitle; unsupported hosts fail typed"
+        },
+        {
+          "flag": "--sound",
+          "value": "",
+          "help": "macOS notification sound; unsupported hosts fail typed"
+        },
+        {
+          "flag": "--action",
+          "value": "KEY LABEL",
+          "help": "Linux FDO action pair; repeatable; unsupported hosts fail typed"
+        }
       ]
     },
     {
@@ -107,7 +153,9 @@
     {
       "name": "audit-compact",
       "command": "audit-compact",
-      "aliases": ["audit compact"],
+      "aliases": [
+        "audit compact"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "plan or atomically apply bounded audit retention",
@@ -117,7 +165,9 @@
     {
       "name": "session-start",
       "command": "session-start",
-      "aliases": ["session create"],
+      "aliases": [
+        "session create"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "create one durable runtime lease",
@@ -127,7 +177,9 @@
     {
       "name": "session-list",
       "command": "session-list",
-      "aliases": ["session list"],
+      "aliases": [
+        "session list"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "list bounded durable runtime leases",
@@ -137,7 +189,9 @@
     {
       "name": "session-status",
       "command": "session-status",
-      "aliases": ["session status"],
+      "aliases": [
+        "session status"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "inspect one durable runtime lease",
@@ -147,7 +201,9 @@
     {
       "name": "session-renew",
       "command": "session-renew",
-      "aliases": ["session renew"],
+      "aliases": [
+        "session renew"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "renew one runtime lease with its private token",
@@ -157,7 +213,9 @@
     {
       "name": "session-end",
       "command": "session-end",
-      "aliases": ["session end"],
+      "aliases": [
+        "session end"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "end one runtime lease and release its locks",
@@ -167,7 +225,9 @@
     {
       "name": "lock-acquire",
       "command": "lock-acquire",
-      "aliases": ["lock acquire"],
+      "aliases": [
+        "lock acquire"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "acquire or renew one session-bound target lock",
@@ -177,7 +237,9 @@
     {
       "name": "lock-list",
       "command": "lock-list",
-      "aliases": ["lock list"],
+      "aliases": [
+        "lock list"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "list active target locks",
@@ -187,7 +249,9 @@
     {
       "name": "lock-release",
       "command": "lock-release",
-      "aliases": ["lock release"],
+      "aliases": [
+        "lock release"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "release one target lock with its owner lease",
@@ -197,7 +261,9 @@
     {
       "name": "job-spawn",
       "command": "job-spawn",
-      "aliases": ["job spawn"],
+      "aliases": [
+        "job spawn"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "start one durable detached process under a resident owner",
@@ -207,7 +273,9 @@
     {
       "name": "job-adopt",
       "command": "job-adopt",
-      "aliases": ["job adopt"],
+      "aliases": [
+        "job adopt"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "adopt one exact current-user POSIX process group under a resident owner",
@@ -217,7 +285,9 @@
     {
       "name": "job-list",
       "command": "job-list",
-      "aliases": ["job list"],
+      "aliases": [
+        "job list"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "list bounded durable managed-job records",
@@ -227,7 +297,9 @@
     {
       "name": "job-status",
       "command": "job-status",
-      "aliases": ["job status"],
+      "aliases": [
+        "job status"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "inspect one managed-job identity and live state",
@@ -237,7 +309,9 @@
     {
       "name": "job-prune",
       "command": "job-prune",
-      "aliases": ["job prune"],
+      "aliases": [
+        "job prune"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "plan or apply bounded terminal managed-job receipt retention",
@@ -247,7 +321,9 @@
     {
       "name": "job-events",
       "command": "job-events",
-      "aliases": ["job events"],
+      "aliases": [
+        "job events"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "read lossless cursor-based stdout and stderr pages",
@@ -257,7 +333,9 @@
     {
       "name": "job-resources",
       "command": "job-resources",
-      "aliases": ["job resources"],
+      "aliases": [
+        "job resources"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "sample the managed job's native containment-group members and aggregates",
@@ -267,7 +345,9 @@
     {
       "name": "job-priority",
       "command": "job-priority",
-      "aliases": ["job priority"],
+      "aliases": [
+        "job priority"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "set and verify one owned Unix managed-job process group's nice value",
@@ -277,7 +357,9 @@
     {
       "name": "job-policy",
       "command": "job-policy",
-      "aliases": ["job policy"],
+      "aliases": [
+        "job policy"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "manage resident containment resource enforcement",
@@ -287,7 +369,9 @@
     {
       "name": "job-output",
       "command": "job-output",
-      "aliases": ["job output"],
+      "aliases": [
+        "job output"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "read one bounded managed-job output stream",
@@ -297,7 +381,9 @@
     {
       "name": "job-write",
       "command": "job-write",
-      "aliases": ["job write"],
+      "aliases": [
+        "job write"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "write one bounded base64 chunk and optionally close stdin",
@@ -307,7 +393,9 @@
     {
       "name": "job-wait",
       "command": "job-wait",
-      "aliases": ["job wait"],
+      "aliases": [
+        "job wait"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "wait boundedly for one managed job and verify exit",
@@ -317,7 +405,9 @@
     {
       "name": "job-set-state",
       "command": "job-set-state",
-      "aliases": ["job set-state"],
+      "aliases": [
+        "job set-state"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "set and verify the complete exact managed-job tree run state",
@@ -327,7 +417,9 @@
     {
       "name": "job-signal",
       "command": "job-signal",
-      "aliases": ["job signal"],
+      "aliases": [
+        "job signal"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "deliver one request-bound signal to the complete exact managed-job tree",
@@ -337,7 +429,9 @@
     {
       "name": "job-stop",
       "command": "job-stop",
-      "aliases": ["job stop"],
+      "aliases": [
+        "job stop"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "close stdin then force-stop one identity-bound job",
@@ -347,7 +441,9 @@
     {
       "name": "job-renew",
       "command": "job-renew",
-      "aliases": ["job renew"],
+      "aliases": [
+        "job renew"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "renew one resident managed-job lease",
@@ -574,43 +670,85 @@
     {
       "name": "file-xattr-set",
       "command": "file-xattr-set",
-      "aliases": ["file xattr-set"],
+      "aliases": [
+        "file xattr-set"
+      ],
       "grant": "actuate",
       "family": "file",
       "summary": "plan or apply one bounded extended-attribute value",
       "usage": "file-xattr-set PATH NAME --value-hex HEX [--apply]\nfile xattr-set PATH NAME --value-hex HEX [--apply]",
       "args": [
-        {"flag": "PATH", "value": "", "help": "one existing non-symlink regular file"},
-        {"flag": "NAME", "value": "", "help": "one exact native extended-attribute name"},
-        {"flag": "--value-hex", "value": "HEX", "help": "even-length hexadecimal bytes; decoded value at most 4 MiB"},
-        {"flag": "--apply", "value": "", "help": "apply after identity/precondition recheck; requires actuate grant"}
+        {
+          "flag": "PATH",
+          "value": "",
+          "help": "one existing non-symlink regular file"
+        },
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "one exact native extended-attribute name"
+        },
+        {
+          "flag": "--value-hex",
+          "value": "HEX",
+          "help": "even-length hexadecimal bytes; decoded value at most 4 MiB"
+        },
+        {
+          "flag": "--apply",
+          "value": "",
+          "help": "apply after identity/precondition recheck; requires actuate grant"
+        }
       ]
     },
     {
       "name": "file-xattr-remove",
       "command": "file-xattr-remove",
-      "aliases": ["file xattr-remove"],
+      "aliases": [
+        "file xattr-remove"
+      ],
       "grant": "actuate",
       "family": "file",
       "summary": "plan or apply removal of one extended attribute",
       "usage": "file-xattr-remove PATH NAME [--apply]\nfile xattr-remove PATH NAME [--apply]",
       "args": [
-        {"flag": "PATH", "value": "", "help": "one existing non-symlink regular file"},
-        {"flag": "NAME", "value": "", "help": "one exact native extended-attribute name"},
-        {"flag": "--apply", "value": "", "help": "apply after identity/precondition recheck; requires actuate grant"}
+        {
+          "flag": "PATH",
+          "value": "",
+          "help": "one existing non-symlink regular file"
+        },
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "one exact native extended-attribute name"
+        },
+        {
+          "flag": "--apply",
+          "value": "",
+          "help": "apply after identity/precondition recheck; requires actuate grant"
+        }
       ]
     },
     {
       "name": "file-quarantine-clear",
       "command": "file-quarantine-clear",
-      "aliases": ["file quarantine-clear"],
+      "aliases": [
+        "file quarantine-clear"
+      ],
       "grant": "actuate",
       "family": "file",
       "summary": "plan or apply removal of macOS quarantine metadata",
       "usage": "file-quarantine-clear PATH [--apply]\nfile quarantine-clear PATH [--apply]",
       "args": [
-        {"flag": "PATH", "value": "", "help": "one existing non-symlink regular file"},
-        {"flag": "--apply", "value": "", "help": "apply after identity/precondition recheck; requires actuate grant"}
+        {
+          "flag": "PATH",
+          "value": "",
+          "help": "one existing non-symlink regular file"
+        },
+        {
+          "flag": "--apply",
+          "value": "",
+          "help": "apply after identity/precondition recheck; requires actuate grant"
+        }
       ]
     },
     {
@@ -863,14 +1001,46 @@
       "summary": "read one exact macOS application's menu bar without choosing a window",
       "usage": "app-menu-inspect --app EXACT [--depth N] [--max-nodes N] [--title T [--exact]] [--enabled true|false] [--offset N] [--max N]",
       "args": [
-        { "flag": "--app", "value": "EXACT", "help": "case-insensitive exact application name; required and unique by process" },
-        { "flag": "--depth", "value": "N", "help": "menu depth 0..=8 (default 1)" },
-        { "flag": "--max-nodes", "value": "N", "help": "menu node budget 1..=5000" },
-        { "flag": "--title", "value": "T", "help": "item-title filter" },
-        { "flag": "--exact", "value": "", "help": "match --title exactly" },
-        { "flag": "--enabled", "value": "BOOL", "help": "filter enabled state" },
-        { "flag": "--offset", "value": "N", "help": "page start" },
-        { "flag": "--max", "value": "N", "help": "page size" }
+        {
+          "flag": "--app",
+          "value": "EXACT",
+          "help": "case-insensitive exact application name; required and unique by process"
+        },
+        {
+          "flag": "--depth",
+          "value": "N",
+          "help": "menu depth 0..=8 (default 1)"
+        },
+        {
+          "flag": "--max-nodes",
+          "value": "N",
+          "help": "menu node budget 1..=5000"
+        },
+        {
+          "flag": "--title",
+          "value": "T",
+          "help": "item-title filter"
+        },
+        {
+          "flag": "--exact",
+          "value": "",
+          "help": "match --title exactly"
+        },
+        {
+          "flag": "--enabled",
+          "value": "BOOL",
+          "help": "filter enabled state"
+        },
+        {
+          "flag": "--offset",
+          "value": "N",
+          "help": "page start"
+        },
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "page size"
+        }
       ]
     },
     {
@@ -882,8 +1052,16 @@
       "summary": "press one exact path in a uniquely resolved macOS application menu",
       "usage": "app-menu-invoke --app EXACT --path PATH",
       "args": [
-        { "flag": "--app", "value": "EXACT", "help": "case-insensitive exact application name; required and unique by process" },
-        { "flag": "--path", "value": "PATH", "help": "slash-delimited path or JSON string array; at least menu/item" }
+        {
+          "flag": "--app",
+          "value": "EXACT",
+          "help": "case-insensitive exact application name; required and unique by process"
+        },
+        {
+          "flag": "--path",
+          "value": "PATH",
+          "help": "slash-delimited path or JSON string array; at least menu/item"
+        }
       ]
     },
     {
@@ -1120,85 +1298,211 @@
     {
       "name": "process-fds",
       "command": "process-fds",
-      "aliases": ["process fds"],
+      "aliases": [
+        "process fds"
+      ],
       "grant": "observe",
       "family": "process",
       "summary": "identity-bound bounded descriptor inventory",
       "usage": "process-fds --pid N [--type KIND] [--target-text SUB] [--offset N] [--limit N] [--max-visited N]\nprocess fds PID [filters]",
       "args": [
-        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
-        {"flag": "--type", "value": "KIND", "help": "exact descriptor kind"},
-        {"flag": "--target-text", "value": "SUB", "help": "case-insensitive target substring"},
-        {"flag": "--offset", "value": "N", "help": "first matching descriptor (default 0)"},
-        {"flag": "--limit", "value": "N", "help": "returned descriptors, 1..=5000 (default 256)"},
-        {"flag": "--max-visited", "value": "N", "help": "native scan ceiling, 1..=10000 (default 4096)"}
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID)"
+        },
+        {
+          "flag": "--type",
+          "value": "KIND",
+          "help": "exact descriptor kind"
+        },
+        {
+          "flag": "--target-text",
+          "value": "SUB",
+          "help": "case-insensitive target substring"
+        },
+        {
+          "flag": "--offset",
+          "value": "N",
+          "help": "first matching descriptor (default 0)"
+        },
+        {
+          "flag": "--limit",
+          "value": "N",
+          "help": "returned descriptors, 1..=5000 (default 256)"
+        },
+        {
+          "flag": "--max-visited",
+          "value": "N",
+          "help": "native scan ceiling, 1..=10000 (default 4096)"
+        }
       ]
     },
     {
       "name": "process-maps",
       "command": "process-maps",
-      "aliases": ["process maps"],
+      "aliases": [
+        "process maps"
+      ],
       "grant": "observe",
       "family": "process",
       "summary": "identity-bound bounded memory-region inventory",
       "usage": "process-maps --pid N [--path SUB] [--permissions rwx] [--executable-only] [--offset N] [--limit N] [--max-visited N]\nprocess maps PID [filters]",
       "args": [
-        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
-        {"flag": "--path", "value": "SUB", "help": "case-insensitive mapped-path substring"},
-        {"flag": "--permissions", "value": "rwx", "help": "required permission letters"},
-        {"flag": "--executable-only", "value": "", "help": "only executable mappings"},
-        {"flag": "--offset", "value": "N", "help": "first matching region (default 0)"},
-        {"flag": "--limit", "value": "N", "help": "returned regions, 1..=5000 (default 256)"},
-        {"flag": "--max-visited", "value": "N", "help": "native scan ceiling, 1..=10000 (default 4096)"}
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID)"
+        },
+        {
+          "flag": "--path",
+          "value": "SUB",
+          "help": "case-insensitive mapped-path substring"
+        },
+        {
+          "flag": "--permissions",
+          "value": "rwx",
+          "help": "required permission letters"
+        },
+        {
+          "flag": "--executable-only",
+          "value": "",
+          "help": "only executable mappings"
+        },
+        {
+          "flag": "--offset",
+          "value": "N",
+          "help": "first matching region (default 0)"
+        },
+        {
+          "flag": "--limit",
+          "value": "N",
+          "help": "returned regions, 1..=5000 (default 256)"
+        },
+        {
+          "flag": "--max-visited",
+          "value": "N",
+          "help": "native scan ceiling, 1..=10000 (default 4096)"
+        }
       ]
     },
     {
       "name": "process-threads",
       "command": "process-threads",
-      "aliases": ["process threads"],
+      "aliases": [
+        "process threads"
+      ],
       "grant": "observe",
       "family": "process",
       "summary": "identity-bound bounded native-thread inventory",
       "usage": "process-threads --pid N [--name SUB] [--state STATE] [--offset N] [--limit N] [--max-visited N]\nprocess threads PID [filters]",
       "args": [
-        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
-        {"flag": "--name", "value": "SUB", "help": "case-insensitive native thread-name substring"},
-        {"flag": "--state", "value": "STATE", "help": "exact normalized thread state"},
-        {"flag": "--offset", "value": "N", "help": "first matching thread (default 0)"},
-        {"flag": "--limit", "value": "N", "help": "returned threads, 1..=5000 (default 256)"},
-        {"flag": "--max-visited", "value": "N", "help": "native scan ceiling, 1..=10000 (default 4096)"}
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID)"
+        },
+        {
+          "flag": "--name",
+          "value": "SUB",
+          "help": "case-insensitive native thread-name substring"
+        },
+        {
+          "flag": "--state",
+          "value": "STATE",
+          "help": "exact normalized thread state"
+        },
+        {
+          "flag": "--offset",
+          "value": "N",
+          "help": "first matching thread (default 0)"
+        },
+        {
+          "flag": "--limit",
+          "value": "N",
+          "help": "returned threads, 1..=5000 (default 256)"
+        },
+        {
+          "flag": "--max-visited",
+          "value": "N",
+          "help": "native scan ceiling, 1..=10000 (default 4096)"
+        }
       ]
     },
     {
       "name": "process-sockets",
       "command": "process-sockets",
-      "aliases": ["process sockets"],
+      "aliases": [
+        "process sockets"
+      ],
       "grant": "observe",
       "family": "process",
       "summary": "identity-bound bounded native socket inventory",
       "usage": "process-sockets --pid N [--family FAMILY] [--protocol PROTOCOL] [--state STATE] [--endpoint SUB] [--offset N] [--limit N] [--max-visited N]\nprocess sockets PID [filters]",
       "args": [
-        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
-        {"flag": "--family", "value": "FAMILY", "help": "exact family, for example IPv4, IPv6 or Unix"},
-        {"flag": "--protocol", "value": "PROTOCOL", "help": "exact protocol, for example TCP or UDP"},
-        {"flag": "--state", "value": "STATE", "help": "exact normalized socket state"},
-        {"flag": "--endpoint", "value": "SUB", "help": "case-insensitive endpoint substring"},
-        {"flag": "--offset", "value": "N", "help": "first matching socket (default 0)"},
-        {"flag": "--limit", "value": "N", "help": "returned sockets, 1..=5000 (default 256)"},
-        {"flag": "--max-visited", "value": "N", "help": "native descriptor scan ceiling, 1..=10000 (default 4096)"}
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID)"
+        },
+        {
+          "flag": "--family",
+          "value": "FAMILY",
+          "help": "exact family, for example IPv4, IPv6 or Unix"
+        },
+        {
+          "flag": "--protocol",
+          "value": "PROTOCOL",
+          "help": "exact protocol, for example TCP or UDP"
+        },
+        {
+          "flag": "--state",
+          "value": "STATE",
+          "help": "exact normalized socket state"
+        },
+        {
+          "flag": "--endpoint",
+          "value": "SUB",
+          "help": "case-insensitive endpoint substring"
+        },
+        {
+          "flag": "--offset",
+          "value": "N",
+          "help": "first matching socket (default 0)"
+        },
+        {
+          "flag": "--limit",
+          "value": "N",
+          "help": "returned sockets, 1..=5000 (default 256)"
+        },
+        {
+          "flag": "--max-visited",
+          "value": "N",
+          "help": "native descriptor scan ceiling, 1..=10000 (default 4096)"
+        }
       ]
     },
     {
       "name": "process-cgroup",
       "command": "process-cgroup",
-      "aliases": ["process cgroup"],
+      "aliases": [
+        "process cgroup"
+      ],
       "grant": "observe",
       "family": "process",
       "summary": "identity- and membership-bracketed Linux cgroup v2 snapshot",
       "usage": "process-cgroup --pid N [--start-identity ID]\nprocess cgroup PID [--start-identity ID]",
       "args": [
-        {"flag": "--pid", "value": "N", "help": "positive process id (or positional PID)"},
-        {"flag": "--start-identity", "value": "ID", "help": "optional exact value returned by process-state"}
+        {
+          "flag": "--pid",
+          "value": "N",
+          "help": "positive process id (or positional PID)"
+        },
+        {
+          "flag": "--start-identity",
+          "value": "ID",
+          "help": "optional exact value returned by process-state"
+        }
       ]
     },
     {
@@ -1578,21 +1882,37 @@
     {
       "name": "pty-start",
       "command": "pty-start",
-      "aliases": ["pty start"],
+      "aliases": [
+        "pty start"
+      ],
       "grant": "actuate",
       "family": "terminal",
       "summary": "start one durable headless PTY job",
       "usage": "pty-start NAME [--cwd DIR] [-- PROGRAM ARG...]\npty start NAME [--cwd DIR] [-- PROGRAM ARG...]",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name: 1..=64 ASCII letters, digits, dot, underscore or hyphen"},
-        {"flag": "--cwd", "value": "DIR", "help": "existing child working directory; default is the caller directory"},
-        {"flag": "--", "value": "PROGRAM ARG...", "help": "typed argv, 1..=256 arguments / at most 1048576 bytes"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name: 1..=64 ASCII letters, digits, dot, underscore or hyphen"
+        },
+        {
+          "flag": "--cwd",
+          "value": "DIR",
+          "help": "existing child working directory; default is the caller directory"
+        },
+        {
+          "flag": "--",
+          "value": "PROGRAM ARG...",
+          "help": "typed argv, 1..=256 arguments / at most 1048576 bytes"
+        }
       ]
     },
     {
       "name": "pty-list",
       "command": "pty-list",
-      "aliases": ["pty list"],
+      "aliases": [
+        "pty list"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "reconcile durable PTY names with live authorities",
@@ -1602,211 +1922,431 @@
     {
       "name": "pty-prune",
       "command": "pty-prune",
-      "aliases": ["pty prune"],
+      "aliases": [
+        "pty prune"
+      ],
       "grant": "actuate",
       "family": "terminal",
       "summary": "reclaim one independently verified stale PTY state",
       "usage": "pty-prune NAME --expect stale\npty prune NAME --expect stale",
       "args": [
-        {"flag": "NAME", "value": "", "help": "exact durable job name previously returned by pty-list"},
-        {"flag": "--expect", "value": "stale", "help": "required destructive postcondition"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "exact durable job name previously returned by pty-list"
+        },
+        {
+          "flag": "--expect",
+          "value": "stale",
+          "help": "required destructive postcondition"
+        }
       ]
     },
     {
       "name": "pty-status",
       "command": "pty-status",
-      "aliases": ["pty status"],
+      "aliases": [
+        "pty status"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "inspect one durable headless PTY job",
       "usage": "pty-status NAME\npty status NAME",
-      "args": [{"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"}]
+      "args": [
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name returned by pty-start"
+        }
+      ]
     },
     {
       "name": "pty-read",
       "command": "pty-read",
-      "aliases": ["pty read"],
+      "aliases": [
+        "pty read"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "read a loss-aware raw-output page from a PTY job",
       "usage": "pty-read NAME [--cursor earliest|current|N] [--max-bytes N]\npty read NAME ...",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name"},
-        {"flag": "--cursor", "value": "CURSOR", "help": "earliest/current bootstrap or prior next_cursor"},
-        {"flag": "--max-bytes", "value": "N", "help": "page size, 1..=1048576 (default 65536)"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name"
+        },
+        {
+          "flag": "--cursor",
+          "value": "CURSOR",
+          "help": "earliest/current bootstrap or prior next_cursor"
+        },
+        {
+          "flag": "--max-bytes",
+          "value": "N",
+          "help": "page size, 1..=1048576 (default 65536)"
+        }
       ]
     },
     {
       "name": "pty-snapshot",
       "command": "pty-snapshot",
-      "aliases": ["pty snapshot"],
+      "aliases": [
+        "pty snapshot"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "snapshot and persist one exact durable PTY screen baseline",
       "usage": "pty-snapshot NAME\npty snapshot NAME",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name returned by pty-start"
+        }
       ]
     },
     {
       "name": "pty-diff",
       "command": "pty-diff",
-      "aliases": ["pty diff"],
+      "aliases": [
+        "pty diff"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "diff one durable PTY screen against an identity-bound baseline",
       "usage": "pty-diff NAME --base SNAPSHOT_ID [--advance] [--max N]\npty diff NAME --base SNAPSHOT_ID [--advance] [--max N]",
       "args": [
-        {"flag": "NAME", "value": "", "help": "same stable job name used to take the baseline"},
-        {"flag": "--base", "value": "SNAPSHOT_ID", "help": "exact snapshot_id returned by pty-snapshot"},
-        {"flag": "--advance", "value": "", "help": "atomically persist the current screen as next_base"},
-        {"flag": "--max", "value": "N", "help": "changed-row ceiling, 1..=512 (default 200)"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "same stable job name used to take the baseline"
+        },
+        {
+          "flag": "--base",
+          "value": "SNAPSHOT_ID",
+          "help": "exact snapshot_id returned by pty-snapshot"
+        },
+        {
+          "flag": "--advance",
+          "value": "",
+          "help": "atomically persist the current screen as next_base"
+        },
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "changed-row ceiling, 1..=512 (default 200)"
+        }
       ]
     },
     {
       "name": "pty-events",
       "command": "pty-events",
-      "aliases": ["pty events"],
+      "aliases": [
+        "pty events"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "continue one durable PTY job event cursor",
       "usage": "pty-events NAME --epoch EPOCH --after SEQUENCE [--limit N]\npty events NAME --epoch EPOCH --after SEQUENCE [--limit N]",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"},
-        {"flag": "--epoch", "value": "EPOCH", "help": "exact server epoch returned by pty-snapshot"},
-        {"flag": "--after", "value": "SEQUENCE", "help": "last consumed event sequence"},
-        {"flag": "--limit", "value": "N", "help": "events scanned per page, 1..=64 (default 64)"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name returned by pty-start"
+        },
+        {
+          "flag": "--epoch",
+          "value": "EPOCH",
+          "help": "exact server epoch returned by pty-snapshot"
+        },
+        {
+          "flag": "--after",
+          "value": "SEQUENCE",
+          "help": "last consumed event sequence"
+        },
+        {
+          "flag": "--limit",
+          "value": "N",
+          "help": "events scanned per page, 1..=64 (default 64)"
+        }
       ]
     },
     {
       "name": "pty-resize",
       "command": "pty-resize",
-      "aliases": ["pty resize"],
+      "aliases": [
+        "pty resize"
+      ],
       "grant": "actuate",
       "family": "terminal",
       "summary": "resize and verify one durable PTY job grid",
       "usage": "pty-resize NAME --rows ROWS --columns COLUMNS\npty resize NAME --rows ROWS --columns COLUMNS",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name returned by pty-start"},
-        {"flag": "--rows", "value": "ROWS", "help": "requested terminal rows, 1..=512"},
-        {"flag": "--columns", "value": "COLUMNS", "help": "requested terminal columns, 1..=512"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name returned by pty-start"
+        },
+        {
+          "flag": "--rows",
+          "value": "ROWS",
+          "help": "requested terminal rows, 1..=512"
+        },
+        {
+          "flag": "--columns",
+          "value": "COLUMNS",
+          "help": "requested terminal columns, 1..=512"
+        }
       ]
     },
     {
       "name": "pty-send",
       "command": "pty-send",
-      "aliases": ["pty send"],
+      "aliases": [
+        "pty send"
+      ],
       "grant": "actuate",
       "family": "terminal",
       "summary": "send exact UTF-8 bytes to a PTY job",
       "usage": "pty-send NAME -- TEXT\npty send NAME -- TEXT",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name"},
-        {"flag": "--", "value": "TEXT", "help": "one non-empty literal UTF-8 argument, at most 1048576 bytes"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name"
+        },
+        {
+          "flag": "--",
+          "value": "TEXT",
+          "help": "one non-empty literal UTF-8 argument, at most 1048576 bytes"
+        }
       ]
     },
     {
       "name": "pty-wait",
       "command": "pty-wait",
-      "aliases": ["pty wait"],
+      "aliases": [
+        "pty wait"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "wait for exact bytes in retained PTY output",
       "usage": "pty-wait NAME --contains TEXT [--cursor earliest|current|N] [--timeout-ms N]\npty wait NAME ...",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name"},
-        {"flag": "--contains", "value": "TEXT", "help": "exact UTF-8 bytes, 1..=65536 bytes"},
-        {"flag": "--cursor", "value": "CURSOR", "help": "loss-aware starting cursor (default earliest)"},
-        {"flag": "--timeout-ms", "value": "N", "help": "monotonic deadline, 1..=86400000 (default 30000)"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name"
+        },
+        {
+          "flag": "--contains",
+          "value": "TEXT",
+          "help": "exact UTF-8 bytes, 1..=65536 bytes"
+        },
+        {
+          "flag": "--cursor",
+          "value": "CURSOR",
+          "help": "loss-aware starting cursor (default earliest)"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "monotonic deadline, 1..=86400000 (default 30000)"
+        }
       ]
     },
     {
       "name": "pty-wait-exit",
       "command": "pty-wait-exit",
-      "aliases": ["pty wait-exit"],
+      "aliases": [
+        "pty wait-exit"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "wait for a PTY job's drained exit receipt",
       "usage": "pty-wait-exit NAME [--timeout-ms N] [--expect-status N]\npty wait-exit NAME ...",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name"},
-        {"flag": "--timeout-ms", "value": "N", "help": "monotonic deadline, 1..=86400000 (default 300000)"},
-        {"flag": "--expect-status", "value": "N", "help": "optional exact exit status, 0..=255"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "monotonic deadline, 1..=86400000 (default 300000)"
+        },
+        {
+          "flag": "--expect-status",
+          "value": "N",
+          "help": "optional exact exit status, 0..=255"
+        }
       ]
     },
     {
       "name": "pty-signal",
       "command": "pty-signal",
-      "aliases": ["pty signal"],
+      "aliases": [
+        "pty signal"
+      ],
       "grant": "actuate",
       "family": "terminal",
       "summary": "signal the exact native foreground group of one PTY job",
       "usage": "pty-signal NAME --signal interrupt|terminate|stop|continue --expect delivered|exited|stopped|running\npty signal NAME ...",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name"},
-        {"flag": "--signal", "value": "SIGNAL", "help": "interrupt, terminate, stop or continue"},
-        {"flag": "--expect", "value": "POSTCONDITION", "help": "signal-specific explicit postcondition"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name"
+        },
+        {
+          "flag": "--signal",
+          "value": "SIGNAL",
+          "help": "interrupt, terminate, stop or continue"
+        },
+        {
+          "flag": "--expect",
+          "value": "POSTCONDITION",
+          "help": "signal-specific explicit postcondition"
+        }
       ]
     },
     {
       "name": "pty-stop",
       "command": "pty-stop",
-      "aliases": ["pty stop"],
+      "aliases": [
+        "pty stop"
+      ],
       "grant": "actuate",
       "family": "terminal",
       "summary": "close one PTY job and its headless authority",
       "usage": "pty-stop NAME --expect stopped\npty stop NAME --expect stopped",
       "args": [
-        {"flag": "NAME", "value": "", "help": "stable job name"},
-        {"flag": "--expect", "value": "stopped", "help": "required destructive postcondition"}
+        {
+          "flag": "NAME",
+          "value": "",
+          "help": "stable job name"
+        },
+        {
+          "flag": "--expect",
+          "value": "stopped",
+          "help": "required destructive postcondition"
+        }
       ]
     },
     {
       "name": "term-read",
       "command": "term-read",
-      "aliases": ["term read"],
+      "aliases": [
+        "term read"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "read one exact external terminal window's bounded accessibility buffer",
       "usage": "term-read WINDOW [--tail N] [--raw] [--max-bytes N]\nterm read WINDOW [options]",
       "args": [
-        {"flag": "WINDOW", "value": "HANDLE", "help": "exact non-zero handle from windows; not an AgenTerm @tab"},
-        {"flag": "--tail", "value": "N", "help": "return the last 1..=100000 non-padding lines"},
-        {"flag": "--raw", "value": "", "help": "retain terminal viewport padding lines"},
-        {"flag": "--max-bytes", "value": "N", "help": "UTF-8 response ceiling, 1..=1048576 (default 1048576)"}
+        {
+          "flag": "WINDOW",
+          "value": "HANDLE",
+          "help": "exact non-zero handle from windows; not an AgenTerm @tab"
+        },
+        {
+          "flag": "--tail",
+          "value": "N",
+          "help": "return the last 1..=100000 non-padding lines"
+        },
+        {
+          "flag": "--raw",
+          "value": "",
+          "help": "retain terminal viewport padding lines"
+        },
+        {
+          "flag": "--max-bytes",
+          "value": "N",
+          "help": "UTF-8 response ceiling, 1..=1048576 (default 1048576)"
+        }
       ]
     },
     {
       "name": "term-send",
       "command": "term-send",
-      "aliases": ["term send"],
+      "aliases": [
+        "term send"
+      ],
       "grant": "actuate",
       "family": "terminal",
       "summary": "send to one exact external terminal with independent buffer verification",
       "usage": "term-send WINDOW [--enter true|false] [--foreground] [--expect REGEX] [--verify-timeout-ms N] -- TEXT\nterm send WINDOW [options] -- TEXT",
       "args": [
-        {"flag": "WINDOW", "value": "HANDLE", "help": "exact non-zero handle from windows; identity is revalidated"},
-        {"flag": "--enter", "value": "true|false", "help": "send Enter after text (default true)"},
-        {"flag": "--foreground", "value": "", "help": "explicitly permit bounded activate, inject and previous-focus restore when background delivery is unavailable"},
-        {"flag": "--expect", "value": "REGEX", "help": "independent new buffer postcondition; defaults to the escaped literal TEXT"},
-        {"flag": "--verify-timeout-ms", "value": "N", "help": "postcondition deadline, 1..=30000 (default 2000)"},
-        {"flag": "--", "value": "TEXT", "help": "one literal UTF-8 argument, at most 65536 bytes"}
+        {
+          "flag": "WINDOW",
+          "value": "HANDLE",
+          "help": "exact non-zero handle from windows; identity is revalidated"
+        },
+        {
+          "flag": "--enter",
+          "value": "true|false",
+          "help": "send Enter after text (default true)"
+        },
+        {
+          "flag": "--foreground",
+          "value": "",
+          "help": "explicitly permit bounded activate, inject and previous-focus restore when background delivery is unavailable"
+        },
+        {
+          "flag": "--expect",
+          "value": "REGEX",
+          "help": "independent new buffer postcondition; defaults to the escaped literal TEXT"
+        },
+        {
+          "flag": "--verify-timeout-ms",
+          "value": "N",
+          "help": "postcondition deadline, 1..=30000 (default 2000)"
+        },
+        {
+          "flag": "--",
+          "value": "TEXT",
+          "help": "one literal UTF-8 argument, at most 65536 bytes"
+        }
       ]
     },
     {
       "name": "term-wait",
       "command": "term-wait",
-      "aliases": ["term wait"],
+      "aliases": [
+        "term wait"
+      ],
       "grant": "observe",
       "family": "terminal",
       "summary": "wait for a regex in one exact external terminal without leaking timeout content",
       "usage": "term-wait WINDOW PATTERN [--timeout-ms N] [--interval-ms N] [--max-bytes N]\nterm wait WINDOW PATTERN [options]",
       "args": [
-        {"flag": "WINDOW", "value": "HANDLE", "help": "exact non-zero handle from windows; identity is revalidated per poll"},
-        {"flag": "PATTERN", "value": "REGEX", "help": "Rust regex, 1..=4096 UTF-8 bytes"},
-        {"flag": "--timeout-ms", "value": "N", "help": "monotonic deadline, 1..=86400000 (default 30000); --timeout S is the MCU alias"},
-        {"flag": "--interval-ms", "value": "N", "help": "poll interval, 10..=10000 (default 100); --interval S is the MCU alias"},
-        {"flag": "--max-bytes", "value": "N", "help": "matched-text response ceiling, 1..=1048576"}
+        {
+          "flag": "WINDOW",
+          "value": "HANDLE",
+          "help": "exact non-zero handle from windows; identity is revalidated per poll"
+        },
+        {
+          "flag": "PATTERN",
+          "value": "REGEX",
+          "help": "Rust regex, 1..=4096 UTF-8 bytes"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "monotonic deadline, 1..=86400000 (default 30000); --timeout S is the MCU alias"
+        },
+        {
+          "flag": "--interval-ms",
+          "value": "N",
+          "help": "poll interval, 10..=10000 (default 100); --interval S is the MCU alias"
+        },
+        {
+          "flag": "--max-bytes",
+          "value": "N",
+          "help": "matched-text response ceiling, 1..=1048576"
+        }
       ]
     },
     {
@@ -3062,6 +3602,18 @@
       "args": []
     },
     {
+      "name": "font-discovery",
+      "command": "font-discovery",
+      "aliases": [
+        "font discovery"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "report how the Linux monospace primary face was resolved",
+      "usage": "font discovery\nfont-discovery",
+      "args": []
+    },
+    {
       "name": "ime-status",
       "command": "ime-status",
       "aliases": [
@@ -3112,12 +3664,36 @@
       "summary": "observe or approval-bind one exact default-output volume or mute transaction",
       "usage": "audio status\naudio plan volume 0..100 [--ttl-seconds N]\naudio plan muted true|false [--ttl-seconds N]\naudio apply --request R --approve H",
       "args": [
-        { "flag": "status", "value": "", "help": "read exact default-output device, volume and mute state" },
-        { "flag": "plan volume", "value": "0..100", "help": "prepare a mutation-free exact-device volume plan" },
-        { "flag": "plan muted", "value": "true|false", "help": "prepare a mutation-free exact-device mute plan" },
-        { "flag": "--ttl-seconds", "value": "N", "help": "approval lifetime in 1..=600 seconds (default 120)" },
-        { "flag": "--request", "value": "R", "help": "bounded request returned by plan" },
-        { "flag": "--approve", "value": "H", "help": "exact 64-hex approval returned by plan" }
+        {
+          "flag": "status",
+          "value": "",
+          "help": "read exact default-output device, volume and mute state"
+        },
+        {
+          "flag": "plan volume",
+          "value": "0..100",
+          "help": "prepare a mutation-free exact-device volume plan"
+        },
+        {
+          "flag": "plan muted",
+          "value": "true|false",
+          "help": "prepare a mutation-free exact-device mute plan"
+        },
+        {
+          "flag": "--ttl-seconds",
+          "value": "N",
+          "help": "approval lifetime in 1..=600 seconds (default 120)"
+        },
+        {
+          "flag": "--request",
+          "value": "R",
+          "help": "bounded request returned by plan"
+        },
+        {
+          "flag": "--approve",
+          "value": "H",
+          "help": "exact 64-hex approval returned by plan"
+        }
       ]
     },
     {
@@ -3138,12 +3714,36 @@
       "summary": "observe native services or approval-bind one exact user-service lifecycle transaction",
       "usage": "service list|system-list [--match S] [--max N]\nservice status|system-status NAME\nservice plan start|stop|restart|bootstrap|bootout NAME [--definition PATH] [--ttl-seconds N]\nservice apply --request R --approve H\nservice bootstrap PLIST | start|restart|stop NAME | bootout NAME --force [--ttl-seconds N] (global request identity required)",
       "args": [
-        { "flag": "--match", "value": "S", "help": "case-insensitive name filter applied before truncation" },
-        { "flag": "--max", "value": "N", "help": "result bound in 1..=5000 (default 500)" },
-        { "flag": "--definition", "value": "PATH", "help": "regular definition file required by bootstrap" },
-        { "flag": "--ttl-seconds", "value": "N", "help": "approval lifetime in 1..=600 seconds (default 120)" },
-        { "flag": "--request", "value": "R", "help": "bounded request returned by plan" },
-        { "flag": "--approve", "value": "H", "help": "exact 64-hex approval returned by plan" }
+        {
+          "flag": "--match",
+          "value": "S",
+          "help": "case-insensitive name filter applied before truncation"
+        },
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "result bound in 1..=5000 (default 500)"
+        },
+        {
+          "flag": "--definition",
+          "value": "PATH",
+          "help": "regular definition file required by bootstrap"
+        },
+        {
+          "flag": "--ttl-seconds",
+          "value": "N",
+          "help": "approval lifetime in 1..=600 seconds (default 120)"
+        },
+        {
+          "flag": "--request",
+          "value": "R",
+          "help": "bounded request returned by plan"
+        },
+        {
+          "flag": "--approve",
+          "value": "H",
+          "help": "exact 64-hex approval returned by plan"
+        }
       ]
     },
     {
@@ -3288,108 +3888,242 @@
     {
       "name": "device-claims",
       "command": "device-claims",
-      "aliases": ["device claims"],
+      "aliases": [
+        "device claims"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "list bounded device-lease metadata without secrets or native locators",
       "usage": "device claims [--offset N] [--max N]\ndevice-claims [--offset N] [--max N]",
       "args": [
-        {"flag": "--offset", "value": "N", "help": "zero-based row offset, 0..1024"},
-        {"flag": "--max", "value": "N", "help": "row bound, 1..1024 (default 100)"}
+        {
+          "flag": "--offset",
+          "value": "N",
+          "help": "zero-based row offset, 0..1024"
+        },
+        {
+          "flag": "--max",
+          "value": "N",
+          "help": "row bound, 1..1024 (default 100)"
+        }
       ]
     },
     {
       "name": "device-claim",
       "command": "device-claim",
-      "aliases": ["device claim"],
+      "aliases": [
+        "device claim"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "claim one opaque serial device through a resident exclusive native owner",
       "usage": "device claim DEVICE_ID [--ttl-seconds N] [--baud N --data-bits N --parity KIND --stop-bits N --flow KIND]\ndevice-claim DEVICE_ID [same options]",
       "args": [
-        {"flag": "DEVICE_ID", "value": null, "help": "installation-scoped agt-device-v1 identity from device-list"},
-        {"flag": "--ttl-seconds", "value": "N", "help": "lease duration, 1..86400 (default 300)"},
-        {"flag": "--baud", "value": "N", "help": "serial baud rate (default 9600 when serial options are present)"},
-        {"flag": "--data-bits", "value": "N", "help": "serial data bits, 5..8 (default 8)"},
-        {"flag": "--parity", "value": "KIND", "help": "none|even|odd (default none)"},
-        {"flag": "--stop-bits", "value": "N", "help": "1|2 (default 1)"},
-        {"flag": "--flow", "value": "KIND", "help": "none|software|hardware (default none)"}
+        {
+          "flag": "DEVICE_ID",
+          "value": null,
+          "help": "installation-scoped agt-device-v1 identity from device-list"
+        },
+        {
+          "flag": "--ttl-seconds",
+          "value": "N",
+          "help": "lease duration, 1..86400 (default 300)"
+        },
+        {
+          "flag": "--baud",
+          "value": "N",
+          "help": "serial baud rate (default 9600 when serial options are present)"
+        },
+        {
+          "flag": "--data-bits",
+          "value": "N",
+          "help": "serial data bits, 5..8 (default 8)"
+        },
+        {
+          "flag": "--parity",
+          "value": "KIND",
+          "help": "none|even|odd (default none)"
+        },
+        {
+          "flag": "--stop-bits",
+          "value": "N",
+          "help": "1|2 (default 1)"
+        },
+        {
+          "flag": "--flow",
+          "value": "KIND",
+          "help": "none|software|hardware (default none)"
+        }
       ]
     },
     {
       "name": "device-status",
       "command": "device-status",
-      "aliases": ["device status"],
+      "aliases": [
+        "device status"
+      ],
       "grant": "observe",
       "family": "system",
       "summary": "inspect one device lease without exposing its authority secret",
       "usage": "device status LEASE_ID --generation N\ndevice-status LEASE_ID --generation N",
       "args": [
-        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
-        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"}
+        {
+          "flag": "LEASE_ID",
+          "value": null,
+          "help": "device lease UUID"
+        },
+        {
+          "flag": "--generation",
+          "value": "N",
+          "help": "exact nonzero lease generation"
+        }
       ]
     },
     {
       "name": "device-read",
       "command": "device-read",
-      "aliases": ["device read"],
+      "aliases": [
+        "device read"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "consume one bounded byte chunk from the resident device owner",
       "usage": "device read LEASE_ID --generation N --lease SECRET [--max-bytes N] [--timeout-ms N] [--encoding base64|hex]\ndevice-read LEASE_ID [same options]",
       "args": [
-        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
-        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"},
-        {"flag": "--lease", "value": "SECRET", "help": "one-time-returned device lease authority"},
-        {"flag": "--max-bytes", "value": "N", "help": "read bound, 1..65536 (default 65536)"},
-        {"flag": "--timeout-ms", "value": "N", "help": "operation deadline, 1..300000 (default 1000)"},
-        {"flag": "--encoding", "value": "KIND", "help": "base64|hex (default base64)"}
+        {
+          "flag": "LEASE_ID",
+          "value": null,
+          "help": "device lease UUID"
+        },
+        {
+          "flag": "--generation",
+          "value": "N",
+          "help": "exact nonzero lease generation"
+        },
+        {
+          "flag": "--lease",
+          "value": "SECRET",
+          "help": "one-time-returned device lease authority"
+        },
+        {
+          "flag": "--max-bytes",
+          "value": "N",
+          "help": "read bound, 1..65536 (default 65536)"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "operation deadline, 1..300000 (default 1000)"
+        },
+        {
+          "flag": "--encoding",
+          "value": "KIND",
+          "help": "base64|hex (default base64)"
+        }
       ]
     },
     {
       "name": "device-write",
       "command": "device-write",
-      "aliases": ["device write"],
+      "aliases": [
+        "device write"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "write one bounded byte chunk through the resident device owner",
       "usage": "device write LEASE_ID --generation N --lease SECRET (--data-base64 DATA|--hex HEX) [--timeout-ms N]\ndevice-write LEASE_ID [same options]",
       "args": [
-        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
-        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"},
-        {"flag": "--lease", "value": "SECRET", "help": "one-time-returned device lease authority"},
-        {"flag": "--data-base64", "value": "DATA", "help": "base64 payload, decoded size 1..65536"},
-        {"flag": "--hex", "value": "HEX", "help": "hex payload, decoded size 1..65536"},
-        {"flag": "--timeout-ms", "value": "N", "help": "operation deadline, 1..300000 (default 1000)"}
+        {
+          "flag": "LEASE_ID",
+          "value": null,
+          "help": "device lease UUID"
+        },
+        {
+          "flag": "--generation",
+          "value": "N",
+          "help": "exact nonzero lease generation"
+        },
+        {
+          "flag": "--lease",
+          "value": "SECRET",
+          "help": "one-time-returned device lease authority"
+        },
+        {
+          "flag": "--data-base64",
+          "value": "DATA",
+          "help": "base64 payload, decoded size 1..65536"
+        },
+        {
+          "flag": "--hex",
+          "value": "HEX",
+          "help": "hex payload, decoded size 1..65536"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "operation deadline, 1..300000 (default 1000)"
+        }
       ]
     },
     {
       "name": "device-renew",
       "command": "device-renew",
-      "aliases": ["device renew"],
+      "aliases": [
+        "device renew"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "renew one session-bound device lease and its runtime lock",
       "usage": "device renew LEASE_ID --generation N --lease SECRET [--ttl-seconds N]\ndevice-renew LEASE_ID [same options]",
       "args": [
-        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
-        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"},
-        {"flag": "--lease", "value": "SECRET", "help": "one-time-returned device lease authority"},
-        {"flag": "--ttl-seconds", "value": "N", "help": "new lease duration, 1..86400 (default 300)"}
+        {
+          "flag": "LEASE_ID",
+          "value": null,
+          "help": "device lease UUID"
+        },
+        {
+          "flag": "--generation",
+          "value": "N",
+          "help": "exact nonzero lease generation"
+        },
+        {
+          "flag": "--lease",
+          "value": "SECRET",
+          "help": "one-time-returned device lease authority"
+        },
+        {
+          "flag": "--ttl-seconds",
+          "value": "N",
+          "help": "new lease duration, 1..86400 (default 300)"
+        }
       ]
     },
     {
       "name": "device-release",
       "command": "device-release",
-      "aliases": ["device release"],
+      "aliases": [
+        "device release"
+      ],
       "grant": "actuate",
       "family": "system",
       "summary": "restore and close the exact native handle, then release its runtime lock",
       "usage": "device release LEASE_ID --generation N --lease SECRET\ndevice-release LEASE_ID --generation N --lease SECRET",
       "args": [
-        {"flag": "LEASE_ID", "value": null, "help": "device lease UUID"},
-        {"flag": "--generation", "value": "N", "help": "exact nonzero lease generation"},
-        {"flag": "--lease", "value": "SECRET", "help": "one-time-returned device lease authority"}
+        {
+          "flag": "LEASE_ID",
+          "value": null,
+          "help": "device lease UUID"
+        },
+        {
+          "flag": "--generation",
+          "value": "N",
+          "help": "exact nonzero lease generation"
+        },
+        {
+          "flag": "--lease",
+          "value": "SECRET",
+          "help": "one-time-returned device lease authority"
+        }
       ]
     },
     {
@@ -5216,12 +5950,36 @@
       "summary": "lease one exact bridge tab to an ACU runtime session",
       "usage": "browser-bridge-attach CONNECTION_ID --tab-id N --session ID --lease TOKEN [--ttl-seconds N] [--timeout-ms N]\nbrowser bridge attach ...",
       "args": [
-        { "flag": "CONNECTION_ID", "value": "ID", "help": "exact live bridge connection id" },
-        { "flag": "--tab-id", "value": "N", "help": "exact positive Chromium tab id" },
-        { "flag": "--session", "value": "ID", "help": "active ACU runtime session id" },
-        { "flag": "--lease", "value": "TOKEN", "help": "secret lease returned once by session-start" },
-        { "flag": "--ttl-seconds", "value": "N", "help": "tab-lock lifetime, 1..=600, no longer than the session and at least timeout plus 5 seconds (default 60)" },
-        { "flag": "--timeout-ms", "value": "N", "help": "overall identity, lock and focus proof deadline, 500..=60000 (default 15000)" }
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact live bridge connection id"
+        },
+        {
+          "flag": "--tab-id",
+          "value": "N",
+          "help": "exact positive Chromium tab id"
+        },
+        {
+          "flag": "--session",
+          "value": "ID",
+          "help": "active ACU runtime session id"
+        },
+        {
+          "flag": "--lease",
+          "value": "TOKEN",
+          "help": "secret lease returned once by session-start"
+        },
+        {
+          "flag": "--ttl-seconds",
+          "value": "N",
+          "help": "tab-lock lifetime, 1..=600, no longer than the session and at least timeout plus 5 seconds (default 60)"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "overall identity, lock and focus proof deadline, 500..=60000 (default 15000)"
+        }
       ]
     },
     {
@@ -5233,12 +5991,36 @@
       "summary": "reload a background native connection and prove same-profile reconnection",
       "usage": "browser-bridge-reload CONNECTION_ID --tab-id N --session ID --lease TOKEN [--ttl-seconds N] [--timeout-ms N]\nbrowser bridge reload ...",
       "args": [
-        { "flag": "CONNECTION_ID", "value": "ID", "help": "exact old bridge connection id" },
-        { "flag": "--tab-id", "value": "N", "help": "exact attached Chromium tab id" },
-        { "flag": "--session", "value": "ID", "help": "session that owns or acquires the exact tab lock" },
-        { "flag": "--lease", "value": "TOKEN", "help": "secret lease returned once by session-start" },
-        { "flag": "--ttl-seconds", "value": "N", "help": "tab-lock lifetime, 1..=600 and at least timeout plus 5 seconds (default 60)" },
-        { "flag": "--timeout-ms", "value": "N", "help": "overall identity, lock, reconnect and focus proof deadline, 500..=60000 (default 15000)" }
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact old bridge connection id"
+        },
+        {
+          "flag": "--tab-id",
+          "value": "N",
+          "help": "exact attached Chromium tab id"
+        },
+        {
+          "flag": "--session",
+          "value": "ID",
+          "help": "session that owns or acquires the exact tab lock"
+        },
+        {
+          "flag": "--lease",
+          "value": "TOKEN",
+          "help": "secret lease returned once by session-start"
+        },
+        {
+          "flag": "--ttl-seconds",
+          "value": "N",
+          "help": "tab-lock lifetime, 1..=600 and at least timeout plus 5 seconds (default 60)"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "overall identity, lock, reconnect and focus proof deadline, 500..=60000 (default 15000)"
+        }
       ]
     },
     {
@@ -5359,17 +6141,61 @@
       "summary": "focus or press one exact closed-tree AX node in a background tab",
       "usage": "browser-bridge-debug-invoke CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N --role ROLE --name NAME --action focus|press [--expect-role ROLE --expect-name NAME] [--lock-ttl-seconds N] [--timeout-ms N]",
       "args": [
-        {"flag": "CONNECTION_ID", "value": "ID", "help": "exact bridge connection id"},
-        {"flag": "--tab-id", "value": "N", "help": "exact positive Chromium tab id"},
-        {"flag": "--frame-id", "value": "ID", "help": "exact frame id returned by debug-read"},
-        {"flag": "--backend-node-id", "value": "N", "help": "exact backend node id returned by debug-read"},
-        {"flag": "--role", "value": "ROLE", "help": "role guard returned by debug-read"},
-        {"flag": "--name", "value": "NAME", "help": "name guard returned by debug-read"},
-        {"flag": "--action", "value": "ACTION", "help": "closed action: focus or press"},
-        {"flag": "--expect-role", "value": "ROLE", "help": "mandatory exact postcondition role for press"},
-        {"flag": "--expect-name", "value": "NAME", "help": "mandatory exact postcondition name for press"},
-        {"flag": "--lock-ttl-seconds", "value": "N", "help": "profile/tab lock TTL, default 30"},
-        {"flag": "--timeout-ms", "value": "N", "help": "whole operation deadline, default 15000"}
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact bridge connection id"
+        },
+        {
+          "flag": "--tab-id",
+          "value": "N",
+          "help": "exact positive Chromium tab id"
+        },
+        {
+          "flag": "--frame-id",
+          "value": "ID",
+          "help": "exact frame id returned by debug-read"
+        },
+        {
+          "flag": "--backend-node-id",
+          "value": "N",
+          "help": "exact backend node id returned by debug-read"
+        },
+        {
+          "flag": "--role",
+          "value": "ROLE",
+          "help": "role guard returned by debug-read"
+        },
+        {
+          "flag": "--name",
+          "value": "NAME",
+          "help": "name guard returned by debug-read"
+        },
+        {
+          "flag": "--action",
+          "value": "ACTION",
+          "help": "closed action: focus or press"
+        },
+        {
+          "flag": "--expect-role",
+          "value": "ROLE",
+          "help": "mandatory exact postcondition role for press"
+        },
+        {
+          "flag": "--expect-name",
+          "value": "NAME",
+          "help": "mandatory exact postcondition name for press"
+        },
+        {
+          "flag": "--lock-ttl-seconds",
+          "value": "N",
+          "help": "profile/tab lock TTL, default 30"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "whole operation deadline, default 15000"
+        }
       ]
     },
     {
@@ -5381,15 +6207,51 @@
       "summary": "replace one exact closed-tree editable value without exposing its text",
       "usage": "browser-bridge-debug-type CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N --role ROLE --name NAME --text TEXT [--lock-ttl-seconds N] [--timeout-ms N]",
       "args": [
-        {"flag": "CONNECTION_ID", "value": "ID", "help": "exact bridge connection id"},
-        {"flag": "--tab-id", "value": "N", "help": "exact positive Chromium tab id"},
-        {"flag": "--frame-id", "value": "ID", "help": "exact frame id returned by debug-read"},
-        {"flag": "--backend-node-id", "value": "N", "help": "exact backend node id returned by debug-read"},
-        {"flag": "--role", "value": "ROLE", "help": "role guard returned by debug-read"},
-        {"flag": "--name", "value": "NAME", "help": "name guard returned by debug-read"},
-        {"flag": "--text", "value": "TEXT", "help": "replacement text, at most 64 KiB UTF-8"},
-        {"flag": "--lock-ttl-seconds", "value": "N", "help": "profile/tab lock TTL, default 30"},
-        {"flag": "--timeout-ms", "value": "N", "help": "whole operation deadline, default 15000"}
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact bridge connection id"
+        },
+        {
+          "flag": "--tab-id",
+          "value": "N",
+          "help": "exact positive Chromium tab id"
+        },
+        {
+          "flag": "--frame-id",
+          "value": "ID",
+          "help": "exact frame id returned by debug-read"
+        },
+        {
+          "flag": "--backend-node-id",
+          "value": "N",
+          "help": "exact backend node id returned by debug-read"
+        },
+        {
+          "flag": "--role",
+          "value": "ROLE",
+          "help": "role guard returned by debug-read"
+        },
+        {
+          "flag": "--name",
+          "value": "NAME",
+          "help": "name guard returned by debug-read"
+        },
+        {
+          "flag": "--text",
+          "value": "TEXT",
+          "help": "replacement text, at most 64 KiB UTF-8"
+        },
+        {
+          "flag": "--lock-ttl-seconds",
+          "value": "N",
+          "help": "profile/tab lock TTL, default 30"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "whole operation deadline, default 15000"
+        }
       ]
     },
     {
@@ -5401,15 +6263,51 @@
       "summary": "set one exact closed-tree file input with basename and size read-back",
       "usage": "browser-bridge-debug-files CONNECTION_ID --tab-id N --frame-id ID --backend-node-id N --role ROLE --name NAME FILE... [--lock-ttl-seconds N] [--timeout-ms N]",
       "args": [
-        {"flag": "CONNECTION_ID", "value": "ID", "help": "exact bridge connection id"},
-        {"flag": "--tab-id", "value": "N", "help": "exact positive Chromium tab id"},
-        {"flag": "--frame-id", "value": "ID", "help": "exact frame id returned by debug-read"},
-        {"flag": "--backend-node-id", "value": "N", "help": "exact backend node id returned by debug-read"},
-        {"flag": "--role", "value": "ROLE", "help": "role guard returned by debug-read"},
-        {"flag": "--name", "value": "NAME", "help": "name guard returned by debug-read"},
-        {"flag": "FILE", "value": "PATH", "help": "1..=32 absolute regular non-symlink local files"},
-        {"flag": "--lock-ttl-seconds", "value": "N", "help": "profile/tab lock TTL, default 30"},
-        {"flag": "--timeout-ms", "value": "N", "help": "whole operation deadline, default 15000"}
+        {
+          "flag": "CONNECTION_ID",
+          "value": "ID",
+          "help": "exact bridge connection id"
+        },
+        {
+          "flag": "--tab-id",
+          "value": "N",
+          "help": "exact positive Chromium tab id"
+        },
+        {
+          "flag": "--frame-id",
+          "value": "ID",
+          "help": "exact frame id returned by debug-read"
+        },
+        {
+          "flag": "--backend-node-id",
+          "value": "N",
+          "help": "exact backend node id returned by debug-read"
+        },
+        {
+          "flag": "--role",
+          "value": "ROLE",
+          "help": "role guard returned by debug-read"
+        },
+        {
+          "flag": "--name",
+          "value": "NAME",
+          "help": "name guard returned by debug-read"
+        },
+        {
+          "flag": "FILE",
+          "value": "PATH",
+          "help": "1..=32 absolute regular non-symlink local files"
+        },
+        {
+          "flag": "--lock-ttl-seconds",
+          "value": "N",
+          "help": "profile/tab lock TTL, default 30"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "whole operation deadline, default 15000"
+        }
       ]
     },
     {
@@ -5845,6 +6743,48 @@
           "flag": "--expect",
           "value": "unmaximized",
           "help": "checkable postcondition: the window reads back not maximized"
+        }
+      ]
+    },
+    {
+      "name": "fullscreen",
+      "command": "fullscreen",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "placement",
+      "summary": "EWMH fullscreen with read-back",
+      "usage": "fullscreen --window HANDLE --expect fullscreen",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--expect",
+          "value": "fullscreen",
+          "help": "checkable postcondition: the window reads back fullscreen"
+        }
+      ]
+    },
+    {
+      "name": "unfullscreen",
+      "command": "unfullscreen",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "placement",
+      "summary": "EWMH unfullscreen with read-back",
+      "usage": "unfullscreen --window HANDLE --expect unfullscreen",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--expect",
+          "value": "unfullscreen",
+          "help": "checkable postcondition: the window reads back not fullscreen"
         }
       ]
     },
@@ -6522,6 +7462,10 @@
       "text": "agenterm-cu power-status    (also: power status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  power status\n  power-status\n\nReturns an installation-scoped opaque host identity, an opaque identity for\nthis exact operating-system boot and monotonic uptime. Observation never\ncreates or rotates installation state: run setup once if the identity is not\nenrolled. No hardware serial, native process-start identity or private key is\nreturned. The boot anchor is sampled before and after uptime; any identity\nchange fails typed instead of producing a mixed receipt.\n"
     },
     {
+      "name": "font-discovery",
+      "text": "agenterm-cu font-discovery    (also: font discovery)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  font discovery\n  font-discovery\n\nReports how the Linux monospace terminal primary face was resolved. When\nfontconfig is available the primary family and file path come from\n`fc-match monospace`; otherwise the reply names the hard-coded fallback path\nand any installed alternatives. Non-Linux hosts return a typed unsupported\nresult instead of screenshot or coordinate degradation.\n"
+    },
+    {
       "name": "ime-status",
       "text": "agenterm-cu ime-status    (also: ime status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  ime status\n  ime-status\n\nReports the session input-method framework when IBus or Fcitx answers on the\ndesktop bus, including GTK_IM_MODULE, QT_IM_MODULE and XMODIFIERS facts.\nWhen no framework is observable the reply is a typed unsupported result with\nrepair alternatives instead of screenshot or coordinate degradation.\n"
     },
@@ -6890,6 +7834,14 @@
       "text": "agenterm-cu unmaximize\n  scope: actuate    family: Window placement\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  unmaximize --window HANDLE --expect unmaximized\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --expect unmaximized          checkable postcondition: the window reads back not maximized\n\nClears EWMH maximization on one exact window without activating its\napplication. Same destructive gate as `maximize --expect maximized`, with\nmaximized read-back and the windows inventory `maximized` field.\n"
     },
     {
+      "name": "fullscreen",
+      "text": "agenterm-cu fullscreen\n  scope: actuate    family: Window placement\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  fullscreen --window HANDLE --expect fullscreen\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --expect fullscreen           checkable postcondition: the window reads back fullscreen\n\nSets EWMH `_NET_WM_STATE_FULLSCREEN` on one exact window without activating\nits application. Distinct from the `window-place --action fullscreen` geometry\nalias. Same destructive gate as `unmaximize --expect unmaximized`, with\nfullscreen read-back and the windows inventory `fullscreen` field.\n"
+    },
+    {
+      "name": "unfullscreen",
+      "text": "agenterm-cu unfullscreen\n  scope: actuate    family: Window placement\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  unfullscreen --window HANDLE --expect unfullscreen\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --expect unfullscreen         checkable postcondition: the window reads back not fullscreen\n\nClears EWMH fullscreen on one exact window without activating its application.\n"
+    },
+    {
       "name": "window-opacity",
       "text": "agenterm-cu window-opacity\n  scope: actuate    family: Windows\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  window-opacity --window HANDLE --opacity 0..1 --expect <same>\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --opacity 0..1                requested opacity (0 = transparent, 1 = opaque)\n  --expect 0..1                 checkable postcondition: opacity reads back at the requested value\n\nSets EWMH `_NET_WM_WINDOW_OPACITY` on one exact window without activating\nits application. Success is proven by the windows inventory `opacity` field\nor an independent xprop read-back. Linux X11 only; other hosts answer typed\nunsupported with alternatives.\n"
     },
@@ -6899,7 +7851,7 @@
     },
     {
       "name": "exec",
-      "text": "agenterm-cu exec\n  scope: none       family: Transports\n\nusage:\n  agenterm-cu exec [--grant observe,actuate] [--grant-id ID] [--grant-store PATH] --json '<command-json>'\n  agenterm-cu exec [...] --json -  |  --json-stdin  |  -            (JSON command on stdin)\n\narguments:\n  --json JSON|-                 the command payload, or - for stdin\n  --json-stdin                  read the payload from stdin\n  --grant S                     strict scopes (also --grant=S); CLI wins over AGENTERM_CU_GRANT\n  --grant-id ID                 persisted grant selector (exclusive with every other source)\n  --grant-store PATH            store override; valid only with --grant-id\n\nExecutes one Command serialized as JSON (the same shape `verbs --json`\nconsumers build). The ssh and vnc transports spawn `agenterm-cu --grant …\nexec --json -` on the worker side; global flags may precede `exec`. The\ncommand's own target and scope apply; grant sources never union.\n"
+      "text": "agenterm-cu exec\n  scope: none       family: Transports\n\nusage:\n  agenterm-cu exec [--grant observe,actuate] [--grant-id ID] [--grant-store PATH] --json '<command-json>'\n  agenterm-cu exec [...] --json -  |  --json-stdin  |  -            (JSON command on stdin)\n\narguments:\n  --json JSON|-                 the command payload, or - for stdin\n  --json-stdin                  read the payload from stdin\n  --grant S                     strict scopes (also --grant=S); CLI wins over AGENTERM_CU_GRANT\n  --grant-id ID                 persisted grant selector (exclusive with every other source)\n  --grant-store PATH            store override; valid only with --grant-id\n\nExecutes one Command serialized as JSON (the same shape `verbs --json`\nconsumers build). The ssh and vnc transports spawn `agenterm-cu --grant \u2026\nexec --json -` on the worker side; global flags may precede `exec`. The\ncommand's own target and scope apply; grant sources never union.\n"
     },
     {
       "name": "grant",

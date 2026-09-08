@@ -353,18 +353,40 @@
       ]
     },
     "harness-journal-cost-legacy": {
-      "inputs": ["script-runtime", "frozen-legacy-journal-algorithm"],
-      "outputs": ["journal-cost-control"],
-      "budget": {"timeout_ms": 120000, "max_operations": 1000000000, "max_output_bytes": 1048576},
+      "inputs": [
+        "script-runtime",
+        "frozen-legacy-journal-algorithm"
+      ],
+      "outputs": [
+        "journal-cost-control"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
       "network": [],
-      "evidence": ["research.harness-journal-cost-legacy"]
+      "evidence": [
+        "research.harness-journal-cost-legacy"
+      ]
     },
     "harness-journal-cost-append": {
-      "inputs": ["script-runtime", "production-harness-journal"],
-      "outputs": ["journal-cost-candidate"],
-      "budget": {"timeout_ms": 120000, "max_operations": 1000000000, "max_output_bytes": 1048576},
+      "inputs": [
+        "script-runtime",
+        "production-harness-journal"
+      ],
+      "outputs": [
+        "journal-cost-candidate"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
       "network": [],
-      "evidence": ["research.harness-journal-cost-append"]
+      "evidence": [
+        "research.harness-journal-cost-append"
+      ]
     },
     "diagnostic-bundle-selftest": {
       "inputs": [
@@ -800,25 +822,6 @@
         "display-session"
       ],
       "outputs": [
-        "cu-linux-minimize-expect-evidence"
-      ],
-      "budget": {
-        "timeout_ms": 180000,
-        "max_operations": 1000000000,
-        "max_output_bytes": 1048576
-      },
-      "network": [],
-      "evidence": [
-        "task.cu-linux-minimize-expect-smoke"
-      ]
-    },
-    "cu-linux-minimize-expect-smoke": {
-      "inputs": [
-        "built-agenterm-cu",
-        "built-libagenterm",
-        "display-session"
-      ],
-      "outputs": [
         "cu-linux-maximize-expect-evidence"
       ],
       "budget": {
@@ -1060,21 +1063,23 @@
     },
     "cu-linux-menu-invoke-smoke": {
       "inputs": [
+        "built-agenterm",
         "built-agenterm-cu",
         "built-libagenterm",
-        "display-session"
+        "desktop-session",
+        "explicit-visible-input-court"
       ],
       "outputs": [
-        "cu-linux-menu-invoke-evidence"
+        "cu-windows-external-terminal-send-evidence"
       ],
       "budget": {
-        "timeout_ms": 120000,
+        "timeout_ms": 300000,
         "max_operations": 1000000000,
         "max_output_bytes": 1048576
       },
       "network": [],
       "evidence": [
-        "task.cu-linux-menu-invoke-smoke"
+        "task.cu-windows-external-terminal-send-smoke"
       ]
     },
     "cu-linux-power-status-smoke": {
@@ -1335,27 +1340,6 @@
       "network": [],
       "evidence": [
         "task.cu-linux-keyboard-layout-smoke"
-      ]
-    },
-    "cu-linux-menu-invoke-smoke": {
-      "inputs": [
-        "built-agenterm",
-        "built-agenterm-cu",
-        "built-libagenterm",
-        "desktop-session",
-        "explicit-visible-input-court"
-      ],
-      "outputs": [
-        "cu-windows-external-terminal-send-evidence"
-      ],
-      "budget": {
-        "timeout_ms": 300000,
-        "max_operations": 1000000000,
-        "max_output_bytes": 1048576
-      },
-      "network": [],
-      "evidence": [
-        "task.cu-windows-external-terminal-send-smoke"
       ]
     },
     "cu-managed-job-smoke": {
@@ -1721,15 +1705,21 @@
       ]
     },
     "cu-host-resource-smoke": {
-      "inputs": ["built-agenterm-cu"],
-      "outputs": ["cu-host-resource-evidence"],
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-host-resource-evidence"
+      ],
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
         "max_output_bytes": 262144
       },
       "network": [],
-      "evidence": ["task.cu-host-resource-smoke"]
+      "evidence": [
+        "task.cu-host-resource-smoke"
+      ]
     },
     "acu-retirement-readiness": {
       "inputs": [
@@ -2267,26 +2257,38 @@
       ]
     },
     "cu-permissions-open-smoke": {
-      "inputs": ["built-agenterm-cu"],
-      "outputs": ["cu-permissions-open-evidence"],
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-permissions-open-evidence"
+      ],
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
         "max_output_bytes": 262144
       },
       "network": [],
-      "evidence": ["task.cu-permissions-open-smoke"]
+      "evidence": [
+        "task.cu-permissions-open-smoke"
+      ]
     },
     "cu-host-notify-smoke": {
-      "inputs": ["built-agenterm-cu"],
-      "outputs": ["cu-host-notify-evidence"],
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-host-notify-evidence"
+      ],
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
         "max_output_bytes": 262144
       },
       "network": [],
-      "evidence": ["task.cu-host-notify-smoke"]
+      "evidence": [
+        "task.cu-host-notify-smoke"
+      ]
     },
     "cu-network-probe-smoke": {
       "inputs": [
@@ -2323,48 +2325,73 @@
       ]
     },
     "cu-network-interfaces-smoke": {
-      "inputs": ["built-agenterm-cu"],
-      "outputs": ["cu-network-interfaces-evidence"],
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-network-interfaces-evidence"
+      ],
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
         "max_output_bytes": 262144
       },
       "network": [],
-      "evidence": ["task.cu-network-interfaces-smoke"]
+      "evidence": [
+        "task.cu-network-interfaces-smoke"
+      ]
     },
     "cu-linux-network-interfaces-smoke": {
-      "inputs": ["built-agenterm-cu"],
-      "outputs": ["cu-linux-network-interfaces-evidence"],
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-network-interfaces-evidence"
+      ],
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
         "max_output_bytes": 262144
       },
       "network": [],
-      "evidence": ["task.cu-linux-network-interfaces-smoke"]
+      "evidence": [
+        "task.cu-linux-network-interfaces-smoke"
+      ]
     },
     "cu-linux-proxy-env-smoke": {
-      "inputs": ["built-agenterm-cu"],
-      "outputs": ["cu-linux-proxy-env-evidence"],
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-proxy-env-evidence"
+      ],
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
         "max_output_bytes": 262144
       },
       "network": [],
-      "evidence": ["task.cu-linux-proxy-env-smoke"]
+      "evidence": [
+        "task.cu-linux-proxy-env-smoke"
+      ]
     },
     "cu-desktop-state-smoke": {
-      "inputs": ["built-agenterm-cu", "desktop-session"],
-      "outputs": ["cu-desktop-state-evidence"],
+      "inputs": [
+        "built-agenterm-cu",
+        "desktop-session"
+      ],
+      "outputs": [
+        "cu-desktop-state-evidence"
+      ],
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
         "max_output_bytes": 262144
       },
       "network": [],
-      "evidence": ["task.cu-desktop-state-smoke"]
+      "evidence": [
+        "task.cu-desktop-state-smoke"
+      ]
     },
     "cu-network-dns-smoke": {
       "inputs": [
@@ -3524,6 +3551,23 @@
       "evidence": [
         "task.acu-compound-projection"
       ]
+    },
+    "cu-linux-fontconfig-monospace-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-fontconfig-monospace-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-fontconfig-monospace-smoke"
+      ]
     }
   },
   "tasks": [
@@ -3804,10 +3848,19 @@
       "entry": "scripts/qjs/harness-journal-cost.qjs",
       "profile": "tool",
       "cwd": ".",
-      "args": [".", "legacy"],
+      "args": [
+        ".",
+        "legacy"
+      ],
       "dependencies": [],
-      "platforms": ["windows", "linux", "macos"],
-      "side_effects": ["artifact_write"]
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
     },
     {
       "id": "harness-journal-cost-append",
@@ -3815,10 +3868,19 @@
       "entry": "scripts/qjs/harness-journal-cost.qjs",
       "profile": "tool",
       "cwd": ".",
-      "args": [".", "append"],
+      "args": [
+        ".",
+        "append"
+      ],
       "dependencies": [],
-      "platforms": ["windows", "linux", "macos"],
-      "side_effects": ["artifact_write"]
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
     },
     {
       "id": "diagnostic-bundle-selftest",
@@ -4311,7 +4373,7 @@
     },
     {
       "id": "cu-linux-chrome-text-smoke",
-      "description": "Prove Linux Chrome focus → send-text --name → get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords or screenshot degradation.",
+      "description": "Prove Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -4690,6 +4752,24 @@
       "id": "cu-linux-power-status-smoke",
       "description": "Prove Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-power-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-fontconfig-monospace-smoke",
+      "description": "Prove Linux font-discovery reports fontconfig monospace primary family and file that match independent fc-match read-back, or a typed hardcoded fallback with alternatives; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-fontconfig-monospace-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
@@ -5146,10 +5226,20 @@
       "entry": "scripts/qjs/cu-host-resource-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
-      "args": [".", "target/debug/agenterm-cu"],
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
       "dependencies": [],
-      "platforms": ["windows", "linux", "macos"],
-      "side_effects": ["artifact_write", "process_spawn"]
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "cu-browser-profile-inventory-smoke",
@@ -5157,10 +5247,19 @@
       "entry": "scripts/qjs/cu-browser-profile-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
-      "args": [".", "target/debug/agenterm-cu"],
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
       "dependencies": [],
-      "platforms": ["linux", "macos"],
-      "side_effects": ["artifact_write", "process_spawn"]
+      "platforms": [
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "acu-retirement-readiness",
@@ -5788,10 +5887,20 @@
       "entry": "scripts/qjs/cu-permissions-open-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
-      "args": [".", "target/debug/agenterm-cu"],
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
       "dependencies": [],
-      "platforms": ["windows", "linux", "macos"],
-      "side_effects": ["artifact_write", "process_spawn"]
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "cu-host-notify-smoke",
@@ -5799,10 +5908,19 @@
       "entry": "scripts/qjs/cu-host-notify-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
-      "args": [".", "target/debug/agenterm-cu"],
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
       "dependencies": [],
-      "platforms": ["macos"],
-      "side_effects": ["artifact_write", "gui_spawn", "process_spawn"]
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "gui_spawn",
+        "process_spawn"
+      ]
     },
     {
       "id": "cu-network-probe-smoke",
@@ -5858,8 +5976,15 @@
         "target/debug/agenterm-cu"
       ],
       "dependencies": [],
-      "platforms": ["windows", "linux", "macos"],
-      "side_effects": ["artifact_write", "process_spawn"]
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "cu-linux-network-interfaces-smoke",
@@ -5872,8 +5997,13 @@
         "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
-      "platforms": ["linux"],
-      "side_effects": ["artifact_write", "process_spawn"]
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "cu-linux-proxy-env-smoke",
@@ -5886,8 +6016,13 @@
         "target/abi-dev/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
-      "platforms": ["linux"],
-      "side_effects": ["artifact_write", "process_spawn"]
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "cu-desktop-state-smoke",
@@ -5895,10 +6030,20 @@
       "entry": "scripts/qjs/cu-desktop-state-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
-      "args": [".", "target/debug/agenterm-cu"],
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
       "dependencies": [],
-      "platforms": ["windows", "linux", "macos"],
-      "side_effects": ["artifact_write", "process_spawn"]
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
     },
     {
       "id": "cu-network-dns-smoke",

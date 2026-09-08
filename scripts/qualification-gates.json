@@ -323,6 +323,10 @@
       "evidence": ["cu.linux-network-interfaces-ip-sysfs"]
     },
     {
+      "id": "cu-linux-fontconfig-monospace-smoke",
+      "evidence": ["cu.linux-fontconfig-monospace"]
+    },
+    {
       "id": "cu-desktop-state-smoke",
       "evidence": ["cu.desktop-state"]
     },
