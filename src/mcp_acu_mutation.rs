@@ -19,7 +19,7 @@ impl JsonRpcRequestId {
     pub(crate) fn text(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
         if value.len() > MAX_JSON_RPC_ID_BYTES {
-            return Err(IdentityError::InvalidJsonRpcRequestId);
+            return Err(IdentityError::JsonRpcRequestId);
         }
         Ok(Self::Text(value))
     }
@@ -37,7 +37,7 @@ impl IdempotencyKey {
                 byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
             })
         {
-            return Err(IdentityError::InvalidIdempotencyKey);
+            return Err(IdentityError::IdempotencyKey);
         }
         Ok(Self(value))
     }
@@ -49,10 +49,10 @@ impl IdempotencyKey {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IdentityError {
-    InvalidJsonRpcRequestId,
-    InvalidIdempotencyKey,
-    InvalidSessionId,
-    InvalidSessionLease,
+    JsonRpcRequestId,
+    IdempotencyKey,
+    SessionId,
+    SessionLease,
 }
 
 pub(crate) struct MutationRequest<T> {
@@ -81,7 +81,7 @@ struct PrivateSessionLease(Vec<u8>);
 impl PrivateSessionLease {
     fn new(bytes: Vec<u8>) -> Result<Self, IdentityError> {
         if bytes.is_empty() || bytes.len() > MAX_SESSION_LEASE_BYTES {
-            return Err(IdentityError::InvalidSessionLease);
+            return Err(IdentityError::SessionLease);
         }
         Ok(Self(bytes))
     }
@@ -104,7 +104,7 @@ struct SessionIdentity(String);
 impl SessionIdentity {
     fn new(value: String) -> Result<Self, IdentityError> {
         if value.is_empty() || value.len() > MAX_SESSION_ID_BYTES {
-            return Err(IdentityError::InvalidSessionId);
+            return Err(IdentityError::SessionId);
         }
         Ok(Self(value))
     }
@@ -798,7 +798,7 @@ mod tests {
     fn identity_and_lease_bounds_fail_closed() {
         assert_eq!(
             JsonRpcRequestId::text("x".repeat(MAX_JSON_RPC_ID_BYTES + 1)),
-            Err(IdentityError::InvalidJsonRpcRequestId)
+            Err(IdentityError::JsonRpcRequestId)
         );
         assert_eq!(
             JsonRpcRequestId::text(""),
@@ -808,28 +808,28 @@ mod tests {
         for invalid in ["", "has space", "slash/not-allowed", "非ascii"] {
             assert_eq!(
                 IdempotencyKey::new(invalid),
-                Err(IdentityError::InvalidIdempotencyKey)
+                Err(IdentityError::IdempotencyKey)
             );
         }
         assert!(IdempotencyKey::new("x".repeat(MAX_IDEMPOTENCY_KEY_BYTES)).is_ok());
         assert_eq!(
             IdempotencyKey::new("x".repeat(MAX_IDEMPOTENCY_KEY_BYTES + 1)),
-            Err(IdentityError::InvalidIdempotencyKey)
+            Err(IdentityError::IdempotencyKey)
         );
         assert!(matches!(
             ConnectionMutationState::<()>::new("session-1", Vec::new()),
-            Err(IdentityError::InvalidSessionLease)
+            Err(IdentityError::SessionLease)
         ));
         assert!(matches!(
             ConnectionMutationState::<()>::new("", b"lease".to_vec()),
-            Err(IdentityError::InvalidSessionId)
+            Err(IdentityError::SessionId)
         ));
         assert!(matches!(
             ConnectionMutationState::<()>::new(
                 "x".repeat(MAX_SESSION_ID_BYTES + 1),
                 b"lease".to_vec()
             ),
-            Err(IdentityError::InvalidSessionId)
+            Err(IdentityError::SessionId)
         ));
     }
 }
