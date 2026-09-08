@@ -14,6 +14,9 @@ use crate::{
 };
 
 pub const SCRIPT_TASK_MANIFEST: &str = "agenterm.tasks.json";
+const TASK_MANIFEST_MAX_BYTES: usize = 384 * 1024;
+const TASK_MANIFEST_MAX_TASKS: usize = 512;
+const TASK_MANIFEST_MAX_CONTRACTS: usize = 512;
 pub const SCRIPT_TASK_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -260,8 +263,10 @@ pub fn load_task_catalog(path: &Path) -> Result<ScriptTaskCatalog, String> {
         .to_path_buf();
     let bytes = fs::read(&manifest_path)
         .map_err(|error| format!("task_manifest_read: {}: {error}", manifest_path.display()))?;
-    if bytes.len() > 256 * 1024 {
-        return Err("task_manifest_too_large: maximum is 262144 bytes".to_owned());
+    if bytes.len() > TASK_MANIFEST_MAX_BYTES {
+        return Err(format!(
+            "task_manifest_too_large: maximum is {TASK_MANIFEST_MAX_BYTES} bytes"
+        ));
     }
     let raw: RawManifest =
         serde_json::from_slice(&bytes).map_err(|error| format!("task_manifest_json: {error}"))?;
@@ -277,11 +282,15 @@ pub fn load_task_catalog(path: &Path) -> Result<ScriptTaskCatalog, String> {
     validate_origin(raw.project.origin.as_ref())?;
     validate_provenance(raw.project.provenance.as_ref())?;
     let (compatible, compatibility_reason) = validate_requirements(&raw.project.requires)?;
-    if raw.tasks.len() > 512 {
-        return Err("task_manifest_tasks: maximum is 512".to_owned());
+    if raw.tasks.len() > TASK_MANIFEST_MAX_TASKS {
+        return Err(format!(
+            "task_manifest_tasks: maximum is {TASK_MANIFEST_MAX_TASKS}"
+        ));
     }
-    if raw.contracts.len() > 512 {
-        return Err("task_manifest_contracts: maximum is 512".to_owned());
+    if raw.contracts.len() > TASK_MANIFEST_MAX_CONTRACTS {
+        return Err(format!(
+            "task_manifest_contracts: maximum is {TASK_MANIFEST_MAX_CONTRACTS}"
+        ));
     }
     for id in raw.contracts.keys() {
         validate_identity(id, "task_contract_id")?;
@@ -989,6 +998,95 @@ mod tests {
         assert_eq!(catalog.tasks[2].status, ScriptTaskStatus::Degraded);
         assert!(resolve_task(&catalog, "check").is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn task_manifest_byte_limit_is_inclusive() {
+        let (root, manifest) = fixture();
+        let mut bytes = fs::read(&manifest).unwrap();
+        assert!(bytes.len() < TASK_MANIFEST_MAX_BYTES);
+        bytes.resize(TASK_MANIFEST_MAX_BYTES, b' ');
+        fs::write(&manifest, &bytes).unwrap();
+        load_task_catalog(&manifest).unwrap();
+
+        bytes.push(b' ');
+        fs::write(&manifest, bytes).unwrap();
+        assert_eq!(
+            load_task_catalog(&manifest).unwrap_err(),
+            format!("task_manifest_too_large: maximum is {TASK_MANIFEST_MAX_BYTES} bytes")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn task_manifest_entry_limits_have_growth_headroom() {
+        let (root, manifest) = fixture();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        let task_template = value["tasks"][0].clone();
+        let contract_template = value["contracts"]["check"].clone();
+        let mut tasks = Vec::with_capacity(TASK_MANIFEST_MAX_TASKS);
+        let mut contracts = serde_json::Map::new();
+        for index in 0..TASK_MANIFEST_MAX_TASKS {
+            let id = format!("bounded-task-{index}");
+            let mut task = task_template.clone();
+            task["id"] = serde_json::json!(id);
+            tasks.push(task);
+            contracts.insert(id, contract_template.clone());
+        }
+        value["tasks"] = serde_json::Value::Array(tasks);
+        value["contracts"] = serde_json::Value::Object(contracts);
+        let encoded = serde_json::to_vec(&value).unwrap();
+        assert!(encoded.len() < TASK_MANIFEST_MAX_BYTES);
+        fs::write(&manifest, encoded).unwrap();
+        assert_eq!(
+            load_task_catalog(&manifest).unwrap().tasks.len(),
+            TASK_MANIFEST_MAX_TASKS
+        );
+
+        let overflow_id = "bounded-task-overflow";
+        let mut overflow_task = task_template;
+        overflow_task["id"] = serde_json::json!(overflow_id);
+        value["tasks"].as_array_mut().unwrap().push(overflow_task);
+        value["contracts"]
+            .as_object_mut()
+            .unwrap()
+            .insert(overflow_id.to_owned(), contract_template);
+        fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert_eq!(
+            load_task_catalog(&manifest).unwrap_err(),
+            format!("task_manifest_tasks: maximum is {TASK_MANIFEST_MAX_TASKS}")
+        );
+
+        value["tasks"].as_array_mut().unwrap().pop();
+        fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert_eq!(
+            load_task_catalog(&manifest).unwrap_err(),
+            format!("task_manifest_contracts: maximum is {TASK_MANIFEST_MAX_CONTRACTS}")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn repository_manifest_guest_readers_own_their_string_budget() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join(SCRIPT_TASK_MANIFEST);
+        let manifest_bytes = fs::metadata(&manifest).unwrap().len();
+        let catalog = load_task_catalog(&manifest).unwrap();
+        for id in [
+            "acu-retirement-readiness",
+            "acu-retirement",
+            "cross-platform-automation-audit",
+        ] {
+            let task = resolve_task(&catalog, id).unwrap();
+            assert!(
+                task.budget
+                    .as_ref()
+                    .expect("guest manifest reader owns a task budget")
+                    .max_string_bytes
+                    .is_some_and(|limit| limit >= manifest_bytes),
+                "{id} must be able to read the repository task manifest inside qjswasm"
+            );
+        }
     }
 
     #[test]

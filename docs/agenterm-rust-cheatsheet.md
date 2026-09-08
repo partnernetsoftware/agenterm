@@ -4206,6 +4206,8 @@ corpus, not a limit equal to yesterday's file count. Keep a finite entry cap,
 an inclusive boundary test and independent byte/deadline budgets; when normal
 growth reaches the cap, raise the documented robustness ceiling rather than
 splitting one authoritative gate into partial scans.
+The task catalog currently owns 512-task, 512-contract and 384-KiB ceilings;
+change those three limits and their inclusive tests together.
 
 A product-owned qjs entry should be compiled into the executable together with
 all of its imports and run through the ordinary worker, budget, audit and

@@ -2011,6 +2011,25 @@
         "task.cu-linux-process-usage-smoke"
       ]
     },
+    "cu-linux-query-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-query-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-query-smoke"
+      ]
+    },
     "cu-linux-process-state-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -2873,7 +2892,8 @@
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
-        "max_output_bytes": 524288
+        "max_output_bytes": 524288,
+        "max_string_bytes": 1048576
       },
       "network": [],
       "evidence": [
@@ -2892,7 +2912,8 @@
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
-        "max_output_bytes": 524288
+        "max_output_bytes": 524288,
+        "max_string_bytes": 1048576
       },
       "network": [],
       "evidence": [
@@ -4567,7 +4588,8 @@
       "budget": {
         "timeout_ms": 120000,
         "max_operations": 100000000,
-        "max_output_bytes": 1048576
+        "max_output_bytes": 1048576,
+        "max_string_bytes": 1048576
       },
       "network": [],
       "evidence": [
