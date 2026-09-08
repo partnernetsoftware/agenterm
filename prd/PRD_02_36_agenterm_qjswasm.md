@@ -5,13 +5,14 @@ Family contract: [PRD 10](PRD_02_10_rhai_scripting.md)
 
 Status: **`[~]` active product engine**.
 
-**`989be98`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
+**`b4883be`**（当前 pin）applies to both `tinyvm` and `tinyvm-qjs`; the source of truth is
 `crates/agenterm-qjswasm/Cargo.toml`, and tests must reject PRD/pin drift.
 This revision adds a generic, call-scoped cooperative-interruption seam: one
-invocation borrows one `AtomicBool`, pure guest computation polls it without a
-host callback, and qjswasm maps the distinct core `Interruption` class to
-`QjswasmError::Cancelled`. The identity is never stored in `Limits`, a module,
-or a persistent slot. The static core remains exactly 101,256 bytes; native
+invocation or start-section instantiation borrows one `AtomicBool`; pure guest
+computation polls it without a host callback, and qjswasm maps the distinct
+core `Interruption` class to `QjswasmError::Cancelled`. The identity is never
+stored in `Limits`, a module, or a persistent slot. The static core remains
+exactly 101,256 bytes; native
 host callbacks that are already blocked still require their own cooperative
 wait path or the Script worker's hard process-containment deadline.
 The `agenterm:acu` door passes that same borrowed identity into the product

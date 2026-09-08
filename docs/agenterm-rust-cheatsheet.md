@@ -3859,6 +3859,17 @@ file read still fails at the engine's 1 MiB default. Pin both cases in a unit
 test: no override preserves the engine default, while an explicit bounded
 override reaches the native limiter exactly.
 
+Cancellation must cover construction-time guest execution as well as exported
+calls. A Wasm start section runs while a slot is being instantiated, before
+the caller can receive or cancel a published handle, so borrow the same
+operation-scoped interrupt through instantiation and do not retain it in the
+module or slot. On failure, remove local registration and publish no handle;
+do not claim transactional rollback of imported memory/table writes or host
+callbacks that completed before the interrupt was observed. Preserve failure
+precedence as acknowledged cancellation, host-budget refusal, host-door fault,
+then core fault, and prove that an interrupted start leaves the live-slot count
+unchanged.
+
 ## Typed errors require an all-target consumer sweep
 
 When a shared Rust API changes an error from `String` to a typed record, search

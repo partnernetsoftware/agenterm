@@ -119,6 +119,29 @@ fn pure_qjs_compute_observes_the_call_budget_cancel() {
     assert_eq!(out.values, vec![Value::I32(fixtures::BENIGN_ANSWER)]);
 }
 
+#[test]
+fn start_section_observes_the_instantiation_budget_cancel() {
+    let mut eng = Engine::with_budget(Budget {
+        limits: tinyvm::Limits {
+            max_steps: u64::MAX,
+            ..tinyvm::Limits::default()
+        },
+        cancel: Some(Arc::new(AtomicBool::new(true))),
+        ..Budget::default()
+    });
+    let spinner = fixtures::infinite_start_loop();
+
+    let error = eng
+        .spawn(Guest::Wasm(&spinner), None)
+        .expect_err("the start section must observe cancellation during slot creation");
+    assert!(matches!(error, QjswasmError::Cancelled), "got {error:?}");
+    assert_eq!(
+        eng.live_slots(),
+        0,
+        "an interrupted start must not leak a slot"
+    );
+}
+
 /// Unbounded recursion is stopped by `max_call_depth`, and 20,000 pending
 /// guest activations do not touch the native stack.
 ///

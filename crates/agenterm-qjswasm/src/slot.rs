@@ -102,10 +102,25 @@ impl Slot {
             .map_err(QjswasmError::from_load)?;
         let door = host::install(&mut module, budget, bridges, tool_door)?;
         // Instantiation applies data segments and initial globals and runs the
-        // start function, so a guest whose start traps or overruns its budget
-        // fails here -- classified like any other execution fault rather than
-        // reported as a malformed module.
-        let instance = module.instantiate().map_err(classify)?;
+        // start function, so a guest whose start traps, overruns its budget or
+        // observes this operation's cancellation fails here -- classified like
+        // any other execution fault rather than reported as a malformed module.
+        let instance_result = match budget.cancel.as_deref() {
+            Some(interrupt) => module.instantiate_with_interrupt(interrupt),
+            None => module.instantiate(),
+        };
+        let instance = instance_result.map_err(|fault| {
+            if door.take_cancelled() {
+                return QjswasmError::Cancelled;
+            }
+            if let Some(budget) = door.take_budget_refusal() {
+                return QjswasmError::Budget(budget);
+            }
+            if let Some(door) = door.take_fault() {
+                return QjswasmError::Door(door);
+            }
+            classify(fault)
+        })?;
         let mut slot = Self {
             instance,
             door,

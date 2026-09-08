@@ -70,7 +70,7 @@
 /// language can do. Over one week this pin moved five times and each move
 /// changed the answer to "does `[1,2,3]` compile" -- an operator holding a
 /// binary has no other way to tell which one they have.
-pub const UPSTREAM_TINYVM_REV: &str = "989be98";
+pub const UPSTREAM_TINYVM_REV: &str = "b4883be";
 
 /// This crate's own version, and the engine's name, as one line.
 ///
@@ -414,9 +414,10 @@ pub struct Budget {
     /// A1.12). Exceeding this ends the call as [`QjswasmError::Budget`]
     /// (`"max_host_ops"`), the same class as running out of steps.
     pub max_host_ops: usize,
-    /// Set by the embedder to end the call at the next interpreter poll, host
-    /// operation, or wait. Pure guest computation is polled by tinyvm without
-    /// storing this invocation's identity in the module or persistent slot;
+    /// Set by the embedder to end instantiation or a call at the next
+    /// interpreter poll, host operation, or wait. Start functions and pure
+    /// guest computation are polled by tinyvm without storing this operation's
+    /// identity in the module or persistent slot;
     /// `time.sleep_ms` sleeps in slices and looks; `process.wait` /
     /// `process.command` look between polls of the child; every `tool.*`
     /// and `fleet_call` entry looks before running, and `fleet_call` looks

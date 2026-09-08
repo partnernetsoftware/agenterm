@@ -42,6 +42,21 @@ pub fn infinite_loop() -> Vec<u8> {
     )
 }
 
+/// Burns instruction steps forever from the module start section. Aimed at
+/// proving cancellation is already live while a slot is being instantiated,
+/// before an exported entry point exists for the embedder to call.
+pub fn infinite_start_loop() -> Vec<u8> {
+    wasm(
+        r#"
+        (module
+          (func $spin
+            (loop $forever
+              (br $forever)))
+          (start $spin))
+        "#,
+    )
+}
+
 /// Recurses with no base case. Aimed at `Limits::max_call_depth`.
 ///
 /// Two deliberate shape choices:
