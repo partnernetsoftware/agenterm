@@ -387,6 +387,12 @@
       ]
     },
     {
+      "id": "cu-linux-ps-smoke",
+      "evidence": [
+        "cu.linux-ps-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-usage-smoke",
       "evidence": [
         "cu.linux-process-usage-readback"

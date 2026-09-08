@@ -1,0 +1,293 @@
+// CEO: Linux ps inventory honesty with independent /proc pid/exe/stat read-back.
+// Acceptance is smoke read-back only: CU ps must agree with pid, parent_pid and
+// executable_name facts derived outside agenterm-cu from the same /proc scan
+// semantics the Linux adapter uses. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-ps-readback",
+];
+
+const MAX_VISITED = 10000;
+const MAX_RESULTS = 5000;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function proc_scan_script() {
+  return [
+    "import json, os",
+    "rows = {}",
+    "for entry in os.scandir('/proc'):",
+    "    if not entry.name.isdigit():",
+    "        continue",
+    "    pid = int(entry.name)",
+    "    try:",
+    "        exe = os.readlink(f'/proc/{pid}/exe')",
+    "    except OSError:",
+    "        continue",
+    "    executable_name = os.path.basename(exe)",
+    "    if not executable_name:",
+    "        continue",
+    "    try:",
+    "        with open(f'/proc/{pid}/stat') as handle:",
+    "            stat = handle.read()",
+    "    except OSError:",
+    "        continue",
+    "    close = stat.rfind(')')",
+    "    if close < 0:",
+    "        continue",
+    "    fields = stat[close + 1:].split()",
+    "    if len(fields) < 2:",
+    "        continue",
+    "    rows[str(pid)] = {",
+    "        'pid': pid,",
+    "        'parent_pid': int(fields[1]),",
+    "        'executable_name': executable_name,",
+    "    }",
+    "print(json.dumps(list(rows.values())))",
+  ].join("\n");
+}
+
+function pid_readback_script() {
+  return [
+    "import json, os, sys",
+    "pid = int(sys.argv[1])",
+    "exe = os.path.basename(os.readlink(f'/proc/{pid}/exe'))",
+    "stat = open(f'/proc/{pid}/stat').read()",
+    "close = stat.rfind(')')",
+    "fields = stat[close + 1:].split()",
+    "ppid = int(fields[1])",
+    "print(json.dumps({'pid': pid, 'parent_pid': ppid, 'executable_name': exe}))",
+  ].join("\n");
+}
+
+function scan_proc(run_directory) {
+  const output = rh.command("python3", ["-c", proc_scan_script()], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true, "cu_linux_ps_proc_scan:" + output.stderr);
+  const rows = JSON.parse(output.stdout.trim());
+  const by_pid = {};
+  for (let index = 0; index < rows.length; index = index + 1) {
+    const row = rows[index];
+    by_pid[row.pid] = row;
+  }
+  return by_pid;
+}
+
+function read_proc_pid(run_directory, pid) {
+  const output = rh.command("python3", ["-c", pid_readback_script(), "" + pid], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_ps_proc_pid:" + pid + ":" + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function invoke_ps(run_directory, executable, arguments) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true, "cu_linux_ps_invoke:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true && reply.command === "ps",
+         "cu_linux_ps_reply:" + output.stdout.trim());
+  return reply.data;
+}
+
+function fetch_inventory(run_directory, executable) {
+  let offset = 0;
+  const processes = [];
+  let header = null;
+  while (true) {
+    const data = invoke_ps(run_directory, executable, [
+      "ps", "--sort", "pid",
+      "--max-visited", "" + MAX_VISITED,
+      "--max", "" + MAX_RESULTS,
+      "--offset", "" + offset,
+    ]);
+    if (header === null) { header = data; }
+    const batch = data.processes || [];
+    for (let index = 0; index < batch.length; index = index + 1) {
+      processes.push(batch[index]);
+    }
+    if (data.truncated !== true) { break; }
+    ensure(data.next_offset !== undefined && data.next_offset !== null,
+           "cu_linux_ps_next_offset");
+    offset = parseInt("" + data.next_offset, 10);
+  }
+  header.processes = processes;
+  header.returned = processes.length;
+  return header;
+}
+
+function compare_inventory(run_directory, probe, inventory, label) {
+  ensure(inventory.verified === true, label + ":verified");
+  ensure(inventory.coverage_complete === true, label + ":coverage_complete");
+  ensure(inventory.truncated_scan !== true, label + ":truncated_scan");
+  const rows = inventory.processes || [];
+  ensure(inventory.returned === rows.length, label + ":returned_shape");
+  const by_pid = {};
+  for (let index = 0; index < rows.length; index = index + 1) {
+    const row = rows[index];
+    const pid = parseInt("" + row.pid, 10);
+    ensure(by_pid[pid] === undefined, label + ":duplicate:" + pid);
+    by_pid[pid] = row;
+  }
+  let matched_live = 0;
+  const probe_keys = Object.keys(probe);
+  for (let index = 0; index < probe_keys.length; index = index + 1) {
+    const pid = parseInt(probe_keys[index], 10);
+    const expected = probe[pid];
+    const row = by_pid[pid];
+    ensure(row !== undefined, label + ":missing_live:" + pid);
+    ensure(parseInt("" + row.parent_pid, 10) === expected.parent_pid,
+           label + ":parent_pid:" + pid);
+    ensure(row.executable_name === expected.executable_name,
+           label + ":executable_name:" + pid);
+    matched_live = matched_live + 1;
+  }
+  ensure(matched_live === Object.keys(probe).length, label + ":live_coverage");
+  ensure(inventory.matched >= matched_live, label + ":matched");
+  for (let index = 0; index < rows.length; index = index + 1) {
+    const row = rows[index];
+    const pid = parseInt("" + row.pid, 10);
+    if (probe[pid] !== undefined) { continue; }
+    let live = null;
+    try { live = read_proc_pid(run_directory, pid); } catch (error) { live = null; }
+    if (live === null) { continue; }
+    ensure(parseInt("" + row.parent_pid, 10) === live.parent_pid,
+           label + ":stale_parent_pid:" + pid);
+    ensure(row.executable_name === live.executable_name,
+           label + ":stale_executable_name:" + pid);
+    throw label + ":unexpected_live_pid:" + pid;
+  }
+}
+
+function intersect_probe(left, right) {
+  const stable = {};
+  const keys = Object.keys(left);
+  for (let index = 0; index < keys.length; index = index + 1) {
+    const pid = parseInt(keys[index], 10);
+    const right_row = right[pid];
+    const left_row = left[pid];
+    if (right_row === undefined) { continue; }
+    if (right_row.parent_pid !== left_row.parent_pid) { continue; }
+    if (right_row.executable_name !== left_row.executable_name) { continue; }
+    stable[pid] = left_row;
+  }
+  return stable;
+}
+
+function verify_inventory_with_retry(run_directory, executable) {
+  let last_error = "";
+  for (let attempt = 0; attempt < 2; attempt = attempt + 1) {
+    const before = scan_proc(run_directory);
+    const inventory = fetch_inventory(run_directory, executable);
+    const after = scan_proc(run_directory);
+    const stable = intersect_probe(before, after);
+    if (Object.keys(stable).length > MAX_VISITED) {
+      throw "cu_linux_ps_probe_too_large:" + Object.keys(stable).length;
+    }
+    try {
+      compare_inventory(run_directory, stable, inventory, "cu_linux_ps_inventory");
+      return;
+    } catch (error) {
+      last_error = "" + error;
+    }
+  }
+  throw last_error;
+}
+
+function verify_exact_pid(run_directory, executable, pid) {
+  const expected = read_proc_pid(run_directory, pid);
+  const data = invoke_ps(run_directory, executable, ["ps", "--pid", "" + pid]);
+  ensure(data.returned === 1 && (data.processes || []).length === 1,
+         "cu_linux_ps_exact_shape");
+  const row = data.processes[0];
+  ensure(parseInt("" + row.pid, 10) === pid, "cu_linux_ps_exact_pid");
+  ensure(parseInt("" + row.parent_pid, 10) === expected.parent_pid,
+         "cu_linux_ps_exact_parent_pid");
+  ensure(row.executable_name === expected.executable_name,
+         "cu_linux_ps_exact_executable_name");
+}
+
+function verify_child_filter(run_directory, executable, pid, name_substring) {
+  const expected = read_proc_pid(run_directory, pid);
+  ensure(expected.executable_name.toLowerCase().indexOf(name_substring.toLowerCase()) >= 0,
+         "cu_linux_ps_child_name_probe");
+  const data = invoke_ps(run_directory, executable, [
+    "ps", "--pid", "" + pid, "--name", name_substring,
+  ]);
+  ensure(data.returned === 1 && (data.processes || []).length === 1,
+         "cu_linux_ps_child_shape");
+  const row = data.processes[0];
+  ensure(parseInt("" + row.pid, 10) === pid, "cu_linux_ps_child_pid");
+  ensure(parseInt("" + row.parent_pid, 10) === expected.parent_pid,
+         "cu_linux_ps_child_parent_pid");
+  ensure(row.executable_name === expected.executable_name,
+         "cu_linux_ps_child_executable_name");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-ps");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP ps inventory matches independent /proc exe/stat read-back");
+  verify_inventory_with_retry(context.run_directory, executable);
+
+  print("STEP exact --pid read-back matches independent /proc facts for self");
+  verify_exact_pid(context.run_directory, executable, rh.pid());
+
+  print("STEP spawned child --pid/--name filter agrees with independent /proc read-back");
+  const child = harness.start({
+    program: "sleep",
+    args: ["300"],
+    current_dir: context.run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  const child_pid = harness.spawned_pid(child);
+  verify_child_filter(context.run_directory, executable, child_pid, "sleep");
+  harness.kill(child);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-ps-readback");
+  harness.remove_run(context);
+  print("PASS: Linux ps inventory matches independent /proc pid/parent/executable read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

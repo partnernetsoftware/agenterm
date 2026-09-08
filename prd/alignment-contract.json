@@ -83,6 +83,7 @@
         "cu.linux-process-usage",
         "cu.linux-process-usage-watch",
         "cu.linux-process-usage-readback",
+        "cu.linux-ps-readback",
         "cu.linux-process-fds-readback",
         "cu.linux-process-maps-readback",
         "cu.linux-process-threads-readback",
