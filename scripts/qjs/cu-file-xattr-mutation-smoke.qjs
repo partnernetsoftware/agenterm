@@ -1,0 +1,303 @@
+// macOS public black-box court for identity-bound extended-attribute mutation.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.file-xattr-mutation.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: rh.join(run_directory, "home"),
+    USERPROFILE: rh.join(run_directory, "home"),
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json")
+  };
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_command, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_file_xattr_invalid_reply:" + expected_command; }
+  ensure(reply.command === expected_command, "cu_file_xattr_wrong_command:" + expected_command);
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok === false,
+      "cu_file_xattr_expected_failure:" + expected_command);
+    ensure(reply.error.code === expected_error,
+      "cu_file_xattr_wrong_error:" + expected_command + ":" + reply.error.code);
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true,
+    "cu_file_xattr_failed:" + expected_command);
+  return reply.data;
+}
+
+function native_write(run_directory, path, name, value) {
+  const output = rh.command("/usr/bin/xattr", ["-w", name, value, path], {
+    cwd: run_directory,
+    timeout_ms: 10000
+  });
+  ensure(output.success === true, "cu_file_xattr_native_write_failed");
+}
+
+function native_read(run_directory, path, name) {
+  return rh.command("/usr/bin/xattr", ["-p", name, path], {
+    cwd: run_directory,
+    timeout_ms: 10000
+  });
+}
+
+function ensure_native_absent(run_directory, path, name, message) {
+  ensure(native_read(run_directory, path, name).success !== true, message);
+}
+
+function ensure_native_value(run_directory, path, name, value, message) {
+  const output = native_read(run_directory, path, name);
+  ensure(output.success === true && output.stdout.trim() === value, message);
+}
+
+function find_attribute(attributes, name) {
+  for (let i = 0; i < attributes.length; i = i + 1) {
+    if (attributes[i].name === name) { return attributes[i]; }
+  }
+  return null;
+}
+
+function ensure_identity(identity, message) {
+  ensure(identity !== null && typeof identity === "object", message + ":object");
+  ensure(typeof identity.filesystem_id === "string" && identity.filesystem_id.length > 0,
+    message + ":filesystem_id");
+  ensure(typeof identity.object_id === "string" && identity.object_id.length > 0,
+    message + ":object_id");
+  ensure(typeof identity.hard_link_count === "string" && identity.hard_link_count.length > 0,
+    message + ":hard_link_count");
+}
+
+function ensure_state(state, present, bytes, message) {
+  ensure(state.present === present && state.bytes === bytes, message + ":shape");
+  if (present) {
+    ensure(typeof state.sha256 === "string" && state.sha256.length === 64,
+      message + ":digest");
+  } else {
+    ensure(state.sha256 === null, message + ":absent_digest");
+  }
+}
+
+function ensure_action(action, apply_requested, performed, verified, message) {
+  ensure(action.apply_requested === apply_requested
+    && action.performed === performed
+    && action.verified === verified, message);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (let i = 0; i < declared_evidence.length; i = i + 1) { print(declared_evidence[i]); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_file_xattr_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Darwin",
+  "cu_file_xattr_requires_macos");
+
+const context = harness.new_context(repo, "cu-file-xattr-mutation");
+const run_directory = context.run_directory;
+const fixture = rh.join(run_directory, "fixture.bin");
+const quarantine_fixture = rh.join(run_directory, "quarantine-fixture.bin");
+const link = rh.join(run_directory, "fixture-link.bin");
+const attribute_name = "com.partnernetsoftware.agenterm.cu.mutation";
+const quarantine_name = "com.apple.quarantine";
+const secret_text = "vault-leaf-47";
+const secret_hex = "7661756c742d6c6561662d3437";
+const quarantine_value = "0081;6f5e1a20;agenterm-cu;fixture-token";
+const audit_path = rh.join(run_directory, "cu-audit.jsonl");
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.write_text(fixture, "xattr-mutation-fixture-body");
+  rh.write_text(quarantine_fixture, "quarantine-fixture-body");
+  ensure_native_absent(run_directory, fixture, attribute_name,
+    "cu_file_xattr_fixture_not_clean");
+
+  print("STEP default set is a complete zero-write plan with redacted values");
+  const plan = invoke(run_directory, executable, "observe", [
+    "file-xattr-set", fixture, attribute_name, "--value-hex", secret_hex
+  ], "file-xattr-set");
+  ensure_identity(plan.identity, "cu_file_xattr_plan_identity");
+  ensure(plan.name === attribute_name && plan.operation === "set"
+    && plan.values_redacted === true, "cu_file_xattr_plan_contract");
+  ensure_state(plan.before, false, "0", "cu_file_xattr_plan_before");
+  ensure_state(plan.requested, true, "13", "cu_file_xattr_plan_requested");
+  ensure_state(plan.after, false, "0", "cu_file_xattr_plan_after");
+  ensure_action(plan.action, false, false, false, "cu_file_xattr_plan_action");
+  ensure(JSON.stringify(plan).indexOf(secret_text) < 0
+    && JSON.stringify(plan).indexOf(secret_hex) < 0, "cu_file_xattr_plan_leaked_value");
+  ensure_native_absent(run_directory, fixture, attribute_name,
+    "cu_file_xattr_plan_mutated");
+
+  print("STEP observe plus apply is typed refused and remains a zero-write attempt");
+  invoke(run_directory, executable, "observe", [
+    "file-xattr-set", fixture, attribute_name, "--value-hex", secret_hex, "--apply"
+  ], "file-xattr-set", "refused");
+  ensure_native_absent(run_directory, fixture, attribute_name,
+    "cu_file_xattr_refusal_mutated");
+
+  print("STEP actuate set verifies the attribute without returning its raw value");
+  const applied = invoke(run_directory, executable, "actuate", [
+    "file-xattr-set", fixture, attribute_name, "--value-hex", secret_hex, "--apply"
+  ], "file-xattr-set");
+  ensure_identity(applied.identity, "cu_file_xattr_apply_identity");
+  ensure(applied.identity.filesystem_id === plan.identity.filesystem_id
+    && applied.identity.object_id === plan.identity.object_id,
+    "cu_file_xattr_apply_identity_changed");
+  ensure_state(applied.before, false, "0", "cu_file_xattr_apply_before");
+  ensure_state(applied.requested, true, "13", "cu_file_xattr_apply_requested");
+  ensure_state(applied.after, true, "13", "cu_file_xattr_apply_after");
+  ensure_action(applied.action, true, true, true, "cu_file_xattr_apply_action");
+  ensure(JSON.stringify(applied).indexOf(secret_text) < 0
+    && JSON.stringify(applied).indexOf(secret_hex) < 0, "cu_file_xattr_apply_leaked_value");
+  ensure_native_value(run_directory, fixture, attribute_name, secret_text,
+    "cu_file_xattr_apply_not_visible");
+
+  print("STEP default inspection exposes length and digest but no raw value");
+  const metadata = invoke(run_directory, executable, "observe", [
+    "file-attributes", fixture
+  ], "file-attributes");
+  ensure(metadata.include_values === false, "cu_file_xattr_default_disclosure_flag");
+  const redacted = find_attribute(metadata.attributes, attribute_name);
+  ensure(redacted !== null && redacted.value_bytes === "13"
+    && typeof redacted.value_sha256 === "string" && redacted.value_sha256.length === 64
+    && redacted.value_hex === null, "cu_file_xattr_default_disclosure");
+  ensure(JSON.stringify(metadata).indexOf(secret_text) < 0
+    && JSON.stringify(metadata).indexOf(secret_hex) < 0, "cu_file_xattr_default_leaked_value");
+
+  print("STEP explicit include-values returns the exact lossless hex value");
+  const disclosed = invoke(run_directory, executable, "observe", [
+    "file-attributes", fixture, "--include-values"
+  ], "file-attributes");
+  const raw = find_attribute(disclosed.attributes, attribute_name);
+  ensure(disclosed.include_values === true && raw !== null && raw.value_hex === secret_hex,
+    "cu_file_xattr_explicit_disclosure_mismatch");
+
+  print("STEP applying the same value is a verified no-op");
+  const unchanged = invoke(run_directory, executable, "actuate", [
+    "file", "xattr-set", fixture, attribute_name, "--value-hex", secret_hex, "--apply"
+  ], "file-xattr-set");
+  ensure_state(unchanged.before, true, "13", "cu_file_xattr_noop_before");
+  ensure_state(unchanged.after, true, "13", "cu_file_xattr_noop_after");
+  ensure_action(unchanged.action, true, false, true, "cu_file_xattr_noop_action");
+  ensure_native_value(run_directory, fixture, attribute_name, secret_text,
+    "cu_file_xattr_noop_changed_value");
+
+  print("STEP remove plan leaves the exact test attribute present");
+  const remove_plan = invoke(run_directory, executable, "observe", [
+    "file-xattr-remove", fixture, attribute_name
+  ], "file-xattr-remove");
+  ensure(remove_plan.operation === "remove", "cu_file_xattr_remove_plan_operation");
+  ensure_state(remove_plan.before, true, "13", "cu_file_xattr_remove_plan_before");
+  ensure_state(remove_plan.requested, false, "0", "cu_file_xattr_remove_plan_requested");
+  ensure_state(remove_plan.after, true, "13", "cu_file_xattr_remove_plan_after");
+  ensure_action(remove_plan.action, false, false, false, "cu_file_xattr_remove_plan_action");
+  ensure_native_value(run_directory, fixture, attribute_name, secret_text,
+    "cu_file_xattr_remove_plan_mutated");
+
+  print("STEP remove apply verifies absence and cleans the test attribute");
+  const removed = invoke(run_directory, executable, "actuate", [
+    "file-xattr-remove", fixture, attribute_name, "--apply"
+  ], "file-xattr-remove");
+  ensure_state(removed.before, true, "13", "cu_file_xattr_remove_before");
+  ensure_state(removed.after, false, "0", "cu_file_xattr_remove_after");
+  ensure_action(removed.action, true, true, true, "cu_file_xattr_remove_action");
+  ensure_native_absent(run_directory, fixture, attribute_name,
+    "cu_file_xattr_remove_not_visible");
+
+  print("STEP quarantine clear plans, applies, and then proves an absent-state no-op");
+  native_write(run_directory, quarantine_fixture, quarantine_name, quarantine_value);
+  const quarantine_plan = invoke(run_directory, executable, "observe", [
+    "file-quarantine-clear", quarantine_fixture
+  ], "file-quarantine-clear");
+  ensure(quarantine_plan.name === quarantine_name
+    && quarantine_plan.operation === "quarantine-clear",
+    "cu_file_xattr_quarantine_plan_contract");
+  ensure_state(quarantine_plan.before, true, "39", "cu_file_xattr_quarantine_plan_before");
+  ensure_state(quarantine_plan.after, true, "39", "cu_file_xattr_quarantine_plan_after");
+  ensure_action(quarantine_plan.action, false, false, false,
+    "cu_file_xattr_quarantine_plan_action");
+  ensure_native_value(run_directory, quarantine_fixture, quarantine_name, quarantine_value,
+    "cu_file_xattr_quarantine_plan_mutated");
+  const quarantine_cleared = invoke(run_directory, executable, "actuate", [
+    "file", "quarantine-clear", quarantine_fixture, "--apply"
+  ], "file-quarantine-clear");
+  ensure_state(quarantine_cleared.before, true, "39", "cu_file_xattr_quarantine_before");
+  ensure_state(quarantine_cleared.after, false, "0", "cu_file_xattr_quarantine_after");
+  ensure_action(quarantine_cleared.action, true, true, true,
+    "cu_file_xattr_quarantine_action");
+  ensure_native_absent(run_directory, quarantine_fixture, quarantine_name,
+    "cu_file_xattr_quarantine_not_cleared");
+  const quarantine_noop = invoke(run_directory, executable, "actuate", [
+    "file-quarantine-clear", quarantine_fixture, "--apply"
+  ], "file-quarantine-clear");
+  ensure_state(quarantine_noop.before, false, "0", "cu_file_xattr_quarantine_noop_before");
+  ensure_state(quarantine_noop.after, false, "0", "cu_file_xattr_quarantine_noop_after");
+  ensure_action(quarantine_noop.action, true, false, true,
+    "cu_file_xattr_quarantine_noop_action");
+
+  print("STEP a final symlink is typed refused and leaves its target unchanged");
+  const linked = rh.command("/bin/ln", ["-s", fixture, link], {
+    cwd: run_directory,
+    timeout_ms: 10000
+  });
+  ensure(linked.success === true, "cu_file_xattr_symlink_setup_failed");
+  invoke(run_directory, executable, "actuate", [
+    "file-xattr-set", link, attribute_name, "--value-hex", secret_hex, "--apply"
+  ], "file-xattr-set", "file_xattr_not_regular");
+  ensure_native_absent(run_directory, fixture, attribute_name,
+    "cu_file_xattr_symlink_target_mutated");
+
+  print("STEP durable audit contains neither secret representation");
+  ensure(rh.exists(audit_path), "cu_file_xattr_audit_missing");
+  const audit = rh.read_text(audit_path);
+  ensure(audit.length > 0, "cu_file_xattr_audit_empty");
+  ensure(audit.indexOf(secret_text) < 0 && audit.indexOf(secret_hex) < 0,
+    "cu_file_xattr_audit_leaked_value");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: agenterm-cu macOS xattr plan, apply, disclosure, cleanup, and symlink refusal");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

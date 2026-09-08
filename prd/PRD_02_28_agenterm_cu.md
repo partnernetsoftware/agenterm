@@ -2010,8 +2010,8 @@ flowchart LR
   explicit disclosure and final-symlink refusal. Linux shares the native
   mechanism but still needs its public court; Windows returns typed unsupported
   because alternate data streams and ACLs are not equivalent to Unix xattrs.
-  Mode and xattr mutation remain separate identity-bound plan/apply leaves and
-  are not implied by this observer. The mode leaf is now public as `file-mode
+  Mode and xattr mutation are separate identity-bound plan/apply leaves and are
+  not implied by this observer. The mode leaf is now public as `file-mode
   PATH OCTAL [--apply]` / `file chmod`: default preview is zero-write, apply
   re-plans from the currently opened regular file, rechecks exact object
   identity and current mode, then verifies descriptor-level native readback.
@@ -2021,6 +2021,22 @@ flowchart LR
   qjswasm journey `cu.file-mode.macos` is green. Linux runtime and Windows
   typed-not-applicable courts remain open; ACLs and DOS attributes never
   masquerade as Unix octal mode.
+  The xattr mutation leaf is now public as `file-xattr-set PATH NAME
+  --value-hex HEX [--apply]`, `file-xattr-remove PATH NAME [--apply]`, and the
+  macOS-only `file-quarantine-clear PATH [--apply]`. Default calls are
+  zero-write previews. Apply binds one opened regular object, rechecks the
+  complete prior value, enforces the 4 MiB decoded ceiling before filesystem
+  access, and independently reads back the result. An already-satisfied state
+  is re-read and reported as a verified no-op without calling the setter.
+  Replies and durable audit records retain presence, byte length and SHA-256
+  only; this naturally idempotent command family creates no transaction
+  receipt. Raw disclosure remains the separate explicit
+  `file-attributes --include-values` observer. Readback failure after an effect
+  is typed effect-unknown. This cut does not expose the private old value or
+  promise durable rollback; reversal is a new identity-bound invocation. The
+  public macOS qjswasm journey `cu.file-xattr-mutation.macos` is green. Linux
+  native and Windows typed-not-applicable courts remain open; ADS and ACLs do
+  not masquerade as xattrs.
   `file-move SOURCE DEST [--replace --apply]` now composes the same hardened
   copy publication with a recoverable source retirement. It atomically refuses
   occupied backup names, locks source and destination path namespaces in

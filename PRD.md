@@ -171,8 +171,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       单测/兼容壳已绿，三平台原生截图 court 仍待补齐
 │     │                       query 第一批无 ABI 筛选已落：action/depth/五类三态；unknown 不冒充
 │     │                       false，inspect/find/read/tree/elements 的假等价已从过渡层撤回
-│     │                       immediate-cutover 复测 74 个后续债：1 capability / 16 evidence /
-│     │                       57 platform qualification；adapter blocker 已清零，file-mode 公开
+│     │                       immediate-cutover 复测 73 个后续债：1 capability / 15 evidence /
+│     │                       57 platform qualification；adapter blocker 已清零，file-mode/xattr 公开
 │     │                       quick-win 已集成；TODO 不冒充成功、也不再授权 MCU 回退
 │     │                       browser profile 全量 tabs 只认 MV3 bridge；AX tab-strip 不得冒充
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；
@@ -187,6 +187,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       Windows 非等价 priority-class 在 mutation 前 typed refusal
 │     │                       Unix file-mode 已有零写 preview、身份绑定 apply、same-mode no-op
 │     │                       与 readback effect-unknown；macOS qjswasm 已绿，Linux/Windows court 待补
+│     │                       Unix xattr set/remove 与 macOS quarantine-clear 已有同一零写/身份/
+│     │                       前值/读回门；公开结果与审计仅留长度+摘要，macOS qjswasm 已绿
 │     │                       浏览器 exact MV3 connection 已有持久 profile identity、session-owned
 │     │                       exact-tab lock 与 native-connection reload；macOS owned Profile 已证
 │     │                       old connection 消失、唯一同 profile/tab 重连、focus 不变与锁回收，

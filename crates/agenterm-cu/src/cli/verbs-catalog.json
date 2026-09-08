@@ -543,6 +543,48 @@
       ]
     },
     {
+      "name": "file-xattr-set",
+      "command": "file-xattr-set",
+      "aliases": ["file xattr-set"],
+      "grant": "actuate",
+      "family": "file",
+      "summary": "plan or apply one bounded extended-attribute value",
+      "usage": "file-xattr-set PATH NAME --value-hex HEX [--apply]\nfile xattr-set PATH NAME --value-hex HEX [--apply]",
+      "args": [
+        {"flag": "PATH", "value": "", "help": "one existing non-symlink regular file"},
+        {"flag": "NAME", "value": "", "help": "one exact native extended-attribute name"},
+        {"flag": "--value-hex", "value": "HEX", "help": "even-length hexadecimal bytes; decoded value at most 4 MiB"},
+        {"flag": "--apply", "value": "", "help": "apply after identity/precondition recheck; requires actuate grant"}
+      ]
+    },
+    {
+      "name": "file-xattr-remove",
+      "command": "file-xattr-remove",
+      "aliases": ["file xattr-remove"],
+      "grant": "actuate",
+      "family": "file",
+      "summary": "plan or apply removal of one extended attribute",
+      "usage": "file-xattr-remove PATH NAME [--apply]\nfile xattr-remove PATH NAME [--apply]",
+      "args": [
+        {"flag": "PATH", "value": "", "help": "one existing non-symlink regular file"},
+        {"flag": "NAME", "value": "", "help": "one exact native extended-attribute name"},
+        {"flag": "--apply", "value": "", "help": "apply after identity/precondition recheck; requires actuate grant"}
+      ]
+    },
+    {
+      "name": "file-quarantine-clear",
+      "command": "file-quarantine-clear",
+      "aliases": ["file quarantine-clear"],
+      "grant": "actuate",
+      "family": "file",
+      "summary": "plan or apply removal of macOS quarantine metadata",
+      "usage": "file-quarantine-clear PATH [--apply]\nfile quarantine-clear PATH [--apply]",
+      "args": [
+        {"flag": "PATH", "value": "", "help": "one existing non-symlink regular file"},
+        {"flag": "--apply", "value": "", "help": "apply after identity/precondition recheck; requires actuate grant"}
+      ]
+    },
+    {
       "name": "file-move",
       "command": "file-move",
       "aliases": [
@@ -5926,6 +5968,18 @@
     {
       "name": "file-mode",
       "text": "agenterm-cu file-mode    (also: file chmod)\n  scope: observe for plan; actuate for --apply    family: Filesystem\n\nusage (after the global flags):\n  file-mode PATH OCTAL [--apply]\n  file chmod PATH OCTAL [--apply]\n\nThe default is a mutation-free preview over one opened, non-symlink regular file. OCTAL is one to four digits bounded to 07777. --apply plans again from the current opened object, rechecks its identity and current mode immediately before fchmod, then verifies native readback. A same-mode request is a verified no-op and reports performed=false. The reply includes previous_mode as a fact; a later reversal is a new identity-bound invocation, not a durable transaction. Files the caller cannot open are refused rather than weakened to a race-prone path chmod. Linux and macOS use native descriptor operations. Windows returns typed unsupported because ACLs and DOS attributes are not Unix octal modes. A post-effect readback failure returns file_mode_effect_unknown instead of claiming success or rollback.\n"
+    },
+    {
+      "name": "file-xattr-set",
+      "text": "agenterm-cu file-xattr-set    (also: file xattr-set)\n  scope: observe for plan; actuate for --apply    family: Filesystem\n\nusage:\n  file-xattr-set PATH NAME --value-hex HEX [--apply]\n\nThe default is a zero-write preview. The decoded value is capped at 4 MiB. The reply and persistent audit contain only presence, byte length and SHA-256 for previous/requested/after states; raw values are never returned. --apply rechecks opened-object identity and the exact previous value before native mutation, then verifies readback. Same-value set is a verified no-op. Post-effect readback failure is file_xattr_effect_unknown. Linux and macOS use descriptor-native xattrs; Windows is typed unsupported.\n"
+    },
+    {
+      "name": "file-xattr-remove",
+      "text": "agenterm-cu file-xattr-remove    (also: file xattr-remove)\n  scope: observe for plan; actuate for --apply    family: Filesystem\n\nusage:\n  file-xattr-remove PATH NAME [--apply]\n\nThe default is a zero-write preview. --apply rechecks opened-object identity and the exact previous value, removes only that attribute, and verifies absence. Removing an absent attribute is a verified no-op. Public and audit output contains no raw previous value. Linux and macOS use descriptor-native xattrs; Windows is typed unsupported.\n"
+    },
+    {
+      "name": "file-quarantine-clear",
+      "text": "agenterm-cu file-quarantine-clear    (also: file quarantine-clear)\n  scope: observe for plan; actuate for --apply    family: Filesystem\n\nusage:\n  file-quarantine-clear PATH [--apply]\n\nThe default is a zero-write preview of removing com.apple.quarantine. --apply rechecks exact opened-object identity and previous attribute state, removes it, and verifies absence without returning its raw value. An absent attribute is a verified no-op. Non-macOS hosts return typed unsupported rather than pretending another metadata vocabulary is equivalent.\n"
     },
     {
       "name": "file-copy",

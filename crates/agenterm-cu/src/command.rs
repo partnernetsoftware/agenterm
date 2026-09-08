@@ -2062,6 +2062,31 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "is_false")]
         apply: bool,
     },
+    /// Plan or apply one extended-attribute value change without returning
+    /// either the requested or previous raw value in the public reply.
+    FileXattrSet {
+        target: TargetRef,
+        path: String,
+        name: String,
+        value_hex: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        apply: bool,
+    },
+    /// Plan or apply removal of one exact extended attribute.
+    FileXattrRemove {
+        target: TargetRef,
+        path: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        apply: bool,
+    },
+    /// Plan or apply removal of the platform-owned quarantine attribute.
+    FileQuarantineClear {
+        target: TargetRef,
+        path: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        apply: bool,
+    },
     /// Plan or apply one recoverable regular-file copy. Planning is
     /// observation-only; `apply` persists the recovery receipt before the
     /// first filesystem mutation.
@@ -4096,6 +4121,9 @@ impl Command {
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::FileAttributes { .. } => "file-attributes".into(),
             Self::FileMode { .. } => "file-mode".into(),
+            Self::FileXattrSet { .. } => "file-xattr-set".into(),
+            Self::FileXattrRemove { .. } => "file-xattr-remove".into(),
+            Self::FileQuarantineClear { .. } => "file-quarantine-clear".into(),
             Self::FileCopy { .. } => "file-copy".into(),
             Self::FileMove { .. } => "file-move".into(),
             Self::FileTransaction { .. } => "file-transaction".into(),
@@ -4297,6 +4325,17 @@ impl Command {
             Self::FileMode { apply, .. } => {
                 format!("file-mode.{}", if *apply { "apply" } else { "plan" })
             }
+            Self::FileXattrSet { apply, .. } => {
+                format!("file-xattr-set.{}", if *apply { "apply" } else { "plan" })
+            }
+            Self::FileXattrRemove { apply, .. } => format!(
+                "file-xattr-remove.{}",
+                if *apply { "apply" } else { "plan" }
+            ),
+            Self::FileQuarantineClear { apply, .. } => format!(
+                "file-quarantine-clear.{}",
+                if *apply { "apply" } else { "plan" }
+            ),
             Self::FileTransaction { action, .. } => format!(
                 "file-transaction.{}",
                 match action {
@@ -4500,6 +4539,9 @@ impl Command {
             | Self::FileInspect { target, .. }
             | Self::FileAttributes { target, .. }
             | Self::FileMode { target, .. }
+            | Self::FileXattrSet { target, .. }
+            | Self::FileXattrRemove { target, .. }
+            | Self::FileQuarantineClear { target, .. }
             | Self::FileCopy { target, .. }
             | Self::FileMove { target, .. }
             | Self::FileTransaction { target, .. }
@@ -4707,6 +4749,9 @@ impl Command {
             | Self::FileCopy { apply: true, .. }
             | Self::FileMove { apply: true, .. }
             | Self::FileMode { apply: true, .. }
+            | Self::FileXattrSet { apply: true, .. }
+            | Self::FileXattrRemove { apply: true, .. }
+            | Self::FileQuarantineClear { apply: true, .. }
             | Self::FileTransaction {
                 action:
                     FileTransactionAction::Rollback
@@ -8322,6 +8367,48 @@ mod tests {
                 ..
             }
         ));
+
+        for (command, operation, grant) in [
+            (
+                Command::FileXattrSet {
+                    target: TargetRef::Current,
+                    path: "item".into(),
+                    name: "user.example".into(),
+                    value_hex: "00ff".into(),
+                    apply: false,
+                },
+                "file-xattr-set.plan",
+                Grant::Observe,
+            ),
+            (
+                Command::FileXattrRemove {
+                    target: TargetRef::Current,
+                    path: "item".into(),
+                    name: "user.example".into(),
+                    apply: true,
+                },
+                "file-xattr-remove.apply",
+                Grant::Actuate,
+            ),
+            (
+                Command::FileQuarantineClear {
+                    target: TargetRef::Current,
+                    path: "item".into(),
+                    apply: false,
+                },
+                "file-quarantine-clear.plan",
+                Grant::Observe,
+            ),
+        ] {
+            assert_eq!(command.required_grant(), grant);
+            assert_eq!(
+                command.authorization_operation().as_deref(),
+                Some(operation)
+            );
+            let encoded = serde_json::to_value(&command).unwrap();
+            let round_trip: Command = serde_json::from_value(encoded.clone()).unwrap();
+            assert_eq!(serde_json::to_value(round_trip).unwrap(), encoded);
+        }
 
         let plan = Command::FileCopy {
             target: TargetRef::Ssh,

@@ -319,6 +319,9 @@ fn known_authorization_operation(operation: &str) -> bool {
         "diff",
         "file-copy",
         "file-mode",
+        "file-xattr-set",
+        "file-xattr-remove",
+        "file-quarantine-clear",
         "file-move",
         "file-transaction",
         "invoke",
@@ -353,6 +356,12 @@ fn known_authorization_operation(operation: &str) -> bool {
             | "file-copy.apply"
             | "file-mode.plan"
             | "file-mode.apply"
+            | "file-xattr-set.plan"
+            | "file-xattr-set.apply"
+            | "file-xattr-remove.plan"
+            | "file-xattr-remove.apply"
+            | "file-quarantine-clear.plan"
+            | "file-quarantine-clear.apply"
             | "file-move.plan"
             | "file-move.apply"
             | "file-transaction.status"

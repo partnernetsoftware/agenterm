@@ -48,6 +48,47 @@ pub fn parse(
                 apply,
             })
         }
+        "file-xattr-set" => {
+            consume_group_subcommand(spelled, args, "xattr-set")?;
+            let apply = take_switch(args, "--apply");
+            let value_hex = take_required_value(args, "--value-hex")?;
+            if args.len() != 2 || args.iter().any(String::is_empty) {
+                return Err("file-xattr-set requires PATH NAME --value-hex HEX [--apply]".into());
+            }
+            validate_hex(&value_hex)?;
+            Ok(Command::FileXattrSet {
+                target,
+                path: args.remove(0),
+                name: args.remove(0),
+                value_hex,
+                apply,
+            })
+        }
+        "file-xattr-remove" => {
+            consume_group_subcommand(spelled, args, "xattr-remove")?;
+            let apply = take_switch(args, "--apply");
+            if args.len() != 2 || args.iter().any(String::is_empty) {
+                return Err("file-xattr-remove requires PATH NAME [--apply]".into());
+            }
+            Ok(Command::FileXattrRemove {
+                target,
+                path: args.remove(0),
+                name: args.remove(0),
+                apply,
+            })
+        }
+        "file-quarantine-clear" => {
+            consume_group_subcommand(spelled, args, "quarantine-clear")?;
+            let apply = take_switch(args, "--apply");
+            if args.len() != 1 || args[0].is_empty() {
+                return Err("file-quarantine-clear requires PATH [--apply]".into());
+            }
+            Ok(Command::FileQuarantineClear {
+                target,
+                path: args.remove(0),
+                apply,
+            })
+        }
         "file-copy" => {
             consume_group_subcommand(spelled, args, "copy")?;
             let replace = take_switch(args, "--replace");
@@ -132,6 +173,30 @@ fn parse_octal_mode(value: &str) -> Result<u32, String> {
     u32::from_str_radix(value, 8).map_err(|_| "file-mode OCTAL is invalid".into())
 }
 
+fn take_required_value(args: &mut Vec<String>, flag: &str) -> Result<String, String> {
+    let Some(index) = args.iter().position(|item| item == flag) else {
+        return Err(format!("{flag} is required"));
+    };
+    args.remove(index);
+    if index >= args.len() {
+        return Err(format!("{flag} requires a value"));
+    }
+    Ok(args.remove(index))
+}
+
+fn validate_hex(value: &str) -> Result<(), String> {
+    const MAX_HEX_BYTES: usize = 8 * 1024 * 1024;
+    if value.len() > MAX_HEX_BYTES {
+        return Err("file-xattr-set --value-hex exceeds the 4 MiB decoded limit".into());
+    }
+    if !value.len().is_multiple_of(2) || value.bytes().any(|byte| !byte.is_ascii_hexdigit()) {
+        return Err(
+            "file-xattr-set --value-hex must contain an even number of hexadecimal digits".into(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +272,64 @@ mod tests {
         let spec = crate::cli::verbs::lookup("file-mode").unwrap();
         let mut bad_mode = vec!["item".into(), "888".into()];
         assert!(parse(spec, "file-mode", TargetRef::Current, &mut bad_mode).is_err());
+
+        let spec = crate::cli::verbs::resolve("file", Some("xattr-set")).unwrap();
+        let mut xattr_set = vec![
+            "xattr-set".into(),
+            "item".into(),
+            "user.example".into(),
+            "--value-hex".into(),
+            "00ff".into(),
+            "--apply".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "file", TargetRef::Current, &mut xattr_set).unwrap(),
+            Command::FileXattrSet { path, name, value_hex, apply: true, .. }
+                if path == "item" && name == "user.example" && value_hex == "00ff"
+        ));
+        let spec = crate::cli::verbs::lookup("file-xattr-set").unwrap();
+        let mut empty_xattr = vec![
+            "item".into(),
+            "user.empty".into(),
+            "--value-hex".into(),
+            String::new(),
+        ];
+        assert!(matches!(
+            parse(
+                spec,
+                "file-xattr-set",
+                TargetRef::Current,
+                &mut empty_xattr
+            )
+            .unwrap(),
+            Command::FileXattrSet { value_hex, apply: false, .. } if value_hex.is_empty()
+        ));
+        let spec = crate::cli::verbs::lookup("file-xattr-remove").unwrap();
+        let mut xattr_remove = vec!["item".into(), "user.example".into()];
+        assert!(matches!(
+            parse(
+                spec,
+                "file-xattr-remove",
+                TargetRef::Current,
+                &mut xattr_remove
+            )
+            .unwrap(),
+            Command::FileXattrRemove { apply: false, .. }
+        ));
+        let spec = crate::cli::verbs::resolve("file", Some("quarantine-clear")).unwrap();
+        let mut quarantine = vec!["quarantine-clear".into(), "item".into(), "--apply".into()];
+        assert!(matches!(
+            parse(spec, "file", TargetRef::Current, &mut quarantine).unwrap(),
+            Command::FileQuarantineClear { apply: true, .. }
+        ));
+        let spec = crate::cli::verbs::lookup("file-xattr-set").unwrap();
+        let mut odd_hex = vec![
+            "item".into(),
+            "user.example".into(),
+            "--value-hex".into(),
+            "0".into(),
+        ];
+        assert!(parse(spec, "file-xattr-set", TargetRef::Current, &mut odd_hex).is_err());
 
         let spec = crate::cli::verbs::resolve("file", Some("rollback")).unwrap();
         let mut rollback = vec!["rollback".into(), "fixture-id".into()];

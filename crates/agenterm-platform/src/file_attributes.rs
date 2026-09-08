@@ -319,6 +319,21 @@ pub fn apply_mode(file: &File, plan: &ModePlan) -> Result<ModeMutationResult, Fi
     })
 }
 
+/// Revalidate an already-satisfied mode plan without issuing a native write.
+pub fn verify_mode_plan(file: &File, plan: &ModePlan) -> Result<(), FileAttributeError> {
+    validate_mode(plan.requested_mode)?;
+    validate_regular_identity(file, plan.identity, "file-mode-verify")?;
+    let current = native::mode(file)?;
+    if current != plan.before_mode || current != plan.requested_mode {
+        return Err(FileAttributeError::new(
+            FileAttributeErrorKind::PreconditionChanged,
+            "file-mode-verify",
+            "file mode changed after the no-op plan",
+        ));
+    }
+    Ok(())
+}
+
 pub fn plan_xattr_set(
     file: &File,
     binding: RegularFileBinding,
@@ -395,7 +410,7 @@ pub fn apply_xattr(
         XattrAction::Remove => None,
     };
     let after_limit = expected_after.map_or(0, <[u8]>::len);
-    let after = native::get_xattr(file, &plan.name, after_limit).map_err(|error| {
+    let after = native::get_xattr(file, &plan.name, after_limit).map_err(|mut error| {
         if error.kind == FileAttributeErrorKind::BudgetExceeded {
             FileAttributeError::new(
                 FileAttributeErrorKind::ReadbackMismatch,
@@ -403,6 +418,7 @@ pub fn apply_xattr(
                 "extended-attribute length differs from the state just applied",
             )
         } else {
+            error.operation = "file-xattr-readback";
             error
         }
     })?;
@@ -429,6 +445,36 @@ pub fn apply_xattr(
         after_sha256: after.as_deref().map(sha256_hex),
         rollback,
     })
+}
+
+/// Revalidate an already-satisfied xattr plan without issuing a native write.
+pub fn verify_xattr_plan(file: &File, plan: &XattrPlan) -> Result<(), FileAttributeError> {
+    validate_name(&plan.name)?;
+    validate_regular_identity(file, plan.identity, "file-xattr-verify")?;
+    let max_before = plan
+        .expected_before
+        .as_ref()
+        .map_or(0, |state| state.value.len());
+    let current = read_precondition_value(file, &plan.name, max_before, "file-xattr-verify")?;
+    if !state_matches(current.as_deref(), plan.expected_before.as_ref()) {
+        return Err(FileAttributeError::new(
+            FileAttributeErrorKind::PreconditionChanged,
+            "file-xattr-verify",
+            "extended attribute changed after the no-op plan",
+        ));
+    }
+    let desired = match &plan.action {
+        XattrAction::Set(value) => Some(value.as_slice()),
+        XattrAction::Remove => None,
+    };
+    if current.as_deref() != desired {
+        return Err(FileAttributeError::new(
+            FileAttributeErrorKind::PreconditionChanged,
+            "file-xattr-verify",
+            "extended attribute does not satisfy the no-op plan",
+        ));
+    }
+    Ok(())
 }
 
 fn plan_xattr(
@@ -715,6 +761,30 @@ mod tests {
         assert_eq!(applied.after_mode, requested);
         let rolled_back = apply_mode(&file, &applied.rollback).expect("rollback mode");
         assert_eq!(rolled_back.after_mode, original);
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn no_op_verification_rechecks_the_open_object_without_writing() {
+        let (root, _path, file, binding) = fixture();
+        let original_mode = native::mode(&file).expect("read original mode");
+        let mode_plan = plan_mode(&file, binding, original_mode).expect("plan same mode");
+        verify_mode_plan(&file, &mode_plan).expect("verify same mode");
+        let changed_mode = if original_mode == 0o600 { 0o640 } else { 0o600 };
+        native::set_mode(&file, changed_mode).expect("simulate mode drift");
+        let error = verify_mode_plan(&file, &mode_plan).expect_err("reject drifted mode");
+        assert_eq!(error.kind, FileAttributeErrorKind::PreconditionChanged);
+        native::set_mode(&file, original_mode).expect("restore mode");
+
+        let name = test_name();
+        native::set_xattr(&file, name, b"same").expect("seed xattr");
+        let xattr_plan =
+            plan_xattr_set(&file, binding, name, b"same".to_vec(), 1024).expect("plan same xattr");
+        verify_xattr_plan(&file, &xattr_plan).expect("verify same xattr");
+        native::set_xattr(&file, name, b"drifted").expect("simulate xattr drift");
+        let error = verify_xattr_plan(&file, &xattr_plan).expect_err("reject drifted xattr");
+        assert_eq!(error.kind, FileAttributeErrorKind::PreconditionChanged);
+        native::remove_xattr(&file, name).expect("remove xattr fixture");
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
 

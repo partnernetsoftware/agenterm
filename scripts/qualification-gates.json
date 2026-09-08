@@ -437,6 +437,10 @@
       "evidence": ["cu.file-mode.macos"]
     },
     {
+      "id": "cu-file-xattr-mutation-smoke",
+      "evidence": ["cu.file-xattr-mutation.macos"]
+    },
+    {
       "id": "cu-file-move-transaction-smoke",
       "evidence": ["cu.file-move-transaction"]
     },

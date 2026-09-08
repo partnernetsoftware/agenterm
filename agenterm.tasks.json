@@ -808,6 +808,23 @@
         "task.cu-file-mode-smoke"
       ]
     },
+    "cu-file-xattr-mutation-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-file-xattr-mutation-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-file-xattr-mutation-smoke"
+      ]
+    },
     "cu-file-move-transaction-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3343,6 +3360,25 @@
       "id": "cu-file-mode-smoke",
       "description": "Prove mutation-free planning, exact identity-bound apply, verified same-mode no-op, explicit restoration, authority refusal, and final-symlink refusal through the public agenterm-cu CLI.",
       "entry": "scripts/qjs/cu-file-mode-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-file-xattr-mutation-smoke",
+      "description": "Prove redacted xattr planning, authority refusal, identity-bound set/remove, verified same-state no-op, explicit disclosure, macOS quarantine clear, and final-symlink refusal through the public agenterm-cu CLI.",
+      "entry": "scripts/qjs/cu-file-xattr-mutation-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

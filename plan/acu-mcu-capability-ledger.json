@@ -1048,10 +1048,31 @@
         {
           "id": "file.xattr.mutate",
           "mcu_shape": "file xattr-set|xattr-remove|quarantine-clear [--apply] with precondition and rollback attempt",
-          "acu_shape": null,
+          "acu_shape": "file-xattr-set PATH NAME --value-hex HEX [--apply], file-xattr-remove PATH NAME [--apply], and macOS file-quarantine-clear PATH [--apply] with mutation-free preview, opened-object identity, exact prior-value precondition and native readback",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "not-applicable"},
-          "next": "typed attribute plan/apply operation with exact prior value digest, byte ceiling, readback and rollback outcome"
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "native-implementation-court-pending", "windows": "typed-unsupported-alternate-streams-and-acls-not-equivalent"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-file-xattr-mutation-smoke",
+                "evidence": ["cu.file-xattr-mutation.macos"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "typed-unsupported-court-not-run"
+              }
+            }
+          },
+          "evidence": ["cu.file-xattr-mutation.macos"],
+          "declared_evidence": ["cu.file-xattr-mutation.macos"],
+          "next": "run the same set/remove journey on Linux and the typed unsupported branch on Windows; keep quarantine clear macOS-only and decide durable reversal as a separate transaction capability",
+          "note": "The default call is a zero-write preview. Apply re-plans from one opened regular file, rechecks exact object identity and the complete previous value, then verifies native readback. Same-state apply performs an independent exact re-read and reports a verified no-op without calling the setter. The 4 MiB decoded ceiling is enforced before filesystem access. Public replies and durable audit records retain presence, byte length and SHA-256 only; raw values require the separate explicit file-attributes --include-values observer. This naturally idempotent command family creates no transaction receipt. A post-effect readback failure is effect-unknown. This cut does not serialize the private prior value or promise durable rollback; reversal is a new identity-bound invocation. The macOS public qjswasm journey is green; Linux and Windows courts remain open."
         },
         {
           "id": "file.copy.transaction",

@@ -634,6 +634,38 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "windows_semantics": "typed-unsupported-not-acl-emulation",
             }),
         );
+        for (verb, operation, available) in [
+            (
+                "file-xattr-set",
+                "set",
+                cfg!(any(target_os = "macos", target_os = "linux")),
+            ),
+            (
+                "file-xattr-remove",
+                "remove",
+                cfg!(any(target_os = "macos", target_os = "linux")),
+            ),
+            (
+                "file-quarantine-clear",
+                "quarantine-clear",
+                cfg!(target_os = "macos"),
+            ),
+        ] {
+            verbs.insert(
+                verb.into(),
+                serde_json::json!({
+                    "status": if available { "available" } else { "unsupported" },
+                    "group": "file",
+                    "grant": "observe-plan-actuate-apply",
+                    "operation": operation,
+                    "mode": "opened-regular-file-identity-and-value-precondition",
+                    "default": "mutation-free-preview",
+                    "same_state": "verified-no-op",
+                    "public_values": "presence-length-sha256-only",
+                    "readback_failure": "effect-unknown",
+                }),
+            );
+        }
         verbs.insert(
             "login-session".into(),
             serde_json::json!({

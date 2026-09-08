@@ -284,6 +284,7 @@
         "cu.file-copy-transaction",
         "cu.file-xattr-inspect.macos",
         "cu.file-mode.macos",
+        "cu.file-xattr-mutation.macos",
         "cu.runtime-request-idempotency.current",
         "cu.file-move-transaction",
         "cu.managed-job-lifecycle",

@@ -426,7 +426,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "file" => (
             "available",
-            "file-inspect plus identity-bound Unix file-mode preview/apply and recoverable file-copy/file-move transactions are live; xattr mutation remains a typed gap",
+            "file-inspect plus identity-bound Unix file-mode/xattr preview and apply, macOS quarantine clear, and recoverable file-copy/file-move transactions are live",
         ),
         "network" => (
             "available",

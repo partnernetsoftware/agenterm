@@ -272,6 +272,9 @@ mod tests {
             "device-renew",
             "device-release",
             "file-mode",
+            "file-xattr-set",
+            "file-xattr-remove",
+            "file-quarantine-clear",
             "simulator-boot",
             "simulator-launch",
             "simulator-terminate",
@@ -281,6 +284,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 99, "{actuate:?}");
+        assert_eq!(actuate.len(), 102, "{actuate:?}");
     }
 }

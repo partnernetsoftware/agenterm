@@ -484,6 +484,19 @@ impl Executor {
             Command::FileMode {
                 path, mode, apply, ..
             } => super::files::file_mode_payload(path, *mode, *apply),
+            Command::FileXattrSet {
+                path,
+                name,
+                value_hex,
+                apply,
+                ..
+            } => super::files::file_xattr_set_payload(path, name, value_hex, *apply),
+            Command::FileXattrRemove {
+                path, name, apply, ..
+            } => super::files::file_xattr_remove_payload(path, name, *apply),
+            Command::FileQuarantineClear { path, apply, .. } => {
+                super::files::file_quarantine_clear_payload(path, *apply)
+            }
             Command::FileMove {
                 source,
                 destination,

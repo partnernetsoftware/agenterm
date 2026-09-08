@@ -285,6 +285,7 @@ const evidence_suites = {
   "cu-file-transaction-smoke": true,
   "cu-file-attributes-smoke": true,
   "cu-file-mode-smoke": true,
+  "cu-file-xattr-mutation-smoke": true,
   "cu-file-move-transaction-smoke": true,
   "cu-managed-job-smoke": true,
   "cu-setup-cli-smoke": true,

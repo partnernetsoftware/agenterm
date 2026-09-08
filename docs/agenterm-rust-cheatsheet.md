@@ -4810,6 +4810,16 @@ disclosure boundary: default public receipts should expose bounded names,
 lengths and digests, while raw values require an explicit opt-in and a lossless
 encoding. A successful open is not enough to accept a final symlink; bind the
 opened handle back to the caller path before publishing even read-only results.
+Secret-bearing metadata mutation commands may carry the requested bytes in
+memory and over the typed worker transport, but the public reply, audit detail,
+receipt and idempotency projection must retain only presence, bounded byte
+length and digest. Never serialize a private xattr plan: its rollback state
+contains the old raw value. A same-state apply is not verified merely because
+the planning read matched; re-read the same opened object and exact state
+without calling the setter. After a real setter call, any failed or mismatched
+readback is effect-unknown rather than an ordinary native failure. Name an old
+value a rollback token only when a durable, identity-bound transaction can
+actually consume it; otherwise reversal is a new guarded invocation.
 
 Give every fresh provider attempt a durable random UUIDv4 before its replay
 reservation. Keep that attempt record only while the outcome can be uncertain;

@@ -836,6 +836,13 @@ Q3 owned runtime facades
    │  ├─ [x] macOS qjswasm public journey `cu.file-mode.macos`
    │  ├─ [ ] Linux native public court
    │  └─ [ ] Windows typed-not-applicable court; ACL/DOS attributes stay separate
+   ├─ [~] identity-bound Unix xattr mutation: redacted preview + explicit apply
+   │  ├─ [x] public set/remove plus macOS quarantine-clear verbs and aliases
+   │  ├─ [x] full prior-value precondition, 4 MiB ceiling and native readback
+   │  ├─ [x] same-state independently verified no-op; no raw value in reply/audit
+   │  ├─ [x] macOS qjswasm public journey `cu.file-xattr-mutation.macos`
+   │  ├─ [ ] Linux native public court
+   │  └─ [ ] Windows typed-not-applicable court; ADS/ACL stay separate
    ├─ [~] recoverable file-move transaction: copy then retire with two retained backups
    │  ├─ [x] both path locks + atomic no-replace marker/backup publication
    │  ├─ [x] rollback/finalize + installed/retirement crash recovery
