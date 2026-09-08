@@ -363,12 +363,6 @@
       ]
     },
     {
-      "id": "cu-linux-file-watch-smoke",
-      "evidence": [
-        "cu.linux-file-watch"
-      ]
-    },
-    {
       "id": "cu-linux-fontconfig-monospace-smoke",
       "evidence": [
         "cu.linux-fontconfig-monospace"
@@ -450,18 +444,6 @@
       "id": "cu-linux-get-extents-smoke",
       "evidence": [
         "cu.linux-get-extents-readback"
-      ]
-    },
-    {
-      "id": "cu-linux-hit-honesty-smoke",
-      "evidence": [
-        "cu.linux-hit-readback"
-      ]
-    },
-    {
-      "id": "cu-linux-screenshot-window-smoke",
-      "evidence": [
-        "cu.linux-screenshot-window-readback"
       ]
     },
     {
@@ -987,44 +969,6 @@
       "evidence": [
         "cu.linux-browser-profiles-installed",
         "cu.linux-browser-open-window"
-      ]
-    },
-    {
-      "id": "cu-linux-page-targets-smoke",
-      "evidence": [
-        "cu.linux-cdp-page-targets-readback"
-      ]
-    },
-    {
-      "id": "cu-linux-page-find-smoke",
-      "evidence": [
-        "cu.linux-page-find-honesty"
-      ]
-    },
-    {
-      "id": "cu-linux-page-click-smoke",
-      "evidence": [
-        "cu.linux-cdp-page-click",
-        "cu.linux-cdp-page-click-readback"
-      ]
-    },
-    {
-      "id": "cu-linux-page-screenshot-smoke",
-      "evidence": [
-        "cu.linux-cdp-page-screenshot-readback"
-      ]
-    },
-    {
-      "id": "cu-linux-page-scroll-smoke",
-      "evidence": [
-        "cu.linux-cdp-page-scroll-actuate",
-        "cu.linux-cdp-page-scroll-readback"
-      ]
-    },
-    {
-      "id": "cu-linux-page-hover-smoke",
-      "evidence": [
-        "cu.linux-cdp-page-hover-readback"
       ]
     },
     {

@@ -1324,6 +1324,25 @@
         "task.cu-linux-page-find-smoke"
       ]
     },
+    "cu-linux-page-click-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-click-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-click-smoke"
+      ]
+    },
     "cu-linux-page-screenshot-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -1649,6 +1668,23 @@
       "network": [],
       "evidence": [
         "task.cu-linux-pointer-smoke"
+      ]
+    },
+    "cu-linux-spaces-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-spaces-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-spaces-smoke"
       ]
     },
     "cu-linux-power-status-smoke": {
@@ -2009,25 +2045,6 @@
       "network": [],
       "evidence": [
         "task.cu-linux-process-usage-smoke"
-      ]
-    },
-    "cu-linux-query-smoke": {
-      "inputs": [
-        "built-agenterm-cu",
-        "built-libagenterm",
-        "display-session"
-      ],
-      "outputs": [
-        "cu-linux-query-evidence"
-      ],
-      "budget": {
-        "timeout_ms": 120000,
-        "max_operations": 1000000000,
-        "max_output_bytes": 1048576
-      },
-      "network": [],
-      "evidence": [
-        "task.cu-linux-query-smoke"
       ]
     },
     "cu-linux-process-state-smoke": {
@@ -6084,6 +6101,26 @@
       ]
     },
     {
+      "id": "cu-linux-page-click-smoke",
+      "description": "Linux page-click --selector clicks one named CDP control and independent page-find text read-back proves the exact effect; disposable Chrome profile, no --coords.",
+      "entry": "scripts/qjs/cu-linux-page-click-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-page-screenshot-smoke",
       "description": "Linux page-screenshot --port writes a real PNG whose magic bytes, size, sha256, and decoded dimensions are verified by independent host read-back; disposable Chrome+CDP, no --coords or screenshot-window degradation.",
       "entry": "scripts/qjs/cu-linux-page-screenshot-smoke.qjs",
@@ -6723,6 +6760,24 @@
       "id": "cu-linux-pointer-smoke",
       "description": "Linux pointer-position observes absolute screen coordinates and pointer-grab/ungrab verify with an independent X11 grab probe on DISPLAY=:2; no AT-SPI fixture, --coords, or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-pointer-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-spaces-smoke",
+      "description": "Linux spaces reports typed unsupported with explicit macOS alternatives and matches an independent SkyLight absence probe; observe-only, no --coords.",
+      "entry": "scripts/qjs/cu-linux-spaces-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
