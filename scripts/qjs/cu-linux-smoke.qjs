@@ -46,6 +46,7 @@ const declared_evidence = [
   "cu.linux-file-inspect",
   "cu.linux-terminal-control",
   "cu.linux-external-terminal-observe",
+  "cu.linux-display-scale",
   "cu.linux-atspi-tree-geometry",
   "cu.linux-atspi-query",
   "cu.linux-atspi-invoke",
@@ -440,6 +441,22 @@ try {
     !flag_at(refused, "ok") && text_at(refused, "error.code") === "refused",
     "cu_linux_smoke_refusal:" + JSON.stringify(refused)
   );
+
+  print("STEP displays reports native frame geometry plus honest physical size and scale when the X screen publishes millimeters");
+  const displays = run_cu_json(run_directory, executable, ["--target", "current", "--grant", "observe", "displays"]);
+  ensure(text_at(displays, "command") === "displays" && text_at(displays, "data.via") === "agt_screen_list" && at(displays, "data.displays").length > 0, "cu_linux_smoke_displays_shape");
+  const primary_display = at(displays, "data.displays").find((row) => row.primary === true) || at(displays, "data.displays")[0];
+  const width_mm = int_at(primary_display, "widthMm");
+  const height_mm = int_at(primary_display, "heightMm");
+  const dpi_x = int_at(primary_display, "dpiX");
+  const dpi_y = int_at(primary_display, "dpiY");
+  const scale_factor = Number(at(primary_display, "scaleFactor"));
+  if (width_mm > 0 && height_mm > 0) {
+    ensure(dpi_x > 0 && dpi_y > 0 && scale_factor > 0.0, "cu_linux_smoke_displays_physical");
+    ensure(Math.abs(scale_factor - ((dpi_x + dpi_y) / 2.0) / 96.0) < 0.01, "cu_linux_smoke_displays_scale");
+  } else {
+    ensure(at(primary_display, "scaleFactor") === undefined, "cu_linux_smoke_displays_unknown_physical");
+  }
 
   print("STEP file-inspect reads one final entry without following links and binds metadata to one stable object identity");
   const file_fixture = rh.join(run_directory, "file-inspect-fixture.txt");
@@ -1770,6 +1787,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-ob
 if (visible_external_terminal_send) {
   harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-send");
 }
+harness.emit_evidence(context, declared_evidence, "cu.linux-display-scale");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-tree-geometry");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-query");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");
