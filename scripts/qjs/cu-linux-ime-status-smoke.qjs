@@ -1,0 +1,237 @@
+// CEO: Linux ime-status observe with independent session-bus read-back.
+// Acceptance is smoke read-back only: ok JSON must match ibus/fcitx CLI or
+// dbus facts; unsupported must carry typed alternatives and match bus probes.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-ime-status",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env() {
+  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "GTK_IM_MODULE",
+    "QT_IM_MODULE",
+    "XMODIFIERS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(),
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true || output.exit_code === 1, "cu_linux_ime_status_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_ime_status_empty");
+  const document = JSON.parse(trimmed);
+  ensure(text_at(document, "command") === "ime-status", "cu_linux_ime_status_command:" + JSON.stringify(document));
+  return document;
+}
+
+function safe_command(program, args, options) {
+  try {
+    return rh.command(program, args, options);
+  } catch (error) {
+    return null;
+  }
+}
+
+function session_bus_connected() {
+  const output = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.freedesktop.DBus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/freedesktop/DBus",
+    "org.freedesktop.DBus.GetId",
+  ], {
+    env: cu_env(),
+    timeout_ms: 10000,
+  });
+  return output !== null && output.success === true;
+}
+
+function dbus_name_has_owner(service) {
+  const output = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.freedesktop.DBus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/freedesktop/DBus",
+    "org.freedesktop.DBus.NameHasOwner",
+    "string:" + service,
+  ], {
+    env: cu_env(),
+    timeout_ms: 10000,
+  });
+  return output !== null && output.success === true && output.stdout.indexOf("boolean true") >= 0;
+}
+
+function independent_ibus_engine() {
+  const cli = safe_command("ibus", ["engine"], { env: cu_env(), timeout_ms: 10000 });
+  if (cli !== null && cli.success === true) {
+    const engine = cli.stdout.trim();
+    if (engine !== "") { return engine; }
+  }
+  if (!dbus_name_has_owner("org.freedesktop.IBus")) { return ""; }
+  const dbus = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.freedesktop.IBus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/freedesktop/IBus",
+    "org.freedesktop.IBus.GetGlobalEngine",
+  ], {
+    env: cu_env(),
+    timeout_ms: 10000,
+  });
+  if (dbus === null || !dbus.success) { return ""; }
+  for (const line of dbus.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("object path ")) { continue; }
+    let path = trimmed.slice("object path ".length).trim();
+    if (path.length >= 2 && path.charAt(0) === "\"" && path.charAt(path.length - 1) === "\"") {
+      path = path.slice(1, path.length - 1);
+    }
+    const segment = path.split("/").pop();
+    if (segment === undefined || segment === "") { continue; }
+    let engine = segment;
+    while (engine.length > 0 && engine.charAt(engine.length - 1) === ";") {
+      engine = engine.slice(0, engine.length - 1);
+    }
+    if (engine !== "") { return engine; }
+  }
+  return "";
+}
+
+function independent_fcitx_name_open(framework) {
+  const remote = framework === "fcitx5" ? "fcitx5-remote" : "fcitx-remote";
+  const name = safe_command(remote, ["-n"], { env: cu_env(), timeout_ms: 10000 });
+  const open = safe_command(remote, ["-o"], { env: cu_env(), timeout_ms: 10000 });
+  if (name === null || open === null || !name.success || !open.success) { return null; }
+  const trimmed = name.stdout.trim();
+  if (trimmed === "") { return null; }
+  return { name: trimmed, open: open.stdout.trim() === "1" };
+}
+
+function independent_framework_facts(framework) {
+  if (framework === "ibus") {
+    const engine = independent_ibus_engine();
+    if (engine === "") { return null; }
+    const plain_keyboard = engine.indexOf("xkb:") === 0;
+    return {
+      name: engine,
+      available: !plain_keyboard,
+      open: !plain_keyboard,
+    };
+  }
+  if (framework === "fcitx5") {
+    return independent_fcitx_name_open("fcitx5");
+  }
+  if (framework === "fcitx") {
+    return independent_fcitx_name_open("fcitx");
+  }
+  return null;
+}
+
+function assert_ok_readback(reply) {
+  ensure(flag_at(reply, "ok"), "cu_linux_ime_status_ok:" + JSON.stringify(reply));
+  const data = at(reply, "data");
+  const framework = text_at(data, "framework");
+  const provider = text_at(data, "provider");
+  const name = text_at(data, "name");
+  ensure(framework !== "" && provider !== "" && name !== "", "cu_linux_ime_status_fields:" + JSON.stringify(data));
+  ensure(text_at(data, "label") !== "", "cu_linux_ime_status_label:" + JSON.stringify(data));
+  ensure(typeof at(data, "available") === "boolean", "cu_linux_ime_status_available:" + JSON.stringify(data));
+  ensure(typeof at(data, "open") === "boolean", "cu_linux_ime_status_open:" + JSON.stringify(data));
+  ensure(typeof at(data, "native_mode") === "boolean", "cu_linux_ime_status_native_mode:" + JSON.stringify(data));
+  ensure(typeof at(data, "full_shape") === "boolean", "cu_linux_ime_status_full_shape:" + JSON.stringify(data));
+  ensure(typeof at(data, "session_bus_available") === "boolean", "cu_linux_ime_status_session_bus:" + JSON.stringify(data));
+  ensure(at(data, "env") !== undefined && at(data, "env") !== null, "cu_linux_ime_status_env:" + JSON.stringify(data));
+
+  const independent = independent_framework_facts(framework);
+  ensure(independent !== null, "cu_linux_ime_status_independent_missing:" + framework);
+  ensure(text_at(independent, "name") === name, "cu_linux_ime_status_name_mismatch:" + name + "!=" + text_at(independent, "name"));
+  ensure(flag_at(independent, "available") === flag_at(data, "available"), "cu_linux_ime_status_available_mismatch:" + JSON.stringify(data));
+  ensure(flag_at(independent, "open") === flag_at(data, "open"), "cu_linux_ime_status_open_mismatch:" + JSON.stringify(data));
+}
+
+function assert_unsupported_readback(reply) {
+  ensure(!flag_at(reply, "ok"), "cu_linux_ime_status_unexpected_ok:" + JSON.stringify(reply));
+  ensure(text_at(reply, "error.code") === "ime_unsupported", "cu_linux_ime_status_code:" + JSON.stringify(reply.error));
+  const detail = at(reply, "error.detail");
+  ensure(text_at(detail, "effect") === "not_performed", "cu_linux_ime_status_effect:" + JSON.stringify(detail));
+  ensure(text_at(detail, "required_mechanism") === "linux-session-input-method", "cu_linux_ime_status_mechanism:" + JSON.stringify(detail));
+  ensure(at(detail, "alternatives").length > 0, "cu_linux_ime_status_alternatives:" + JSON.stringify(detail));
+  ensure(at(detail, "probed_frameworks").length > 0, "cu_linux_ime_status_probed:" + JSON.stringify(detail));
+  ensure(typeof at(detail, "session_bus_available") === "boolean", "cu_linux_ime_status_detail_bus:" + JSON.stringify(detail));
+  ensure(at(detail, "env") !== undefined && at(detail, "env") !== null, "cu_linux_ime_status_detail_env:" + JSON.stringify(detail));
+
+  const bus_connected = session_bus_connected();
+  ensure(flag_at(detail, "session_bus_available") === bus_connected, "cu_linux_ime_status_bus_mismatch:" + bus_connected + ":" + JSON.stringify(detail));
+  for (const framework of at(detail, "probed_frameworks")) {
+    const facts = independent_framework_facts("" + framework);
+    ensure(facts === null, "cu_linux_ime_status_framework_should_be_absent:" + framework + ":" + JSON.stringify(facts));
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
+
+print("STEP ime-status observe returns ok JSON or typed unsupported with session-bus read-back");
+const reply = run_cu(repo, executable, ["ime-status"]);
+if (flag_at(reply, "ok")) {
+  assert_ok_readback(reply);
+  print("PASS ime-status ok with independent framework read-back");
+  return;
+}
+assert_unsupported_readback(reply);
+print("PASS ime-status typed unsupported with independent bus/framework read-back");
