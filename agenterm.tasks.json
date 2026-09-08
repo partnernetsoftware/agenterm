@@ -816,6 +816,24 @@
         "task.cu-linux-a11y-status-smoke"
       ]
     },
+    "cu-linux-terminal-shallow-tree-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-terminal-shallow-tree-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-terminal-shallow-tree-smoke"
+      ]
+    },
     "cu-linux-app-inventory-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5547,6 +5565,25 @@
       ],
       "side_effects": [
         "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-terminal-shallow-tree-smoke",
+      "description": "Linux xfce4-terminal without AT-SPI registration: capabilities/doctor document terminal_a11y_shallow_tree host limit plus pty-*/terminal-* alternatives; tree --window visited=1 frame read-back agrees with independent pyatspi zero registered roots; no --coords.",
+      "entry": "scripts/qjs/cu-linux-terminal-shallow-tree-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn",
+        "gui_spawn"
       ]
     },
     {

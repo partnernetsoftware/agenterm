@@ -1906,6 +1906,8 @@ fn attach_invoke_actions(payload: &mut serde_json::Value) {
 /// frame with no text-buffer children (e.g. xfce4-terminal on Linux).
 fn terminal_a11y_shallow_tree_hint() -> serde_json::Value {
     serde_json::json!({
+        "limit": "host",
+        "mechanism": "at-spi2-window-frame-fallback",
         "signal": "visited=1 with role=frame and truncated=false is a host toolkit limit, not a walker bug",
         "examples": ["xfce4-terminal", "gnome-terminal", "konsole"],
         "do_not": "fabricate subtree nodes or treat unlock as proof of hidden children",
@@ -2089,6 +2091,46 @@ mod tests {
         assert_eq!(data["verb_status_counts"]["total"], verbs.len());
         assert_eq!(counted, verbs.len() as u64);
         assert!(!counts.contains_key("missing"));
+    }
+
+    #[test]
+    fn terminal_a11y_shallow_tree_hint_documents_host_limit_and_alternatives() {
+        let hint = terminal_a11y_shallow_tree_hint();
+        assert_eq!(hint["limit"], "host");
+        assert_eq!(hint["mechanism"], "at-spi2-window-frame-fallback");
+        assert!(
+            hint["signal"]
+                .as_str()
+                .is_some_and(|signal| signal.contains("visited=1"))
+        );
+        let alternatives = hint["alternatives"]
+            .as_array()
+            .expect("alternatives");
+        let joined = alternatives
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(joined.contains("pty-"));
+        assert!(joined.contains("terminal-"));
+        let reply = observe_executor().execute(&Command::Capabilities {
+            target: TargetRef::Current,
+        });
+        assert!(reply.ok);
+        let data = reply.data.expect("capabilities data");
+        assert_eq!(
+            data["verbs"]["tree"]["host_shallow_terminal_tree"],
+            hint
+        );
+        assert_eq!(
+            data["verbs"]["term-read"]["host_shallow_terminal_tree"],
+            hint
+        );
+        assert!(
+            data["gaps"]["terminal_a11y_shallow_tree"]
+                .as_str()
+                .is_some_and(|gap| gap.contains("pty-") && gap.contains("terminal-"))
+        );
     }
 
     #[test]

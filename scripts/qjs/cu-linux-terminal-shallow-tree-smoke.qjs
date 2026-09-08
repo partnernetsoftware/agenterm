@@ -1,0 +1,271 @@
+// CEO: Linux terminal_a11y_shallow_tree host-limit honesty with independent read-back.
+// When xfce4-terminal is available, launch it without AT-SPI registration
+// (GTK_A11Y=none, NO_AT_BRIDGE=1) so tree --window reports visited=1 frame
+// fallback. Capabilities and doctor must document the shallow frame plus
+// pty-* / terminal-* alternatives. Independent pyatspi must find zero application
+// roots for the terminal pid. AT-SPI/--name only; no --coords or screenshot.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-terminal-shallow-tree-readback",
+];
+
+const SHALLOW_PROBE_SCRIPT = [
+  "import json, os, pyatspi, sys",
+  "pid = int(sys.argv[1])",
+  "desktop = pyatspi.Registry.getDesktop(0)",
+  "registered = 0",
+  "for i in range(desktop.childCount):",
+  "    child = desktop.getChildAtIndex(i)",
+  "    try:",
+  "        if child.get_process_id() == pid:",
+  "            registered += 1",
+  "    except Exception:",
+  "        pass",
+  "alive = os.path.exists(f'/proc/{pid}')",
+  "print(json.dumps({'registered_apps': registered, 'proc_alive': alive}))",
+].join("\n");
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function shallow_terminal_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    GTK_A11Y: "none",
+    NO_AT_BRIDGE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: shallow_terminal_env(executable),
+    timeout_ms: 120000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_terminal_shallow_tree_empty:" + output.stderr);
+  const document = JSON.parse(trimmed);
+  ensure(output.success === true && flag_at(document, "ok"),
+    "cu_linux_terminal_shallow_tree_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function run_cu_or_doctor(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: shallow_terminal_env(executable),
+    timeout_ms: 120000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_terminal_shallow_tree_empty:" + output.stderr);
+  const document = JSON.parse(trimmed);
+  ensure(
+    document.ok === true
+      || (document.error !== undefined && document.error.code === "doctor_not_ready"),
+    "cu_linux_terminal_shallow_tree_doctor_reply:" + JSON.stringify(document)
+  );
+  const report = doctor_report(document);
+  ensure(
+    output.success === (text_at(report, "status") === "ready"),
+    "cu_linux_terminal_shallow_tree_doctor_exit:" + text_at(report, "status")
+      + ":" + output.exit_code
+  );
+  return document;
+}
+
+function doctor_report(reply) {
+  if (reply.ok === true) { return reply.data; }
+  return at(reply, "error.detail.report");
+}
+
+function assert_hint(hint, label) {
+  ensure(text_at(hint, "limit") === "host", label + "_limit:" + JSON.stringify(hint));
+  ensure(
+    text_at(hint, "signal").indexOf("visited=1") >= 0,
+    label + "_signal:" + JSON.stringify(hint)
+  );
+  const alternatives = at(hint, "alternatives");
+  ensure(Array.isArray(alternatives) && alternatives.length >= 2,
+    label + "_alternatives:" + JSON.stringify(hint));
+  const joined = alternatives.join(" ");
+  ensure(joined.indexOf("pty-") >= 0 && joined.indexOf("terminal-") >= 0,
+    label + "_pty_terminal:" + joined);
+}
+
+function independent_shallow_probe(pid) {
+  const output = rh.command("python3", ["-c", SHALLOW_PROBE_SCRIPT, "" + pid], {
+    env: shallow_terminal_env("."),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true,
+    "cu_linux_terminal_shallow_tree_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function xfce4_terminal_available() {
+  const output = rh.command("sh", ["-c", "command -v xfce4-terminal"], {
+    timeout_ms: 5000,
+  });
+  return output.success === true && output.stdout.trim() !== "";
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
+ensure(xfce4_terminal_available(), "cu_linux_terminal_shallow_tree_missing_xfce4_terminal");
+
+const context = harness.new_context(repo, "cu-linux-terminal-shallow-tree");
+let terminal_pid = 0;
+let terminal = -1;
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP capabilities and doctor document terminal_a11y_shallow_tree host limit and alternatives");
+  const capabilities = run_cu(context.run_directory, executable, ["capabilities"]);
+  const gap = text_at(capabilities, "data.gaps.terminal_a11y_shallow_tree");
+  ensure(gap.indexOf("visited=1") >= 0 && gap.indexOf("pty-") >= 0 && gap.indexOf("terminal-") >= 0,
+    "cu_linux_terminal_shallow_tree_gap:" + gap);
+  assert_hint(at(capabilities, "data.verbs.tree.host_shallow_terminal_tree"),
+    "cu_linux_terminal_shallow_tree_tree_hint");
+  assert_hint(at(capabilities, "data.verbs.term-read.host_shallow_terminal_tree"),
+    "cu_linux_terminal_shallow_tree_term_read_hint");
+
+  const doctor_reply = run_cu_or_doctor(context.run_directory, executable, ["doctor"]);
+  const doctor = doctor_report(doctor_reply);
+  ensure(doctor !== undefined && doctor !== null, "cu_linux_terminal_shallow_tree_doctor");
+  assert_hint(at(doctor, "capabilities.verbs.tree.host_shallow_terminal_tree"),
+    "cu_linux_terminal_shallow_tree_doctor_tree_hint");
+  ensure(
+    text_at(doctor, "capabilities.gaps.terminal_a11y_shallow_tree").indexOf("pty-") >= 0,
+    "cu_linux_terminal_shallow_tree_doctor_gap"
+  );
+
+  print("STEP xfce4-terminal without AT-SPI registration yields visited=1 frame tree read-back");
+  const title = "agenterm-terminal-shallow-" + context.run_id;
+  terminal = harness.start({
+    program: "xfce4-terminal",
+    args: ["--title", title, "--disable-server", "-e", "sleep 180"],
+    current_dir: context.run_directory,
+    env: shallow_terminal_env(executable),
+    timeout_ms: 30000,
+  });
+
+  const window_wait = run_cu(context.run_directory, executable, [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_terminal_shallow_tree_window_wait");
+
+  const windows = run_cu(context.run_directory, executable, [
+    "windows", "--title", title,
+  ]);
+  const rows = windows.data.windows === undefined ? windows.data : windows.data.windows;
+  ensure(Array.isArray(rows) && rows.length === 1,
+    "cu_linux_terminal_shallow_tree_window_row:" + JSON.stringify(rows));
+  const handle = int_at(rows[0], "handle");
+  terminal_pid = int_at(rows[0], "process_id");
+  ensure(handle > 0 && terminal_pid > 0,
+    "cu_linux_terminal_shallow_tree_window_identity:" + JSON.stringify(rows[0]));
+
+  const tree = run_cu(context.run_directory, executable, [
+    "tree", "--window", "" + handle,
+    "--depth", "8",
+    "--max-nodes", "300",
+    "--flat",
+  ]);
+  ensure(
+    text_at(tree, "data.backend") === "at-spi2"
+      && int_at(tree, "data.visited") === 1
+      && !flag_at(tree, "data.truncated")
+      && int_at(tree, "data.returned") === 1
+      && tree.data.nodes.length === 1
+      && text_at(tree.data.nodes[0], "role") === "frame"
+      && text_at(tree.data.nodes[0], "name") === title,
+    "cu_linux_terminal_shallow_tree_shape:" + JSON.stringify(tree.data)
+  );
+
+  print("STEP independent pyatspi finds zero registered application roots for the terminal pid");
+  const probe = independent_shallow_probe(terminal_pid);
+  ensure(probe.registered_apps === 0 && probe.proc_alive === true,
+    "cu_linux_terminal_shallow_tree_independent:" + JSON.stringify(probe));
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (terminal_pid > 0) {
+  rh.command("kill", ["-TERM", "" + terminal_pid], {
+    cwd: context.run_directory,
+    timeout_ms: 5000,
+  });
+}
+if (terminal >= 0) {
+  try { harness.kill(terminal); } catch (error) { /* terminal may already exit */ }
+  try { harness.wait(terminal, 5000); } catch (error) { print("cleanup: " + error); }
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: Linux terminal shallow-tree host-limit honesty with independent read-back");
+}
+if (failure !== "") { throw failure; }
+return;
