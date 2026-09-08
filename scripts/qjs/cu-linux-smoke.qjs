@@ -1688,17 +1688,44 @@ try {
     "cu_linux_smoke_place_inventory:" + JSON.stringify(placed_row.bounds)
   );
 
-  print("STEP orderwin raises the second window above the first and answers from the order it reads back, not from having sent the raise");
+  print("STEP orderwin above and below reorder the two fixture windows and answer from stacking read-back, not from having sent the raise");
   const second_row = window_row(run_directory, executable, fixture_pid, second_title);
   ensure(second_row !== null, "cu_linux_smoke_second_window_missing");
   const second_handle = int_at(second_row, "handle");
+  const second_handle_text = "" + second_handle;
   const raised = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "orderwin",
-    "--window", "" + second_handle, "--relation", "above", "--relative", handle_text
+    "--window", second_handle_text, "--relation", "above", "--relative", handle_text
   ]);
   ensure(
-    int_at(raised, "data.after.window_z") < int_at(raised, "data.after.relative_z"),
-    "cu_linux_smoke_orderwin:" + JSON.stringify(raised.data)
+    flag_at(raised, "data.verified")
+      && int_at(raised, "data.after.window_z") < int_at(raised, "data.after.relative_z"),
+    "cu_linux_smoke_orderwin_above:" + JSON.stringify(raised.data)
+  );
+  const second_above_row = window_row(run_directory, executable, fixture_pid, second_title);
+  const main_above_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(
+    second_above_row !== null && main_above_row !== null
+      && int_at(second_above_row, "z_index") < int_at(main_above_row, "z_index"),
+    "cu_linux_smoke_orderwin_above_inventory:"
+      + JSON.stringify({ second: second_above_row, main: main_above_row })
+  );
+  const lowered = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "orderwin",
+    "--window", handle_text, "--relation", "below", "--relative", second_handle_text
+  ]);
+  ensure(
+    flag_at(lowered, "data.verified")
+      && int_at(lowered, "data.after.window_z") > int_at(lowered, "data.after.relative_z"),
+    "cu_linux_smoke_orderwin_below:" + JSON.stringify(lowered.data)
+  );
+  const main_below_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  const second_below_row = window_row(run_directory, executable, fixture_pid, second_title);
+  ensure(
+    main_below_row !== null && second_below_row !== null
+      && int_at(main_below_row, "z_index") > int_at(second_below_row, "z_index"),
+    "cu_linux_smoke_orderwin_below_inventory:"
+      + JSON.stringify({ main: main_below_row, second: second_below_row })
   );
   const same_handle = run_cu_reply(run_directory, executable, [
     "--target", "current", "--grant", "observe,actuate", "orderwin",
