@@ -1318,10 +1318,89 @@ fn tab_cdp_candidates_for_entry<'a>(
         .collect()
 }
 
-fn tab_activate_cdp_page(port: u16, target_id: &str) -> Result<(), CuError> {
-    crate::cdp::http::http_get_json(port, &format!("/json/activate/{target_id}"))
-        .map(|_| ())
-        .map_err(CuError::from)
+fn tab_cdp_http_status(port: u16, path: &str) -> Result<u16, CuError> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .map_err(|_| CuError::from(crate::cdp::CdpError::no_listener(port)))?;
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
+    let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    stream
+        .write_all(req.as_bytes())
+        .map_err(|_| CuError::new("unsupported", "CDP HTTP write failed"))?;
+
+    let mut raw = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    let header_end = loop {
+        if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos;
+        }
+        if raw.len() > 64 * 1024 {
+            return Err(CuError::new(
+                "unsupported",
+                "CDP HTTP read failed: response headers exceed 64 KiB",
+            ));
+        }
+        let n = stream
+            .read(&mut chunk)
+            .map_err(|e| CuError::new("unsupported", format!("CDP HTTP read failed: {e}")))?;
+        if n == 0 {
+            return Err(CuError::new(
+                "unsupported",
+                "CDP HTTP read failed: connection closed before headers ended",
+            ));
+        }
+        raw.extend_from_slice(&chunk[..n]);
+    };
+    let head = String::from_utf8_lossy(&raw[..header_end]);
+    let status = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
+    let mut content_length = None;
+    for line in head.lines().skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("content-length") {
+            content_length = value.trim().parse::<usize>().ok();
+        }
+    }
+    let mut body = raw[header_end + 4..].to_vec();
+    if let Some(len) = content_length {
+        while body.len() < len {
+            let n = stream
+                .read(&mut chunk)
+                .map_err(|e| CuError::new("unsupported", format!("CDP HTTP read failed: {e}")))?;
+            if n == 0 {
+                return Err(CuError::new(
+                    "unsupported",
+                    "CDP HTTP read failed: connection closed before Content-Length was satisfied",
+                ));
+            }
+            body.extend_from_slice(&chunk[..n]);
+        }
+    }
+    Ok(status)
+}
+
+/// Chromium `/json/activate/{id}` returns plain text (`Target activated`), not JSON.
+/// Returns `Ok(true)` on HTTP 200, `Ok(false)` on 404 (wrong id — try another candidate).
+fn tab_activate_cdp_page(port: u16, target_id: &str) -> Result<bool, CuError> {
+    let path = format!("/json/activate/{target_id}");
+    match tab_cdp_http_status(port, &path)? {
+        200 => Ok(true),
+        404 => Ok(false),
+        status => Err(CuError::new(
+            "unsupported",
+            format!("CDP /json/activate/{target_id} returned HTTP {status}"),
+        )),
+    }
 }
 
 fn tab_select_readback_once(
@@ -1366,7 +1445,8 @@ fn tab_select_activate_cdp(
     hit: &crate::tab_strip::TabEntry<'_>,
 ) -> Result<String, CuError> {
     let candidates = tab_cdp_candidates_for_entry(pages, hit);
-    if candidates.is_empty() {
+    let candidate_count = candidates.len();
+    if candidate_count == 0 {
         return Err(CuError::new(
             "a11y_tab_not_found",
             format!(
@@ -1377,7 +1457,10 @@ fn tab_select_activate_cdp(
         ));
     }
     for page in candidates {
-        tab_activate_cdp_page(port, &page.id)?;
+        match tab_activate_cdp_page(port, &page.id)? {
+            false => continue,
+            true => {}
+        }
         if tab_select_readback_once(window, pid, hit.index)?.0 {
             return Ok(page.id.clone());
         }
@@ -1386,7 +1469,7 @@ fn tab_select_activate_cdp(
         "unverified",
         format!(
             "CDP activated {} page target(s) for tab strip row {} but AT-SPI active read-back never matched",
-            candidates.len(),
+            candidate_count,
             hit.index
         ),
     ))

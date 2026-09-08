@@ -60,28 +60,86 @@ pub fn frame_matches_window_title(frame_name: &str, window_title: &str) -> bool 
         || normalize_tab_title(frame_name) == normalize_tab_title(window_title)
 }
 
+/// Per-tab sibling window facts used when AT-SPI publishes one application
+/// frame per tab and the frame row carries no `selected` state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TabSiblingWindow {
+    pub title: String,
+    pub focused: bool,
+    /// Front-to-back order when the host reports stacking (`0` = frontmost).
+    pub z_index: Option<u32>,
+}
+
 /// When the strip row carries no `selected` / `unselected` state, correlate
-/// with the focused top-level window of the same browser process.
-pub fn tab_entry_selected(entry: &TabEntry<'_>, focused_sibling_index: Option<usize>) -> Tri {
+/// with the active same-PID sibling window (`active_sibling_index`).
+pub fn tab_entry_selected(entry: &TabEntry<'_>, active_sibling_index: Option<usize>) -> Tri {
     let from_node = entry.selected();
     if from_node != Tri::Unknown {
         return from_node;
     }
-    if focused_sibling_index == Some(entry.index) {
-        Tri::True
-    } else {
-        Tri::Unknown
+    match active_sibling_index {
+        Some(active) if active == entry.index => Tri::True,
+        Some(_) => Tri::False,
+        None => Tri::Unknown,
     }
 }
 
-pub fn tab_entry_json(entry: &TabEntry<'_>, focused_sibling_index: Option<usize>) -> Value {
+pub fn tab_entry_json(entry: &TabEntry<'_>, active_sibling_index: Option<usize>) -> Value {
     json!({
         "index": entry.index,
         "id": entry.node.id,
         "title": normalize_tab_title(&entry.node.name),
-        "selected": tab_entry_selected(entry, focused_sibling_index).json(),
+        "selected": tab_entry_selected(entry, active_sibling_index).json(),
         "role": entry.node.role,
     })
+}
+
+/// Which strip row is active. A lone AT-SPI `active` frame wins; else focused
+/// sibling among paired inventory rows; else lowest `z_index`.
+pub fn tab_active_sibling_index(
+    entries: &[TabEntry<'_>],
+    siblings: &[TabSiblingWindow],
+) -> Option<usize> {
+    if entries.is_empty() {
+        return None;
+    }
+    let active_frames: Vec<usize> = entries
+        .iter()
+        .filter(|entry| {
+            entry
+                .node
+                .states
+                .iter()
+                .any(|state| state.eq_ignore_ascii_case("active"))
+        })
+        .map(|entry| entry.index)
+        .collect();
+    if active_frames.len() == 1 {
+        return Some(active_frames[0]);
+    }
+    if siblings.is_empty() {
+        return None;
+    }
+    let paired = siblings.len() == entries.len()
+        && entries
+            .iter()
+            .zip(siblings.iter())
+            .all(|(entry, sibling)| frame_matches_window_title(entry.title(), &sibling.title));
+    if paired {
+        if let Some(index) = siblings.iter().position(|sibling| sibling.focused) {
+            return Some(index);
+        }
+        return siblings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, sibling)| sibling.z_index.map(|z_index| (index, z_index)))
+            .min_by_key(|(_, z_index)| *z_index)
+            .map(|(index, _)| index);
+    }
+    siblings
+        .iter()
+        .position(|sibling| sibling.focused)
+        .filter(|&index| index < entries.len())
 }
 
 /// `(container role, item role)` pairs that are a browser tab strip on
@@ -787,8 +845,26 @@ mod tests {
         assert_eq!(
             tab_entry_selected(&entries[1], Some(1)),
             Tri::True,
-            "focused sibling index marks the selected row"
+            "active sibling index marks the selected row"
         );
+    }
+
+    #[test]
+    fn active_sibling_index_prefers_atspi_active_frame() {
+        let mut tree = fake_tree(vec![
+            node("/0", None, "application", "Google Chrome", &["showing"]),
+            node("/0/0", Some("/0"), "frame", "Example Domain - Google Chrome", &["showing"]),
+            node(
+                "/0/1",
+                Some("/0"),
+                "frame",
+                "cu-fill-test - Google Chrome",
+                &["showing", "active"],
+            ),
+        ]);
+        tree.backend = "at-spi2".into();
+        let entries = tab_strip_entries(&tree);
+        assert_eq!(tab_active_sibling_index(&entries, &[]), Some(1));
     }
 
     #[test]
