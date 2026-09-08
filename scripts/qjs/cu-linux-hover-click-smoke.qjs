@@ -137,6 +137,11 @@ try {
       && text_at(hovered, "data.addressing") === "accessibility-tree",
     "cu_linux_hover_click_hover:" + JSON.stringify(hovered.data)
   );
+  const after_hover = label_text(run_directory, executable, handle_text, "pressed ");
+  ensure(
+    after_hover === "pressed 0",
+    "cu_linux_hover_click_after_hover:" + after_hover
+  );
 
   print("STEP click --name Fixture Press on the same node, verified by the count label");
   const clicked = run_cu(run_directory, executable, "observe,actuate", [

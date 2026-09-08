@@ -129,6 +129,7 @@
         "cu.linux-atspi-double-click",
         "cu.linux-atspi-focus",
         "cu.linux-atspi-hover",
+        "cu.linux-atspi-hover-click",
         "cu.linux-atspi-scroll-wheel",
         "cu.scroll-wheel-named-extents",
         "cu.linux-atspi-drag",

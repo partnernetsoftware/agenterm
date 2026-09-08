@@ -2166,6 +2166,25 @@
         "task.cu-linux-double-click-smoke"
       ]
     },
+    "cu-linux-hover-click-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-hover-click-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-hover-click-smoke"
+      ]
+    },
     "cu-linux-gtk-rclick-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6134,6 +6153,26 @@
       "id": "cu-linux-double-click-smoke",
       "description": "Linux GTK double-click by --name via click --count 2 and dclick alias; independent label read-back shows pressed +2 per actuation; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-double-click-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-hover-click-smoke",
+      "description": "Linux GTK hover then click the same button by --name; AT-SPI GenerateMouseEvent(abs) hover leaves count unchanged, click advances pressed label; no --coords.",
+      "entry": "scripts/qjs/cu-linux-hover-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

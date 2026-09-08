@@ -67,6 +67,9 @@ echo "STEP hover --name Fixture Press"
 HOVER="$("$CU" --target current --grant observe,actuate hover --window "$HANDLE" --name "Fixture Press")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["performed"] and d["data"]["addressing"]=="accessibility-tree"' <<<"$HOVER"
 
+MID="$(label_text "pressed ")"
+[[ "$MID" == "pressed 0" ]] || { echo "FAIL: after hover only $MID" >&2; exit 1; }
+
 echo "STEP click --name Fixture Press"
 CLICK="$("$CU" --target current --grant observe,actuate click --window "$HANDLE" --name "Fixture Press")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["performed"] and d["data"]["addressing"]=="accessibility-tree"' <<<"$CLICK"
