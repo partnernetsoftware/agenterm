@@ -653,6 +653,37 @@ mod x11 {
             .map_err(|_| failed("the X11 resize request could not be flushed"))
     }
 
+    /// Request desktop foreground for one exact process window and refuse to
+    /// report success until `_NET_ACTIVE_WINDOW` reads it back.
+    pub(super) fn activate(target_pid: u32) -> Result<(), ProcessWindowError> {
+        use crate::contract::window_op::WindowShowState;
+        use std::time::{Duration, Instant};
+
+        let context = connect()?;
+        let window = required_window(&context, target_pid)?;
+        let handle = window as isize;
+        if crate::window_op::minimized(handle).unwrap_or(false) {
+            crate::window_op::show(handle, WindowShowState::Restore)
+                .map_err(map_window_op_error)?;
+        }
+        crate::window_op::activate(handle).map_err(map_window_op_error)?;
+        let deadline = Instant::now() + Duration::from_millis(1_500);
+        loop {
+            let context = connect()?;
+            if active_window(&context)? == window {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err(error(
+                    "process_window_activate",
+                    "the process window did not read back as foreground after activation",
+                    "invalid_state",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
     /// Iconify every top-level client window owned by `process_id`, or map
     /// them back. This is the X11 operation behind the application-level
     /// `hide` / `show` verbs: it acts on all of the process's windows and
@@ -809,10 +840,17 @@ pub(crate) fn facts(process_id: u32) -> ProcessWindowFacts {
 }
 
 pub(crate) fn activate(process_id: u32) -> Result<(), ProcessWindowError> {
-    let _ = process_id;
-    Err(unsupported(
-        "activate process window is not implemented on this host",
-    ))
+    #[cfg(target_os = "linux")]
+    {
+        x11::activate(process_id)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = process_id;
+        Err(unsupported(
+            "activate process window is not implemented on this host",
+        ))
+    }
 }
 
 pub(crate) fn key(process_id: u32, key: ProcessWindowKey) -> Result<(), ProcessWindowError> {
