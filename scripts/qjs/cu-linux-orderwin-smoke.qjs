@@ -1,0 +1,205 @@
+// CEO: Linux orderwin above/below with independent windows inventory z_index read-back.
+// Two disposable GTK fixture windows; every actuation verified from stacking inventory,
+// not only the verb's own after snapshot. AT-SPI/--name only; no --coords or screenshot.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-atspi-orderwin",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_orderwin_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_orderwin_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_orderwin_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function run_cu_reply(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_orderwin_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function window_rows(run_directory, executable, pid) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  const by_title = {};
+  for (const row of rows) { by_title[text_at(row, "title")] = row; }
+  return by_title;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const run_directory = rh.join(repo, "target/cu-linux-orderwin-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_orderwin_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+try {
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  const second_title = "agenterm-linux-second-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_orderwin_fixture_wait");
+
+  const inventory = window_rows(run_directory, executable, fixture_pid);
+  const main_row = inventory[fixture_title];
+  const second_row = inventory[second_title];
+  ensure(main_row !== undefined && second_row !== undefined,
+    "cu_linux_orderwin_window_inventory:" + JSON.stringify(inventory));
+  const main_handle = "" + int_at(main_row, "handle");
+  const second_handle = "" + int_at(second_row, "handle");
+  const main_z = int_at(main_row, "z_index");
+  const second_z = int_at(second_row, "z_index");
+  print("STEP initial inventory: main z=" + main_z + " second z=" + second_z);
+
+  print("STEP orderwin above: second above main");
+  const raised = run_cu(run_directory, executable, "observe,actuate", [
+    "orderwin", "--window", second_handle, "--relation", "above", "--relative", main_handle,
+  ]);
+  ensure(
+    flag_at(raised, "data.verified")
+      && int_at(raised, "data.after.window_z") < int_at(raised, "data.after.relative_z"),
+    "cu_linux_orderwin_above_reply:" + JSON.stringify(raised.data)
+  );
+  const after_above = window_rows(run_directory, executable, fixture_pid);
+  ensure(
+    int_at(after_above[second_title], "z_index") < int_at(after_above[fixture_title], "z_index"),
+    "cu_linux_orderwin_above_inventory:" + JSON.stringify(after_above)
+  );
+  print("STEP orderwin above inventory: second z="
+    + int_at(after_above[second_title], "z_index")
+    + " main z=" + int_at(after_above[fixture_title], "z_index"));
+
+  print("STEP orderwin below: main below second");
+  const lowered = run_cu(run_directory, executable, "observe,actuate", [
+    "orderwin", "--window", main_handle, "--relation", "below", "--relative", second_handle,
+  ]);
+  ensure(
+    flag_at(lowered, "data.verified")
+      && int_at(lowered, "data.after.window_z") > int_at(lowered, "data.after.relative_z"),
+    "cu_linux_orderwin_below_reply:" + JSON.stringify(lowered.data)
+  );
+  const after_below = window_rows(run_directory, executable, fixture_pid);
+  ensure(
+    int_at(after_below[fixture_title], "z_index") > int_at(after_below[second_title], "z_index"),
+    "cu_linux_orderwin_below_inventory:" + JSON.stringify(after_below)
+  );
+  print("STEP orderwin below inventory: main z="
+    + int_at(after_below[fixture_title], "z_index")
+    + " second z=" + int_at(after_below[second_title], "z_index"));
+
+  print("STEP orderwin same handle must refuse invalid_input");
+  const same_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "orderwin", "--window", main_handle, "--relation", "above", "--relative", main_handle,
+  ]);
+  ensure(
+    !flag_at(same_handle, "ok") && text_at(same_handle, "error.code") === "invalid_input",
+    "cu_linux_orderwin_same:" + JSON.stringify(same_handle)
+  );
+} finally {
+  if (fixture_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  }
+  if (fixture >= 0) {
+    try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+  }
+}
+
+const context = harness.new_context(repo, "cu-linux-orderwin");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-orderwin");
+harness.remove_run(context);
+print("PASS: CEO Linux orderwin above/below with independent windows inventory stacking read-back");
+return;

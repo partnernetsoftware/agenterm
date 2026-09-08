@@ -271,6 +271,7 @@ const evidence_suites = {
   "cu-linux-tab-close-smoke": true,
   "cu-linux-window-move-smoke": true,
   "cu-linux-raise-activate-smoke": true,
+  "cu-linux-orderwin-smoke": true,
   "cu-linux-display-scale-smoke": true,
   "cu-linux-keyboard-layout-smoke": true,
   "cu-linux-network-interfaces-smoke": true,
