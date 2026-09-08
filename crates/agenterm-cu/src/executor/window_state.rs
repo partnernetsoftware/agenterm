@@ -84,6 +84,9 @@ pub(super) fn activate_payload(
         if after_row.as_ref().is_some_and(|row| row.focused) {
             break;
         }
+        // A competing foreground owner can steal focus between polls; keep
+        // nudging the requested handle until inventory read-back succeeds.
+        let _ = mechanism::window_op::activate(window);
         thread::sleep(STATE_READBACK_POLL);
     }
     let after_present = after_row.is_some();

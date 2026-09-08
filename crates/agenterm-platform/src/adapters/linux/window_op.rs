@@ -502,10 +502,29 @@ pub(crate) fn workspace_desktop(handle: isize) -> Result<u32, WindowOpError> {
 /// `show`/`_NET_RESTACK_WINDOW`. Source 2 identifies an automation pager;
 /// the product layer owns the subsequent `_NET_ACTIVE_WINDOW` read-back.
 pub(crate) fn activate(handle: isize) -> Result<(), WindowOpError> {
+    use x11rb::CURRENT_TIME;
+    use x11rb::protocol::xproto::{ClientMessageEvent, InputFocus};
+
     let conn = connect()?;
     let window = window_id(handle)?;
+    if minimized(handle)? {
+        show(handle, crate::contract::window_op::WindowShowState::Restore)?;
+    }
     let active = atom(&conn, b"_NET_ACTIVE_WINDOW")?;
-    send_root_message(&conn, window, active, [2, 0, 0, 0, 0])
+    let root = root_of(&conn)?;
+    let event = ClientMessageEvent::new(32, window, active, [2, 0, 0, 0, 0]);
+    conn.send_event(
+        false,
+        root,
+        EventMask::SUBSTRUCTURE_NOTIFY | EventMask::SUBSTRUCTURE_REDIRECT,
+        event,
+    )
+    .map_err(|error| failed(format!("EWMH client message send failed: {error}")))?;
+    // Many WMs honor _NET_ACTIVE_WINDOW but leave input focus on the
+    // previous client until an explicit XSetInputFocus; match the a11y
+    // activation path so contested desktops read back the exact handle.
+    let _ = conn.set_input_focus(InputFocus::POINTER_ROOT, window, CURRENT_TIME);
+    sync(&conn)
 }
 
 /// `_NET_WM_STATE` add/remove of `_NET_WM_STATE_ABOVE`.
