@@ -1818,6 +1818,110 @@ fn public_disconnect_cancels_an_active_wait_within_bounded_grace() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn public_stdout_only_disconnect_exits_on_broken_pipe_while_stdin_stays_open() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let mut child = mcp_command(&["serve", "--stdio"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start public MCP stdio sidecar");
+    let stdout = child.stdout.take().expect("piped stdout");
+    let (line_sender, line_receiver) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        let mut line = String::new();
+        let result = BufReader::new(stdout)
+            .read_line(&mut line)
+            .map(|read| (read, line));
+        let _ = line_sender.send(result);
+        // Dropping the sole stdout read end is the fault injected by this test.
+    });
+    let mut stdin = child.stdin.take().expect("piped stdin");
+    write_initialize(&mut stdin);
+    stdin.flush().expect("flush MCP initialization");
+    let initialized = match line_receiver.recv_timeout(Duration::from_secs(3)) {
+        Ok(Ok((read, line))) => {
+            assert!(read > 0, "MCP sidecar closed stdout before initialization");
+            serde_json::from_str::<Value>(&line).expect("initialization response JSON")
+        }
+        Ok(Err(error)) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("could not read MCP initialization response: {error}");
+        }
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("timed out waiting for MCP initialization response: {error}");
+        }
+    };
+    reader.join().expect("join one-line stdout reader");
+    assert_eq!(initialized["id"], 1);
+
+    let started = Instant::now();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"jsonrpc":"2.0", "id":"broken-output", "method":"ping"})
+    )
+    .expect("write request while MCP stdin remains open");
+    stdin
+        .flush()
+        .expect("flush request after stdout disconnect");
+
+    let deadline = started + Duration::from_secs(2);
+    let status = loop {
+        match child.try_wait().expect("poll MCP sidecar") {
+            Some(status) => break status,
+            None if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let mut stderr = Vec::new();
+                if let Some(mut stream) = child.stderr.take() {
+                    let _ = stream.read_to_end(&mut stderr);
+                }
+                panic!(
+                    "MCP sidecar did not exit after stdout disconnected; stderr={}",
+                    String::from_utf8_lossy(&stderr)
+                );
+            }
+        }
+    };
+    let elapsed = started.elapsed();
+    let mut stderr = Vec::new();
+    child
+        .stderr
+        .take()
+        .expect("piped stderr")
+        .read_to_end(&mut stderr)
+        .expect("read MCP stderr");
+    let stderr = String::from_utf8(stderr).expect("MCP stderr UTF-8");
+
+    assert_eq!(status.code(), Some(2), "unexpected status: {status:?}");
+    assert_eq!(
+        status.signal(),
+        None,
+        "sidecar died from a signal: {status:?}"
+    );
+    assert!(
+        stderr.contains("mcp_stdio_failed:")
+            && (stderr.contains("Broken pipe") || stderr.contains("os error 32")),
+        "missing bounded broken-output diagnostic: {stderr:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "stdout-only disconnect took {elapsed:?}"
+    );
+    assert!(
+        stdin.write_all(b"still-open\n").is_err(),
+        "the exited sidecar unexpectedly retained its stdin read end"
+    );
+}
+
 #[test]
 fn cancellation_wins_over_a_late_backend_completion() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind cancellation-race fixture");
