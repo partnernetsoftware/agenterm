@@ -7,8 +7,8 @@ use agenterm_cu::{Command, QueryWatchUntil, TargetRef, WaitCondition};
 
 use super::verbs::VerbSpec;
 use super::{
-    flag_isize, flag_parsed, flag_text, flag_u64, flag_usize, flag_value, flag_window,
-    flag_window_opt, menu, named_node, parse_expectations, parse_optional_window,
+    flag_isize, flag_max_nodes, flag_parsed, flag_text, flag_u64, flag_usize, flag_value,
+    flag_window, flag_window_opt, menu, named_node, parse_expectations, parse_optional_window,
     split_literal_tail, take_switch,
 };
 
@@ -25,7 +25,7 @@ pub fn parse(
         "tree" => {
             let window = flag_window(args)?;
             let depth = flag_parsed::<u32>(args, "--depth")?;
-            let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+            let max_nodes = flag_max_nodes(args)?;
             let max_value_bytes = flag_parsed::<usize>(args, "--max-value-bytes")?;
             agenterm_cu::observe::validate_max_value_bytes(max_value_bytes)?;
             let selector = flag_text(args, "--selector")?;
@@ -36,7 +36,7 @@ pub fn parse(
             let flat = spelled == "elements" || take_switch(args, "--flat");
             if !args.is_empty() {
                 return Err(format!(
-                    "tree accepts only [--window H] [--depth N] [--max-nodes N] [--max-value-bytes N] [--flat] [--selector PATH]; unexpected {:?}",
+                    "tree accepts only [--window H] [--depth N] [--max-nodes N | --max N] [--max-value-bytes N] [--flat] [--selector PATH]; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -710,6 +710,27 @@ mod tests {
         ] {
             assert!(parse(spec, "device-screenshot", TargetRef::Current, &mut invalid).is_err());
         }
+    }
+
+    #[test]
+    fn tree_accepts_max_as_max_nodes_alias() {
+        let spec = verbs::lookup("tree").expect("tree verb");
+        let mut args = vec!["--window".into(), "42".into(), "--max".into(), "100".into()];
+        assert!(matches!(
+            parse(spec, "tree", TargetRef::Current, &mut args).unwrap(),
+            Command::Tree {
+                window: Some(42),
+                max_nodes: Some(100),
+                ..
+            }
+        ));
+        let mut both = vec![
+            "--max-nodes".into(),
+            "50".into(),
+            "--max".into(),
+            "100".into(),
+        ];
+        assert!(parse(spec, "tree", TargetRef::Current, &mut both).is_err());
     }
 
     #[test]

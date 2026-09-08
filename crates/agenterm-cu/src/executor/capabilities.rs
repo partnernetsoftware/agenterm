@@ -118,6 +118,10 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 "selector_incomplete_walk".into(),
                 serde_json::json!("typed-failure"),
             );
+            object.insert(
+                "host_shallow_terminal_tree".into(),
+                terminal_a11y_shallow_tree_hint(),
+            );
         }
         declaration
     };
@@ -544,6 +548,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             "screenshot": "none — shared agenterm.dll (milestone 46)",
             "input_degraded": "none — shared agenterm.dll (milestone 46)",
             "rdp_live": "rdp tier is placeholder; never declared available on current",
+            "terminal_a11y_shallow_tree": "many terminal emulators publish only a single accessibility frame (visited=1, truncated=false); semantic shell text is not in the AT-SPI tree — use pty-* headless jobs or terminal-* AgenTerm tabs instead of expecting deeper tree/query results",
             "macos_ax_live": "macOS AX observe (windows / tree / query), semantic actuation (invoke / verify / click / focus), background menus (menu inspect / invoke), the App-local focused control (focused / invoke --focused), the poll-diff observation stream (observe), the destructive close (gate: exact target + snapshot + postcondition) with crash-persistent receipts (receipts), the read-only pointer position and the window-place frame transaction are proven by scripts/qjs/cu-macos-smoke.qjs; invoke offers no quit / delete action; AX notifications are not subscribed (observe is poll-diff)",
         }
     });
@@ -792,6 +797,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                         "background_literal_text": "not-applicable",
                         "requires_running_agenterm": false,
                         "window_identity": "native-handle+owner-pid+process-start+app",
+                        "host_shallow_terminal_tree": terminal_a11y_shallow_tree_hint(),
                     }),
                 ),
             );
@@ -1642,6 +1648,21 @@ fn attach_invoke_actions(payload: &mut serde_json::Value) {
             }),
         );
     }
+}
+
+/// Honest guidance when a terminal emulator publishes a single AT-SPI/AX
+/// frame with no text-buffer children (e.g. xfce4-terminal on Linux).
+fn terminal_a11y_shallow_tree_hint() -> serde_json::Value {
+    serde_json::json!({
+        "signal": "visited=1 with role=frame and truncated=false is a host toolkit limit, not a walker bug",
+        "examples": ["xfce4-terminal", "gnome-terminal", "konsole"],
+        "do_not": "fabricate subtree nodes or treat unlock as proof of hidden children",
+        "alternatives": [
+            "pty-start / pty-read / pty-send / pty-wait (headless AgenTerm PTY jobs)",
+            "terminal-list / terminal-read / terminal-send / terminal-wait (AgenTerm-owned tabs; requires running agenterm server)",
+            "term-read only when the app exposes TextArea/ScrollArea/Terminal roles in accessibility",
+        ],
+    })
 }
 
 pub(super) fn current_tree_mapping() -> &'static str {

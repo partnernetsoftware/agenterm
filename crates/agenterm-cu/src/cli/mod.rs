@@ -149,6 +149,20 @@ pub fn flag_window_opt(args: &mut Vec<String>) -> Option<isize> {
     agenterm_cu::observe::parse_window_token(&raw).ok()
 }
 
+/// Walk-budget flag for `tree` / `query` / related verbs: `--max-nodes` with
+/// `--max` as a tree-only alias (query keeps `--max` for result pagination).
+pub fn flag_max_nodes(args: &mut Vec<String>) -> Result<Option<usize>, String> {
+    let max_nodes = flag_parsed::<usize>(args, "--max-nodes")?;
+    let max = flag_parsed::<usize>(args, "--max")?;
+    match (max_nodes, max) {
+        (Some(_), Some(_)) => {
+            Err("--max-nodes and --max both set; use one walk-budget flag".into())
+        }
+        (Some(value), None) | (None, Some(value)) => Ok(Some(value)),
+        (None, None) => Ok(None),
+    }
+}
+
 pub fn flag_parsed<T: std::str::FromStr>(
     args: &mut Vec<String>,
     flag: &'static str,
