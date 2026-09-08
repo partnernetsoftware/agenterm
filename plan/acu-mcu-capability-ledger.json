@@ -891,7 +891,26 @@
           "mcu_shape": "pty --provider native|tmux start|status|wait-exit|stop",
           "acu_shape": "pty-start/status/wait-exit/stop over one isolated headless agenterm server; job identity binds validated name + logical instance + server epoch + stable @tab",
           "state": "native",
-          "qualification": "local-six-cell-public-qjswasm-journey-green-macos-x86-via-rosetta",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive", "cu.pty-default-shell"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive", "cu.pty-default-shell"]
+              },
+              "windows": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive", "cu.pty-default-shell"]
+              }
+            }
+          },
           "evidence": ["cu.pty-background-interactive", "cu.pty-default-shell"],
           "declared_evidence": ["cu.pty-background-interactive", "cu.pty-default-shell"],
           "next": "add process-group signal and forced-tree cleanup separately",
@@ -902,7 +921,26 @@
           "mcu_shape": "pty --provider native|tmux list|prune plus reuse and stale-owner reclamation",
           "acu_shape": "pty-list bounds and reconciles each deterministic job authority as running, stale or conflicted; pty-prune --expect stale serializes against start, re-proves staleness, permits only known state files and verifies exact removal",
           "state": "native",
-          "qualification": "exact-source-a6a1c7b9-local-six-cell-public-qjswasm-journey-green-macos-x86-via-rosetta",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive"]
+              },
+              "windows": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive"]
+              }
+            }
+          },
           "evidence": ["cu.pty-background-interactive"],
           "next": "add reusable authority adoption with scope+epoch and process-tree safety",
           "note": "The list is complete or fails typed: malformed names, symlinks and more than 4096 entries are refused. A directory is never called running without a live authority and exact status. Prune requires an explicit stale postcondition, a durable receipt and directory-absence verification; a live/conflicted authority or unknown state entry is never deleted."
@@ -912,7 +950,26 @@
           "mcu_shape": "pty --provider native|tmux read|send|wait|events with cursors and byte/event limits",
           "acu_shape": "pty-read exposes the retained raw-output cursor; pty-send writes exact literal UTF-8; pty-wait scans exact UTF-8 across retained raw-output pages from an explicit cursor; pty-events continues the separate ordered structured-event cursor",
           "state": "native",
-          "qualification": "local-six-cell-public-qjswasm-journey-green-macos-x86-via-rosetta",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive"]
+              },
+              "windows": {
+                "result": "native-qualified",
+                "gate": "cu-pty-smoke",
+                "evidence": ["cu.pty-background-interactive"]
+              }
+            }
+          },
           "evidence": ["cu.pty-background-interactive"],
           "next": "add bounded regex parity without weakening exact byte continuation",
           "note": "No Enter is implicit. Wait preserves a boundary overlap so a needle split across pages still matches; overwritten/future cursors, timeout and finalized-without-match remain distinct typed failures. MCU regex wait remains on MCU until ACU has an equally bounded regex contract."
@@ -1160,7 +1217,24 @@
           "acu_shape": "file-move SOURCE DEST [--replace --apply] plus file-transaction status|rollback|recover|finalize ID",
           "state": "platform-limited",
           "platforms": {"macos": "live-qjswasm-journey", "linux": "pending-native-court", "windows": "pending-native-court"},
-          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-file-move-transaction-smoke",
+                "evidence": ["cu.file-move-transaction"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
+              }
+            }
+          },
           "evidence": ["cu.file-move-transaction"],
           "next": "run the same public qjswasm journey in Linux and Windows courts through the independent utm-court service",
           "note": "Default invocation is plan-only. Apply uses one copy-then-retire state machine on same-volume and cross-volume paths, atomically refuses occupied marker/backup names, locks both exact path namespaces in stable order, retains source and replaced-destination backups until finalize, and recovers the two-name hard-link crash window without deleting an unknown object. The MCU compatibility adapter routes move and the shared applied transaction actions. macOS public evidence cu.file-move-transaction is green; Linux/Windows are not claimed yet."
@@ -1356,7 +1430,25 @@
           "acu_shape": "device-claims; device-claim DEVICE_ID with bounded serial configuration and TTL; device-status/read/write/renew/release by lease id, generation and secret",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-public-qjswasm-green-both-isa", "windows": "native-implementation-public-court-pending"},
-          "qualification": "macos-and-linux-both-isa-public-qjswasm-green-windows-native-court-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-device-lease-smoke",
+                "evidence": ["cu.device-lease"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-device-lease-smoke",
+                "evidence": ["cu.device-lease"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-windows-com-public-court-not-run"
+              }
+            }
+          },
           "evidence": ["cu.device-lease"],
           "note": "The public id is only an installation-HMAC selector. Claim re-enumerates the private locator, opens one exact native object under an exclusive resident owner, ties admission to a runtime session and target lock, returns the secret once, and persists neither locator nor plaintext secret. The same public qjswasm fixture proves exact replay without a second open, authority refusal, setup-refresh deferral, session-end cleanup and TTL expiry on macOS plus Linux aarch64/x86_64 without publishing its private PTY locator or token. The two Linux UTM courts verified exact source a21dfcff4227ca9dfcb6d55a13da9bbbf4e84187 and their uploaded manifests before execution.",
           "next": "run a Windows COM or controlled virtual-COM court; a Unix PTY is not Windows evidence"
@@ -1367,7 +1459,25 @@
           "acu_shape": "device-read and device-write with base64|hex encoding, 64 KiB bound, 300 s timeout bound and exact lease/session/generation authority",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-public-qjswasm-green-both-isa", "windows": "native-implementation-public-court-pending"},
-          "qualification": "macos-and-linux-both-isa-public-qjswasm-green-partial-delivery-contract-green-windows-court-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-device-lease-smoke",
+                "evidence": ["cu.device-lease"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-device-lease-smoke",
+                "evidence": ["cu.device-lease"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-windows-com-public-court-not-run"
+              }
+            }
+          },
           "evidence": ["cu.device-lease"],
           "note": "One resident owner performs I/O on the same native object retained at claim. The macOS public qjswasm court proves exact binary echo and wrong-authority refusal. Payload, lease material, native locator and fixture token do not enter durable state or audit evidence. Write failures carry known-written lower bound, delivery uncertainty and retry safety as independent fields; a known post-effect failure is not mislabeled retry-safe.",
           "next": "run the same byte-I/O contract on a Windows COM or controlled virtual-COM court"
