@@ -52,6 +52,7 @@ const declared_evidence = [
   "cu.linux-atspi-menu-inspect",
   "cu.linux-atspi-menu-invoke",
   "cu.linux-atspi-node-text",
+  "cu.linux-atspi-zoom",
   "cu.linux-atspi-snapshot-diff",
   "cu.linux-atspi-dclick",
   "cu.linux-atspi-focus",
@@ -1340,6 +1341,18 @@ try {
     int_at(extents, "data.extents.width") > 0 && int_at(extents, "data.extents.height") > 0,
     "cu_linux_smoke_extents:" + JSON.stringify(extents.data)
   );
+  const ex = extents.data.extents;
+  const zoom_region = "" + ex.x + "," + ex.y + "," + ex.width + "," + ex.height;
+  const zoom_path = rh.join(run_directory, "fixture-press-zoom.png");
+  const zoom = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "zoom",
+    "--window", handle_text, "--region", zoom_region, "--out", zoom_path, "--replace"
+  ]);
+  ensure(
+    int_at(zoom, "data.output_pixels") > 0
+      && rh.metadata(zoom_path).len > 0,
+    "cu_linux_smoke_zoom:" + JSON.stringify(zoom.data)
+  );
 
   print("STEP snapshot names one bounded baseline and diff returns the entry text change while atomically advancing the baseline");
   const snap_baseline = run_cu_json(run_directory, executable, [
@@ -1763,6 +1776,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-node-text");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-zoom");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-dclick");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-focus");
