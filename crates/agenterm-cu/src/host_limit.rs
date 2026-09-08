@@ -34,6 +34,7 @@ fn host_limit_error(code: &str, message: impl Into<String>, detail: HostLimitDet
     CuError::new(code, message).with_detail(json)
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 pub(crate) fn spaces_unsupported() -> CuError {
     host_limit_error(
         "unsupported",

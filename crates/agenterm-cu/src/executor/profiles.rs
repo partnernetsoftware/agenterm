@@ -37,12 +37,8 @@ impl ProfileWindow {
     }
 }
 
-/// Every window of `app` that carries a profile name, in inventory order.
-pub(super) fn profile_windows(app: &BrowserApp) -> Result<Vec<ProfileWindow>, CuError> {
-    profile_windows_for_entries(app, &[])
-}
-
-/// Like [`profile_windows`], but on Linux can attribute Chromium windows whose
+/// Every window of `app` that carries a profile name, in inventory order. On
+/// Linux this can attribute Chromium windows whose
 /// titles omit the profile suffix when `entries` makes the owner obvious.
 pub(super) fn profile_windows_for_entries(
     app: &BrowserApp,
