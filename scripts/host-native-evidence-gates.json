@@ -198,6 +198,13 @@
       ]
     },
     {
+      "id": "cu-linux-hover-click-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-hover-click"
+      ]
+    },
+    {
       "id": "cu-linux-chrome-text-smoke",
       "platform": "linux",
       "evidence": [

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CEO#7: GTK entry select-all by --name; independent get-selection proves full SEED.
+# CEO#7: GTK entry region + select-all by --name; independent get-selection proves slices.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,7 +49,12 @@ for row in rows:
 ' "$TITLE")"
 [[ -n "$HANDLE" ]] || { echo "FAIL: window handle missing for $TITLE" >&2; exit 1; }
 
-SEED="ceo7-select-$$-$(date +%s)"
+REGION="REGION"
+PREFIX="pre-"
+SUFFIX="-post-$$-$(date +%s)"
+SEED="${PREFIX}${REGION}${SUFFIX}"
+REGION_START=${#PREFIX}
+REGION_END=$((REGION_START + ${#REGION}))
 
 echo "STEP focus --name Fixture Entry"
 "$CU" --target current --grant observe,actuate focus --window "$HANDLE" --name "Fixture Entry" >/dev/null
@@ -60,9 +65,39 @@ echo "STEP send-text --name plants SEED"
 SENT="$("$CU" --target current --grant observe,actuate send-text --window "$HANDLE" --name "Fixture Entry" -- "$SEED")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["typed"]==sys.argv[1] and d["data"]["addressing"]=="accessibility-tree"' "$SEED" <<<"$SENT"
 
-echo "STEP get-selection before select-all is not the full seed"
+echo "STEP get-selection before select is not the REGION slice"
 BEFORE="$("$CU" --target current --grant observe get-selection --window "$HANDLE" --name "Fixture Entry")"
-python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["via"]=="get-selection" and d["data"].get("text","")!=sys.argv[1]' "$SEED" <<<"$BEFORE"
+python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["via"]=="get-selection" and d["data"].get("text","")!=sys.argv[1]' "$REGION" <<<"$BEFORE"
+
+echo "STEP select --start --end --name selects the interior REGION slice"
+SELECTED="$("$CU" --target current --grant observe,actuate select --window "$HANDLE" --name "Fixture Entry" --start "$REGION_START" --end "$REGION_END")"
+python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["ok"]
+data = d["data"]
+assert data["addressing"] == "accessibility-tree"
+assert data["via"] == "set-selection"
+assert data["start"] == int(sys.argv[1])
+assert data["end"] == int(sys.argv[2])
+' "$REGION_START" "$REGION_END" <<<"$SELECTED"
+
+echo "STEP independent get-selection --name returns the REGION scalar slice"
+REGION_SEL="$("$CU" --target current --grant observe get-selection --window "$HANDLE" --name "Fixture Entry")"
+python3 -c '
+import json, sys
+region = sys.argv[1]
+start = int(sys.argv[2])
+end = int(sys.argv[3])
+d = json.load(sys.stdin)
+assert d["ok"]
+data = d["data"]
+assert data["via"] == "get-selection"
+assert data["n"] == 1
+assert data["start"] == start
+assert data["end"] == end
+assert data["text"] == region
+' "$REGION" "$REGION_START" "$REGION_END" <<<"$REGION_SEL"
 
 echo "STEP send-keys ctrl+a --name performs semantic select-all"
 KEYED="$("$CU" --target current --grant observe,actuate send-keys --window "$HANDLE" --name "Fixture Entry" -- ctrl+a)"
@@ -83,4 +118,4 @@ assert data["end"] == len(seed)
 assert data["text"] == seed
 ' "$SEED" <<<"$SEL"
 
-echo "PASS: CEO#7 GTK entry select-all by --name with independent get-selection text == SEED"
+echo "PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection read-back"

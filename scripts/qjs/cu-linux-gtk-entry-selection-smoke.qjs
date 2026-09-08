@@ -1,6 +1,7 @@
-// CEO#7: GTK entry full selection by --name, proved by independent get-selection.
-// Plant SEED with send-text, select-all via semantic ctrl+a (AT-SPI Text.SetSelection),
-// then get-selection must return via=get-selection with start=0, end=len, text==SEED.
+// CEO#7: GTK entry selection by --name, proved by independent get-selection.
+// P0: plant SEED with send-text, select one interior region via select --start/--end
+// (AT-SPI Text.SetSelection), then get-selection must return that scalar slice.
+// Also proves semantic ctrl+a select-all via send-keys. AT-SPI --name only.
 // No --coords, screenshot, or clipboard proof.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -9,6 +10,7 @@ import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = [
+  "cu.linux-gtk-entry-select-region",
   "cu.linux-gtk-entry-select-all",
   "cu.linux-gtk-entry-get-selection",
 ];
@@ -123,7 +125,12 @@ try {
     "cu_linux_gtk_entry_selection_focused:" + JSON.stringify(focused.data)
   );
 
-  const seed = "ceo7-select-" + context.run_id;
+  const region = "REGION";
+  const prefix = "pre-";
+  const suffix = "-post-" + context.run_id;
+  const seed = prefix + region + suffix;
+  const region_start = prefix.length;
+  const region_end = region_start + region.length;
   print("STEP send-text --name plants SEED through AT-SPI EditableText/Text");
   const sent = run_cu(run_directory, executable, "observe,actuate", [
     "send-text", "--window", handle, "--name", "Fixture Entry", "--", seed,
@@ -134,7 +141,7 @@ try {
     "cu_linux_gtk_entry_selection_send:" + JSON.stringify(sent.data)
   );
 
-  print("STEP independent get-selection before select-all is empty or not the full seed");
+  print("STEP independent get-selection before select is empty or not the REGION slice");
   const before = run_cu(run_directory, executable, "observe", [
     "get-selection", "--window", handle, "--name", "Fixture Entry",
   ]);
@@ -144,9 +151,39 @@ try {
   );
   const before_text = text_at(before, "data.text");
   ensure(
-    before_text !== seed,
-    "cu_linux_gtk_entry_selection_before_not_full:" + JSON.stringify(before.data)
+    before_text !== region,
+    "cu_linux_gtk_entry_selection_before_not_region:" + JSON.stringify(before.data)
   );
+
+  print("STEP select --start --end --name performs one-shot AT-SPI Text.SetSelection on the interior slice");
+  const selected = run_cu(run_directory, executable, "observe,actuate", [
+    "select", "--window", handle, "--name", "Fixture Entry",
+    "--start", "" + region_start, "--end", "" + region_end,
+  ]);
+  ensure(
+    text_at(selected, "data.addressing") === "accessibility-tree"
+      && text_at(selected, "data.via") === "set-selection"
+      && int_at(selected, "data.start") === region_start
+      && int_at(selected, "data.end") === region_end,
+    "cu_linux_gtk_entry_selection_select_region:" + JSON.stringify(selected.data)
+  );
+
+  print("STEP independent get-selection --name must return the REGION scalar slice");
+  const region_selection = run_cu(run_directory, executable, "observe", [
+    "get-selection", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  ensure(
+    text_at(region_selection, "data.via") === "get-selection"
+      && int_at(region_selection, "data.n") === 1
+      && int_at(region_selection, "data.start") === region_start
+      && int_at(region_selection, "data.end") === region_end
+      && text_at(region_selection, "data.text") === region,
+    "cu_linux_gtk_entry_selection_region_readback:" + JSON.stringify({
+      region: region,
+      selection: region_selection.data,
+    })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-select-region");
 
   print("STEP send-keys ctrl+a --name performs semantic select-all through AT-SPI Text.SetSelection");
   const keyed = run_cu(run_directory, executable, "observe,actuate", [
@@ -190,4 +227,4 @@ if (fixture >= 0) {
 }
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_selection_failed");
-print("PASS: CEO#7 GTK entry select-all by --name with independent get-selection text == SEED");
+print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection read-back");

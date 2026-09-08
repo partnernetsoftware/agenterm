@@ -2316,6 +2316,25 @@
         "task.cu-linux-gtk-entry-send-keys-smoke"
       ]
     },
+    "cu-linux-gtk-entry-selection-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-entry-selection-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-entry-selection-smoke"
+      ]
+    },
     "cu-linux-gtk-entry-focused-send-text-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6273,6 +6292,26 @@
       "id": "cu-linux-gtk-entry-send-keys-smoke",
       "description": "Linux GTK entry semantic modifier chords (ctrl+home, ctrl+end, ctrl+a, ctrl+c, ctrl+v, backspace) by --name with independent get-caret/get-selection/clipboard-read/get-text read-back; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-entry-selection-smoke",
+      "description": "Linux GTK entry interior select --start/--end and semantic ctrl+a select-all by --name with independent get-selection scalar slice read-back; AT-SPI --name; no --coords.",
+      "entry": "scripts/qjs/cu-linux-gtk-entry-selection-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
