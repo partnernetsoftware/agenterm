@@ -90,6 +90,9 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   } else if (row.classification === "permanent-scope-rejection") {
     require(mapped.kind === "usage",
       row.gap_id + " permanent rejection must remain local");
+    if (row.gap_id === "acu.dynamic.055") {
+      require(mapped.code === "retired", row.gap_id + " must retain its typed retirement code");
+    }
     permanent_rejections = permanent_rejections + 1;
   } else if (row.classification === "resolved") {
     if (resolved_exec.includes(row.gap_id)) {

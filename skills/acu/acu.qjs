@@ -5,13 +5,13 @@ import * as argv_lib from "agenterm:acu/argv";
 import * as compat from "agenterm:acu/compat";
 import * as compound from "agenterm:acu/compound";
 
-function usage(command, message) {
+function usage(command, message, code) {
   return {
     ok: false,
     target: "",
     command: command,
     data: null,
-    error: { code: "usage", message: message }
+    error: { code: code === undefined ? "usage" : code, message: message }
   };
 }
 
@@ -39,7 +39,8 @@ function todo(gap_id, verb, message) {
 function exit_code(reply) {
   if (reply.ok === true) { return 0; }
   if (reply.error !== null && reply.error !== undefined
-      && (reply.error.code === "usage" || reply.error.code === "acu_todo")) {
+      && (reply.error.code === "usage" || reply.error.code === "retired"
+          || reply.error.code === "acu_todo")) {
     return 2;
   }
   return 1;
@@ -163,7 +164,7 @@ try {
   return 2;
 }
 if (canonical.kind === "usage") {
-  print(JSON.stringify(usage(canonical.command, canonical.message)));
+  print(JSON.stringify(usage(canonical.command, canonical.message, canonical.code)));
   return 2;
 }
 if (canonical.kind === "todo") {

@@ -55,11 +55,22 @@ for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);
 }
 
+for (const operation of ["install", "status", "start", "stop", "uninstall"]) {
+  const retired = run(launcher, ["daemon", "service", operation]);
+  require_ok(retired.ok === false && retired.command === "daemon"
+      && retired.data === null && retired.alert === undefined,
+    "daemon service retirement envelope:" + operation);
+  require_ok(retired.error.code === "retired"
+      && retired.error.message.includes("permanently retired")
+      && retired.error.todo === undefined && retired.error.gap_id === undefined,
+    "daemon service must remain a typed retirement without fallback:" + operation);
+}
+
 const typo = run(launcher, ["unknown-verb"]);
 require_ok(typo.error.code === "usage" && typo.alert === undefined
     && typo.error.todo === undefined,
   "unknown spelling must remain usage, not TODO");
 
 print("EVIDENCE acu.compat-todo-boundary");
-print("PASS: legacy compatibility gaps returned structured acu_todo without dispatch");
+print("PASS: legacy gaps and retirements stayed typed without native or MCU fallback");
 return;

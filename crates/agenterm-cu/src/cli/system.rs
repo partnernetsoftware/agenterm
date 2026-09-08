@@ -353,6 +353,12 @@ pub fn parse(
         return Ok(Command::ImeStatus { target });
     }
     if spec.name == "runtime-status" {
+        if args.first().is_some_and(|arg| arg == "service") {
+            return Err(
+                "daemon service login lifecycle is retired with the removed MCU global daemon; use `service` for arbitrary user services"
+                    .to_owned(),
+            );
+        }
         if args.first().is_some_and(|arg| arg == "status") {
             args.remove(0);
         }
@@ -1219,6 +1225,9 @@ mod tests {
             }
         ));
         assert!(parse("daemon", &["status", "extra"]).is_err());
+        let retired = parse("daemon", &["service", "install"])
+            .expect_err("the removed daemon login wrapper must stay retired");
+        assert!(retired.contains("retired with the removed MCU global daemon"));
     }
 
     #[test]

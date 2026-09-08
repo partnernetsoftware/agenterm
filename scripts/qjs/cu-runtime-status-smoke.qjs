@@ -32,6 +32,31 @@ function invoke(context, executable, args) {
   return reply.data;
 }
 
+function invoke_refusal(context, executable, args) {
+  const runtime_path = rh.join(context.run_directory, "runtime.json");
+  const jobs_path = rh.join(context.run_directory, "jobs.json");
+  const receipt_path = rh.join(context.run_directory, "receipts.jsonl");
+  const output = rh.command(executable, args, {
+    cwd: context.run_directory,
+    env: {
+      AGENTERM_CU_RUNTIME_PATH: runtime_path,
+      AGENTERM_CU_MANAGED_JOB_PATH: jobs_path,
+      AGENTERM_CU_AUDIT_PATH: rh.join(context.run_directory, "audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: receipt_path
+    },
+    timeout_ms: 30000
+  });
+  ensure(!output.success && output.exit_code === 2, "cu_runtime_retired_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === false && reply.data === undefined && reply.error.code === "usage",
+    "cu_runtime_retired_reply:" + JSON.stringify(reply));
+  ensure(reply.error.message.includes("retired with the removed MCU global daemon"),
+    "cu_runtime_retired_message:" + reply.error.message);
+  ensure(!rh.exists(runtime_path) && !rh.exists(jobs_path), "cu_runtime_retired_published_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
+    "cu_runtime_retired_effect_receipt");
+}
+
 function assert_empty_status(data) {
   ensure(data.schema === 1, "cu_runtime_status_schema");
   ensure(data.architecture === "on-demand-coordinator-with-resource-owners", "cu_runtime_status_architecture");
@@ -70,6 +95,17 @@ try {
     "--target", "current", "--grant", "observe", "daemon", "status"
   ]);
   assert_empty_status(alias);
+
+  print("STEP the removed global daemon login wrapper is a no-effect typed retirement");
+  for (const operation of ["install", "status", "start", "stop", "uninstall"]) {
+    invoke_refusal(context, executable, [
+      "--target", "current", "--grant", "observe", "daemon", "service", operation
+    ]);
+  }
+  const after_retirement = invoke(context, executable, [
+    "--target", "current", "--grant", "observe", "runtime-status"
+  ]);
+  assert_empty_status(after_retirement);
   succeeded = 1;
 } catch (error) {
   failure = "" + error;

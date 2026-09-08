@@ -6419,7 +6419,7 @@
     },
     {
       "id": "acu-compat-todo-smoke",
-      "description": "Prove archived legacy shapes return stable acu_todo identities before dispatch while unknown spellings remain ordinary native usage errors.",
+      "description": "Prove archived legacy gaps and retirements return stable typed identities before dispatch while unknown spellings remain ordinary native usage errors.",
       "entry": "scripts/qjs/acu-compat-todo-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

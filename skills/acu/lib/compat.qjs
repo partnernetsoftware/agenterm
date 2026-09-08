@@ -228,7 +228,7 @@ function known_dynamic_boundary(argv) {
     return { kind: "exec", argv: ["simulator-status", parsed.values.device, parsed.argv[2]] };
   }
   if (verb === "daemon" && sub === "service") {
-    return { kind: "usage", command: "daemon",
+    return { kind: "usage", code: "retired", command: "daemon",
       message: "daemon service is permanently retired; use the on-demand ACU runtime" };
   }
   if (verb === "pty" && has_arg(argv, "--provider")) {
