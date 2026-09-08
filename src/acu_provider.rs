@@ -200,12 +200,15 @@ fn reply_is_cooperative_cancel(reply: &str) -> bool {
 }
 
 fn provider_file_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "agenterm-cu-provider.dll"
-    } else if cfg!(target_os = "macos") {
-        "agenterm-cu-provider.dylib"
-    } else {
-        "agenterm-cu-provider.so"
+    provider_file_name_for(agenterm_platform::platform_kind())
+}
+
+fn provider_file_name_for(platform: agenterm_platform::PlatformKind) -> &'static str {
+    match platform {
+        agenterm_platform::PlatformKind::Windows => "agenterm-cu-provider.dll",
+        agenterm_platform::PlatformKind::Macos => "agenterm-cu-provider.dylib",
+        agenterm_platform::PlatformKind::Linux => "agenterm-cu-provider.so",
+        _ => unreachable!("unsupported agenterm platform kind"),
     }
 }
 
@@ -232,6 +235,28 @@ mod tests {
         let name = provider_file_name();
         assert!(name.starts_with("agenterm-cu-provider."));
         assert_eq!(PathBuf::from(name).components().count(), 1);
+    }
+
+    #[test]
+    fn staged_provider_names_are_closed_for_every_host_kind() {
+        for (platform, expected) in [
+            (
+                agenterm_platform::PlatformKind::Windows,
+                "agenterm-cu-provider.dll",
+            ),
+            (
+                agenterm_platform::PlatformKind::Macos,
+                "agenterm-cu-provider.dylib",
+            ),
+            (
+                agenterm_platform::PlatformKind::Linux,
+                "agenterm-cu-provider.so",
+            ),
+        ] {
+            let name = provider_file_name_for(platform);
+            assert_eq!(name, expected);
+            assert_eq!(PathBuf::from(name).components().count(), 1);
+        }
     }
 
     #[test]
