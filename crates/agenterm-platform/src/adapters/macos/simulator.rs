@@ -11,8 +11,8 @@ use crate::process_spawn::ProcessExit;
 use super::super::{
     SimulatorAppAction, SimulatorAppLifecycleReceipt, SimulatorAppList, SimulatorAppProcess,
     SimulatorAppStatus, SimulatorBootReceipt, SimulatorDevice, SimulatorDeviceList, SimulatorError,
-    SimulatorErrorKind, parse_app_executable, parse_app_list, parse_device_list,
-    parse_process_ids_for_executable,
+    SimulatorErrorKind, SimulatorShutdownReceipt, parse_app_executable, parse_app_list,
+    parse_device_list, parse_process_ids_for_executable,
 };
 
 const XCRUN: &str = "/usr/bin/xcrun";
@@ -84,6 +84,94 @@ pub(crate) fn boot_exact(
             return Err(SimulatorError::new(
                 SimulatorErrorKind::Timeout,
                 "CoreSimulator did not reach Booted before the deadline",
+            ));
+        }
+        thread::sleep(POLL_INTERVAL.min(remaining));
+    }
+}
+
+pub(crate) fn shutdown_exact(
+    udid: &str,
+    timeout: Duration,
+) -> Result<SimulatorShutdownReceipt, SimulatorError> {
+    let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
+        SimulatorError::new(SimulatorErrorKind::InvalidTimeout, "deadline overflow")
+    })?;
+    let initial = list_exact_until(udid, deadline)?;
+    let before = exact_device(&initial, udid)?.ok_or_else(|| {
+        SimulatorError::new(
+            SimulatorErrorKind::NotFound,
+            "the exact CoreSimulator UDID was not found",
+        )
+    })?;
+    if before.is_shutdown() {
+        return Ok(shutdown_receipt(
+            &before.udid,
+            &before.state,
+            &before.state,
+            true,
+        ));
+    }
+
+    let shutdown = run_xcrun(&["simctl", "shutdown", udid], deadline).map_err(|error| {
+        SimulatorError::new(
+            SimulatorErrorKind::EffectUnknown,
+            format!("shutdown was dispatched but its outcome is unknown: {error}"),
+        )
+    })?;
+    let shutdown_accepted = matches!(shutdown.exit, ProcessExit::Code(0));
+
+    loop {
+        let observed = list_exact_until(udid, deadline).map_err(|error| {
+            SimulatorError::new(
+                SimulatorErrorKind::EffectUnknown,
+                format!("shutdown read-back failed after dispatch: {error}"),
+            )
+        })?;
+        let current = exact_device(&observed, udid)
+            .map_err(|error| {
+                SimulatorError::new(
+                    SimulatorErrorKind::EffectUnknown,
+                    format!("shutdown read-back was ambiguous after dispatch: {error}"),
+                )
+            })?
+            .ok_or_else(|| {
+                SimulatorError::new(
+                    SimulatorErrorKind::EffectUnknown,
+                    "the exact CoreSimulator UDID disappeared after shutdown dispatch",
+                )
+            })?;
+        if current.runtime != before.runtime || current.device_type != before.device_type {
+            return Err(SimulatorError::new(
+                SimulatorErrorKind::EffectUnknown,
+                "the CoreSimulator identity metadata changed after shutdown dispatch",
+            ));
+        }
+        if current.is_shutdown() {
+            return Ok(shutdown_receipt(
+                &before.udid,
+                &before.state,
+                &current.state,
+                false,
+            ));
+        }
+        if !shutdown_accepted {
+            if current.state != before.state {
+                return Err(SimulatorError::new(
+                    SimulatorErrorKind::EffectUnknown,
+                    "the CoreSimulator state changed after shutdown was rejected",
+                ));
+            }
+            return Err(SimulatorError::new(
+                SimulatorErrorKind::Unavailable,
+                "xcrun simctl shutdown did not accept the exact device",
+            ));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(SimulatorError::new(
+                SimulatorErrorKind::EffectUnknown,
+                "CoreSimulator shutdown did not settle before the deadline",
             ));
         }
         thread::sleep(POLL_INTERVAL.min(remaining));
@@ -429,6 +517,20 @@ fn receipt(
     }
 }
 
+fn shutdown_receipt(
+    udid: &str,
+    previous_state: &str,
+    after_state: &str,
+    already_shutdown: bool,
+) -> SimulatorShutdownReceipt {
+    SimulatorShutdownReceipt {
+        udid: udid.to_owned(),
+        before_state: previous_state.to_owned(),
+        after_state: after_state.to_owned(),
+        already_shutdown,
+    }
+}
+
 fn exact_device<'a>(
     list: &'a SimulatorDeviceList,
     udid: &str,
@@ -743,6 +845,16 @@ mod tests {
         assert_eq!(result.before_state, "Booted");
         assert_eq!(result.after_state, "Booted");
         assert!(result.already_booted);
+    }
+
+    #[test]
+    fn already_shutdown_receipt_is_idempotent() {
+        let udid = "12345678-1234-1234-1234-123456789ABC";
+        let result = shutdown_receipt(udid, "Shutdown", "Shutdown", true);
+        assert_eq!(result.udid, udid);
+        assert_eq!(result.before_state, "Shutdown");
+        assert_eq!(result.after_state, "Shutdown");
+        assert!(result.already_shutdown);
     }
 
     #[test]

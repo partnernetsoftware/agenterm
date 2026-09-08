@@ -4207,6 +4207,34 @@
       ]
     },
     {
+      "name": "simulator-shutdown",
+      "command": "simulator-shutdown",
+      "aliases": [
+        "simulator shutdown"
+      ],
+      "grant": "actuate",
+      "family": "system",
+      "summary": "shut down one exact simulator and verify its Shutdown state",
+      "usage": "simulator shutdown UDID --expect shutdown [--timeout-ms N]\nsimulator-shutdown UDID --expect shutdown [--timeout-ms N]",
+      "args": [
+        {
+          "flag": "UDID",
+          "value": "",
+          "help": "exact 36-character simulator device UDID"
+        },
+        {
+          "flag": "--expect",
+          "value": "shutdown",
+          "help": "required literal acknowledgement; success is verified Shutdown"
+        },
+        {
+          "flag": "--timeout-ms",
+          "value": "N",
+          "help": "operation deadline, 1..600000 (default 120000)"
+        }
+      ]
+    },
+    {
       "name": "simulator-apps",
       "command": "simulator-apps",
       "aliases": [
@@ -7646,6 +7674,10 @@
     {
       "name": "simulator-boot",
       "text": "agenterm-cu simulator-boot    (also: simulator boot)\n  scope: actuate    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  simulator boot UDID --expect booted [--timeout-ms N]\n  simulator-boot UDID --expect booted [--timeout-ms N]\n\narguments:\n  UDID                          exact 36-character simulator device UDID\n  --expect booted               required literal acknowledgement\n  --timeout-ms N                operation deadline, 1..600000 (default 120000)\n\nSuccess means the exact device was read back in Booted state and reports\nverified=true. It does not claim that Simulator.app was opened or activated.\nOn non-macOS hosts this typed-fails as simulator_unsupported.\n"
+    },
+    {
+      "name": "simulator-shutdown",
+      "text": "agenterm-cu simulator-shutdown    (also: simulator shutdown)\n  scope: actuate    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  simulator shutdown UDID --expect shutdown [--timeout-ms N]\n  simulator-shutdown UDID --expect shutdown [--timeout-ms N]\n\narguments:\n  UDID                          exact 36-character simulator device UDID\n  --expect shutdown             required literal acknowledgement\n  --timeout-ms N                operation deadline, 1..600000 (default 120000)\n\nSuccess means the exact device was read back in Shutdown state and reports\nverified=true. An already-Shutdown device is a verified no-op. The command\ndoes not open or activate Simulator.app; an unsettled post-dispatch result is\nreported as simulator_effect_unknown. Non-macOS hosts typed-fail as\nsimulator_unsupported.\n"
     },
     {
       "name": "simulator-apps",

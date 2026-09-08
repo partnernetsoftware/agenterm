@@ -2804,6 +2804,15 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_true")]
         expect_booted: bool,
     },
+    SimulatorShutdown {
+        target: TargetRef,
+        #[serde(deserialize_with = "deserialize_simulator_udid")]
+        udid: String,
+        #[serde(deserialize_with = "deserialize_simulator_timeout_ms")]
+        timeout_ms: u64,
+        #[serde(deserialize_with = "deserialize_true")]
+        expect_shutdown: bool,
+    },
     SimulatorApps {
         target: TargetRef,
         #[serde(deserialize_with = "deserialize_simulator_udid")]
@@ -4370,6 +4379,7 @@ impl Command {
             Self::DeviceRelease { .. } => "device-release".into(),
             Self::SimulatorDevices { .. } => "simulator-devices".into(),
             Self::SimulatorBoot { .. } => "simulator-boot".into(),
+            Self::SimulatorShutdown { .. } => "simulator-shutdown".into(),
             Self::SimulatorApps { .. } => "simulator-apps".into(),
             Self::SimulatorStatus { .. } => "simulator-status".into(),
             Self::SimulatorLaunch { .. } => "simulator-launch".into(),
@@ -4812,6 +4822,7 @@ impl Command {
             | Self::DeviceRelease { target, .. }
             | Self::SimulatorDevices { target, .. }
             | Self::SimulatorBoot { target, .. }
+            | Self::SimulatorShutdown { target, .. }
             | Self::SimulatorApps { target, .. }
             | Self::SimulatorStatus { target, .. }
             | Self::SimulatorLaunch { target, .. }
@@ -5030,6 +5041,7 @@ impl Command {
             | Self::BrowserBridgeWindowOpen { .. }
             | Self::BrowserBridgeWindowState { .. }
             | Self::SimulatorBoot { .. }
+            | Self::SimulatorShutdown { .. }
             | Self::SimulatorLaunch { .. }
             | Self::SimulatorTerminate { .. }
             | Self::PageClick { .. }
@@ -5776,6 +5788,19 @@ impl Command {
                 validate_simulator_timeout_ms(*timeout_ms)?;
                 if !expect_booted {
                     return Err("simulator boot requires expect_booted=true");
+                }
+                Ok(())
+            }
+            Self::SimulatorShutdown {
+                udid,
+                timeout_ms,
+                expect_shutdown,
+                ..
+            } => {
+                validate_simulator_udid(udid)?;
+                validate_simulator_timeout_ms(*timeout_ms)?;
+                if !expect_shutdown {
+                    return Err("simulator shutdown requires expect_shutdown=true");
                 }
                 Ok(())
             }
@@ -9170,6 +9195,12 @@ mod tests {
                 timeout_ms: 30_000,
                 expect_booted: true,
             },
+            Command::SimulatorShutdown {
+                target: TargetRef::Current,
+                udid: udid.into(),
+                timeout_ms: 30_000,
+                expect_shutdown: true,
+            },
             Command::SimulatorLaunch {
                 target: TargetRef::Current,
                 udid: udid.into(),
@@ -9196,6 +9227,7 @@ mod tests {
             serde_json::json!({"verb":"simulator-devices","target":"current","max":0}),
             serde_json::json!({"verb":"simulator-boot","target":"current","udid":"fuzzy","timeout_ms":10,"expect_booted":true}),
             serde_json::json!({"verb":"simulator-boot","target":"current","udid":udid,"timeout_ms":10,"expect_booted":false}),
+            serde_json::json!({"verb":"simulator-shutdown","target":"current","udid":udid,"timeout_ms":10,"expect_shutdown":false}),
             serde_json::json!({"verb":"simulator-launch","target":"current","udid":udid,"bundle_id":"not dotted","timeout_ms":10,"expect_accepted":true}),
             serde_json::json!({"verb":"simulator-terminate","target":"current","udid":udid,"bundle_id":"com.example.app","timeout_ms":600001,"expect_accepted":true}),
         ] {

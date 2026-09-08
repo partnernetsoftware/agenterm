@@ -1949,6 +1949,12 @@ impl Executor {
                 expect_booted,
                 ..
             } => simulator_boot_payload(udid, *timeout_ms, *expect_booted),
+            Command::SimulatorShutdown {
+                udid,
+                timeout_ms,
+                expect_shutdown,
+                ..
+            } => simulator_shutdown_payload(udid, *timeout_ms, *expect_shutdown),
             Command::SimulatorApps { udid, max, .. } => simulator_apps_payload(udid, *max),
             Command::SimulatorStatus {
                 udid, bundle_id, ..

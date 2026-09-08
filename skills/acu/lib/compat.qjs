@@ -227,6 +227,19 @@ function known_dynamic_boundary(argv) {
     }
     return { kind: "exec", argv: ["simulator-status", parsed.values.device, parsed.argv[2]] };
   }
+  if (verb === "simulator" && (sub === "boot" || sub === "shutdown")
+      && has_arg(argv, "--device")) {
+    const parsed = without_value_flags(argv, ["device"]);
+    if (!parsed.ok) { return { kind: "usage", command: "simulator", message: parsed.message }; }
+    if (parsed.values.device === null || parsed.argv.length !== 2) {
+      return { kind: "usage", command: "simulator",
+        message: "simulator " + sub + " requires --device UDID" };
+    }
+    return { kind: "exec", argv: [
+      "simulator-" + sub, parsed.values.device, "--expect",
+      sub === "boot" ? "booted" : "shutdown"
+    ] };
+  }
   if (verb === "daemon" && sub === "service") {
     return { kind: "usage", code: "retired", command: "daemon",
       message: "daemon service is permanently retired; use the on-demand ACU runtime" };

@@ -465,7 +465,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
                 "unsupported"
             },
             if os == "macos" {
-                "bounded CoreSimulator device/app inventory and exact boot/launch/terminate requests are live; shutdown, deployment, guest foreground and guest screenshot remain typed gaps"
+                "bounded CoreSimulator device/app inventory and exact boot/shutdown/launch/terminate requests are live; deployment, guest foreground and guest screenshot remain typed gaps"
             } else {
                 "CoreSimulator is a macOS-only platform facility"
             },

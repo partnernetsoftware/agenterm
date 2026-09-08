@@ -193,10 +193,12 @@ pub(crate) fn login_session_unsupported() -> CuError {
 
 pub(crate) fn simulator_unsupported(verb: &str) -> CuError {
     let message = match verb {
-        "simulator-launch" | "simulator-terminate" | "simulator-boot" => format!(
-            "iOS Simulator app lifecycle requires macOS CoreSimulator (simctl); {} cannot run simctl",
-            crate::mcu_surface::host_os()
-        ),
+        "simulator-launch" | "simulator-terminate" | "simulator-boot" | "simulator-shutdown" => {
+            format!(
+                "iOS Simulator app lifecycle requires macOS CoreSimulator (simctl); {} cannot run simctl",
+                crate::mcu_surface::host_os()
+            )
+        }
         _ => format!(
             "iOS Simulator device inventory requires macOS CoreSimulator (simctl); {} cannot run simctl",
             crate::mcu_surface::host_os()

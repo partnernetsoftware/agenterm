@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use agenterm_platform::simulator::{
     self, SimulatorAppAction, SimulatorAppLifecycleReceipt, SimulatorBootReceipt, SimulatorError,
-    SimulatorErrorKind,
+    SimulatorErrorKind, SimulatorShutdownReceipt,
 };
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -54,7 +54,7 @@ pub(super) fn simulator_boot_payload(
 }
 
 fn boot_receipt(receipt: SimulatorBootReceipt, udid: &str) -> Result<Value, CuError> {
-    if receipt.udid != udid || receipt.after_state != "Booted" {
+    if !receipt.udid.eq_ignore_ascii_case(udid) || receipt.after_state != "Booted" {
         return Err(CuError::new(
             "simulator_boot_unverified",
             "CoreSimulator did not verify the exact device in Booted state",
@@ -71,6 +71,45 @@ fn boot_receipt(receipt: SimulatorBootReceipt, udid: &str) -> Result<Value, CuEr
         "before_state": receipt.before_state,
         "after_state": receipt.after_state,
         "already_booted": receipt.already_booted,
+        "verified": true,
+    }))
+}
+
+pub(super) fn simulator_shutdown_payload(
+    udid: &str,
+    timeout_ms: u64,
+    expect_shutdown: bool,
+) -> Result<Value, CuError> {
+    validate_simulator_udid(udid).map_err(udid_error)?;
+    validate_timeout(timeout_ms)?;
+    if !expect_shutdown {
+        return Err(CuError::new(
+            "simulator_expectation_required",
+            "simulator shutdown requires the explicit --expect shutdown acknowledgement",
+        ));
+    }
+    let receipt = simulator::shutdown_exact(udid, Duration::from_millis(timeout_ms))
+        .map_err(|error| platform_error("simulator-shutdown", error))?;
+    shutdown_receipt(receipt, udid)
+}
+
+fn shutdown_receipt(receipt: SimulatorShutdownReceipt, udid: &str) -> Result<Value, CuError> {
+    if !receipt.udid.eq_ignore_ascii_case(udid) || receipt.after_state != "Shutdown" {
+        return Err(CuError::new(
+            "simulator_shutdown_unverified",
+            "the exact CoreSimulator device was not read back in Shutdown state",
+        )
+        .with_detail(serde_json::json!({
+            "udid": receipt.udid,
+            "after_state": receipt.after_state,
+            "verified": false,
+        })));
+    }
+    Ok(serde_json::json!({
+        "udid": receipt.udid,
+        "before_state": receipt.before_state,
+        "after_state": receipt.after_state,
+        "already_shutdown": receipt.already_shutdown,
         "verified": true,
     }))
 }
@@ -302,6 +341,19 @@ mod tests {
         .unwrap();
         assert_eq!(boot["verified"], true);
 
+        let shutdown = shutdown_receipt(
+            SimulatorShutdownReceipt {
+                udid: UDID.into(),
+                before_state: "Booted".into(),
+                after_state: "Shutdown".into(),
+                already_shutdown: false,
+            },
+            UDID,
+        )
+        .unwrap();
+        assert_eq!(shutdown["verified"], true);
+        assert_eq!(shutdown["before_state"], "Booted");
+
         let lifecycle = lifecycle_receipt(
             SimulatorAppLifecycleReceipt {
                 device_udid: UDID.into(),
@@ -324,6 +376,17 @@ mod tests {
 
     #[test]
     fn receipts_fail_closed_on_identity_action_or_evidence_drift() {
+        let bad_shutdown = shutdown_receipt(
+            SimulatorShutdownReceipt {
+                udid: UDID.into(),
+                before_state: "Booted".into(),
+                after_state: "Shutting Down".into(),
+                already_shutdown: false,
+            },
+            UDID,
+        )
+        .unwrap_err();
+        assert_eq!(bad_shutdown.code, "simulator_shutdown_unverified");
         let bad_boot = boot_receipt(
             SimulatorBootReceipt {
                 udid: UDID.into(),

@@ -620,6 +620,18 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-watch".into(), process_watch_verb);
         verbs.insert("process-cgroup".into(), process_cgroup_verb);
         verbs.insert(
+            "simulator-shutdown".into(),
+            serde_json::json!({
+                "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },
+                "group": "simulator",
+                "grant": "actuate",
+                "mode": "exact-udid-shutdown-with-settled-state-readback",
+                "verified": true,
+                "opens_or_activates_simulator_app": false,
+                "platforms": ["macos"],
+            }),
+        );
+        verbs.insert(
             "storage-devices".into(),
             serde_json::json!({
                 "status": "available",

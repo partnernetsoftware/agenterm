@@ -287,6 +287,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::ShellExec { .. }
         | Command::SimulatorApps { .. }
         | Command::SimulatorBoot { .. }
+        | Command::SimulatorShutdown { .. }
         | Command::SimulatorDevices { .. }
         | Command::SimulatorLaunch { .. }
         | Command::SimulatorStatus { .. }

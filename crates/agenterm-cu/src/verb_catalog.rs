@@ -280,6 +280,7 @@ mod tests {
             "file-xattr-remove",
             "file-quarantine-clear",
             "simulator-boot",
+            "simulator-shutdown",
             "simulator-launch",
             "simulator-terminate",
         ] {
@@ -288,6 +289,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 108, "{actuate:?}");
+        assert_eq!(actuate.len(), 109, "{actuate:?}");
     }
 }

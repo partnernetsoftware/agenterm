@@ -23,7 +23,8 @@ pub fn parse(
     if spelled == "simulator" {
         if args.first().map(String::as_str) != Some(action) {
             return Err(
-                "simulator requires devices | boot | apps | status | launch | terminate".to_owned(),
+                "simulator requires devices | boot | shutdown | apps | status | launch | terminate"
+                    .to_owned(),
             );
         }
         args.remove(0);
@@ -31,6 +32,7 @@ pub fn parse(
     match action {
         "devices" => devices(target, args),
         "boot" => boot(target, args),
+        "shutdown" => shutdown(target, args),
         "apps" => apps(target, args),
         "status" => status(target, args, spelled == "simulator"),
         "launch" => lifecycle(target, args, true),
@@ -78,6 +80,19 @@ fn boot(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         udid,
         timeout_ms,
         expect_booted: true,
+    })
+}
+
+fn shutdown(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let timeout_ms = bounded_timeout(args)?;
+    require_expect(args, "shutdown", "simulator shutdown")?;
+    let udid = one_positional("simulator shutdown", args)?;
+    validate_simulator_udid(&udid).map_err(str::to_owned)?;
+    Ok(Command::SimulatorShutdown {
+        target,
+        udid,
+        timeout_ms,
+        expect_shutdown: true,
     })
 }
 
@@ -230,6 +245,18 @@ mod tests {
                 ..
             })
         ));
+        assert!(matches!(
+            parse_words(
+                "simulator-shutdown",
+                "simulator",
+                &["shutdown", UDID, "--expect", "shutdown"]
+            ),
+            Ok(Command::SimulatorShutdown {
+                timeout_ms: DEFAULT_TIMEOUT_MS,
+                expect_shutdown: true,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -237,6 +264,8 @@ mod tests {
         for (name, words) in [
             ("simulator-boot", vec![UDID]),
             ("simulator-boot", vec![UDID, "--expect", "accepted"]),
+            ("simulator-shutdown", vec![UDID]),
+            ("simulator-shutdown", vec![UDID, "--expect", "booted"]),
             (
                 "simulator-launch",
                 vec![UDID, "com.example.app", "--expect", "running"],

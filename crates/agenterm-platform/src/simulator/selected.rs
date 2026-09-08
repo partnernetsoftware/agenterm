@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::{
     SimulatorAppLifecycleReceipt, SimulatorAppList, SimulatorAppStatus, SimulatorBootReceipt,
-    SimulatorDeviceList, SimulatorError,
+    SimulatorDeviceList, SimulatorError, SimulatorShutdownReceipt,
 };
 
 #[cfg(all(target_os = "macos", feature = "simulator"))]
@@ -20,6 +20,14 @@ pub(super) fn boot_exact(
     timeout: Duration,
 ) -> Result<SimulatorBootReceipt, SimulatorError> {
     platform::boot_exact(udid, timeout)
+}
+
+#[cfg(all(target_os = "macos", feature = "simulator"))]
+pub(super) fn shutdown_exact(
+    udid: &str,
+    timeout: Duration,
+) -> Result<SimulatorShutdownReceipt, SimulatorError> {
+    platform::shutdown_exact(udid, timeout)
 }
 
 #[cfg(all(target_os = "macos", feature = "simulator"))]
@@ -73,6 +81,14 @@ pub(super) fn boot_exact(
         super::SimulatorErrorKind::Unsupported,
         "CoreSimulator is unavailable on this build",
     ))
+}
+
+#[cfg(not(all(target_os = "macos", feature = "simulator")))]
+pub(super) fn shutdown_exact(
+    _udid: &str,
+    _timeout: Duration,
+) -> Result<SimulatorShutdownReceipt, SimulatorError> {
+    Err(unsupported())
 }
 
 #[cfg(not(all(target_os = "macos", feature = "simulator")))]

@@ -158,6 +158,21 @@ const missing_job_resources_id = compat.canonicalize(["job", "resources"]);
 require(missing_job_resources_id.kind === "usage",
   "job resources without an id is a local typed usage failure");
 
+const simulator_udid = "00000000-0000-0000-0000-000000000000";
+const simulator_boot = compat.canonicalize([
+  "simulator", "boot", "--device", simulator_udid
+]);
+require(simulator_boot.kind === "exec", "legacy simulator boot executes");
+same_argv(simulator_boot.argv, ["--target", "current", "--grant", "observe,actuate",
+  "simulator-boot", simulator_udid, "--expect", "booted"], "legacy simulator boot");
+const simulator_shutdown = compat.canonicalize([
+  "simulator", "shutdown", "--device", simulator_udid
+]);
+require(simulator_shutdown.kind === "exec", "legacy simulator shutdown executes");
+same_argv(simulator_shutdown.argv, ["--target", "current", "--grant", "observe,actuate",
+  "simulator-shutdown", simulator_udid, "--expect", "shutdown"],
+  "legacy simulator shutdown");
+
 const irreducible_wait = compat.canonicalize([
   "pty", "wait", "job-1", "text[0-9]+", "--provider", "native"
 ]);

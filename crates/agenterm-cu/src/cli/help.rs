@@ -117,8 +117,8 @@ pub fn top_level_text() -> String {
     );
     text = text.replace("  browser-session-stop  browser-session-remove\n", "");
     text = text.replace(
-        "  simulator-apps  simulator-status  simulator-boot",
-        "  simulator-apps  simulator-status  simulator-boot  browser-session-stop  browser-session-remove",
+        "  simulator-apps  simulator-status  simulator-boot  simulator-shutdown",
+        "  simulator-apps  simulator-status  simulator-boot  simulator-shutdown  browser-session-stop  browser-session-remove",
     );
     text = text.replace("Transports\n  exec", "Transports  exec");
     text = text.replace(
@@ -126,8 +126,8 @@ pub fn top_level_text() -> String {
         "  file-inspect  file-watch  file-attributes observe\n  file-mode  file-xattr-set  file-xattr-remove  file-quarantine-clear actuate\n  process-signal actuate exact process;  term-read observe;  term-send actuate;  term-wait observe",
     );
     text = text.replace(
-        "  simulator-devices  simulator-apps  simulator-boot\n  simulator-launch  simulator-terminate",
-        "  simulator-devices  simulator-apps  simulator-boot  simulator-launch  simulator-terminate",
+        "  simulator-devices  simulator-apps  simulator-boot  simulator-shutdown\n  simulator-launch  simulator-terminate",
+        "  simulator-devices  simulator-apps  simulator-boot  simulator-shutdown  simulator-launch  simulator-terminate",
     );
     if let Some(row) = text
         .lines()
@@ -343,6 +343,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "simulator-apps",
         "simulator-status",
         "simulator-boot",
+        "simulator-shutdown",
     ];
     let compact_terminal = [
         "pty-start",
@@ -457,7 +458,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .any(|name| !text.contains(&format!("  {name}")))
     {
         missing.push(
-            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-scroll  terminal-screenshot  terminal-events  terminal-output  pty-start  pty-list  pty-prune\n  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-signal  pty-stop  terminal-new  process-argv\n  process-cwd  process-environment  process-fds  process-maps  process-sockets  process-cgroup\n  process-threads  process-set-state  process-policy  audio  service\n  simulator-apps  simulator-status  simulator-boot"
+            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-scroll  terminal-screenshot  terminal-events  terminal-output  pty-start  pty-list  pty-prune\n  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-signal  pty-stop  terminal-new  process-argv\n  process-cwd  process-environment  process-fds  process-maps  process-sockets  process-cgroup\n  process-threads  process-set-state  process-policy  audio  service\n  simulator-apps  simulator-status  simulator-boot  simulator-shutdown"
                 .to_owned(),
         );
     }

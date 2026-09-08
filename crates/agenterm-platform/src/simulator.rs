@@ -28,6 +28,11 @@ impl SimulatorDevice {
     pub fn is_booted(&self) -> bool {
         self.state == "Booted"
     }
+
+    #[must_use]
+    pub fn is_shutdown(&self) -> bool {
+        self.state == "Shutdown"
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,6 +48,14 @@ pub struct SimulatorBootReceipt {
     pub before_state: String,
     pub after_state: String,
     pub already_booted: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulatorShutdownReceipt {
+    pub udid: String,
+    pub before_state: String,
+    pub after_state: String,
+    pub already_shutdown: bool,
 }
 
 /// Privacy-minimized installed-app row. Container and data paths emitted by
@@ -125,6 +138,7 @@ pub enum SimulatorErrorKind {
     OutputLimit,
     InvalidJson,
     Changed,
+    EffectUnknown,
     Io,
 }
 
@@ -143,6 +157,7 @@ impl SimulatorErrorKind {
             Self::OutputLimit => "simulator_output_limit",
             Self::InvalidJson => "simulator_invalid_json",
             Self::Changed => "simulator_device_changed",
+            Self::EffectUnknown => "simulator_effect_unknown",
             Self::Io => "simulator_io_failed",
         }
     }
@@ -192,13 +207,19 @@ pub fn list_devices(max: usize) -> Result<SimulatorDeviceList, SimulatorError> {
 /// launching or activating Simulator.app.
 pub fn boot_exact(udid: &str, timeout: Duration) -> Result<SimulatorBootReceipt, SimulatorError> {
     validate_udid(udid)?;
-    if timeout.is_zero() || timeout > Duration::from_secs(600) {
-        return Err(SimulatorError::new(
-            SimulatorErrorKind::InvalidTimeout,
-            "timeout must be within 1ns..=600s",
-        ));
-    }
+    validate_timeout(timeout)?;
     selected::boot_exact(udid, timeout)
+}
+
+/// Shut down exactly one CoreSimulator UDID and verify it reaches `Shutdown`
+/// without launching or activating Simulator.app.
+pub fn shutdown_exact(
+    udid: &str,
+    timeout: Duration,
+) -> Result<SimulatorShutdownReceipt, SimulatorError> {
+    validate_udid(udid)?;
+    validate_timeout(timeout)?;
+    selected::shutdown_exact(udid, timeout)
 }
 
 /// List installed applications on one exact booted simulator. Runtime-only
@@ -243,6 +264,10 @@ fn validate_lifecycle_input(
 ) -> Result<(), SimulatorError> {
     validate_udid(udid)?;
     validate_bundle_id(bundle_id)?;
+    validate_timeout(timeout)
+}
+
+fn validate_timeout(timeout: Duration) -> Result<(), SimulatorError> {
     if timeout.is_zero() || timeout > Duration::from_secs(600) {
         return Err(SimulatorError::new(
             SimulatorErrorKind::InvalidTimeout,
@@ -970,6 +995,16 @@ mod tests {
             SimulatorErrorKind::InvalidTimeout
         );
         assert_eq!(
+            shutdown_exact("not-a-udid", Duration::from_secs(1))
+                .unwrap_err()
+                .kind,
+            SimulatorErrorKind::InvalidUdid
+        );
+        assert_eq!(
+            shutdown_exact(UDID_1, Duration::ZERO).unwrap_err().kind,
+            SimulatorErrorKind::InvalidTimeout
+        );
+        assert_eq!(
             launch_exact(UDID_1, "not valid", Duration::from_secs(1))
                 .unwrap_err()
                 .kind,
@@ -1076,6 +1111,12 @@ mod tests {
         );
         assert_eq!(
             boot_exact(UDID_1, Duration::from_secs(1)).unwrap_err().kind,
+            SimulatorErrorKind::Unsupported
+        );
+        assert_eq!(
+            shutdown_exact(UDID_1, Duration::from_secs(1))
+                .unwrap_err()
+                .kind,
             SimulatorErrorKind::Unsupported
         );
         assert_eq!(
