@@ -202,17 +202,22 @@ fn json_geometry_i32(value: &serde_json::Value, field: &str) -> Result<i32, CuEr
         .get(field)
         .ok_or_else(|| CuError::new("failed", format!("reply after.{field} is missing")))?;
     if let Some(int) = raw.as_i64() {
-        return i32::try_from(int).map_err(|_| {
-            CuError::new("failed", format!("reply after.{field} is out of range"))
-        });
+        return i32::try_from(int)
+            .map_err(|_| CuError::new("failed", format!("reply after.{field} is out of range")));
     }
     if let Some(float) = raw.as_f64() {
         if !float.is_finite() {
-            return Err(CuError::new("failed", format!("reply after.{field} is not finite")));
+            return Err(CuError::new(
+                "failed",
+                format!("reply after.{field} is not finite"),
+            ));
         }
         return Ok(float.round() as i32);
     }
-    Err(CuError::new("failed", format!("reply after.{field} is not numeric")))
+    Err(CuError::new(
+        "failed",
+        format!("reply after.{field} is not numeric"),
+    ))
 }
 
 fn verify_move_geometry(
@@ -230,25 +235,22 @@ fn verify_move_geometry(
         .get("quantized")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
-    let bounded =
-        geometry_within(got_x, expected_x) && geometry_within(got_y, expected_y);
+    let bounded = geometry_within(got_x, expected_x) && geometry_within(got_y, expected_y);
     if exact || (quantized && bounded) {
         return Ok(());
     }
-    Err(
-        CuError::new(
-            "unverified",
-            format!(
-                "move was delivered but reads ({got_x},{got_y}), expected ({expected_x},{expected_y})"
-            ),
-        )
-        .with_detail(serde_json::json!({
-            "reason": "geometry_mismatch",
-            "expected": {"x": expected_x, "y": expected_y},
-            "observed": {"x": got_x, "y": got_y},
-            "reply": reply,
-        })),
+    Err(CuError::new(
+        "unverified",
+        format!(
+            "move was delivered but reads ({got_x},{got_y}), expected ({expected_x},{expected_y})"
+        ),
     )
+    .with_detail(serde_json::json!({
+        "reason": "geometry_mismatch",
+        "expected": {"x": expected_x, "y": expected_y},
+        "observed": {"x": got_x, "y": got_y},
+        "reply": reply,
+    })))
 }
 
 fn verify_resize_geometry(
