@@ -171,8 +171,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       单测/兼容壳已绿，三平台原生截图 court 仍待补齐
 │     │                       query 第一批无 ABI 筛选已落：action/depth/五类三态；unknown 不冒充
 │     │                       false，inspect/find/read/tree/elements 的假等价已从过渡层撤回
-│     │                       immediate-cutover 复测 69 个后续债：0 capability / 14 evidence /
-│     │                       55 platform qualification；adapter blocker 已清零，file-mode/xattr 公开
+│     │                       immediate-cutover 已达 0 capability gap；余量只认实时 retirement court
+│     │                       的 evidence/platform qualification 队列；adapter blocker 已清零，file-mode/xattr 公开
 │     │                       quick-win 已集成；TODO 不冒充成功、也不再授权 MCU 回退
 │     │                       browser profile 全量 tabs 只认 MV3 bridge；AX tab-strip 不得冒充
 │     │                       旧 setup/doctor/caps 聚合项已按 authority 拆分并退役；

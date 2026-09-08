@@ -934,9 +934,9 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
-The latest report reduces the total to 67: zero capability gaps, 13 available
-leaves without registered evidence and 55
-incomplete schema-2 platform qualifications. In particular,
+The latest report reduces the total to 66: zero capability gaps, 12 available
+leaves without registered evidence and 54 incomplete schema-2 platform
+qualifications. In particular,
 `process.signal.privileged` already has a public typed plan/apply surface and
 Linux/macOS protected-provider implementations; its missing public apply courts,
 release-size evidence and Windows provider are platform qualification debt.
