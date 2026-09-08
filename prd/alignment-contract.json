@@ -79,6 +79,7 @@
         "cu.linux-process-cwd",
         "cu.linux-process-cwd-readback",
         "cu.linux-process-environment",
+        "cu.linux-process-environment-readback",
         "cu.linux-process-usage",
         "cu.linux-process-usage-watch",
         "cu.linux-process-usage-readback",

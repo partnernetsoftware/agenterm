@@ -406,6 +406,12 @@
       ]
     },
     {
+      "id": "cu-linux-process-environment-smoke",
+      "evidence": [
+        "cu.linux-process-environment-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-fds-smoke",
       "evidence": [
         "cu.linux-process-fds-readback"
