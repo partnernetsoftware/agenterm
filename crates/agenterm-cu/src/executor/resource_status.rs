@@ -128,6 +128,43 @@ mod tests {
     }
 
     #[test]
+    fn linux_memory_semantics_stay_explicit_in_projection() {
+        let value = resource_status_from(
+            HostResourceSnapshot {
+                platform: PlatformKind::Linux,
+                architecture: "x86_64",
+                hostname: "station".into(),
+                uptime_milliseconds: 1_000,
+                load_average: HostLoadAverage {
+                    one_minute: 0.5,
+                    five_minutes: 0.25,
+                    fifteen_minutes: 0.1,
+                    availability: HostLoadAverageAvailability::Available,
+                },
+                logical_processors: 4,
+                processor_model: "Example CPU".into(),
+                memory: HostResourceMemory {
+                    total_physical_bytes: 16_000,
+                    free_physical_bytes: 1_000,
+                    available_physical_bytes: 8_000,
+                    free_semantics: HostFreeMemorySemantics::LinuxMemFree,
+                    availability_semantics: HostMemoryAvailabilitySemantics::LinuxMemAvailable,
+                },
+            },
+            12,
+        )
+        .unwrap();
+        assert_eq!(value["platform"], "linux");
+        assert_eq!(value["memory"]["freeSemantics"], "linux-mem-free");
+        assert_eq!(
+            value["memory"]["availabilitySemantics"],
+            "linux-mem-available"
+        );
+        assert_eq!(value["memory"]["freeBytes"], 1_000);
+        assert_eq!(value["memory"]["availableBytes"], 8_000);
+    }
+
+    #[test]
     fn projects_mcu_shape_without_collapsing_memory_semantics() {
         let value = resource_status_from(snapshot(PlatformKind::Macos, "aarch64"), 42).unwrap();
         assert_eq!(value["platform"], "darwin");
