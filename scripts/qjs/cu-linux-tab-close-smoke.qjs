@@ -1,0 +1,301 @@
+// CEO: Linux tab-close --expect gone on a disposable Chrome tab with independent read-back.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-browser-tab-close",
+];
+
+const TAB_KEEP_PREFIX = "CEO Tab Close Keep";
+const TAB_CLOSE_PREFIX = "CEO Tab Close Disposable";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_tab_close_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_tab_close_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_tab_close_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function tab_rows(reply) {
+  const rows = at(reply, "data.tabs");
+  return rows === undefined || rows === null ? [] : rows;
+}
+
+function any_contains(rows, field, wanted) {
+  for (const row of rows) {
+    const value = text_at(row, field);
+    if (value.indexOf(wanted) >= 0) { return true; }
+  }
+  return false;
+}
+
+function count_contains(rows, field, wanted) {
+  let count = 0;
+  for (const row of rows) {
+    const value = text_at(row, field);
+    if (value.indexOf(wanted) >= 0) { count = count + 1; }
+  }
+  return count;
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(!harness.host_is_windows(),
+  "cu.linux-browser-tab-close requires Linux browser-open + tab-strip read-back");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_tab_close_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_tab_close_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-tab-close");
+const run_directory = context.run_directory;
+const TAB_KEEP = TAB_KEEP_PREFIX + " " + context.run_id;
+const TAB_CLOSE = TAB_CLOSE_PREFIX + " " + context.run_id;
+const html_dir = rh.join(run_directory, "html");
+const fixture_keep = rh.join(html_dir, "tab-keep.html");
+const fixture_close = rh.join(html_dir, "tab-close.html");
+const env = cu_env(executable);
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9400 + (rh.pid() % 500);
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP clear stale box-chrome singletons on this display before browser-open");
+  rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+  harness.sleep_ms(1000);
+
+  print("STEP write two fixture pages and reserve an owned CDP port " + port);
+  rh.create_dir_all(html_dir);
+  rh.write_text(fixture_keep, "<!DOCTYPE html><html><head><title>"
+    + TAB_KEEP + "</title></head><body>keep</body></html>");
+  rh.write_text(fixture_close, "<!DOCTYPE html><html><head><title>"
+    + TAB_CLOSE + "</title></head><body>close</body></html>");
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_tab_close_port_in_use:" + port);
+
+  print("STEP record chrome window handles before launching owned Chrome");
+  const before_inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
+  const before_set = {};
+  const before_rows = before_inventory.data.windows === undefined
+    ? before_inventory.data : before_inventory.data.windows;
+  for (const row of before_rows) {
+    before_set["" + at(row, "handle")] = true;
+  }
+
+  print("STEP launch owned Chrome with keeper tab on explicit CDP port");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "file://" + fixture_keep,
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
+    harness.sleep_ms(250);
+  }
+  ensure(cdp_ready(run_directory, port), "cu_linux_tab_close_cdp_not_ready:" + port);
+
+  print("STEP capture the chrome window by unique keeper title");
+  let window_handle = null;
+  for (let attempt = 0; attempt < 40 && window_handle === null; attempt = attempt + 1) {
+    const inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
+    const rows = inventory.data.windows === undefined ? inventory.data : inventory.data.windows;
+    for (const row of rows) {
+      const title = text_at(row, "title");
+      const app = text_at(row, "app_name").toLowerCase();
+      const handle = "" + at(row, "handle");
+      if ((app.indexOf("chrome") >= 0 || app === "google-chrome" || app === "google-chrome-stable")
+          && title.indexOf(TAB_KEEP) >= 0
+          && before_set[handle] !== true) {
+        window_handle = handle;
+        break;
+      }
+    }
+    if (window_handle === null) { harness.sleep_ms(250); }
+  }
+  ensure(window_handle !== null, "cu_linux_tab_close_window_missing");
+
+  print("STEP open disposable second tab in the same owned profile");
+  const launch_shell = launcher
+    + " --user-data-dir=" + profile
+    + " --remote-debugging-port=" + port
+    + " --remote-debugging-address=127.0.0.1"
+    + " file://" + fixture_close
+    + " >/dev/null 2>&1 &";
+  rh.command_status("sh", ["-c", launch_shell], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 5000,
+  });
+  harness.sleep_ms(5000);
+
+  print("STEP tab-list shows both tabs before the destructive close");
+  let tabs_before = [];
+  for (let attempt = 0; attempt < 80 && tabs_before.length < 2; attempt = attempt + 1) {
+    const reply = run_cu(run_directory, executable, "observe", [
+      "tab-list", "--window", window_handle,
+    ], env);
+    if (reply.command === "tab-list") { tabs_before = tab_rows(reply); }
+    if (tabs_before.length >= 2) { break; }
+    harness.sleep_ms(500);
+  }
+  ensure(tabs_before.length >= 2,
+    "cu_linux_tab_close_tab_list_before:" + JSON.stringify(tabs_before));
+  ensure(any_contains(tabs_before, "title", TAB_KEEP),
+    "cu_linux_tab_close_keep_tab_missing:" + JSON.stringify(tabs_before));
+  ensure(any_contains(tabs_before, "title", TAB_CLOSE),
+    "cu_linux_tab_close_disposable_tab_missing:" + JSON.stringify(tabs_before));
+
+  print("STEP tab-close disposable tab by exact title with --expect gone via CDP port " + port);
+  const closed = run_cu(run_directory, executable, "actuate", [
+    "tab-close", "--window", window_handle,
+    "--title", TAB_CLOSE, "--exact", "--expect", "gone",
+    "--port", "" + port,
+  ], env);
+  ensure(closed.command === "tab-close", "cu_linux_tab_close_identity");
+  ensure(flag_at(closed, "data.verified") === true,
+    "cu_linux_tab_close_verified:" + JSON.stringify(closed.data));
+  ensure(text_at(closed, "data.via") === "cdp-close-target",
+    "cu_linux_tab_close_via:" + JSON.stringify(closed.data));
+  ensure(flag_at(closed, "data.focus_changed") === false,
+    "cu_linux_tab_close_focus:" + JSON.stringify(closed.data));
+
+  print("STEP independent tab-list read-back shows disposable tab gone and keeper tab remains");
+  const tabs_after = tab_rows(run_cu(run_directory, executable, "observe", [
+    "tab-list", "--window", window_handle,
+  ], env));
+  ensure(!any_contains(tabs_after, "title", TAB_CLOSE),
+    "cu_linux_tab_close_tab_list_disposable_still_present:" + JSON.stringify(tabs_after));
+  ensure(any_contains(tabs_after, "title", TAB_KEEP),
+    "cu_linux_tab_close_tab_list_keep_missing:" + JSON.stringify(tabs_after));
+  ensure(count_contains(tabs_after, "title", TAB_KEEP) === 1,
+    "cu_linux_tab_close_tab_list_keep_count:" + JSON.stringify(tabs_after));
+
+  print("STEP independent browser-tabs read-back confirms disposable tab is gone");
+  const keep_tabs = run_cu(run_directory, executable, "observe", [
+    "browser-tabs", "--match", TAB_KEEP,
+  ], env);
+  ensure(keep_tabs.command === "browser-tabs",
+    "cu_linux_tab_close_browser_tabs_keep_identity");
+  ensure(at(keep_tabs, "data.returned") >= 1,
+    "cu_linux_tab_close_browser_tabs_keep_missing:" + JSON.stringify(keep_tabs.data));
+
+  let disposable_gone = false;
+  for (let attempt = 0; attempt < 20 && !disposable_gone; attempt = attempt + 1) {
+    const reply = run_cu(run_directory, executable, "observe", [
+      "browser-tabs", "--match", TAB_CLOSE,
+    ], env);
+    const returned = at(reply, "data.returned");
+    if (returned === 0 || returned === "0") {
+      disposable_gone = true;
+      break;
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(disposable_gone,
+    "cu_linux_tab_close_browser_tabs_disposable_still_listed");
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-browser-tab-close");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+  print("PASS: Linux tab-close --expect gone with independent tab-list/browser-tabs read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

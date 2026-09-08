@@ -583,6 +583,12 @@
       ]
     },
     {
+      "id": "cu-linux-tab-close-smoke",
+      "evidence": [
+        "cu.linux-browser-tab-close"
+      ]
+    },
+    {
       "id": "cu-tree-selector-smoke",
       "evidence": [
         "cu.tree-selector-subtree"
