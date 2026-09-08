@@ -105,7 +105,8 @@ fn set_iconified(
     const ICONIC_STATE: u32 = 3;
     if iconify {
         let wm_change_state = atom(conn, b"WM_CHANGE_STATE")?;
-        let event = ClientMessageEvent::new(32, window, wm_change_state, [ICONIC_STATE, 0, 0, 0, 0]);
+        let event =
+            ClientMessageEvent::new(32, window, wm_change_state, [ICONIC_STATE, 0, 0, 0, 0]);
         let root = root_of(conn)?;
         conn.send_event(
             false,

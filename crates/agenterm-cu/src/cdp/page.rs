@@ -596,15 +596,11 @@ fn not_found(query: &NodeQuery) -> CdpError {
 
 /// CSS for any enabled editable control on the page (used only to shape fill
 /// guidance when the caller's selector misses).
-const ANY_EDITABLE_CSS: &str =
-    "input:not([type=file]):not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly]), [contenteditable='true'], [contenteditable='']";
+const ANY_EDITABLE_CSS: &str = "input:not([type=file]):not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly]), [contenteditable='true'], [contenteditable='']";
 
 /// When `page fill` cannot resolve the named field, say whether the page has
 /// any editable control at all and name the next CDP step (never coords).
-fn fill_target_not_found<T: Transport>(
-    session: &mut Session<T>,
-    query: &NodeQuery,
-) -> CdpError {
+fn fill_target_not_found<T: Transport>(session: &mut Session<T>, query: &NodeQuery) -> CdpError {
     let editable_on_page = resolve_ids(session, &NodeQuery::Css(ANY_EDITABLE_CSS.into()))
         .map(|(ids, _)| ids.len())
         .unwrap_or(0);
@@ -3319,7 +3315,9 @@ mod tests {
         let mut session = fake::session(|method, _| match method {
             "DOM.getDocument" => Ok(json!({ "root": { "nodeId": 1 } })),
             "DOM.querySelectorAll" => Ok(json!({ "nodeIds": [] })),
-            "Runtime.evaluate" => Ok(json!({ "result": { "value": { "url": "https://example.com/", "title": "Example Domain", "ready": "complete" } } })),
+            "Runtime.evaluate" => Ok(
+                json!({ "result": { "value": { "url": "https://example.com/", "title": "Example Domain", "ready": "complete" } } }),
+            ),
             other => Err(format!("unexpected {other}")),
         });
         let err = plan_fill(
@@ -3335,7 +3333,11 @@ mod tests {
         assert_eq!(err.detail["effect"], "not_performed");
         assert_eq!(err.detail["alternatives"], json!(["page-nav", "page-find"]));
         let actions = err.detail["next_actions"].as_array().expect("next_actions");
-        assert!(actions.iter().any(|step| step.as_str().is_some_and(|s| s.contains("page nav"))));
+        assert!(
+            actions
+                .iter()
+                .any(|step| step.as_str().is_some_and(|s| s.contains("page nav")))
+        );
     }
 
     #[test]

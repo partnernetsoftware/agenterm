@@ -721,7 +721,9 @@ mod x11 {
             crate::contract::window_op::WindowOpError::Unsupported { reason } => {
                 let message = match reason {
                     std::borrow::Cow::Borrowed(message) => message,
-                    std::borrow::Cow::Owned(_) => "the window operation is unsupported on this host",
+                    std::borrow::Cow::Owned(_) => {
+                        "the window operation is unsupported on this host"
+                    }
                 };
                 unsupported(message)
             }
