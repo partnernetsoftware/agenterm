@@ -81,6 +81,172 @@ function decimal_string(value) {
   return true;
 }
 
+function split_whitespace(text) {
+  const parts = [];
+  let current = "";
+  for (let index = 0; index < text.length; index = index + 1) {
+    const code = text.charCodeAt(index);
+    if (code === 9 || code === 10 || code === 13 || code === 32) {
+      if (current.length > 0) {
+        parts.push(current);
+        current = "";
+      }
+    } else {
+      current = current + text.charAt(index);
+    }
+  }
+  if (current.length > 0) { parts.push(current); }
+  return parts;
+}
+
+function linux_page_size() {
+  const out = rh.command("getconf", ["PAGESIZE"], { timeout_ms: 5000 });
+  ensure(out.success === true, "cu_resource_proc_pagesize_failed");
+  return decimal_number(out.stdout.trim());
+}
+
+function linux_proc_path(pid, leaf) {
+  return "/proc/" + pid + "/" + leaf;
+}
+
+function linux_proc_parent_pid(pid) {
+  const status = rh.read_text(linux_proc_path(pid, "status"));
+  const lines = status.split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index];
+    if (line.indexOf("PPid:") === 0) {
+      const parts = split_whitespace(line);
+      ensure(parts.length >= 2, "cu_resource_proc_ppid_shape:" + pid);
+      return decimal_number(parts[1]);
+    }
+  }
+  throw "cu_resource_proc_ppid_missing:" + pid;
+}
+
+function linux_proc_resident_bytes(pid, page_size) {
+  ensure(rh.exists(linux_proc_path(pid, "statm")),
+         "cu_resource_proc_statm_missing:" + pid);
+  const parts = split_whitespace(rh.read_text(linux_proc_path(pid, "statm")));
+  ensure(parts.length >= 2, "cu_resource_proc_statm_shape:" + pid);
+  const pages = decimal_number(parts[1]);
+  const bytes = pages * page_size;
+  ensure(bytes <= 9007199254740991, "cu_resource_proc_statm_overflow:" + pid);
+  return bytes;
+}
+
+function bytes_near(left, right, slack_bytes) {
+  const diff = left > right ? left - right : right - left;
+  if (diff <= slack_bytes) { return true; }
+  const max = left > right ? left : right;
+  return max > 0 && diff * 10 <= max;
+}
+
+function parse_psi_fields(line) {
+  const fields = split_whitespace(line);
+  ensure(fields.length >= 2, "cu_resource_proc_psi_line");
+  const parsed = {};
+  for (let index = 1; index < fields.length; index = index + 1) {
+    const field = fields[index];
+    const split_at = field.indexOf("=");
+    ensure(split_at > 0, "cu_resource_proc_psi_field");
+    const name = field.substring(0, split_at);
+    const value = field.substring(split_at + 1);
+    if (name === "total") {
+      ensure(decimal_string(value), "cu_resource_proc_psi_total");
+      parsed[name] = value;
+    } else {
+      const number = Number(value);
+      ensure(number === number && number >= 0 && number <= 100,
+             "cu_resource_proc_psi_avg:" + name);
+      parsed[name] = number;
+    }
+  }
+  return parsed;
+}
+
+function linux_proc_psi(dimension) {
+  const path = "/proc/pressure/" + dimension;
+  ensure(rh.exists(path), "cu_resource_proc_psi_missing:" + dimension);
+  let some = null;
+  let full = null;
+  const lines = rh.read_text(path).trim().split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index];
+    if (line.indexOf("some ") === 0) { some = parse_psi_fields(line); }
+    if (line.indexOf("full ") === 0) { full = parse_psi_fields(line); }
+  }
+  ensure(some !== null, "cu_resource_proc_psi_some:" + dimension);
+  return { some: some, full: full };
+}
+
+function assert_linux_psi_matches(signal, proc, label) {
+  for (const name of ["avg10", "avg60", "avg300"]) {
+    ensure(Math.abs(signal.some[name] - proc.some[name]) < 0.02,
+           label + "_some_" + name);
+  }
+  ensure(typeof signal.some.totalStallMicroseconds === "string"
+         && decimal_string(signal.some.totalStallMicroseconds)
+         && decimal_string(proc.some.total),
+         label + "_some_total_shape");
+  if (signal.full === null) {
+    ensure(proc.full === null, label + "_full_absent");
+    return;
+  }
+  ensure(proc.full !== null, label + "_full_expected");
+  for (const name of ["avg10", "avg60", "avg300"]) {
+    ensure(Math.abs(signal.full[name] - proc.full[name]) < 0.02,
+           label + "_full_" + name);
+  }
+  ensure(typeof signal.full.totalStallMicroseconds === "string"
+         && decimal_string(signal.full.totalStallMicroseconds)
+         && decimal_string(proc.full.total),
+         label + "_full_total_shape");
+}
+
+function assert_linux_proc_pressure(data) {
+  for (const name of ["memory", "cpu", "io"]) {
+    assert_linux_psi_matches(data[name], linux_proc_psi(name),
+                             "cu_resource_pressure_linux_proc_" + name);
+  }
+}
+
+function assert_linux_ranked_proc_sanity(processes, sort_name, page_size) {
+  const slack_bytes = page_size * 16;
+  let verified_live = 0;
+  for (let index = 0; index < processes.length; index = index + 1) {
+    const process = processes[index];
+    ensure(Number.isInteger(process.pid) && process.pid > 0,
+           "cu_resource_top_pid_" + sort_name);
+    ensure(Number.isInteger(process.parent_pid) && process.parent_pid >= 0,
+           "cu_resource_top_parent_" + sort_name);
+    ensure(typeof process.executable_name === "string"
+           && process.executable_name.length > 0,
+           "cu_resource_top_name_" + sort_name);
+    if (!rh.exists(linux_proc_path(process.pid, "stat"))) {
+      if (sort_name === "memory") {
+        throw "cu_resource_top_proc_live_" + sort_name + ":" + process.pid;
+      }
+      continue;
+    }
+    ensure(linux_proc_parent_pid(process.pid) === process.parent_pid,
+           "cu_resource_top_parent_proc_" + sort_name + ":" + process.pid);
+    verified_live = verified_live + 1;
+    if (sort_name === "memory") {
+      const resident = decimal_number(process.resident_bytes);
+      const proc_bytes = linux_proc_resident_bytes(process.pid, page_size);
+      ensure(bytes_near(resident, proc_bytes, slack_bytes),
+             "cu_resource_top_memory_proc_" + process.pid
+             + ":" + resident + ":" + proc_bytes);
+    } else {
+      ensure(typeof process.cpu_percent === "number"
+             && process.cpu_percent === process.cpu_percent
+             && process.cpu_percent >= 0,
+             "cu_resource_top_cpu_live_" + process.pid);
+    }
+  }
+  ensure(verified_live > 0, "cu_resource_top_proc_verified_" + sort_name);
+}
+
 function assert_pressure(reply, platform) {
   ensure(reply.command === "resource-pressure" && reply.target === "current",
          "cu_resource_pressure_identity");
@@ -99,6 +265,7 @@ function assert_pressure(reply, platform) {
         assert_psi_window(signal.full, "cu_resource_pressure_linux_full_" + name);
       }
     }
+    assert_linux_proc_pressure(data);
   } else if (platform === "macos") {
     ensure(data.provider === "macos-vm-memory-pressure",
            "cu_resource_pressure_macos_provider");
@@ -123,7 +290,7 @@ function assert_pressure(reply, platform) {
          "cu_resource_pressure_derived_level_leak");
 }
 
-function assert_ranked(reply, sort_name) {
+function assert_ranked(reply, sort_name, platform, page_size) {
   ensure(reply.command === "ps" && reply.target === "current",
          "cu_resource_top_identity_" + sort_name);
   const data = reply.data;
@@ -150,6 +317,9 @@ function assert_ranked(reply, sort_name) {
       ensure(previous >= current, "cu_resource_top_order_" + sort_name);
     }
     previous = current;
+  }
+  if (platform === "linux") {
+    assert_linux_ranked_proc_sanity(data.processes, sort_name, page_size);
   }
 }
 
@@ -181,18 +351,22 @@ let failure = "";
 try {
   const receipt_path = rh.join(context.run_directory, "cu-receipts.jsonl");
   const platform = host_platform();
+  const page_size = platform === "linux" ? linux_page_size() : 0;
   print("STEP native pressure preserves platform semantics without a derived level");
   assert_pressure(invoke(context.run_directory, executable, receipt_path, [
     "resource-pressure"
   ]), platform);
 
   print("STEP existing bounded ps provides CPU and memory ranked process samples");
+  if (platform === "linux") {
+    print("STEP linux ranked samples match independent /proc readback");
+  }
   assert_ranked(invoke(context.run_directory, executable, receipt_path, [
     "ps", "--sort", "cpu", "--max", "5", "--max-visited", "10000"
-  ]), "cpu");
+  ]), "cpu", platform, page_size);
   assert_ranked(invoke(context.run_directory, executable, receipt_path, [
     "ps", "--sort", "memory", "--max", "5", "--max-visited", "10000"
-  ]), "memory");
+  ]), "memory", platform, page_size);
 
   ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
          "cu_resource_pressure_effect_receipt_created");
