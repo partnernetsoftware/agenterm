@@ -5583,6 +5583,26 @@
       ]
     },
     {
+      "id": "cu-linux-unlock-honesty-smoke",
+      "description": "Prove Linux CU unlock returned_before/returned_after and grew agree with independent pyatspi BFS node/depth counts on an owned Chrome window before and after the org.a11y.Status poke; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-unlock-honesty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-cdp-page-fill-smoke",
       "description": "Prove Linux CDP page-nav to a disposable file:// input fixture, page-fill --clear writes SEED, and independent page-find --selector value read-back equals SEED; --port/--target-id only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-cdp-page-fill-smoke.qjs",

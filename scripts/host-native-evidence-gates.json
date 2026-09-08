@@ -207,6 +207,13 @@
       ]
     },
     {
+      "id": "cu-linux-unlock-honesty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-unlock-readback"
+      ]
+    },
+    {
       "id": "cu-linux-cdp-page-fill-smoke",
       "platform": "linux",
       "evidence": [
