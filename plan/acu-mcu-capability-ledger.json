@@ -1101,19 +1101,18 @@
           "mcu_shape": "file copy SOURCE DEST [--replace --apply] plus status|rollback|recover|finalize",
           "acu_shape": "file-copy SOURCE DEST [--replace --apply] plus file-transaction status|rollback|recover|finalize ID",
           "state": "platform-limited",
-          "platforms": {"macos": "native-public-qjswasm-qualified", "linux": "native-public-qjswasm-qualified-arm64", "windows": "pending-native-court"},
+          "platforms": {"macos": "native-public-qjswasm-qualified", "linux": "pending-native-court", "windows": "pending-native-court"},
           "qualification": {
             "schema": 2,
             "platforms": {
               "linux": {
-                "result": "native-qualified",
-                "gate": "cu-network-routes-smoke",
-                "evidence": ["cu.network-routes"]
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
               },
               "macos": {
                 "result": "native-qualified",
-                "gate": "cu-network-routes-smoke",
-                "evidence": ["cu.network-routes"]
+                "gate": "cu-file-transaction-smoke",
+                "evidence": ["cu.file-copy-transaction"]
               },
               "windows": {
                 "result": "pending",
@@ -1175,12 +1174,30 @@
           "id": "network.routes",
           "mcu_shape": "network routes --max N with destination, gateway, interface, flags, table and metric",
           "acu_shape": "agenterm-cu network-routes --max N (alias: network routes)",
-          "state": "platform-limited",
-          "platforms": {"macos": "live-qjswasm-journey", "linux": "pending-native-court", "windows": "pending-native-court"},
-          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "state": "native",
+          "platforms": {"macos": "native-public-qjswasm-qualified", "linux": "native-public-qjswasm-qualified-arm64", "windows": "native-public-qjswasm-qualified-arm64"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-network-routes-smoke",
+                "evidence": ["cu.network-routes"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-network-routes-smoke",
+                "evidence": ["cu.network-routes"]
+              },
+              "windows": {
+                "result": "native-qualified",
+                "gate": "cu-network-routes-smoke",
+                "evidence": ["cu.network-routes"]
+              }
+            }
+          },
           "evidence": ["cu.network-routes"],
-          "next": "run the unchanged public journey in a native Windows court, then promote to native",
-          "note": "The shared platform facade uses NETLINK_ROUTE on Linux, PF_ROUTE NET_RT_DUMP2 on macOS and GetIpForwardTable2 on Windows. It preserves ifindex/LUID identity, rejects interrupted or malformed snapshots, stable-sorts a 10000-record scan under a 1 MiB response ceiling, and never invokes a shell. Exact source 884c1809 passed the Linux arm64 Wayland UTM court with byte-manifest, interactive-session and cleanup receipts. The compatibility adapter routes the lossless --max shape; Windows runtime evidence remains pending."
+          "note": "The shared platform facade uses NETLINK_ROUTE on Linux, PF_ROUTE NET_RT_DUMP2 on macOS and GetIpForwardTable2 on Windows. It preserves ifindex/LUID identity, rejects interrupted or malformed snapshots, stable-sorts a 10000-record scan under a 1 MiB response ceiling, and never invokes a shell. Exact source 884c1809 passed the Linux arm64 Wayland UTM court; exact source e8ce266f passed the same public contract in Windows arm64. Both receipts bind exact byte manifests, interactive sessions, transcript digests and cleanup. The compatibility adapter routes the lossless --max shape."
         },
         {
           "id": "network.dns.resolvers",

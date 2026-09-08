@@ -795,11 +795,11 @@ Q3 owned runtime facades
    ├─ [~] displays/spaces
    │  ├─ [x] registered macOS host-native stacking journey `cu.macos-ax-stacking`
    │  └─ [ ] Linux + Windows display courts; spaces remain macOS-only
-   ├─ [~] network-routes: netlink/route-socket/IP-Helper bounded snapshot
+   ├─ [x] network-routes: netlink/route-socket/IP-Helper bounded snapshot
    │  ├─ [x] ifindex/LUID identity + deterministic public ordering
    │  ├─ [x] interrupted/malformed snapshot fails typed; no shell
    │  ├─ [x] macOS public qjswasm journey `cu.network-routes`
-   │  └─ [ ] Linux + Windows native public runtime courts
+   │  └─ [x] Linux arm64 Wayland + Windows arm64 public UTM runtime courts with persisted receipts
    ├─ [~] network-dns: effective resolver/search-domain inventory
    │  ├─ [x] macOS scoped system-effective provider + public qjswasm journey `cu.network-dns`
    │  ├─ [x] Linux systemd-resolved stub detection; stub-only is explicitly incomplete
@@ -915,8 +915,8 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
-The latest report reduces the total to 71: zero capability gaps, 14 available
-leaves without registered evidence and 57
+The latest report reduces the total to 70: zero capability gaps, 14 available
+leaves without registered evidence and 56
 incomplete schema-2 platform qualifications. In particular,
 `process.signal.privileged` already has a public typed plan/apply surface and
 Linux/macOS protected-provider implementations; its missing public apply courts,

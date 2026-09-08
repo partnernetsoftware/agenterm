@@ -2104,7 +2104,11 @@ flowchart LR
   `network-routes` journey is green; exact source `884c1809` also passed on the
   Linux arm64 Wayland UTM court and released the VM. Its compact receipt is
   [`evidence/cu/lnx-aarch64-cu-network-routes-884c1809.json`](../evidence/cu/lnx-aarch64-cu-network-routes-884c1809.json).
-  Windows remains pending. `network-dns` now owns the active
+  Exact source `e8ce266f` then passed the same public contract in the Windows
+  arm64 UTM court; its compact receipt is
+  [`evidence/cu/win-aarch64-cu-network-routes-e8ce266f.json`](../evidence/cu/win-aarch64-cu-network-routes-e8ce266f.json).
+  Both Windows ISAs compile, so `network.routes` is now `native`.
+  `network-dns` now owns the active
   resolver/search-domain observation shape. It exposes provider, native
   interface/service identity when available, resolver scope, port, coverage,
   completeness and independent scan/response bounds. macOS reads the scoped
