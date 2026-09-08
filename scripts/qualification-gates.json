@@ -405,6 +405,24 @@
       ]
     },
     {
+      "id": "cu-linux-process-wait-smoke",
+      "evidence": [
+        "cu.linux-process-wait-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-tree-honesty-smoke",
+      "evidence": [
+        "cu.linux-atspi-tree-honesty"
+      ]
+    },
+    {
+      "id": "cu-linux-verify-expect-honesty-smoke",
+      "evidence": [
+        "cu.linux-verify-expect-readback"
+      ]
+    },
+    {
       "id": "cu-linux-query-smoke",
       "evidence": [
         "cu.linux-query-readback"
@@ -420,6 +438,18 @@
       "id": "cu-linux-get-extents-smoke",
       "evidence": [
         "cu.linux-get-extents-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-invoke-smoke",
+      "evidence": [
+        "cu.linux-atspi-invoke-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-menu-inspect-smoke",
+      "evidence": [
+        "cu.linux-atspi-menu-inspect-readback"
       ]
     },
     {

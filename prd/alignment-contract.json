@@ -103,6 +103,7 @@
         "cu.linux-file-inspect-readback",
         "cu.linux-file-mode-readback",
         "cu.linux-file-attributes-readback",
+        "cu.linux-file-copy-readback",
         "cu.linux-terminal-control",
         "cu.linux-display-scale",
         "cu.linux-atspi-tree-geometry",
