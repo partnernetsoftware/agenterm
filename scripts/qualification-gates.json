@@ -547,12 +547,6 @@
       ]
     },
     {
-      "id": "cu-scroll-wheel-smoke",
-      "evidence": [
-        "cu.scroll-wheel-named-extents"
-      ]
-    },
-    {
       "id": "cu-linux-window-move-smoke",
       "evidence": [
         "cu.linux-window-move-expect"
