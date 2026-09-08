@@ -1249,18 +1249,18 @@
           "mcu_shape": "file xattrs PATH [--values --max N] with byte counts and digests",
           "acu_shape": "file-attributes PATH [--include-values] (alias: file attributes) with opened-object identity, bounded names/values, digest-only default and explicit hexadecimal disclosure",
           "state": "platform-limited",
-          "platforms": {"macos": "live-qjswasm-journey", "linux": "native-implementation-court-pending", "windows": "typed-unsupported-alternate-streams-not-equivalent"},
+          "platforms": {"macos": "live-qjswasm-journey", "linux": "native-public-qjswasm-qualified", "windows": "typed-unsupported-alternate-streams-not-equivalent"},
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "linux": {"result": "native-qualified", "gate": "cu-linux-file-attributes-smoke", "evidence": ["cu.linux-file-attributes-readback"]},
               "macos": {"result": "native-qualified", "gate": "cu-file-attributes-smoke", "evidence": ["cu.file-xattr-inspect.macos"]},
               "windows": {"result": "pending", "blocker_code": "typed-not-applicable-gate-missing"}
             }
           },
-          "evidence": ["cu.file-xattr-inspect.macos"],
-          "declared_evidence": ["cu.file-xattr-inspect.macos"],
-          "next": "run the same public journey on a native Linux court; keep Windows typed unsupported because alternate streams and ACLs are not Unix xattrs",
+          "evidence": ["cu.file-xattr-inspect.macos", "cu.linux-file-attributes-readback"],
+          "declared_evidence": ["cu.file-xattr-inspect.macos", "cu.linux-file-attributes-readback"],
+          "next": "keep Windows typed unsupported because alternate streams and ACLs are not Unix xattrs",
           "note": "The public observer opens one regular file, rejects a final symlink, binds path and handle identity, and applies fixed count/name/per-value/aggregate ceilings. Default output contains attribute name, namespace, byte length and SHA-256 only; --include-values is the explicit disclosure boundary and returns hexadecimal rather than lossy text. The macOS public qjswasm journey is green. Mode and xattr mutation remain separate plan/apply gaps."
         },
         {

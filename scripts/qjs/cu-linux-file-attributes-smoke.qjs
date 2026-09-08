@@ -1,0 +1,220 @@
+// CEO: Linux file-attributes honesty with independent os.listxattr read-back.
+// Acceptance is smoke read-back only: CU file-attributes xattr inventory for one
+// regular file must agree with names, byte lengths, SHA-256 digests and optional
+// value_hex derived outside agenterm-cu via os.listxattr/getxattr. When getfattr
+// is installed, its name inventory must agree as well.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-file-attributes-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: rh.join(run_directory, "home"),
+    USERPROFILE: rh.join(run_directory, "home"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+}
+
+function invoke(run_directory, executable, arguments, expected_error) {
+  const argv = ["--target", "current", "--grant", "observe"].concat(arguments);
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000,
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_linux_file_attributes_invalid_reply"; }
+  ensure(reply.command === "file-attributes", "cu_linux_file_attributes_wrong_command");
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true,
+      "cu_linux_file_attributes_expected_failure");
+    ensure(reply.error.code === expected_error,
+      "cu_linux_file_attributes_wrong_error:" + reply.error.code);
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true,
+    "cu_linux_file_attributes_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+function verify_readback(run_directory, executable, fixture) {
+  const script = [
+    "import hashlib, json, os, shutil, subprocess, sys",
+    "path = sys.argv[1]",
+    "cu = sys.argv[2]",
+    "def namespace(name):",
+    "    if '.' in name:",
+    "        return name.split('.', 1)[0]",
+    "    return 'unqualified'",
+    "def sha256_hex(value):",
+    "    return hashlib.sha256(value).hexdigest()",
+    "def native_inventory():",
+    "    rows = []",
+    "    for name in sorted(os.listxattr(path)):",
+    "        value = os.getxattr(path, name)",
+    "        rows.append({",
+    "            'name': name,",
+    "            'namespace': namespace(name),",
+    "            'value_bytes': str(len(value)),",
+    "            'value_sha256': sha256_hex(value),",
+    "            'value_hex': value.hex(),",
+    "        })",
+    "    return rows",
+    "def getfattr_names():",
+    "    getfattr = shutil.which('getfattr')",
+    "    if getfattr is None:",
+    "        return None",
+    "    out = subprocess.check_output(",
+    "        [getfattr, '-d', '-m', '-', path],",
+    "        stderr=subprocess.STDOUT,",
+    "        text=True)",
+    "    names = []",
+    "    for line in out.splitlines():",
+    "        if '=' not in line or line.startswith('#'):",
+    "            continue",
+    "        names.append(line.split('=', 1)[0])",
+    "    return sorted(names)",
+    "def cu_inventory(include_values):",
+    "    args = [cu, '--target', 'current', '--grant', 'observe', 'file-attributes', path]",
+    "    if include_values:",
+    "        args.append('--include-values')",
+    "    out = subprocess.check_output(args, text=True)",
+    "    reply = json.loads(out)",
+    "    if not reply.get('ok') or reply.get('command') != 'file-attributes':",
+    "        raise SystemExit('cu_linux_file_attributes_reply_state')",
+    "    return reply['data']",
+    "native = native_inventory()",
+    "getfattr = getfattr_names()",
+    "if getfattr is not None and sorted(row['name'] for row in native) != getfattr:",
+    "    raise SystemExit(f'cu_linux_file_attributes_getfattr_mismatch:native={[r[\"name\"] for r in native]}:getfattr={getfattr}')",
+    "redacted = cu_inventory(False)",
+    "if redacted.get('include_values') is not False:",
+    "    raise SystemExit('cu_linux_file_attributes_default_disclosure')",
+    "cu_rows = sorted(redacted.get('attributes') or [], key=lambda row: row['name'])",
+    "if len(cu_rows) != len(native):",
+    "    raise SystemExit(f'cu_linux_file_attributes_count:{len(cu_rows)}:{len(native)}')",
+    "for expected, actual in zip(native, cu_rows):",
+    "    if actual.get('name') != expected['name']:",
+    "        raise SystemExit(f'cu_linux_file_attributes_name:{actual.get(\"name\")}:{expected[\"name\"]}')",
+    "    if actual.get('namespace') != expected['namespace']:",
+    "        raise SystemExit(f'cu_linux_file_attributes_namespace:{actual.get(\"namespace\")}:{expected[\"namespace\"]}')",
+    "    if actual.get('value_bytes') != expected['value_bytes']:",
+    "        raise SystemExit(f'cu_linux_file_attributes_bytes:{actual.get(\"value_bytes\")}:{expected[\"value_bytes\"]}')",
+    "    if actual.get('value_sha256') != expected['value_sha256']:",
+    "        raise SystemExit(f'cu_linux_file_attributes_digest:{actual.get(\"value_sha256\")}:{expected[\"value_sha256\"]}')",
+    "    if actual.get('value_hex') is not None:",
+    "        raise SystemExit('cu_linux_file_attributes_value_leaked')",
+    "disclosed = cu_inventory(True)",
+    "if disclosed.get('include_values') is not True:",
+    "    raise SystemExit('cu_linux_file_attributes_explicit_disclosure')",
+    "cu_disclosed = sorted(disclosed.get('attributes') or [], key=lambda row: row['name'])",
+    "for expected, actual in zip(native, cu_disclosed):",
+    "    if actual.get('value_hex') != expected['value_hex']:",
+    "        raise SystemExit(f'cu_linux_file_attributes_value_hex:{actual.get(\"value_hex\")}:{expected[\"value_hex\"]}')",
+    "identity = redacted.get('identity') or {}",
+    "st = os.stat(path)",
+    "if identity.get('filesystem_id') != str(st.st_dev) or identity.get('object_id') != str(st.st_ino):",
+    "    raise SystemExit(f'cu_linux_file_attributes_identity:{identity}:dev={st.st_dev}:ino={st.st_ino}')",
+    "print('native', len(native), 'getfattr', 'yes' if getfattr is not None else 'skip', 'cu', len(cu_rows))",
+  ].join("\n");
+  const output = rh.command("/usr/bin/python3", ["-c", script, fixture, executable], {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true,
+    "cu_linux_file_attributes_readback:" + output.stderr + output.stdout);
+}
+
+function prepare_fixture(fixture, attr_alpha, attr_beta) {
+  const script = [
+    "import os, sys",
+    "path, alpha_name, alpha_value, beta_name, beta_value = sys.argv[1:6]",
+    "open(path, 'w', encoding='utf-8').write('file-attributes-readback-fixture')",
+    "os.setxattr(path, alpha_name, alpha_value.encode('utf-8'))",
+    "os.setxattr(path, beta_name, beta_value.encode('utf-8'))",
+    "print(len(os.listxattr(path)))",
+  ].join("\n");
+  const output = rh.command("/usr/bin/python3", [
+    "-c", script, fixture, attr_alpha, "alpha-value", attr_beta, "beta-leaf-22"
+  ], { timeout_ms: 10000 });
+  ensure(output.success === true && output.stdout.trim() === "2",
+    "cu_linux_file_attributes_fixture_setup:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_file_attributes_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_file_attributes_requires_linux");
+
+const context = harness.new_context(repo, "cu-linux-file-attributes");
+const run_directory = context.run_directory;
+const fixture = rh.join(run_directory, "fixture.bin");
+const link = rh.join(run_directory, "fixture-link.bin");
+const attr_alpha = "user.agenterm.cu.alpha";
+const attr_beta = "user.agenterm.cu.beta";
+let succeeded = 0;
+let failure = "";
+
+try {
+  prepare_fixture(fixture, attr_alpha, attr_beta);
+
+  print("STEP file-attributes inventory matches independent os.listxattr/getxattr read-back");
+  verify_readback(run_directory, executable, fixture);
+
+  print("STEP final symlink is refused rather than followed");
+  const linked = rh.command("/bin/ln", ["-s", fixture, link], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(linked.success === true, "cu_linux_file_attributes_link_setup_failed");
+  invoke(run_directory, executable, ["file-attributes", link], "file_attributes_not_regular");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: Linux file-attributes xattr inventory matches independent os.listxattr read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
