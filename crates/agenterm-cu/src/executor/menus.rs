@@ -679,7 +679,11 @@ mod tests {
             let detail = error.detail.expect("detail");
             assert_eq!(detail["os"], "linux");
             assert_eq!(detail["mechanism"], "at-spi2-menu-bar");
-            assert!(detail["alternatives"].as_array().is_some_and(|items| !items.is_empty()));
+            assert!(
+                detail["alternatives"]
+                    .as_array()
+                    .is_some_and(|items| !items.is_empty())
+            );
         }
     }
 

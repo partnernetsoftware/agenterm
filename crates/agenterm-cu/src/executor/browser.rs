@@ -5,6 +5,7 @@
 //! focused text writers consult. Profiles (`browser profiles` / `browser
 //! open`) live in `profiles.rs`.
 
+#[cfg(target_os = "linux")]
 use std::collections::BTreeMap;
 
 use super::*;
@@ -87,8 +88,7 @@ pub(super) fn resolve_cdp_port(port: Option<u16>, pid: Option<u32>) -> Result<u1
 /// `--remote-debugging-port`, deduped by port (first PID wins).
 #[cfg(target_os = "linux")]
 pub(super) fn discover_linux_cdp_ports() -> Result<Vec<(u32, u16)>, CuError> {
-    let windows =
-        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     let mut ports = BTreeMap::<u16, u32>::new();
     for window in windows {
         if !observe::looks_like_browser_app(&window.app_name) {
@@ -110,15 +110,7 @@ pub(super) fn discover_linux_cdp_ports() -> Result<Vec<(u32, u16)>, CuError> {
             Err(error) => return Err(error),
         }
     }
-    Ok(ports
-        .into_iter()
-        .map(|(port, pid)| (pid, port))
-        .collect())
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(super) fn discover_linux_cdp_ports() -> Result<Vec<(u32, u16)>, CuError> {
-    Ok(Vec::new())
+    Ok(ports.into_iter().map(|(port, pid)| (pid, port)).collect())
 }
 
 #[cfg(target_os = "linux")]
@@ -1256,8 +1248,7 @@ fn tab_list_selected_indexes(
     entries
         .iter()
         .filter(|entry| {
-            crate::tab_strip::tab_entry_selected(entry, focused_sibling_index)
-                == observe::Tri::True
+            crate::tab_strip::tab_entry_selected(entry, focused_sibling_index) == observe::Tri::True
         })
         .map(|entry| entry.index)
         .collect()
@@ -1355,16 +1346,15 @@ fn tab_list_cdp_fallback(
 
 pub(super) fn tab_list_payload(window: isize) -> Result<serde_json::Value, CuError> {
     tab_window_arg("tab list", window)?;
-    let windows =
-        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     let target = windows.iter().find(|row| row.handle == window);
     let tree = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
     let entries = crate::tab_strip::tab_strip_entries(&tree);
     if entries.is_empty() {
-        if let Some(target) = target {
-            if let Some(payload) = tab_list_cdp_fallback(window, &windows, target)? {
-                return Ok(payload);
-            }
+        if let Some(target) = target
+            && let Some(payload) = tab_list_cdp_fallback(window, &windows, target)?
+        {
+            return Ok(payload);
         }
         return Err(tab_list_unsupported(window));
     }
@@ -2995,11 +2985,15 @@ mod tests {
         assert_eq!(error.code, "unsupported");
         let detail = error.detail.expect("detail");
         assert_eq!(detail["os"], "linux");
-        assert!(detail["next_actions"]
-            .as_array()
-            .is_some_and(|steps| steps.len() >= 2));
-        assert!(detail["alternatives"]
-            .as_array()
-            .is_some_and(|items| items.iter().any(|value| value == "browser-tabs")));
+        assert!(
+            detail["next_actions"]
+                .as_array()
+                .is_some_and(|steps| steps.len() >= 2)
+        );
+        assert!(
+            detail["alternatives"]
+                .as_array()
+                .is_some_and(|items| items.iter().any(|value| value == "browser-tabs"))
+        );
     }
 }
