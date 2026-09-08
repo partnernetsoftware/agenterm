@@ -1,0 +1,33 @@
+{
+  "bundle_sha256": "b2411a23536f9f803e6d0a1e90d207d5ed845e3c33b9ac78a8030f02f178648d",
+  "completed_at": "2026-09-08T03:44:02.406454+00:00",
+  "court": "lnx-aarch64-desktop",
+  "evidence": "cu.device-screenshot-inventory",
+  "evidence_lines": [
+    "cu.device-screenshot-inventory"
+  ],
+  "exit_code": 0,
+  "guest_exit_code": 0,
+  "interactive_session": {
+    "a11y_connected": true,
+    "adapter": "linux-graphical-session",
+    "agent_pid": 8987,
+    "cell": "lnx-aarch64",
+    "court": "lnx-aarch64-desktop",
+    "dbus_connected": true,
+    "display": ":0",
+    "display_connected": true,
+    "nonce": "court-lnx-aarch64-desktop-78405-6798",
+    "session_id": "1",
+    "session_type": "wayland",
+    "status": "ready",
+    "uid": 1000,
+    "wayland_display": "wayland-0"
+  },
+  "manifest_sha256": "e59d4c610194dcc8381f97d9ba1768071250348f3ae4359e1b1053284a185303",
+  "outcome": "passed",
+  "pass_line": "PASS: device screenshot inventory is read-only and typed without claiming PNG capture",
+  "run_log_sha256": "857a33cf9f98c344676adb541e7bcb81f094007bbe61468698dfdf4a097ea212",
+  "schema": 2,
+  "source_sha": "1a7cf00ada1f94e0b1a71604dabcc11d13f0a9fc"
+}

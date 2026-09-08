@@ -1164,6 +1164,13 @@ costs a full candidate cycle:
   paths or transcript contents into Git. Persistence is explicit through
   `AGENTERM_UTM_PERSIST_RECEIPT=evidence/<name>.json`, so ordinary development
   runs do not dirty the repository.
+- [x] A court runner must apply its cell-specific transport-ready budget to
+  lease-time authorization cleanup as well as the later explicit readiness
+  probe. A cold native ARM guest took about 115 seconds to expose QGA, so the
+  service-wide 60-second cleanup default falsely rejected a healthy VM before
+  the runner reached its 180-second native-cell budget. The caller now passes
+  the same bounded budget into lease; emulated x86_64 cells retain their
+  separate 600-second transport allowance.
 - [x] Windows interactive recovery uses one stable ONLOGON task and script
   path. Deleting the task immediately after a successful nonce also terminated
   its live worker; retaining random tasks then produced stale `Running` state

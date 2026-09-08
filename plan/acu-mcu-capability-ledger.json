@@ -1151,9 +1151,33 @@
           "mcu_shape": "network dns --max N",
           "acu_shape": "network-dns --max N (alias: network dns --max N)",
           "state": "platform-limited",
-          "qualification": "macos-public-qjswasm-live-linux-windows-courts-pending",
+          "platforms": {
+            "macos": "native-public-qjswasm-qualified",
+            "linux": "native-public-qjswasm-qualified-both-isa",
+            "windows": "arm64-qualified-x86_64-court-infrastructure-pending"
+          },
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-network-dns-smoke",
+                "evidence": ["cu.network-dns"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-network-dns-smoke",
+                "evidence": ["cu.network-dns"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "win-x86_64-interactive-agent-nonce-timeout"
+              }
+            }
+          },
           "evidence": ["cu.network-dns"],
-          "note": "macOS uses scoped scutil state; Windows uses GetAdaptersAddresses; Linux detects a systemd-resolved stub and names stub-only coverage when its upstream file is unavailable. macOS, Linux arm64/x86_64 and Windows arm64 have exact-source public qjswasm evidence. Windows x86_64 has no product verdict because its UTM interactive agent failed to claim a nonce at both 180s and 360s. No provider contacts a resolver or fabricates completeness."
+          "next": "repair the Windows x86_64 interactive agent nonce court, then execute the unchanged public DNS journey before promoting this leaf to native",
+          "note": "macOS uses scoped scutil state; Windows uses GetAdaptersAddresses; Linux detects a systemd-resolved stub and names stub-only coverage when its upstream file is unavailable. macOS, Linux arm64/x86_64 and Windows arm64 have exact-source public qjswasm evidence; compact receipts for the three UTM cells are persisted under evidence/cu. Windows x86_64 has no product verdict because its UTM interactive agent failed to claim a nonce at both 180s and 360s. The Windows platform remains pending rather than borrowing the ARM64 result. No provider contacts a resolver or fabricates completeness."
         },
         {
           "id": "network.dns.services",
@@ -1307,7 +1331,7 @@
           },
           "evidence": ["cu.device-screenshot-inventory"],
           "next": "run one non-sensitive public-CLI PNG capture court from the fixed installed app identity, then qualify the macOS cell",
-          "note": "ACU exceeds MCU here. The public inventory court proves the bounded host Camera/usbmux/source projection on macOS, permits a truthful zero-device result, and proves exact typed non-applicability on Linux/Windows; it does not claim that a PNG frame was captured. Camera TCC, usbmux pairing and DAL publication remain independent evidence; an empty capture inventory never implies device lock or trust failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
+          "note": "ACU exceeds MCU here. The public inventory court proves the bounded host Camera/usbmux/source projection on macOS, permits a truthful zero-device result, and proves exact typed non-applicability on Linux/Windows; it does not claim that a PNG frame was captured. The Linux arm64 Wayland court passed the exact refusal contract at source 1a7cf00a with a persisted schema-2 receipt. Camera TCC, usbmux pairing and DAL publication remain independent evidence; an empty capture inventory never implies device lock or trust failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
         },
         {
           "id": "audio.default-output.observe",

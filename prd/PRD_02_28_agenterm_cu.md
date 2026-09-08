@@ -2108,12 +2108,19 @@ flowchart LR
   journey `cu.network-dns` is green and all six targets compile. The same
   journey ran from exact source `dbfed944` in native Linux arm64 and emulated
   x86_64 UTM courts with byte-manifest verification and typed exit receipts.
-  Windows arm64 then passed the same public journey after the court normalized
-  PowerShell UTF-16LE/CRLF evidence into canonical UTF-8/LF. Windows x86_64 has
-  no product verdict: its interactive job agent failed to claim a nonce under
-  both 180-second and 360-second budgets. That is a court-image/agent blocker,
-  not a DNS failure. This row therefore moves from `gap` only to
-  `platform-limited`. The compatibility entry routes exactly
+  Those compact receipts are persisted as
+  [`evidence/cu/lnx-aarch64-cu-network-dns-dbfed944.json`](../evidence/cu/lnx-aarch64-cu-network-dns-dbfed944.json)
+  and
+  [`evidence/cu/lnx-x86_64-cu-network-dns-dbfed944.json`](../evidence/cu/lnx-x86_64-cu-network-dns-dbfed944.json).
+  Windows arm64 also passed at exact source `c6295175` after the court
+  normalized PowerShell UTF-16LE/CRLF evidence into canonical UTF-8/LF; its
+  receipt is
+  [`evidence/cu/win-aarch64-cu-network-dns-c6295175.json`](../evidence/cu/win-aarch64-cu-network-dns-c6295175.json).
+  The schema-2 verdict still leaves Windows pending: its x86_64 interactive
+  agent failed to claim a nonce at both 180 and 360 seconds, so the ARM64
+  result cannot be borrowed as a platform-wide qualification. That is a
+  court-image/agent blocker, not a DNS failure. This row therefore moves from
+  `gap` only to `platform-limited`. The compatibility entry routes exactly
   `acu network interfaces|routes|dns [--max N]`. The identity-safe per-process
   socket slice is live through `process-sockets`; per-service DNS mutation and
   global/name-selected sockets remain MCU gaps.
@@ -2328,6 +2335,10 @@ flowchart LR
   accepts a bounded zero-device macOS result and exact
   `device_capture_unsupported` on Linux/Windows without filesystem effect; it
   closes the inventory evidence alert but does not claim PNG capture.
+  Exact source `1a7cf00a` subsequently passed that public refusal contract in
+  the native Linux arm64 Wayland court after exact-byte transfer and
+  interactive-session nonce proof; the compact receipt is
+  [`evidence/cu/lnx-aarch64-device-screenshot-inventory-1a7cf00a.json`](../evidence/cu/lnx-aarch64-device-screenshot-inventory-1a7cf00a.json).
   Accessibility is independent from pure DAL
   capture. The shared contract, macOS AVFoundation/CoreMediaIO adapter and
   public verb are now connected: observation never requests TCC consent; native

@@ -139,9 +139,6 @@ else
 fi
 BUNDLE_SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
 
-echo "UTM court phase: lease $COURT"
-"$COURT_CLI" lease "$COURT" --disposable >/dev/null
-LEASED=1
 ready_timeout=180
 interactive_timeout=180
 if [ "$COURT" = lnx-x86_64-desktop ] || [ "$COURT" = win-x86_64-desktop ]; then
@@ -151,6 +148,15 @@ if [ "$COURT" = lnx-x86_64-desktop ] || [ "$COURT" = win-x86_64-desktop ]; then
   ready_timeout=600
   interactive_timeout=300
 fi
+
+echo "UTM court phase: lease $COURT"
+# Starting a stopped VM performs the authorization-mode cleanup before lease
+# publication. Give that cold-start cleanup the same transport budget as the
+# owning cell; the service-wide 60-second default is intentionally too small
+# for emulated cells and has also been exceeded by a cold native ARM guest.
+UTM_COURT_CLEANUP_READY_TIMEOUT="${UTM_COURT_CLEANUP_READY_TIMEOUT:-$ready_timeout}" \
+  "$COURT_CLI" lease "$COURT" --disposable >/dev/null
+LEASED=1
 echo "UTM court phase: transport-ready ${ready_timeout}s"
 "$COURT_CLI" wait-ready "$COURT" "$ready_timeout" >/dev/null
 SESSION_RECEIPT="$SCRATCH/interactive-ready.json"
