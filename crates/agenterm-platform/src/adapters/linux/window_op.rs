@@ -40,26 +40,35 @@ pub(crate) fn capability_status() -> CapabilityStatus {
     }
 }
 
-/// Raise a window without touching focus.
+/// Raise, iconify, or restore a window through the window manager.
 ///
 /// `ConfigureWindow(stack_mode = Above)` is the X11 primitive for exactly
-/// that: the window comes to the front and the keyboard focus stays where
-/// the user left it, which is what `orderwin` means. The other show states
-/// are window-manager policy (iconify, maximize) rather than a stacking
-/// operation and stay typed: guessing at `_NET_WM_STATE` transitions that a
-/// given WM may ignore would report success for nothing.
+/// raising without touching focus. Iconify and restore use ICCCM
+/// `WM_CHANGE_STATE` / `MapWindow`, which is what the desktop means by
+/// putting a window away and bringing it back; `_NET_WM_STATE` maximize
+/// stays typed unsupported because guessing transitions a given WM may
+/// ignore would report success for nothing.
 pub(crate) fn show(
     handle: isize,
     state: crate::contract::window_op::WindowShowState,
 ) -> Result<(), WindowOpError> {
     use crate::contract::window_op::WindowShowState;
-    if state != WindowShowState::Show {
-        return Err(WindowOpError::Unsupported {
-            reason: "only the raise (Show) state is wired on Linux; iconify / maximize / restore are window-manager policy".into(),
-        });
-    }
     let conn = connect()?;
     let window = window_id(handle)?;
+    match state {
+        WindowShowState::Show => raise(&conn, window),
+        WindowShowState::Hide | WindowShowState::Minimize => set_iconified(&conn, window, true),
+        WindowShowState::Restore => set_iconified(&conn, window, false),
+        WindowShowState::Maximize => Err(WindowOpError::Unsupported {
+            reason: "maximize is window-manager policy and is not wired on Linux yet".into(),
+        }),
+    }
+}
+
+fn raise(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+) -> Result<(), WindowOpError> {
     // A managed window is reparented into a window-manager frame, and
     // SubstructureRedirect means ConfigureWindow on the client window is
     // not an order to the X server -- it is a request the WM is free to
@@ -71,10 +80,10 @@ pub(crate) fn show(
     // sibling 0 is "no sibling", and detail `Above` raises to the top.
     // ConfigureWindow stays as the fallback for an unmanaged window or a
     // WM that does not advertise the message.
-    if wm_supports(&conn, b"_NET_RESTACK_WINDOW").unwrap_or(false) {
-        let restack = atom(&conn, b"_NET_RESTACK_WINDOW")?;
+    if wm_supports(conn, b"_NET_RESTACK_WINDOW").unwrap_or(false) {
+        let restack = atom(conn, b"_NET_RESTACK_WINDOW")?;
         return send_root_message(
-            &conn,
+            conn,
             window,
             restack,
             [2, 0, u32::from(StackMode::ABOVE), 0, 0],
@@ -83,7 +92,49 @@ pub(crate) fn show(
     let aux = ConfigureWindowAux::new().stack_mode(StackMode::ABOVE);
     conn.configure_window(window, &aux)
         .map_err(|error| failed(format!("ConfigureWindow(raise) send failed: {error}")))?;
-    sync(&conn)
+    sync(conn)
+}
+
+/// ICCCM `WM_CHANGE_STATE` to `IconicState`, or `MapWindow` to bring it back.
+fn set_iconified(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+    iconify: bool,
+) -> Result<(), WindowOpError> {
+    const ICONIC_STATE: u32 = 3;
+    if iconify {
+        let wm_change_state = atom(conn, b"WM_CHANGE_STATE")?;
+        let event = ClientMessageEvent::new(32, window, wm_change_state, [ICONIC_STATE, 0, 0, 0, 0]);
+        let root = root_of(conn)?;
+        conn.send_event(
+            false,
+            root,
+            EventMask::SUBSTRUCTURE_NOTIFY | EventMask::SUBSTRUCTURE_REDIRECT,
+            event,
+        )
+        .map_err(|error| failed(format!("WM_CHANGE_STATE send failed: {error}")))?;
+    } else {
+        conn.map_window(window)
+            .map_err(|error| failed(format!("MapWindow send failed: {error}")))?;
+    }
+    sync(conn)
+}
+
+/// Whether the window manager reports this window as not on screen.
+fn window_is_iconified(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+) -> Result<bool, WindowOpError> {
+    let wm_state = atom(conn, b"_NET_WM_STATE")?;
+    let state_hidden = atom(conn, b"_NET_WM_STATE_HIDDEN")?;
+    let reply = conn
+        .get_property(false, window, wm_state, AtomEnum::ATOM, 0, 32)
+        .map_err(|error| failed(format!("_NET_WM_STATE request failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("_NET_WM_STATE reply failed: {error}")))?;
+    Ok(reply
+        .value32()
+        .is_some_and(|mut states| states.any(|state| state == state_hidden)))
 }
 
 /// Whether the running window manager advertises `name` in `_NET_SUPPORTED`.
@@ -253,14 +304,11 @@ pub(crate) fn window_rect(handle: isize) -> Result<WindowBounds, WindowOpError> 
     })
 }
 
-/// Not wired: a minimized X11 window is `_NET_WM_STATE_HIDDEN` (or
-/// `IconicState` in `WM_STATE`), but which of the two a given window
-/// manager keeps truthful has never been measured here, so the read is
-/// reported absent rather than guessed from one of them.
-pub(crate) fn minimized(_handle: isize) -> Result<bool, WindowOpError> {
-    Err(WindowOpError::Unsupported {
-        reason: "reading the minimized state is not wired on Linux yet".into(),
-    })
+/// Whether the window manager marks the window `_NET_WM_STATE_HIDDEN`.
+pub(crate) fn minimized(handle: isize) -> Result<bool, WindowOpError> {
+    let conn = connect()?;
+    let window = window_id(handle)?;
+    window_is_iconified(&conn, window)
 }
 
 /// `_NET_ACTIVE_WINDOW`: the explicit foreground-changing counterpart to

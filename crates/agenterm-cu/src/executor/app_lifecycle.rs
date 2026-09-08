@@ -18,6 +18,63 @@ pub(super) const CLOSE_READBACK: Duration = Duration::from_millis(2_500);
 
 pub(super) const CLOSE_READBACK_POLL: Duration = Duration::from_millis(50);
 
+#[cfg(target_os = "linux")]
+fn linux_set_application_hidden(process_id: u32, hidden: bool) -> Result<(), CuError> {
+    use crate::dynlib::{AGT_NATIVE_WINDOW_MINIMIZE, AGT_NATIVE_WINDOW_RESTORE};
+
+    let state = if hidden {
+        AGT_NATIVE_WINDOW_MINIMIZE
+    } else {
+        AGT_NATIVE_WINDOW_RESTORE
+    };
+    let windows =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let handles: Vec<isize> = windows
+        .iter()
+        .filter(|row| row.process_id == process_id)
+        .map(|row| row.handle)
+        .collect();
+    if handles.is_empty() {
+        return Err(CuError::new(
+            "a11y_app_not_found",
+            format!("process {process_id} owns no top-level window on this display"),
+        )
+        .with_detail(serde_json::json!({
+            "os": crate::mcu_surface::host_os(),
+            "process_id": process_id,
+        })));
+    }
+    for handle in &handles {
+        mechanism::window_op::show(*handle, state).map_err(map_mechanism_err)?;
+    }
+    let deadline = Instant::now() + CLOSE_READBACK;
+    while Instant::now() < deadline {
+        let windows =
+            mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+        let mine: Vec<_> = windows
+            .iter()
+            .filter(|row| row.process_id == process_id)
+            .collect();
+        let on_screen = mine.iter().filter(|row| !row.minimized).count();
+        if (on_screen == 0) == hidden {
+            return Ok(());
+        }
+        thread::sleep(CLOSE_READBACK_POLL);
+    }
+    Err(CuError::new(
+        "a11y_app_visibility_not_applied",
+        format!(
+            "the window manager left process {process_id}'s windows {} after the request",
+            if hidden { "on screen" } else { "put away" }
+        ),
+    )
+    .with_detail(serde_json::json!({
+        "os": crate::mcu_surface::host_os(),
+        "process_id": process_id,
+        "mechanism": "native-window-show",
+    })))
+}
+
 /// The three-part destructive gate (PRD_02_31), checked before any
 /// inventory or tree read: every missing part is named in one refusal.
 pub(super) fn destructive_gate(
@@ -188,7 +245,14 @@ pub(super) fn app_payload(
                 ));
             }
         };
-        mechanism::set_application_hidden(process_id, hidden).map_err(map_mechanism_err)?;
+        #[cfg(target_os = "linux")]
+        {
+            linux_set_application_hidden(process_id, hidden)?;
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            mechanism::set_application_hidden(process_id, hidden).map_err(map_mechanism_err)?;
+        }
         // Read the inventory back, because what "put away" looks like is
         // not the same on every host and neither shape is the definition.
         // macOS stops enumerating a hidden application's windows at all;

@@ -653,6 +653,79 @@ mod x11 {
             .map_err(|_| failed("the X11 resize request could not be flushed"))
     }
 
+    /// Iconify every top-level client window owned by `process_id`, or map
+    /// them back. This is the X11 operation behind the application-level
+    /// `hide` / `show` verbs: it acts on all of the process's windows and
+    /// reads the window-manager state back rather than trusting the request.
+    pub(super) fn set_application_hidden(
+        process_id: u32,
+        hidden: bool,
+    ) -> Result<(), ProcessWindowError> {
+        use crate::contract::window_op::WindowShowState;
+        use std::time::{Duration, Instant};
+
+        let windows = application_windows(process_id)?;
+        if windows.is_empty() {
+            return Err(error(
+                "process_window_not_found",
+                format!("process {process_id} owns no top-level window on this display"),
+                "not_found",
+            ));
+        }
+        let state = if hidden {
+            WindowShowState::Minimize
+        } else {
+            WindowShowState::Restore
+        };
+        for window in &windows {
+            crate::window_op::show(i64::from(*window), state).map_err(map_window_op_error)?;
+        }
+        let deadline = Instant::now() + Duration::from_millis(1_500);
+        loop {
+            let settled = windows.iter().all(|window| {
+                crate::window_op::minimized(i64::from(*window))
+                    .map(|minimized| minimized == hidden)
+                    .unwrap_or(false)
+            });
+            if settled {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err(error(
+                    "process_window_visibility_not_applied",
+                    format!(
+                        "the window manager left process {process_id}'s windows {} after the request",
+                        if hidden { "on screen" } else { "put away" }
+                    ),
+                    "platform_error",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    fn application_windows(process_id: u32) -> Result<Vec<Window>, ProcessWindowError> {
+        let context = connect()?;
+        let mut owned = Vec::new();
+        for window in client_windows(&context)? {
+            if process_id(context, window)? == Some(process_id) {
+                owned.push(window);
+            }
+        }
+        Ok(owned)
+    }
+
+    fn map_window_op_error(error: crate::contract::window_op::WindowOpError) -> ProcessWindowError {
+        match error {
+            crate::contract::window_op::WindowOpError::Unsupported { reason } => {
+                unsupported(reason.as_ref())
+            }
+            crate::contract::window_op::WindowOpError::Failed { code, message } => {
+                ProcessWindowError::new(code.as_ref(), message, Some("platform_error"))
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -798,6 +871,23 @@ pub(crate) fn resize(process_id: u32, width: i32, height: i32) -> Result<(), Pro
         let _ = (process_id, width, height);
         Err(unsupported(
             "native child-window resize is not implemented on this platform",
+        ))
+    }
+}
+
+pub(crate) fn set_application_hidden(
+    process_id: u32,
+    hidden: bool,
+) -> Result<(), ProcessWindowError> {
+    #[cfg(target_os = "linux")]
+    {
+        x11::set_application_hidden(process_id, hidden)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (process_id, hidden);
+        Err(unsupported(
+            "application-level hide is not implemented on this platform",
         ))
     }
 }
