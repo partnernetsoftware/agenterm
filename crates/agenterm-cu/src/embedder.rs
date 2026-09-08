@@ -675,6 +675,15 @@ mod tests {
     use super::*;
     use crate::{Grant, TargetRef};
 
+    fn normalize_live_capability_facts(reply: &mut serde_json::Value) {
+        let data = reply.get_mut("data").expect("capabilities data");
+        assert!(data.get("host_clock").is_some());
+        data["host_clock"] = serde_json::json!({ "normalized": true });
+        if let Some(uptime) = data.pointer_mut("/host_boot_identity/uptime_milliseconds") {
+            *uptime = serde_json::json!(0);
+        }
+    }
+
     #[test]
     fn json_adapter_is_structurally_equal_to_direct_executor() {
         let command = Command::Capabilities {
@@ -684,10 +693,11 @@ mod tests {
         let direct = executor.execute(&command);
         let encoded = serde_json::to_string(&command).expect("serialize command");
         let adapted = execute_json_with(&executor, &encoded);
-        assert_eq!(
-            serde_json::to_value(adapted).expect("adapted reply"),
-            serde_json::to_value(direct).expect("direct reply")
-        );
+        let mut adapted = serde_json::to_value(adapted).expect("adapted reply");
+        let mut direct = serde_json::to_value(direct).expect("direct reply");
+        normalize_live_capability_facts(&mut adapted);
+        normalize_live_capability_facts(&mut direct);
+        assert_eq!(adapted, direct);
     }
 
     #[test]

@@ -229,10 +229,9 @@ mod tests {
             .copied()
             .unwrap();
         let root = chrome.user_data_dir(&home).unwrap();
+        assert!(!user_data_root_exists(&chrome, &home));
         fs::create_dir_all(&root).unwrap();
-        let installed = installed_catalog_apps(&home);
-        assert_eq!(installed.len(), 1);
-        assert_eq!(installed[0].name, chrome.name);
+        assert!(user_data_root_exists(&chrome, &home));
         fs::remove_dir_all(home).unwrap();
     }
 

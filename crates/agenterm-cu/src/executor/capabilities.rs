@@ -2175,7 +2175,16 @@ mod tests {
         assert!(data["checks"]["windows"]["status"].is_string());
         assert!(data["checks"]["displays"]["status"].is_string());
         assert_eq!(data["permissions"], permissions_declaration());
-        assert_eq!(data["capabilities"], capabilities_payload());
+        let mut actual = data["capabilities"].clone();
+        let mut expected = capabilities_payload();
+        for payload in [&mut actual, &mut expected] {
+            assert!(payload.get("host_clock").is_some());
+            payload["host_clock"] = serde_json::json!({ "normalized": true });
+            if let Some(uptime) = payload.pointer_mut("/host_boot_identity/uptime_milliseconds") {
+                *uptime = serde_json::json!(0);
+            }
+        }
+        assert_eq!(actual, expected);
         assert_eq!(
             data["capabilities"]["verbs"]["doctor"]["status"],
             "available"

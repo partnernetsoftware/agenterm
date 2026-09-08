@@ -877,6 +877,12 @@ product feature union can otherwise hide an undeclared dependency indefinitely.
 Do not rerun a large gate to compensate for not knowing which smaller test owns
 the behavior. Add or identify the owner.
 
+When a parity test invokes a live inventory twice, normalize only the fields
+that are defined to advance between observations, such as wall-clock text and
+uptime. Keep stable boot, machine, provider, and schema identities in the
+comparison. Replacing the complete live-facts object with a fixture can make a
+real adapter or routing mismatch invisible.
+
 ---
 
 ## 10. Review checklist

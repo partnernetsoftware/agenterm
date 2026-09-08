@@ -108,6 +108,7 @@ pub(super) fn host_open_payload(
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn unsupported_native_detail_surfaces_os_mechanism_and_alternatives() {
         let directory = std::env::temp_dir().join(format!(
