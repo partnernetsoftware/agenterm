@@ -589,17 +589,26 @@ fn spawn_server(name: &str, cwd: Option<&str>, directory: &Path) -> Result<&'sta
     }
 }
 
+fn unreachable_job_error(name: &str, error: CuError) -> CuError {
+    if error.code == "control_unavailable" {
+        CuError::new(
+            "pty_job_not_found",
+            format!("PTY job {name:?} is not running"),
+        )
+        .with_detail(json!({
+            "authority": "unreachable",
+            "control": "unavailable",
+            "instance": instance_name(name),
+            "transport": error.message,
+        }))
+    } else {
+        error
+    }
+}
+
 fn sole_job(client: &ControlClient, name: &str) -> Result<(Value, Value), CuError> {
-    let inventory = terminal_inventory_with_client(client).map_err(|error| {
-        if error.code == "control_unavailable" {
-            CuError::new(
-                "pty_job_not_found",
-                format!("PTY job {name:?} is not running"),
-            )
-        } else {
-            error
-        }
-    })?;
+    let inventory =
+        terminal_inventory_with_client(client).map_err(|error| unreachable_job_error(name, error))?;
     let tabs = inventory["tabs"]
         .as_array()
         .ok_or_else(|| CuError::new("pty_job_state_invalid", "PTY inventory omitted tabs"))?;

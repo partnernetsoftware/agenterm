@@ -3868,6 +3868,8 @@ usage:
   pty start NAME [--cwd DIR] [-- PROGRAM ARG...]
 
 Starts one invisible, cross-process PTY job under a deterministic isolated AgenTerm logical instance. Omitting `-- PROGRAM ARG...` selects AgenTerm's platform default terminal shell; an explicit command remains typed argv, never a shell string. AgenTerm server remains the sole POSIX PTY/ConPTY, terminal-tree, retention and process-lifecycle owner. NAME is 1..=64 ASCII letters, digits, dot, underscore or hyphen. Command values are not copied into receipts. A same-name concurrent or existing job fails typed.
+
+On Linux and macOS the headless authority listens on one deterministic Unix socket under the host runtime directory: `$XDG_RUNTIME_DIR/agenterm/{server_scope_id}.sock`, or `~/tmp/agenterm-platform-{uid}/agenterm/{server_scope_id}.sock` when `XDG_RUNTIME_DIR` is unset. The path must stay within the platform Unix-socket length limit (103 bytes on Linux). `pty-start` spawns `agenterm server --instance ephemeral:acu-pty-NAME --empty` beside `agenterm-cu` when that socket is absent; observe verbs on a missing or dead authority fail `pty_job_not_found` with `detail.control=unavailable` rather than inventing PTY output. `pty-list` marks reconciled dead authorities `stale` until `pty-prune`.
 ```
 
 ### `pty-list`
