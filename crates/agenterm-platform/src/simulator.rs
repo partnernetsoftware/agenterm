@@ -84,7 +84,7 @@ pub struct SimulatorAppStatus {
 /// Transient provider identity used only by the macOS adapter to join an
 /// installed bundle to the simulator process inventory. It must never cross
 /// the public CU reply boundary.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(all(target_os = "macos", feature = "simulator"), test))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SimulatorAppExecutable {
     pub(crate) full_path: String,
@@ -353,7 +353,7 @@ pub(crate) fn parse_app_list(
     Ok(result)
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(all(target_os = "macos", feature = "simulator"), test))]
 pub(crate) fn parse_app_executable(
     bytes: &[u8],
     bundle_id: &str,
@@ -406,7 +406,7 @@ pub(crate) fn parse_app_executable(
     Ok(SimulatorAppExecutable { full_path })
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(all(target_os = "macos", feature = "simulator"), test))]
 pub(crate) fn parse_process_ids_for_executable(
     bytes: &[u8],
     executable_path: &str,

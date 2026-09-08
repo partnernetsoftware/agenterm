@@ -39,6 +39,7 @@ impl HostOpenError {
         }
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) fn with_detail(
         kind: HostOpenErrorKind,
         message: impl Into<String>,
