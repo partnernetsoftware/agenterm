@@ -1230,6 +1230,25 @@
         "task.cu-linux-page-targets-smoke"
       ]
     },
+    "cu-linux-page-screenshot-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-screenshot-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-screenshot-smoke"
+      ]
+    },
     "cu-linux-page-scroll-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5703,6 +5722,26 @@
       "id": "cu-linux-page-targets-smoke",
       "description": "Prove Linux page-targets --port CDP /json inventory matches independent curl read of the same debugging port; disposable Chrome profile, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-page-targets-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-page-screenshot-smoke",
+      "description": "Prove Linux page-screenshot --port writes a real PNG whose magic bytes, size, sha256, and decoded dimensions are verified by independent host read-back; disposable Chrome+CDP, no --coords or screenshot-window degradation.",
+      "entry": "scripts/qjs/cu-linux-page-screenshot-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

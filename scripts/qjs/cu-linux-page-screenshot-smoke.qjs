@@ -1,0 +1,245 @@
+// CEO: Linux page-screenshot honesty — CU CDP capture writes a real PNG file.
+// Acceptance is smoke read-back only: page-screenshot --port must leave a
+// nonempty file whose magic bytes and decoded dimensions are verified by
+// independent host tools, not by the CU JSON alone. Disposable Chrome+CDP;
+// no --coords or screenshot-window degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-screenshot-readback",
+];
+
+const PNG_MAGIC_HEX = "89504e470d0a1a0a";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_page_screenshot_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_screenshot_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_page_screenshot_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (text_at(row, "type") === "page") { return row; }
+  }
+  return null;
+}
+
+function inspect_png(path) {
+  if (image_inspect_png(path) !== 0) { throw "image_inspect_png:" + tool_result(); }
+  return JSON.parse(tool_result());
+}
+
+function independent_png_magic_hex(path) {
+  const script = [
+    "import sys",
+    "path = sys.argv[1]",
+    "data = open(path, 'rb').read(8)",
+    "if len(data) != 8:",
+    "    raise SystemExit('cu_linux_page_screenshot_magic_short')",
+    "print(data.hex())",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, path], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true && output.stdout.trim() !== "",
+    "cu_linux_page_screenshot_magic:" + output.stdout + output.stderr);
+  return output.stdout.trim().toLowerCase();
+}
+
+function independent_sha256(path) {
+  const output = rh.command("sha256sum", [path], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true && output.stdout.trim() !== "",
+    "cu_linux_page_screenshot_sha256:" + output.stdout + output.stderr);
+  const line = output.stdout.trim();
+  let token = "";
+  for (let index = 0; index < line.length; index = index + 1) {
+    const ch = line.charAt(index);
+    if (ch === " " || ch === "\t") { break; }
+    token = token + ch;
+  }
+  ensure(token.length === 64, "cu_linux_page_screenshot_sha256_shape:" + token);
+  return token;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_screenshot_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_screenshot_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-screenshot");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+
+const fixture_title = "CEO Page Screenshot " + context.run_id;
+const fixture = rh.join(run_directory, "page-screenshot.html");
+rh.write_text(fixture, "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title></head><body style='background:#3366cc;color:#fff;font:48px sans-serif'>"
+  + "SHOT " + context.run_id + "</body></html>");
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9600 + (rh.pid() % 500);
+const screenshot_path = rh.join(run_directory, "page-shot-" + context.run_id + ".png");
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_screenshot_port_in_use:" + port);
+
+  print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "file://" + fixture,
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+      cwd: run_directory,
+      timeout_ms: 3000,
+    });
+    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+    harness.sleep_ms(250);
+  }
+
+  print("STEP page-targets selects the owned fixture tab");
+  let target_id = "";
+  for (let attempt = 0; attempt < 40 && target_id === ""; attempt = attempt + 1) {
+    const targets = run_cu(run_directory, executable, "observe", [
+      "page-targets", "--port", "" + port,
+    ], env);
+    const row = page_target(at(targets, "data.targets"));
+    if (row !== null && text_at(row, "title").indexOf(fixture_title) >= 0) {
+      target_id = text_at(row, "id");
+      break;
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(target_id !== "", "cu_linux_page_screenshot_target_missing");
+
+  print("STEP page-screenshot --port captures the owned page to --out");
+  const shot = run_cu(run_directory, executable, "observe", [
+    "page-screenshot", "--port", "" + port, "--target-id", target_id,
+    "--out", screenshot_path,
+  ], env);
+  ensure(shot.command === "page-screenshot",
+    "cu_linux_page_screenshot_identity:" + JSON.stringify(shot));
+  ensure(text_at(shot, "data.out") === screenshot_path,
+    "cu_linux_page_screenshot_out:" + JSON.stringify(shot.data));
+  ensure(flag_at(shot, "data.focus_changed") === false,
+    "cu_linux_page_screenshot_focus:" + JSON.stringify(shot.data));
+  const reported_sha = text_at(shot, "data.sha256");
+  ensure(reported_sha.length === 64, "cu_linux_page_screenshot_reply_sha:" + reported_sha);
+
+  print("STEP independent file read-back proves PNG magic, size, digest, and decode");
+  ensure(direct_file(screenshot_path), "cu_linux_page_screenshot_missing:" + screenshot_path);
+  const file_len = rh.metadata(screenshot_path).len;
+  ensure(file_len > 1000, "cu_linux_page_screenshot_size:" + file_len);
+  ensure(independent_png_magic_hex(screenshot_path) === PNG_MAGIC_HEX,
+    "cu_linux_page_screenshot_magic_mismatch");
+  const file_sha = independent_sha256(screenshot_path);
+  ensure(file_sha === reported_sha,
+    "cu_linux_page_screenshot_sha_mismatch:" + JSON.stringify({
+      file: file_sha,
+      reply: reported_sha,
+    }));
+  const decoded = inspect_png(screenshot_path);
+  ensure(decoded.width > 0 && decoded.height > 0 && decoded.samples > 0,
+    "cu_linux_page_screenshot_decode:" + JSON.stringify(decoded));
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-screenshot-readback");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_screenshot_failed");
+harness.remove_run(context);
+print("PASS: Linux page-screenshot CDP capture verified by independent PNG file read-back");
+return;

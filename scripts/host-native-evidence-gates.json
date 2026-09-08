@@ -230,6 +230,13 @@
       ]
     },
     {
+      "id": "cu-linux-page-screenshot-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-cdp-page-screenshot-readback"
+      ]
+    },
+    {
       "id": "cu-linux-page-scroll-smoke",
       "platform": "linux",
       "evidence": [
