@@ -32,7 +32,9 @@ use crate::contract::accessibility_tree::{
     AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
     AccessibilityTreeError, ApplicationVisibility,
 };
-use crate::contract::input_inject::{InputInjectError, MAX_POINTER_DRAG_STEPS, PointerPosition};
+use crate::contract::input_inject::{
+    InputInjectError, MAX_POINTER_DRAG_STEPS, PointerButton, PointerPosition,
+};
 const MAX_NODES: usize = 1_000;
 const MAX_DEPTH: u32 = 32;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -3837,7 +3839,7 @@ fn atspi_mouse_events(
 ) -> Result<Vec<&'static str>, AccessibilityTreeError> {
     let b = atspi_button_index(button)?;
     Ok(match clicks {
-        1 if b == 3 => vec![format_mouse_event(b, 'p'), format_mouse_event(b, 'r')],
+        1 if b == 3 => vec![format_mouse_event(b, 'c')],
         1 => vec![format_mouse_event(b, 'c')],
         2 => vec![format_mouse_event(b, 'd')],
         3 => vec![
@@ -4229,6 +4231,24 @@ async fn invoke_component_click(
                 )
             })?
             .map_err(map_atspi_err)?;
+    }
+    if button != 0 {
+        let inject_button = match button {
+            1 => PointerButton::Right,
+            2 => PointerButton::Middle,
+            other => {
+                return Err(AccessibilityTreeError::failed(
+                    "invalid_input",
+                    format!("button must be 0 (left)..=2 (middle), got {other}"),
+                ));
+            }
+        };
+        crate::input_inject::pointer_click(
+            PointerPosition { x: cx, y: cy },
+            inject_button,
+            clicks,
+        )
+        .map_err(map_input_inject_err)?;
     }
     Ok(())
 }
