@@ -279,7 +279,7 @@ pub fn group_id_for_verb(verb: &str) -> &'static str {
 /// Align-CLI verbs that are typed-only (not a dedicated live command).
 /// `permissions` / `unlock` / `windows-watch` / `apps` / `orderwin` are dedicated.
 pub fn is_typed_only_verb(verb: &str) -> bool {
-    is_align_verb(verb) && !matches!(verb, "unlock" | "permissions")
+    is_align_verb(verb) && !matches!(verb, "unlock" | "permissions" | "open" | "notify")
 }
 
 fn typed_only_reason(verb: &str) -> &'static str {
@@ -293,10 +293,8 @@ fn typed_only_reason(verb: &str) -> &'static str {
         "ps" | "exec" => {
             "ACU migration gap: delegate through the bounded process/qjswasm facade; typed refuse"
         }
-        "open" => "ACU migration gap: typed host-open facade pending",
-        "notify" => "ACU migration gap: typed host-notification facade pending",
         "network" => {
-            "network interfaces, routes and probe are live; DNS inventory/sockets remain typed gaps"
+            "network-interfaces, network-routes, network-dns and network-probe are live verbs; bare MCU network is typed; socket inventory is process-sockets"
         }
         "service" => {
             "ACU migration gap: delegate through the AgenTerm runtime facade; typed refuse"
@@ -410,7 +408,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "resource" => (
             "available",
-            "resource-status is a native bounded host snapshot; resource-pressure preserves native per-dimension semantics without deriving a shared level; top maps to bounded ps sorting while disk/volumes/affinity/limits/scope remain typed gaps",
+            "resource-status is a native bounded host snapshot; resource-pressure preserves native per-dimension semantics without deriving a shared level; open and notify dispatch to host-open / host-notify (linux xdg-open / desktop notification where mapped); top maps to bounded ps sorting while disk/volumes/affinity/limits/scope remain typed gaps",
         ),
         "power" => (
             "available",
@@ -430,7 +428,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "network" => (
             "available",
-            "network-interfaces, network-routes, network-dns and network-probe are live; per-service DNS mutation and global socket-table facades remain gaps",
+            "network-interfaces, network-routes, network-dns and network-probe are live; socket inventory is process-sockets; per-service DNS mutation remains a typed gap",
         ),
         "device" => (
             "unsupported",
@@ -864,6 +862,46 @@ pub fn verb_declaration(verb: &str) -> Value {
             "verb": verb,
         });
     }
+    if verb == "open" || verb == "notify" {
+        let alias_of = if verb == "open" {
+            "host-open"
+        } else {
+            "host-notify"
+        };
+        let (mode, reason) = if verb == "open" {
+            if os == "linux" {
+                (
+                    "linux-xdg-open",
+                    "MCU open TARGET is host-open (xdg-open / registered-application dispatch on Linux; not open -na)",
+                )
+            } else if os == "macos" {
+                (
+                    "registered-application-dispatch",
+                    "MCU open TARGET is host-open (registered-application dispatch via LaunchServices)",
+                )
+            } else {
+                (
+                    "registered-application-dispatch",
+                    "MCU open TARGET is host-open (registered-application dispatch where mapped)",
+                )
+            }
+        } else {
+            (
+                "desktop-notification",
+                "MCU notify TITLE [BODY] is host-notify (FDO/desktop notification on Linux where mapped)",
+            )
+        };
+        return json!({
+            "status": "available",
+            "alias_of": alias_of,
+            "mode": mode,
+            "grant": "actuate",
+            "reason": reason,
+            "group": group,
+            "os": os,
+            "verb": verb,
+        });
+    }
     if is_typed_only_verb(verb) {
         return json!({
             "status": "unsupported",
@@ -1156,5 +1194,52 @@ mod tests {
         assert!(!is_align_verb("windows-watch"));
         assert!(!is_align_verb("apps"));
         assert!(!is_align_verb("orderwin"));
+        assert!(is_align_verb("open") && is_align_verb("notify"));
+        assert!(!is_typed_only_verb("open") && !is_typed_only_verb("notify"));
+        let open = verb_declaration("open");
+        assert_eq!(open["status"], "available");
+        assert_eq!(open["alias_of"], "host-open");
+        assert_eq!(open["grant"], "actuate");
+        let open_reason = open["reason"].as_str().unwrap_or("");
+        assert!(!open_reason.contains("migration gap"), "{open_reason}");
+        assert!(!open_reason.contains("pending"), "{open_reason}");
+        if host_os() == "linux" {
+            assert_eq!(open["mode"], "linux-xdg-open");
+            assert!(open_reason.contains("xdg-open"), "{open_reason}");
+            assert!(open_reason.contains("not open -na"), "{open_reason}");
+        }
+        let notify = verb_declaration("notify");
+        assert_eq!(notify["status"], "available");
+        assert_eq!(notify["alias_of"], "host-notify");
+        assert_eq!(notify["grant"], "actuate");
+        assert_eq!(notify["mode"], "desktop-notification");
+        let notify_reason = notify["reason"].as_str().unwrap_or("");
+        assert!(!notify_reason.contains("migration gap"), "{notify_reason}");
+        assert!(!notify_reason.contains("pending"), "{notify_reason}");
+        assert!(notify_reason.contains("host-notify"), "{notify_reason}");
+        let merged_open = merged["open"]["status"].as_str().unwrap_or("");
+        assert_eq!(merged_open, "available");
+        let network_reason = typed_reason_for_verb("network");
+        assert!(
+            !network_reason.contains("DNS inventory/sockets remain typed gaps"),
+            "{network_reason}"
+        );
+        assert!(
+            network_reason.contains("network-dns") && network_reason.contains("process-sockets"),
+            "{network_reason}"
+        );
+        let (_, network_group_reason) = group_status("network", "linux");
+        assert!(
+            network_group_reason.contains("network-dns"),
+            "{network_group_reason}"
+        );
+        assert!(
+            network_group_reason.contains("process-sockets"),
+            "{network_group_reason}"
+        );
+        assert!(
+            !network_group_reason.contains("socket-table facades remain gaps"),
+            "{network_group_reason}"
+        );
     }
 }
