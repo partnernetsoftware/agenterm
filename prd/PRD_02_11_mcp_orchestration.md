@@ -210,11 +210,17 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     - [x] transport identity and effect identity stay separate: JSON-RPC `id`
       locates one active call/cancellation, while a public non-secret
       `idempotency_key` becomes the durable `RequestIdentity.request_id`
-    - [ ] first implementation knife remains internal and unadvertised:
+    - [~] first implementation knife remains internal and unadvertised:
       queued cancellation proves zero provider call/reservation/effect;
       cancellation after dispatch never overwrites the authoritative
       `CuReply`; EOF drains bounded dispatched work, ends the owned session and
       writes no response after EOF
+      - [x] executable test-only state model proves one dispatched + one queued,
+        separate JSON-RPC/idempotency identities, queued zero-effect cancel,
+        authoritative post-dispatch completion, `outcome_unknown`, and explicit
+        EOF → session-end → ended ordering without exposing the lease
+      - [ ] wire the model to the fixed-sibling provider and real session
+        start/end calls before any mutation descriptor enters `tools/list`
     - [ ] only canonical commands with a product-owned execution deadline may
       enter the synchronous provider. Provider loss after dispatch is
       `outcome_unknown` and the durable reservation forbids automatic replay;
@@ -226,7 +232,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     CMD["canonical Command"] --> CLASS{"exhaustive MCP exposure"}
     CLASS -->|ReadOnly| RO["read-only MCP tool [x]<br/>open-world observation"]
     CLASS -->|artifact / cursor / arbitrary effect| BROAD["typed refusal before dispatch"]
-    CLASS -->|Actuate| LIFE{"connection-owned session<br/>idempotency · cancel · EOF"}
+    CLASS -->|Actuate| LIFE{"connection-owned session [~]<br/>state model green · provider wiring open"}
     LIFE -->|not complete| CLOSED["mutation tool stays closed"]
     LIFE -->|proved| MUT["future typed mutation tools"]
   ```

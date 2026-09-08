@@ -5243,6 +5243,16 @@ reads can contact network or browser targets. Test one real observation for
 structural equality with direct execution and every rejected effect class for
 a typed pre-dispatch refusal.
 
+For MCP mutation, the JSON-RPC request id identifies transport work; it is not
+the durable idempotency key. Keep a connection-owned private session lease and
+bound the queue before exposing any mutating descriptor. Cancellation that
+wins before dispatch must prove zero provider calls, reservations and effects;
+after dispatch it is only a note, so an authoritative provider reply still
+wins. Provider loss after dispatch is `outcome_unknown` and must never trigger
+automatic replay. EOF stops admission, cancels queued work, drains dispatched
+work without writing another response, then performs exactly one session-end
+attempt before dropping the lease.
+
 ## Join CoreSimulator apps to host processes without identity leaks
 
 `simctl spawn <UDID> ps` reports host-global PIDs, and executable paths can be

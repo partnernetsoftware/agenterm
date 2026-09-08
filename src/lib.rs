@@ -29,6 +29,8 @@ mod instances;
 mod ipc_endpoint;
 mod ipc_transport;
 mod locale;
+#[cfg(test)]
+mod mcp_acu_mutation;
 pub mod mcp_catalog;
 mod mcp_fleet;
 pub mod mcp_stdio;

@@ -224,7 +224,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     USERS["typed consumers<br/>CLI · MCP · qjs"]
     MCPCLASS{"MCP exposure [~]<br/>ReadOnly · artifact · cursor<br/>arbitrary effect · Actuate"}
     MCPRO["read-only MCP subset [x]<br/>compiler-exhaustive admission"]
-    MCPMUT["mutation lifecycle [ ]<br/>session · idempotency · cancel · EOF"]
+    MCPMUT["mutation lifecycle [~]<br/>test model green · provider wiring open"]
     LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]
     OWNER --> OBJ --> PROVIDER --> USERS
