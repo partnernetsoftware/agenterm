@@ -1386,6 +1386,23 @@
         "task.cu-linux-file-inspect-smoke"
       ]
     },
+    "cu-linux-process-usage-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-usage-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-usage-smoke"
+      ]
+    },
     "cu-linux-cache-hierarchy-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -5453,6 +5470,24 @@
       "id": "cu-linux-file-inspect-smoke",
       "description": "Prove Linux file-inspect size, unix mode, modified time, kind and inode identity match independent os.lstat read-back for a regular file, directory and final symlink; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-file-inspect-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-process-usage-smoke",
+      "description": "Prove Linux process-usage CPU time, resident bytes, I/O counters and identity match independent /proc read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-usage-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
