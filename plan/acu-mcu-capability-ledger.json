@@ -889,11 +889,9 @@
         {
           "id": "pty.tmux.multi-pane",
           "mcu_shape": "pty --provider tmux panes|split|kill-pane",
-          "acu_shape": "standalone process-set-state, process-signal and identity-bound priority planning exist but are not authorized by one managed-job lease/generation/membership snapshot",
-          "state": "platform-limited",
-          "platforms": {"linux": "gap", "macos": "gap", "windows": "provider-dependent"},
-          "next": "keep tmux as an optional delegated provider after the generic PTY contract exists",
-          "note": "tmux topology is provider-specific; ACU replacement does not require installing tmux or claiming one AgenTerm tab has tmux pane semantics."
+          "acu_shape": null,
+          "state": "retired",
+          "note": "Intentional product-scope retirement: tmux topology is provider-specific, while one AgenTerm tab is exactly one pane. ACU neither installs tmux nor claims pane semantics it does not own; callers use the native PTY lifecycle or invoke an independently managed tmux process explicitly."
         },
         {
           "id": "job.spawn-inventory",
