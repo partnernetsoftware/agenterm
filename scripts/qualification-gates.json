@@ -547,12 +547,6 @@
       ]
     },
     {
-      "id": "cu-linux-resize-expect-smoke",
-      "evidence": [
-        "cu.linux-resize-expect-geometry"
-      ]
-    },
-    {
       "id": "cu-tree-selector-smoke",
       "evidence": [
         "cu.tree-selector-subtree"

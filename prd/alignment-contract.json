@@ -101,6 +101,7 @@
         "cu.linux-atspi-screenshot",
         "cu.linux-atspi-window-place",
         "cu.linux-window-move-expect",
+        "cu.linux-resize-expect-geometry",
         "cu.linux-atspi-orderwin",
         "cu.linux-atspi-minimized",
         "cu.linux-atspi-send-keys",
