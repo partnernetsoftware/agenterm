@@ -1299,6 +1299,10 @@ pub enum Command {
     RuntimeStatus {
         target: TargetRef,
     },
+    /// Read the session input-method framework and environment facts.
+    ImeStatus {
+        target: TargetRef,
+    },
     /// Read the exact current default-output device, volume and mute state.
     AudioStatus {
         target: TargetRef,
@@ -4076,6 +4080,7 @@ impl Command {
             Self::Permissions { .. } => "permissions".into(),
             Self::Doctor { .. } => "doctor".into(),
             Self::RuntimeStatus { .. } => "runtime-status".into(),
+            Self::ImeStatus { .. } => "ime-status".into(),
             Self::AudioStatus { .. }
             | Self::AudioPlanVolume { .. }
             | Self::AudioPlanMuted { .. }
@@ -4316,6 +4321,7 @@ impl Command {
                 PermissionAction::Open => "permissions.open".to_owned(),
             },
             Self::AudioStatus { .. } => "audio.status".to_owned(),
+            Self::ImeStatus { .. } => "ime.status".to_owned(),
             Self::AudioPlanVolume { .. } => "audio.plan-volume".to_owned(),
             Self::AudioPlanMuted { .. } => "audio.plan-muted".to_owned(),
             Self::AudioApply { .. } => "audio.apply".to_owned(),
@@ -4498,6 +4504,7 @@ impl Command {
             | Self::Permissions { target, .. }
             | Self::Doctor { target, .. }
             | Self::RuntimeStatus { target, .. }
+            | Self::ImeStatus { target }
             | Self::AudioStatus { target }
             | Self::AudioPlanVolume { target, .. }
             | Self::AudioPlanMuted { target, .. }

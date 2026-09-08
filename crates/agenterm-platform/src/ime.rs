@@ -1,7 +1,81 @@
 //! Selected IME capability and platform-neutral composition state machine.
 
+use serde::{Deserialize, Serialize};
+
 pub use crate::contract::ime::{ImeAction, ImeComposition, ImeEvent, ImeStatus};
-use crate::{CapabilityStatus, input::KeyClassification, selected};
+use crate::{CapabilityStatus, selected};
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImeEnvSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gtk_im_module: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qt_im_module: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xmodifiers: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImeHostObservation {
+    pub provider: String,
+    pub framework: String,
+    pub name: String,
+    pub available: bool,
+    pub open: bool,
+    pub native_mode: bool,
+    pub full_shape: bool,
+    pub label: String,
+    pub env: ImeEnvSnapshot,
+    pub session_bus_available: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImeObserveUnsupported {
+    pub reason: String,
+    pub env: ImeEnvSnapshot,
+    pub probed_frameworks: Vec<String>,
+    pub session_bus_available: bool,
+    pub required_mechanism: String,
+    pub alternatives: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ImeObserveResult {
+    Ok(ImeHostObservation),
+    Unsupported(ImeObserveUnsupported),
+}
+
+impl ImeHostObservation {
+    pub(crate) fn from_status(
+        provider: impl Into<String>,
+        framework: impl Into<String>,
+        status: ImeStatus,
+        env: ImeEnvSnapshot,
+        session_bus_available: bool,
+    ) -> Self {
+        Self {
+            provider: provider.into(),
+            framework: framework.into(),
+            name: status.name.clone(),
+            available: status.available,
+            open: status.open,
+            native_mode: status.native_mode,
+            full_shape: status.full_shape,
+            label: status.label(),
+            env,
+            session_bus_available,
+        }
+    }
+}
+
+/// Poll the session input-method framework when the host exposes one.
+#[must_use]
+pub fn observe_host() -> ImeObserveResult {
+    selected::ime::observe()
+}
 
 pub fn capability_status(display_available: bool) -> CapabilityStatus {
     selected::ime::capability_status(display_available)
@@ -45,10 +119,13 @@ pub fn classify_event(event: ImeEvent, anchor_available: bool) -> ImeAction {
             ImeAction::UpdatePreedit { text, cursor }
         }
         ImeEvent::Preedit { .. } | ImeEvent::Disabled => ImeAction::ClearPreedit,
-        ImeEvent::Commit(text) => match crate::input::classify_ime_commit(&text) {
-            KeyClassification::TextCommit(text) => ImeAction::CommitText(text),
-            _ => ImeAction::ClearPreedit,
-        },
+        ImeEvent::Commit(text) => {
+            if text.is_empty() || text.chars().any(char::is_control) {
+                ImeAction::ClearPreedit
+            } else {
+                ImeAction::CommitText(text)
+            }
+        }
     }
 }
 

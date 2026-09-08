@@ -209,6 +209,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::PointerPosition { .. }
         | Command::PointerScroll { .. }
         | Command::PowerStatus { .. }
+        | Command::ImeStatus { .. }
         | Command::PrivilegeApply { .. }
         | Command::PrivilegePlanPowerAction { .. }
         | Command::PrivilegePlanProcessPriority { .. }

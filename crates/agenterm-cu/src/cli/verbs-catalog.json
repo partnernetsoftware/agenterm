@@ -3033,6 +3033,18 @@
       "args": []
     },
     {
+      "name": "ime-status",
+      "command": "ime-status",
+      "aliases": [
+        "ime status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read the session input-method framework and environment facts",
+      "usage": "ime status\nime-status",
+      "args": []
+    },
+    {
       "name": "runtime-status",
       "command": "runtime-status",
       "aliases": [
@@ -6326,6 +6338,10 @@
     {
       "name": "power-status",
       "text": "agenterm-cu power-status    (also: power status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  power status\n  power-status\n\nReturns an installation-scoped opaque host identity, an opaque identity for\nthis exact operating-system boot and monotonic uptime. Observation never\ncreates or rotates installation state: run setup once if the identity is not\nenrolled. No hardware serial, native process-start identity or private key is\nreturned. The boot anchor is sampled before and after uptime; any identity\nchange fails typed instead of producing a mixed receipt.\n"
+    },
+    {
+      "name": "ime-status",
+      "text": "agenterm-cu ime-status    (also: ime status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  ime status\n  ime-status\n\nReports the session input-method framework when IBus or Fcitx answers on the\ndesktop bus, including GTK_IM_MODULE, QT_IM_MODULE and XMODIFIERS facts.\nWhen no framework is observable the reply is a typed unsupported result with\nrepair alternatives instead of screenshot or coordinate degradation.\n"
     },
     {
       "name": "runtime-status",

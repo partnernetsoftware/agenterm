@@ -123,7 +123,7 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-watch  device-list  storage-devices  resource-status  resource-pressure  device-claims  device-claim\n  device-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
+            "  device-watch  device-list  storage-devices  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
             1,
         );
     }

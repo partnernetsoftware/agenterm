@@ -138,6 +138,40 @@ pub(crate) fn capability_status(display_available: bool) -> CapabilityStatus {
     }
 }
 
+pub(crate) fn observe() -> crate::ime::ImeObserveResult {
+    match status() {
+        Some(status) if status.available => crate::ime::ImeObserveResult::Ok(
+            crate::ime::ImeHostObservation::from_status(
+                "macos-tis",
+                "text-input-sources",
+                status,
+                crate::ime::ImeEnvSnapshot::default(),
+                false,
+            ),
+        ),
+        Some(_) => crate::ime::ImeObserveResult::Unsupported(crate::ime::ImeObserveUnsupported {
+            reason: "the selected keyboard layout is not an input method",
+            env: crate::ime::ImeEnvSnapshot::default(),
+            probed_frameworks: vec!["text-input-sources".into()],
+            session_bus_available: false,
+            required_mechanism: "macos-text-input-sources",
+            alternatives: vec![
+                "select a keyboard input mode in the macOS input menu".into(),
+            ],
+        }),
+        None => crate::ime::ImeObserveResult::Unsupported(crate::ime::ImeObserveUnsupported {
+            reason: "no keyboard input source is selected",
+            env: crate::ime::ImeEnvSnapshot::default(),
+            probed_frameworks: vec!["text-input-sources".into()],
+            session_bus_available: false,
+            required_mechanism: "macos-text-input-sources",
+            alternatives: vec![
+                "select a keyboard input mode in the macOS input menu".into(),
+            ],
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
