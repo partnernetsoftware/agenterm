@@ -292,6 +292,7 @@ const evidence_suites = {
   "cu-linux-window-close-smoke": true,
   "cu-linux-windows-inventory-smoke": true,
   "cu-linux-menu-invoke-smoke": true,
+  "cu-linux-menu-invoke-honesty-smoke": true,
   "cu-linux-menu-inspect-smoke": true,
   "cu-linux-invoke-smoke": true,
   "cu-linux-observe-smoke": true,

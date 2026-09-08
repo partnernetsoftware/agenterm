@@ -465,6 +465,12 @@
       ]
     },
     {
+      "id": "cu-linux-menu-invoke-honesty-smoke",
+      "evidence": [
+        "cu.linux-atspi-menu-invoke-readback"
+      ]
+    },
+    {
       "id": "cu-linux-observe-smoke",
       "evidence": [
         "cu.linux-atspi-observe-readback"

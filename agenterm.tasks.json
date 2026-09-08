@@ -1403,6 +1403,25 @@
         "task.cu-linux-menu-invoke-smoke"
       ]
     },
+    "cu-linux-menu-invoke-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-menu-invoke-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-menu-invoke-honesty-smoke"
+      ]
+    },
     "cu-linux-menu-inspect-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6262,6 +6281,26 @@
       "args": [
         ".",
         "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-menu-invoke-honesty-smoke",
+      "description": "Prove Linux CU menu invoke on a disposable GTK menubar changes fixture state that independent pyatspi AT-SPI label and checked-state read-back agree with, refuses disabled items typed without side effects, and round-trips a checkable mark; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-menu-invoke-honesty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [
