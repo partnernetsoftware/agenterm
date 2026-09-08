@@ -500,12 +500,7 @@ impl NativeClipboard {
         }
         reply
             .value32()
-            .map(|values| {
-                values
-                    .take(TARGETS_PROBE_ATOMS)
-                    .map(Atom::from)
-                    .collect()
-            })
+            .map(|values| values.take(TARGETS_PROBE_ATOMS).map(Atom::from).collect())
             .ok_or_else(|| backend("X11 TARGETS property is not a 32-bit atom array"))
     }
 
@@ -669,13 +664,18 @@ mod tests {
         super::set_text(&marker, Duration::from_millis(500)).expect("set_text");
         let types = super::available_types(Duration::from_millis(500)).expect("available_types");
         assert!(
-            types.iter().any(|name| name == "UTF8_STRING" || name == "STRING"),
+            types
+                .iter()
+                .any(|name| name == "UTF8_STRING" || name == "STRING"),
             "expected UTF8_STRING or STRING in {types:?}"
         );
         assert!(types.iter().any(|name| name == "TARGETS"));
         super::clear(Duration::from_millis(500)).expect("clear");
         let empty = super::available_types(Duration::from_millis(500)).expect("empty types");
-        assert!(empty.is_empty(), "cleared clipboard should enumerate no types");
+        assert!(
+            empty.is_empty(),
+            "cleared clipboard should enumerate no types"
+        );
     }
 
     #[test]

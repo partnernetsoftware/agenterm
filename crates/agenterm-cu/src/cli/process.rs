@@ -80,9 +80,9 @@ fn flag_max_visited_with_max_alias(args: &mut Vec<String>) -> Result<Option<usiz
     let max_visited = flag_parsed::<usize>(args, "--max-visited")?;
     let max = flag_parsed::<usize>(args, "--max")?;
     match (max_visited, max) {
-        (Some(left), Some(right)) if left != right => Err(
-            "process-fds --max and --max-visited disagree; use one scan-ceiling flag".into(),
-        ),
+        (Some(left), Some(right)) if left != right => {
+            Err("process-fds --max and --max-visited disagree; use one scan-ceiling flag".into())
+        }
         (Some(value), Some(_)) | (Some(value), None) | (None, Some(value)) => Ok(Some(value)),
         (None, None) => Ok(None),
     }

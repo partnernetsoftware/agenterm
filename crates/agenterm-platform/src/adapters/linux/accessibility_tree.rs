@@ -156,7 +156,9 @@ fn remember_connection(conn: zbus::Connection) -> zbus::Connection {
     conn
 }
 
-async fn ensure_focus_events_registered(conn: &zbus::Connection) -> Result<(), AccessibilityTreeError> {
+async fn ensure_focus_events_registered(
+    conn: &zbus::Connection,
+) -> Result<(), AccessibilityTreeError> {
     if FOCUS_EVENTS_REGISTERED.get().is_some() {
         return Ok(());
     }
@@ -169,7 +171,10 @@ async fn ensure_focus_events_registered(conn: &zbus::Connection) -> Result<(), A
         .build()
         .await
         .map_err(map_atspi_err)?;
-    registry.register_event("focus:").await.map_err(map_atspi_err)?;
+    registry
+        .register_event("focus:")
+        .await
+        .map_err(map_atspi_err)?;
     registry
         .register_event("object:state-changed")
         .await
@@ -439,14 +444,17 @@ pub(crate) fn focused_node_for_window(
         return Ok(node);
     }
     runtime().block_on(async {
-        timeout(SNAPSHOT_TIMEOUT, focused_node_for_window_async(window_handle))
-            .await
-            .map_err(|_| {
-                AccessibilityTreeError::failed(
-                    "a11y_tree_timeout",
-                    "AT-SPI focused read exceeded its deadline",
-                )
-            })?
+        timeout(
+            SNAPSHOT_TIMEOUT,
+            focused_node_for_window_async(window_handle),
+        )
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_tree_timeout",
+                "AT-SPI focused read exceeded its deadline",
+            )
+        })?
     })
 }
 
@@ -526,11 +534,11 @@ async fn focused_node_via_live_probe(
         if depth > FOCUS_SEARCH_DEPTH {
             continue;
         }
-        let object =
-            match resolve_walk_object(conn, dbus.as_ref(), identity.as_ref(), object).await {
-                Some(object) => object,
-                None => continue,
-            };
+        let object = match resolve_walk_object(conn, dbus.as_ref(), identity.as_ref(), object).await
+        {
+            Some(object) => object,
+            None => continue,
+        };
         let Ok(Ok(proxy)) = timeout(NODE_TIMEOUT, open_bus_object(conn, &object)).await else {
             continue;
         };
@@ -538,7 +546,11 @@ async fn focused_node_via_live_probe(
         let states = states_from_proxy_with_role(&proxy, &role).await;
         let focusable = states.iter().any(|state| state == "focusable")
             || states.iter().any(|state| state == "editable");
-        if !focusable || !states.iter().any(|state| state == "showing" || state == "visible") {
+        if !focusable
+            || !states
+                .iter()
+                .any(|state| state == "showing" || state == "visible")
+        {
             if depth >= FOCUS_SEARCH_DEPTH {
                 continue;
             }

@@ -714,9 +714,7 @@ pub(crate) fn available_types() -> Result<Vec<String>, ClipboardError> {
         errors.join("; ")
     };
     Err(ClipboardError::Unavailable {
-        message: format!(
-            "clipboard type enumeration failed on this host ({detail})"
-        ),
+        message: format!("clipboard type enumeration failed on this host ({detail})"),
     })
 }
 
