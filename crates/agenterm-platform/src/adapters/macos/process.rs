@@ -819,6 +819,7 @@ pub(crate) fn cgroup_v2(
 
 pub struct ProcessTreeGuard {
     process_group: libc::pid_t,
+    owned_session: libc::pid_t,
     root_start_identity: Option<String>,
     adopted: bool,
     adopted_termination: Option<Vec<AdoptedTerminationMember>>,
@@ -850,6 +851,7 @@ impl ProcessTreeGuard {
     pub fn attach(child: &Child) -> Result<Self, String> {
         let process_group = libc::pid_t::try_from(child.id())
             .map_err(|_| "child process ID exceeds pid_t".to_owned())?;
+        let owned_session = process_session(process_group)?;
         let root_start_identity = match observe(child.id()) {
             ProcessObservation::Live {
                 start_identity: Some(identity),
@@ -858,6 +860,7 @@ impl ProcessTreeGuard {
         };
         Ok(Self {
             process_group,
+            owned_session,
             root_start_identity,
             adopted: false,
             adopted_termination: None,
@@ -877,6 +880,7 @@ impl ProcessTreeGuard {
         }
         let native_id = libc::pid_t::try_from(process_id)
             .map_err(|_| "adopted process ID exceeds pid_t".to_owned())?;
+        let owned_session = process_session(native_id)?;
         if unsafe { libc::getpgid(native_id) } != native_id {
             return Err("adopted process must be its process-group leader".to_owned());
         }
@@ -889,6 +893,7 @@ impl ProcessTreeGuard {
         }
         let guard = Self {
             process_group: native_id,
+            owned_session,
             root_start_identity: Some(expected_start_identity.to_owned()),
             adopted: true,
             adopted_termination: None,
@@ -1064,7 +1069,6 @@ impl ProcessTreeGuard {
                     .collect::<Vec<_>>()
             })
             .map_err(|error| format!("owned process inventory failed: {error}"));
-        let owned_session = unsafe { libc::getsid(self.process_group) };
         let group_result =
             if root_is_owned && unsafe { libc::killpg(self.process_group, libc::SIGKILL) } == 0 {
                 Ok(())
@@ -1094,7 +1098,7 @@ impl ProcessTreeGuard {
                         failures.push(format!("descendant process ID {id} exceeds pid_t"));
                         continue;
                     };
-                    if process_is_outside_session(native_id, owned_session) {
+                    if process_is_outside_session(native_id, self.owned_session) {
                         continue;
                     }
                     if unsafe { libc::kill(native_id, libc::SIGKILL) } != 0 {
@@ -1208,6 +1212,18 @@ impl ProcessTreeGuard {
 fn process_is_outside_session(process_id: libc::pid_t, owned_session: libc::pid_t) -> bool {
     let process_session = unsafe { libc::getsid(process_id) };
     owned_session >= 0 && process_session >= 0 && process_session != owned_session
+}
+
+fn process_session(process_id: libc::pid_t) -> Result<libc::pid_t, String> {
+    let session = unsafe { libc::getsid(process_id) };
+    if session >= 0 {
+        Ok(session)
+    } else {
+        Err(format!(
+            "observe process session failed: {}",
+            std::io::Error::last_os_error()
+        ))
+    }
 }
 
 fn resume_adopted_members(members: &[AdoptedTerminationMember], frozen: &[usize]) {
