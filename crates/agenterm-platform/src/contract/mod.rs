@@ -5,6 +5,7 @@ pub mod accessibility_publish;
 pub mod accessibility_tree;
 #[cfg(feature = "activation")]
 pub mod activation;
+pub mod app_facts;
 #[cfg(feature = "window-enum")]
 pub mod app_inventory;
 pub mod cache_hierarchy;

@@ -370,6 +370,8 @@ pub mod accessibility_tree;
 // `a11y-publish` feature only selects whether the real AT-SPI server is built.
 pub mod accessibility_publish;
 
+pub mod app_facts;
+
 #[cfg(feature = "window-enum")]
 pub mod app_inventory;
 

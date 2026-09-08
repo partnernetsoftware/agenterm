@@ -1692,6 +1692,18 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         all: bool,
     },
+    /// Resolve one exact installed application and return native metadata
+    /// facts without borrowing window evidence.
+    AppFacts {
+        target: TargetRef,
+        selector: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        signing: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        verify: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        entitlements: bool,
+    },
     /// Inspect every visible top-level window belonging to one application
     /// name in one bounded call. This preserves MCU `inspect --app`'s
     /// multi-window meaning instead of guessing one representative handle.
@@ -4037,6 +4049,7 @@ impl Command {
             Self::Windows { .. } => "windows".into(),
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
+            Self::AppFacts { .. } => "app-facts".into(),
             Self::AppInspect { .. } => "app-inspect".into(),
             Self::Ps { .. } => "ps".into(),
             Self::ProcessState { .. } => "process-state".into(),
@@ -4437,6 +4450,7 @@ impl Command {
             | Self::Windows { target, .. }
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
+            | Self::AppFacts { target, .. }
             | Self::AppInspect { target, .. }
             | Self::Ps { target, .. }
             | Self::ProcessState { target, .. }
@@ -4750,6 +4764,15 @@ impl Command {
     /// the same field bounds before constructing managed-job variants.
     pub fn validate(&self) -> Result<(), &'static str> {
         match self {
+            Self::AppFacts { selector, .. } => {
+                if selector.is_empty()
+                    || selector.len() > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
+                    || selector.as_bytes().contains(&0)
+                {
+                    return Err("app-facts selector must contain 1..=4096 non-NUL UTF-8 bytes");
+                }
+                Ok(())
+            }
             Self::PrivilegeApply {
                 target,
                 plan,

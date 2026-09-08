@@ -48,7 +48,7 @@ let dynamic_stays = 0;
 let permanent_rejections = 0;
 const resolved_exec = ["acu.dynamic.003", "acu.dynamic.021", "acu.dynamic.050", "acu.dynamic.051",
   "acu.dynamic.066", "acu.dynamic.067", "acu.dynamic.075", "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
-  "acu.dynamic.076", "acu.dynamic.077", "acu.dynamic.084", "acu.dynamic.086", "acu.dynamic.087", "acu.dynamic.096"];
+  "acu.dynamic.072", "acu.dynamic.076", "acu.dynamic.077", "acu.dynamic.084", "acu.dynamic.086", "acu.dynamic.087", "acu.dynamic.096"];
 const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.078", "acu.dynamic.083",
   "acu.dynamic.088", "acu.dynamic.094"];
@@ -90,6 +90,10 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
       } else if (row.gap_id === "acu.dynamic.076") {
         same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
           "app-inspect", "--app", "Editor"], row.gap_id);
+      } else if (row.gap_id === "acu.dynamic.072") {
+        same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
+          "app-facts", "--selector", "Editor", "--signing", "--verify",
+          "--entitlements"], row.gap_id);
       } else if (row.gap_id === "acu.dynamic.075") {
         same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
           "browser-tabs"], row.gap_id);
@@ -119,9 +123,9 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
     resolved_checked = resolved_checked + 1;
   }
 }
-require(dynamic_stays === 3, "dynamic stay corpus count");
+require(dynamic_stays === 2, "dynamic stay corpus count");
 require(permanent_rejections === 2, "permanent rejection corpus count");
-require(resolved_checked === 30, "resolved dynamic corpus count");
+require(resolved_checked === 31, "resolved dynamic corpus count");
 
 const irreducible_wait = compat.canonicalize([
   "pty", "wait", "job-1", "text[0-9]+", "--provider", "native"
@@ -171,4 +175,4 @@ require(space_with_unmapped_filter.kind === "todo", "unmapped watch filter remai
 require(space_with_unmapped_filter.gap_id === "acu.dynamic.084",
   "unmapped watch filter keeps stable dynamic id");
 
-"compat-corpus.qjs PASS 42 positive exec / 30 resolved dispositions (17 exec + 8 compound + 5 usage) / 3 dynamic TODO / 2 permanent rejections / 95 frozen";
+"compat-corpus.qjs PASS 42 positive exec / 31 resolved dispositions (18 exec + 8 compound + 5 usage) / 2 dynamic TODO / 2 permanent rejections / 95 frozen";

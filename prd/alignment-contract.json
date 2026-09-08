@@ -251,6 +251,7 @@
         "cu.service-system-observe",
         "cu.network-interfaces",
         "cu.desktop-state",
+        "cu.app-facts.linux",
         "cu.process-inventory-rich",
         "cu.process-inspection",
         "cu.process-sockets",

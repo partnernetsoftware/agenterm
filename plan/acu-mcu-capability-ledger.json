@@ -526,6 +526,38 @@
           "evidence": ["cu.macos-ax-app-lifecycle", "cu.linux-atspi-app-lifecycle"]
         },
         {
+          "id": "desktop.app.facts",
+          "mcu_shape": "apps inspect APP",
+          "acu_shape": "app-facts --selector VALUE [--signing] [--verify] [--entitlements]",
+          "state": "platform-limited",
+          "platforms": {
+            "linux": "native-public-qjswasm",
+            "macos": "gap",
+            "windows": "gap"
+          },
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-app-facts-smoke",
+                "evidence": ["cu.app-facts.linux"]
+              },
+              "macos": {
+                "result": "pending",
+                "blocker_code": "native-app-facts-provider-not-implemented"
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-app-facts-provider-not-implemented"
+              }
+            }
+          },
+          "evidence": ["cu.app-facts.linux"],
+          "next": "add native macOS bundle/signing/entitlement facts and Windows installed-application/version/signature facts, then qualify both native courts",
+          "note": "Linux resolves one canonical XDG desktop entry by path, desktop id or unique Name under a bounded precedence scan, brackets desktop/executable identity and never borrows window evidence. Desktop-entry Version is file-format metadata, not an application version; unsupported or unavailable facts remain individually reasoned. The exact legacy apps inspect witness now maps through this public verb, while watch and provisioning keep acu.dynamic.072 until their own providers exist."
+        },
+        {
           "id": "desktop.app.inspect-multi-window",
           "mcu_shape": "inspect --app APP across every matching top-level window",
           "acu_shape": "app-inspect --app NAME with bounded depth, nodes and windows",

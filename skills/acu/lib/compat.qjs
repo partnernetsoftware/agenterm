@@ -222,6 +222,11 @@ function known_dynamic_boundary(argv) {
     append(native, copy_from(parsed.argv, 3));
     return { kind: "exec", argv: native };
   }
+  if (verb === "apps" && sub === "inspect" && argv.length === 3
+      && !argv[2].startsWith("--")) {
+    return { kind: "exec", argv: ["app-facts", "--selector", argv[2],
+      "--signing", "--verify", "--entitlements"] };
+  }
   if (verb === "apps" && (sub === "inspect" || sub === "watch" || sub === "provisioning")) {
     return todo("acu.dynamic.072", "apps", "application inspection and signing facts need a typed provider");
   }

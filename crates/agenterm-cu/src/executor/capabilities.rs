@@ -927,6 +927,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "app-facts".into(),
+            serde_json::json!({
+                "status": if cfg!(target_os = "linux") { "available" } else { "unsupported" },
+                "group": "discover",
+                "mode": "exact-native-application-facts",
+                "grant": "observe",
+                "selector": ["normalized-path", "desktop-entry-id", "unique-name"],
+                "identity_bracketed": true,
+                "window_evidence": false,
+                "platforms": ["linux"],
+            }),
+        );
+        verbs.insert(
             "app-menu-inspect".into(),
             serde_json::json!({
                 "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },

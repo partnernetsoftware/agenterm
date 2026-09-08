@@ -45,6 +45,7 @@ use crate::{
 
 mod a11y_actuate;
 mod a11y_observe;
+mod app_facts;
 mod app_lifecycle;
 mod browser;
 mod browser_bridge;
@@ -98,6 +99,7 @@ pub use errors::{ACCESSIBILITY_REPAIR_PATH, SCREEN_RECORDING_REPAIR_PATH};
 
 use a11y_actuate::*;
 use a11y_observe::*;
+use app_facts::*;
 use app_lifecycle::*;
 use browser::*;
 use browser_bridge::*;

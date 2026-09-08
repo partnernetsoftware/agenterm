@@ -16,6 +16,7 @@ pub fn parse(
         "windows" => windows(spelled, target, args),
         "windows-watch" => windows_watch(target, args),
         "apps" => apps(target, args),
+        "app-facts" => app_facts(target, args),
         "app-inspect" => app_inspect(target, args),
         "app" => app(spelled, target, args),
         "unlock" => {
@@ -201,6 +202,30 @@ fn apps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     })
 }
 
+fn app_facts(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    let selector = flag_text(args, "--selector")?
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "app-facts requires --selector VALUE".to_owned())?;
+    let signing = take_switch(args, "--signing");
+    let verify = take_switch(args, "--verify");
+    let entitlements = take_switch(args, "--entitlements");
+    if !args.is_empty() {
+        return Err(format!(
+            "app-facts accepts only --selector VALUE [--signing] [--verify] [--entitlements]; unexpected {:?}",
+            args[0]
+        ));
+    }
+    let command = Command::AppFacts {
+        target,
+        selector,
+        signing,
+        verify,
+        entitlements,
+    };
+    command.validate().map_err(str::to_owned)?;
+    Ok(command)
+}
+
 pub(crate) fn app_inspect(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     let app = flag_text(args, "--app")?
         .filter(|value| !value.trim().is_empty())
@@ -353,5 +378,27 @@ mod app_inspect_tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn parses_closed_app_facts_shape() {
+        let mut args = vec![
+            "--selector".into(),
+            "org.example.Editor.desktop".into(),
+            "--signing".into(),
+            "--verify".into(),
+            "--entitlements".into(),
+        ];
+        assert!(matches!(
+            app_facts(TargetRef::Current, &mut args).unwrap(),
+            Command::AppFacts {
+                selector,
+                signing: true,
+                verify: true,
+                entitlements: true,
+                ..
+            } if selector == "org.example.Editor.desktop"
+        ));
+        assert!(app_facts(TargetRef::Current, &mut Vec::new()).is_err());
     }
 }

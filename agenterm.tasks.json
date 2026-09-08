@@ -1097,6 +1097,23 @@
         "task.cu-power-status-smoke"
       ]
     },
+    "cu-app-facts-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-app-facts-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-app-facts-smoke"
+      ]
+    },
     "cu-clipboard-roundtrip-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -3658,6 +3675,25 @@
         "windows",
         "linux",
         "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-app-facts-smoke",
+      "description": "Prove exact bounded Linux XDG application facts, canonical selector resolution, reasoned optional facts and no window or package-manager fallback.",
+      "entry": "scripts/qjs/cu-app-facts-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
       ],
       "side_effects": [
         "artifact_write",

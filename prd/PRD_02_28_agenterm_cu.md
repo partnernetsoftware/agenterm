@@ -133,12 +133,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `3 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 30 resolved witnesses now have an executable disposition:
-  17 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 3 remaining
+  `2 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 31 resolved witnesses now have an executable disposition:
+  18 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 2 remaining
   dynamic-stay witness rows keep their stable repair identities. The `.050` witness now
-  maps to native exact simulator app status, and `.084` now
+  maps to native exact simulator app status, `.072` maps exact application facts through
+  the Linux provider without borrowing window evidence, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
   asserted as the same typed TODO until their per-poll semantics exist.
   This closes the valid top-level compatibility set, not the dynamic debt: every unsupported
@@ -514,8 +515,10 @@ ACU-only cutover
 │  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
 │  ├─ [~] acu.dynamic.067 · `literal.*` reduces exactly to native loss-aware substring wait;
 │  │  └─ general bounded linear-time regex remains typed TODO
-│  ├─ acu.dynamic.072 · application facts umbrella; never borrow `.076` window evidence
-│  │  ├─ acu.native.app.facts-signature · bundle/path/version/signature/entitlement facts
+│  ├─ [~] acu.dynamic.072 · application facts umbrella; never borrow `.076` window evidence
+│  │  ├─ [~] acu.native.app.facts-signature · Linux `app-facts` resolves exact bounded XDG
+│  │  │  entry/executable facts and the frozen `apps inspect` witness now maps to it;
+│  │  │  macOS/Windows native facts and their courts remain
 │  │  ├─ acu.native.app.lifecycle-watch · bounded application process lifecycle
 │  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
 │  ├─ acu.dynamic.074 · window-local scroll without physical-pointer movement
@@ -557,6 +560,14 @@ ACU-only cutover
    ├─ dynamic corpus returns only ACU execution, typed retirement or `acu_todo`
    └─ six-cell Candidate consumes ACU + matching `libagenterm` bytes
 ```
+
+The Linux application-facts slice resolves one exact XDG desktop entry and
+executable under bounded precedence and identity brackets. Its public qjswasm
+court is green on the x86_64 UTM court; signature, verification, entitlements,
+absent application version and incomplete process visibility remain individually
+reasoned facts rather than guesses. The exact frozen `apps inspect APP` witness
+now calls that verb, while native macOS/Windows facts plus lifecycle-watch and
+provisioning remain named `.072` work.
 
 ```mermaid
 flowchart LR
