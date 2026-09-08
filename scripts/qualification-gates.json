@@ -466,6 +466,12 @@
       ]
     },
     {
+      "id": "cu-linux-windows-watch-smoke",
+      "evidence": [
+        "cu.linux-windows-watch-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-threads-smoke",
       "evidence": [
         "cu.linux-process-threads-readback"

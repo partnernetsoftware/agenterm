@@ -96,6 +96,7 @@
         "cu.linux-process-kill-readback",
         "cu.linux-process-lifecycle-watch",
         "cu.linux-process-watch-readback",
+        "cu.linux-windows-watch-readback",
         "cu.linux-network-probe",
         "cu.linux-network-interfaces-ip-sysfs",
         "cu.linux-file-inspect",

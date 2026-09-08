@@ -1406,6 +1406,24 @@
         "task.cu-linux-process-watch-smoke"
       ]
     },
+    "cu-linux-windows-watch-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-windows-watch-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-windows-watch-smoke"
+      ]
+    },
     "cu-linux-process-fds-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -5788,6 +5806,24 @@
       "id": "cu-linux-process-watch-smoke",
       "description": "Prove Linux process-watch started/exited diffs match independent /proc scan pid/start-identity add/remove read-back over the same selector window; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-process-watch-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-windows-watch-smoke",
+      "description": "Prove Linux windows-watch appeared/disappeared/title diffs match independent windows inventory handle/title/field diffs over the same poll window; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-windows-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

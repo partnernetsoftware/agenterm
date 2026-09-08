@@ -302,6 +302,7 @@ const evidence_suites = {
   "cu-linux-process-environment-smoke": true,
   "cu-linux-process-fds-smoke": true,
   "cu-linux-process-watch-smoke": true,
+  "cu-linux-windows-watch-smoke": true,
   "cu-linux-process-threads-smoke": true,
   "cu-linux-process-maps-smoke": true,
   "cu-linux-cache-hierarchy-smoke": true,
