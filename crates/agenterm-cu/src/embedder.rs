@@ -216,6 +216,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::PointerUngrab { .. }
         | Command::PointerScroll { .. }
         | Command::PowerStatus { .. }
+        | Command::ProcessorTopologyStatus { .. }
         | Command::FontDiscovery { .. }
         | Command::ImeStatus { .. }
         | Command::KeyboardLayoutStatus { .. }

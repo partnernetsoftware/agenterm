@@ -2696,6 +2696,9 @@ pub enum Command {
     PowerStatus {
         target: TargetRef,
     },
+    ProcessorTopologyStatus {
+        target: TargetRef,
+    },
     FontDiscovery {
         target: TargetRef,
     },
@@ -4327,6 +4330,7 @@ impl Command {
             Self::ResourceStatus { .. } => "resource-status".into(),
             Self::ResourcePressure { .. } => "resource-pressure".into(),
             Self::PowerStatus { .. } => "power-status".into(),
+            Self::ProcessorTopologyStatus { .. } => "processor-topology-status".into(),
             Self::FontDiscovery { .. } => "font-discovery".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::StorageVolumes { .. } => "storage-volumes".into(),
@@ -4763,6 +4767,7 @@ impl Command {
             | Self::ResourceStatus { target }
             | Self::ResourcePressure { target }
             | Self::PowerStatus { target }
+            | Self::ProcessorTopologyStatus { target }
             | Self::FontDiscovery { target }
             | Self::StorageDevices { target, .. }
             | Self::StorageVolumes { target, .. }

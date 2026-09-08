@@ -331,6 +331,10 @@
       "evidence": ["cu.linux-fontconfig-monospace"]
     },
     {
+      "id": "cu-linux-processor-topology-smoke",
+      "evidence": ["cu.linux-processor-topology-readback"]
+    },
+    {
       "id": "cu-desktop-state-smoke",
       "evidence": ["cu.desktop-state"]
     },

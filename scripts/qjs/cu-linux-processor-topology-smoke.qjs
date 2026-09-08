@@ -1,0 +1,223 @@
+// CEO: Linux processor topology honesty with independent /proc/cpuinfo + lscpu read-back.
+// Acceptance is smoke read-back only: CU processor-topology-status must agree with
+// facts derived outside agenterm-cu. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-processor-topology-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_processor_topology_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_processor_topology_reply_state");
+  return reply;
+}
+
+function independent_topology() {
+  const script = [
+    "import os, re, subprocess, glob",
+    "def lscpu_field(name):",
+    "    out = subprocess.run(['lscpu'], capture_output=True, text=True)",
+    "    if out.returncode != 0:",
+    "        return None",
+    "    for line in out.stdout.splitlines():",
+    "        if line.startswith(name):",
+    "            return line.split(':', 1)[1].strip()",
+    "    return None",
+    "def parse_int(value):",
+    "    if value is None or value == '':",
+    "        return None",
+    "    try:",
+    "        return int(value)",
+    "    except ValueError:",
+    "        return None",
+    "online_logical = parse_int(lscpu_field('CPU(s):'))",
+    "cores_per_socket = parse_int(lscpu_field('Core(s) per socket:'))",
+    "sockets = parse_int(lscpu_field('Socket(s):'))",
+    "numa_nodes = parse_int(lscpu_field('NUMA node(s):'))",
+    "physical_cores = None",
+    "packages = None",
+    "if cores_per_socket is not None and sockets is not None:",
+    "    physical_cores = cores_per_socket * sockets",
+    "    packages = sockets",
+    "sysconf = int(os.sysconf('SC_NPROCESSORS_ONLN'))",
+    "cpuinfo = sum(1 for line in open('/proc/cpuinfo') if line.startswith('processor'))",
+    "online_list = open('/sys/devices/system/cpu/online').read().strip()",
+    "sysfs_cores = set()",
+    "sysfs_packages = set()",
+    "sysfs_online = 0",
+    "for path in glob.glob('/sys/devices/system/cpu/cpu[0-9]*'):",
+    "    name = os.path.basename(path)",
+    "    if not re.fullmatch(r'cpu\\d+', name):",
+    "        continue",
+    "    online_path = os.path.join(path, 'online')",
+    "    if os.path.exists(online_path) and open(online_path).read().strip() == '0':",
+    "        continue",
+    "    sysfs_online += 1",
+    "    pkg_path = os.path.join(path, 'topology', 'physical_package_id')",
+    "    core_path = os.path.join(path, 'topology', 'core_id')",
+    "    if os.path.exists(pkg_path) and os.path.exists(core_path):",
+    "        pkg = open(pkg_path).read().strip()",
+    "        core = open(core_path).read().strip()",
+    "        sysfs_packages.add(pkg)",
+    "        sysfs_cores.add((pkg, core))",
+    "print('online_logical', online_logical if online_logical is not None else -1)",
+    "print('sysconf', sysconf)",
+    "print('cpuinfo', cpuinfo)",
+    "print('online_list', online_list)",
+    "print('physical_cores', physical_cores if physical_cores is not None else -1)",
+    "print('packages', packages if packages is not None else -1)",
+    "print('numa_nodes', numa_nodes if numa_nodes is not None else -1)",
+    "print('sysfs_online', sysfs_online)",
+    "print('sysfs_physical_cores', len(sysfs_cores))",
+    "print('sysfs_packages', len(sysfs_packages))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 15000 });
+  ensure(output.success === true, "cu_linux_processor_topology_probe:" + output.stderr);
+  const facts = {};
+  const lines = output.stdout.trim().split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index].trim();
+    if (line === "") { continue; }
+    const space = line.indexOf(" ");
+    if (space < 0) { continue; }
+    facts[line.substring(0, space)] = line.substring(space + 1);
+  }
+  return {
+    online_logical: Number(facts.online_logical),
+    sysconf: Number(facts.sysconf),
+    cpuinfo: Number(facts.cpuinfo),
+    online_list: facts.online_list,
+    physical_cores: Number(facts.physical_cores),
+    packages: Number(facts.packages),
+    numa_nodes: Number(facts.numa_nodes),
+    sysfs_online: Number(facts.sysfs_online),
+    sysfs_physical_cores: Number(facts.sysfs_physical_cores),
+    sysfs_packages: Number(facts.sysfs_packages),
+  };
+}
+
+function optional_number(value) {
+  if (value === null || value === undefined || value === "") { return null; }
+  const parsed = Number(value);
+  ensure(parsed === parsed && parsed > 0, "cu_linux_processor_topology_optional_shape:" + value);
+  return parsed;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-processor-topology");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent /proc/cpuinfo, lscpu and sysfs capture host topology");
+  const probe = independent_topology();
+  ensure(probe.online_logical > 0, "cu_linux_processor_topology_probe_online");
+  ensure(probe.sysconf === probe.online_logical,
+         "cu_linux_processor_topology_lscpu_sysconf_mismatch:"
+           + probe.online_logical + ":" + probe.sysconf);
+  ensure(probe.cpuinfo === probe.online_logical,
+         "cu_linux_processor_topology_cpuinfo_mismatch:"
+           + probe.online_logical + ":" + probe.cpuinfo);
+  ensure(probe.sysfs_online === probe.online_logical,
+         "cu_linux_processor_topology_sysfs_online_mismatch:"
+           + probe.online_logical + ":" + probe.sysfs_online);
+
+  print("STEP processor-topology-status observe matches independent read-back");
+  const reply = invoke(context.run_directory, executable, ["processor-topology-status"], true);
+  ensure(reply.command === "processor-topology-status" && reply.target === "current",
+         "cu_linux_processor_topology_identity");
+  ensure(text_at(reply, "data.atomic_snapshot") === "false",
+         "cu_linux_processor_topology_atomic_snapshot");
+
+  const online = Number(text_at(reply, "data.online_logical_processors"));
+  ensure(online === probe.online_logical,
+         "cu_linux_processor_topology_online_mismatch:cu=" + online
+           + ":probe=" + probe.online_logical);
+
+  const physical = optional_number(reply.data.physical_cores);
+  const packages = optional_number(reply.data.packages);
+  const numa = optional_number(reply.data.numa_nodes);
+  if (probe.physical_cores > 0) {
+    ensure(physical === probe.physical_cores,
+           "cu_linux_processor_topology_physical_mismatch:cu=" + physical
+             + ":lscpu=" + probe.physical_cores + ":sysfs=" + probe.sysfs_physical_cores);
+    ensure(physical === probe.sysfs_physical_cores,
+           "cu_linux_processor_topology_physical_sysfs_mismatch:cu=" + physical
+             + ":sysfs=" + probe.sysfs_physical_cores);
+  }
+  if (probe.packages > 0) {
+    ensure(packages === probe.packages,
+           "cu_linux_processor_topology_packages_mismatch:cu=" + packages
+             + ":lscpu=" + probe.packages + ":sysfs=" + probe.sysfs_packages);
+    ensure(packages === probe.sysfs_packages,
+           "cu_linux_processor_topology_packages_sysfs_mismatch:cu=" + packages
+             + ":sysfs=" + probe.sysfs_packages);
+  }
+  if (probe.numa_nodes > 0) {
+    ensure(numa === probe.numa_nodes,
+           "cu_linux_processor_topology_numa_mismatch:cu=" + numa
+             + ":probe=" + probe.numa_nodes);
+  }
+
+  print("STEP grouped alias preserves the same topology facts");
+  const grouped = invoke(context.run_directory, executable,
+    ["processor", "topology", "status"], true);
+  ensure(text_at(grouped, "data.online_logical_processors")
+           === text_at(reply, "data.online_logical_processors"),
+         "cu_linux_processor_topology_alias_online");
+  ensure(text_at(grouped, "data.physical_cores") === text_at(reply, "data.physical_cores"),
+         "cu_linux_processor_topology_alias_physical");
+  ensure(text_at(grouped, "data.packages") === text_at(reply, "data.packages"),
+         "cu_linux_processor_topology_alias_packages");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-processor-topology-readback");
+  harness.remove_run(context);
+  print("PASS: Linux processor-topology-status matches independent /proc/cpuinfo, lscpu and sysfs read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

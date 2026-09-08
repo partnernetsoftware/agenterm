@@ -1099,6 +1099,23 @@
         "task.cu-linux-power-status-smoke"
       ]
     },
+    "cu-linux-processor-topology-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-processor-topology-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-processor-topology-smoke"
+      ]
+    },
     "cu-linux-local-clock-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -4786,6 +4803,24 @@
       "id": "cu-linux-power-status-smoke",
       "description": "Prove Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-power-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-processor-topology-smoke",
+      "description": "Prove Linux processor-topology-status online logical processors, physical cores, packages and NUMA nodes match independent /proc/cpuinfo, lscpu and sysfs read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-processor-topology-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

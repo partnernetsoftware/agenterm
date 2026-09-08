@@ -3602,6 +3602,18 @@
       "args": []
     },
     {
+      "name": "processor-topology-status",
+      "command": "processor-topology-status",
+      "aliases": [
+        "processor topology status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read online logical processors, physical cores, packages and NUMA nodes",
+      "usage": "processor topology status\nprocessor-topology-status",
+      "args": []
+    },
+    {
       "name": "font-discovery",
       "command": "font-discovery",
       "aliases": [
@@ -7460,6 +7472,10 @@
     {
       "name": "power-status",
       "text": "agenterm-cu power-status    (also: power status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  power status\n  power-status\n\nReturns an installation-scoped opaque host identity, an opaque identity for\nthis exact operating-system boot and monotonic uptime. Observation never\ncreates or rotates installation state: run setup once if the identity is not\nenrolled. No hardware serial, native process-start identity or private key is\nreturned. The boot anchor is sampled before and after uptime; any identity\nchange fails typed instead of producing a mixed receipt.\n"
+    },
+    {
+      "name": "processor-topology-status",
+      "text": "agenterm-cu processor-topology-status    (also: processor topology status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  processor topology status\n  processor-topology-status\n\nReturns the host operating system's online logical processor count plus\nphysical core, package/socket and NUMA node counts when the native provider\ncan derive them honestly. Optional fields remain null instead of inventing\ncross-host guesses. The query is read-only and atomic_snapshot is always\nfalse.\n"
     },
     {
       "name": "font-discovery",
