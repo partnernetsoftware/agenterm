@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     thread,
     time::{Duration, Instant},
 };
@@ -66,18 +66,47 @@ pub(super) fn browser_tabs_payload(
     let focus_before = desktop_focus_handle()?;
     let deadline = Instant::now() + Duration::from_secs(20);
     let inventory = list_live_connections().map_err(host_error)?;
+    if inventory.connections.is_empty() {
+        if profile_selector.is_some() || requested_connection.is_some() {
+            return Err(browser_tabs_bridge_selectors_unavailable(
+                profile_selector,
+                requested_connection,
+            ));
+        }
+        if cfg!(target_os = "linux") {
+            return browser_tabs_via_cdp_linux(match_text, tab_id, focus_before, deadline);
+        }
+        return Err(CuError::new(
+            "browser_bridge_profile_connection_not_found",
+            "no live browser profile bridge connection is available",
+        ));
+    }
     if inventory.truncated {
         return Err(CuError::new(
             "browser_bridge_connection_inventory_truncated",
             "the live bridge connection inventory is incomplete; profile uniqueness cannot be proven",
         ));
     }
-    if inventory.connections.is_empty() {
-        return Err(CuError::new(
-            "browser_bridge_profile_connection_not_found",
-            "no live browser profile bridge connection is available",
-        ));
-    }
+    browser_tabs_via_bridge(
+        profile_selector,
+        requested_connection,
+        match_text,
+        tab_id,
+        focus_before,
+        deadline,
+        &inventory,
+    )
+}
+
+fn browser_tabs_via_bridge(
+    profile_selector: Option<&str>,
+    requested_connection: Option<&ConnectionId>,
+    match_text: Option<&str>,
+    tab_id: Option<u32>,
+    focus_before: Option<isize>,
+    deadline: Instant,
+    inventory: &crate::browser_bridge::ConnectionInventory,
+) -> Result<Value, CuError> {
     let selector = profile_selector.map(str::trim);
     if selector.is_some_and(|value| {
         value.is_empty()
@@ -92,7 +121,7 @@ pub(super) fn browser_tabs_payload(
         ));
     }
     let mut statuses = Vec::with_capacity(inventory.connections.len());
-    for entry in &inventory.connections {
+    for entry in inventory.connections.iter() {
         let raw = browser_bridge_request_result_with_timeout(
             &entry.connection_id,
             "status",
@@ -172,6 +201,155 @@ pub(super) fn browser_tabs_payload(
         "tabs": tabs,
         "focus_changed": false,
         "verified": true,
+    }))
+}
+
+#[cfg(target_os = "linux")]
+fn browser_tabs_via_cdp_linux(
+    match_text: Option<&str>,
+    tab_id: Option<u32>,
+    focus_before: Option<isize>,
+    deadline: Instant,
+) -> Result<Value, CuError> {
+    let ports = discover_linux_cdp_ports()?;
+    let (pid, port) = match ports.as_slice() {
+        [] => return Err(browser_tabs_inventory_unsupported()),
+        [(pid, port)] => (*pid, *port),
+        many => {
+            return Err(CuError::new(
+                "browser_tabs_cdp_ambiguous",
+                "more than one live Chromium instance publishes a remote debugging port; refusing to guess",
+            )
+            .with_count(many.len())
+            .with_detail(json!({
+                "instances": many
+                    .iter()
+                    .map(|(pid, port)| json!({ "pid": pid, "port": port }))
+                    .collect::<Vec<_>>(),
+            })));
+        }
+    };
+    let targets = crate::cdp::targets::list_targets(port).map_err(|error| {
+        CuError::new(error.code, error.message).with_detail(error.detail)
+    })?;
+    let pages: Vec<_> = targets.iter().filter(|target| target.is_page()).collect();
+    let tabs: Vec<crate::browser_bridge::BrowserTab> = pages
+        .iter()
+        .enumerate()
+        .map(|(index, target)| crate::browser_bridge::BrowserTab {
+            tab_id: u32::try_from(index + 1).expect("page target index fits u32"),
+            window_id: 1,
+            active: false,
+            title: target.title.clone(),
+            url: target.url.clone(),
+        })
+        .collect();
+    verify_focus_unchanged(focus_before, deadline)?;
+    let filtered = filter_profile_tabs(tabs, match_text, tab_id);
+    Ok(json!({
+        "mechanism": "cdp-json",
+        "backend": crate::cdp::backend(),
+        "port": port,
+        "pid": pid,
+        "via": "/json",
+        "heuristic": "one CDP listener bound to an exact browser process command line; tab_id is a synthetic 1-based index over page targets because /json carries no MV3 tab identity",
+        "selection": {
+            "match": match_text,
+            "tab_id": tab_id,
+        },
+        "total_pages": pages.len(),
+        "returned": filtered.len(),
+        "truncated": false,
+        "tabs": filtered,
+        "targets": pages
+            .iter()
+            .map(|target| target.json())
+            .collect::<Vec<_>>(),
+        "focus_changed": false,
+        "verified": true,
+    }))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn browser_tabs_via_cdp_linux(
+    _match_text: Option<&str>,
+    _tab_id: Option<u32>,
+    _focus_before: Option<isize>,
+    _deadline: Instant,
+) -> Result<Value, CuError> {
+    unreachable!("browser_tabs_via_cdp_linux is only called on Linux")
+}
+
+#[cfg(target_os = "linux")]
+fn discover_linux_cdp_ports() -> Result<Vec<(u32, u16)>, CuError> {
+    let windows =
+        crate::mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let mut ports = BTreeMap::<u16, u32>::new();
+    for window in windows {
+        if !crate::observe::looks_like_browser_app(&window.app_name) {
+            continue;
+        }
+        let pid = window.process_id;
+        if pid == 0 {
+            continue;
+        }
+        match super::browser::resolve_cdp_port(None, Some(pid)) {
+            Ok(port) => {
+                ports.entry(port).or_insert(pid);
+            }
+            Err(error)
+                if matches!(
+                    error.code.as_str(),
+                    "cdp_debug_port_not_found" | "cdp_process_unavailable"
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(ports
+        .into_iter()
+        .map(|(port, pid)| (pid, port))
+        .collect())
+}
+
+fn browser_tabs_inventory_unsupported() -> CuError {
+    CuError::new(
+        "unsupported",
+        "browser-tabs needs a live MV3 bridge connection or a Chromium process whose command line carries --remote-debugging-port",
+    )
+    .with_detail(json!({
+        "backend": crate::cdp::backend(),
+        "mechanisms": ["mv3-native-messaging", "cdp-json"],
+        "next_actions": [
+            "browser bridge setup; then load the ACU extension in Chrome for profile-wide tabs without a debug port",
+            format!(
+                "relaunch Chrome with --remote-debugging-port={} bound to 127.0.0.1 (scripts/box-chrome-a11y.sh forwards extra args)",
+                crate::cdp::DEFAULT_PORT
+            ),
+            "page-targets --port N reads the CDP /json inventory when a listener is already answering",
+        ],
+        "alternatives": ["browser-bridge-setup", "browser-bridge-connections", "page-targets"],
+    }))
+}
+
+fn browser_tabs_bridge_selectors_unavailable(
+    profile_selector: Option<&str>,
+    requested_connection: Option<&ConnectionId>,
+) -> CuError {
+    CuError::new(
+        "browser_bridge_profile_connection_not_found",
+        "profile_instance_id and connection_id selectors require a live MV3 bridge connection",
+    )
+    .with_detail(json!({
+        "profile_instance_id": profile_selector,
+        "connection_id": requested_connection,
+        "next_actions": [
+            "browser bridge setup; then load the ACU extension and retry with --connection-id or --profile-instance-id",
+            format!(
+                "omit bridge-only selectors and rely on CDP when Chrome carries --remote-debugging-port={}",
+                crate::cdp::DEFAULT_PORT
+            ),
+        ],
+        "alternatives": ["browser-bridge-setup", "browser-bridge-connections", "page-targets"],
     }))
 }
 
@@ -1351,5 +1529,28 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.code, "browser_bridge_debug_read_limit_invalid");
+    }
+
+    #[test]
+    fn browser_tabs_unsupported_carries_enablement_steps() {
+        let error = browser_tabs_inventory_unsupported();
+        assert_eq!(error.code, "unsupported");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["mechanisms"], json!(["mv3-native-messaging", "cdp-json"]));
+        assert!(detail["next_actions"]
+            .as_array()
+            .is_some_and(|steps| steps.len() >= 2));
+        assert!(detail["alternatives"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|value| value == "page-targets")));
+    }
+
+    #[test]
+    fn bridge_selectors_without_connection_name_alternatives() {
+        let error = browser_tabs_bridge_selectors_unavailable(Some("abc"), None);
+        assert_eq!(error.code, "browser_bridge_profile_connection_not_found");
+        let detail = error.detail.expect("detail");
+        assert_eq!(detail["profile_instance_id"], "abc");
+        assert!(detail["next_actions"].as_array().is_some_and(|steps| !steps.is_empty()));
     }
 }
