@@ -738,6 +738,44 @@
         "task.cu-scroll-wheel-smoke"
       ]
     },
+    "cu-linux-chrome-text-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-chrome-text-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-chrome-text-smoke"
+      ]
+    },
+    "cu-linux-menu-invoke-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-menu-invoke-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-menu-invoke-smoke"
+      ]
+    },
     "cu-windows-external-terminal-send-smoke": {
       "inputs": [
         "built-agenterm",
@@ -3439,6 +3477,26 @@
       "id": "cu-scroll-wheel-smoke",
       "description": "Prove Linux scroll-wheel --name on a Chrome scroll fixture: independent get-extents before and after must show OffscreenField screen geometry move after dy=-5 wheel delivery at the named node center; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-scroll-wheel-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-menu-invoke-smoke",
+      "description": "Prove Linux GTK menu invoke by AT-SPI path on the owned fixture: menu inspect paths/states, invoke changes the menu label, disabled items are refused typed, and a checkable item round-trips its mark; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-menu-invoke-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
