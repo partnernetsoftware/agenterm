@@ -88,6 +88,10 @@ agenterm-qjswasm
 │  ├─ [x] bare declared-host values fail by name; no implicit zero-argument effect
 │  ├─ [x] every child entry uses the shared first-instruction contained launcher
 │  ├─ [x] invocation-owned process-tree cleanup; no cross-run global backend state
+│  ├─ [~] ACU cancellation ownership
+│  │  ├─ [x] detached helper rejected: it returns while callback and provider lock remain live
+│  │  ├─ [x] Script worker process remains the bounded hard-containment boundary
+│  │  └─ [ ] pass one cooperative token through Executor and interruptible native waits
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
