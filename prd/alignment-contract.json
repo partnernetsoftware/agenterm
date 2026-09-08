@@ -114,6 +114,7 @@
         "cu.linux-atspi-invoke",
         "cu.linux-atspi-invoke-readback",
         "cu.linux-atspi-menu-inspect",
+        "cu.linux-atspi-menu-inspect-readback",
         "cu.linux-atspi-menu-invoke",
         "cu.linux-atspi-node-text",
         "cu.linux-atspi-zoom",

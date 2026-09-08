@@ -1,0 +1,452 @@
+// CEO: Linux menu-inspect honesty with independent pyatspi menu-bar walk
+// read-back. Acceptance is smoke read-back only: CU menu inspect paths/items
+// for one owned GTK fixture window must agree with an independent AT-SPI menu
+// walk on the same application, or both must typed-fail honestly. AT-SPI/--name
+// only; no --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-atspi-menu-inspect-readback",
+];
+
+const MENU_DEPTH = 1;
+const MAX_NODES = 1000;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_menu_inspect_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_menu_inspect_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_menu_inspect_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function independent_menu_walk_script() {
+  return [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "pid = int(sys.argv[1])",
+    "title = sys.argv[2]",
+    "cu_path = sys.argv[3]",
+    "menu_depth = int(sys.argv[4])",
+    "max_nodes = int(sys.argv[5])",
+    "",
+    "def normalize_role(raw):",
+    "    stripped = raw.strip()",
+    "    if stripped.startswith('AX'):",
+    "        stripped = stripped[2:]",
+    "    compact = ''.join(ch.lower() for ch in stripped if ch.isalnum())",
+    "    return 'button' if compact == 'pushbutton' else compact",
+    "",
+    "def node_name(obj):",
+    "    try: return obj.name or ''",
+    "    except Exception: return ''",
+    "",
+    "def node_role(obj):",
+    "    try:",
+    "        rn = obj.getRoleName()",
+    "        if rn and rn.strip(): return normalize_role(rn)",
+    "    except Exception: pass",
+    "    return normalize_role(pyatspi.role.getName(obj.getRole()))",
+    "",
+    "def state_labels(obj):",
+    "    labels = []",
+    "    st = obj.getState()",
+    "    for attr in dir(pyatspi):",
+    "        if not attr.startswith('STATE_') or attr in ('STATE_LAST_DEFINED', 'STATE_VALUE_TO_NAME'):",
+    "            continue",
+    "        if st.contains(getattr(pyatspi, attr)):",
+    "            labels.append(attr[6:].lower())",
+    "    return labels",
+    "",
+    "def has_state(labels, word): return word in labels",
+    "",
+    "def menu_entry_enabled(labels):",
+    "    return has_state(labels, 'enabled') and not has_state(labels, 'disabled')",
+    "",
+    "def is_menu_item_role(role):",
+    "    return role in ('menubaritem', 'menuitem', 'checkmenuitem', 'radiomenuitem')",
+    "",
+    "def is_menu_role(role): return role == 'menu'",
+    "",
+    "def walk_subtree(root, max_depth, budget):",
+    "    nodes = []",
+    "    queue = [(root, '0', None, 0)]",
+    "    while queue and len(nodes) < budget:",
+    "        obj, node_id, parent_id, depth = queue.pop(0)",
+    "        role = node_role(obj)",
+    "        name = node_name(obj)",
+    "        states = state_labels(obj)",
+    "        nodes.append({",
+    "            'id': node_id,",
+    "            'parent_id': parent_id,",
+    "            'role': role,",
+    "            'name': name,",
+    "            'states': states,",
+    "        })",
+    "        if depth >= max_depth: continue",
+    "        try: child_count = obj.childCount",
+    "        except Exception: continue",
+    "        for index in range(child_count):",
+    "            try: child = obj.getChildAtIndex(index)",
+    "            except Exception: child = None",
+    "            if child is None: continue",
+    "            queue.append((child, f'{node_id}/{index}', node_id, depth + 1))",
+    "    return nodes",
+    "",
+    "def find_named_frame(app, needle):",
+    "    queue = [app]",
+    "    while queue:",
+    "        obj = queue.pop(0)",
+    "        if node_name(obj) == needle:",
+    "            return obj",
+    "        try: child_count = obj.childCount",
+    "        except Exception: child_count = 0",
+    "        for index in range(child_count):",
+    "            try: child = obj.getChildAtIndex(index)",
+    "            except Exception: child = None",
+    "            if child is not None: queue.append(child)",
+    "    return None",
+    "",
+    "def find_menu_bar(root, budget):",
+    "    queue = [(root, 0)]",
+    "    visited = 0",
+    "    while queue and visited < budget:",
+    "        obj, depth = queue.pop(0)",
+    "        visited += 1",
+    "        if node_role(obj) == 'menubar':",
+    "            return obj",
+    "        if depth >= 12: continue",
+    "        try: child_count = obj.childCount",
+    "        except Exception: continue",
+    "        for index in range(child_count):",
+    "            try: child = obj.getChildAtIndex(index)",
+    "            except Exception: child = None",
+    "            if child is not None: queue.append((child, depth + 1))",
+    "    return None",
+    "",
+    "def menu_items_from_nodes(nodes):",
+    "    by_id = {node['id']: node for node in nodes}",
+    "    def is_entry(node):",
+    "        role = node['role']",
+    "        if is_menu_item_role(role):",
+    "            return True",
+    "        if not is_menu_role(role) or not node['name']:",
+    "            return False",
+    "        owner = by_id.get(node.get('parent_id'))",
+    "        return not (owner and is_menu_item_role(owner['role']))",
+    "    parent_entry = {}",
+    "    owns_submenu = set()",
+    "    for node in nodes:",
+    "        if not is_entry(node):",
+    "            continue",
+    "        seen = {node['id']}",
+    "        cursor = node.get('parent_id')",
+    "        while cursor:",
+    "            if cursor in seen:",
+    "                break",
+    "            seen.add(cursor)",
+    "            parent = by_id.get(cursor)",
+    "            if parent is None:",
+    "                break",
+    "            if is_entry(parent):",
+    "                if parent['id'] != node['id']:",
+    "                    parent_entry[node['id']] = parent['id']",
+    "                    owns_submenu.add(parent['id'])",
+    "                break",
+    "            cursor = parent.get('parent_id')",
+    "    items = []",
+    "    for node in nodes:",
+    "        if not is_entry(node):",
+    "            continue",
+    "        path = [node['name']]",
+    "        depth = 0",
+    "        walked = {node['id']}",
+    "        cursor = parent_entry.get(node['id'])",
+    "        while cursor:",
+    "            if cursor in walked:",
+    "                break",
+    "            walked.add(cursor)",
+    "            parent = by_id.get(cursor)",
+    "            if parent is None:",
+    "                break",
+    "            path.append(parent['name'])",
+    "            depth += 1",
+    "            cursor = parent_entry.get(cursor)",
+    "        path.reverse()",
+    "        items.append({",
+    "            'path': '/'.join(path),",
+    "            'title': node['name'],",
+    "            'depth': depth,",
+    "            'enabled': menu_entry_enabled(node['states']),",
+    "            'checked': has_state(node['states'], 'checked'),",
+    "            'has_submenu': node['id'] in owns_submenu,",
+    "        })",
+    "    return items",
+    "",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "app = None",
+    "for index in range(desktop.childCount):",
+    "    child = desktop.getChildAtIndex(index)",
+    "    try:",
+    "        if child.get_process_id() == pid:",
+    "            app = child",
+    "            break",
+    "    except Exception: pass",
+    "if app is None:",
+    "    raise SystemExit('cu_linux_menu_inspect_no_app')",
+    "",
+    "frame = find_named_frame(app, title)",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_menu_inspect_no_frame')",
+    "",
+    "bar = find_menu_bar(frame, max_nodes)",
+    "if bar is None:",
+    "    print(json.dumps({'ok': False, 'code': 'a11y_menu_unavailable', 'items': []}))",
+    "    raise SystemExit(0)",
+    "",
+    "node_depth = 1 + 2 * menu_depth",
+    "nodes = walk_subtree(bar, node_depth, max_nodes)",
+    "native_items = menu_items_from_nodes(nodes)",
+    "",
+    "cu = json.load(open(cu_path))",
+    "if not cu.get('ok'):",
+    "    raise SystemExit('cu_linux_menu_inspect_cu_reply:' + json.dumps(cu))",
+    "cu_items = []",
+    "for row in cu.get('data', {}).get('items', []):",
+    "    cu_items.append({",
+    "        'path': '/'.join(row.get('path') or []),",
+    "        'title': row.get('title') or '',",
+    "        'depth': row.get('depth'),",
+    "        'enabled': row.get('enabled'),",
+    "        'checked': row.get('checked'),",
+    "        'has_submenu': row.get('has_submenu'),",
+    "    })",
+    "",
+    "def key(item): return item['path']",
+    "native_by_path = {key(item): item for item in native_items}",
+    "cu_by_path = {key(item): item for item in cu_items}",
+    "if set(native_by_path) != set(cu_by_path):",
+    "    raise SystemExit('cu_linux_menu_inspect_paths:' + json.dumps({",
+    "        'native_only': sorted(set(native_by_path) - set(cu_by_path)),",
+    "        'cu_only': sorted(set(cu_by_path) - set(native_by_path)),",
+    "    }))",
+    "for path in sorted(native_by_path):",
+    "    native = native_by_path[path]",
+    "    cu_row = cu_by_path[path]",
+    "    for field in ('depth', 'enabled', 'checked', 'has_submenu', 'title'):",
+    "        if native[field] != cu_row[field]:",
+    "            raise SystemExit(f'cu_linux_menu_inspect_mismatch:{path}:{field}:'",
+    "                               + json.dumps({'native': native, 'cu': cu_row}))",
+    "",
+    "print(json.dumps({",
+    "    'ok': True,",
+    "    'items': len(native_items),",
+    "    'backend': cu.get('data', {}).get('backend'),",
+    "}))",
+  ].join("\n");
+}
+
+function verify_menu_readback(run_directory, executable, fixture_pid, title, cu_menu_path) {
+  const output = rh.command("python3", [
+    "-c", independent_menu_walk_script(),
+    "" + fixture_pid,
+    title,
+    cu_menu_path,
+    "" + MENU_DEPTH,
+    "" + MAX_NODES,
+  ], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true,
+    "cu_linux_menu_inspect_readback:" + output.stderr + output.stdout);
+  const document = JSON.parse(output.stdout.trim());
+  ensure(flag_at(document, "ok"), "cu_linux_menu_inspect_readback_shape:" + JSON.stringify(document));
+  return document;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_menu_inspect_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_menu_inspect_requires_linux");
+
+const context = harness.new_context(repo, "cu-linux-menu-inspect");
+const run_directory = rh.join(repo, "target/cu-linux-menu-inspect-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_menu_inspect_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start owned GTK fixture and resolve one window handle");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_menu_inspect_window_wait");
+
+  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_row !== null, "cu_linux_menu_inspect_inventory_missing");
+  const handle = int_at(inventory_row, "handle");
+  ensure(handle > 0, "cu_linux_menu_inspect_handle:" + JSON.stringify(inventory_row));
+
+  print("STEP CU menu inspect walks the background menu bar under the default budget");
+  const menu = run_cu(run_directory, executable, "observe", [
+    "menu", "inspect", "--window", "" + handle,
+  ]);
+  ensure(
+    text_at(menu, "data.backend") === "at-spi2"
+      && text_at(menu, "data.addressing") === "menu-path"
+      && int_at(menu, "data.window") === handle
+      && Array.isArray(menu.data.items)
+      && menu.data.items.length >= 4,
+    "cu_linux_menu_inspect_shape:" + JSON.stringify(menu.data)
+  );
+
+  const cu_menu_path = rh.join(run_directory, "cu-menu-inspect.json");
+  rh.write_text(cu_menu_path, JSON.stringify(menu));
+
+  print("STEP independent pyatspi menu-bar walk agrees on paths/items/states");
+  const readback = verify_menu_readback(
+    run_directory, executable, fixture_pid, fixture_title, cu_menu_path
+  );
+  ensure(
+    int_at(readback, "items") >= 4,
+    "cu_linux_menu_inspect_readback_items:" + JSON.stringify(readback)
+  );
+
+  print("STEP menu inspect filter --enabled false keeps only disabled entries");
+  const disabled_only = run_cu(run_directory, executable, "observe", [
+    "menu", "inspect", "--window", "" + handle, "--enabled", "false",
+  ]);
+  for (const item of disabled_only.data.items) {
+    ensure(item.enabled === false, "cu_linux_menu_inspect_disabled_filter:" + JSON.stringify(item));
+  }
+  let saw_disabled = 0;
+  for (const item of disabled_only.data.items) {
+    if (item.path.join("/") === "File/Disabled Thing") { saw_disabled = 1; }
+  }
+  ensure(
+    saw_disabled === 1,
+    "cu_linux_menu_inspect_disabled_missing:" + JSON.stringify(disabled_only.data.items)
+  );
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: Linux menu inspect paths/items match independent AT-SPI menu walk");
+}
+if (failure !== "") { throw failure; }
+return;

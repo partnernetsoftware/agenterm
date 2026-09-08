@@ -1232,6 +1232,25 @@
         "task.cu-linux-menu-invoke-smoke"
       ]
     },
+    "cu-linux-menu-inspect-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-menu-inspect-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-menu-inspect-smoke"
+      ]
+    },
     "cu-linux-get-text-honesty-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5759,6 +5778,26 @@
       "args": [
         ".",
         "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-menu-inspect-smoke",
+      "description": "Prove Linux menu inspect menu-bar paths/items for one owned GTK fixture window match an independent pyatspi AT-SPI menu walk on the same application; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-menu-inspect-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [
