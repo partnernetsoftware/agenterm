@@ -39,6 +39,12 @@ pub(crate) fn maximized(_handle: isize) -> Result<bool, WindowOpError> {
     })
 }
 
+pub(crate) fn workspace_desktop(_handle: isize) -> Result<u32, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window-op not wired on unix".into(),
+    })
+}
+
 pub(crate) fn activate(_handle: isize) -> Result<(), WindowOpError> {
     Err(WindowOpError::Unsupported {
         reason: "window activation not wired on this unix host".into(),

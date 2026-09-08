@@ -895,6 +895,26 @@ pub mod window_op {
         Ok(out != 0)
     }
 
+    /// EWMH `_NET_WM_DESKTOP` for one native window (ABI 1.32
+    /// `agt_native_window_workspace_desktop`).
+    pub fn workspace_desktop(handle: isize) -> Result<u32, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < crate::dynlib::WINDOW_WORKSPACE_DESKTOP_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "the workspace-desktop read requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    crate::dynlib::WINDOW_WORKSPACE_DESKTOP_ABI_MINOR
+                ),
+            });
+        }
+        let f =
+            super::call_sym::<super::WindowWorkspaceDesktop>(b"agt_native_window_workspace_desktop")?;
+        let mut out = 0u32;
+        let status = unsafe { f(handle, &mut out) };
+        map_status("agt_native_window_workspace_desktop", status)?;
+        Ok(out)
+    }
+
     /// Close a **native** window handle (distinct from the ABI's own
     /// `agt_window_close`).
     pub fn close(handle: isize) -> Result<(), MechanismError> {
@@ -2742,6 +2762,7 @@ type WindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
 type WindowClose = unsafe extern "C" fn(isize) -> i32;
 type WindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type WindowMaximized = unsafe extern "C" fn(isize, *mut i32) -> i32;
+type WindowWorkspaceDesktop = unsafe extern "C" fn(isize, *mut u32) -> i32;
 type PointerMove = unsafe extern "C" fn(i32, i32) -> i32;
 type PointerScroll = unsafe extern "C" fn(i32, i32) -> i32;
 type PointerPosition = unsafe extern "C" fn(*mut i32, *mut i32) -> i32;

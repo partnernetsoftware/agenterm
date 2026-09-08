@@ -58,6 +58,12 @@ pub(crate) fn maximized(handle: isize) -> Result<bool, WindowOpError> {
     Ok(unsafe { IsZoomed(handle as HWND) } != 0)
 }
 
+pub(crate) fn workspace_desktop(_handle: isize) -> Result<u32, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "virtual desktop index is not wired on Windows yet".into(),
+    })
+}
+
 pub(crate) fn activate(handle: isize) -> Result<(), WindowOpError> {
     let window = handle as HWND;
     if window.is_null() || unsafe { IsWindow(window) } == 0 {

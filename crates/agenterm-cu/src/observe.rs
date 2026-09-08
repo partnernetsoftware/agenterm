@@ -904,6 +904,14 @@ pub fn window_row_json_with_stacking(
     {
         object.insert("spaces".into(), serde_json::json!(spaces));
     }
+    // EWMH virtual-desktop index for one top-level window. Absent when the
+    // host has no `_NET_WM_DESKTOP` notion; never a default.
+    #[cfg(target_os = "linux")]
+    if let Ok(index) = crate::mechanism::window_op::workspace_desktop(window.handle)
+        && let Some(object) = row.as_object_mut()
+    {
+        object.insert("workspace_desktop".into(), serde_json::json!(index));
+    }
     row
 }
 

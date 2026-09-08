@@ -310,6 +310,8 @@ pub const POINTER_DRAG_ABI_MINOR: u16 = 25;
 pub const WINDOW_MINIMIZED_ABI_MINOR: u16 = 25;
 /// ABI 1.30: `agt_native_window_maximized` (the per-window maximized read).
 pub const WINDOW_MAXIMIZED_ABI_MINOR: u16 = 30;
+/// ABI 1.32 `agt_native_window_workspace_desktop`.
+pub const WINDOW_WORKSPACE_DESKTOP_ABI_MINOR: u16 = 32;
 /// ABI 1.31: caller-sized physical display facts.
 pub const DISPLAY_PHYSICAL_ABI_MINOR: u16 = 31;
 /// ABI 1.26: `agt_native_window_activate`, the explicit desktop-foreground
@@ -415,6 +417,7 @@ const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[
     b"agt_native_window_set_topmost",
     b"agt_native_window_minimized",
     b"agt_native_window_maximized",
+    b"agt_native_window_workspace_desktop",
     b"agt_native_window_close",
     b"agt_input_pointer_move",
     b"agt_input_pointer_scroll",

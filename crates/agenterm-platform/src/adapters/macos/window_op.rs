@@ -40,6 +40,12 @@ pub(crate) fn maximized(_handle: isize) -> Result<bool, WindowOpError> {
     })
 }
 
+pub(crate) fn workspace_desktop(_handle: isize) -> Result<u32, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "EWMH workspace index is Linux X11 only; macOS uses managed Spaces".into(),
+    })
+}
+
 pub(crate) fn activate(handle: isize) -> Result<(), WindowOpError> {
     foreign_windows::activate(handle)
 }

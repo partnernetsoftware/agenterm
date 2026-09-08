@@ -213,6 +213,7 @@ type NativeWindowShow = unsafe extern "C" fn(isize, i32) -> i32;
 type NativeWindowActivate = unsafe extern "C" fn(isize) -> i32;
 type NativeWindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type NativeWindowMaximized = unsafe extern "C" fn(isize, *mut i32) -> i32;
+type NativeWindowWorkspaceDesktop = unsafe extern "C" fn(isize, *mut u32) -> i32;
 type NativeWindowMove = unsafe extern "C" fn(isize, i32, i32, u32, u32) -> i32;
 type NativeWindowRect = unsafe extern "C" fn(isize, *mut i32, *mut i32, *mut u32, *mut u32) -> i32;
 type NativeWindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
@@ -498,6 +499,13 @@ fn native_window_maximized_handle0(lib: &Library) -> i32 {
     let f: Symbol<NativeWindowMaximized> = unsafe { sym(lib, b"agt_native_window_maximized") };
     let mut maximized = 0;
     unsafe { f(0, &mut maximized) }
+}
+
+fn native_window_workspace_desktop_handle0(lib: &Library) -> i32 {
+    let f: Symbol<NativeWindowWorkspaceDesktop> =
+        unsafe { sym(lib, b"agt_native_window_workspace_desktop") };
+    let mut desktop = 0;
+    unsafe { f(0, &mut desktop) }
 }
 
 fn native_window_move_handle0(lib: &Library) -> i32 {
@@ -1257,6 +1265,11 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| CallResult::Status(native_window_maximized_handle0(lib))),
         },
         SweepCase {
+            label: "agt_native_window_workspace_desktop[handle=0,out_desktop=&value]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(native_window_workspace_desktop_handle0(lib))),
+        },
+        SweepCase {
             label: "agt_native_window_move[handle=0,x=0,y=0,w=0,h=0]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(native_window_move_handle0(lib))),
@@ -1972,6 +1985,10 @@ fn computer_use_sweep_capability_guards() {
         (
             "agt_native_window_minimized",
             native_window_minimized_handle0 as fn(&Library) -> i32,
+        ),
+        (
+            "agt_native_window_workspace_desktop",
+            native_window_workspace_desktop_handle0 as fn(&Library) -> i32,
         ),
         (
             "agt_native_window_move",

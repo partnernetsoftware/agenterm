@@ -143,6 +143,7 @@ use agenterm_platform::window_host::{
 use agenterm_platform::window_op::{
     WindowShowState, activate as activate_native_window, close, maximized as window_maximized,
     minimized as window_minimized, move_window, set_topmost, show, window_rect,
+    workspace_desktop as window_workspace_desktop,
 };
 
 // §3.8 panic fence: building this crate under an abort profile would neuter
@@ -300,7 +301,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 31);
+abi_version!(1, 32);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -7289,6 +7290,58 @@ pub extern "C" fn agt_native_window_maximized(
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_native_window_workspace_desktop(
+    handle: isize,
+    out_desktop: *mut u32,
+) -> agt_status {
+    fn inner(handle: isize, out_desktop: *mut u32) -> agt_status {
+        if native_handle_error(c"agt_native_window_workspace_desktop", handle) {
+            return agt_status::AGT_FAILED;
+        }
+        if out_desktop.is_null() {
+            record_error(
+                c"agt_native_window_workspace_desktop",
+                c"bad_pointer",
+                "out_desktop is null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if !window_op_available() {
+            return agt_status::AGT_UNSUPPORTED;
+        }
+        match window_workspace_desktop(handle) {
+            Ok(value) => {
+                unsafe { *out_desktop = value };
+                agt_status::AGT_OK
+            }
+            Err(agenterm_platform::window_op::WindowOpError::Unsupported { .. }) => {
+                agt_status::AGT_UNSUPPORTED
+            }
+            Err(e) => {
+                record_error(
+                    c"agt_native_window_workspace_desktop",
+                    c"window_op_failed",
+                    format!("{e:?}"),
+                );
+                agt_status::AGT_FAILED
+            }
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(handle, out_desktop))) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_native_window_workspace_desktop",
+                c"panic",
+                "panic in agt_native_window_workspace_desktop",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
 /// Read the pointer's current absolute screen coordinates without injecting
 /// input. Both output pointers are required and validated before the platform
 /// query.
@@ -7667,7 +7720,7 @@ mod tests {
 
     #[test]
     fn current_abi_maps_show_menu_without_a_value() {
-        assert_eq!(ABI_MINOR, 31);
+        assert_eq!(ABI_MINOR, 32);
         assert_eq!(
             a11y_action_from_abi(AGT_A11Y_ACTION_SHOW_MENU, None),
             Ok(AccessibilityNodeAction::ShowMenu)

@@ -1,15 +1,14 @@
 //! Platform-neutral keyboard layout observation contract.
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct KeyboardLayoutObservation {
     pub provider: String,
     pub rules: String,
     pub model: String,
     pub layout: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "String::is_empty"))]
     pub variant: String,
     /// Stable XKB layout identifier (`layout` or `layout+variant`).
     pub id: String,
@@ -17,8 +16,9 @@ pub struct KeyboardLayoutObservation {
     pub name: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct KeyboardLayoutObserveUnsupported {
     pub reason: String,
     pub required_mechanism: String,

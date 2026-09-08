@@ -144,7 +144,7 @@ fn window_is_maximized(
         .map_err(|error| failed(format!("_NET_WM_STATE request failed: {error}")))?
         .reply()
         .map_err(|error| failed(format!("_NET_WM_STATE reply failed: {error}")))?;
-    let Some(mut states) = reply.value32() else {
+    let Some(states) = reply.value32() else {
         return Ok(false);
     };
     let mut has_horz = false;
@@ -400,6 +400,38 @@ pub(crate) fn maximized(handle: isize) -> Result<bool, WindowOpError> {
     let conn = connect()?;
     let window = window_id(handle)?;
     window_is_maximized(&conn, window)
+}
+
+/// EWMH `_NET_WM_DESKTOP`: the 0-based virtual-desktop index for one
+/// top-level window. `0xFFFFFFFF` means sticky (visible on every desktop).
+///
+/// This is a pure read of the window property; it does not change desktops
+/// or move windows between them.
+pub(crate) fn workspace_desktop(handle: isize) -> Result<u32, WindowOpError> {
+    let conn = connect()?;
+    let window = window_id(handle)?;
+    let property = atom(&conn, b"_NET_WM_DESKTOP")?;
+    let reply = conn
+        .get_property(false, window, property, AtomEnum::CARDINAL, 0, 1)
+        .map_err(|error| failed(format!("_NET_WM_DESKTOP request failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("_NET_WM_DESKTOP reply failed: {error}")))?;
+    if reply.format != 32 || reply.type_ != u32::from(AtomEnum::CARDINAL) {
+        return Err(WindowOpError::Unsupported {
+            reason: "the window manager does not publish _NET_WM_DESKTOP for this window".into(),
+        });
+    }
+    let Some(mut values) = reply.value32() else {
+        return Err(WindowOpError::Unsupported {
+            reason: "the window manager does not publish _NET_WM_DESKTOP for this window".into(),
+        });
+    };
+    let Some(index) = values.next() else {
+        return Err(WindowOpError::Unsupported {
+            reason: "the window manager does not publish _NET_WM_DESKTOP for this window".into(),
+        });
+    };
+    Ok(index)
 }
 
 /// `_NET_ACTIVE_WINDOW`: the explicit foreground-changing counterpart to

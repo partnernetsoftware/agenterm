@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 31
+#define AGT_ABI_MINOR 32
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -1012,6 +1012,14 @@ agt_status agt_native_window_close(intptr_t handle);
  * are different claims. */
 agt_status agt_native_window_minimized(intptr_t handle, int32_t* out_minimized);
 agt_status agt_native_window_maximized(intptr_t handle, int32_t* out_maximized);
+
+/* ABI 1.32: read the EWMH `_NET_WM_DESKTOP` index for one native window.
+ * handle == 0 -> AGT_FAILED{code="bad_handle"}; out_desktop == NULL ->
+ * AGT_FAILED{code="bad_pointer"}; mechanism absent -> AGT_UNSUPPORTED;
+ * platform failure -> AGT_FAILED{code="window_op_failed"}. Writes the raw
+ * CARDINAL value (0-based index; 0xFFFFFFFF means sticky/all desktops).
+ * A host without `_NET_WM_DESKTOP` is AGT_UNSUPPORTED, never 0. */
+agt_status agt_native_window_workspace_desktop(intptr_t handle, uint32_t* out_desktop);
 
 /* Input injection. Mechanism absent on this host -> AGT_UNSUPPORTED;
  * platform failure -> AGT_FAILED{code="input_failed"}. */

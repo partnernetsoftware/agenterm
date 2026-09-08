@@ -39,6 +39,12 @@ pub fn maximized(handle: isize) -> Result<bool, WindowOpError> {
     crate::selected::window_op::maximized(handle)
 }
 
+/// Reads the EWMH virtual-desktop index for one native window when the host
+/// publishes `_NET_WM_DESKTOP`. `0xFFFFFFFF` means sticky (all desktops).
+pub fn workspace_desktop(handle: isize) -> Result<u32, WindowOpError> {
+    crate::selected::window_op::workspace_desktop(handle)
+}
+
 /// Requests foreground activation of one exact native window. This is
 /// intentionally distinct from [`show`]: activation changes the desktop's
 /// global foreground owner, while `Show` only raises within the host-defined
