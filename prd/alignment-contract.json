@@ -107,6 +107,7 @@
         "cu.linux-display-scale",
         "cu.linux-atspi-tree-geometry",
         "cu.linux-atspi-tree-honesty",
+        "cu.linux-verify-expect-readback",
         "cu.linux-atspi-query",
         "cu.linux-query-readback",
         "cu.linux-get-text-readback",

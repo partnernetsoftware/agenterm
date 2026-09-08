@@ -1078,6 +1078,25 @@
         "task.cu-linux-tree-honesty-smoke"
       ]
     },
+    "cu-linux-verify-expect-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-verify-expect-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-verify-expect-honesty-smoke"
+      ]
+    },
     "cu-linux-workspace-desktop-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5317,6 +5336,26 @@
       "id": "cu-linux-tree-honesty-smoke",
       "description": "Prove Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk; volatile focus/active/armed/selected states excluded; AT-SPI/--name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-tree-honesty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-verify-expect-honesty-smoke",
+      "description": "Prove Linux verify --expect value and checked facts on named GTK fixture nodes match an independent pyatspi AT-SPI read-back of the same nodes, including after a disposable invoke set-value actuation; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-verify-expect-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
