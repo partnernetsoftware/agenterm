@@ -2,11 +2,12 @@ use std::{
     collections::HashMap,
     io::{self, BufRead, Write},
     sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
         mpsc,
     },
     thread,
+    time::Duration,
 };
 
 use serde_json::{Value, json};
@@ -31,6 +32,7 @@ const ERROR_PROTOCOL_VERSION: i64 = -32005;
 const ERROR_RESPONSE_TOO_LARGE: i64 = -32004;
 const ERROR_ACU_PROVIDER: i64 = -32006;
 const MCP_MUTATION_SESSION_TTL_SECONDS: u64 = 3_600;
+const MCP_PROVIDER_SHELL_GRACE: Duration = Duration::from_secs(2);
 const WAIT_PENDING: u8 = 0;
 const WAIT_CANCELLED: u8 = 1;
 const WAIT_COMPLETED: u8 = 2;
@@ -56,10 +58,17 @@ enum ServerEvent {
         id: Value,
         result: Result<Value, mcp_fleet::McpFleetError>,
     },
-    ProviderComplete(ProviderComplete),
+    ProviderComplete(ProviderCompletionEvent),
+    ProviderRecovered {
+        generation: u64,
+    },
 }
 
-enum ProviderWork {
+enum ProviderCall {
+    ReadOnly {
+        response_id: Value,
+        request: String,
+    },
     SessionStart,
     ShellExec {
         id: JsonRpcRequestId,
@@ -68,16 +77,162 @@ enum ProviderWork {
     SessionEnd {
         request: String,
     },
+}
+
+enum ProviderMessage {
+    Call(ProviderWork),
     Shutdown,
 }
 
+struct ProviderWork {
+    generation: u64,
+    timeout: Duration,
+    cancel: Arc<AtomicBool>,
+    call: ProviderCall,
+}
+
 enum ProviderComplete {
+    ReadOnly {
+        response_id: Value,
+        result: Result<String, String>,
+    },
     SessionStart(Result<String, String>),
     ShellExec {
         id: JsonRpcRequestId,
         result: Result<String, String>,
     },
     SessionEnd(Result<String, String>),
+}
+
+struct ProviderCompletionEvent {
+    generation: u64,
+    release_gate: bool,
+    completion: ProviderComplete,
+}
+
+#[derive(Debug)]
+enum ProviderSubmitError {
+    Busy,
+    Stopped,
+}
+
+struct ProviderGate {
+    active_generation: AtomicU64,
+    quarantined_generation: AtomicU64,
+    next_generation: AtomicU64,
+    active_read: Mutex<Option<(u64, String, Arc<AtomicBool>)>>,
+}
+
+impl ProviderGate {
+    fn new() -> Self {
+        Self {
+            active_generation: AtomicU64::new(0),
+            quarantined_generation: AtomicU64::new(0),
+            next_generation: AtomicU64::new(1),
+            active_read: Mutex::new(None),
+        }
+    }
+
+    fn acquire(&self) -> Option<u64> {
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        self.active_generation
+            .compare_exchange(0, generation, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| generation)
+    }
+
+    fn release(&self, generation: u64) {
+        if let Ok(mut active) = self.active_read.lock()
+            && active
+                .as_ref()
+                .is_some_and(|(active_generation, _, _)| *active_generation == generation)
+        {
+            active.take();
+        }
+        let _ = self.active_generation.compare_exchange(
+            generation,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        let _ = self.quarantined_generation.compare_exchange(
+            generation,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    fn is_busy(&self) -> bool {
+        self.active_generation.load(Ordering::Acquire) != 0
+    }
+
+    fn quarantine(&self, generation: u64) {
+        if self.active_generation.load(Ordering::Acquire) == generation {
+            self.quarantined_generation
+                .store(generation, Ordering::Release);
+        }
+    }
+
+    fn is_quarantined(&self) -> bool {
+        self.quarantined_generation.load(Ordering::Acquire) != 0
+    }
+
+    fn register_read(&self, generation: u64, response_id: &Value, cancel: Arc<AtomicBool>) {
+        if let Ok(mut active) = self.active_read.lock() {
+            *active = Some((generation, request_id_key(response_id), cancel));
+        }
+    }
+
+    fn cancel_read(&self, response_id: &Value) {
+        let key = request_id_key(response_id);
+        if let Ok(active) = self.active_read.lock()
+            && let Some((_, active_key, cancel)) = active.as_ref()
+            && active_key == &key
+        {
+            cancel.store(true, Ordering::Release);
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ProviderClient {
+    sender: mpsc::Sender<ProviderMessage>,
+    gate: Arc<ProviderGate>,
+    default_timeout: Duration,
+}
+
+impl ProviderClient {
+    fn submit(&self, call: ProviderCall) -> Result<(), ProviderSubmitError> {
+        self.submit_with_timeout(call, self.default_timeout)
+    }
+
+    fn submit_with_timeout(
+        &self,
+        call: ProviderCall,
+        timeout: Duration,
+    ) -> Result<(), ProviderSubmitError> {
+        let generation = self.gate.acquire().ok_or(ProviderSubmitError::Busy)?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        if let ProviderCall::ReadOnly { response_id, .. } = &call {
+            self.gate
+                .register_read(generation, response_id, Arc::clone(&cancel));
+        }
+        if self
+            .sender
+            .send(ProviderMessage::Call(ProviderWork {
+                generation,
+                timeout,
+                cancel,
+                call,
+            }))
+            .is_err()
+        {
+            self.gate.release(generation);
+            return Err(ProviderSubmitError::Stopped);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -103,6 +258,27 @@ enum MutationLifecycle {
 #[doc(hidden)]
 pub trait McpAcuProvider: Send + Sync + 'static {
     fn call(&self, request: &str) -> Result<String, String>;
+
+    fn call_controlled(&self, request: &str, _cancel: &AtomicBool) -> Result<String, String> {
+        self.call(request)
+    }
+}
+
+struct NativeAcuProvider;
+
+impl McpAcuProvider for NativeAcuProvider {
+    fn call(&self, request: &str) -> Result<String, String> {
+        crate::acu_provider::call(request)
+    }
+
+    fn call_controlled(&self, request: &str, cancel: &AtomicBool) -> Result<String, String> {
+        match crate::acu_provider::call_controlled(request, Some(cancel)) {
+            Err(code) if code == "acu_provider_cooperative_cancel_unavailable" => {
+                crate::acu_provider::call(request)
+            }
+            result => result,
+        }
+    }
 }
 
 struct CleanupWriter<W> {
@@ -192,6 +368,8 @@ struct ActiveWait {
 #[derive(Clone, Debug, Default)]
 pub struct McpStdioConfig {
     pub address: Option<String>,
+    #[doc(hidden)]
+    pub provider_call_timeout_ms: Option<u64>,
 }
 
 pub fn serve_stdio<R: BufRead + Send + 'static, W: Write>(input: R, output: W) -> io::Result<()> {
@@ -203,7 +381,7 @@ pub fn serve_stdio_with_config<R: BufRead + Send + 'static, W: Write>(
     output: W,
     config: McpStdioConfig,
 ) -> io::Result<()> {
-    serve_stdio_core(input, output, config, crate::acu_provider::call, false)
+    serve_stdio_core(input, output, config, NativeAcuProvider, false)
 }
 
 #[doc(hidden)]
@@ -224,7 +402,7 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
     input: R,
     output: W,
     config: McpStdioConfig,
-    provider: P,
+    acu_provider: P,
     mutation_enabled: bool,
 ) -> io::Result<()> {
     let mut output = CleanupWriter::new(output);
@@ -237,9 +415,22 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
         move || read_input(input, limit, sender, &stop_reader)
     });
     let (provider_sender, provider_receiver) = mpsc::channel();
+    let provider_gate = Arc::new(ProviderGate::new());
+    let provider_client = ProviderClient {
+        sender: provider_sender,
+        gate: Arc::clone(&provider_gate),
+        default_timeout: Duration::from_millis(
+            config
+                .provider_call_timeout_ms
+                .unwrap_or_else(|| u64::from(capabilities().limits.provider_call_timeout_ms))
+                .max(1),
+        ),
+    };
     let provider_worker = thread::spawn({
         let sender = sender.clone();
-        move || provider_loop(provider, provider_receiver, sender)
+        let gate = Arc::clone(&provider_gate);
+        let acu_provider = Arc::new(acu_provider);
+        move || provider_loop(acu_provider, provider_receiver, sender, gate)
     });
     let mut state = SessionState::New;
     let mut active = HashMap::<String, ActiveWait>::new();
@@ -251,18 +442,24 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
             Ok(ServerEvent::Input(_)) | Ok(ServerEvent::InputError(_)) if output_disconnected => {}
             Ok(ServerEvent::Input(BoundedLine::Eof)) => {
                 cancel_and_join_waits(&mut active);
-                receive_eof_and_maybe_end(&mut mutation, &provider_sender)
+                receive_eof_and_maybe_end(&mut mutation, &provider_client)
                     .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
-                if matches!(mutation, MutationLifecycle::Dormant) {
+                if matches!(mutation, MutationLifecycle::Dormant)
+                    || (mutation_exits_after_provider_timeout(&mutation)
+                        && provider_gate.is_quarantined())
+                {
                     break;
                 }
             }
             Ok(ServerEvent::InputError(error)) => {
                 input_error = Some(error);
                 cancel_and_join_waits(&mut active);
-                receive_eof_and_maybe_end(&mut mutation, &provider_sender)
+                receive_eof_and_maybe_end(&mut mutation, &provider_client)
                     .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
-                if matches!(mutation, MutationLifecycle::Dormant) {
+                if matches!(mutation, MutationLifecycle::Dormant)
+                    || (mutation_exits_after_provider_timeout(&mutation)
+                        && provider_gate.is_quarantined())
+                {
                     break;
                 }
             }
@@ -285,7 +482,7 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
                         continue;
                     }
                 };
-                if handle_cancel_notification(&message, &active) {
+                if handle_cancel_notification(&message, &active, &provider_gate) {
                     handle_mutation_cancel(&message, &mut mutation, &mut output)?;
                     continue;
                 }
@@ -299,7 +496,7 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
                     if message.get("id").is_none() {
                         continue;
                     }
-                    match submit_shell_exec(&message, &mut mutation, &provider_sender) {
+                    match submit_shell_exec(&message, &mut mutation, &provider_client) {
                         Ok(()) => {}
                         Err(response) => write_message(&mut output, &response)?,
                     }
@@ -318,9 +515,13 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
                     }
                     continue;
                 }
-                if let Some(response) =
-                    process_message(message, &mut state, &config, mutation_enabled)
-                {
+                if let Some(response) = process_message(
+                    message,
+                    &mut state,
+                    &config,
+                    mutation_enabled,
+                    &provider_client,
+                ) {
                     write_message(&mut output, &response)?;
                 }
             }
@@ -349,15 +550,29 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
                 };
                 write_message(&mut output, &response)?;
             }
-            Ok(ServerEvent::ProviderComplete(completion)) => {
+            Ok(ServerEvent::ProviderComplete(event)) => {
+                let provider_quarantined = !event.release_gate;
+                if event.release_gate {
+                    provider_gate.release(event.generation);
+                }
                 if handle_provider_complete(
-                    completion,
+                    event.completion,
                     &mut mutation,
-                    &provider_sender,
+                    &provider_client,
                     &mut output,
                 )? {
                     break;
                 }
+                if mutation_exits_after_provider_timeout(&mutation)
+                    && (provider_quarantined || output_disconnected)
+                {
+                    break;
+                }
+            }
+            Ok(ServerEvent::ProviderRecovered { generation }) => {
+                provider_gate.release(generation);
+                resume_mutation_after_provider_recovery(&mut mutation, &provider_client)
+                    .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
             }
             Err(_) => break,
         }
@@ -365,15 +580,23 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
             output_disconnected = true;
             stop_reader.store(true, Ordering::Release);
             cancel_and_join_waits(&mut active);
-            receive_eof_and_maybe_end(&mut mutation, &provider_sender)
+            receive_eof_and_maybe_end(&mut mutation, &provider_client)
                 .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
-            if matches!(mutation, MutationLifecycle::Dormant) {
+            if matches!(mutation, MutationLifecycle::Dormant)
+                || (mutation_exits_after_provider_timeout(&mutation)
+                    && provider_gate.is_quarantined())
+            {
                 break;
             }
         }
     }
-    let _ = provider_sender.send(ProviderWork::Shutdown);
-    let _ = provider_worker.join();
+    if provider_gate.is_busy() {
+        drop(provider_client);
+        drop(provider_worker);
+    } else {
+        let _ = provider_client.sender.send(ProviderMessage::Shutdown);
+        let _ = provider_worker.join();
+    }
     // A generic blocking reader cannot be interrupted safely. Once its peer
     // output is gone, let the process return instead of waiting for unrelated
     // stdin EOF; the stop flag still lets a reader between frames retire.
@@ -418,42 +641,135 @@ fn read_input<R: BufRead>(
 }
 
 fn provider_loop<P: McpAcuProvider>(
-    provider: P,
-    receiver: mpsc::Receiver<ProviderWork>,
+    provider: Arc<P>,
+    receiver: mpsc::Receiver<ProviderMessage>,
     sender: mpsc::Sender<ServerEvent>,
+    gate: Arc<ProviderGate>,
 ) {
-    while let Ok(work) = receiver.recv() {
-        let completion = match work {
-            ProviderWork::SessionStart => ProviderComplete::SessionStart(
-                provider.call(
-                    &json!({
-                        "acu_request": 1,
-                        "kind": "command",
-                        "command": {
-                            "verb": "session-start",
-                            "target": "current",
-                            "label": "agenterm-mcp",
-                            "ttl_seconds": MCP_MUTATION_SESSION_TTL_SECONDS
-                        }
-                    })
-                    .to_string(),
-                ),
-            ),
-            ProviderWork::ShellExec { id, request } => ProviderComplete::ShellExec {
-                id,
-                result: provider.call(&request),
-            },
-            ProviderWork::SessionEnd { request } => {
-                ProviderComplete::SessionEnd(provider.call(&request))
-            }
-            ProviderWork::Shutdown => return,
-        };
-        if sender
-            .send(ServerEvent::ProviderComplete(completion))
-            .is_err()
-        {
+    while let Ok(message) = receiver.recv() {
+        let ProviderMessage::Call(work) = message else {
             return;
+        };
+        let generation = work.generation;
+        let timeout = work.timeout;
+        let timeout_completion = failed_provider_call(&work.call, "acu_provider_timeout");
+        let panic_completion = failed_provider_call(&work.call, "acu_provider_worker_panicked");
+        let cancel = Arc::clone(&work.cancel);
+        let (result_sender, result_receiver) = mpsc::channel();
+        let helper = thread::spawn({
+            let provider = Arc::clone(&provider);
+            let cancel = Arc::clone(&cancel);
+            move || {
+                let completion = execute_provider_call(provider.as_ref(), work.call, &cancel);
+                let _ = result_sender.send(completion);
+            }
+        });
+        match result_receiver.recv_timeout(timeout) {
+            Ok(completion) => {
+                let _ = helper.join();
+                if sender
+                    .send(ServerEvent::ProviderComplete(ProviderCompletionEvent {
+                        generation,
+                        release_gate: true,
+                        completion,
+                    }))
+                    .is_err()
+                {
+                    gate.release(generation);
+                    return;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                cancel.store(true, Ordering::Release);
+                gate.quarantine(generation);
+                if sender
+                    .send(ServerEvent::ProviderComplete(ProviderCompletionEvent {
+                        generation,
+                        release_gate: false,
+                        completion: timeout_completion,
+                    }))
+                    .is_err()
+                {
+                    drop(helper);
+                    return;
+                }
+                let recovered = sender.clone();
+                thread::spawn(move || {
+                    let _ = result_receiver.recv();
+                    let _ = helper.join();
+                    let _ = recovered.send(ServerEvent::ProviderRecovered { generation });
+                });
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = helper.join();
+                if sender
+                    .send(ServerEvent::ProviderComplete(ProviderCompletionEvent {
+                        generation,
+                        release_gate: true,
+                        completion: panic_completion,
+                    }))
+                    .is_err()
+                {
+                    gate.release(generation);
+                    return;
+                }
+            }
         }
+    }
+}
+
+fn execute_provider_call<P: McpAcuProvider>(
+    provider: &P,
+    call: ProviderCall,
+    cancel: &AtomicBool,
+) -> ProviderComplete {
+    match call {
+        ProviderCall::ReadOnly {
+            response_id,
+            request,
+        } => ProviderComplete::ReadOnly {
+            response_id,
+            result: provider.call_controlled(&request, cancel),
+        },
+        ProviderCall::SessionStart => ProviderComplete::SessionStart(
+            provider.call_controlled(
+                &json!({
+                    "acu_request": 1,
+                    "kind": "command",
+                    "command": {
+                        "verb": "session-start",
+                        "target": "current",
+                        "label": "agenterm-mcp",
+                        "ttl_seconds": MCP_MUTATION_SESSION_TTL_SECONDS
+                    }
+                })
+                .to_string(),
+                cancel,
+            ),
+        ),
+        ProviderCall::ShellExec { id, request } => ProviderComplete::ShellExec {
+            id,
+            result: provider.call_controlled(&request, cancel),
+        },
+        ProviderCall::SessionEnd { request } => {
+            ProviderComplete::SessionEnd(provider.call_controlled(&request, cancel))
+        }
+    }
+}
+
+fn failed_provider_call(call: &ProviderCall, code: &str) -> ProviderComplete {
+    let error = Err(code.to_owned());
+    match call {
+        ProviderCall::ReadOnly { response_id, .. } => ProviderComplete::ReadOnly {
+            response_id: response_id.clone(),
+            result: error,
+        },
+        ProviderCall::SessionStart => ProviderComplete::SessionStart(error),
+        ProviderCall::ShellExec { id, .. } => ProviderComplete::ShellExec {
+            id: id.clone(),
+            result: error,
+        },
+        ProviderCall::SessionEnd { .. } => ProviderComplete::SessionEnd(error),
     }
 }
 
@@ -484,7 +800,7 @@ fn is_shell_exec_tool_call(message: &Value) -> bool {
 fn submit_shell_exec(
     message: &Value,
     lifecycle: &mut MutationLifecycle,
-    provider: &mpsc::Sender<ProviderWork>,
+    provider: &ProviderClient,
 ) -> Result<(), Value> {
     let object = message.as_object().ok_or_else(|| {
         error_response(
@@ -611,14 +927,10 @@ fn submit_shell_exec(
                 queued: None,
                 eof: false,
             };
-            provider.send(ProviderWork::SessionStart).map_err(|_| {
-                error_response(
-                    Value::Null,
-                    ERROR_ACU_PROVIDER,
-                    "agenterm-cu provider worker stopped",
-                    None,
-                )
-            })?;
+            if let Err(error) = provider.submit(ProviderCall::SessionStart) {
+                *lifecycle = MutationLifecycle::Dormant;
+                return Err(provider_submit_error(id_value, error));
+            }
             Ok(())
         }
         MutationLifecycle::Starting { first, queued, .. } => {
@@ -660,6 +972,9 @@ fn submit_shell_exec(
                 Ok(())
             }
         }
+        MutationLifecycle::Active { state, .. } if provider.gate.is_quarantined() => {
+            Err(provider_submit_error(id_value, ProviderSubmitError::Busy))
+        }
         MutationLifecycle::Active { state, .. } => match state.submit(request) {
             SubmitResult::Queued => {
                 dispatch_next(state, provider)?;
@@ -695,8 +1010,11 @@ fn submit_shell_exec(
 
 fn dispatch_next(
     state: &mut ConnectionMutationState<ShellExecCommand>,
-    provider: &mpsc::Sender<ProviderWork>,
+    provider: &ProviderClient,
 ) -> Result<(), Value> {
+    if provider.gate.is_busy() {
+        return Ok(());
+    }
     let Some(dispatch) = state.begin_dispatch() else {
         return Ok(());
     };
@@ -721,23 +1039,19 @@ fn dispatch_next(
         .to_string()
     });
     provider
-        .send(ProviderWork::ShellExec {
-            id: dispatch.json_rpc_id().clone(),
-            request,
-        })
-        .map_err(|_| {
-            error_response(
-                mutation_id_value(dispatch.json_rpc_id()),
-                ERROR_ACU_PROVIDER,
-                "agenterm-cu provider worker stopped",
-                None,
-            )
-        })
+        .submit_with_timeout(
+            ProviderCall::ShellExec {
+                id: dispatch.json_rpc_id().clone(),
+                request,
+            },
+            Duration::from_millis(command.timeout_ms).saturating_add(MCP_PROVIDER_SHELL_GRACE),
+        )
+        .map_err(|error| provider_submit_error(mutation_id_value(dispatch.json_rpc_id()), error))
 }
 
 fn dispatch_session_end(
     state: &mut ConnectionMutationState<ShellExecCommand>,
-    provider: &mpsc::Sender<ProviderWork>,
+    provider: &ProviderClient,
 ) -> Result<(), Value> {
     let end = state.begin_session_end().map_err(|_| {
         error_response(
@@ -762,15 +1076,8 @@ fn dispatch_session_end(
         .to_string()
     });
     provider
-        .send(ProviderWork::SessionEnd { request })
-        .map_err(|_| {
-            error_response(
-                Value::Null,
-                ERROR_ACU_PROVIDER,
-                "agenterm-cu provider worker stopped",
-                None,
-            )
-        })
+        .submit(ProviderCall::SessionEnd { request })
+        .map_err(|error| provider_submit_error(Value::Null, error))
 }
 
 fn receive_eof_mutation(lifecycle: &mut MutationLifecycle) {
@@ -794,15 +1101,40 @@ fn receive_eof_mutation(lifecycle: &mut MutationLifecycle) {
 
 fn receive_eof_and_maybe_end(
     lifecycle: &mut MutationLifecycle,
-    provider: &mpsc::Sender<ProviderWork>,
+    provider: &ProviderClient,
 ) -> Result<(), Value> {
     receive_eof_mutation(lifecycle);
     if let MutationLifecycle::Active { state, .. } = lifecycle
         && state.is_session_ending()
+        && !provider.gate.is_busy()
     {
         dispatch_session_end(state, provider)?;
     }
     Ok(())
+}
+
+fn mutation_exits_after_provider_timeout(lifecycle: &MutationLifecycle) -> bool {
+    matches!(
+        lifecycle,
+        MutationLifecycle::Active {
+            exit_after_end: true,
+            ..
+        }
+    )
+}
+
+fn resume_mutation_after_provider_recovery(
+    lifecycle: &mut MutationLifecycle,
+    provider: &ProviderClient,
+) -> Result<(), Value> {
+    let MutationLifecycle::Active { state, .. } = lifecycle else {
+        return Ok(());
+    };
+    if state.is_session_ending() {
+        dispatch_session_end(state, provider)
+    } else {
+        dispatch_next(state, provider)
+    }
 }
 
 fn cancellation_reply(id: Value) -> Value {
@@ -893,6 +1225,20 @@ fn parse_provider_reply(result: Result<String, String>) -> Result<Value, String>
     Ok(reply)
 }
 
+fn provider_submit_error(id: Value, error: ProviderSubmitError) -> Value {
+    let (message, code) = match error {
+        ProviderSubmitError::Busy => (
+            "agenterm-cu provider is still completing an earlier call",
+            "acu_provider_busy",
+        ),
+        ProviderSubmitError::Stopped => (
+            "agenterm-cu provider worker stopped",
+            "acu_provider_worker_stopped",
+        ),
+    };
+    error_response(id, ERROR_ACU_PROVIDER, message, Some(json!({"code": code})))
+}
+
 fn provider_boundary_reply(code: &str) -> Value {
     json!({
         "ok": false,
@@ -924,10 +1270,22 @@ fn acu_tool_response(id: Value, reply: Value) -> Value {
 fn handle_provider_complete<W: Write>(
     completion: ProviderComplete,
     lifecycle: &mut MutationLifecycle,
-    provider: &mpsc::Sender<ProviderWork>,
+    provider: &ProviderClient,
     output: &mut CleanupWriter<W>,
 ) -> io::Result<bool> {
     match completion {
+        ProviderComplete::ReadOnly {
+            response_id,
+            result,
+        } => {
+            write_message(output, &complete_acu_tool_call(response_id, result))?;
+            if !provider.gate.is_busy()
+                && (!output.has_error() || mutation_exits_after_provider_timeout(lifecycle))
+            {
+                resume_mutation_after_provider_recovery(lifecycle, provider)
+                    .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+            }
+        }
         ProviderComplete::SessionStart(result) => {
             let MutationLifecycle::Starting {
                 mut first,
@@ -1042,14 +1400,14 @@ fn handle_provider_complete<W: Write>(
                         output,
                         &acu_tool_response(mutation_id_value(&completed.json_rpc_id), reply),
                     )?;
-                    if !output.has_error() {
+                    if !output.has_error() && !provider.gate.is_busy() {
                         dispatch_next(state, provider)
                             .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
                     }
                 }
                 CompletionDisposition::SuppressAfterEof(_) => {}
             }
-            if state.is_session_ending() {
+            if state.is_session_ending() && !provider.gate.is_busy() {
                 dispatch_session_end(state, provider)
                     .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
             }
@@ -1119,7 +1477,11 @@ fn decode_line(line: &[u8]) -> Result<Value, Value> {
     })
 }
 
-fn handle_cancel_notification(message: &Value, active: &HashMap<String, ActiveWait>) -> bool {
+fn handle_cancel_notification(
+    message: &Value,
+    active: &HashMap<String, ActiveWait>,
+    provider: &ProviderGate,
+) -> bool {
     let Some(object) = message.as_object() else {
         return false;
     };
@@ -1145,6 +1507,14 @@ fn handle_cancel_notification(message: &Value, active: &HashMap<String, ActiveWa
             .is_ok()
     {
         wait.cancelled.store(true, Ordering::Release);
+    }
+    if let Some(request_id) = object
+        .get("params")
+        .and_then(Value::as_object)
+        .and_then(|params| params.get("requestId"))
+        .filter(|id| valid_request_id(id))
+    {
+        provider.cancel_read(request_id);
     }
     true
 }
@@ -1372,6 +1742,7 @@ fn process_message(
     state: &mut SessionState,
     config: &McpStdioConfig,
     mutation_enabled: bool,
+    provider: &ProviderClient,
 ) -> Option<Value> {
     let Some(object) = message.as_object() else {
         return Some(error_response(
@@ -1610,7 +1981,8 @@ fn process_message(
             }
             Some(success_response(response_id, json!({"tools": tools})))
         }
-        "tools/call" => Some(call_acu_tool(response_id, params)),
+        "tools/call" if notification => None,
+        "tools/call" => submit_acu_tool_call(response_id, params, provider).err(),
         _ => Some(error_response(
             response_id,
             ERROR_METHOD_NOT_FOUND,
@@ -1624,38 +1996,42 @@ fn acu_tool_descriptor(source: &str) -> Value {
     serde_json::from_str(source).expect("agenterm-cu-owned MCP descriptor must be valid JSON")
 }
 
-fn call_acu_tool(response_id: Value, params: Option<&Value>) -> Value {
+fn submit_acu_tool_call(
+    response_id: Value,
+    params: Option<&Value>,
+    provider: &ProviderClient,
+) -> Result<(), Value> {
     let Some(params) = params.and_then(Value::as_object) else {
-        return error_response(
+        return Err(error_response(
             response_id,
             ERROR_INVALID_PARAMS,
             "tools/call params must be an object",
             None,
-        );
+        ));
     };
     let Some(name) = params.get("name").and_then(Value::as_str) else {
-        return error_response(
+        return Err(error_response(
             response_id,
             ERROR_INVALID_PARAMS,
             "tools/call requires a tool name",
             None,
-        );
+        ));
     };
     if !matches!(name, "agenterm_acu_capabilities" | "agenterm_acu_observe") {
-        return error_response(
+        return Err(error_response(
             response_id,
             ERROR_INVALID_PARAMS,
             "Unknown tool",
             Some(json!({"name": name})),
-        );
+        ));
     }
     let Some(arguments) = params.get("arguments").and_then(Value::as_object) else {
-        return error_response(
+        return Err(error_response(
             response_id,
             ERROR_INVALID_PARAMS,
             &format!("{name} arguments must be an object"),
             None,
-        );
+        ));
     };
     let request = json!({
         "acu_request": 1,
@@ -1664,7 +2040,16 @@ fn call_acu_tool(response_id: Value, params: Option<&Value>) -> Value {
         "arguments": arguments
     });
     let encoded = serde_json::to_string(&request).expect("ACU MCP request serializes");
-    let reply = match crate::acu_provider::call(&encoded) {
+    provider
+        .submit(ProviderCall::ReadOnly {
+            response_id: response_id.clone(),
+            request: encoded,
+        })
+        .map_err(|error| provider_submit_error(response_id, error))
+}
+
+fn complete_acu_tool_call(response_id: Value, result: Result<String, String>) -> Value {
+    let reply = match result {
         Ok(reply) => match serde_json::from_str::<Value>(&reply) {
             Ok(reply) => reply,
             Err(_) => {
@@ -1677,11 +2062,23 @@ fn call_acu_tool(response_id: Value, params: Option<&Value>) -> Value {
             }
         },
         Err(code) => {
+            let message = if code == "acu_provider_timeout" {
+                "agenterm-cu provider call exceeded its MCP deadline"
+            } else {
+                "agenterm-cu provider boundary failed"
+            };
             return error_response(
                 response_id,
                 ERROR_ACU_PROVIDER,
-                "agenterm-cu provider boundary failed",
-                Some(json!({"code": code})),
+                message,
+                Some(json!({
+                    "code": code,
+                    "outcome": if code == "acu_provider_timeout" {
+                        "unknown"
+                    } else {
+                        "failed"
+                    }
+                })),
             );
         }
     };
@@ -1818,6 +2215,26 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn provider_gate_ignores_stale_generation_release() {
+        let gate = ProviderGate::new();
+        let first = gate.acquire().expect("first provider call acquires gate");
+        gate.quarantine(first);
+        assert!(gate.is_quarantined());
+        gate.release(first);
+        let second = gate.acquire().expect("second provider call acquires gate");
+
+        gate.release(first);
+        assert!(
+            gate.is_busy(),
+            "stale completion must not release newer work"
+        );
+        assert!(!gate.is_quarantined());
+
+        gate.release(second);
+        assert!(!gate.is_busy());
+    }
 
     fn exchange(input: &str) -> Vec<Value> {
         let mut output = Vec::new();

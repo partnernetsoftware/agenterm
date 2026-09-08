@@ -52,6 +52,7 @@ pub struct McpLimits {
     pub instance_discovery_concurrency: u16,
     pub waiter_concurrency: u16,
     pub wait_timeout_ms_maximum: u32,
+    pub provider_call_timeout_ms: u32,
     pub error_detail_bytes: u32,
 }
 
@@ -163,6 +164,7 @@ pub fn capabilities() -> McpCapabilities {
             instance_discovery_concurrency: 32,
             waiter_concurrency: 8,
             wait_timeout_ms_maximum: 60_000,
+            provider_call_timeout_ms: 30_000,
             error_detail_bytes: 16_384,
         },
         unavailable_roles: vec![
@@ -281,6 +283,7 @@ fn serve_mcp_stdio(selectors: EndpointSelectorArgs) -> i32 {
         std::io::stdout().lock(),
         crate::mcp_stdio::McpStdioConfig {
             address: Some(endpoint),
+            ..crate::mcp_stdio::McpStdioConfig::default()
         },
     ) {
         Ok(()) => 0,
@@ -335,6 +338,7 @@ mod tests {
         );
         assert!(catalog.limits.instance_discovery_concurrency > 0);
         assert!(catalog.limits.wait_timeout_ms_maximum > 0);
+        assert!(catalog.limits.provider_call_timeout_ms > 0);
         let acu: serde_json::Value = serde_json::from_str(include_str!(
             "../crates/agenterm-cu/contract/mcp-capabilities-tool.json"
         ))

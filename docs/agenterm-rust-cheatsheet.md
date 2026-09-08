@@ -3873,6 +3873,15 @@ precedence as acknowledged cancellation, host-budget refusal, host-door fault,
 then core fault, and prove that an interrupted start leaves the live-slot count
 unchanged.
 
+An in-process FFI watchdog can bound protocol responsiveness without claiming
+that it killed the native call. Admit one helper through a generation-stamped
+gate, report the deadline, signal cooperative cancellation, keep later calls
+typed-busy until the helper really returns, and discard its late reply. On
+connection teardown, do not join that quarantined helper without a bound. This
+contains one stuck read-only call but does not reclaim it; effectful providers
+still need process isolation, durable outcome-unknown accounting, and no
+automatic replay before their public mutation surface can ship.
+
 ## Typed errors require an all-target consumer sweep
 
 When a shared Rust API changes an error from `String` to a typed record, search

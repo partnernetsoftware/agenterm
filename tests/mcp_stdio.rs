@@ -83,13 +83,39 @@ struct FakeProviderState {
     changed: Condvar,
     gate_start: AtomicBool,
     gate_first: AtomicBool,
+    gate_read: AtomicBool,
     invalid_start_identity: AtomicBool,
+    provider_cancel_seen: AtomicBool,
     release_start: AtomicBool,
     release_first: AtomicBool,
+    release_read: AtomicBool,
+}
+
+struct FakeProvider(Arc<FakeProviderState>);
+
+impl agenterm::mcp_stdio::McpAcuProvider for FakeProvider {
+    fn call(&self, request: &str) -> Result<String, String> {
+        self.0.call_controlled(request, None)
+    }
+
+    fn call_controlled(&self, request: &str, cancel: &AtomicBool) -> Result<String, String> {
+        self.0.call_controlled(request, Some(cancel))
+    }
 }
 
 fn start_fake_stdio(
     provider: Arc<FakeProviderState>,
+) -> (
+    mpsc::Sender<Vec<u8>>,
+    SharedOutput,
+    thread::JoinHandle<std::io::Result<()>>,
+) {
+    start_fake_stdio_with_timeout(provider, None)
+}
+
+fn start_fake_stdio_with_timeout(
+    provider: Arc<FakeProviderState>,
+    provider_call_timeout_ms: Option<u64>,
 ) -> (
     mpsc::Sender<Vec<u8>>,
     SharedOutput,
@@ -106,8 +132,11 @@ fn start_fake_stdio(
                 offset: 0,
             },
             worker_output,
-            agenterm::mcp_stdio::McpStdioConfig::default(),
-            move |request: &str| provider.call(request),
+            agenterm::mcp_stdio::McpStdioConfig {
+                provider_call_timeout_ms,
+                ..agenterm::mcp_stdio::McpStdioConfig::default()
+            },
+            FakeProvider(provider),
         )
     });
     (sender, output, worker)
@@ -140,6 +169,16 @@ fn send_fake_initialize(sender: &mpsc::Sender<Vec<u8>>) {
 }
 
 fn send_shell_exec(sender: &mpsc::Sender<Vec<u8>>, id: &str, key: &str, command: &str) {
+    send_shell_exec_with_timeout(sender, id, key, command, 1000);
+}
+
+fn send_shell_exec_with_timeout(
+    sender: &mpsc::Sender<Vec<u8>>,
+    id: &str,
+    key: &str,
+    command: &str,
+    timeout_ms: u64,
+) {
     send_mcp(
         sender,
         json!({
@@ -151,7 +190,7 @@ fn send_shell_exec(sender: &mpsc::Sender<Vec<u8>>, id: &str, key: &str, command:
                 "arguments": {
                     "idempotency_key": key,
                     "command": command,
-                    "timeout_ms": 1000,
+                    "timeout_ms": timeout_ms,
                     "max_output_bytes": 4096
                 }
             }
@@ -166,6 +205,38 @@ fn send_fake_cancel(sender: &mpsc::Sender<Vec<u8>>, id: &str) {
             "jsonrpc": "2.0",
             "method": "notifications/cancelled",
             "params": {"requestId": id}
+        }),
+    );
+}
+
+fn send_fake_observe(sender: &mpsc::Sender<Vec<u8>>, id: &str) {
+    send_mcp(
+        sender,
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {
+                "name": "agenterm_acu_observe",
+                "arguments": {
+                    "command": {"verb": "runtime-status", "target": "current"}
+                }
+            }
+        }),
+    );
+}
+
+fn send_fake_capabilities(sender: &mpsc::Sender<Vec<u8>>, id: &str) {
+    send_mcp(
+        sender,
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {
+                "name": "agenterm_acu_capabilities",
+                "arguments": {}
+            }
         }),
     );
 }
@@ -273,6 +344,242 @@ fn public_stdio_mutation_is_lazy_queues_one_and_preserves_authoritative_completi
 }
 
 #[test]
+fn provider_watchdog_keeps_stdio_responsive_and_quarantines_late_replies() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_read.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio_with_timeout(Arc::clone(&provider), Some(50));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+
+    send_fake_observe(&input, "slow");
+    provider.wait_for_calls(1);
+    let ping_started = Instant::now();
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"ping", "method":"ping"}),
+    );
+    let responsive = wait_fake_responses(&output, 2);
+    assert_eq!(responsive[1]["id"], "ping");
+    assert!(ping_started.elapsed() < Duration::from_millis(500));
+
+    let timed_out = wait_fake_responses(&output, 3);
+    assert_eq!(timed_out[2]["id"], "slow");
+    assert_eq!(
+        timed_out[2]["error"]["data"]["code"],
+        "acu_provider_timeout"
+    );
+    assert_eq!(timed_out[2]["error"]["data"]["outcome"], "unknown");
+    let cancel_deadline = Instant::now() + Duration::from_millis(500);
+    while !provider.provider_cancel_seen.load(Ordering::Acquire) {
+        assert!(
+            Instant::now() < cancel_deadline,
+            "watchdog must signal the provider cancellation probe"
+        );
+        thread::yield_now();
+    }
+
+    let busy_started = Instant::now();
+    send_fake_capabilities(&input, "busy");
+    let busy = wait_fake_responses(&output, 4);
+    assert_eq!(busy[3]["id"], "busy");
+    assert_eq!(busy[3]["error"]["data"]["code"], "acu_provider_busy");
+    assert!(busy_started.elapsed() < Duration::from_millis(500));
+    assert_eq!(provider.calls.lock().expect("provider calls").len(), 1);
+
+    provider.release_read.store(true, Ordering::Release);
+    provider.changed.notify_all();
+    let mut response_count = 4;
+    let mut recovered = None;
+    for attempt in 0..100_u32 {
+        let id = format!("recovered-{attempt}");
+        send_fake_capabilities(&input, &id);
+        response_count += 1;
+        let responses = wait_fake_responses(&output, response_count);
+        let response = responses.last().expect("recovery response");
+        if response.get("result").is_some() {
+            recovered = Some(response.clone());
+            break;
+        }
+        assert_eq!(response["error"]["data"]["code"], "acu_provider_busy");
+        thread::yield_now();
+    }
+    let recovered = recovered.expect("provider gate must recover after the late call returns");
+    assert_eq!(
+        recovered["result"]["structuredContent"]["data"]["provider_call_index"],
+        2
+    );
+    assert_eq!(provider.calls.lock().expect("provider calls").len(), 2);
+    assert_eq!(
+        wait_fake_responses(&output, response_count)
+            .iter()
+            .filter(|response| response["id"] == "slow")
+            .count(),
+        1,
+        "the late provider reply must not produce a second response"
+    );
+
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+}
+
+#[test]
+fn eof_does_not_join_a_blocked_provider_call() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_read.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio_with_timeout(Arc::clone(&provider), Some(5_000));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_fake_observe(&input, "blocked-at-eof");
+    provider.wait_for_calls(1);
+
+    let (joined_sender, joined_receiver) = mpsc::channel();
+    drop(input);
+    thread::spawn(move || {
+        let _ = joined_sender.send(worker.join());
+    });
+    let joined = joined_receiver
+        .recv_timeout(Duration::from_millis(500))
+        .expect("stdio must exit without joining the blocked provider helper");
+    joined
+        .expect("join MCP worker")
+        .expect("serve stdio after EOF");
+    assert_eq!(wait_fake_responses(&output, 1).len(), 1);
+
+    provider.release_read.store(true, Ordering::Release);
+    provider.changed.notify_all();
+}
+
+#[test]
+fn cancellation_notification_reaches_the_active_read_provider() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_read.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio_with_timeout(Arc::clone(&provider), Some(5_000));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_fake_observe(&input, "cancel-read");
+    provider.wait_for_calls(1);
+    send_fake_cancel(&input, "cancel-read");
+
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while !provider.provider_cancel_seen.load(Ordering::Acquire) {
+        assert!(
+            Instant::now() < deadline,
+            "the cancellation notification must reach the provider probe"
+        );
+        thread::yield_now();
+    }
+    provider.release_read.store(true, Ordering::Release);
+    provider.changed.notify_all();
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses[1]["id"], "cancel-read");
+    assert_eq!(
+        responses[1]["result"]["structuredContent"]["error"]["code"],
+        "cancelled"
+    );
+    assert_eq!(
+        responses[1]["result"]["structuredContent"]["error"]["detail"]["effect"],
+        "not_performed"
+    );
+
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+}
+
+#[test]
+fn active_mutation_waits_behind_a_read_without_orphaning_dispatch() {
+    let provider = Arc::new(FakeProviderState::default());
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+
+    send_shell_exec(&input, "first", "effect:first", "ready");
+    provider.wait_for_calls(2);
+    assert_eq!(wait_fake_responses(&output, 2)[1]["id"], "first");
+
+    provider.gate_read.store(true, Ordering::Release);
+    send_fake_observe(&input, "blocking-read");
+    provider.wait_for_calls(3);
+    send_shell_exec(&input, "deferred", "effect:deferred", "after-read");
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"barrier", "method":"ping"}),
+    );
+    let while_blocked = wait_fake_responses(&output, 3);
+    assert_eq!(while_blocked[2]["id"], "barrier");
+    assert_eq!(provider.calls.lock().expect("provider calls").len(), 3);
+
+    provider.release_read.store(true, Ordering::Release);
+    provider.changed.notify_all();
+    let calls = provider.wait_for_calls(4);
+    assert_eq!(calls[3]["command"]["verb"], "shell-exec");
+    assert_eq!(calls[3]["command"]["command"], "after-read");
+    let completed = wait_fake_responses(&output, 5);
+    assert_eq!(completed[3]["id"], "blocking-read");
+    assert_eq!(completed[4]["id"], "deferred");
+
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+    assert_eq!(
+        provider.wait_for_calls(5)[4]["command"]["verb"],
+        "session-end"
+    );
+}
+
+#[test]
+fn eof_after_provider_timeout_does_not_wait_for_quarantined_mutation_helper() {
+    let provider = Arc::new(FakeProviderState::default());
+    let (input, output, worker) = start_fake_stdio_with_timeout(Arc::clone(&provider), Some(50));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_shell_exec(&input, "first", "effect:first", "ready");
+    provider.wait_for_calls(2);
+    assert_eq!(wait_fake_responses(&output, 2)[1]["id"], "first");
+
+    provider.gate_read.store(true, Ordering::Release);
+    send_fake_observe(&input, "blocked-at-mutation-eof");
+    provider.wait_for_calls(3);
+    let timed_out = wait_fake_responses(&output, 3);
+    assert_eq!(
+        timed_out[2]["error"]["data"]["code"],
+        "acu_provider_timeout"
+    );
+    send_shell_exec(
+        &input,
+        "rejected-while-quarantined",
+        "effect:quarantined",
+        "never-dispatched",
+    );
+    let rejected = wait_fake_responses(&output, 4);
+    assert_eq!(rejected[3]["id"], "rejected-while-quarantined");
+    assert_eq!(rejected[3]["error"]["data"]["code"], "acu_provider_busy");
+    assert_eq!(provider.calls.lock().expect("provider calls").len(), 3);
+    drop(input);
+
+    let (joined_sender, joined_receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = joined_sender.send(worker.join());
+    });
+    let joined = joined_receiver
+        .recv_timeout(Duration::from_millis(500))
+        .expect("provider timeout must bound mutation EOF teardown");
+    joined
+        .expect("join MCP worker")
+        .expect("serve stdio after provider timeout");
+
+    provider.release_read.store(true, Ordering::Release);
+    provider.changed.notify_all();
+}
+
+#[test]
 fn internal_mutation_accepts_one_queued_call_while_the_session_starts() {
     let provider = Arc::new(FakeProviderState::default());
     provider.gate_start.store(true, Ordering::Release);
@@ -363,6 +670,33 @@ fn public_stdio_eof_drains_dispatched_cancels_queued_and_emits_nothing_after_eof
 }
 
 #[test]
+fn public_stdio_eof_exits_when_a_dispatched_mutation_times_out() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_first.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_shell_exec_with_timeout(&input, "first", "effect:first", "first", 100);
+    provider.wait_for_calls(2);
+    drop(input);
+
+    let (joined_sender, joined_receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = joined_sender.send(worker.join());
+    });
+    let joined = joined_receiver
+        .recv_timeout(Duration::from_secs(3))
+        .expect("mutation timeout must bound EOF teardown");
+    joined
+        .expect("join MCP worker")
+        .expect("serve stdio after mutation timeout");
+    assert_eq!(wait_fake_responses(&output, 1).len(), 1);
+
+    provider.release_first.store(true, Ordering::Release);
+    provider.changed.notify_all();
+}
+
+#[test]
 fn public_stdio_cancel_during_lazy_session_start_never_dispatches_shell() {
     let provider = Arc::new(FakeProviderState::default());
     provider.gate_start.store(true, Ordering::Release);
@@ -431,6 +765,38 @@ fn public_stdio_mutation_notification_emits_nothing_and_never_starts_provider() 
 }
 
 #[test]
+fn public_stdio_read_notification_emits_nothing_and_never_starts_provider() {
+    let provider = Arc::new(FakeProviderState::default());
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_mcp(
+        &input,
+        json!({
+            "jsonrpc":"2.0",
+            "method":"tools/call",
+            "params": {
+                "name":"agenterm_acu_capabilities",
+                "arguments": {}
+            }
+        }),
+    );
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"barrier", "method":"ping"}),
+    );
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses[1]["id"], "barrier");
+    assert!(provider.calls.lock().expect("provider calls").is_empty());
+
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+}
+
+#[test]
 fn public_stdio_refuses_false_positive_session_start_without_private_identity() {
     let provider = Arc::new(FakeProviderState::default());
     provider
@@ -468,7 +834,56 @@ fn public_stdio_refuses_false_positive_session_start_without_private_identity() 
 
 impl FakeProviderState {
     fn call(&self, encoded: &str) -> Result<String, String> {
+        self.call_controlled(encoded, None)
+    }
+
+    fn call_controlled(
+        &self,
+        encoded: &str,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<String, String> {
         let request: Value = serde_json::from_str(encoded).expect("provider request JSON");
+        if request["kind"] == "mcp_call" {
+            let mut calls = self.calls.lock().expect("provider calls");
+            calls.push(request.clone());
+            let call_index = calls.len();
+            let mut call_cancelled = false;
+            self.changed.notify_all();
+            while self.gate_read.load(Ordering::Acquire)
+                && !self.release_read.load(Ordering::Acquire)
+            {
+                if cancel.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+                    call_cancelled = true;
+                    self.provider_cancel_seen.store(true, Ordering::Release);
+                }
+                calls = self
+                    .changed
+                    .wait_timeout(calls, Duration::from_millis(5))
+                    .expect("provider read wait")
+                    .0;
+            }
+            drop(calls);
+            if call_cancelled {
+                return Ok(json!({
+                    "ok": false,
+                    "target": "current",
+                    "command": request["name"],
+                    "error": {
+                        "code": "cancelled",
+                        "message": "fixture observed cancellation",
+                        "detail": {"effect": "not_performed"}
+                    }
+                })
+                .to_string());
+            }
+            return Ok(json!({
+                "ok": true,
+                "target": "current",
+                "command": request["name"],
+                "data": {"provider_call_index": call_index}
+            })
+            .to_string());
+        }
         let verb = request["command"]["verb"]
             .as_str()
             .expect("provider command verb");

@@ -67,7 +67,10 @@ pub(crate) fn call(request: &str) -> Result<String, String> {
     call_controlled(request, None)
 }
 
-fn call_controlled(request: &str, cancel: Option<&AtomicBool>) -> Result<String, String> {
+pub(crate) fn call_controlled(
+    request: &str,
+    cancel: Option<&AtomicBool>,
+) -> Result<String, String> {
     if request.len() > MAX_REQUEST_BYTES {
         return Err("acu_provider_request_too_large".to_owned());
     }

@@ -229,8 +229,20 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
     - [ ] only canonical commands with a product-owned execution deadline may
       enter the synchronous provider. Provider loss after dispatch is
       `outcome_unknown` and the durable reservation forbids automatic replay;
-      hard cancellation after FFI entry requires a future cancellable ABI or
-      process-isolated worker, never an abandoned thread
+      hard reclamation after FFI entry still requires a process-isolated
+      worker and is mandatory before mutation is advertised
+      - [x] the current stdio watchdog moves every provider call off the
+        protocol loop, admits one call at a time, publishes a 30-second
+        read-only provider deadline, and gives the unadvertised shell path its
+        owned command deadline plus a two-second boundary grace. It signals
+        the optional cooperative-cancel ABI and keeps the gate busy until the
+        helper actually returns. Timeout is
+        reported explicitly, later calls fail as `acu_provider_busy`, and a
+        late reply is discarded by generation rather than attached to another
+        request. EOF never waits without bound for that quarantined helper.
+        This is bounded reporting and connection teardown, not a claim that an
+        in-process FFI call was killed; the unadvertised mutation path keeps
+        `outcome_unknown` and no-replay semantics
 
   ```mermaid
   flowchart LR
