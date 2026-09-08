@@ -1926,6 +1926,23 @@
         "task.cu-storage-devices-smoke"
       ]
     },
+    "cu-linux-storage-devices-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-storage-devices-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-storage-devices-smoke"
+      ]
+    },
     "cu-storage-volumes-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -5693,6 +5710,24 @@
       ],
       "side_effects": [
         "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-storage-devices-smoke",
+      "description": "Prove Linux storage-devices visited count, capacity and stable block fields match independent lsblk and /sys/block read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-storage-devices-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
         "process_spawn"
       ]
     },

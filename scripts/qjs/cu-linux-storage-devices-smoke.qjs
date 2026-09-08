@@ -1,0 +1,298 @@
+// CEO: Linux storage-devices honesty with independent lsblk/sysfs read-back.
+// Acceptance is smoke read-back only: CU storage-devices must agree with facts
+// derived outside agenterm-cu from the same lsblk invocation the Linux adapter
+// uses, with per-device capacity cross-checked against /sys/block when present.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-storage-devices-readback",
+];
+
+const LSBLK_ARGS = [
+  "-J", "-b", "-o",
+  "NAME,KNAME,PATH,TYPE,SIZE,ROTA,RO,RM,TRAN,MODEL,STATE,HOTPLUG",
+];
+const LSBLK_CANDIDATES = ["/usr/bin/lsblk", "/bin/lsblk"];
+const MAX_ROWS = 5000;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const receipt_path = rh.join(run_directory, "cu-receipts.jsonl");
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: receipt_path,
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_storage_devices_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_storage_devices_reply_state");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
+         "cu_linux_storage_devices_effect_receipt_created");
+  return reply;
+}
+
+function fixed_lsblk() {
+  for (let index = 0; index < LSBLK_CANDIDATES.length; index += 1) {
+    const path = LSBLK_CANDIDATES[index];
+    if (direct_file(path)) { return path; }
+  }
+  return null;
+}
+
+function flatten_lsblk_nodes(nodes, out) {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const row = nodes[index];
+    out.push(row);
+    const children = row.children;
+    if (Array.isArray(children)) {
+      flatten_lsblk_nodes(children, out);
+    }
+  }
+}
+
+function canonical_decimal(value) {
+  ensure(typeof value === "string" && value.length > 0, "cu_linux_storage_devices_decimal");
+  let first = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const digit = value.charCodeAt(index);
+    ensure(digit >= 48 && digit <= 57, "cu_linux_storage_devices_decimal_digit");
+    if (first === index && digit === 48) { first += 1; }
+  }
+  return first === value.length ? "0" : value.slice(first);
+}
+
+function size_from_row(row) {
+  const size = row.size;
+  if (size === null || size === undefined) { return null; }
+  if (typeof size === "number") {
+    ensure(size >= 0, "cu_linux_storage_devices_size_negative");
+    return "" + size;
+  }
+  return canonical_decimal("" + size);
+}
+
+function independent_lsblk_inventory() {
+  const lsblk = fixed_lsblk();
+  ensure(lsblk !== null, "cu_linux_storage_devices_lsblk_missing");
+  const output = rh.command(lsblk, LSBLK_ARGS, { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_storage_devices_lsblk_failed:" + output.stderr);
+  const document = JSON.parse(output.stdout);
+  const roots = document.blockdevices;
+  ensure(Array.isArray(roots), "cu_linux_storage_devices_lsblk_shape");
+  const flat = [];
+  flatten_lsblk_nodes(roots, flat);
+  const by_id = {};
+  for (let index = 0; index < flat.length; index += 1) {
+    const row = flat[index];
+    const id = row.kname ? "" + row.kname : "" + row.name;
+    ensure(id.length > 0, "cu_linux_storage_devices_lsblk_id");
+    by_id[id] = {
+      id: id,
+      node: row.path ? "" + row.path : "",
+      kind: row.type ? "" + row.type : "",
+      size_bytes: size_from_row(row),
+      rota: row.rota,
+      ro: row.ro,
+      rm: row.rm,
+      tran: row.tran ? "" + row.tran : "",
+    };
+  }
+  return {
+    provider: "linux-lsblk-json",
+    visited: flat.length,
+    by_id: by_id,
+  };
+}
+
+function is_decimal_text(text) {
+  if (text === "") { return false; }
+  for (let index = 0; index < text.length; index += 1) {
+    const digit = text.charCodeAt(index);
+    if (digit < 48 || digit > 57) { return false; }
+  }
+  return true;
+}
+
+function sysfs_size_bytes(device_id) {
+  const path = "/sys/block/" + device_id + "/size";
+  if (!rh.exists(path)) { return null; }
+  const text = rh.read_text(path).trim();
+  if (text === "" || !is_decimal_text(text)) { return null; }
+  const sectors = Number(text);
+  ensure(sectors >= 0, "cu_linux_storage_devices_sysfs_size:" + device_id);
+  return "" + (sectors * 512);
+}
+
+function assert_inventory_shape(reply, max) {
+  ensure(reply.command === "storage-devices" && reply.target === "current",
+         "cu_linux_storage_devices_identity");
+  const data = reply.data;
+  ensure(Array.isArray(data.devices), "cu_linux_storage_devices_rows");
+  ensure(data.returned === data.devices.length && data.returned <= max,
+         "cu_linux_storage_devices_count");
+  ensure(typeof data.visited === "number" && data.visited >= data.returned,
+         "cu_linux_storage_devices_visited");
+  ensure(typeof data.read_errors === "number" && data.read_errors >= 0,
+         "cu_linux_storage_devices_errors");
+  ensure(typeof data.truncated === "boolean" && typeof data.truncated_scan === "boolean",
+         "cu_linux_storage_devices_bounds");
+  ensure(typeof data.complete === "boolean", "cu_linux_storage_devices_complete");
+  ensure(text_at(data, "provider").length > 0, "cu_linux_storage_devices_provider");
+  ensure(data.response_ceiling_bytes === 1048576, "cu_linux_storage_devices_response_ceiling");
+  for (let index = 0; index < data.devices.length; index += 1) {
+    const row = data.devices[index];
+    ensure(text_at(row, "id").length > 0, "cu_linux_storage_devices_id");
+    ensure(text_at(row, "name").length > 0, "cu_linux_storage_devices_name");
+    const size = row.size_bytes;
+    ensure(size === null || (typeof size === "string" && size.length > 0),
+           "cu_linux_storage_devices_capacity");
+    ensure(Array.isArray(row.operational), "cu_linux_storage_devices_operational");
+    ensure(Array.isArray(row.unavailable_fields), "cu_linux_storage_devices_unavailable");
+    ensure(row.serial === undefined && row.wwn === undefined && row.unique_id === undefined,
+           "cu_linux_storage_devices_private_identity");
+  }
+  return data;
+}
+
+function assert_readback(data, independent, max) {
+  ensure(data.provider === independent.provider,
+         "cu_linux_storage_devices_provider_mismatch:cu=" + data.provider
+           + ":independent=" + independent.provider);
+  ensure(data.visited === independent.visited,
+         "cu_linux_storage_devices_visited_mismatch:cu=" + data.visited
+           + ":independent=" + independent.visited);
+  const expected_returned = independent.visited < max ? independent.visited : max;
+  ensure(data.returned === expected_returned,
+         "cu_linux_storage_devices_returned_mismatch:cu=" + data.returned
+           + ":expected=" + expected_returned);
+  ensure(data.truncated === (independent.visited > max),
+         "cu_linux_storage_devices_truncated_mismatch:cu=" + data.truncated
+           + ":visited=" + independent.visited + ":max=" + max);
+  ensure(data.complete === (data.read_errors === 0 && !data.truncated_scan),
+         "cu_linux_storage_devices_complete_truth");
+
+  for (let index = 0; index < data.devices.length; index += 1) {
+    const row = data.devices[index];
+    const id = text_at(row, "id");
+    const probe = independent.by_id[id];
+    ensure(probe !== undefined, "cu_linux_storage_devices_row_missing:" + id);
+    if (probe.node !== "") {
+      ensure(text_at(row, "node") === probe.node,
+             "cu_linux_storage_devices_node_mismatch:" + id
+               + ":cu=" + text_at(row, "node") + ":probe=" + probe.node);
+    }
+    if (probe.kind !== "") {
+      ensure(text_at(row, "kind") === probe.kind,
+             "cu_linux_storage_devices_kind_mismatch:" + id
+               + ":cu=" + text_at(row, "kind") + ":probe=" + probe.kind);
+    }
+    if (probe.size_bytes !== null) {
+      ensure(text_at(row, "size_bytes") === probe.size_bytes,
+             "cu_linux_storage_devices_size_mismatch:" + id
+               + ":cu=" + text_at(row, "size_bytes") + ":lsblk=" + probe.size_bytes);
+      const sysfs_size = sysfs_size_bytes(id);
+      if (sysfs_size !== null) {
+        ensure(text_at(row, "size_bytes") === sysfs_size,
+               "cu_linux_storage_devices_sysfs_size_mismatch:" + id
+                 + ":cu=" + text_at(row, "size_bytes") + ":sysfs=" + sysfs_size);
+      }
+    }
+    if (probe.tran !== "") {
+      ensure(text_at(row, "bus") === probe.tran,
+             "cu_linux_storage_devices_bus_mismatch:" + id
+               + ":cu=" + text_at(row, "bus") + ":probe=" + probe.tran);
+    }
+    if (probe.ro !== null && probe.ro !== undefined) {
+      ensure(row.read_only === probe.ro,
+             "cu_linux_storage_devices_ro_mismatch:" + id);
+    }
+    if (probe.rm !== null && probe.rm !== undefined) {
+      ensure(row.removable === probe.rm,
+             "cu_linux_storage_devices_rm_mismatch:" + id);
+    }
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_linux_storage_devices_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-storage-devices");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent lsblk probe captures block-device count and stable fields");
+  const independent = independent_lsblk_inventory();
+  ensure(independent.visited >= 1, "cu_linux_storage_devices_empty_host_inventory");
+
+  print("STEP storage-devices observe matches independent lsblk and sysfs read-back");
+  const reply = invoke(context.run_directory, executable,
+    ["storage-devices", "--max", "" + MAX_ROWS], true);
+  const data = assert_inventory_shape(reply, MAX_ROWS);
+  assert_readback(data, independent, MAX_ROWS);
+
+  print("STEP grouped alias storage devices preserves provider identity");
+  const grouped = invoke(context.run_directory, executable,
+    ["storage", "devices", "--max", "" + MAX_ROWS], true);
+  const grouped_data = assert_inventory_shape(grouped, MAX_ROWS);
+  ensure(grouped_data.provider === data.provider, "cu_linux_storage_devices_alias_provider");
+  ensure(grouped_data.visited === data.visited, "cu_linux_storage_devices_alias_visited");
+  ensure(grouped_data.returned === data.returned, "cu_linux_storage_devices_alias_returned");
+
+  print("STEP invalid bounds fail before native observation");
+  const invalid = invoke(context.run_directory, executable,
+    ["storage-devices", "--max", "0"], false);
+  ensure(invalid.error.code === "usage", "cu_linux_storage_devices_invalid_code");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-storage-devices-readback");
+  harness.remove_run(context);
+  print("PASS: Linux storage-devices matches independent lsblk count/capacity/stable-field read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

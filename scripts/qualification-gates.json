@@ -363,6 +363,12 @@
       ]
     },
     {
+      "id": "cu-linux-process-usage-smoke",
+      "evidence": [
+        "cu.linux-process-usage-readback"
+      ]
+    },
+    {
       "id": "cu-linux-cache-hierarchy-smoke",
       "evidence": [
         "cu.linux-cache-hierarchy-readback"
@@ -512,6 +518,12 @@
       "id": "cu-storage-devices-smoke",
       "evidence": [
         "cu.storage-devices"
+      ]
+    },
+    {
+      "id": "cu-linux-storage-devices-smoke",
+      "evidence": [
+        "cu.linux-storage-devices-readback"
       ]
     },
     {
