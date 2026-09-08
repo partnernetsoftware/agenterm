@@ -313,6 +313,7 @@
         "cu.host-notify.macos",
         "cu.runtime-status",
         "cu.device-inventory",
+        "cu.device-screenshot-inventory",
         "cu.device-watch",
         "cu.device-lease",
         "cu.macos-pointer-capabilities",

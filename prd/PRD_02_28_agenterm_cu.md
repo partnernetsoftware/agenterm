@@ -560,7 +560,8 @@ ACU-only cutover
 │     └─ same research-only verdict as `.074`; no private provider entered product code
 ├─ [ ] native/product TODO registry
 │  ├─ capability truth and platform status → `plan/acu-mcu-capability-ledger.json`
-│  ├─ one current true gap → `process.signal.privileged`
+│  ├─ zero catalog capability gaps; `process.signal.privileged` is platform-limited
+│  │  └─ Linux/macOS apply qualification remains open; Windows provider remains a native TODO
 │  ├─ implemented but unregistered evidence remains ALERT debt, never a fallback
 │  └─ platform-limited cells remain typed and visible until their native court closes
 └─ [ ] final retirement evidence
@@ -1682,8 +1683,9 @@ flowchart LR
   write-ahead recovery journal, every required postcondition is bounded and
   pre-stopped members remain stopped on failed TERM. Fixture courts prove the
   one-attempt gate and recoverable tree core without claiming elevation. This
-  fixed Linux broker now reaches that effect core, but the capability gap stays
-  open until its remaining caller-death/failure cases, both Linux ISAs and the
+  fixed Linux broker now reaches that effect core, so this is no longer an API
+  capability gap. Its platform qualification remains open until the public
+  apply court, remaining caller-death/failure cases, both Linux ISAs and the
   release-size court are green. macOS already has a launchd + Authorization
   Services protected transport, but still lacks broker-owned metrics and a
   signed/notarized/root-installed live apply court. Windows still lacks its
@@ -2313,7 +2315,8 @@ flowchart LR
   C -->|Windows also green| V["native device leaf"]
 ```
 - [~] `device-screenshot` is now an integrated current-target leaf, with live
-  promotion still waiting on a non-sensitive device court. Its classifier must
+  promotion still waiting on a non-sensitive PNG capture court from the fixed
+  installed identity. Its classifier must
   never infer a phone
   trust/lock fault from an empty host capture inventory. Preflight separates
   host Camera TCC, usbmux availability/pairing, DAL source publication and
@@ -2321,7 +2324,11 @@ flowchart LR
   `host_tcc_denied|host_tcc_consent_required`; a healthy paired device
   with no published DAL row is `device_source_not_published`; only an enumerated
   target plus direct evidence may produce a device-specific failure. `--list`
-  reports those host signals. Accessibility is independent from pure DAL
+  reports those host signals. The public three-host qjswasm inventory court
+  accepts a bounded zero-device macOS result and exact
+  `device_capture_unsupported` on Linux/Windows without filesystem effect; it
+  closes the inventory evidence alert but does not claim PNG capture.
+  Accessibility is independent from pure DAL
   capture. The shared contract, macOS AVFoundation/CoreMediaIO adapter and
   public verb are now connected: observation never requests TCC consent; native
   and Rust boundaries cap PNG bytes at 64 MiB; timeout remains

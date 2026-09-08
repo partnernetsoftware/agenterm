@@ -183,10 +183,32 @@
           "id": "process.signal.privileged",
           "mcu_shape": "signal --sudo|--broker",
           "acu_shape": "privilege plan process.signal PID SIGNAL [--tree --max N] [--force] [--timeout-ms N] freezes exact process identity, parent edges, scheduler state, bounded scope and expiring digests without mutation",
-          "state": "gap",
+          "state": "platform-limited",
+          "platforms": {
+            "linux": "protected-provider-implemented-public-apply-qualification-pending",
+            "macos": "protected-provider-implemented-signed-live-qualification-pending",
+            "windows": "protected-provider-implementation-gap"
+          },
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "pending",
+                "blocker_code": "public-apply-court-and-release-size-budget-pending"
+              },
+              "macos": {
+                "result": "pending",
+                "blocker_code": "signed-fixed-path-live-apply-court-pending"
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "protected-provider-not-implemented"
+              }
+            }
+          },
           "evidence": ["cu.privileged-signal-plan"],
           "next": "execute the Linux caller-death and remaining failure courts on x86_64/aarch64, recover the 4 MiB Linux launcher budget, qualify the signed macOS provider, and implement the protected Windows provider",
-          "note": "Planning is public and read-only; it is not elevation. Linux now routes apply through a fixed systemd socket broker that derives SO_PEERCRED plus process start identity, retains pidfd authority, checks the root-only replay ledger before polkit consent and executes through retained exact process objects. The old pkexec/PKEXEC_UID route is removed. A real x86_64 desktop court proved typed cancellation with no effect, approved completed+verified signal delivery and immutable terminal replay; a guest-local warm replay measured 0.13 seconds. Broker-owned counters prove finalized replay, request conflict and a simultaneous duplicate race use exactly one consent/effect. B5 now selects the one in-flight polkit request against retained pidfd liveness, cancels the same authorization id on caller death and retains the final exact-peer recheck; deterministic seams and Linux cross-build are green, while the native court remains open. Still open: retained-unknown, deny/no-agent, installed rejection/upgrade cuts, aarch64 execution and the 20-run latency court. At source 9837cf81 the stripped Linux x86_64 agenterm-cu measured 10,188,952 bytes against its unchanged 4,194,304-byte budget; plan/design-acu-thin-launcher-experiment.md owns the no-pruning recovery decision. macOS has a protected launchd plus Authorization Services implementation but lacks metrics and signed live delivery evidence; Windows still lacks a protected provider."
+          "note": "Planning is public and read-only; it is not elevation, and cu.privileged-signal-plan must never be cited as apply evidence. Linux now routes apply through a fixed systemd socket broker that derives SO_PEERCRED plus process start identity, retains pidfd authority, checks the root-only replay ledger before polkit consent and executes through retained exact process objects. The old pkexec/PKEXEC_UID route is removed. A real x86_64 desktop experiment proved typed cancellation with no effect, approved completed+verified signal delivery and immutable terminal replay; a guest-local warm replay measured 0.13 seconds. Broker-owned counters prove finalized replay, request conflict and a simultaneous duplicate race use exactly one consent/effect. B5 now selects the one in-flight polkit request against retained pidfd liveness, cancels the same authorization id on caller death and retains the final exact-peer recheck; deterministic seams and Linux cross-build are green, while public apply qualification remains open. Still open: retained-unknown, deny/no-agent, installed rejection/upgrade cuts, aarch64 execution, the 20-run latency court and a public apply evidence token. At source 9837cf81 the stripped Linux x86_64 agenterm-cu measured 10,188,952 bytes against its unchanged 4,194,304-byte budget; plan/design-acu-thin-launcher-experiment.md owns the no-pruning recovery decision. macOS has a protected launchd plus Authorization Services implementation but lacks metrics and signed live delivery evidence; Windows still lacks a protected provider. This is therefore platform-limited qualification debt, not an absent ACU API."
         },
         {
           "id": "process.cwd",
@@ -1259,9 +1281,33 @@
           "mcu_shape": null,
           "acu_shape": "device-screenshot --list | --out PATH [--device NAME|UID] [--timeout-ms N]",
           "state": "platform-limited",
-          "platforms": {"macos": "native-fixture-live-device-pending", "linux": "not-applicable-ios-host", "windows": "not-applicable-ios-host"},
-          "next": "run one non-sensitive public-CLI list/capture court from the fixed installed app identity, then qualify the macOS cell",
-          "note": "ACU exceeds MCU here. Camera TCC, usbmux pairing and DAL publication remain independent evidence; an empty capture inventory never implies device lock or trust failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
+          "platforms": {"macos": "native-inventory-qualified-live-capture-pending", "linux": "typed-not-applicable-ios-host", "windows": "typed-not-applicable-ios-host"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "not-applicable",
+                "gate": "cu-device-screenshot-inventory-smoke",
+                "evidence": ["cu.device-screenshot-inventory"],
+                "error_code": "device_capture_unsupported",
+                "rationale": "Attached iOS-device capture is a macOS host facility; Linux must refuse before filesystem effect."
+              },
+              "macos": {
+                "result": "pending",
+                "blocker_code": "fixed-identity-live-png-capture-court-pending"
+              },
+              "windows": {
+                "result": "not-applicable",
+                "gate": "cu-device-screenshot-inventory-smoke",
+                "evidence": ["cu.device-screenshot-inventory"],
+                "error_code": "device_capture_unsupported",
+                "rationale": "Attached iOS-device capture is a macOS host facility; Windows must refuse before filesystem effect."
+              }
+            }
+          },
+          "evidence": ["cu.device-screenshot-inventory"],
+          "next": "run one non-sensitive public-CLI PNG capture court from the fixed installed app identity, then qualify the macOS cell",
+          "note": "ACU exceeds MCU here. The public inventory court proves the bounded host Camera/usbmux/source projection on macOS, permits a truthful zero-device result, and proves exact typed non-applicability on Linux/Windows; it does not claim that a PNG frame was captured. Camera TCC, usbmux pairing and DAL publication remain independent evidence; an empty capture inventory never implies device lock or trust failure. The macOS adapter never requests consent, frame timeout remains generic, PNG bytes are capped at 64 MiB and are atomically published without overwrite or stdout disclosure. Worktree binaries are development-only; the daily automation identity must be fixed-path, promoted and signed."
         },
         {
           "id": "audio.default-output.observe",

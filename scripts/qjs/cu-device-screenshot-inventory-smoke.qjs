@@ -1,0 +1,181 @@
+// Public, observation-only court for the `device-screenshot --list` contract.
+// macOS proves a typed capture-source inventory. Linux and Windows prove the
+// exact typed not-applicable boundary. Neither branch proves PNG capture.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.device-screenshot-inventory"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function nonnegative_integer(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function host_platform() {
+  if (harness.host_is_windows()) { return "windows"; }
+  const uname = rh.command("uname", ["-s"], { timeout_ms: 10000 });
+  ensure(uname.success === true, "cu_device_screenshot_inventory_uname_failed");
+  if (uname.stdout.trim() === "Darwin") { return "macos"; }
+  ensure(uname.stdout.trim() === "Linux", "cu_device_screenshot_inventory_host_unsupported");
+  return "linux";
+}
+
+function isolated_env(run_directory, receipt_path) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: receipt_path,
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json")
+  };
+}
+
+function invoke(run_directory, executable, receipt_path) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe", "device-screenshot", "--list"
+  ], {
+    cwd: run_directory,
+    env: isolated_env(run_directory, receipt_path),
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_device_screenshot_inventory_empty:" + output.stderr);
+  const reply = JSON.parse(stdout);
+  ensure(reply.command === "device-screenshot" && reply.target === "current",
+         "cu_device_screenshot_inventory_identity");
+  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
+         "cu_device_screenshot_inventory_effect_receipt_created");
+  return { output: output, reply: reply, stdout: stdout };
+}
+
+function assert_no_capture_content(value, label) {
+  ensure(value.content_read === undefined, label + "_content_read");
+  ensure(value.content === undefined, label + "_content");
+  ensure(value.png === undefined, label + "_png");
+  ensure(value.bytes === undefined, label + "_bytes");
+  ensure(value.sha256 === undefined, label + "_sha256");
+  ensure(value.path === undefined, label + "_path");
+}
+
+function assert_inventory(invocation) {
+  ensure(invocation.output.success === true && invocation.reply.ok === true,
+         "cu_device_screenshot_inventory_success:" + invocation.stdout);
+  const data = invocation.reply.data;
+  ensure(data !== null && data !== undefined, "cu_device_screenshot_inventory_data");
+  ensure(nonnegative_integer(data.count) && data.count <= 64,
+         "cu_device_screenshot_inventory_count");
+  ensure(Array.isArray(data.devices) && data.devices.length === data.count,
+         "cu_device_screenshot_inventory_devices");
+  ensure([
+    "authorized", "denied", "restricted", "not_determined"
+  ].includes(data.host_camera_authorization),
+  "cu_device_screenshot_inventory_camera_authorization");
+  assert_no_capture_content(data, "cu_device_screenshot_inventory_data");
+
+  for (const device of data.devices) {
+    ensure(typeof device.name === "string" && typeof device.uid === "string",
+           "cu_device_screenshot_inventory_device_fields");
+    assert_no_capture_content(device, "cu_device_screenshot_inventory_device");
+  }
+
+  const usbmux = data.usbmux;
+  ensure(usbmux !== null && usbmux !== undefined,
+         "cu_device_screenshot_inventory_usbmux");
+  if (usbmux.status === "inventory") {
+    ensure(nonnegative_integer(usbmux.connected_devices)
+           && nonnegative_integer(usbmux.paired_devices)
+           && usbmux.paired_devices <= usbmux.connected_devices,
+           "cu_device_screenshot_inventory_usbmux_counts");
+    ensure(usbmux.message === undefined,
+           "cu_device_screenshot_inventory_usbmux_inventory_message");
+  } else {
+    ensure(usbmux.status === "unavailable"
+           && typeof usbmux.message === "string"
+           && usbmux.message.length > 0,
+           "cu_device_screenshot_inventory_usbmux_unavailable");
+    ensure(usbmux.connected_devices === undefined
+           && usbmux.paired_devices === undefined,
+           "cu_device_screenshot_inventory_usbmux_unavailable_counts");
+  }
+  assert_no_capture_content(usbmux, "cu_device_screenshot_inventory_usbmux");
+}
+
+function assert_typed_not_applicable(invocation) {
+  ensure(invocation.output.success === false && invocation.reply.ok === false,
+         "cu_device_screenshot_inventory_unsupported_exit:" + invocation.stdout);
+  ensure(invocation.reply.data === undefined,
+         "cu_device_screenshot_inventory_unsupported_data");
+  ensure(invocation.reply.error !== undefined
+         && invocation.reply.error.code === "device_capture_unsupported",
+         "cu_device_screenshot_inventory_unsupported_code:" + invocation.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) {
+  executable = executable + ".exe";
+}
+ensure(direct_file(executable), "cu_device_screenshot_inventory_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-device-screenshot-inventory");
+const platform = host_platform();
+let succeeded = 0;
+let failure = "";
+try {
+  const receipt_path = rh.join(context.run_directory, "cu-receipts.jsonl");
+  print("STEP first public observation returns inventory or exact typed not-applicable");
+  const first = invoke(context.run_directory, executable, receipt_path);
+
+  print("STEP repeated public observation preserves the same branch and typed schema");
+  const second = invoke(context.run_directory, executable, receipt_path);
+  ensure(first.reply.ok === second.reply.ok,
+         "cu_device_screenshot_inventory_branch_changed");
+  if (platform === "macos") {
+    ensure(first.reply.ok === true,
+           "cu_device_screenshot_inventory_macos_must_inventory");
+    assert_inventory(first);
+    assert_inventory(second);
+  } else {
+    ensure(first.reply.ok === false,
+           "cu_device_screenshot_inventory_nonmac_must_refuse");
+    assert_typed_not_applicable(first);
+    assert_typed_not_applicable(second);
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.device-screenshot-inventory");
+  harness.remove_run(context);
+  print("PASS: device screenshot inventory is read-only and typed without claiming PNG capture");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

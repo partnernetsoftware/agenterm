@@ -302,6 +302,7 @@ const evidence_suites = {
   "cu-runtime-capability-process-smoke": true,
   "cu-runtime-capability-desktop-macos-smoke": true,
   "cu-device-inventory-smoke": true,
+  "cu-device-screenshot-inventory-smoke": true,
   "cu-device-watch-smoke": true,
   "cu-device-lease-smoke": true,
   "cu-macos-pointer-smoke": true,

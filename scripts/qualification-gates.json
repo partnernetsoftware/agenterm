@@ -500,6 +500,10 @@
       "evidence": ["cu.device-inventory"]
     },
     {
+      "id": "cu-device-screenshot-inventory-smoke",
+      "evidence": ["cu.device-screenshot-inventory"]
+    },
+    {
       "id": "cu-device-watch-smoke",
       "evidence": ["cu.device-watch"]
     },
