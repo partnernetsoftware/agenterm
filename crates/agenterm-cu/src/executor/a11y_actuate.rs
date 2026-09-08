@@ -356,6 +356,21 @@ pub(crate) fn map_scroll_wheel_err(error: mechanism::MechanismError) -> CuError 
 /// AT-SPI screen center (`agt_a11y_node_wheel`) without leaving the physical
 /// pointer displaced. Independent `Component.GetExtents(Screen)` before/after
 /// must show movement or the command typed-fails (`a11y_scroll_wheel_no_effect`).
+fn wait_for_extents_change(
+    window: Option<isize>,
+    node_id: &str,
+    before: &mechanism::A11yBounds,
+) -> Result<mechanism::A11yBounds, mechanism::MechanismError> {
+    for _ in 0..40 {
+        let after = mechanism::get_node_extents(window, node_id)?;
+        if after.x != before.x || after.y != before.y {
+            return Ok(after);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    mechanism::get_node_extents(window, node_id)
+}
+
 pub(super) fn scroll_wheel(
     window: Option<isize>,
     name: Option<&str>,
@@ -379,8 +394,8 @@ pub(super) fn scroll_wheel(
     let before =
         mechanism::get_node_extents(window, &resolved.node_id).map_err(map_mechanism_err)?;
     mechanism::wheel_node(window, &resolved.node_id, dx, dy).map_err(map_scroll_wheel_err)?;
-    let after =
-        mechanism::get_node_extents(window, &resolved.node_id).map_err(map_mechanism_err)?;
+    let after = wait_for_extents_change(window, &resolved.node_id, &before)
+        .map_err(map_mechanism_err)?;
     let delta_x = after.x - before.x;
     let delta_y = after.y - before.y;
     if delta_x == 0 && delta_y == 0 {
@@ -466,8 +481,8 @@ fn extents_center(bounds: &mechanism::A11yBounds) -> [i32; 2] {
 
 /// `drag --from-name` / `--to-name`: resolve both nodes, read independent
 /// AT-SPI `Component.GetExtents(Screen)` centers, then deliver one bounded
-/// XTest press / moves / release between them. No `--coords`, no
-/// `--degraded`, and no snapshot-diff verification — pointer readback only.
+/// `GenerateMouseEvent` press / moves / release between them. No `--coords`,
+/// no `--degraded`, and no pointer-position readback gating.
 pub(super) fn drag_by_name(
     window: isize,
     from_name: Option<&str>,
@@ -517,20 +532,18 @@ pub(super) fn drag_by_name(
     let from = extents_center(&from_extents);
     let to = extents_center(&to_extents);
     let steps = super::pointer::validate_drag_steps(steps).map_err(invalid_input)?;
-    let pointer_before = mechanism::input_inject::pointer_position().ok();
     let ticket = receipts.reserve(
         "drag",
         window,
         serde_json::json!({
             "action": "drag",
-            "path": "named-extents-pointer-drag",
+            "path": "named-extents-generate-mouse-drag",
             "from_name": from_name,
             "to_name": to_name,
             "from": from,
             "to": to,
             "button": button,
             "steps": steps,
-            "before": { "pointer": pointer_before.map(|(x, y)| [x, y]) },
         }),
     )?;
     let inject_button = match button {
@@ -538,22 +551,20 @@ pub(super) fn drag_by_name(
         PointerButton::Right => mechanism::input_inject::PointerButton::Right,
         PointerButton::Middle => mechanism::input_inject::PointerButton::Middle,
     };
-    let mechanism_error = mechanism::input_inject::pointer_drag(
-        (from[0], from[1]),
-        (to[0], to[1]),
+    let mechanism_error = mechanism::drag_between_nodes(
+        Some(window),
+        &from_resolved.node_id,
+        &to_resolved.node_id,
         inject_button,
         steps,
     )
     .err()
     .map(map_mechanism_err);
-    let pointer_after = mechanism::input_inject::pointer_position().ok();
-    let landed = pointer_after == Some((to[0], to[1]));
-    let verified = landed && mechanism_error.is_none();
     let mut payload = serde_json::json!({
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
         "action": "drag",
-        "path": "named-extents-pointer-drag",
+        "path": "named-extents-generate-mouse-drag",
         "window": window,
         "from_name": from_name,
         "to_name": to_name,
@@ -574,13 +585,10 @@ pub(super) fn drag_by_name(
         "button": button,
         "steps": steps,
         "performed": mechanism_error.is_none(),
-        "verified": verified,
         "verification": {
-            "method": "pointer-position-readback",
+            "method": "generate-mouse-event-delivery",
             "reason": if mechanism_error.is_some() {
                 Some("mechanism_failed")
-            } else if !landed {
-                Some("pointer_not_at_target")
             } else {
                 None
             },

@@ -26,7 +26,7 @@ presses = [0]
 things = [0]
 
 main_window = Gtk.Window(title="agenterm-linux-fixture-%d" % PID)
-main_window.set_default_size(320, 260)
+main_window.set_default_size(320, 320)
 box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
 menubar = Gtk.MenuBar()
@@ -51,6 +51,12 @@ hover_label = Gtk.Label(label="hover idle")
 hover_target = Gtk.Label(label="Fixture Hover")
 hover_area = Gtk.EventBox()
 hover_area.add(hover_target)
+drag_source_entry = Gtk.Entry()
+drag_source_entry.set_text("drag source")
+drag_source_entry.get_accessible().set_name("Fixture Drag Source")
+drag_target_entry = Gtk.Entry()
+drag_target_entry.set_text("drag target")
+drag_target_entry.get_accessible().set_name("Fixture Drag Target")
 entry = Gtk.Entry()
 entry.set_text("seed")
 entry.get_accessible().set_name("Fixture Entry")
@@ -82,7 +88,7 @@ hover_area.connect("enter-notify-event", on_hover_enter)
 hover_area.connect("leave-notify-event", on_hover_leave)
 minimize_item.connect("activate", lambda _w: main_window.iconify())
 
-for widget in (menubar, press_label, menu_label, hover_label, hover_area, entry, check, button):
+for widget in (menubar, press_label, menu_label, hover_label, hover_area, drag_source_entry, drag_target_entry, entry, check, button):
     box.add(widget)
 main_window.add(box)
 main_window.connect("destroy", Gtk.main_quit)

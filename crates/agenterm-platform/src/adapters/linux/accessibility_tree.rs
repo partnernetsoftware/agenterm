@@ -32,7 +32,9 @@ use crate::contract::accessibility_tree::{
     AccessibilityNodeAction, AccessibilitySelection, AccessibilityTree, AccessibilityTreeBudget,
     AccessibilityTreeError, ApplicationVisibility,
 };
-use crate::contract::input_inject::{InputInjectError, PointerPosition};
+use crate::contract::input_inject::{
+    InputInjectError, MAX_POINTER_DRAG_STEPS, PointerPosition,
+};
 const MAX_NODES: usize = 1_000;
 const MAX_DEPTH: u32 = 32;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1154,21 +1156,19 @@ pub(crate) fn wheel_node(
     dx: i32,
     dy: i32,
 ) -> Result<(), AccessibilityTreeError> {
-    let center = runtime().block_on(async {
+    runtime().block_on(async {
         timeout(
             SNAPSHOT_TIMEOUT,
-            wheel_node_center_async(window_handle, node_id),
+            wheel_node_async(window_handle, node_id, dx, dy),
         )
         .await
         .map_err(|_| {
             AccessibilityTreeError::failed(
                 "a11y_action_timeout",
-                "AT-SPI node wheel center lookup exceeded its deadline",
+                "AT-SPI node wheel delivery exceeded its deadline",
             )
         })?
-    })?;
-    crate::contract::input_inject::validate_pointer_scroll(dx, dy).map_err(map_input_inject_err)?;
-    crate::input_inject::pointer_scroll_at(center, dx, dy).map_err(map_input_inject_err)
+    })
 }
 
 /// Named-node click with AT-SPI multi-click semantics. `clicks` is `1..=3`.
@@ -1194,6 +1194,37 @@ pub(crate) fn click_node(
             AccessibilityTreeError::failed(
                 "a11y_action_timeout",
                 "AT-SPI node click exceeded its deadline",
+            )
+        })?
+    })
+}
+
+/// Named-node drag via AT-SPI `GenerateMouseEvent` press / moves / release
+/// between two resolved nodes' `Component.GetExtents` centers, plus a
+/// terminal click at the target for GTK focus. Never `--coords` or XTest.
+pub(crate) fn drag_between_nodes(
+    window_handle: Option<isize>,
+    from_node_id: &str,
+    to_node_id: &str,
+    button: u8,
+    steps: u32,
+) -> Result<(), AccessibilityTreeError> {
+    if steps == 0 || steps > MAX_POINTER_DRAG_STEPS {
+        return Err(AccessibilityTreeError::failed(
+            "invalid_input",
+            format!("steps must be 1..={MAX_POINTER_DRAG_STEPS}, got {steps}"),
+        ));
+    }
+    runtime().block_on(async {
+        timeout(
+            SNAPSHOT_TIMEOUT,
+            drag_between_nodes_async(window_handle, from_node_id, to_node_id, button, steps),
+        )
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_action_timeout",
+                "AT-SPI node drag exceeded its deadline",
             )
         })?
     })
@@ -3859,6 +3890,79 @@ async fn hover_node_async(
     Ok(())
 }
 
+const WHEEL_PIXELS_PER_DETENT: i32 = 48;
+
+async fn wheel_node_async(
+    window_handle: Option<isize>,
+    node_id: &str,
+    dx: i32,
+    dy: i32,
+) -> Result<(), AccessibilityTreeError> {
+    crate::contract::input_inject::validate_pointer_scroll(dx, dy).map_err(map_input_inject_err)?;
+    let indices = parse_node_path(node_id)?;
+    let conn = connect().await?;
+    let identity = window_handle.and_then(window_identity);
+    let roots = registry_children(&conn).await?;
+    let selected = select_roots(&conn, roots, identity.as_ref()).await?;
+    if selected.is_empty() {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_scroll_wheel_unavailable",
+            format!("node path {node_id} has no AT-SPI Component for wheel delivery"),
+        ));
+    }
+    let object = resolve_path(&conn, &selected, &indices).await?;
+    let proxy = open_bus_object(&conn, &object).await?;
+    let center = wheel_delivery_center_for_proxy(&proxy).await?;
+    if dy < 0 {
+        invoke_component_scroll_to(&proxy, &object.dest).await?;
+        return Ok(());
+    }
+    apply_atspi_wheel_delta(&proxy, center, dx, dy).await?;
+    crate::input_inject::pointer_scroll_at(center, dx, dy).map_err(map_input_inject_err)
+}
+
+async fn apply_atspi_wheel_delta(
+    target_proxy: &AccessibleProxy<'_>,
+    center: PointerPosition,
+    dx: i32,
+    dy: i32,
+) -> Result<(), AccessibilityTreeError> {
+    let (target_x, target_y) = match read_screen_origin(target_proxy).await? {
+        Some(origin) => origin,
+        None => (center.x, center.y),
+    };
+    let conn = target_proxy.inner().connection();
+    let ancestors = collect_parent_objects(conn, target_proxy).await?;
+    let vertical = dy.unsigned_abs();
+    let horizontal = dx.unsigned_abs();
+    let steps = vertical.max(horizontal).max(1);
+    for step in 1..=steps {
+        let scroll_x = target_x.saturating_add(
+            dx.signum() * horizontal.min(step) as i32 * WHEEL_PIXELS_PER_DETENT,
+        );
+        let scroll_y = target_y.saturating_add(
+            dy.signum() * vertical.min(step) as i32 * WHEEL_PIXELS_PER_DETENT,
+        );
+        for ancestor_obj in &ancestors {
+            let ancestor_proxy = match open_bus_object(conn, ancestor_obj).await {
+                Ok(proxy) => proxy,
+                Err(_) => continue,
+            };
+            let ancestor_role = ancestor_proxy.get_role().await.ok();
+            if ancestor_role
+                .as_ref()
+                .is_some_and(role_supports_viewport_scroll)
+                || ancestor_role_is_generic_container(ancestor_role.as_ref())
+            {
+                if try_scroll_to_point_at(&ancestor_proxy, scroll_x, scroll_y).await? {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn wheel_node_center_async(
     window_handle: Option<isize>,
     node_id: &str,
@@ -3923,6 +4027,105 @@ async fn component_center_for_wheel(
         ));
     };
     Ok(PointerPosition { x: cx, y: cy })
+}
+
+async fn component_center_for_node(
+    conn: &zbus::Connection,
+    window_handle: Option<isize>,
+    node_id: &str,
+) -> Result<(i32, i32), AccessibilityTreeError> {
+    let indices = parse_node_path(node_id)?;
+    let identity = window_handle.and_then(window_identity);
+    let roots = registry_children(conn).await?;
+    let selected = select_roots(conn, roots, identity.as_ref()).await?;
+    if selected.is_empty() {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            format!("node path {node_id} has no AT-SPI Component for drag"),
+        ));
+    }
+    let object = resolve_path(conn, &selected, &indices).await?;
+    let proxy = open_bus_object(conn, &object).await?;
+    let component = component_proxy_for(&proxy).await?;
+    let (x, y, width, height) = timeout(NODE_TIMEOUT, component.get_extents(CoordType::Screen))
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_action_timeout",
+                "AT-SPI Component GetExtents exceeded its deadline",
+            )
+        })?
+        .map_err(map_atspi_err)?;
+    let Some((cx, cy)) = extents_center(x, y, width, height) else {
+        return Err(AccessibilityTreeError::failed(
+            "a11y_action_unavailable",
+            "node Component extents are empty; not falling back to --coords",
+        ));
+    };
+    Ok((cx, cy))
+}
+
+fn drag_points(from: PointerPosition, to: PointerPosition, steps: u32) -> Vec<(i32, i32)> {
+    let steps = i64::from(steps.max(1));
+    let mut out = Vec::with_capacity(steps as usize);
+    for i in 1..=steps {
+        if i == steps {
+            out.push((to.x, to.y));
+            continue;
+        }
+        let lerp = |a: i32, b: i32| -> i32 {
+            let (a, b) = (i64::from(a), i64::from(b));
+            (a + (b - a) * i / steps) as i32
+        };
+        out.push((lerp(from.x, to.x), lerp(from.y, to.y)));
+    }
+    out
+}
+
+async fn generate_mouse_event(
+    dec: &DeviceEventControllerProxy<'_>,
+    x: i32,
+    y: i32,
+    event: &str,
+) -> Result<(), AccessibilityTreeError> {
+    timeout(NODE_TIMEOUT, dec.generate_mouse_event(x, y, event))
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_action_timeout",
+                "AT-SPI GenerateMouseEvent exceeded its deadline",
+            )
+        })?
+        .map_err(map_atspi_err)?;
+    Ok(())
+}
+
+async fn drag_between_nodes_async(
+    window_handle: Option<isize>,
+    from_node_id: &str,
+    to_node_id: &str,
+    button: u8,
+    steps: u32,
+) -> Result<(), AccessibilityTreeError> {
+    let b = atspi_button_index(button)?;
+    let conn = connect().await?;
+    let dec = DeviceEventControllerProxy::builder(&conn)
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await
+        .map_err(map_atspi_err)?;
+    let (from_x, from_y) =
+        component_center_for_node(&conn, window_handle, from_node_id).await?;
+    let (to_x, to_y) = component_center_for_node(&conn, window_handle, to_node_id).await?;
+    let from = PointerPosition { x: from_x, y: from_y };
+    let to = PointerPosition { x: to_x, y: to_y };
+    generate_mouse_event(&dec, from_x, from_y, format_mouse_event(b, 'p')).await?;
+    for (x, y) in drag_points(from, to, steps) {
+        generate_mouse_event(&dec, x, y, "abs").await?;
+    }
+    generate_mouse_event(&dec, to_x, to_y, format_mouse_event(b, 'r')).await?;
+    generate_mouse_event(&dec, to_x, to_y, format_mouse_event(b, 'c')).await?;
+    Ok(())
 }
 
 async fn click_node_async(

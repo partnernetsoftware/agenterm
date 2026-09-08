@@ -51,6 +51,24 @@ pub fn click_node(
     crate::selected::accessibility_tree::click_node(window_handle, node_id, button, clicks)
 }
 
+/// Named-node drag via AT-SPI `GenerateMouseEvent` between two resolved
+/// nodes' `Component.GetExtents` centers (Linux). Never `--coords` or XTest.
+pub fn drag_between_nodes(
+    window_handle: Option<isize>,
+    from_node_id: &str,
+    to_node_id: &str,
+    button: u8,
+    steps: u32,
+) -> Result<(), AccessibilityTreeError> {
+    crate::selected::accessibility_tree::drag_between_nodes(
+        window_handle,
+        from_node_id,
+        to_node_id,
+        button,
+        steps,
+    )
+}
+
 /// Named-node pointer hover via AT-SPI `GenerateMouseEvent("abs")` at
 /// `Component.GetExtents` center (Linux). Never `--coords` or XTest.
 pub fn hover_node(

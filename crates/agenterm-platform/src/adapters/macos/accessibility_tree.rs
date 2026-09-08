@@ -1283,6 +1283,18 @@ pub(crate) fn click_node(
     Ok(())
 }
 
+pub(crate) fn drag_between_nodes(
+    _window_handle: Option<isize>,
+    _from_node_id: &str,
+    _to_node_id: &str,
+    _button: u8,
+    _steps: u32,
+) -> Result<(), AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "named-node drag is not wired on macOS yet".into(),
+    })
+}
+
 /// Named-node hover is wired on Linux (AT-SPI `GenerateMouseEvent("abs")`).
 pub(crate) fn hover_node(
     _window_handle: Option<isize>,

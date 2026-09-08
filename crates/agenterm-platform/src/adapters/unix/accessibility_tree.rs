@@ -73,6 +73,18 @@ pub(crate) fn click_node(
     })
 }
 
+pub(crate) fn drag_between_nodes(
+    _window_handle: Option<isize>,
+    _from_node_id: &str,
+    _to_node_id: &str,
+    _button: u8,
+    _steps: u32,
+) -> Result<(), AccessibilityTreeError> {
+    Err(AccessibilityTreeError::Unsupported {
+        reason: "accessibility-tree not wired on this unix host".into(),
+    })
+}
+
 pub(crate) fn hover_node(
     _window_handle: Option<isize>,
     _node_id: &str,

@@ -1722,6 +1722,36 @@ pub fn click_node(
     Ok(())
 }
 
+pub fn drag_between_nodes(
+    window: Option<isize>,
+    from_node_id: &str,
+    to_node_id: &str,
+    button: input_inject::PointerButton,
+    steps: u32,
+) -> Result<(), MechanismError> {
+    let handle = window.unwrap_or(0);
+    let from_c = CStringOrStack::new(from_node_id)?;
+    let to_c = CStringOrStack::new(to_node_id)?;
+    let button_id = match button {
+        input_inject::PointerButton::Left => dynlib::AGT_INPUT_BUTTON_LEFT,
+        input_inject::PointerButton::Right => dynlib::AGT_INPUT_BUTTON_RIGHT,
+        input_inject::PointerButton::Middle => dynlib::AGT_INPUT_BUTTON_MIDDLE,
+    };
+    write_ledger::note();
+    let f = call_sym::<NodeDragBetween>(b"agt_a11y_drag_between_nodes")?;
+    let status = unsafe {
+        f(
+            handle,
+            from_c.as_ptr(),
+            to_c.as_ptr(),
+            button_id,
+            steps,
+        )
+    };
+    map_status("agt_a11y_drag_between_nodes", status)?;
+    Ok(())
+}
+
 pub fn hover_node(window: Option<isize>, node_id: &str) -> Result<(), MechanismError> {
     let handle = window.unwrap_or(0);
     let node_c = CStringOrStack::new(node_id)?;
@@ -2665,6 +2695,8 @@ type TreeNode = unsafe extern "C" fn(usize, *mut agt_a11y_node) -> i32;
 type NodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usize) -> i32;
 type NodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
 type NodeClick = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, u32) -> i32;
+type NodeDragBetween =
+    unsafe extern "C" fn(isize, *const std::ffi::c_char, *const std::ffi::c_char, i32, u32) -> i32;
 type NodeHover = unsafe extern "C" fn(isize, *const std::ffi::c_char) -> i32;
 type NodeWheel = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, i32) -> i32;
 type NodePerform = unsafe extern "C" fn(isize, *const std::ffi::c_char, i32) -> i32;

@@ -90,7 +90,8 @@ use std::time::{Duration, Instant};
 use agenterm_platform::CapabilityStatus;
 use agenterm_platform::accessibility_tree::{
     AccessibilityEvent, AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget,
-    AccessibilityTreeError, ApplicationVisibility, click_node, drain_bus, focused_node_for_window,
+    AccessibilityTreeError, ApplicationVisibility, click_node, drain_bus, drag_between_nodes,
+    focused_node_for_window,
     get_node_caret_offset, get_node_extents, get_node_selection, get_node_text, hover_node,
     invoke_menu_path, last_text_write_via, menu_tree_for_window, observe_window,
     perform_node_action, poke_manual_accessibility, scroll_node, send_node_keys,
@@ -4782,6 +4783,104 @@ pub extern "C" fn agt_a11y_node_click(
                 c"agt_a11y_node_click",
                 c"panic",
                 "panic in agt_a11y_node_click",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_drag_between_nodes(
+    window_handle: isize,
+    from_node_id: *const c_char,
+    to_node_id: *const c_char,
+    button: i32,
+    steps: u32,
+) -> agt_status {
+    fn inner(
+        window_handle: isize,
+        from_node_id: *const c_char,
+        to_node_id: *const c_char,
+        button: i32,
+        steps: u32,
+    ) -> agt_status {
+        if let Some(status) = a11y_mechanism_gate() {
+            return status;
+        }
+        if from_node_id.is_null() {
+            record_error(
+                c"agt_a11y_drag_between_nodes",
+                c"bad_pointer",
+                "from_node_id is null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if to_node_id.is_null() {
+            record_error(
+                c"agt_a11y_drag_between_nodes",
+                c"bad_pointer",
+                "to_node_id is null",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if !(0..=2).contains(&button) {
+            record_error(
+                c"agt_a11y_drag_between_nodes",
+                c"invalid_input",
+                "button must be 0 (left)..=2 (middle)",
+            );
+            return agt_status::AGT_FAILED;
+        }
+        if steps == 0 || steps > MAX_POINTER_DRAG_STEPS {
+            record_error(
+                c"agt_a11y_drag_between_nodes",
+                c"invalid_input",
+                format!("steps must be 1..={MAX_POINTER_DRAG_STEPS}"),
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let from_node_id = match unsafe { CStr::from_ptr(from_node_id) }.to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                record_error(
+                    c"agt_a11y_drag_between_nodes",
+                    c"bad_encoding",
+                    "from_node_id is not UTF-8",
+                );
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let to_node_id = match unsafe { CStr::from_ptr(to_node_id) }.to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                record_error(
+                    c"agt_a11y_drag_between_nodes",
+                    c"bad_encoding",
+                    "to_node_id is not UTF-8",
+                );
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let filter = if window_handle == 0 {
+            None
+        } else {
+            Some(window_handle)
+        };
+        match drag_between_nodes(filter, from_node_id, to_node_id, button as u8, steps) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(e) => map_a11y_error(c"agt_a11y_drag_between_nodes", e),
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| {
+        inner(window_handle, from_node_id, to_node_id, button, steps)
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_a11y_drag_between_nodes",
+                c"panic",
+                "panic in agt_a11y_drag_between_nodes",
             );
             agt_status::AGT_FAILED
         }
