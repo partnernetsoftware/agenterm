@@ -33,14 +33,55 @@ impl TabEntry<'_> {
     }
 
     pub fn json(&self) -> Value {
-        json!({
-            "index": self.index,
-            "id": self.node.id,
-            "title": self.node.name,
-            "selected": self.selected().json(),
-            "role": self.node.role,
-        })
+        tab_entry_json(self, None)
     }
+}
+
+/// Strip the Chromium window suffix AT-SPI publishes on frame rows
+/// (`Example Domain - Google Chrome` -> `Example Domain`).
+pub fn normalize_tab_title(name: &str) -> String {
+    for suffix in CHROMIUM_WINDOW_TITLE_SUFFIXES {
+        if let Some(stripped) = name.strip_suffix(suffix) {
+            return stripped.to_owned();
+        }
+    }
+    name.to_owned()
+}
+
+const CHROMIUM_WINDOW_TITLE_SUFFIXES: &[&str] = &[
+    " - Google Chrome",
+    " - Chromium",
+    " - Brave",
+    " - Microsoft Edge",
+];
+
+pub fn frame_matches_window_title(frame_name: &str, window_title: &str) -> bool {
+    frame_name == window_title
+        || normalize_tab_title(frame_name) == normalize_tab_title(window_title)
+}
+
+/// When the strip row carries no `selected` / `unselected` state, correlate
+/// with the focused top-level window of the same browser process.
+pub fn tab_entry_selected(entry: &TabEntry<'_>, focused_sibling_index: Option<usize>) -> Tri {
+    let from_node = entry.selected();
+    if from_node != Tri::Unknown {
+        return from_node;
+    }
+    if focused_sibling_index == Some(entry.index) {
+        Tri::True
+    } else {
+        Tri::Unknown
+    }
+}
+
+pub fn tab_entry_json(entry: &TabEntry<'_>, focused_sibling_index: Option<usize>) -> Value {
+    json!({
+        "index": entry.index,
+        "id": entry.node.id,
+        "title": normalize_tab_title(&entry.node.name),
+        "selected": tab_entry_selected(entry, focused_sibling_index).json(),
+        "role": entry.node.role,
+    })
 }
 
 /// `(container role, item role)` pairs that are a browser tab strip on
@@ -67,6 +108,15 @@ fn role_is(role: &str, wanted: &str) -> bool {
 /// container (a form's radio buttons, a settings page's tabs drawn in the
 /// web area) are not tabs.
 pub fn tab_strip_entries(tree: &A11yTree) -> Vec<TabEntry<'_>> {
+    let standard = strip_entries_by_roles(tree);
+    if !standard.is_empty() {
+        return standard;
+    }
+    chromium_application_frame_entries(tree)
+}
+
+/// Every item node whose direct parent is a known strip container.
+fn strip_entries_by_roles(tree: &A11yTree) -> Vec<TabEntry<'_>> {
     let mut entries = Vec::new();
     for node in &tree.nodes {
         let Some(parent_id) = node.parent_id.as_deref() else {
@@ -88,6 +138,39 @@ pub fn tab_strip_entries(tree: &A11yTree) -> Vec<TabEntry<'_>> {
                 node,
             });
         }
+    }
+    entries
+}
+
+/// Linux Chromium often publishes one `frame` per tab as a direct child of
+/// the root `application` node instead of a `page tab list` / `tab-group`.
+fn chromium_application_frame_entries(tree: &A11yTree) -> Vec<TabEntry<'_>> {
+    if tree.backend != "at-spi2" {
+        return Vec::new();
+    }
+    let app = tree
+        .nodes
+        .iter()
+        .find(|node| node.parent_id.is_none() && role_is(&node.role, "application"));
+    let app = match app {
+        Some(app) => app,
+        None => return Vec::new(),
+    };
+    if !crate::observe::looks_like_browser_app(&app.name) {
+        return Vec::new();
+    }
+    let mut entries = Vec::new();
+    for node in &tree.nodes {
+        if node.parent_id.as_deref() != Some(app.id.as_str()) {
+            continue;
+        }
+        if !role_is(&node.role, "frame") || node.name.trim().is_empty() {
+            continue;
+        }
+        entries.push(TabEntry {
+            index: entries.len(),
+            node,
+        });
     }
     entries
 }
@@ -173,7 +256,11 @@ pub fn match_tab<'a>(
             let wanted = title.to_lowercase();
             let hits: Vec<&TabEntry<'a>> = entries
                 .iter()
-                .filter(|entry| entry.title().to_lowercase().contains(&wanted))
+                .filter(|entry| {
+                    normalize_tab_title(entry.title())
+                        .to_lowercase()
+                        .contains(&wanted)
+                })
                 .collect();
             match hits.as_slice() {
                 [] => Err(TabMatchError::NotFound {
@@ -257,7 +344,7 @@ pub fn match_tab_exact<'a>(
         TabCloseSpec::Title(title) => {
             let hits: Vec<&TabEntry<'a>> = entries
                 .iter()
-                .filter(|entry| entry.title() == title)
+                .filter(|entry| normalize_tab_title(entry.title()) == *title)
                 .collect();
             match hits.as_slice() {
                 [] => Err(TabMatchError::NotFound {
@@ -671,6 +758,46 @@ mod tests {
         );
         // A non-strip container is still not a strip.
         assert!(tab_strip_entries(&spelled("group", "radio button")).is_empty());
+    }
+
+    #[test]
+    fn linux_chromium_application_frames_are_a_tab_strip() {
+        let mut tree = fake_tree(vec![
+            node("/0", None, "application", "Google Chrome", &["showing"]),
+            node(
+                "/0/0",
+                Some("/0"),
+                "frame",
+                "Example Domain - Google Chrome",
+                &["showing"],
+            ),
+            node(
+                "/0/1",
+                Some("/0"),
+                "frame",
+                "cu-fill-test - Google Chrome",
+                &["showing"],
+            ),
+        ]);
+        tree.backend = "at-spi2".into();
+        let entries = tab_strip_entries(&tree);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].json()["title"], "Example Domain");
+        assert_eq!(entries[1].json()["title"], "cu-fill-test");
+        assert_eq!(
+            tab_entry_selected(&entries[1], Some(1)),
+            Tri::True,
+            "focused sibling index marks the selected row"
+        );
+    }
+
+    #[test]
+    fn normalize_tab_title_strips_chromium_window_suffixes() {
+        assert_eq!(
+            normalize_tab_title("Example Domain - Google Chrome"),
+            "Example Domain"
+        );
+        assert_eq!(normalize_tab_title("Codex - Brave"), "Codex");
     }
 
     #[test]

@@ -1227,15 +1227,159 @@ pub(super) fn tab_rows(tree: &mechanism::A11yTree) -> Vec<serde_json::Value> {
         .collect()
 }
 
+fn tab_focused_sibling_index(
+    windows: &[mechanism::window_enumerate::WindowInfo],
+    pid: u32,
+) -> Option<usize> {
+    windows
+        .iter()
+        .filter(|window| {
+            window.process_id == pid && observe::looks_like_browser_app(&window.app_name)
+        })
+        .position(|window| window.focused)
+}
+
+fn tab_list_rows(
+    entries: &[crate::tab_strip::TabEntry<'_>],
+    focused_sibling_index: Option<usize>,
+) -> Vec<serde_json::Value> {
+    entries
+        .iter()
+        .map(|entry| crate::tab_strip::tab_entry_json(entry, focused_sibling_index))
+        .collect()
+}
+
+fn tab_list_selected_indexes(
+    entries: &[crate::tab_strip::TabEntry<'_>],
+    focused_sibling_index: Option<usize>,
+) -> Vec<usize> {
+    entries
+        .iter()
+        .filter(|entry| {
+            crate::tab_strip::tab_entry_selected(entry, focused_sibling_index)
+                == observe::Tri::True
+        })
+        .map(|entry| entry.index)
+        .collect()
+}
+
+fn tab_list_unsupported(window: isize) -> CuError {
+    CuError::new(
+        "unsupported",
+        "tab-list found no tab strip in the accessibility tree and no CDP inventory for this browser window",
+    )
+    .with_detail(serde_json::json!({
+        "window": window,
+        "mechanisms": ["accessibility-tree", "cdp-json"],
+        "next_actions": [
+            "unlock --window HANDLE then tab-list again (Chromium may publish page-tab-list / tab-group rows only after the renderer tree is enabled)",
+            format!(
+                "relaunch Chrome with --remote-debugging-port={} bound to 127.0.0.1 (scripts/box-chrome-a11y.sh forwards extra args), then tab-list falls back to /json page targets for the same process",
+                crate::cdp::DEFAULT_PORT
+            ),
+            "browser-tabs lists every page target of the instance when a debug port or MV3 bridge is live",
+        ],
+    }))
+}
+
+fn tab_list_cdp_fallback(
+    window: isize,
+    windows: &[mechanism::window_enumerate::WindowInfo],
+    target: &mechanism::window_enumerate::WindowInfo,
+) -> Result<Option<serde_json::Value>, CuError> {
+    if !observe::looks_like_browser_app(&target.app_name) {
+        return Ok(None);
+    }
+    let pid = target.process_id;
+    if pid == 0 {
+        return Ok(None);
+    }
+    let port = match resolve_cdp_port(None, Some(pid)) {
+        Ok(port) => port,
+        Err(error)
+            if matches!(
+                error.code.as_str(),
+                "cdp_debug_port_not_found" | "cdp_process_unavailable"
+            ) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    let targets = crate::cdp::targets::list_targets(port).map_err(CuError::from)?;
+    let pages: Vec<_> = targets.iter().filter(|target| target.is_page()).collect();
+    if pages.is_empty() {
+        return Ok(None);
+    }
+    let focused_sibling_index = tab_focused_sibling_index(windows, pid);
+    let tabs: Vec<serde_json::Value> = pages
+        .iter()
+        .enumerate()
+        .map(|(index, page)| {
+            let selected = if focused_sibling_index == Some(index) {
+                observe::Tri::True
+            } else {
+                observe::Tri::Unknown
+            };
+            serde_json::json!({
+                "index": index,
+                "id": page.id,
+                "title": page.title,
+                "url": page.url,
+                "selected": selected.json(),
+                "role": "page",
+            })
+        })
+        .collect();
+    let selected = tabs
+        .iter()
+        .filter(|row| row["selected"] == true)
+        .filter_map(|row| row["index"].as_u64())
+        .map(|index| index as usize)
+        .collect::<Vec<_>>();
+    Ok(Some(serde_json::json!({
+        "addressing": "cdp-json",
+        "mechanism": "cdp-json",
+        "backend": crate::cdp::backend(),
+        "window": window,
+        "pid": pid,
+        "port": port,
+        "via": "/json",
+        "returned": tabs.len(),
+        "selected": selected,
+        "tabs": tabs,
+        "note": "Chromium published no tab-strip roles in AT-SPI; these rows come from the process-bound CDP /json page inventory",
+        "heuristic": "one CDP listener bound to the window process; sibling order follows /json listing order",
+    })))
+}
+
 pub(super) fn tab_list_payload(window: isize) -> Result<serde_json::Value, CuError> {
     tab_window_arg("tab list", window)?;
+    let windows =
+        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let target = windows.iter().find(|row| row.handle == window);
     let tree = mechanism::tree_for_window(Some(window)).map_err(map_mechanism_err)?;
     let entries = crate::tab_strip::tab_strip_entries(&tree);
-    let selected: Vec<usize> = entries
+    if entries.is_empty() {
+        if let Some(target) = target {
+            if let Some(payload) = tab_list_cdp_fallback(window, &windows, target)? {
+                return Ok(payload);
+            }
+        }
+        return Err(tab_list_unsupported(window));
+    }
+    let focused_sibling_index = target
+        .map(|row| tab_focused_sibling_index(&windows, row.process_id))
+        .unwrap_or(None);
+    let selected = tab_list_selected_indexes(&entries, focused_sibling_index);
+    let strip_kind = if entries
         .iter()
-        .filter(|entry| entry.selected() == observe::Tri::True)
-        .map(|entry| entry.index)
-        .collect();
+        .any(|entry| observe::normalize_role(&entry.node.role) == "frame")
+    {
+        "chromium-application-frame"
+    } else {
+        "tab-strip-roles"
+    };
     Ok(serde_json::json!({
         "addressing": "accessibility-tree",
         "mechanism": "libagenterm",
@@ -1243,11 +1387,12 @@ pub(super) fn tab_list_payload(window: isize) -> Result<serde_json::Value, CuErr
         "window": window,
         "returned": entries.len(),
         "selected": selected,
-        "tabs": entries.iter().map(crate::tab_strip::TabEntry::json).collect::<Vec<_>>(),
+        "tabs": tab_list_rows(&entries, focused_sibling_index),
         "visited": tree.visited,
         "truncated": tree.truncated,
-        "note": if entries.is_empty() {
-            "no tab strip in this window's tree; Chromium lists tabs as tab-group radio-buttons only when the strip is rendered"
+        "strip": strip_kind,
+        "note": if strip_kind == "chromium-application-frame" {
+            "Linux Chromium published one application frame per tab; background tabs have no web-area in the tree"
         } else {
             "background tabs have no web-area in the tree; select one to read it, or use page-js --target-title through CDP"
         },
