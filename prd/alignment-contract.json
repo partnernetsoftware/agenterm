@@ -111,6 +111,7 @@
         "cu.linux-ime-status",
         "cu.linux-power-status-readback",
         "cu.linux-processor-topology-readback",
+        "cu.linux-resource-status-readback",
         "cu.linux-local-clock-readback",
         "cu.linux-boot-identity-readback",
         "cu.linux-network-dns-resolv",

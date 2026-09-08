@@ -39,27 +39,39 @@ fn hostname() -> Result<String, HostResourceSnapshotError> {
 }
 
 fn uptime_milliseconds() -> Result<u64, HostResourceSnapshotError> {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &raw mut time) } != 0 {
-        return Err(query_error(
+    let contents = std::fs::read_to_string("/proc/uptime").map_err(|error| {
+        HostResourceSnapshotError::new(
             HostResourceSnapshotErrorKind::UptimeQuery,
-            "clock_gettime(CLOCK_BOOTTIME)",
-        ));
-    }
-    if time.tv_sec < 0 || !(0..1_000_000_000).contains(&time.tv_nsec) {
+            format!("read /proc/uptime: {error}"),
+        )
+    })?;
+    let seconds_text = contents.split_whitespace().next().ok_or_else(|| {
+        HostResourceSnapshotError::new(
+            HostResourceSnapshotErrorKind::InvalidNativeValue,
+            "/proc/uptime missing uptime field",
+        )
+    })?;
+    parse_uptime_seconds(seconds_text)
+}
+
+fn parse_uptime_seconds(seconds_text: &str) -> Result<u64, HostResourceSnapshotError> {
+    let seconds = seconds_text.parse::<f64>().map_err(|_| {
+        HostResourceSnapshotError::new(
+            HostResourceSnapshotErrorKind::InvalidNativeValue,
+            "/proc/uptime uptime field is not a number",
+        )
+    })?;
+    if !seconds.is_finite() || seconds < 0.0 {
         return Err(HostResourceSnapshotError::new(
             HostResourceSnapshotErrorKind::InvalidNativeValue,
-            "CLOCK_BOOTTIME returned invalid timespec",
+            "/proc/uptime uptime field is out of range",
         ));
     }
-    let seconds = u64::try_from(time.tv_sec).map_err(|_| overflow("uptime seconds"))?;
-    seconds
-        .checked_mul(1000)
-        .and_then(|value| value.checked_add(u64::try_from(time.tv_nsec).ok()? / 1_000_000))
-        .ok_or_else(|| overflow("uptime milliseconds"))
+    let millis = (seconds * 1000.0).round();
+    if millis < 0.0 || millis > u64::MAX as f64 {
+        return Err(overflow("uptime milliseconds"));
+    }
+    Ok(millis as u64)
 }
 
 fn load_average() -> Result<super::HostLoadAverage, HostResourceSnapshotError> {
@@ -139,6 +151,19 @@ fn overflow(field: &str) -> HostResourceSnapshotError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uptime_parser_rejects_invalid_proc_uptime() {
+        assert_eq!(
+            parse_uptime_seconds("not-a-number").unwrap_err().kind(),
+            HostResourceSnapshotErrorKind::InvalidNativeValue
+        );
+        assert_eq!(
+            parse_uptime_seconds("").unwrap_err().kind(),
+            HostResourceSnapshotErrorKind::InvalidNativeValue
+        );
+        assert_eq!(parse_uptime_seconds("12.5").unwrap(), 12_500);
+    }
 
     #[test]
     fn cpu_model_parser_has_bounded_fallbacks() {

@@ -273,6 +273,7 @@ const evidence_suites = {
   "cu-linux-menu-invoke-smoke": true,
   "cu-linux-power-status-smoke": true,
   "cu-linux-processor-topology-smoke": true,
+  "cu-linux-resource-status-smoke": true,
   "cu-linux-fontconfig-monospace-smoke": true,
   "cu-linux-local-clock-smoke": true,
   "cu-linux-boot-identity-smoke": true,

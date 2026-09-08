@@ -335,6 +335,10 @@
       "evidence": ["cu.linux-processor-topology-readback"]
     },
     {
+      "id": "cu-linux-resource-status-smoke",
+      "evidence": ["cu.linux-resource-status-readback"]
+    },
+    {
       "id": "cu-desktop-state-smoke",
       "evidence": ["cu.desktop-state"]
     },

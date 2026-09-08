@@ -1,0 +1,228 @@
+// CEO: Linux resource-status honesty with independent /proc read-back.
+// Acceptance is smoke read-back only: CU resource-status load, uptime, memory and
+// process count must agree with facts derived outside agenterm-cu. No --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-resource-status-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_resource_status_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_resource_status_reply_state");
+  return reply;
+}
+
+function load_near(left, right, tolerance) {
+  return Math.abs(left - right) < tolerance;
+}
+
+function bytes_near(left, right, slack_bytes) {
+  const diff = left > right ? left - right : right - left;
+  if (diff <= slack_bytes) { return true; }
+  const max = left > right ? left : right;
+  return max > 0 && diff * 10 <= max;
+}
+
+function independent_proc_facts() {
+  const script = [
+    "import os, socket",
+    "def meminfo_kibibytes(key):",
+    "    with open('/proc/meminfo') as handle:",
+    "        for line in handle:",
+    "            if line.startswith(key):",
+    "                parts = line.split()",
+    "                if len(parts) != 3 or parts[0] != key or parts[2] != 'kB':",
+    "                    raise ValueError('invalid ' + key + ' line: ' + line.strip())",
+    "                return int(parts[1]) * 1024",
+    "    raise ValueError('missing ' + key)",
+    "with open('/proc/loadavg') as handle:",
+    "    load = handle.read().split()",
+    "if len(load) < 3:",
+    "    raise ValueError('invalid /proc/loadavg')",
+    "with open('/proc/uptime') as handle:",
+    "    uptime_seconds = float(handle.read().split()[0])",
+    "process_count = 0",
+    "for name in os.listdir('/proc'):",
+    "    if not name.isdigit():",
+    "        continue",
+    "    try:",
+    "        os.readlink('/proc/' + name + '/exe')",
+    "        process_count += 1",
+    "    except OSError:",
+    "        pass",
+    "page_size = int(os.sysconf('SC_PAGESIZE'))",
+    "print('hostname', socket.gethostname())",
+    "print('logical', int(os.sysconf('SC_NPROCESSORS_ONLN')))",
+    "print('load1', load[0])",
+    "print('load5', load[1])",
+    "print('load15', load[2])",
+    "print('uptime_seconds', uptime_seconds)",
+    "print('mem_total', meminfo_kibibytes('MemTotal:'))",
+    "print('mem_free', meminfo_kibibytes('MemFree:'))",
+    "print('mem_available', meminfo_kibibytes('MemAvailable:'))",
+    "print('process_count', process_count)",
+    "print('page_size', page_size)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 15000 });
+  ensure(output.success === true, "cu_linux_resource_status_probe:" + output.stderr);
+  const facts = {};
+  const lines = output.stdout.trim().split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index].trim();
+    if (line === "") { continue; }
+    const space = line.indexOf(" ");
+    if (space < 0) { continue; }
+    facts[line.substring(0, space)] = line.substring(space + 1);
+  }
+  return {
+    hostname: facts.hostname,
+    logical: Number(facts.logical),
+    load1: Number(facts.load1),
+    load5: Number(facts.load5),
+    load15: Number(facts.load15),
+    uptime_seconds: Number(facts.uptime_seconds),
+    mem_total: Number(facts.mem_total),
+    mem_free: Number(facts.mem_free),
+    mem_available: Number(facts.mem_available),
+    process_count: Number(facts.process_count),
+    page_size: Number(facts.page_size),
+  };
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-resource-status");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP resource-status observe returns a Linux snapshot");
+  const reply = invoke(context.run_directory, executable, ["resource-status"], true);
+  ensure(reply.command === "resource-status" && reply.target === "current",
+         "cu_linux_resource_status_identity");
+  ensure(text_at(reply, "data.platform") === "linux", "cu_linux_resource_status_platform");
+  ensure(text_at(reply, "data.atomicSnapshot") === "false",
+         "cu_linux_resource_status_atomic_snapshot");
+  ensure(text_at(reply, "data.loadAverageSemantics") === "unix-getloadavg",
+         "cu_linux_resource_status_load_semantics");
+  ensure(text_at(reply, "data.memory.freeSemantics") === "linux-mem-free",
+         "cu_linux_resource_status_free_semantics");
+  ensure(text_at(reply, "data.memory.availabilitySemantics") === "linux-mem-available",
+         "cu_linux_resource_status_available_semantics");
+
+  print("STEP independent /proc read-back matches load, uptime, memory and process count");
+  const probe = independent_proc_facts();
+  ensure(probe.logical > 0, "cu_linux_resource_status_probe_logical");
+  ensure(probe.process_count > 0, "cu_linux_resource_status_probe_process_count");
+  ensure(probe.page_size > 0, "cu_linux_resource_status_probe_page_size");
+
+  const data = at(reply, "data");
+  const hostname = text_at(reply, "data.hostname");
+  const logical = Number(text_at(reply, "data.cpu.logical"));
+  const uptime = Number(text_at(reply, "data.uptimeSeconds"));
+  ensure(rh.is_array(data.loadAverage) && data.loadAverage.length === 3,
+         "cu_linux_resource_status_load_shape");
+  const load = [
+    Number(data.loadAverage[0]),
+    Number(data.loadAverage[1]),
+    Number(data.loadAverage[2]),
+  ];
+  const mem_total = Number(text_at(reply, "data.memory.totalBytes"));
+  const mem_free = Number(text_at(reply, "data.memory.freeBytes"));
+  const mem_available = Number(text_at(reply, "data.memory.availableBytes"));
+  const process_count = Number(text_at(reply, "data.processCount"));
+  const slack_bytes = probe.page_size * 64;
+
+  ensure(hostname === probe.hostname,
+         "cu_linux_resource_status_hostname_mismatch:cu=" + hostname
+           + ":probe=" + probe.hostname);
+  ensure(logical === probe.logical,
+         "cu_linux_resource_status_logical_mismatch:cu=" + logical
+           + ":probe=" + probe.logical);
+  ensure(load_near(load[0], probe.load1, 0.05)
+         && load_near(load[1], probe.load5, 0.05)
+         && load_near(load[2], probe.load15, 0.05),
+         "cu_linux_resource_status_load_mismatch:cu="
+           + load.join(",") + ":probe=" + probe.load1 + "," + probe.load5 + "," + probe.load15);
+  ensure(Math.abs(uptime - probe.uptime_seconds) <= 3.0,
+         "cu_linux_resource_status_uptime_mismatch:cu=" + uptime
+           + ":probe=" + probe.uptime_seconds);
+  ensure(mem_total === probe.mem_total,
+         "cu_linux_resource_status_mem_total_mismatch:cu=" + mem_total
+           + ":probe=" + probe.mem_total);
+  ensure(bytes_near(mem_free, probe.mem_free, slack_bytes),
+         "cu_linux_resource_status_mem_free_mismatch:cu=" + mem_free
+           + ":probe=" + probe.mem_free);
+  ensure(bytes_near(mem_available, probe.mem_available, slack_bytes),
+         "cu_linux_resource_status_mem_available_mismatch:cu=" + mem_available
+           + ":probe=" + probe.mem_available);
+  ensure(process_count === probe.process_count,
+         "cu_linux_resource_status_process_count_mismatch:cu=" + process_count
+           + ":probe=" + probe.process_count);
+
+  print("STEP grouped alias preserves the same resource facts");
+  const grouped = invoke(context.run_directory, executable,
+    ["resource", "status"], true);
+  ensure(text_at(grouped, "data.hostname") === hostname,
+         "cu_linux_resource_status_alias_hostname");
+  ensure(Number(text_at(grouped, "data.processCount")) === process_count,
+         "cu_linux_resource_status_alias_process_count");
+  ensure(Number(text_at(grouped, "data.memory.totalBytes")) === mem_total,
+         "cu_linux_resource_status_alias_mem_total");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-resource-status-readback");
+  harness.remove_run(context);
+  print("PASS: Linux resource-status matches independent /proc loadavg, uptime, meminfo and process-count read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
