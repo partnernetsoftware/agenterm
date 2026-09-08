@@ -328,7 +328,7 @@
     },
     {
       "id": "acu-mcp-provider-smoke",
-      "evidence": ["acu.mcp-provider-capabilities"]
+      "evidence": ["acu.mcp-provider-capabilities", "acu.mcp-provider-observe"]
     },
     {
       "id": "cu-process-inventory-smoke",

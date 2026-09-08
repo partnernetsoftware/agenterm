@@ -19,6 +19,13 @@ function valid_hex(value, length) {
   return value.length === length && rh.only_chars(value, rh.HEX);
 }
 
+function has_exact_line(output, expected) {
+  for (const line of output.replaceAll("\r\n", "\n").split("\n")) {
+    if (line === expected) { return true; }
+  }
+  return false;
+}
+
 const args = rh.args();
 require_ok(args.length === 15, "cu_retirement_cell_arguments");
 const launcher = rh.absolute(args[0]);
@@ -122,8 +129,17 @@ const mcp_provider_probe = rh.command(
 );
 require_ok(mcp_provider_probe.exit_code === 0 && mcp_provider_probe.success,
            "cu_retirement_cell_mcp_provider_exit");
-require_ok(mcp_provider_probe.stdout.includes(
-  "PASS: MCP stdio executed fixed-sibling ACU capabilities with closed schema refusals"
+require_ok(has_exact_line(
+  mcp_provider_probe.stdout,
+  "EVIDENCE acu.mcp-provider-capabilities"
+), "cu_retirement_cell_mcp_capabilities_evidence");
+require_ok(has_exact_line(
+  mcp_provider_probe.stdout,
+  "EVIDENCE acu.mcp-provider-observe"
+), "cu_retirement_cell_mcp_observe_evidence");
+require_ok(has_exact_line(
+  mcp_provider_probe.stdout,
+  "PASS: MCP stdio executed fixed-sibling ACU capabilities and generic observation with closed schema refusals"
 ), "cu_retirement_cell_mcp_provider_pass");
 require_ok(rh.exists(setup_receipt_path) && rh.metadata(setup_receipt_path).is_file,
            "cu_retirement_cell_setup_receipt_missing");
@@ -191,6 +207,7 @@ const receipt = {
   evidence: [
     "cu.retirement-cell.acu-provider",
     "acu.mcp-provider-capabilities",
+    "acu.mcp-provider-observe",
     "cu.retirement-cell.capabilities",
     "cu.retirement-cell.runtime-status",
     "cu.setup-cli-entrypoint",
@@ -203,6 +220,7 @@ const receipt = {
 rh.atomic_write(output, rh.stringify_pretty(receipt) + "\n");
 print("EVIDENCE cu.retirement-cell.acu-provider");
 print("EVIDENCE acu.mcp-provider-capabilities");
+print("EVIDENCE acu.mcp-provider-observe");
 print("EVIDENCE cu.retirement-cell.capabilities");
 print("EVIDENCE cu.retirement-cell.runtime-status");
 print("EVIDENCE cu.setup-cli-entrypoint");

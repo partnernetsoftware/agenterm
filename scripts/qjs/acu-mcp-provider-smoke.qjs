@@ -9,7 +9,7 @@
 //   AGENTERM_LAUNCHER ACU_PROVIDER
 import * as rh from "lib/rh_compat";
 
-const evidence_id = "acu.mcp-provider-capabilities";
+const evidence_ids = ["acu.mcp-provider-capabilities", "acu.mcp-provider-observe"];
 
 function require_ok(condition, message) {
   if (!condition) { throw message; }
@@ -65,7 +65,7 @@ function response_with_id(responses, id) {
 
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
-  print(evidence_id);
+  for (const id of evidence_ids) { print(id); }
   return;
 }
 require_ok(args.length === 2, "expected: AGENTERM_LAUNCHER ACU_PROVIDER");
@@ -133,6 +133,37 @@ const descriptor = {
   }
 };
 
+const observe_descriptor = {
+  name: "agenterm_acu_observe",
+  title: "Run one read-only agenterm-cu command",
+  description: "Execute one canonical read-only agenterm-cu Command through the shared typed Executor. Commands requiring actuation are rejected before dispatch.",
+  inputSchema: {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      command: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          verb: { type: "string", minLength: 1 },
+          target: { type: "string", enum: ["current", "ssh", "vnc", "rdp"] }
+        },
+        required: ["verb", "target"],
+        description: "One canonical agenterm-cu Command object. The provider strictly validates the exact variant fields selected by verb."
+      }
+    },
+    required: ["command"]
+  },
+  outputSchema: descriptor.outputSchema,
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false
+  }
+};
+
 function request(id, method, params) {
   const message = { jsonrpc: "2.0", id: id, method: method };
   if (params !== undefined) { message.params = params; }
@@ -150,6 +181,14 @@ input = input + JSON.stringify({
 input = input + request("tools", "tools/list", undefined);
 input = input + request("capabilities", "tools/call", {
   name: "agenterm_acu_capabilities", arguments: {}
+});
+input = input + request("observe", "tools/call", {
+  name: "agenterm_acu_observe",
+  arguments: { command: { verb: "runtime-status", target: "current" } }
+});
+input = input + request("actuation", "tools/call", {
+  name: "agenterm_acu_observe",
+  arguments: { command: { verb: "clipboard-clear", target: "current", apply: true } }
 });
 input = input + request("unknown", "tools/call", {
   name: "agenterm_acu_unknown", arguments: {}
@@ -175,7 +214,7 @@ const responses = [];
 for (const line of output.stdout.replaceAll("\r\n", "\n").split("\n")) {
   if (line.trim() !== "") { responses.push(JSON.parse(line)); }
 }
-require_ok(responses.length === 5, "acu_mcp_response_count:" + responses.length);
+require_ok(responses.length === 7, "acu_mcp_response_count:" + responses.length);
 
 const initialized = response_with_id(responses, "initialize");
 require_ok(initialized.jsonrpc === "2.0"
@@ -183,12 +222,14 @@ require_ok(initialized.jsonrpc === "2.0"
            "acu_mcp_initialize_reply");
 
 const listed = response_with_id(responses, "tools");
-require_ok(Array.isArray(listed.result.tools) && listed.result.tools.length === 2,
+require_ok(Array.isArray(listed.result.tools) && listed.result.tools.length === 3,
            "acu_mcp_tools_count");
 require_ok(listed.result.tools[0].name === "agenterm_wait",
            "acu_mcp_wait_descriptor_missing");
 require_ok(exact_value(listed.result.tools[1], descriptor),
            "acu_mcp_capabilities_descriptor_drift");
+require_ok(exact_value(listed.result.tools[2], observe_descriptor),
+           "acu_mcp_observe_descriptor_drift");
 
 const called = response_with_id(responses, "capabilities");
 require_ok(called.result.isError === false, "acu_mcp_capabilities_is_error");
@@ -204,6 +245,22 @@ require_ok(Array.isArray(called.result.content) && called.result.content.length 
              && called.result.content[0].type === "text"
              && exact_value(JSON.parse(called.result.content[0].text), reply),
            "acu_mcp_capabilities_text_projection");
+
+const observed = response_with_id(responses, "observe");
+require_ok(observed.result.isError === false, "acu_mcp_observe_is_error");
+const observed_reply = observed.result.structuredContent;
+require_ok(observed_reply.ok === true && observed_reply.target === "current"
+             && observed_reply.command === "runtime-status"
+             && observed_reply.data.architecture === "on-demand-coordinator-with-resource-owners",
+           "acu_mcp_observe_reply:" + JSON.stringify(observed_reply));
+
+const actuation = response_with_id(responses, "actuation");
+require_ok(actuation.result.isError === true, "acu_mcp_actuation_false_success");
+const actuation_reply = actuation.result.structuredContent;
+require_ok(actuation_reply.ok === false
+             && actuation_reply.command === "clipboard-clear"
+             && actuation_reply.error.code === "mcp_observe_actuation_forbidden",
+           "acu_mcp_actuation_not_refused:" + JSON.stringify(actuation_reply));
 
 const unknown = response_with_id(responses, "unknown");
 require_ok(unknown.error.code === -32602
@@ -223,6 +280,6 @@ require_ok(extra_reply.error.message
              === "agenterm_acu_capabilities arguments must be an empty object",
            "acu_mcp_extra_argument_diagnostic");
 
-print("EVIDENCE " + evidence_id);
-print("PASS: MCP stdio executed fixed-sibling ACU capabilities with closed schema refusals");
+for (const id of evidence_ids) { print("EVIDENCE " + id); }
+print("PASS: MCP stdio executed fixed-sibling ACU capabilities and generic observation with closed schema refusals");
 return;

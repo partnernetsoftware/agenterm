@@ -71,8 +71,8 @@ ACU replaces MCU
 │  ├─ release-critical workflows are .qjs, not Bun/TS or archived Rh
 │  ├─ phase 1 [x]: production entry switched from `acu.ts` to embedded `acu.qjs`; external wrappers only exec `agenterm cli acu`
 │  ├─ phase 2 [~]: bounded `agenterm:acu.call/argv` + fixed-sibling provider + shared argv parser are green;
-│  │  MCP read-only capabilities uses the same adapter; six-cell dynamic-load court is wired and
-│  │  locally green, with first exact-SHA remote execution and broader MCP still pending
+│  │  MCP read-only capabilities + generic canonical-Command observation use the same adapter;
+│  │  six-cell dynamic-load court is wired and locally green, with first exact-SHA remote execution pending
 │  │  ├─ static provider rejected: Windows PE 3,731,968 → 8,865,792 bytes (> 4 MiB)
 │  │  ├─ dynamic provider accepted: exact release PE 3,738,112 bytes; separate ABI artifact; no fallback
 │  │  └─ [~] standalone thin launcher: Linux x86_64 L1 = 389,096 B, but 12 binary-entry
@@ -84,7 +84,7 @@ ACU replaces MCU
 │  │  all 31 resolved witnesses have a checked disposition (18 exec · 8 compound · 5 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
-│  │  external wrapper now execs that entry; remaining dynamic mappings, broader MCP and native courts remain
+│  │  external wrapper now execs that entry; remaining dynamic mappings, MCP mutation design and native courts remain
 │  ├─ never copy native mechanism or product policy from Rust into `acu.qjs`
 │  ├─ typed compile/host/budget/deadline/cancel failures
 │  ├─ bounded output, memory, operations and concurrency
@@ -102,7 +102,7 @@ ACU replaces MCU
    ├─ [x] Bun and `acu.ts` are absent from production ACU execution
    ├─ [~] every known stay is an explicit TODO, repaired dynamically
    └─ [~] qjswasm object door + size-compliant provider + acu.qjs are live; six-cell provider court is wired,
-      first exact-SHA remote execution and broader MCP remain
+      first exact-SHA remote execution and MCP mutation design remain
 ```
 
 ## Mermaid flowchart memory palace

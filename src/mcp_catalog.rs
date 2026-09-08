@@ -145,6 +145,13 @@ pub fn capabilities() -> McpCapabilities {
                 availability: McpAvailability::Shipped,
                 read_only: true,
             },
+            McpTool {
+                stable_id: "acu.observe",
+                name: "agenterm_acu_observe",
+                schema_id: "agenterm.cu.mcp.observe.v1",
+                availability: McpAvailability::Shipped,
+                read_only: true,
+            },
         ],
         limits: McpLimits {
             frame_bytes: 1_048_576,
@@ -294,8 +301,8 @@ fn print_help() {
            agenterm-mcp capabilities --json\n\
            agenterm-mcp [--endpoint ENDPOINT|--address HOST:PORT|--instance NAME] serve --stdio\n\
          \n\
-         The stdio lifecycle, metadata-safe Fleet resources, and one bounded\n\
-         read-only wait tool and agenterm-cu capability inventory are shipped.\n\
+         The stdio lifecycle, metadata-safe Fleet resources, a bounded\n\
+         read-only wait tool, and agenterm-cu capability/observation tools are shipped.\n\
          No network listener or mutation tool is available."
     );
 }
@@ -313,9 +320,10 @@ mod tests {
         assert_eq!(catalog.transports, vec!["stdio"]);
         assert_eq!(catalog.resources.len(), 4);
         assert!(catalog.resources.iter().all(|item| !item.content_bearing));
-        assert_eq!(catalog.tools.len(), 2);
+        assert_eq!(catalog.tools.len(), 3);
         assert_eq!(catalog.tools[0].name, "agenterm_wait");
         assert_eq!(catalog.tools[1].name, "agenterm_acu_capabilities");
+        assert_eq!(catalog.tools[2].name, "agenterm_acu_observe");
         assert!(catalog.tools.iter().all(|tool| tool.read_only));
         assert!(catalog.limits.frame_bytes > 0);
         assert!(catalog.limits.resource_bytes <= catalog.limits.response_bytes);
@@ -333,6 +341,13 @@ mod tests {
         .expect("agenterm-cu MCP descriptor");
         assert_eq!(acu["name"], catalog.tools[1].name);
         assert_eq!(acu["annotations"]["readOnlyHint"], true);
+
+        let observe: serde_json::Value = serde_json::from_str(include_str!(
+            "../crates/agenterm-cu/contract/mcp-observe-tool.json"
+        ))
+        .expect("agenterm-cu MCP observe descriptor");
+        assert_eq!(observe["name"], catalog.tools[2].name);
+        assert_eq!(observe["annotations"]["readOnlyHint"], true);
     }
 
     #[test]

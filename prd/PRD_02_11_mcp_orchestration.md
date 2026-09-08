@@ -170,7 +170,7 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       autonomous actions remain outside this first-delivery gate
 
 - [~] post-v0.1.16 ACU convergence: keep the first-delivery history above, but
-  evolve the current read-only catalog from one to two tools
+  evolve the current read-only catalog from one to three tools
   - [x] add `agenterm_acu_capabilities` without adding a second command,
     authorization, error, or receipt implementation: MCP sends one versioned
     `mcp_call` envelope through the fixed-sibling provider and the canonical
@@ -184,6 +184,10 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   - [x] public macOS stdio evidence proves initialize → tools/list →
     `agenterm_acu_capabilities`, using the staged fixed-sibling provider and an
     observe grant
+  - [x] add generic `agenterm_acu_observe` over one exact canonical `Command`;
+    it shares the same provider, schema and Executor, rejects every command
+    whose canonical grant is not `observe` before dispatch, and returns the
+    unchanged `CuReply` rather than inventing MCP-specific observation shapes
   - [ ] run the same exact provider bytes through Windows/Linux native courts,
-    then widen MCP only after cancellation and receipt semantics are explicit;
-    no mutation tool is advertised in this slice
+    then design mutation tools only after cancellation and receipt semantics
+    are explicit; no mutation tool is advertised in this slice

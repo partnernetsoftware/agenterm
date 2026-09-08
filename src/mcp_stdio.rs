@@ -567,7 +567,7 @@ fn process_message(
                         "version": env!("CARGO_PKG_VERSION"),
                         "description": "Read-only AgenTerm Fleet and agenterm-cu bridge"
                     },
-                    "instructions": "Read metadata-safe Fleet resources, wait for one bounded Fleet event, or inspect the canonical agenterm-cu capability inventory."
+                    "instructions": "Read metadata-safe Fleet resources, wait for one bounded Fleet event, inspect the canonical agenterm-cu capability inventory, or execute one canonical read-only agenterm-cu command."
                 }),
             ))
         }
@@ -690,7 +690,11 @@ fn process_message(
                         "idempotentHint": false,
                         "openWorldHint": false
                     }
-                }, acu_capabilities_tool_descriptor()]
+                }, acu_tool_descriptor(
+                    include_str!("../crates/agenterm-cu/contract/mcp-capabilities-tool.json")
+                ), acu_tool_descriptor(
+                    include_str!("../crates/agenterm-cu/contract/mcp-observe-tool.json")
+                )]
             }),
         )),
         "tools/call" => Some(call_acu_tool(response_id, params)),
@@ -703,11 +707,8 @@ fn process_message(
     }
 }
 
-fn acu_capabilities_tool_descriptor() -> Value {
-    serde_json::from_str(include_str!(
-        "../crates/agenterm-cu/contract/mcp-capabilities-tool.json"
-    ))
-    .expect("agenterm-cu-owned MCP descriptor must be valid JSON")
+fn acu_tool_descriptor(source: &str) -> Value {
+    serde_json::from_str(source).expect("agenterm-cu-owned MCP descriptor must be valid JSON")
 }
 
 fn call_acu_tool(response_id: Value, params: Option<&Value>) -> Value {
@@ -727,7 +728,7 @@ fn call_acu_tool(response_id: Value, params: Option<&Value>) -> Value {
             None,
         );
     };
-    if name != "agenterm_acu_capabilities" {
+    if !matches!(name, "agenterm_acu_capabilities" | "agenterm_acu_observe") {
         return error_response(
             response_id,
             ERROR_INVALID_PARAMS,
@@ -739,7 +740,7 @@ fn call_acu_tool(response_id: Value, params: Option<&Value>) -> Value {
         return error_response(
             response_id,
             ERROR_INVALID_PARAMS,
-            "agenterm_acu_capabilities arguments must be an object",
+            &format!("{name} arguments must be an object"),
             None,
         );
     };
@@ -1016,7 +1017,7 @@ mod tests {
     }
 
     #[test]
-    fn ready_session_lists_two_bounded_read_only_tools() {
+    fn ready_session_lists_three_bounded_read_only_tools() {
         let responses = exchange(concat!(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":",
             "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},",
@@ -1025,12 +1026,19 @@ mod tests {
             "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
         ));
         let tools = responses[1]["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 2);
+        assert_eq!(tools.len(), 3);
         assert_eq!(tools[0]["name"], "agenterm_wait");
         assert_eq!(tools[1]["name"], "agenterm_acu_capabilities");
+        assert_eq!(tools[2]["name"], "agenterm_acu_observe");
         assert_eq!(tools[1]["inputSchema"]["additionalProperties"], false);
+        assert_eq!(tools[2]["inputSchema"]["additionalProperties"], false);
+        assert_eq!(
+            tools[2]["inputSchema"]["properties"]["command"]["required"],
+            json!(["verb", "target"])
+        );
         assert_eq!(tools[0]["annotations"]["readOnlyHint"], true);
         assert_eq!(tools[1]["annotations"]["readOnlyHint"], true);
+        assert_eq!(tools[2]["annotations"]["readOnlyHint"], true);
         assert_eq!(
             tools[0]["inputSchema"]["properties"]["timeout_ms"]["maximum"],
             capabilities().limits.wait_timeout_ms_maximum

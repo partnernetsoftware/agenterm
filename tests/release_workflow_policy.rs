@@ -20,6 +20,9 @@ static RELEASE_CANDIDATE_QJS: LazyLock<String> = LazyLock::new(|| {
 static CU_RETIREMENT_CELL_QJS: LazyLock<String> = LazyLock::new(|| {
     include_str!("../scripts/qjs/cu-retirement-cell-smoke.qjs").replace("\r\n", "\n")
 });
+static ARTIFACT_VERIFICATION_QJS: LazyLock<String> = LazyLock::new(|| {
+    include_str!("../scripts/qjs/artifact-verification.qjs").replace("\r\n", "\n")
+});
 static ARTIFACTS: LazyLock<serde_json::Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../scripts/artifacts.json"))
         .expect("scripts/artifacts.json must remain valid JSON")
@@ -745,6 +748,7 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
         "abi_version: 1",
         "cu.retirement-cell.acu-provider",
         "acu.mcp-provider-capabilities",
+        "acu.mcp-provider-observe",
     ] {
         assert!(
             CU_RETIREMENT_CELL_QJS.contains(contract),
@@ -758,6 +762,7 @@ fn candidate_policy_is_explicit_and_runtime_courts_are_execute_only() {
         "acu_provider.abi_version === 1",
         "cu.retirement-cell.acu-provider",
         "acu.mcp-provider-capabilities",
+        "acu.mcp-provider-observe",
     ] {
         assert!(
             RELEASE_CANDIDATE_QJS.contains(contract),
@@ -906,6 +911,21 @@ fn candidate_runs_one_full_gate_and_seals_six_platform_parts_plus_chassis_produc
     assert!(!CANDIDATE.contains("scripts/rhai/fresh-clone-rehearsal.rhai"));
     assert!(CANDIDATE.contains("name: release-candidate-${{ github.run_id }}"));
     assert!(CANDIDATE.contains("retention-days: 14"));
+}
+
+#[test]
+fn staged_artifact_gate_pins_the_complete_read_only_mcp_catalog() {
+    assert!(ARTIFACT_VERIFICATION_QJS.contains("mcp_capabilities.tools.length === 3"));
+    for name in [
+        "agenterm_wait",
+        "agenterm_acu_capabilities",
+        "agenterm_acu_observe",
+    ] {
+        assert!(
+            ARTIFACT_VERIFICATION_QJS.contains(name),
+            "artifact verification omitted MCP tool {name}"
+        );
+    }
 }
 
 #[test]

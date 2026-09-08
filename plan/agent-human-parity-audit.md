@@ -545,11 +545,12 @@ CLI 拼法（`tab` 是 `-t`，`instance` 是位置参数，`select-server-tab` �
 CLI **不联服务器**：目录是二进制的属性，不是运行中 server 的属性。agent 必须
 能在还没有任何东西可对话之前，先知道自己**可以**做什么。
 
-### 为什么没有接进 `mcp_stdio` 的 `tools/list`
+### 为什么 Control 目录没有整表接进 `mcp_stdio` 的 `tools/list`
 
-`src/mcp_stdio.rs:637` 现在手写着唯一一个工具 `agenterm_wait`，
-服务器自我描述为 `Read-only AgenTerm Fleet bridge`。把 60 个 Control 工具挂上
-去，而 `tools/call` 侧**没有**对应的派发与批准门执行，就是又造一次 F3——
+MCP 当前只公开有执行闭环的 `agenterm_wait`、ACU capabilities 和通用只读
+observation；后两者复用 canonical `Command`、fixed-sibling provider 与同一
+Executor。把 60 个 Control 工具整表挂上去，而 mutation 的取消、receipt 与
+批准门尚未形成共同执行合同，就是又造一次 F3——
 **表里有、按下去没反应**。`agent_tool_catalog_mcp_json()` 已经按 MCP 的
 `inputSchema`/`annotations` 键名产出，等执行侧就位时直接接上即可，届时不需要
 重新手抄一遍键名。

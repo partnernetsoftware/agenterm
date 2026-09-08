@@ -5202,6 +5202,14 @@ Only load/ABI/panic/encoding failure is a transport error. This distinction
 preserves typed failure and existing receipts without accidental translation,
 retry, or fallback at a new protocol boundary.
 
+A generic read-only protocol tool must accept the canonical `Command`, not a
+parallel verb schema. Deserialize it strictly, ask the command itself for its
+required grant, and reject anything other than `Observe` before constructing an
+executor or touching a mechanism. A read-only annotation is a promise about
+dispatch reachability, not merely UI metadata. Test one real observation for
+structural equality with direct execution and one actuating command for a typed
+pre-dispatch refusal.
+
 ## Join CoreSimulator apps to host processes without identity leaks
 
 `simctl spawn <UDID> ps` reports host-global PIDs, and executable paths can be

@@ -776,8 +776,8 @@
       "kind": "behavior",
       "status": "partial",
       "evidence_mode": "black-box-partial",
-      "prd": "qjswasm drives MCP stdio into the fixed-sibling ACU provider and preserves the shared typed capability reply",
-      "evidence_ids": ["acu.mcp-provider-capabilities"]
+      "prd": "qjswasm drives MCP stdio into the fixed-sibling ACU provider and preserves shared typed capability and generic observation replies",
+      "evidence_ids": ["acu.mcp-provider-capabilities", "acu.mcp-provider-observe"]
     },
     {
       "id": "scripting.audit",

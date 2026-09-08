@@ -196,7 +196,7 @@ export function validate_cu_runtime_summary(summary, source_sha, run_id, run_att
         && cell.persistent_mutation_performed === false
         && cell.result === "passed"
         && exact_values(
-          ["cu.retirement-cell.acu-provider", "acu.mcp-provider-capabilities", "cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status", "cu.setup-cli-entrypoint", "cu.setup-runtime-refresh-owned-job"],
+          ["cu.retirement-cell.acu-provider", "acu.mcp-provider-capabilities", "acu.mcp-provider-observe", "cu.retirement-cell.capabilities", "cu.retirement-cell.runtime-status", "cu.setup-cli-entrypoint", "cu.setup-runtime-refresh-owned-job"],
           list(cell, "evidence")
         ),
       "candidate_cu_runtime_cell:" + expected[i].platform_id

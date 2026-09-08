@@ -17,6 +17,11 @@ pub const ACU_REQUEST_VERSION: u64 = 1;
 /// hand-written description of the command or its [`CuReply`].
 pub const MCP_CAPABILITIES_TOOL_JSON: &str = include_str!("../contract/mcp-capabilities-tool.json");
 
+/// Generic read-only MCP tool descriptor. The request still carries one
+/// canonical [`Command`], so MCP, qjswasm and the CLI share the same schema and
+/// [`Executor`] rather than growing a second observation dispatcher.
+pub const MCP_OBSERVE_TOOL_JSON: &str = include_str!("../contract/mcp-observe-tool.json");
+
 /// Decode one complete command and execute it through the supplied executor.
 ///
 /// Supplying the executor keeps authority an upper-layer caller decision. A
@@ -103,20 +108,42 @@ pub fn execute_request_from_environment(request_json: &str) -> CuReply {
 fn execute_mcp_call_from_environment(
     object: &serde_json::Map<String, serde_json::Value>,
 ) -> CuReply {
-    if object.get("name").and_then(serde_json::Value::as_str) != Some("agenterm_acu_capabilities") {
-        return malformed_request("unknown ACU MCP tool");
-    }
     let Some(arguments) = object
         .get("arguments")
         .and_then(serde_json::Value::as_object)
-        .filter(|arguments| arguments.is_empty())
     else {
-        return malformed_request("agenterm_acu_capabilities arguments must be an empty object");
+        return malformed_request("ACU MCP tool arguments must be an object");
     };
-    let _ = arguments;
-    execute_command_from_environment(&Command::Capabilities {
-        target: crate::TargetRef::Current,
-    })
+    match object.get("name").and_then(serde_json::Value::as_str) {
+        Some("agenterm_acu_capabilities") if arguments.is_empty() => {
+            execute_command_from_environment(&Command::Capabilities {
+                target: crate::TargetRef::Current,
+            })
+        }
+        Some("agenterm_acu_capabilities") => {
+            malformed_request("agenterm_acu_capabilities arguments must be an empty object")
+        }
+        Some("agenterm_acu_observe") if exact_keys(arguments, &["command"]) => {
+            let command = match strict_command(arguments.get("command").expect("exact arguments")) {
+                Ok(command) => command,
+                Err(message) => return malformed_request(message),
+            };
+            if command.required_grant() != crate::Grant::Observe {
+                return CuReply::err(
+                    &command,
+                    CuError::new(
+                        "mcp_observe_actuation_forbidden",
+                        "agenterm_acu_observe accepts only commands whose canonical grant is observe",
+                    ),
+                );
+            }
+            execute_command_from_environment(&command)
+        }
+        Some("agenterm_acu_observe") => {
+            malformed_request("agenterm_acu_observe arguments must contain exactly command")
+        }
+        _ => malformed_request("unknown ACU MCP tool"),
+    }
 }
 
 fn strict_command(value: &serde_json::Value) -> Result<Command, String> {
@@ -282,5 +309,38 @@ mod tests {
         assert_eq!(descriptor["name"], "agenterm_acu_capabilities");
         assert_eq!(descriptor["annotations"]["readOnlyHint"], true);
         assert_eq!(descriptor["inputSchema"]["additionalProperties"], false);
+
+        let observe: serde_json::Value =
+            serde_json::from_str(MCP_OBSERVE_TOOL_JSON).expect("MCP observe descriptor JSON");
+        assert_eq!(observe["name"], "agenterm_acu_observe");
+        assert_eq!(observe["annotations"]["readOnlyHint"], true);
+        assert_eq!(observe["inputSchema"]["additionalProperties"], false);
+        assert_eq!(
+            observe["inputSchema"]["properties"]["command"]["required"],
+            serde_json::json!(["verb", "target"])
+        );
+        assert_eq!(
+            observe["inputSchema"]["properties"]["command"]["properties"]["target"]["enum"],
+            serde_json::json!(["current", "ssh", "vnc", "rdp"])
+        );
+    }
+
+    #[test]
+    fn mcp_observe_uses_the_same_command_and_rejects_actuation_before_dispatch() {
+        let observe = r#"{"acu_request":1,"kind":"mcp_call","name":"agenterm_acu_observe","arguments":{"command":{"verb":"runtime-status","target":"current"}}}"#;
+        let direct = r#"{"acu_request":1,"kind":"command","command":{"verb":"runtime-status","target":"current"}}"#;
+        assert_eq!(
+            serde_json::to_value(execute_request_from_environment(observe)).unwrap(),
+            serde_json::to_value(execute_request_from_environment(direct)).unwrap()
+        );
+
+        let rejected = execute_request_from_environment(
+            r#"{"acu_request":1,"kind":"mcp_call","name":"agenterm_acu_observe","arguments":{"command":{"verb":"clipboard-clear","target":"current","apply":true}}}"#,
+        );
+        assert!(!rejected.ok);
+        assert_eq!(
+            rejected.error.expect("typed rejection").code,
+            "mcp_observe_actuation_forbidden"
+        );
     }
 }

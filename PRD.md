@@ -144,7 +144,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       exact release 主程序 3,738,112 B ≤ 4 MiB。六格目前只证构建/打包，
 │     │                       dynamic load 已在本机 macOS 经 qjs/MCP 实跑；六格 Candidate 已把
 │     │                       fixed-sibling 动态加载写入每格硬门，待首个 exact-SHA 远程实跑；MCP
-│     │                       目前仅 capabilities 只读纵切片，未首跑前不能冒充全平台 evidence
+│     │                       已有 capabilities + canonical-Command 通用只读纵切片，非 observe
+│     │                       命令在 dispatch 前拒绝；未首跑前不能冒充全平台 evidence
 │     │                       standalone `agenterm-cu` 仍超 Linux 4 MiB 门；薄启动器原型已量得
 │     │                       Linux x86_64 389,096 B，但 12 类 binary entry parity 尚红，未晋级
 │     ├─ Bun-free bridge [~]     `skills/acu/acu.qjs` 已以 bounded argv helper +

@@ -228,15 +228,20 @@ rh.require(probe(cli, ["cli", "mcp", "capabilities", "--json"]) === 0, "artifact
 const mcp_capabilities = rh.parse_file(stdout_path);
 const mcp_tools = mcp_capabilities.tools;
 const mcp_tool0 = mcp_tools[0];
-const mcp_tool_name = "" + mcp_tool0.name;
+const mcp_tool1 = mcp_tools[1];
+const mcp_tool2 = mcp_tools[2];
 rh.require(
   ("" + mcp_capabilities.protocol_revision) === "2025-11-25"
     && mcp_capabilities.transports.length === 1
     && ("" + mcp_capabilities.transports[0]) === "stdio"
     && mcp_capabilities.resources.length === 4
-    && mcp_capabilities.tools.length === 1
-    && mcp_tool_name === "agenterm_wait"
-    && mcp_tool0.read_only === true,
+    && mcp_capabilities.tools.length === 3
+    && ("" + mcp_tool0.name) === "agenterm_wait"
+    && ("" + mcp_tool1.name) === "agenterm_acu_capabilities"
+    && ("" + mcp_tool2.name) === "agenterm_acu_observe"
+    && mcp_tool0.read_only === true
+    && mcp_tool1.read_only === true
+    && mcp_tool2.read_only === true,
   "artifact_mcp_capabilities_invalid"
 );
 

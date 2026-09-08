@@ -124,7 +124,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] eight compound compatibility shapes execute through pure qjs projections + the same typed calls
-  │  ├─ [~] MCP uses the same provider/Executor for one read-only capabilities slice; mutation remains closed
+  │  ├─ [~] MCP uses the same provider/Executor for capabilities + canonical-Command observation; mutation remains closed
   │  └─ [ ] close the remaining named dynamic sub-shapes, native courts and physical reference archive
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
@@ -179,17 +179,19 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   both end at the same `Executor`; a legacy naked `Command` remains compatible.
   The public `acu-provider-smoke` proves both in-process paths and the
   missing-sibling path fails typed. The same fixed-sibling boundary now serves
-  MCP's read-only `agenterm_acu_capabilities` tool: its tool schema is owned in
-  `agenterm-cu`, and its `CuReply` passes through unchanged as MCP structured
-  content. A macOS public stdio black box has executed this path. The Candidate
+  MCP's read-only `agenterm_acu_capabilities` and `agenterm_acu_observe` tools:
+  both schemas are owned in `agenterm-cu`, and their `CuReply` passes through
+  unchanged as MCP structured content. The generic observation tool accepts one
+  exact canonical `Command` and rejects any non-observe grant before dispatch.
+  A macOS public stdio black box has executed both paths. The Candidate
   six-cell runtime job now hashes the public launcher and fixed-name provider,
   executes both `agenterm:acu.call` and `.argv` through `agenterm cli acu`, then
-  drives `agenterm_acu_capabilities` through MCP stdio and seals all three paths
+  drives both tools through MCP stdio and seals all four paths
   in schema-5 per-cell receipts. The first exact-SHA remote
   execution is still pending, so this is wired evidence rather than six-target
-  qualification; broader MCP verbs remain open.
+  qualification; mutation-bearing MCP verbs remain open.
 
-- [~] qjswasm drives MCP stdio into the fixed-sibling ACU provider and preserves the shared typed capability reply; macOS is green and the six native Candidate cells are wired but not yet remotely qualified.
+- [~] qjswasm drives MCP stdio into the fixed-sibling ACU provider and preserves shared typed capability and generic observation replies; macOS is green and the six native Candidate cells are wired but not yet remotely qualified.
 
   ```mermaid
   flowchart LR
@@ -427,7 +429,7 @@ flowchart LR
 flowchart LR
   B["one local/candidate build<br/>six sealed archives"]
   R["six native execute-only runners<br/>Win · Linux · macOS × x86_64/aarch64"]
-  C["cu-retirement-cell-smoke<br/>capabilities + runtime-status"]
+  C["cu-retirement-cell-smoke<br/>provider call/argv + MCP capability/observe<br/>capabilities + runtime-status"]
   E["six exact-attempt receipts<br/>source + archive + CU + ABI hashes"]
   A{"aggregate: exactly six<br/>same source/run/attempt"}
   M["sealed Candidate manifest<br/>embedded ACU runtime summary"]

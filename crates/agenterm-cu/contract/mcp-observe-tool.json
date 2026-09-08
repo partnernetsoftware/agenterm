@@ -1,0 +1,51 @@
+{
+  "name": "agenterm_acu_observe",
+  "title": "Run one read-only agenterm-cu command",
+  "description": "Execute one canonical read-only agenterm-cu Command through the shared typed Executor. Commands requiring actuation are rejected before dispatch.",
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "verb": { "type": "string", "minLength": 1 },
+          "target": { "type": "string", "enum": ["current", "ssh", "vnc", "rdp"] }
+        },
+        "required": ["verb", "target"],
+        "description": "One canonical agenterm-cu Command object. The provider strictly validates the exact variant fields selected by verb."
+      }
+    },
+    "required": ["command"]
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ok": { "type": "boolean" },
+      "target": { "type": "string" },
+      "command": { "type": "string" },
+      "data": {},
+      "error": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "count": { "type": "integer", "minimum": 0 },
+          "detail": {}
+        },
+        "required": ["code", "message"]
+      }
+    },
+    "required": ["ok", "target", "command"]
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

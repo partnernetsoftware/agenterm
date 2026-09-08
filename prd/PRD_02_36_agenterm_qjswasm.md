@@ -53,7 +53,7 @@ agenterm-qjswasm
 │  │  │  ├─ separate ABI-versioned artifact; Win/macOS packaging and signing fail closed if absent
 │  │  │  ├─ public `acu-provider-smoke` executes typed command + argv capabilities in-process
 │  │  │  └─ no path search, static implementation, child process or MCU fallback
-│  │  ├─ [~] MCP consumes the same adapter: read-only capabilities is live; broader verbs remain closed
+│  │  ├─ [~] MCP consumes the same adapter: capabilities + generic canonical read-only commands are live; mutation remains closed
 │  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
 │  │  ├─ [~] `skills/acu/acu.qjs`: bounded argv/native path + frozen compatibility court are green
