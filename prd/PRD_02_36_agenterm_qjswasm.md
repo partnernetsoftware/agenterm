@@ -55,6 +55,9 @@ agenterm-qjswasm
 │  │  │  └─ no path search, static implementation, child process or MCU fallback
 │  │  ├─ [~] MCP consumes the same adapter: capabilities + generic canonical read-only commands are live; mutation remains closed
 │  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
+│  │  ├─ [x] bootstrap worker identity covers the complete embedded `skills/acu` module closure and production assets
+│  │  │  ├─ tracked, dirty and untracked bytes all invalidate the worker; imported `.qjs` cannot execute stale code
+│  │  │  └─ schema-4 policy test plus a controlled untracked-module probe prove rebuild instead of timestamp guessing
 │  │  ├─ object lands before `acu.ts` is replaced; it is the replacement's dependency
 │  │  ├─ [~] `skills/acu/acu.qjs`: bounded argv/native path + frozen compatibility court are green
 │  │  │  ├─ 42/42 positive legacy probes execute in-process; kill preserves its two-call identity bracket
@@ -129,6 +132,7 @@ flowchart LR
   TS["archived acu.ts reference<br/>immutable Git provenance"]
   ABSENT{"zero STAY + MCU absent<br/>black-box parity"}
   COMPAT["embedded acu.qjs<br/>legacy mapping only · no Bun"]
+  IDENTITY["bootstrap worker identity schema 4<br/>skills/acu closure · production assets<br/>tracked · dirty · untracked bytes"]
   ACUCLI["ACU consumers<br/>CLI · MCP · qjs"]
   QPTY["ACU headless PTY journey<br/>snapshot/diff · verified resize · send/wait · events · restart refusal"]
   RECEIPT["typed value / stdout / steps<br/>or named failure"]
@@ -167,6 +171,7 @@ flowchart LR
   TS --> ABSENT
   ACUOBJ --> ABSENT
   ABSENT --> COMPAT
+  IDENTITY --> COMPAT
   COMPAT -. legacy syntax projected to typed calls .-> ACUCLI
   PRODUCT -. child process .-> HANDLES --> CAPTURE --> RECEIPT
   PRODUCT -. advisory lock .-> LOCKS --> RECEIPT

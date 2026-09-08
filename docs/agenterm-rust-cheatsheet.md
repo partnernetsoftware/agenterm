@@ -2672,6 +2672,10 @@ what each action means. Keep these recurring rules together:
   observation. Otherwise an invalid request can be mislabeled as a missing
   display, window, or device merely because the host court is unavailable;
   deterministic typed input errors must not depend on desktop state.
+- A reusable bootstrap worker's content identity must include every file
+  embedded with `include_str!` / `include_bytes!`, including imported qjs
+  modules and theme assets. Hashing only Rust sources or the qjs entry file can
+  silently execute old embedded dependencies after a source change.
 - Give every menu, global-shortcut and native callback one product-owned
   `action_id -> Command -> Executor` function. Black-box self-test should call
   that exact function with insufficient authority and require a typed refusal:

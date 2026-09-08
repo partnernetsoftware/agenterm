@@ -59,3 +59,20 @@ fn bootstrap_builds_caches_and_executes_only_the_script_worker() {
     assert!(!UNIX_BOOTSTRAP.contains("AGENTERM_BOOTSTRAP_RH_CLI"));
     assert!(!UNIX_BOOTSTRAP.contains("AGENTERM_RHAI_COMPAT_CLI"));
 }
+
+#[test]
+fn bootstrap_identity_tracks_every_embedded_acu_and_asset_input() {
+    for bootstrap in [BOOTSTRAP, UNIX_BOOTSTRAP] {
+        assert!(bootstrap.contains("bootstrap_worker_build_schema=4"));
+        assert_eq!(
+            bootstrap.matches("skills/acu").count(),
+            3,
+            "tracked index, worktree and untracked input must all include ACU modules"
+        );
+        assert_eq!(
+            bootstrap.matches(" assets ").count(),
+            3,
+            "tracked index, worktree and untracked input must all include embedded assets"
+        );
+    }
+}
