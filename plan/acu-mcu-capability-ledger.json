@@ -326,7 +326,14 @@
             "linux": "native-procfs",
             "windows": "typed-unsupported"
           },
-          "qualification": "macos-public-qjswasm-live-linux-runtime-and-windows-refusal-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-process-inspection-smoke", "evidence": ["cu.process-inspection"]},
+              "windows": {"result": "pending", "blocker_code": "typed-refusal-court-not-run"}
+            }
+          },
           "evidence": [
             "cu.process-inspection",
             "agenterm-platform process inspection unit tests"
@@ -344,7 +351,14 @@
             "linux": "native-procfs",
             "windows": "typed-unsupported"
           },
-          "qualification": "macos-public-qjswasm-live-linux-runtime-and-windows-refusal-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-process-sockets-smoke", "evidence": ["cu.process-sockets"]},
+              "windows": {"result": "pending", "blocker_code": "typed-refusal-court-not-run"}
+            }
+          },
           "evidence": [
             "cu.process-sockets",
             "agenterm-platform process socket unit tests"
@@ -362,7 +376,14 @@
         "linux": "typed-not-applicable",
         "windows": "typed-not-applicable"
       },
-      "qualification": "macos-public-qjswasm-live-linux-windows-typed-not-applicable-reruns-pending",
+      "qualification": {
+        "schema": 2,
+        "platforms": {
+          "linux": {"result": "pending", "blocker_code": "mixed-observe-and-unavailable-mutation-needs-split"},
+          "macos": {"result": "pending", "blocker_code": "mixed-observe-and-unavailable-mutation-needs-split"},
+          "windows": {"result": "pending", "blocker_code": "mixed-observe-and-unavailable-mutation-needs-split"}
+        }
+      },
       "evidence": [
         "cu.process-policy"
       ],
@@ -375,7 +396,20 @@
           "acu_shape": "process-cgroup --pid N [--start-identity ID] (alias: process cgroup PID)",
           "state": "platform-limited",
           "platforms": {"linux": "native-cgroup-v2", "macos": "not-applicable", "windows": "not-applicable"},
-          "qualification": "macos-public-qjswasm-typed-not-applicable-green-linux-native-public-court-pending-windows-typed-not-applicable-court-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {
+                "result": "not-applicable",
+                "gate": "cu-process-cgroup-smoke",
+                "evidence": ["cu.process-cgroup"],
+                "error_code": "process_cgroup_not_applicable",
+                "rationale": "macOS process groups do not have Linux cgroup v2 semantics; ACU refuses rather than inventing an equivalent."
+              },
+              "windows": {"result": "pending", "blocker_code": "typed-not-applicable-court-not-run"}
+            }
+          },
           "evidence": ["cu.process-cgroup"],
           "note": "Linux holds the exact process reference, brackets its cgroup membership bytes, reads every bounded cgroup v2 leaf relative to one no-follow directory fd, then rechecks membership, directory device/inode and process identity before publishing lossless decimal counters. macOS and Windows return process_cgroup_not_applicable rather than pretending process groups or Job Objects have Linux cgroup semantics.",
           "next": "run the registered public qjswasm journey on Linux x86_64/aarch64 and the typed not-applicable path on Windows"
@@ -494,6 +528,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "typed-rejected-after-native-experiment", "linux": "gap", "windows": "gap"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "exact-window-delivery-not-implemented"},
+              "macos": {"result": "pending", "blocker_code": "exact-window-delivery-not-implemented"},
+              "windows": {"result": "pending", "blocker_code": "exact-window-delivery-not-implemented"}
+            }
+          },
           "evidence": ["cu.macos-pointer-refusals"],
           "next": "retain semantic accessibility actions as the default; only add a raw exact-window provider with independent delivery and postcondition evidence",
           "note": "No host currently supplies this exact-window pixel-delivery contract. The registered macOS court proves explicit refusal after the native experiment; a typed refusal is evidence of the gap, not capability parity."
@@ -630,6 +672,14 @@
           "mcu_shape": "session/lock/audit plus crash-persistent effect receipts",
           "acu_shape": "durable public session and target-lock lifecycle, bounded audit query/retention, grant/grant-id and crash-persistent at-most-once effect receipts",
           "state": "platform-limited",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "composite-evidence-set-incomplete"},
+              "macos": {"result": "pending", "blocker_code": "composite-evidence-set-incomplete"},
+              "windows": {"result": "pending", "blocker_code": "composite-evidence-set-incomplete"}
+            }
+          },
           "evidence": ["cu.managed-job-lifecycle", "cu.audit-retention"],
           "next": "prove the same facade on the remaining native target courts"
         },
@@ -728,6 +778,14 @@
           "acu_shape": "browser-open using one exact existing local profile on macOS",
           "state": "platform-limited",
           "platforms": {"macos": "native-live-court-pending", "linux": "typed-unsupported", "windows": "typed-unsupported"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-actuation-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-actuation-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-actuation-evidence"}
+            }
+          },
           "evidence": [],
           "note": "Opening is an actuating focus and live-window contract. Inventory evidence, shell-script anecdotes or a typed argument refusal cannot qualify it.",
           "next": "run one owned-profile macOS public qjswasm court with receipt, exact profile/window read-back, focus accounting and cleanup; retain typed unsupported on Linux and Windows until native providers exist"
@@ -738,7 +796,14 @@
           "acu_shape": "browser-session-start/list/status/stop/remove over a private atomic registry, owner lease, generation/nonce and owner/browser start identities",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
-          "qualification": "macos-owned-headless-lifecycle-green-linux-windows-native-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-browser-session-smoke", "evidence": ["cu.browser-managed-profile.macos"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "evidence": ["cu.browser-managed-profile.macos", "agenterm-cu browser session owner/store tests"],
           "note": "The macOS public qjswasm court uses an isolated HOME and an exact caller-supplied browser executable. It proves ready owner/browser identities, list/status generation continuity, explicit stop, verified removal, same-name restart and TTL-owned process cleanup without foreground activation.",
           "next": "run the same public qjswasm lifecycle court with native browser executables on Linux and Windows; add crash-recovery evidence before cross-platform promotion"
@@ -749,7 +814,14 @@
           "acu_shape": "browser-bridge-setup plus bounded exact-connection inventory/status/tabs/windows/window-state/debug-read over the fixed-identity embedded MV3 asset, persistent profile instance identity, attached-session exact-tab locks, native-connection reload, same-binary Native Messaging host and current-user installer",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
-          "qualification": "macos-owned-profile-identity-lock-reconnect-green-linux-windows-native-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-browser-session-smoke", "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos"],
           "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact fixed extension, proves its persistent profile instance identity, leases one exact tab to an ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. Session end proves exact lock release and browser stop reaps the host. The receipt names reload_scope=native-connection: it does not claim Chromium hot-loaded new extension code.",
           "next": "prove the same owned-Profile identity, target-lock, reconnect, focus and cleanup contract with native Chromium-family executables on Linux and Windows; keep extension-code update activation as a separate setup boundary"
@@ -760,7 +832,14 @@
           "acu_shape": "browser-bridge-debug-read/debug-type/debug-invoke/debug-files over one exact connection, profile, tab, child frame and backend node with role/name guards, bounded cross-frame AX projection, explicit detach, durable request identity and secret-free receipts",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-court-pending"},
-          "qualification": "macos-owned-profile-cross-frame-closed-shadow-green-linux-windows-native-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-browser-session-smoke", "evidence": ["cu.browser-closed-tree.macos"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "evidence": ["cu.browser-closed-tree.macos"],
           "note": "The public macOS court reads and actuates controls inside a closed shadow root hosted in a child frame. Type, focus, press and file injection bind the exact tab/frame/backend-node plus role/name, preserve background presentation, require effect-specific postconditions and mandatory debugger detach, and independently verify business state through CDP. Text, node labels and complete local paths are absent from durable receipts and audit. Any transport or validation loss after effect delivery becomes outcome_unknown and cannot be replayed.",
           "next": "run the same exact cross-frame closed-shadow court with ACU-owned native Chromium-family Profiles on Linux and Windows"
@@ -990,7 +1069,14 @@
           "acu_shape": "pty-signal derives the exact foreground process group from the retained POSIX PTY master and requires signal-specific post-state; Windows refuses before mutation because ConPTY has no equivalent authority; pty-wait-exit and full-session pty-stop remain native",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm", "linux": "same-source-native-runtime-court-pending", "windows": "typed-limited-no-retained-foreground-authority"},
-          "qualification": "macos-public-qjswasm-foreground-isolation-and-cleanup-green-linux-windows-runtime-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-pty-smoke", "evidence": ["cu.pty-background-interactive"]},
+              "windows": {"result": "pending", "blocker_code": "typed-refusal-court-not-run"}
+            }
+          },
           "evidence": ["cu.pty-background-interactive"],
           "next": "run the enlarged public journey on Linux and Windows courts; retain the Windows typed limitation unless a future native API provides exact foreground authority",
           "note": "The public macOS journey proves STOP and TERM affect only the foreground group selected by tcgetpgrp(master), preserve a same-session background child and unrelated sibling, bind job/scope/epoch/tab identity, and verify signal-specific post-state. Native tests also prove CONT. INT reports exact delivery without fabricating application acknowledgement. Direct ConPTY exposes no foreground process-set handle; console control group zero would also signal background members, so no byte or whole-job fallback exists. Full-session pty-stop separately verifies resistant descendants are gone."
@@ -1022,7 +1108,14 @@
             "linux": "same-source-native-runtime-court-pending",
             "windows": "typed-limited-no-safe-existing-group-adoption"
           },
-          "qualification": "local-macos-public-qjswasm-adopt-prune-and-pre-exec-limits-green-linux-windows-rerun-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-managed-job-smoke", "evidence": ["cu.managed-job-adopt", "cu.managed-job-prune", "cu.managed-job-limits"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "evidence": [
             "cu.managed-job-adopt",
             "cu.managed-job-prune",
@@ -1047,7 +1140,14 @@
           "mcu_shape": "job env|resources [--watch]",
           "acu_shape": "job-resources JOB_ID GENERATION [--watch-ms N] identity-brackets every current native containment-group member and returns exact aggregate counters; stored environment remains absent",
           "state": "platform-limited",
-          "qualification": "local-macos-public-qjswasm-journey-green-linux-windows-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-managed-job-smoke", "evidence": ["cu.managed-job-resources"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "evidence": ["cu.managed-job-resources"],
           "next": "prove the same public containment-resource court on Linux and Windows, align the MCU adapter's exact flags, and separately design an explicit secret-bearing environment observation context",
           "note": "Point and bounded-series replies carry a stable-membership digest, all current containment members, and lossless decimal aggregate/per-member RSS, CPU and page-fault counters. The durable root must remain present and every member is identity-bracketed. Windows Job Objects report breakaway_prevented=true and therefore tree_complete=true; POSIX process groups report current membership completely but do not claim genealogy after breakaway. MCU job env remains a typed gap."
@@ -1057,7 +1157,14 @@
           "mcu_shape": "job policy|priority|set-state|signal",
           "acu_shape": "job-policy installs a bounded lease-scoped resident RSS, CPU-rate or process-count policy with consecutive sampling and stop|terminate enforcement; job-priority binds the owning session, generation and one stable native containment group; job-set-state and job-signal reuse the crash-recoverable exact-process tree transaction; every mutation is caller-request-idempotent",
           "state": "platform-limited",
-          "qualification": "macos-public-qjswasm-live-linux-and-windows-typed-refusal-reruns-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-managed-job-smoke", "evidence": ["cu.managed-job-state-signal", "cu.managed-job-priority", "cu.managed-job-policy"]},
+              "windows": {"result": "pending", "blocker_code": "typed-refusal-court-not-run"}
+            }
+          },
           "evidence": ["cu.managed-job-state-signal", "cu.managed-job-priority", "cu.managed-job-policy"],
           "next": "run the enlarged public court on Linux and prove Windows policy-stop, priority, state and signal typed refusals; retain distinct native Windows policy meanings as a platform-qualified contract",
           "note": "The resident owner samples independently of callers. CPU percentage is derived only from monotonic cumulative-counter deltas after an explicit warm-up; thresholds, interval and consecutive-sample count are bounded. Unix stop uses one native process-group effect plus stable exact-member readback; terminate closes native containment on every host and requires force. Clearing prevents future enforcement but never silently resumes or resurrects an effect already performed. Policy memory has the same lifetime as the resident owner; owner death already reconciles the job as uncertain rather than pretending the policy survived. Priority uses one native process-group syscall, write-ahead receipt and stable per-member nice readback. Windows refuses Unix nice, signal and group-freeze meanings before mutation rather than fabricating equivalence. Exact request replay never repeats policy installation or signal delivery."
@@ -1067,7 +1174,14 @@
           "mcu_shape": "job renew|wait|stop plus on-lease-expiry detach|stop",
           "acu_shape": "job-renew|job-wait|job-stop under the owning ACU runtime session",
           "state": "platform-limited",
-          "qualification": "local-macos-public-qjswasm-journey-green-linux-windows-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-managed-job-smoke", "evidence": ["cu.managed-job-lifecycle"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "evidence": ["cu.managed-job-lifecycle"],
           "next": "add explicit expiry detach policy and cross-host evidence; retain MCU fallback for shapes that cannot be represented losslessly",
           "note": "Renew, bounded wait and identity-bound stop are public and session-gated. The resident owner owns TTL cleanup, but MCU's selectable detach-on-expiry contract is not yet present."
@@ -1136,7 +1250,14 @@
           "acu_shape": "file-attributes PATH [--include-values] (alias: file attributes) with opened-object identity, bounded names/values, digest-only default and explicit hexadecimal disclosure",
           "state": "platform-limited",
           "platforms": {"macos": "live-qjswasm-journey", "linux": "native-implementation-court-pending", "windows": "typed-unsupported-alternate-streams-not-equivalent"},
-          "qualification": "macos-public-qjswasm-live-linux-public-court-pending-windows-not-applicable",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-file-attributes-smoke", "evidence": ["cu.file-xattr-inspect.macos"]},
+              "windows": {"result": "pending", "blocker_code": "typed-not-applicable-gate-missing"}
+            }
+          },
           "evidence": ["cu.file-xattr-inspect.macos"],
           "declared_evidence": ["cu.file-xattr-inspect.macos"],
           "next": "run the same public journey on a native Linux court; keep Windows typed unsupported because alternate streams and ACLs are not Unix xattrs",
@@ -1148,7 +1269,14 @@
           "acu_shape": "file-mode PATH OCTAL [--apply] (alias: file chmod) with mutation-free preview, opened-object identity, immediate precondition recheck and native readback",
           "state": "platform-limited",
           "platforms": {"macos": "live-qjswasm-journey", "linux": "native-implementation-court-pending", "windows": "typed-unsupported-acl-and-dos-attributes-not-equivalent"},
-          "qualification": "macos-public-qjswasm-live-linux-public-court-pending-windows-typed-not-applicable-court-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-file-mode-smoke", "evidence": ["cu.file-mode.macos"]},
+              "windows": {"result": "pending", "blocker_code": "typed-not-applicable-court-not-run"}
+            }
+          },
           "evidence": ["cu.file-mode.macos"],
           "declared_evidence": ["cu.file-mode.macos"],
           "next": "run the same public journey on Linux and the typed unsupported branch on Windows; keep ACL and DOS-attribute mutation as separate platform vocabulary",
@@ -1342,6 +1470,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "provider-specific", "windows": "provider-specific"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "define per-service DNS identity separately for each OS instead of treating the current macOS networksetup shape as portable"
         },
         {
@@ -1354,7 +1490,14 @@
             "linux": "native-per-process",
             "windows": "typed-unsupported"
           },
-          "qualification": "macos-public-qjswasm-live-linux-runtime-and-windows-refusal-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-process-sockets-smoke", "evidence": ["cu.process-sockets"]},
+              "windows": {"result": "pending", "blocker_code": "typed-refusal-court-not-run"}
+            }
+          },
           "evidence": ["cu.process-sockets"],
           "note": "The identity-safe per-process slice is live. Global/name-selected system socket inventory is not inferred from it and remains a gap.",
           "next": "add a bounded global inventory with exact process identity joins, then native courts"
@@ -1404,7 +1547,14 @@
             "linux": "native-compile-and-fixture-only",
             "windows": "native-compile-and-fixture-only"
           },
-          "qualification": "macos-public-qjswasm-live-linux-windows-native-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-device-inventory-smoke", "evidence": ["cu.device-inventory"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "evidence": ["cu.device-inventory"],
           "note": "Setup apply explicitly enrolls or reuses one private installation identity. Observation is load-only and returns installation-scoped HMAC pseudonyms plus an explicit provider-stable or topology continuity class; serials, addresses, provider instance ids and raw native paths never cross the platform facade.",
           "next": "run the same public qjswasm journey on Linux and Windows native courts, then add watch as a bounded diff over this exact snapshot contract"
@@ -1419,7 +1569,14 @@
             "linux": "native-cross-build-only",
             "windows": "native-cross-build-only"
           },
-          "qualification": "macos-public-qjswasm-live-linux-windows-native-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-device-watch-smoke", "evidence": ["cu.device-watch"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "evidence": ["cu.device-watch"],
           "note": "The observer reuses device.inventory and its installation-scoped pseudonyms. Only two consecutive complete non-truncated provider snapshots can emit added, removed or changed. Partial, unavailable or projection-truncated samples suppress inferred events and increment explicit incomplete coverage. Duration, interval, rows, events and final JSON are independently bounded by one monotonic deadline.",
           "next": "run the public qjswasm journey on Linux and Windows native courts, then keep claim/lease and byte I/O as separate blockers"
@@ -1488,7 +1645,14 @@
           "acu_shape": "device-claim DEVICE_ID --baud/--data-bits/--parity/--stop-bits/--flow with native readback",
           "state": "platform-limited",
           "platforms": {"macos": "native-public-qjswasm-green", "linux": "native-public-qjswasm-green-both-isa", "windows": "native-implementation-public-court-pending"},
-          "qualification": "macos-and-linux-both-isa-public-qjswasm-green-windows-native-court-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "native-qualified", "gate": "cu-device-lease-smoke", "evidence": ["cu.device-lease"]},
+              "macos": {"result": "native-qualified", "gate": "cu-device-lease-smoke", "evidence": ["cu.device-lease"]},
+              "windows": {"result": "pending", "blocker_code": "native-windows-com-public-court-not-run"}
+            }
+          },
           "evidence": ["cu.device-lease"],
           "note": "Portable serial values are validated before launch, applied by the selected native adapter and read back on the retained object. Unsupported combinations fail typed rather than silently degrading.",
           "next": "run the portable subset and restoration contract on a Windows COM court"
@@ -1566,7 +1730,14 @@
           "acu_shape": "agenterm-cu audio plan volume|muted [--ttl-seconds N]; audio apply --request R --approve H",
           "state": "platform-limited",
           "platforms": {"macos": "native-coreaudio-mechanism-fixture-tested", "linux": "typed-unsupported", "windows": "typed-unsupported"},
-          "qualification": "mutation-free-public-plan-court-green-real-audible-mutation-and-rollback-court-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "audible-mutation-and-rollback-court-not-run"},
+              "macos": {"result": "pending", "blocker_code": "audible-mutation-and-rollback-court-not-run"},
+              "windows": {"result": "pending", "blocker_code": "audible-mutation-and-rollback-court-not-run"}
+            }
+          },
           "evidence": ["cu.audio-plan", "agenterm-cu audio transaction state-machine suite"],
           "note": "Plan binds the exact default-output identity, before state, requested state and approval TTL. Apply reserves durably before effect, is at-most-once across replay, revalidates the same device, reads back the post-state and emits a same-device guarded rollback request. The public qjswasm court deliberately never applies it.",
           "next": "run an explicit macOS audible mutation court that verifies apply, readback and rollback on the same device; do not promote from platform-limited on mechanism tests alone"
@@ -1583,7 +1754,14 @@
           "acu_shape": "service list|status; service plan/apply; request/session-bound service bootstrap PLIST|start|restart|stop NAME|bootout NAME --force",
           "state": "platform-limited",
           "platforms": {"macos": "native-plan-court-green", "linux": "native-implementation-unqualified", "windows": "typed-unsupported"},
-          "qualification": "mutation-free-public-plan-court-green-explicit-mutation-and-cross-platform-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "real-service-mutation-court-not-run"},
+              "macos": {"result": "pending", "blocker_code": "real-service-mutation-court-not-run"},
+              "windows": {"result": "pending", "blocker_code": "real-service-mutation-court-not-run"}
+            }
+          },
           "evidence": ["cu.service-plan", "cu.service-transaction", "agenterm-cu service transaction state-machine suite", "agenterm-platform service adapter suite"],
           "note": "Provider-qualified inventory and status plus user-domain plan/apply are native. Plans bind complete state and incarnation; launchd bootstrap also binds the canonical current-user-owned plist, declared Label, size and digest. The one-call compatibility transaction requires caller request/session identity, holds the exact service target lock and is closed by the outer replay ledger before entering plan/apply. Public qjswasm proves no-effect failure, exact retry refusal and lock release; it deliberately does not mutate a real service.",
           "next": "run explicit apply/readback/rollback on macOS and Linux plus Windows typed-refusal courts"
@@ -1594,7 +1772,14 @@
           "acu_shape": "service system-list|system-status; system mutation returns service_requires_privilege",
           "state": "platform-limited",
           "platforms": {"macos": "native-read-only", "linux": "native-read-only", "windows": "typed-unsupported"},
-          "qualification": "macos-public-qjswasm-read-only-green-linux-rerun-pending-windows-typed-refusal-court-pending-system-mutation-privilege-provider-gap",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "read-only-evidence-cannot-qualify-lifecycle"},
+              "macos": {"result": "pending", "blocker_code": "read-only-evidence-cannot-qualify-lifecycle"},
+              "windows": {"result": "pending", "blocker_code": "read-only-evidence-cannot-qualify-lifecycle"}
+            }
+          },
           "evidence": ["cu.service-system-observe", "agenterm-cu system service privilege-refusal suite"],
           "next": "carry the complete provider identity and before snapshot through the privileged provider, then verify the exact post-state"
         },
@@ -1629,6 +1814,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "per-user native login-service adapters with reversible installation and owned-resource preflight"
         },
         {
@@ -1653,6 +1846,14 @@
           "acu_shape": "current, SSH and VNC mutations accept one all-or-none request-id/session/session-lease envelope; remote identity travels only in a bounded versioned stdin envelope and is admitted by the effect-owning worker",
           "state": "platform-limited",
           "platforms": {"macos": "native-current", "linux": "native-current", "windows": "native-current", "ssh": "native-worker-wire-public-journey-pending", "vnc": "native-worker-wire-public-journey-pending", "rdp": "gap"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "remote-public-journeys-and-evidence-pending"},
+              "macos": {"result": "pending", "blocker_code": "remote-public-journeys-and-evidence-pending"},
+              "windows": {"result": "pending", "blocker_code": "remote-public-journeys-and-evidence-pending"}
+            }
+          },
           "evidence": ["cu.runtime-request-idempotency.current", "agenterm-cu effect-worker process-boundary replay/scope-conflict test", "agenterm-cu SSH/VNC stdin-envelope projection tests"],
           "next": "derive exact target locks for migrated consumer cohorts, then prove one non-destructive mutation and exact replay through public SSH and VNC courts on all applicable hosts"
         },
@@ -1662,7 +1863,14 @@
           "acu_shape": "persisted grant schema 3 binds target, desktop session, explicit canonical operation set, scopes, not-before/expiry and max/consumed uses; schema 2 remains listable/revocable but execution is operation-unbound",
           "state": "platform-limited",
           "platforms": {"windows": "native-public-rerun-pending", "macos": "native-public-qjswasm", "linux": "native-implementation-public-court-pending", "ssh": "persisted-grant-intentionally-current-only", "vnc": "persisted-grant-intentionally-current-only", "rdp": "gap"},
-          "qualification": "macos-schema3-operation-no-consumption-revoke-green-windows-rerun-linux-provider-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-persisted-grant-smoke", "evidence": ["cu.persisted-grant-operation-binding.macos"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-rerun-pending"}
+            }
+          },
           "evidence": ["cu.persisted-grant-operation-binding.macos", "agenterm-cu schema3 grant-store and persisted-executor unit suite", "agenterm-platform macOS current-target-binding tests"],
           "note": "The macOS provider accepts only the completed console session owned by the effective user, derives facts from opaque session identity plus native numeric session/audit facts, and excludes username, display name and native UUID. The public qjswasm court proves wrong-operation refusal spends zero uses, the intended operation spends exactly one, and revocation is durable.",
           "next": "run the same public operation-mismatch/no-consumption/revoke court on Windows, then qualify the implemented sealed Linux current-session identity provider in both native desktop cells"
@@ -1689,7 +1897,14 @@
           "acu_shape": "login-session status | plan lock [--ttl-seconds N] | apply --request R --approve H",
           "state": "platform-limited",
           "platforms": {"macos": "native-read-only-qjswasm-and-effect-fixture", "linux": "typed-unsupported", "windows": "typed-unsupported"},
-          "qualification": "macos-public-read-only-qjswasm-green-explicit-visible-lock-court-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "visible-lock-effect-court-not-run"},
+              "macos": {"result": "pending", "blocker_code": "visible-lock-effect-court-not-run"},
+              "windows": {"result": "pending", "blocker_code": "visible-lock-effect-court-not-run"}
+            }
+          },
           "evidence": ["cu.login-session-plan", "agenterm-cu login_session state-machine suite including expired provider-free replay"],
           "next": "run the opt-in visible macOS lock court and verify the exact session becomes locked; unlocking remains human credential/biometric territory",
           "note": "The platform facade reads a bounded IOKit console inventory and uses the standard lock-screen chord only after native input preflight. Product policy requires the current uid, binds the exact session identity, emits a short canonical plan with separate contract/approval digests, reserves before delivery and never repeats an uncertain effect. Routine qualification is observation/plan only and never locks the host."
@@ -1751,7 +1966,14 @@
           "acu_shape": "permissions open [accessibility|screen-capture] reads native state, returns a verified no-op when already granted, or dispatches one exact macOS settings pane without claiming consent",
           "state": "platform-limited",
           "platforms": {"macos": "native-noop-public-court-denied-pane-court-pending", "linux": "typed-not-applicable", "windows": "typed-provider-specific"},
-          "qualification": "platform-contract-unit-public-qjs-no-ui-court-linux-windows-native-courts-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "visible-settings-dispatch-not-proven"},
+              "macos": {"result": "pending", "blocker_code": "visible-settings-dispatch-not-proven"},
+              "windows": {"result": "pending", "blocker_code": "visible-settings-dispatch-not-proven"}
+            }
+          },
           "evidence": ["cu.permissions-open.contract", "agenterm-platform permission-settings feature tests"],
           "note": "Default-next orders required Accessibility before optional Screen Capture and refuses unknown status instead of guessing. Opening System Settings proves dispatcher acceptance only; it does not grant, bypass or verify user consent.",
           "next": "prove a denied macOS permission opens the exact pane under an explicit native court, then run typed Linux and Windows public journeys"
@@ -1798,7 +2020,14 @@
           "acu_shape": "three focused macOS public qjswasm components over platform/display/clipboard metadata/shell, owned process inventory and inspection, and one owned no-activate desktop fixture",
           "state": "platform-limited",
           "platforms": {"macos": "native-black-box", "linux": "native-black-box", "windows": "native-black-box"},
-          "qualification": "three-host-shared-core-green-macos-linux-full-scope-green-windows-full-scope-rerun-pending",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "aggregate-gate-evidence-missing"},
+              "macos": {"result": "pending", "blocker_code": "aggregate-gate-evidence-missing"},
+              "windows": {"result": "pending", "blocker_code": "aggregate-gate-evidence-missing"}
+            }
+          },
           "evidence": ["cu.runtime-capability-core.macos", "cu.runtime-capability-core.linux", "cu.runtime-capability-core.windows", "cu.runtime-capability-process.macos", "cu.runtime-capability-desktop.macos"],
           "note": "One shared qjswasm core has thin macOS/Linux/Windows evidence entry points for exact host binding, live display geometry, clipboard metadata without payload bytes, and bounded shell-child cleanup. macOS is green locally, Windows is green on the real win-aarch64 UTM desktop at source e0a2ab54, and Linux arm64 is green on a real Wayland desktop at source d5548024. The same-source Linux x86_64 X11 court then passed its 33-evidence full process, terminal, file, network, AT-SPI, screenshot, window and cleanup journey. The macOS process and owned-desktop components cover the same broad vocabulary without touching foreign processes or windows. Windows still needs the full-scope same-source rerun, so this is platform-limited rather than cross-platform native. The emulated Windows x86_64 court separately failed before product execution because QGA did not become ready within 600 seconds; utm-court now marks that local court non-ready.",
           "next": "run the full-scope Windows journey against one sealed same-source runtime/CU/ABI bundle; repair the separate Windows x86_64 QGA image before six-cell rehearsal"
@@ -1857,6 +2086,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "inventory-gap", "linux": "inventory-gap", "windows": "inventory-gap"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "compose the shipped storage-devices inventory with a separate bounded filesystem-volume inventory; keep mounted capacity and physical-device identity distinct"
         },
         {
@@ -1866,7 +2103,14 @@
           "state": "platform-limited",
           "platforms": {"macos": "partial", "linux": "partial", "windows": "contract-pending"},
           "evidence": ["cu.resource-process-policy"],
-          "qualification": "macOS public qjswasm court; Linux and Windows registered and pending native execution",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-host-resource-smoke", "evidence": ["cu.resource-process-policy"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
+            }
+          },
           "next": "route mutations only through exact identity, native consent where required, postcondition read-back and rollback/uncertain receipts"
         }
       ]
@@ -1919,6 +2163,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "consent-provider-pending", "linux": "consent-provider-pending", "windows": "consent-provider-pending"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "consent-provider-and-apply-court-pending"},
+              "macos": {"result": "pending", "blocker_code": "consent-provider-and-apply-court-pending"},
+              "windows": {"result": "pending", "blocker_code": "consent-provider-and-apply-court-pending"}
+            }
+          },
           "next": "provider-owned reservation before the terminal effect; a disconnect after dispatch is outcome_unknown, never a retry invitation"
         }
       ]
@@ -1964,6 +2216,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "x86_64-live-partial-aarch64-pending", "windows": "provider-pending"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "finish Linux counter-backed and aarch64 courts, then implement protected signed macOS/Windows providers"
         },
         {
@@ -1972,6 +2232,14 @@
           "acu_shape": "Linux fixed socket-activated broker with root-only replay, one fresh reservation/effect and immutable terminal receipts",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "implemented-qualification-pending", "windows": "provider-pending"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "native service with short-lived least-authority grants, at-most-once mutation receipts and rollback-safe upgrades"
         },
         {
@@ -1980,6 +2248,14 @@
           "acu_shape": "Linux broker calls polkit CheckAuthorization for the kernel-derived unix-process subject; canceled dialog is typed with no effect",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "x86_64-live-aarch64-pending", "windows": "UAC-pending"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "invoke only the OS consent surface; passwords, MFA and biometric material never enter ACU"
         }
       ]
@@ -1994,6 +2270,14 @@
           "acu_shape": "simulator devices [--max N] and simulator-devices [--max N]",
           "state": "platform-limited",
           "platforms": {"macos": "native", "linux": "not-applicable", "windows": "not-applicable"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "typed-not-applicable-gate-missing"},
+              "macos": {"result": "native-qualified", "gate": "cu-simulator-readonly-smoke", "evidence": ["cu.simulator-readonly"]},
+              "windows": {"result": "pending", "blocker_code": "typed-not-applicable-gate-missing"}
+            }
+          },
           "evidence": ["cu.simulator-readonly"],
           "next": "add status projection only if an MCU caller still needs a distinct status shape"
         },
@@ -2003,6 +2287,14 @@
           "acu_shape": "simulator boot UDID --expect booted with exact Booted read-back; shutdown pending",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "controlled boot court, exact shutdown transaction and host-foreground invariant evidence",
           "note": "The MCU compatibility adapter now routes the exact simulator boot --device UDID shape to simulator-boot UDID --expect booted. This removes that argument-shape fallback because ACU polls the exact device to Booted; it does not promote the lifecycle row before the controlled mutation court."
         },
@@ -2012,6 +2304,14 @@
           "acu_shape": "simulator apps|launch|terminate on exact UDID and bundle identity; lifecycle reports accepted=true, verified=false",
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "controlled-lifecycle-court-not-run"},
+              "macos": {"result": "pending", "blocker_code": "controlled-lifecycle-court-not-run"},
+              "windows": {"result": "pending", "blocker_code": "controlled-lifecycle-court-not-run"}
+            }
+          },
           "evidence": ["cu.simulator-readonly"],
           "next": "controlled lifecycle court plus a stable public appearance/disappearance oracle before verified may become true"
         },
@@ -2021,6 +2321,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "bounded source identity and guest-container content verification; destructive uninstall remains plan-first"
         },
         {
@@ -2029,6 +2337,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "typed provider for exact guest bundle/PID foreground plus host-focus and pointer invariants"
         },
         {
@@ -2037,6 +2353,14 @@
           "acu_shape": null,
           "state": "platform-limited",
           "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
+              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+            }
+          },
           "next": "framebuffer capture bound to exact booted device, atomic no-overwrite publication and image identity receipt"
         }
       ]
