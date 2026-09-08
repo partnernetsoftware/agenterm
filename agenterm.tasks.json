@@ -1230,6 +1230,25 @@
         "task.cu-linux-page-targets-smoke"
       ]
     },
+    "cu-linux-page-scroll-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-scroll-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-scroll-smoke"
+      ]
+    },
     "cu-linux-page-hover-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4620,6 +4639,25 @@
       "evidence": [
         "task.cu-linux-process-kill-smoke"
       ]
+    },
+    "cu-linux-screenshot-window-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-screenshot-window-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-screenshot-window-smoke"
+      ]
     }
   },
   "tasks": [
@@ -5682,6 +5720,26 @@
       ]
     },
     {
+      "id": "cu-linux-page-scroll-smoke",
+      "description": "Prove Linux CDP page-scroll --dy on a disposable scroll container and independent page-js scrollTop read-back increases; --port/--target-id only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-page-scroll-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-page-hover-smoke",
       "description": "Prove Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-page-hover-smoke.qjs",
@@ -6023,6 +6081,26 @@
       "id": "cu-linux-focused-honesty-smoke",
       "description": "Prove Linux CU focused --window on a disposable GTK fixture matches independent pyatspi deepest STATE_FOCUSED node name and role after focus --name actuation; AT-SPI/--name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-focused-honesty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-screenshot-window-smoke",
+      "description": "Prove Linux screenshot --window for an owned GTK fixture writes a real PNG whose independent magic/IHDR/size read-back agrees with inventory bounds; optional full-display screenshot secondary; stale handle typed screenshot_window_unavailable; no --coords.",
+      "entry": "scripts/qjs/cu-linux-screenshot-window-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

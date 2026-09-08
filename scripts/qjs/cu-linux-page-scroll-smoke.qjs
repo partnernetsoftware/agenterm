@@ -1,0 +1,229 @@
+// CEO: Linux CDP page-scroll honesty — wheel scroll on a disposable container.
+// Acceptance is smoke read-back only: independent page-js scrollTop must increase
+// after page-scroll --dy; distinct from AT-SPI scroll-to / scroll-wheel. No --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-scroll-actuate",
+  "cu.linux-cdp-page-scroll-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function number_at(value, dotted) {
+  const raw = text_at(value, dotted);
+  if (raw === "") { return 0; }
+  return rh.parse_int(raw);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_page_scroll_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_scroll_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_page_scroll_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (text_at(row, "type") === "page") { return row; }
+  }
+  return null;
+}
+
+function scroll_top(run_directory, executable, env, port, target_id) {
+  const read = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", "document.getElementById('scroll').scrollTop",
+  ], env);
+  return number_at(read, "data.value");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_scroll_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_scroll_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-scroll");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+
+const fixture_title = "CEO CDP Scroll " + context.run_id;
+const fixture = rh.join(run_directory, "cdp-scroll.html");
+const fixture_html = "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title></head><body>"
+  + "<div id='scroll' style='height:120px;overflow:auto'>"
+  + "<div style='height:1000px'>Tall</div></div>"
+  + "</body></html>";
+rh.write_text(fixture, fixture_html);
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9500 + (rh.pid() % 400);
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_scroll_port_in_use:" + port);
+
+  print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "about:blank",
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+      cwd: run_directory,
+      timeout_ms: 3000,
+    });
+    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+    harness.sleep_ms(250);
+  }
+
+  const targets = run_cu(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  const target = page_target(targets.data.targets);
+  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_scroll_target_missing");
+  const target_id = text_at(target, "id");
+
+  print("STEP page-nav loads the disposable scroll fixture in this owned tab");
+  const nav_url = "file://" + fixture;
+  const nav = run_cu(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", target_id,
+    "--url", nav_url, "--wait-ms", "10000",
+  ], env);
+  ensure(
+    flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
+    "cu_linux_page_scroll_nav:" + JSON.stringify(nav.data)
+  );
+
+  print("STEP independent page-js records container scrollTop before actuation");
+  const before_top = scroll_top(run_directory, executable, env, port, target_id);
+  ensure(before_top === 0, "cu_linux_page_scroll_before_top:" + before_top);
+
+  print("STEP page-find #scroll locates the scrollable container center");
+  const found = run_cu(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#scroll",
+  ], env);
+  const found_nodes = at(found, "data.nodes");
+  ensure(
+    at(found, "data.returned") === 1
+      && found_nodes !== undefined
+      && found_nodes.length === 1,
+    "cu_linux_page_scroll_find_container:" + JSON.stringify(found.data)
+  );
+  const box = found_nodes[0].box;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+
+  print("STEP page-scroll --dy 120 wheels at the container center");
+  const scrolled = run_cu(run_directory, executable, "observe,actuate", [
+    "page-scroll", "--port", "" + port, "--target-id", target_id,
+    "--x", "" + x, "--y", "" + y, "--dy", "120",
+  ], env);
+  ensure(
+    flag_at(scrolled, "data.performed") && flag_at(scrolled, "data.verified"),
+    "cu_linux_page_scroll_actuate:" + JSON.stringify(scrolled.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-scroll-actuate");
+
+  print("STEP independent page-js read-back proves scrollTop increased");
+  const after_top = scroll_top(run_directory, executable, env, port, target_id);
+  ensure(
+    after_top > before_top,
+    "cu_linux_page_scroll_readback:" + JSON.stringify({ before: before_top, after: after_top })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-scroll-readback");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_scroll_failed");
+harness.remove_run(context);
+print("PASS: CEO CDP page-scroll with independent page-js scrollTop read-back (no --coords)");
+return;

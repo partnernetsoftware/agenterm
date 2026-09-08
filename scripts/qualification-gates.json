@@ -963,6 +963,13 @@
       ]
     },
     {
+      "id": "cu-linux-page-scroll-smoke",
+      "evidence": [
+        "cu.linux-cdp-page-scroll-actuate",
+        "cu.linux-cdp-page-scroll-readback"
+      ]
+    },
+    {
       "id": "cu-linux-page-hover-smoke",
       "evidence": [
         "cu.linux-cdp-page-hover-readback"
