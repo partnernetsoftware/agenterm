@@ -35,10 +35,9 @@ pub fn running_catalog_apps(running: &[String]) -> Vec<&'static BrowserApp> {
         if let Some(app) = APPS
             .iter()
             .find(|app| window_matches_catalog_app(name, app))
+            && !found.iter().any(|existing| existing.name == app.name)
         {
-            if !found.iter().any(|existing| existing.name == app.name) {
-                found.push(app);
-            }
+            found.push(app);
         }
     }
     found

@@ -109,8 +109,8 @@ fn public_stdio_lifecycle_keeps_stdout_machine_only() {
     assert_eq!(tools[2]["name"], "agenterm_acu_observe");
     assert_eq!(tools[0]["annotations"]["readOnlyHint"], true);
     assert_eq!(tools[1]["annotations"]["readOnlyHint"], true);
-    assert_eq!(tools[2]["annotations"]["readOnlyHint"], false);
-    assert_eq!(tools[2]["annotations"]["destructiveHint"], true);
+    assert_eq!(tools[2]["annotations"]["readOnlyHint"], true);
+    assert_eq!(tools[2]["annotations"]["destructiveHint"], false);
     assert_eq!(tools[2]["annotations"]["openWorldHint"], true);
 }
 

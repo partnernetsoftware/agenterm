@@ -1,7 +1,7 @@
 {
   "name": "agenterm_acu_observe",
-  "title": "Run one observe-grant agenterm-cu command",
-  "description": "Execute one canonical observe-grant agenterm-cu Command through the shared typed Executor. This broad compatibility surface includes caller-named artifact writes, persistent cursors and page JavaScript; commands requiring the actuate grant are rejected before dispatch.",
+  "title": "Run one read-only agenterm-cu command",
+  "description": "Execute one canonical agenterm-cu Command classified read-only by the compiler-exhaustive MCP exposure gate. Artifact writes, persistent cursors, arbitrary effects and actuation are rejected before dispatch.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -43,8 +43,8 @@
     "required": ["ok", "target", "command"]
   },
   "annotations": {
-    "readOnlyHint": false,
-    "destructiveHint": true,
+    "readOnlyHint": true,
+    "destructiveHint": false,
     "idempotentHint": false,
     "openWorldHint": true
   }
