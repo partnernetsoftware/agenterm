@@ -1,0 +1,240 @@
+// Public macOS CoreSimulator lifecycle court. It owns only a device observed
+// in Shutdown state, restores that exact device in finally, and never opens
+// or activates Simulator.app.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.simulator-lifecycle.macos"];
+const absent_udid = "11111111-1111-1111-1111-111111111111";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl")
+    },
+    timeout_ms: 610000
+  });
+  ensure(output.success === expect_success, "cu_simulator_lifecycle_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_simulator_lifecycle_reply_state");
+  return reply;
+}
+
+function host_is_macos() {
+  return !harness.host_is_windows() && rh.exists("/System/Library/CoreServices");
+}
+
+function independent_inventory() {
+  const output = rh.command("/usr/bin/xcrun", [
+    "simctl", "list", "devices", "--json"
+  ], { timeout_ms: 10000 });
+  ensure(output.success, "cu_simulator_independent_list:" + output.exit_code);
+  const payload = JSON.parse(output.stdout.trim());
+  ensure(payload !== null && typeof payload === "object", "cu_simulator_independent_json");
+  const runtimes = Object.keys(payload.devices);
+  const result = [];
+  for (const runtime of runtimes) {
+    const rows = payload.devices[runtime];
+    for (const row of rows) {
+      result.push({
+        udid: row.udid,
+        state: row.state,
+        available: row.isAvailable !== false
+      });
+    }
+  }
+  return result;
+}
+
+function independent_state(inventory, udid) {
+  let found = undefined;
+  for (const row of inventory) {
+    if (row.udid === udid) {
+      ensure(found === undefined, "cu_simulator_independent_duplicate");
+      ensure(row.available === true, "cu_simulator_independent_unavailable");
+      found = row.state;
+    }
+  }
+  ensure(typeof found === "string", "cu_simulator_independent_missing");
+  return found;
+}
+
+function inventory_digest(inventory) {
+  const rows = [];
+  for (const row of inventory) {
+    rows.push(row.udid + "=" + row.state + "=" + row.available);
+  }
+  return JSON.stringify(rows.sort());
+}
+
+function simulator_pids() {
+  const output = rh.command("/usr/bin/pgrep", ["-x", "Simulator"], { timeout_ms: 5000 });
+  ensure(output.exit_code === 0 || output.exit_code === 1,
+    "cu_simulator_process_query:" + output.exit_code);
+  if (output.exit_code === 1) { return []; }
+  const result = [];
+  for (const line of output.stdout.trim().split("\n")) {
+    if (line.trim() !== "") { result.push(line.trim()); }
+  }
+  return result.sort();
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_simulator_lifecycle_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-simulator-lifecycle");
+if (!host_is_macos()) {
+  const unsupported = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "simulator-shutdown", absent_udid,
+    "--expect", "shutdown", "--timeout-ms", "1000"
+  ], false);
+  ensure(unsupported.error.code === "simulator_unsupported",
+    "cu_simulator_non_macos_boundary");
+  harness.complete_children(context, [], true, "");
+  harness.remove_run(context);
+  print("SKIP: CoreSimulator lifecycle is macOS-only");
+  return;
+}
+let succeeded = 0;
+let failure = "";
+let selected_udid = "";
+let restoration_owned = false;
+let cleanup_error = "";
+let inventory_before = [];
+try {
+  ensure(simulator_pids().length === 0, "cu_simulator_app_already_running");
+  inventory_before = independent_inventory();
+
+  print("STEP absent exact UDID is rejected without changing simulator state");
+  const absent = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "simulator-shutdown", absent_udid,
+    "--expect", "shutdown", "--timeout-ms", "10000"
+  ], false);
+  ensure(absent.error.code === "simulator_not_found", "cu_simulator_absent_code");
+  ensure(inventory_digest(independent_inventory()) === inventory_digest(inventory_before),
+    "cu_simulator_absent_changed_inventory");
+
+  print("STEP choose one exact device that is already Shutdown");
+  const devices = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "simulator-devices", "--max", "200"
+  ], true);
+  for (const row of devices.data.devices) {
+    if (selected_udid === "" && row.state === "Shutdown") {
+      for (const independent of inventory_before) {
+        if (independent.udid === row.udid && independent.available === true) {
+          selected_udid = row.udid;
+        }
+      }
+    }
+  }
+  ensure(selected_udid !== "", "cu_simulator_no_shutdown_device");
+  ensure(independent_state(inventory_before, selected_udid) === "Shutdown",
+    "cu_simulator_initial_state");
+
+  print("STEP exact shutdown of an already-Shutdown device is a verified no-op");
+  const initial_noop = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "simulator-shutdown", selected_udid,
+    "--expect", "shutdown", "--timeout-ms", "10000"
+  ], true);
+  ensure(initial_noop.data.verified === true && initial_noop.data.already_shutdown === true,
+    "cu_simulator_initial_shutdown_idempotency");
+  ensure(independent_state(independent_inventory(), selected_udid) === "Shutdown",
+    "cu_simulator_initial_noop_readback");
+
+  print("STEP exact boot is independently read back as Booted");
+  restoration_owned = true;
+  const boot = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "simulator-boot", selected_udid,
+    "--expect", "booted", "--timeout-ms", "600000"
+  ], true);
+  ensure(boot.command === "simulator-boot" && boot.data.udid === selected_udid,
+    "cu_simulator_boot_identity");
+  ensure(boot.data.verified === true && boot.data.already_booted === false,
+    "cu_simulator_boot_verification");
+  ensure(independent_state(independent_inventory(), selected_udid) === "Booted",
+    "cu_simulator_boot_readback");
+  ensure(simulator_pids().length === 0, "cu_simulator_app_opened_by_boot");
+
+  print("STEP exact shutdown is independently read back as Shutdown");
+  const shutdown = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "simulator-shutdown", selected_udid,
+    "--expect", "shutdown", "--timeout-ms", "600000"
+  ], true);
+  ensure(shutdown.command === "simulator-shutdown" && shutdown.data.udid === selected_udid,
+    "cu_simulator_shutdown_identity");
+  ensure(shutdown.data.verified === true && shutdown.data.after_state === "Shutdown",
+    "cu_simulator_shutdown_verification");
+  ensure(shutdown.data.already_shutdown === false, "cu_simulator_shutdown_was_mutation");
+  ensure(independent_state(independent_inventory(), selected_udid) === "Shutdown",
+    "cu_simulator_shutdown_readback");
+  restoration_owned = false;
+
+  print("STEP repeated exact shutdown is a verified no-op");
+  const repeated = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "simulator-shutdown", selected_udid,
+    "--expect", "shutdown", "--timeout-ms", "10000"
+  ], true);
+  ensure(repeated.data.verified === true && repeated.data.already_shutdown === true,
+    "cu_simulator_shutdown_idempotency");
+  ensure(independent_state(independent_inventory(), selected_udid) === "Shutdown",
+    "cu_simulator_repeat_readback");
+  ensure(simulator_pids().length === 0, "cu_simulator_app_opened");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+} finally {
+  if (restoration_owned && selected_udid !== "") {
+    try {
+      const cleanup = invoke(context.run_directory, executable, [
+        "--target", "current", "--grant", "actuate", "simulator-shutdown", selected_udid,
+        "--expect", "shutdown", "--timeout-ms", "600000"
+      ], true);
+      ensure(cleanup.data.verified === true, "cu_simulator_cleanup_unverified");
+      ensure(independent_state(independent_inventory(), selected_udid) === "Shutdown",
+        "cu_simulator_cleanup_readback");
+    } catch (error) {
+      cleanup_error = "" + error;
+    }
+  }
+}
+
+if (cleanup_error === "" && inventory_before.length > 0) {
+  try {
+    ensure(inventory_digest(independent_inventory()) === inventory_digest(inventory_before),
+      "cu_simulator_other_device_changed");
+  } catch (error) {
+    cleanup_error = "" + error;
+  }
+}
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded === 1 && cleanup_error === "", failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded === 1 && cleanup_error === "" && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.simulator-lifecycle.macos");
+  harness.remove_run(context);
+  print("cu-simulator-lifecycle-smoke.qjs PASS");
+}
+if (failure !== "") { throw failure; }
+if (cleanup_error !== "") { throw "cu_simulator_cleanup_failed:" + cleanup_error; }
+if (completion_failure !== "") { throw completion_failure; }

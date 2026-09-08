@@ -330,6 +330,13 @@
         "cu.macos-save-panel-save",
         "cu.macos-save-panel-cleanup"
       ]
+    },
+    {
+      "id": "cu-simulator-lifecycle-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.simulator-lifecycle.macos"
+      ]
     }
   ]
 }

@@ -294,10 +294,10 @@ MCU retirement blockers
 │  │  ├─ [x] provider-owned replay ledger: namespace + OS-principal digest + request id; reserved crash never reopens effect
 │  │  └─ [ ] native consented provider, one-shot postcondition, TTL broker and Windows priority-class contract
 │  └─ [~] CoreSimulator plus required device/service operations
-│     ├─ [x] bounded device/app inventory + exact boot/app lifecycle platform facade
+│     ├─ [x] bounded device/app inventory + exact boot/shutdown/app lifecycle platform facade
 │     ├─ [x] read-only live device and installed-app inventory
-│     ├─ [x] exact MCU boot shape routes to ACU's verified Booted read-back
-│     └─ [ ] mutation courts, shutdown, deployment/foreground/screenshot
+│     ├─ [x] exact MCU boot/shutdown shapes route to ACU's verified settled-state read-back
+│     └─ [ ] run registered lifecycle court; deployment/foreground/screenshot remain open
 ├─ [ ] classify and remove every remaining argument-shape fallback
 └─ [ ] MCU-absent three-host parity + six-cell delivery rehearsal
 ```
@@ -927,11 +927,13 @@ Q4 browser and platform depth
 │  ├─ [~] owned browser-session: public lifecycle + macOS live cleanup ✓; Windows exact-Job first instruction win-x86/ARM64 ✓; Win ARM64 managed-Job Edge ready→status→stopped→removed ✓; Linux + descendant-kill courts pending
 │  ├─ [~] MV3/Native Messaging: fixed assets + persistent Profile identity + session-owned exact-tab lock + unique native-connection reload; macOS public-qjswasm also proves child-frame closed-shadow read/type/focus/press/files, secret-free receipts and unknown-outcome non-replay; Linux/Windows courts pending
 │  └─ [x] no fake attach: an existing process without a startup debug endpoint stays AX-only
-├─ [~] Simulator facade: public bounded device/app inventory + exact boot/launch/terminate routes
+├─ [~] Simulator facade: public bounded device/app inventory + exact boot/shutdown/launch/terminate routes
 │  ├─ [x] macOS qjswasm read-only court `cu.simulator-readonly`; app paths never leave the provider
 │  ├─ [x] boot requires `--expect booted` and exact-state verification
+│  ├─ [x] shutdown requires `--expect shutdown`, exact-state verification and idempotent no-op reporting
+│  ├─ [~] controlled macOS lifecycle court registered; real boot/shutdown run pending
 │  ├─ [x] app lifecycle says accepted, never fabricates running/stopped verification
-│  └─ [ ] controlled mutation courts; shutdown/deployment/guest foreground/screenshot
+│  └─ [ ] app mutation courts; deployment/guest foreground/screenshot
 └─ [ ] current/ssh/vnc/VM schema parity
 Q5 retirement
 ├─ [~] one qjswasm retirement court

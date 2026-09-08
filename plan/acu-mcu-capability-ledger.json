@@ -2278,19 +2278,20 @@
         {
           "id": "simulator.device-lifecycle",
           "mcu_shape": "simulator boot|shutdown UDID with stable request identity and settled-state readback",
-          "acu_shape": "simulator boot UDID --expect booted with exact Booted read-back; shutdown pending",
+          "acu_shape": "simulator boot UDID --expect booted and simulator shutdown UDID --expect shutdown, each with exact settled-state readback",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "not-applicable", "windows": "not-applicable"},
+          "platforms": {"macos": "native-court-pending", "linux": "not-applicable", "windows": "not-applicable"},
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
-              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
-              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+              "linux": {"result": "pending", "blocker_code": "typed-not-applicable-gate-missing"},
+              "macos": {"result": "pending", "blocker_code": "controlled-lifecycle-court-not-run"},
+              "windows": {"result": "pending", "blocker_code": "typed-not-applicable-gate-missing"}
             }
           },
-          "next": "controlled boot court, exact shutdown transaction and host-foreground invariant evidence",
-          "note": "The MCU compatibility adapter now routes the exact simulator boot --device UDID shape to simulator-boot UDID --expect booted. This removes that argument-shape fallback because ACU polls the exact device to Booted; it does not promote the lifecycle row before the controlled mutation court."
+          "evidence": ["cu.simulator-lifecycle.macos"],
+          "next": "run the registered controlled macOS lifecycle court, then add public typed-not-applicable courts for Linux and Windows before platform qualification",
+          "note": "The exact boot and shutdown mechanisms are implemented and the MCU compatibility adapter maps simulator boot|shutdown --device UDID to explicit postconditions. The registered macOS court selects only an initially-Shutdown device, independently reads back Booted and Shutdown, proves repeated shutdown is a verified no-op, and restores only the device it booted. The court has not yet been run, so macOS remains pending; Linux and Windows remain pending until public typed-not-applicable evidence exists."
         },
         {
           "id": "simulator.app-inventory-lifecycle",

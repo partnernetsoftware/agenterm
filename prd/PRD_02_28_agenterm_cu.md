@@ -1802,24 +1802,31 @@ flowchart LR
   runtime, device type and state, and lists installed apps on one exact already
   booted device while discarding simulator container/data paths. Both real
   read-only inventories are green. Exact boot polls the same device identity
-  to `Booted`; exact app launch/terminate require an installed bundle id and
+  to `Booted`; exact shutdown likewise polls it to `Shutdown`, reports an
+  already-Shutdown device as a verified no-op, and returns an effect-unknown
+  error if post-dispatch observation cannot settle. Exact app launch/terminate require an installed bundle id and
   verify the device stayed identical and booted. The public `simctl` exit and
   launch PID are only provider acknowledgement, so app lifecycle receipts say
   `accepted=true, verified=false` until a stable public app-state oracle exists.
   Public `simulator devices|apps|boot|launch|terminate` routes now preserve
   those distinctions: inventory is observe-only, boot requires explicit
-  `--expect booted` and exact state read-back, while app lifecycle requires
+  `--expect booted`, shutdown requires `--expect shutdown`, and both require
+  exact state read-back, while app lifecycle requires
   `--expect accepted` and remains `verified=false`. The registered
   `cu.simulator-readonly` qjswasm court enumerates real devices and apps on an
   already-booted exact device without exposing container paths or performing a
-  mutation. The transitional MCU adapter now routes its exact `simulator boot
-  --device UDID` shape to that verified ACU boot contract; state filters,
-  shutdown and lifecycle shapes without equivalent verification remain typed
-  fallbacks rather than being silently weakened. The court still needs a
-  controlled boot mutation before this row can be promoted.
+  mutation. A separate `cu.simulator-lifecycle.macos` court is registered to
+  boot one exact initially-Shutdown device, independently read back both state
+  transitions, restore only that owned mutation, and prove idempotent shutdown
+  without activating Simulator.app. The transitional MCU adapter now routes
+  exact `simulator boot|shutdown --device UDID` shapes to those verified ACU
+  contracts; state filters and lifecycle shapes without equivalent verification
+  remain typed fallbacks rather than being silently weakened. The controlled
+  lifecycle court has not been run, so this row remains pending rather than
+  claiming native qualification.
   No existing court has yet booted a device or launched/terminated an app.
-  Controlled mutation courts, shutdown, app deployment, guest foreground and
-  guest screenshot remain open.
+  App lifecycle mutation courts, deployment, guest foreground and guest
+  screenshot remain open.
 
 - [~] `resource status` now has a native platform-neutral ACU owner. Its closed
   snapshot includes host identity, uptime, CPU count/model, all three load

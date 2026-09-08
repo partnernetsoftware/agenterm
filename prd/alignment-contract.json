@@ -330,6 +330,7 @@
         "cu.browser-download.macos",
         "cu.terminal-viewport-image.macos",
         "cu.simulator-readonly",
+        "cu.simulator-lifecycle.macos",
         "cu.file-copy-transaction",
         "cu.file-xattr-inspect.macos",
         "cu.file-mode.macos",

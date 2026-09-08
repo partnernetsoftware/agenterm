@@ -1981,6 +1981,23 @@
         "task.cu-simulator-readonly-smoke"
       ]
     },
+    "cu-simulator-lifecycle-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-simulator-lifecycle-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 1800000,
+        "max_operations": 200000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-simulator-lifecycle-smoke"
+      ]
+    },
     "cu-resource-status-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -5891,6 +5908,25 @@
       "id": "cu-simulator-readonly-smoke",
       "description": "Prove the macOS public CoreSimulator CLI has bounded device, app inventory and exact app-status identity joins, hides paths and raw process identity, rejects invalid bounds, and refuses mutation without actuate; the court never boots or changes an app.",
       "entry": "scripts/qjs/cu-simulator-readonly-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-simulator-lifecycle-smoke",
+      "description": "Boot one exact initially-Shutdown CoreSimulator device, independently read back Booted, shut down and independently read back Shutdown, then prove idempotent shutdown without activating Simulator.app.",
+      "entry": "scripts/qjs/cu-simulator-lifecycle-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
