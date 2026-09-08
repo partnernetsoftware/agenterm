@@ -29,6 +29,7 @@ agt_a11y_node_string
 agt_a11y_node_action_name
 agt_a11y_node_perform
 agt_a11y_node_click
+agt_a11y_node_hover
 agt_a11y_node_invoke
 agt_a11y_menu_snapshot
 agt_a11y_menu_invoke

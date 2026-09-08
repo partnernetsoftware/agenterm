@@ -12,13 +12,63 @@ pub struct WindowBounds {
     pub height: u32,
 }
 
+/// Physical display facts derived from the platform when it reports a non-zero
+/// size in millimeters. Zero millimeters from the host means unknown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DisplayPhysicalFacts {
+    pub width_mm: Option<u32>,
+    pub height_mm: Option<u32>,
+    pub dpi_x: Option<u32>,
+    pub dpi_y: Option<u32>,
+    pub scale_factor: Option<f64>,
+}
+
+impl DisplayPhysicalFacts {
+    pub const UNKNOWN: Self = Self {
+        width_mm: None,
+        height_mm: None,
+        dpi_x: None,
+        dpi_y: None,
+        scale_factor: None,
+    };
+}
+
+pub fn display_physical_facts(
+    width_px: u32,
+    height_px: u32,
+    width_mm: u32,
+    height_mm: u32,
+) -> DisplayPhysicalFacts {
+    if width_px == 0 || height_px == 0 || width_mm == 0 || height_mm == 0 {
+        return DisplayPhysicalFacts::UNKNOWN;
+    }
+    let dpi_x = ((f64::from(width_px) * 25.4) / f64::from(width_mm)).round() as u32;
+    let dpi_y = ((f64::from(height_px) * 25.4) / f64::from(height_mm)).round() as u32;
+    if dpi_x == 0 || dpi_y == 0 {
+        return DisplayPhysicalFacts::UNKNOWN;
+    }
+    let scale_factor = (f64::from(dpi_x + dpi_y) / 2.0) / 96.0;
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return DisplayPhysicalFacts::UNKNOWN;
+    }
+    DisplayPhysicalFacts {
+        width_mm: Some(width_mm),
+        height_mm: Some(height_mm),
+        dpi_x: Some(dpi_x),
+        dpi_y: Some(dpi_y),
+        scale_factor: Some(scale_factor),
+    }
+}
+
 /// One display in top-origin coordinates (same space as [`WindowBounds`]).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScreenInfo {
     pub frame: WindowBounds,
     pub visible: WindowBounds,
     pub primary: bool,
+    pub physical: DisplayPhysicalFacts,
 }
 
 /// A snapshot of one visible top-level window.

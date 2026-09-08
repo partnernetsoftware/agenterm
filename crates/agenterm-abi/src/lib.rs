@@ -91,7 +91,7 @@ use agenterm_platform::CapabilityStatus;
 use agenterm_platform::accessibility_tree::{
     AccessibilityEvent, AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget,
     AccessibilityTreeError, ApplicationVisibility, click_node, drain_bus, focused_node_for_window,
-    get_node_caret_offset, get_node_extents, get_node_selection, get_node_text, invoke_menu_path,
+    get_node_caret_offset, get_node_extents, get_node_selection, get_node_text, hover_node, invoke_menu_path,
     last_text_write_via, menu_tree_for_window, observe_window, perform_node_action,
     poke_manual_accessibility, scroll_node, send_node_keys, set_application_visibility,
     set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded,
@@ -4741,6 +4741,28 @@ pub extern "C" fn agt_a11y_node_click(window_handle: isize, node_id: *const c_ch
     match catch_unwind(AssertUnwindSafe(|| inner(window_handle, node_id, button, clicks))) {
         Ok(s) => s,
         Err(_) => { record_error(c"agt_a11y_node_click", c"panic", "panic in agt_a11y_node_click"); agt_status::AGT_FAILED }
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_a11y_node_hover(window_handle: isize, node_id: *const c_char) -> agt_status {
+    fn inner(window_handle: isize, node_id: *const c_char) -> agt_status {
+        if let Some(status) = a11y_mechanism_gate() { return status; }
+        if node_id.is_null() { record_error(c"agt_a11y_node_hover", c"bad_pointer", "node_id is null"); return agt_status::AGT_FAILED; }
+        let node_id = match unsafe { CStr::from_ptr(node_id) }.to_str() {
+            Ok(s) => s,
+            Err(_) => { record_error(c"agt_a11y_node_hover", c"bad_encoding", "node_id is not UTF-8"); return agt_status::AGT_FAILED; }
+        };
+        let filter = if window_handle == 0 { None } else { Some(window_handle) };
+        match hover_node(filter, node_id) {
+            Ok(()) => agt_status::AGT_OK,
+            Err(e) => map_a11y_error(c"agt_a11y_node_hover", e),
+        }
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(window_handle, node_id))) {
+        Ok(s) => s,
+        Err(_) => { record_error(c"agt_a11y_node_hover", c"panic", "panic in agt_a11y_node_hover"); agt_status::AGT_FAILED }
     }
 }
 

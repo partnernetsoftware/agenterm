@@ -11,7 +11,8 @@ use x11rb::{
 
 use crate::CapabilityStatus;
 use crate::contract::window_enumerate::{
-    WindowBounds, WindowEnumerateError, WindowInfo, WindowStacking, stacking_from_front_to_back,
+    WindowBounds, WindowEnumerateError, WindowInfo, WindowStacking,
+    display_physical_facts, stacking_from_front_to_back,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,7 +78,7 @@ fn atom(connection: &RustConnection, name: &[u8]) -> Result<Atom, WindowEnumerat
         .map_err(|_| failed("an X11 atom request failed"))
 }
 
-fn open_x11_root() -> Result<(RustConnection, Window), WindowEnumerateError> {
+fn open_x11_root() -> Result<(RustConnection, usize, Window), WindowEnumerateError> {
     let (connection, screen) = x11rb::connect(None)
         .map_err(|error| failed(format!("X11 display could not be opened: {error}")))?;
     let root = connection
@@ -86,7 +87,7 @@ fn open_x11_root() -> Result<(RustConnection, Window), WindowEnumerateError> {
         .get(screen)
         .ok_or_else(|| failed("configured X11 screen does not exist"))?
         .root;
-    Ok((connection, root))
+    Ok((connection, screen, root))
 }
 
 fn connect() -> Result<Context, WindowEnumerateError> {
@@ -103,7 +104,7 @@ fn connect() -> Result<Context, WindowEnumerateError> {
             });
         }
     }
-    let (connection, root) = open_x11_root()?;
+    let (connection, _screen_index, root) = open_x11_root()?;
     let atoms = Atoms {
         client_list: atom(&connection, b"_NET_CLIENT_LIST")?,
         client_list_stacking: atom(&connection, b"_NET_CLIENT_LIST_STACKING")?,
@@ -457,7 +458,7 @@ pub(crate) fn list_screens()
             reason: "screen enumeration requires DISPLAY (X11 or XWayland)".into(),
         });
     }
-    let (connection, root) = open_x11_root()?;
+    let (connection, screen_index, root) = open_x11_root()?;
     let geom = connection
         .get_geometry(root)
         .map_err(|_| failed("root geometry request failed"))?
@@ -469,10 +470,22 @@ pub(crate) fn list_screens()
         width: u32::from(geom.width),
         height: u32::from(geom.height),
     };
+    let screen = connection
+        .setup()
+        .roots
+        .get(screen_index)
+        .ok_or_else(|| failed("configured X11 screen does not exist"))?;
+    let physical = display_physical_facts(
+        bounds.width,
+        bounds.height,
+        u32::from(screen.width_in_millimeters),
+        u32::from(screen.height_in_millimeters),
+    );
     Ok(vec![crate::contract::window_enumerate::ScreenInfo {
         frame: bounds,
         visible: bounds,
         primary: true,
+        physical,
     }])
 }
 
