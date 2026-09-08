@@ -382,6 +382,7 @@
         "cu.managed-job-lifecycle",
         "cu.managed-job-resources",
         "acu.compat-job-resources",
+        "acu.compat-resource-pressure",
         "cu.managed-job-limits",
         "cu.managed-job-adopt",
         "cu.managed-job-state-signal",

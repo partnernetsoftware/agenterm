@@ -657,7 +657,8 @@
       "id": "cu-resource-pressure-top-smoke",
       "evidence": [
         "cu.resource-pressure-native",
-        "cu.resource-top-ranked"
+        "cu.resource-top-ranked",
+        "acu.compat-resource-pressure"
       ]
     },
     {

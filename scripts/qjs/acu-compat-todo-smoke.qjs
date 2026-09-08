@@ -42,7 +42,6 @@ const cases = [
   [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
   [["zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4"], "acu.dynamic.005"],
   [["job", "resources", "job-1", "--generation", "7", "--interval", "1"], "acu.dynamic.018"],
-  [["resource", "pressure"], "acu.dynamic.051"],
   [["device", "claim", "legacy-device-path"], "acu.dynamic.054"],
   [["storage", "mount", "disk-1"], "acu.dynamic.057"],
   [["privilege", "plan", "process.signal", "42", "TERM"], "acu.dynamic.058"],

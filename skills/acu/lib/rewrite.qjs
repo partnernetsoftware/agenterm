@@ -373,6 +373,12 @@ function resource(rest, flags) {
     }
     return exec(["resource-status"]);
   }
+  if (sub === "pressure") {
+    if (rest_length(rest) !== 0 || flag_pairs(flags, []).length !== 0) {
+      return usage("resource", "resource pressure accepts no arguments");
+    }
+    return exec(["resource-pressure"]);
+  }
   if (sub === "top") {
     const names = Object.keys(flags);
     for (let i = 0; i < names.length; i = i + 1) {
@@ -393,7 +399,7 @@ function resource(rest, flags) {
     return exec(["ps", "--sort", sort === "mem" ? "memory" : "cpu",
       "--max", flags.limit === undefined ? "20" : "" + flags.limit]);
   }
-  return todo("acu.dynamic.051", "resource", "resource subcommand is not typed yet");
+  return usage("resource", "resource subcommand must be status, pressure or top");
 }
 
 function click(verb, rest, flags) {

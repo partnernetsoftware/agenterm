@@ -22,7 +22,7 @@ export const LEGACY_TOP_LEVEL = [
 // usage handling.
 export const LEGACY_TODO_GAP_IDS = [
   "acu.dynamic.004", "acu.dynamic.005", "acu.dynamic.018",
-  "acu.dynamic.051", "acu.dynamic.054", "acu.dynamic.057",
+  "acu.dynamic.054", "acu.dynamic.057",
   "acu.dynamic.058", "acu.dynamic.075", "acu.dynamic.078",
   "acu.dynamic.081", "acu.dynamic.085"
 ];

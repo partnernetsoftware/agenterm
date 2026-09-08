@@ -180,11 +180,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
   `2 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 31 resolved witnesses now have an executable disposition:
-  18 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
+  rejections. The 32 resolved witnesses now have an executable disposition:
+  18 direct exec, 9 Bun-free compound projections, and 5 local usage refusals; no resolved
   row remains TODO. All 95 dynamic witnesses remain frozen, and the 2 remaining
   dynamic-stay witness rows keep their stable repair identities. A public black-box
-  compatibility court additionally proves 11 known argument-sensitive legacy shapes
+  compatibility court additionally proves 10 known argument-sensitive legacy shapes
   return `ACU_CAPABILITY_TODO` with their exact `gap_id` instead of falling through to
   naked native `usage`; unknown verbs and misspelled subcommands deliberately remain
   ordinary usage errors. The `.050` witness now
@@ -593,6 +593,9 @@ ACU-only cutover
 │  ├─ [~] acu.dynamic.050 · exact simulator application status is native and Bun-free;
 │  │  └─ bounded macOS read-only court proves installed/non-running truth; a pre-existing
 │  │     running fixture must still prove the host-PID/start-identity/device join
+│  ├─ [x] acu.dynamic.051 · the frozen `resource top` witness remains native and the related
+│  │  `resource pressure` spelling now maps losslessly to `resource-pressure`; the public
+│  │  qjswasm court executes both pressure spellings and preserves host-native semantics
 │  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
 │  ├─ [~] acu.dynamic.067 · `literal.*` reduces exactly to native loss-aware substring wait;
 │  │  └─ general bounded linear-time regex remains typed TODO

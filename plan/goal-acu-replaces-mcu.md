@@ -80,8 +80,9 @@ ACU replaces MCU
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
 │  │  all 2 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
+│  │  `.051` keeps frozen `resource top` native and maps related `resource pressure` losslessly with a public qjswasm court;
 │  │  `.084` Space filtering executes natively while its remaining filter shapes keep that typed TODO;
-│  │  all 31 resolved witnesses have a checked disposition (18 exec · 8 compound · 5 usage · 0 TODO);
+│  │  all 32 resolved witnesses have a checked disposition (18 exec · 9 compound · 5 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
 │  │  external wrapper now execs that entry; remaining dynamic mappings, MCP mutation design and native courts remain

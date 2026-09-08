@@ -1,13 +1,14 @@
 // Public read-only court for native host pressure plus the existing bounded
 // process ranking used by the legacy `resource top` spelling.
-// Args: REPO AGENTERM_CU_EXE
+// Args: REPO AGENTERM_LAUNCHER AGENTERM_CU_EXE
 // or:   --list-evidence
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.resource-pressure-native",
-  "cu.resource-top-ranked"
+  "cu.resource-top-ranked",
+  "acu.compat-resource-pressure"
 ];
 
 function ensure(condition, message) {
@@ -23,7 +24,7 @@ function host_platform() {
   return "linux";
 }
 
-function isolated_env(run_directory, receipt_path) {
+function isolated_env(run_directory) {
   return {
     HOME: run_directory,
     USERPROFILE: run_directory,
@@ -32,23 +33,37 @@ function isolated_env(run_directory, receipt_path) {
     XDG_CONFIG_HOME: rh.join(run_directory, "config"),
     XDG_DATA_HOME: rh.join(run_directory, "data"),
     AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
-    AGENTERM_CU_RECEIPT_PATH: receipt_path,
     AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json")
   };
 }
 
-function invoke(run_directory, executable, receipt_path, args) {
+function invoke(run_directory, executable, args) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe"
   ].concat(args), {
     cwd: run_directory,
-    env: isolated_env(run_directory, receipt_path),
+    env: isolated_env(run_directory),
     timeout_ms: 30000
   });
   ensure(output.stdout.trim() !== "", "cu_resource_pressure_empty:" + output.stderr);
   const reply = JSON.parse(output.stdout.trim());
   ensure(output.success === true && reply.ok === true,
          "cu_resource_pressure_failed:" + output.stdout + output.stderr);
+  return reply;
+}
+
+function invoke_acu(run_directory, launcher, args) {
+  const command = ["cli", "acu"];
+  for (const arg of args) { command.push(arg); }
+  const output = rh.command(launcher, command, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000
+  });
+  ensure(output.stdout.trim() !== "", "cu_resource_pressure_acu_empty:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(output.success === true && reply.ok === true,
+         "cu_resource_pressure_acu_failed:" + output.stdout + output.stderr);
   return reply;
 }
 
@@ -339,36 +354,44 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
   return;
 }
-harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(args.length === 3, "expected: REPO AGENTERM_LAUNCHER AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
-let executable = rh.absolute(args[1]);
+let launcher = rh.absolute(args[1]);
+let executable = rh.absolute(args[2]);
+if (!rh.exists(launcher) && harness.host_is_windows()) { launcher = launcher + ".exe"; }
 if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(launcher), "agenterm launcher missing");
 harness.require(rh.exists(executable), "agenterm-cu executable missing");
 
 const context = harness.new_context(repo, "cu-resource-pressure-top");
 let succeeded = 0;
 let failure = "";
 try {
-  const receipt_path = rh.join(context.run_directory, "cu-receipts.jsonl");
   const platform = host_platform();
   const page_size = platform === "linux" ? linux_page_size() : 0;
   print("STEP native pressure preserves platform semantics without a derived level");
-  assert_pressure(invoke(context.run_directory, executable, receipt_path, [
+  assert_pressure(invoke(context.run_directory, executable, [
     "resource-pressure"
+  ]), platform);
+
+  print("STEP Bun-free resource pressure spelling reaches the same typed native provider");
+  assert_pressure(invoke_acu(context.run_directory, launcher, [
+    "resource", "pressure"
   ]), platform);
 
   print("STEP existing bounded ps provides CPU and memory ranked process samples");
   if (platform === "linux") {
     print("STEP linux ranked samples match independent /proc readback");
   }
-  assert_ranked(invoke(context.run_directory, executable, receipt_path, [
+  assert_ranked(invoke(context.run_directory, executable, [
     "ps", "--sort", "cpu", "--max", "5", "--max-visited", "10000"
   ]), "cpu", platform, page_size);
-  assert_ranked(invoke(context.run_directory, executable, receipt_path, [
+  assert_ranked(invoke(context.run_directory, executable, [
     "ps", "--sort", "memory", "--max", "5", "--max-visited", "10000"
   ]), "memory", platform, page_size);
 
-  ensure(!rh.exists(receipt_path) || rh.read_text(receipt_path).trim() === "",
+  const receipt_directory = rh.join(context.run_directory, "cu-receipts");
+  ensure(!rh.exists(receipt_directory) || rh.read_dir(receipt_directory).length === 0,
          "cu_resource_pressure_effect_receipt_created");
   succeeded = 1;
 } catch (error) {
@@ -383,7 +406,7 @@ if (succeeded !== 0 && completion_failure === "") {
     harness.emit_evidence(context, declared_evidence, id);
   }
   harness.remove_run(context);
-  print("PASS: native pressure and bounded ranked process samples stayed distinct and read-only");
+  print("PASS: native and Bun-free compatibility pressure plus bounded process ranking stayed typed and read-only");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

@@ -163,8 +163,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       编译完整内嵌 closure，并以 Wasm import 精确白名单拒绝 Bun/MCU/tool-process
 │     │                       逃逸；源码扫描只作低成本纵深防线。冻结 42 个合法 legacy probe 已全部
 │     │                       映射；`kill PID` 仍以 process-state → identity-bound process-kill 两段
-│     │                       typed 调用执行。95 条动态 witness 的 31 条 resolved 已全部清账：
-│     │                       18 exec + 8 compound + 5 usage；2 条 dynamic-stay witness 与 11 类此前
+│     │                       typed 调用执行。95 条动态 witness 的 32 条 resolved 已全部清账：
+│     │                       18 exec + 9 compound + 5 usage；2 条 dynamic-stay witness 与 10 类此前
 │     │                       裸 `usage` 的已知旧形状现均返回稳定 gap_id；未知拼写仍是普通 usage
 │     ├─ retirement             MCU 立即退出生产入口；TODO 动态补 ACU。调用者迁到 typed
 │     │                       `acu` 对象后，过渡 `acu.qjs` 也可归档

@@ -2436,6 +2436,7 @@
     },
     "cu-resource-pressure-top-smoke": {
       "inputs": [
+        "built-agenterm-with-acu-provider",
         "built-agenterm-cu"
       ],
       "outputs": [
@@ -6979,12 +6980,13 @@
     },
     {
       "id": "cu-resource-pressure-top-smoke",
-      "description": "Prove native host-pressure facts retain per-platform semantics while legacy resource top reuses bounded CPU and memory process ranking without deriving a shared pressure level.",
+      "description": "Prove native host-pressure facts retain per-platform semantics, Bun-free resource pressure reaches the same typed provider, and legacy resource top reuses bounded CPU and memory process ranking without deriving a shared pressure level.",
       "entry": "scripts/qjs/cu-resource-pressure-top-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
         ".",
+        "target/debug/agenterm",
         "target/debug/agenterm-cu"
       ],
       "dependencies": [],
