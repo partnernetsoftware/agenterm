@@ -1,0 +1,147 @@
+// CEO: Linux process-usage honesty with independent /proc/<pid>/stat and statm read-back.
+// Acceptance is smoke read-back only: CU process-usage must agree with CPU time, RSS and
+// page-fault counters derived outside agenterm-cu for the same live PID. No --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-process-usage-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function verify_readback(run_directory, executable, pid) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "pid = int(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "def read_metrics():",
+    "    with open(f'/proc/{pid}/stat') as handle:",
+    "        stat = handle.read()",
+    "    close = stat.rfind(')')",
+    "    if close < 0:",
+    "        raise ValueError('process stat has no closing command delimiter')",
+    "    fields = stat[close + 1:].split()",
+    "    if len(fields) < 13:",
+    "        raise ValueError('process stat missing cpu and fault fields')",
+    "    minor = int(fields[7])",
+    "    major = int(fields[9])",
+    "    utime = int(fields[11])",
+    "    stime = int(fields[12])",
+    "    clock_hz = int(os.sysconf('SC_CLK_TCK'))",
+    "    page_size = int(os.sysconf('SC_PAGESIZE'))",
+    "    ticks = utime + stime",
+    "    cpu_time_ns = (ticks // clock_hz) * 1_000_000_000 + (ticks % clock_hz) * 1_000_000_000 // clock_hz",
+    "    with open(f'/proc/{pid}/statm') as handle:",
+    "        statm = handle.read().split()",
+    "    if len(statm) < 2:",
+    "        raise ValueError('process statm missing RSS field')",
+    "    resident_bytes = int(statm[1]) * page_size",
+    "    return {",
+    "        'cpu_time_ns': cpu_time_ns,",
+    "        'resident_bytes': resident_bytes,",
+    "        'page_faults_total': minor + major,",
+    "        'page_faults_soft': minor,",
+    "        'page_faults_hard': major,",
+    "    }",
+    "def within(label, value, lo, hi):",
+    "    if value < lo or value > hi:",
+    "        raise SystemExit(f'{label}:cu={value}:lo={lo}:hi={hi}')",
+    "before = read_metrics()",
+    "out = subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe', 'process-usage', '--pid', str(pid)],",
+    "    text=True)",
+    "after = read_metrics()",
+    "reply = json.loads(out)",
+    "if not reply.get('ok') or reply.get('command') != 'process-usage':",
+    "    raise SystemExit('cu_linux_process_usage_reply_state')",
+    "data = reply['data']",
+    "if data.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_usage_verified')",
+    "if int(data['pid']) != pid:",
+    "    raise SystemExit('cu_linux_process_usage_pid')",
+    "cu_cpu = int(data['cpu_time_ns'])",
+    "cu_rss = int(data['resident_bytes'])",
+    "cu_total = int(data['page_faults']['total'])",
+    "cu_soft = int(data['page_faults']['soft'])",
+    "cu_hard = int(data['page_faults']['hard'])",
+    "within('cu_linux_process_usage_cpu_time_ns', cu_cpu, before['cpu_time_ns'], after['cpu_time_ns'])",
+    "within('cu_linux_process_usage_resident_bytes', cu_rss,",
+    "       min(before['resident_bytes'], after['resident_bytes']),",
+    "       max(before['resident_bytes'], after['resident_bytes']))",
+    "within('cu_linux_process_usage_page_faults_total', cu_total,",
+    "       before['page_faults_total'], after['page_faults_total'])",
+    "within('cu_linux_process_usage_page_faults_soft', cu_soft,",
+    "       before['page_faults_soft'], after['page_faults_soft'])",
+    "within('cu_linux_process_usage_page_faults_hard', cu_hard,",
+    "       before['page_faults_hard'], after['page_faults_hard'])",
+    "state = json.loads(subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe', 'process-state', '--pid', str(pid)],",
+    "    text=True))",
+    "if not state.get('ok') or state['data'].get('start_identity') != data.get('start_identity'):",
+    "    raise SystemExit('cu_linux_process_usage_start_identity')",
+    "print('pid', pid)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid, executable], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_process_usage_readback:" + output.stderr + output.stdout);
+}
+
+function verify_pid(run_directory, executable, pid) {
+  verify_readback(run_directory, executable, pid);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-process-usage");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP process-usage observe matches independent /proc stat and statm read-back for self");
+  verify_pid(context.run_directory, executable, rh.pid());
+
+  print("STEP spawn disposable child and verify --pid read-back");
+  const child = harness.start({
+    program: "sleep",
+    args: ["300"],
+    current_dir: context.run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  verify_pid(context.run_directory, executable, harness.spawned_pid(child));
+  harness.kill(child);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-process-usage-readback");
+  harness.remove_run(context);
+  print("PASS: Linux process-usage matches independent /proc/<pid>/stat and statm read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
