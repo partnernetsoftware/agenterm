@@ -108,11 +108,11 @@ pub fn top_level_text() -> String {
     );
     append_missing_top_level_rows(&mut text);
     text = text.replace(
-        "  desktop-state                     observe  bounded coherent desktop observation without a screenshot\n  device-screenshot                 observe  inventory or capture a host-published wired-device screen source\n  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
-        "  desktop-state  device-screenshot  device-watch  device-list  device-claims  ime-status  power-status\n  device-claim  device-status  device-read  device-write  device-renew  device-release\n  storage-devices  storage-volumes  resource-status  resource-pressure  runtime-status",
+        "  desktop-state                     observe  bounded coherent desktop observation without a screenshot\n  device-screenshot                 observe  inventory or capture a host-published wired-device screen source\n  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  screen-reader  power-status  runtime-status  device-read  device-write  device-renew  device-release",
+        "  desktop-state  device-screenshot  device-watch  device-list  device-claims  ime-status  screen-reader  power-status\n  device-claim  device-status  device-read  device-write  device-renew  device-release\n  storage-devices  storage-volumes  resource-status  resource-pressure  runtime-status",
     );
     text = text.replace(
-        "  ime-status                        observe  read the session input-method framework and environment facts\n  hover                             actuate  AT-SPI GenerateMouseEvent(abs) at a named node's extents center\n  scroll-wheel                      actuate  bounded wheel at a named node's AT-SPI extents center\n  unmaximize                        actuate  EWMH unmaximize with read-back",
+        "  ime-status                        observe  read the session input-method framework and environment facts\n  screen-reader                     observe  read org.a11y.Status IsEnabled and ScreenReaderEnabled\n  hover                             actuate  AT-SPI GenerateMouseEvent(abs) at a named node's extents center\n  scroll-wheel                      actuate  bounded wheel at a named node's AT-SPI extents center\n  unmaximize                        actuate  EWMH unmaximize with read-back",
         "  hover  scroll-wheel  unmaximize actuate named desktop state",
     );
     text = text.replace(
@@ -136,7 +136,7 @@ pub fn top_level_text() -> String {
     {
         text = text.replacen(
             &row,
-            "  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
+            "  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  screen-reader  power-status  runtime-status  device-read  device-write  device-renew  device-release",
             1,
         );
     }
@@ -162,8 +162,8 @@ pub fn top_level_text() -> String {
         text = text.replacen(&format!("{row}\n"), "", 1);
     }
     text = text.replace(
-        "  desktop-state                     observe  bounded coherent desktop observation without a screenshot\n  device-screenshot                 observe  inventory or capture a host-published wired-device screen source\n  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  power-status  runtime-status  device-read  device-write  device-renew  device-release",
-        "  desktop-state  device-screenshot  device-watch  device-list  device-claims  ime-status  power-status\n  device-claim  device-status  device-read  device-write  device-renew  device-release\n  storage-devices  storage-volumes  resource-status  resource-pressure  runtime-status",
+        "  desktop-state                     observe  bounded coherent desktop observation without a screenshot\n  device-screenshot                 observe  inventory or capture a host-published wired-device screen source\n  device-watch  device-list  storage-devices  storage-volumes  resource-status  resource-pressure  device-claims  device-claim\n  device-status  ime-status  screen-reader  power-status  runtime-status  device-read  device-write  device-renew  device-release",
+        "  desktop-state  device-screenshot  device-watch  device-list  device-claims  ime-status  screen-reader  power-status\n  device-claim  device-status  device-read  device-write  device-renew  device-release\n  storage-devices  storage-volumes  resource-status  resource-pressure  runtime-status",
     );
     while text.lines().count() > 166 {
         let Some(blank) = text.find("\n\n") else {
@@ -456,6 +456,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "processor-affinity-status",
         "font-discovery",
         "ime-status",
+        "screen-reader",
         "keyboard-layout",
         "pointer-grab",
         "pointer-ungrab",

@@ -224,6 +224,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::ProcessorAffinityStatus { .. }
         | Command::FontDiscovery { .. }
         | Command::ImeStatus { .. }
+        | Command::ScreenReaderStatus { .. }
         | Command::KeyboardLayoutStatus { .. }
         | Command::PrivilegeApply { .. }
         | Command::PrivilegePlanPowerAction { .. }

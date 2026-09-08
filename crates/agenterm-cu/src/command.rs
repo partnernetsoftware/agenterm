@@ -1329,6 +1329,10 @@ pub enum Command {
     ImeStatus {
         target: TargetRef,
     },
+    /// Read the desktop-wide org.a11y.Status screen-reader switch.
+    ScreenReaderStatus {
+        target: TargetRef,
+    },
     KeyboardLayoutStatus {
         target: TargetRef,
     },
@@ -4234,6 +4238,7 @@ impl Command {
             Self::Doctor { .. } => "doctor".into(),
             Self::RuntimeStatus { .. } => "runtime-status".into(),
             Self::ImeStatus { .. } => "ime-status".into(),
+            Self::ScreenReaderStatus { .. } => "screen-reader".into(),
             Self::KeyboardLayoutStatus { .. } => "keyboard-layout".into(),
             Self::AudioStatus { .. }
             | Self::AudioPlanVolume { .. }
@@ -4493,6 +4498,7 @@ impl Command {
             },
             Self::AudioStatus { .. } => "audio.status".to_owned(),
             Self::ImeStatus { .. } => "ime.status".to_owned(),
+            Self::ScreenReaderStatus { .. } => "screen-reader.status".to_owned(),
             Self::KeyboardLayoutStatus { .. } => "keyboard-layout.status".to_owned(),
             Self::AudioPlanVolume { .. } => "audio.plan-volume".to_owned(),
             Self::AudioPlanMuted { .. } => "audio.plan-muted".to_owned(),
@@ -4677,6 +4683,7 @@ impl Command {
             | Self::Doctor { target, .. }
             | Self::RuntimeStatus { target, .. }
             | Self::ImeStatus { target }
+            | Self::ScreenReaderStatus { target }
             | Self::KeyboardLayoutStatus { target }
             | Self::AudioStatus { target }
             | Self::AudioPlanVolume { target, .. }

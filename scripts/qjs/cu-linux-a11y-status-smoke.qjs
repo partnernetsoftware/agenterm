@@ -1,6 +1,7 @@
-// CEO: org.a11y.Status IsEnabled + ScreenReaderEnabled readback via doctor.
-// Acceptance is smoke read-back only: doctor checks.a11y_bus must expose
-// both flags with read=ok and boolean values. No --coords or screenshot.
+// CEO: Linux screen-reader observe with independent org.a11y.Status read-back.
+// Acceptance is smoke read-back only: ok JSON must match dbus-send flag facts;
+// unsupported must carry typed alternatives and match bus probes. No --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -8,7 +9,7 @@ import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = [
-  "cu.linux-a11y-status-doctor-readback",
+  "cu.linux-screen-reader-status",
 ];
 
 function ensure(condition, message) {
@@ -54,7 +55,7 @@ function cu_env() {
   return env;
 }
 
-function run_cu_reply(run_directory, executable, arguments) {
+function run_cu(run_directory, executable, arguments) {
   const argv = ["--target", "current", "--grant", "observe"];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
@@ -62,22 +63,116 @@ function run_cu_reply(run_directory, executable, arguments) {
     env: cu_env(),
     timeout_ms: 120000,
   });
+  ensure(output.success === true || output.exit_code === 1, "cu_linux_screen_reader_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_a11y_status_empty:" + output.stdout + output.stderr);
-  let document = null;
-  try { document = JSON.parse(trimmed); }
-  catch (error) { throw "cu_linux_a11y_status_invalid:" + trimmed; }
-  ensure(document.ok === true
-    || (document.error !== undefined && document.error.code === "doctor_not_ready"),
-    "cu_linux_a11y_status_reply:" + JSON.stringify(document));
-  const report = doctor_report(document);
-  ensure(output.success === (report.status === "ready"),
-    "cu_linux_a11y_status_exit:" + report.status + ":" + output.exit_code);
+  ensure(trimmed !== "", "cu_linux_screen_reader_empty");
+  const document = JSON.parse(trimmed);
+  ensure(text_at(document, "command") === "screen-reader", "cu_linux_screen_reader_command:" + JSON.stringify(document));
   return document;
 }
 
-function doctor_report(reply) {
-  return reply.ok === true ? reply.data : reply.error.detail.report;
+function safe_command(program, args, options) {
+  try {
+    return rh.command(program, args, options);
+  } catch (error) {
+    return null;
+  }
+}
+
+function session_bus_connected() {
+  const output = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.freedesktop.DBus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/freedesktop/DBus",
+    "org.freedesktop.DBus.GetId",
+  ], {
+    env: cu_env(),
+    timeout_ms: 10000,
+  });
+  return output !== null && output.success === true;
+}
+
+function dbus_name_has_owner(service) {
+  const output = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.freedesktop.DBus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/freedesktop/DBus",
+    "org.freedesktop.DBus.NameHasOwner",
+    "string:" + service,
+  ], {
+    env: cu_env(),
+    timeout_ms: 10000,
+  });
+  return output !== null && output.success === true && output.stdout.indexOf("boolean true") >= 0;
+}
+
+function independent_a11y_status_flag(flag) {
+  const output = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.a11y.Bus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/a11y/bus",
+    "org.freedesktop.DBus.Properties.Get",
+    "string:org.a11y.Status",
+    "string:" + flag,
+  ], {
+    env: cu_env(),
+    timeout_ms: 10000,
+  });
+  if (output === null || !output.success) { return null; }
+  if (output.stdout.indexOf("boolean true") >= 0) { return true; }
+  if (output.stdout.indexOf("boolean false") >= 0) { return false; }
+  return null;
+}
+
+function independent_a11y_status_flags() {
+  if (!dbus_name_has_owner("org.a11y.Bus")) { return null; }
+  const flags = {};
+  for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
+    const value = independent_a11y_status_flag(flag);
+    if (value === null) { return null; }
+    flags[flag] = value;
+  }
+  return flags;
+}
+
+function assert_ok_readback(reply) {
+  ensure(flag_at(reply, "ok"), "cu_linux_screen_reader_ok:" + JSON.stringify(reply));
+  const data = at(reply, "data");
+  const status = text_at(data, "status");
+  ensure(status === "ok" || status === "partial", "cu_linux_screen_reader_status:" + JSON.stringify(data));
+  ensure(flag_at(data, "session_bus.connected"), "cu_linux_screen_reader_session_bus:" + JSON.stringify(data.session_bus));
+  ensure(text_at(data, "a11y_bus.address") !== "", "cu_linux_screen_reader_bus_address:" + JSON.stringify(data.a11y_bus));
+  for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
+    ensure(text_at(data, "org_a11y_status.flags." + flag + ".read") === "ok", "cu_linux_screen_reader_flag_read:" + flag + ":" + JSON.stringify(data.org_a11y_status));
+    const value = at(data, "org_a11y_status.flags." + flag + ".value");
+    ensure(value === true || value === false, "cu_linux_screen_reader_flag_value:" + flag + ":" + JSON.stringify(value));
+  }
+
+  const independent = independent_a11y_status_flags();
+  ensure(independent !== null, "cu_linux_screen_reader_independent_missing");
+  for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
+    ensure(at(independent, flag) === at(data, "org_a11y_status.flags." + flag + ".value"), "cu_linux_screen_reader_flag_mismatch:" + flag + ":" + JSON.stringify(data.org_a11y_status.flags[flag]) + ":" + JSON.stringify(independent));
+  }
+}
+
+function assert_unsupported_readback(reply) {
+  ensure(!flag_at(reply, "ok"), "cu_linux_screen_reader_unexpected_ok:" + JSON.stringify(reply));
+  ensure(text_at(reply, "error.code") === "screen_reader_unsupported", "cu_linux_screen_reader_code:" + JSON.stringify(reply.error));
+  const detail = at(reply, "error.detail");
+  ensure(text_at(detail, "effect") === "not_performed", "cu_linux_screen_reader_effect:" + JSON.stringify(detail));
+  ensure(text_at(detail, "required_mechanism") === "linux-atspi-session-bus", "cu_linux_screen_reader_mechanism:" + JSON.stringify(detail));
+  ensure(at(detail, "alternatives").length > 0, "cu_linux_screen_reader_alternatives:" + JSON.stringify(detail));
+  ensure(text_at(detail, "reason").indexOf("org.a11y.Status") >= 0 || text_at(detail, "reason").indexOf("AT-SPI") >= 0, "cu_linux_screen_reader_reason:" + JSON.stringify(detail));
+
+  const owner = dbus_name_has_owner("org.a11y.Bus");
+  const independent = independent_a11y_status_flags();
+  ensure(!owner || independent === null, "cu_linux_screen_reader_framework_should_be_absent:" + owner + ":" + JSON.stringify(independent));
 }
 
 const args = rh.args();
@@ -90,23 +185,12 @@ const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
 
-print("STEP doctor exposes org.a11y.Status IsEnabled and ScreenReaderEnabled with readback");
-const doctor_reply = run_cu_reply(repo, executable, ["doctor"]);
-const doctor = doctor_report(doctor_reply);
-const detail = at(doctor, "checks.a11y_bus.detail");
-const unsupported = text_at(detail, "status") === "unsupported";
-if (unsupported) {
-  ensure(text_at(detail, "reason").indexOf("org.a11y.Status") >= 0, "cu_linux_a11y_status_unsupported:" + JSON.stringify(detail));
-  ensure(at(detail, "alternatives").length > 0, "cu_linux_a11y_status_alternatives:" + JSON.stringify(detail));
-  print("PASS typed unsupported with alternatives");
+print("STEP screen-reader observe returns ok JSON or typed unsupported with session-bus read-back");
+const reply = run_cu(repo, executable, ["screen-reader"]);
+if (flag_at(reply, "ok")) {
+  assert_ok_readback(reply);
+  print("PASS screen-reader ok with independent org.a11y.Status read-back");
   return;
 }
-ensure(text_at(detail, "status") === "ok" || text_at(detail, "status") === "partial", "cu_linux_a11y_status_state:" + JSON.stringify(detail));
-ensure(flag_at(detail, "session_bus.connected"), "cu_linux_a11y_status_session_bus:" + JSON.stringify(detail.session_bus));
-ensure(text_at(detail, "a11y_bus.address") !== "", "cu_linux_a11y_status_bus_address:" + JSON.stringify(detail.a11y_bus));
-for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
-  ensure(text_at(detail, "org_a11y_status.flags." + flag + ".read") === "ok", "cu_linux_a11y_status_flag_read:" + flag + ":" + JSON.stringify(detail.org_a11y_status));
-  const value = at(detail, "org_a11y_status.flags." + flag + ".value");
-  ensure(value === true || value === false, "cu_linux_a11y_status_flag_value:" + flag + ":" + JSON.stringify(value));
-}
-print("PASS doctor a11y_bus status readback");
+assert_unsupported_readback(reply);
+print("PASS screen-reader typed unsupported with independent bus read-back");

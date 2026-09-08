@@ -3678,6 +3678,18 @@
       "args": []
     },
     {
+      "name": "screen-reader",
+      "command": "screen-reader",
+      "aliases": [
+        "screen reader status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read org.a11y.Status IsEnabled and ScreenReaderEnabled on the session bus",
+      "usage": "screen reader status\nscreen-reader",
+      "args": []
+    },
+    {
       "name": "keyboard-layout",
       "command": "keyboard-layout",
       "aliases": [
@@ -7606,6 +7618,10 @@
     {
       "name": "ime-status",
       "text": "agenterm-cu ime-status    (also: ime status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  ime status\n  ime-status\n\nReports the session input-method framework when IBus or Fcitx answers on the\ndesktop bus, including GTK_IM_MODULE, QT_IM_MODULE and XMODIFIERS facts.\nWhen no framework is observable the reply is a typed unsupported result with\nrepair alternatives instead of screenshot or coordinate degradation.\n"
+    },
+    {
+      "name": "screen-reader",
+      "text": "agenterm-cu screen-reader    (also: screen reader status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  screen reader status\n  screen-reader\n\nReports the desktop-wide org.a11y.Status switch Chromium watches before it\nbridges a web accessibility tree: IsEnabled and ScreenReaderEnabled on the\nsession-bus name org.a11y.Bus, plus session-bus and AT-SPI bus readiness\nfacts. When the mechanism is unavailable the reply is a typed unsupported\nresult with repair alternatives instead of screenshot or coordinate\ndegradation.\n"
     },
     {
       "name": "keyboard-layout",
