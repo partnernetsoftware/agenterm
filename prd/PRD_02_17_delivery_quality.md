@@ -1171,6 +1171,13 @@ costs a full candidate cycle:
   the runner reached its 180-second native-cell budget. The caller now passes
   the same bounded budget into lease; emulated x86_64 cells retain their
   separate 600-second transport allowance.
+- [x] Transport readiness and graphical-session readiness have separate
+  budgets. A restored Windows arm64 court exposed QGA but missed the first
+  180-second session-agent nonce; the unchanged exact probe subsequently
+  proved `session_id=1` and `process_in_job=false` under 360 seconds. Windows
+  arm64 therefore owns a 360-second interactive recovery budget, while fully
+  emulated Windows x86_64 owns 600 seconds. A timeout remains BLOCKED and may
+  never be recast as an ACU product failure.
 - [x] Windows interactive recovery uses one stable ONLOGON task and script
   path. Deleting the task immediately after a successful nonce also terminated
   its live worker; retaining random tasks then produced stale `Running` state
