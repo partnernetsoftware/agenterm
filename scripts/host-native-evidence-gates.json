@@ -381,6 +381,8 @@
       "evidence": [
         "cu.linux-gtk-entry-send-keys-ctrl-home",
         "cu.linux-gtk-entry-send-keys-ctrl-end",
+        "cu.linux-gtk-entry-send-keys-ctrl-c",
+        "cu.linux-gtk-entry-send-keys-ctrl-v",
         "cu.linux-gtk-entry-send-keys-select-delete"
       ]
     },

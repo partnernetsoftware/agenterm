@@ -17,6 +17,7 @@ cleanup() {
     kill -TERM "$FIXPID" 2>/dev/null || true
     wait "$FIXPID" 2>/dev/null || true
   fi
+  "$CU" --target current --grant actuate clipboard-clear --apply >/dev/null 2>&1 || true
   rm -rf "$RUN"
 }
 trap cleanup EXIT
@@ -54,6 +55,7 @@ MID=4
 
 echo "STEP focus --name Fixture Entry"
 "$CU" --target current --grant observe,actuate focus --window "$HANDLE" --name "Fixture Entry" >/dev/null
+"$CU" --target current --grant actuate clipboard-clear --apply >/dev/null
 
 echo "STEP send-text --name plants SEED"
 SENT="$("$CU" --target current --grant observe,actuate send-text --window "$HANDLE" --name "Fixture Entry" -- "$SEED")"
@@ -85,10 +87,22 @@ d = json.load(sys.stdin)
 assert d["ok"] and d["data"]["text"] == seed and d["data"]["start"] == 0 and d["data"]["end"] == len(seed)
 ' "$SEED" <<<"$SEL"
 
+echo "STEP send-keys ctrl+c --name publishes SEED onto native clipboard"
+COPIED="$("$CU" --target current --grant observe,actuate send-keys --window "$HANDLE" --name "Fixture Entry" -- ctrl+c)"
+python3 -c 'import json,sys; seed=sys.argv[1]; d=json.load(sys.stdin); assert d["ok"] and d["data"]["via"]=="gettext" and d["data"]["clipboard"] and d["data"]["text"]==seed' "$SEED" <<<"$COPIED"
+CLIP="$("$CU" --target current --grant observe clipboard-read)"
+python3 -c 'import json,sys; seed=sys.argv[1]; d=json.load(sys.stdin); assert d["ok"] and d["data"]["text"]==seed' "$SEED" <<<"$CLIP"
+
 echo "STEP send-keys backspace --name clears entry"
 CLEARED="$("$CU" --target current --grant observe,actuate send-keys --window "$HANDLE" --name "Fixture Entry" -- backspace)"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["changed"] is True' <<<"$CLEARED"
 TEXT="$("$CU" --target current --grant observe get-text --window "$HANDLE" --name "Fixture Entry")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["text"]==""' <<<"$TEXT"
 
-echo "PASS: CEO#10 GTK entry semantic modifier chords by --name (get-caret/get-selection/get-text read-back)"
+echo "STEP send-keys ctrl+v --name pastes clipboard SEED back"
+PASTED="$("$CU" --target current --grant observe,actuate send-keys --window "$HANDLE" --name "Fixture Entry" -- ctrl+v)"
+python3 -c 'import json,sys; seed=sys.argv[1]; d=json.load(sys.stdin); assert d["ok"] and d["data"]["typed"]==seed and d["data"]["clipboard"]' "$SEED" <<<"$PASTED"
+TEXT="$("$CU" --target current --grant observe get-text --window "$HANDLE" --name "Fixture Entry")"
+python3 -c 'import json,sys; seed=sys.argv[1]; d=json.load(sys.stdin); assert d["ok"] and d["data"]["text"]==seed' "$SEED" <<<"$TEXT"
+
+echo "PASS: CEO#10 GTK entry semantic modifier chords ctrl+a/c/v by --name (get-selection/clipboard-read/get-text read-back)"

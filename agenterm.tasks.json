@@ -6252,7 +6252,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-send-keys-smoke",
-      "description": "Prove Linux GTK entry semantic modifier chords (ctrl+home, ctrl+end, ctrl+a, backspace) by --name with independent get-caret/get-selection/get-text read-back; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Prove Linux GTK entry semantic modifier chords (ctrl+home, ctrl+end, ctrl+a, ctrl+c, ctrl+v, backspace) by --name with independent get-caret/get-selection/clipboard-read/get-text read-back; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -11,6 +11,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-gtk-entry-send-keys-ctrl-home",
   "cu.linux-gtk-entry-send-keys-ctrl-end",
+  "cu.linux-gtk-entry-send-keys-ctrl-c",
+  "cu.linux-gtk-entry-send-keys-ctrl-v",
   "cu.linux-gtk-entry-send-keys-select-delete",
 ];
 
@@ -46,12 +48,32 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
 function run_cu(run_directory, executable, grant, arguments) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: cu_env(executable),
     timeout_ms: 45000,
   });
   ensure(output.success === true, "cu_linux_gtk_entry_send_keys_cli:" + output.stdout + output.stderr);
@@ -116,6 +138,7 @@ try {
   run_cu(run_directory, executable, "observe,actuate", [
     "focus", "--window", handle, "--name", "Fixture Entry",
   ]);
+  run_cu(run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
   const focused = run_cu(run_directory, executable, "observe", [
     "focused", "--window", handle,
   ]);
@@ -206,6 +229,25 @@ try {
     "cu_linux_gtk_entry_send_keys_selection:" + JSON.stringify(selection.data)
   );
 
+  print("STEP send-keys ctrl+c --name publishes SEED through semantic copy");
+  const copied = run_cu(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "ctrl+c",
+  ]);
+  ensure(
+    text_at(copied, "data.addressing") === "accessibility-tree"
+      && text_at(copied, "data.via") === "gettext"
+      && flag_at(copied, "data.clipboard")
+      && text_at(copied, "data.text") === seed,
+    "cu_linux_gtk_entry_send_keys_ctrl_c:" + JSON.stringify(copied.data)
+  );
+  const clipboard = run_cu(run_directory, executable, "observe", ["clipboard-read"]);
+  ensure(
+    text_at(clipboard, "data.text") === seed
+      && flag_at(clipboard, "data.types_available"),
+    "cu_linux_gtk_entry_send_keys_clipboard:" + JSON.stringify(clipboard.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-c");
+
   print("STEP send-keys backspace --name clears the selected SEED");
   const cleared = run_cu(run_directory, executable, "observe,actuate", [
     "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "backspace",
@@ -215,23 +257,51 @@ try {
       && flag_at(cleared, "data.changed") === true,
     "cu_linux_gtk_entry_send_keys_backspace:" + JSON.stringify(cleared.data)
   );
+  const text_cleared = run_cu(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  ensure(
+    text_at(text_cleared, "data.via") === "gettext"
+      && text_at(text_cleared, "data.text") === "",
+    "cu_linux_gtk_entry_send_keys_text_empty:" + JSON.stringify(text_cleared.data)
+  );
+  const caret_cleared = run_cu(run_directory, executable, "observe", [
+    "get-caret", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  ensure(
+    text_at(caret_cleared, "data.via") === "get-caret-offset"
+      && int_at(caret_cleared, "data.offset") === 0,
+    "cu_linux_gtk_entry_send_keys_caret_cleared:" + JSON.stringify(caret_cleared.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-select-delete");
+
+  print("STEP send-keys ctrl+v --name pastes clipboard SEED back into the entry");
+  const pasted = run_cu(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "ctrl+v",
+  ]);
+  ensure(
+    text_at(pasted, "data.addressing") === "accessibility-tree"
+      && flag_at(pasted, "data.clipboard")
+      && text_at(pasted, "data.typed") === seed,
+    "cu_linux_gtk_entry_send_keys_ctrl_v:" + JSON.stringify(pasted.data)
+  );
   const text_after = run_cu(run_directory, executable, "observe", [
     "get-text", "--window", handle, "--name", "Fixture Entry",
   ]);
   ensure(
     text_at(text_after, "data.via") === "gettext"
-      && text_at(text_after, "data.text") === "",
-    "cu_linux_gtk_entry_send_keys_text_empty:" + JSON.stringify(text_after.data)
+      && text_at(text_after, "data.text") === seed,
+    "cu_linux_gtk_entry_send_keys_text_restored:" + JSON.stringify(text_after.data)
   );
   const caret_after = run_cu(run_directory, executable, "observe", [
     "get-caret", "--window", handle, "--name", "Fixture Entry",
   ]);
   ensure(
     text_at(caret_after, "data.via") === "get-caret-offset"
-      && int_at(caret_after, "data.offset") === 0,
+      && int_at(caret_after, "data.offset") === seed_len,
     "cu_linux_gtk_entry_send_keys_caret_after:" + JSON.stringify(caret_after.data)
   );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-select-delete");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-v");
 
   succeeded = 1;
 } catch (error) {
@@ -244,6 +314,7 @@ if (fixture_pid > 0) {
 if (fixture >= 0) {
   harness.wait(fixture, 5000);
 }
+run_cu(run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_send_keys_failed");
-print("PASS: CEO#10 GTK entry semantic modifier chords by --name (get-caret/get-selection/get-text read-back)");
+print("PASS: CEO#10 GTK entry semantic modifier chords ctrl+a/c/v by --name (get-selection/clipboard-read/get-text read-back)");
