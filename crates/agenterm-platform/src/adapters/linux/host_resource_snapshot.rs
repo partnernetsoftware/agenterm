@@ -1,3 +1,5 @@
+use crate::contract::host_memory::HostMemoryErrorKind;
+
 use super::{
     HostFreeMemorySemantics, HostResourceSnapshotError, HostResourceSnapshotErrorKind,
     NativeSnapshot, available_load, checked_hostname, memory_from_native,
@@ -96,35 +98,28 @@ fn parse_processor_model(contents: &str) -> Option<String> {
 }
 
 fn mem_free_bytes() -> Result<u64, HostResourceSnapshotError> {
-    let contents = std::fs::read_to_string("/proc/meminfo").map_err(|error| {
+    let meminfo = crate::selected::host_memory::read_meminfo().map_err(memory_query_error)?;
+    crate::selected::host_memory::meminfo_kibibytes(&meminfo, "MemFree:").map_err(|error| {
         HostResourceSnapshotError::new(
-            HostResourceSnapshotErrorKind::MemoryQuery,
-            format!("read /proc/meminfo: {error}"),
+            match error.kind() {
+                HostMemoryErrorKind::InvalidValue => {
+                    HostResourceSnapshotErrorKind::InvalidNativeValue
+                }
+                HostMemoryErrorKind::Overflow => HostResourceSnapshotErrorKind::Overflow,
+                _ => HostResourceSnapshotErrorKind::MemoryQuery,
+            },
+            error.to_string(),
         )
-    })?;
-    let line = contents
-        .lines()
-        .find(|line| line.starts_with("MemFree:"))
-        .ok_or_else(|| {
-            HostResourceSnapshotError::new(
-                HostResourceSnapshotErrorKind::InvalidNativeValue,
-                "/proc/meminfo has no MemFree",
-            )
-        })?;
-    let mut fields = line.split_ascii_whitespace();
-    if fields.next() != Some("MemFree:") {
-        unreachable!();
-    }
-    let kibibytes = fields.next().and_then(|value| value.parse::<u64>().ok());
-    if fields.next() != Some("kB") || fields.next().is_some() {
-        return Err(HostResourceSnapshotError::new(
-            HostResourceSnapshotErrorKind::InvalidNativeValue,
-            "invalid MemFree shape",
-        ));
-    }
-    kibibytes
-        .and_then(|value| value.checked_mul(1024))
-        .ok_or_else(|| overflow("MemFree bytes"))
+    })
+}
+
+fn memory_query_error(
+    error: crate::contract::host_memory::HostMemoryError,
+) -> HostResourceSnapshotError {
+    HostResourceSnapshotError::new(
+        HostResourceSnapshotErrorKind::MemoryQuery,
+        error.to_string(),
+    )
 }
 
 fn query_error(kind: HostResourceSnapshotErrorKind, operation: &str) -> HostResourceSnapshotError {

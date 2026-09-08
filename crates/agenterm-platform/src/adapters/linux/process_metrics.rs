@@ -14,16 +14,7 @@ pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
             "process ID zero does not identify one process",
         ));
     }
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|source| {
-        error(
-            if source.kind() == std::io::ErrorKind::NotFound {
-                ProcessMetricsErrorKind::NotFound
-            } else {
-                ProcessMetricsErrorKind::Open
-            },
-            source.to_string(),
-        )
-    })?;
+    let stat = read_stat(pid)?;
     let close = stat.rfind(')').ok_or_else(|| {
         error(
             ProcessMetricsErrorKind::Parse,
@@ -47,9 +38,15 @@ pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
             source.to_string(),
         )
     })?;
-    let resident_pages = statm
-        .split_whitespace()
-        .nth(1)
+    let mut statm_fields = statm.split_whitespace();
+    let _size_pages = statm_fields.next().ok_or_else(|| {
+        error(
+            ProcessMetricsErrorKind::Parse,
+            "process statm has no size field",
+        )
+    })?;
+    let resident_pages = statm_fields
+        .next()
         .ok_or_else(|| {
             error(
                 ProcessMetricsErrorKind::Parse,
@@ -69,7 +66,13 @@ pub(crate) fn metrics(pid: u32) -> Result<ProcessMetrics, ProcessMetricsError> {
         cpu_time: Duration::from_secs(ticks / clock_hz).saturating_add(Duration::from_nanos(
             (ticks % clock_hz).saturating_mul(1_000_000_000) / clock_hz,
         )),
-        resident_bytes: resident_pages.saturating_mul(page_size),
+    let resident_bytes = resident_pages.checked_mul(page_size).ok_or_else(|| {
+        error(
+            ProcessMetricsErrorKind::Overflow,
+            "resident page count multiplied by page size overflowed u64",
+        )
+    })?;
+
         page_faults: checked_page_faults(total_faults, Some(minor_faults), Some(major_faults))?,
     })
 }
@@ -240,4 +243,42 @@ fn sysconf(key: libc::c_int, name: &str) -> Result<u64, ProcessMetricsError> {
 
 fn error(kind: ProcessMetricsErrorKind, detail: impl Into<String>) -> ProcessMetricsError {
     ProcessMetricsError::new(kind, detail)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn statm_parser_requires_size_and_rss_fields() {
+        assert_eq!(parse_statm_resident_pages("12345 6789").unwrap(), 6789);
+        assert_eq!(
+            parse_statm_resident_pages("6789")
+                .expect_err("missing RSS")
+                .kind(),
+            ProcessMetricsErrorKind::Parse
+        );
+        assert_eq!(parse_statm_resident_pages("12345 6789 1 2 3 4 5").unwrap(), 6789);
+    }
+
+    fn parse_statm_resident_pages(statm: &str) -> Result<u64, ProcessMetricsError> {
+        let mut statm_fields = statm.split_whitespace();
+        let _size_pages = statm_fields.next().ok_or_else(|| {
+            error(
+                ProcessMetricsErrorKind::Parse,
+                "process statm has no size field",
+            )
+        })?;
+        statm_fields
+            .next()
+            .ok_or_else(|| {
+                error(
+                    ProcessMetricsErrorKind::Parse,
+                    "process statm has no RSS field",
+                )
+            })?
+            .parse::<u64>()
+            .map_err(|source| error(ProcessMetricsErrorKind::Parse, source.to_string()))
+    }
 }
