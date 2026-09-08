@@ -39,7 +39,7 @@ fn verify_foreground(handle: isize) -> Result<(), ActivationError> {
             Err(error) => {
                 return Err(failed(
                     "activation_readback_failed",
-                    format!("window inventory read-back failed: {error}"),
+                    format!("window inventory read-back failed: {error:?}"),
                 ));
             }
         }

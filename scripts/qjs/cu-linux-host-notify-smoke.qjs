@@ -1,0 +1,201 @@
+// Linux public black-box journey for FDO desktop notification dispatch.
+// Independent read-back uses session-bus dbus-monitor (not CU self-report).
+// Action buttons: FDO server may advertise them, but dunst does not publish
+// controls in AT-SPI, so the journey records an honest typed blocker.
+//
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.host-notify.linux"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function run_cu(run_directory, executable, grant, command_argv, expect_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const item of command_argv) { argv.push("" + item); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"), HOME: run_directory },
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_host_notify_empty_stdout");
+  const reply = JSON.parse(trimmed);
+  if (expect_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true && reply.error.code === expect_error,
+      "cu_linux_host_notify_wrong_failure:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true,
+    "cu_linux_host_notify_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+function dbus_send(command_argv) {
+  const output = rh.command("dbus-send", command_argv, { timeout_ms: 15000 });
+  ensure(output.success === true, "cu_linux_host_notify_dbus_send:" + output.stderr);
+  return output.stdout;
+}
+
+function start_dbus_monitor(run_directory, log_path, pid_path) {
+  rh.command("sh", ["-c",
+    "dbus-monitor --session > '" + log_path + "' 2>&1 & echo $! > '" + pid_path + "'"
+  ], { timeout_ms: 5000, cwd: run_directory });
+  ensure(direct_file(pid_path), "cu_linux_host_notify_monitor_pid_missing");
+  const pid = parseInt(rh.read_text(pid_path).trim(), 10);
+  ensure(pid > 0, "cu_linux_host_notify_monitor_pid_invalid");
+  return pid;
+}
+
+function stop_dbus_monitor(pid) {
+  if (!(pid > 0)) { return; }
+  rh.command("kill", ["" + pid], { timeout_ms: 5000 });
+  harness.sleep_ms(250);
+}
+
+function dunst_window_handle() {
+  const output = rh.command("xdotool", ["search", "--class", "dunst"], { timeout_ms: 5000 });
+  ensure(output.success === true, "cu_linux_host_notify_dunst_missing:" + output.stderr);
+  const line = output.stdout.trim().split("\n")[0];
+  ensure(line !== "", "cu_linux_host_notify_dunst_handle_empty");
+  const handle = parseInt(line, 10);
+  ensure(handle > 0, "cu_linux_host_notify_dunst_handle_invalid:" + line);
+  return handle;
+}
+
+const script_argv = rh.args();
+if (script_argv.length === 1 && script_argv[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(script_argv.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(script_argv[0]);
+const executable = rh.absolute(script_argv[1]);
+ensure(direct_file(executable), "cu_linux_host_notify_executable_missing");
+
+const context = harness.new_context(repo, "cu-linux-host-notify");
+const run_directory = context.run_directory;
+const monitor_log = rh.join(run_directory, "dbus-notify.log");
+const monitor_pid_path = rh.join(run_directory, "dbus-notify.pid");
+let monitor_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP capabilities declare host-notify available with dispatcher-accepted-only verification");
+  const capabilities = run_cu(run_directory, executable, "observe", ["capabilities"]);
+  const notify_cap = at(capabilities, "verbs.host-notify");
+  ensure(text_at(notify_cap, "status") === "available", "cu_linux_host_notify_cap_status");
+  ensure(text_at(notify_cap, "verification") === "dispatcher-accepted-only",
+    "cu_linux_host_notify_cap_verification");
+
+  print("STEP FDO GetCapabilities reports the session notification server honestly");
+  const capabilities_text = dbus_send([
+    "--session", "--print-reply",
+    "--dest=org.freedesktop.Notifications",
+    "/org/freedesktop/Notifications",
+    "org.freedesktop.Notifications.GetCapabilities"
+  ]);
+  ensure(capabilities_text.indexOf("string \"actions\"") >= 0,
+    "cu_linux_host_notify_fdo_actions_capability");
+  ensure(capabilities_text.indexOf("string \"body\"") >= 0,
+    "cu_linux_host_notify_fdo_body_capability");
+
+  print("STEP oversized body fails typed before native dispatch");
+  const oversized = "x".repeat(16385);
+  const invalid = run_cu(run_directory, executable, "actuate",
+    ["host-notify", "AgenTerm", oversized], "host_notification_invalid_input");
+  ensure(text_at(invalid, "detail.effect") === "not_performed",
+    "cu_linux_host_notify_invalid_effect");
+
+  print("STEP Linux rejects subtitle and sound with typed unsupported");
+  const subtitle_error = run_cu(run_directory, executable, "actuate",
+    ["host-notify", "AgenTerm", "body", "--subtitle", "linux-only"], "host_notification_unsupported");
+  ensure(text_at(subtitle_error, "detail.effect") === "not_performed",
+    "cu_linux_host_notify_subtitle_effect");
+  const sound_error = run_cu(run_directory, executable, "actuate",
+    ["host-notify", "AgenTerm", "body", "--sound"], "host_notification_unsupported");
+  ensure(text_at(sound_error, "detail.effect") === "not_performed",
+    "cu_linux_host_notify_sound_effect");
+
+  print("STEP session-bus monitor proves FDO Notify carries the bounded token");
+  monitor_pid = start_dbus_monitor(run_directory, monitor_log, monitor_pid_path);
+  harness.sleep_ms(150);
+  const token = "cu-host-notify-linux-" + rh.now_ms();
+  const sent = run_cu(run_directory, executable, "actuate",
+    ["notify", "AgenTerm CU", token]);
+  harness.sleep_ms(200);
+  stop_dbus_monitor(monitor_pid);
+  monitor_pid = 0;
+  ensure(direct_file(monitor_log), "cu_linux_host_notify_monitor_log_missing");
+  const monitor_text = rh.read_text(monitor_log);
+  ensure(monitor_text.indexOf("org.freedesktop.Notifications; member=Notify") >= 0,
+    "cu_linux_host_notify_monitor_notify_call");
+  ensure(monitor_text.indexOf(token) >= 0,
+    "cu_linux_host_notify_monitor_token_missing");
+  ensure(sent.performed === true && sent.accepted === true && sent.verified === false,
+    "cu_linux_host_notify_receipt_truth:" + JSON.stringify(sent));
+  const provider = text_at(sent, "provider");
+  ensure(provider === "linux-fdo-notifications" || provider === "linux-notify-send",
+    "cu_linux_host_notify_provider_truth:" + provider);
+  ensure(text_at(sent, "verification") === "dispatcher-accepted-only",
+    "cu_linux_host_notify_verification_truth");
+  ensure(text_at(sent, "title_evidence.sha256").length === 64
+      && text_at(sent, "body_evidence.sha256").length === 64,
+    "cu_linux_host_notify_redacted_evidence");
+
+  print("STEP action buttons remain a typed blocker: server advertises actions but dunst publishes no AT-SPI controls");
+  const dunst_handle = dunst_window_handle();
+  dbus_send([
+    "--session", "--print-reply",
+    "--dest=org.freedesktop.Notifications",
+    "/org/freedesktop/Notifications",
+    "org.freedesktop.Notifications.Notify",
+    "string:agenterm", "uint32:0", "string:", "string:Action Blocker", "string:probe",
+    "array:string:default,Ack", "dict:string:variant:", "int32:5000"
+  ]);
+  harness.sleep_ms(300);
+  const action_query = run_cu(run_directory, executable, "observe", [
+    "query", "--window", "" + dunst_handle, "--text", "Ack", "--max", "5"
+  ]);
+  ensure(action_query.matched === 0,
+    "cu_linux_host_notify_action_atspi_blocker:" + JSON.stringify(action_query));
+  ensure(notify_cap.actions === undefined,
+    "cu_linux_host_notify_action_cu_surface_honest");
+
+  harness.emit_evidence(context, declared_evidence, "cu.host-notify.linux");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (monitor_pid > 0) { stop_dbus_monitor(monitor_pid); }
+ensure(succeeded === 1, failure || "cu_linux_host_notify_failed");
+harness.remove_run(context);
+print("PASS: Linux FDO host-notify dispatch with independent dbus read-back and honest action blocker");
+return;

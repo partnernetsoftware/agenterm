@@ -307,6 +307,7 @@ const evidence_suites = {
   "cu-host-open-smoke": true,
   "cu-permissions-open-smoke": true,
   "cu-host-notify-smoke": true,
+  "cu-linux-host-notify-smoke": true,
   "cu-runtime-status-smoke": true,
   "cu-runtime-capability-core-smoke": true,
   "cu-runtime-capability-core-linux-smoke": true,

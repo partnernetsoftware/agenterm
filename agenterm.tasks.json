@@ -833,6 +833,24 @@
         "task.cu-linux-gtk-button-focus-smoke"
       ]
     },
+    "cu-linux-host-notify-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-host-notify-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-host-notify-smoke"
+      ]
+    },
     "cu-linux-gtk-copy-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -3685,6 +3703,25 @@
         "artifact_write",
         "process_spawn",
         "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-host-notify-smoke",
+      "description": "Prove Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed subtitle/sound refusal, and an action-button AT-SPI blocker.",
+      "entry": "scripts/qjs/cu-linux-host-notify-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
       ]
     },
     {

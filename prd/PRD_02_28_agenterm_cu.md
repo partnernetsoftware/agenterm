@@ -1346,10 +1346,13 @@ flowchart LR
   host-open: `host-notify TITLE [BODY] [--subtitle TEXT] [--sound]` (alias
   `notify`) sends bounded text as native argv data, never shell or generated
   AppleScript source. Receipts redact all content to byte length and SHA-256.
-  macOS Notification Center is green through `cu.host-notify.macos`; the reply
+  macOS Notification Center is green through `cu.host-notify.macos`; Linux FDO
+  session-bus dispatch is green through `cu.host-notify.linux` with independent
+  dbus-monitor read-back (not CU self-report). The reply
   remains `verified=false` because acceptance cannot prove presentation or
-  user attention. Linux `notify-send` and the Windows native notification-icon
-  provider compile for both ISAs and remain native-court pending. Subtitle and
+  user attention. Linux `notify-send` / FDO dispatch and the Windows native
+  notification-icon provider compile for both ISAs; Linux FDO dispatch is now
+  evidenced, action buttons remain a typed AT-SPI blocker on dunst. Subtitle and
   sound are macOS-only until another provider can prove equivalent semantics.
   MCU `notify` now routes here, reducing top-level `STAY` from 20 to 19.
 - [x] The compatibility boundary no longer lies about `permissions`: `acu

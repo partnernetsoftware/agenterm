@@ -508,6 +508,10 @@
       "evidence": ["cu.host-notify.macos"]
     },
     {
+      "id": "cu-linux-host-notify-smoke",
+      "evidence": ["cu.host-notify.linux"]
+    },
+    {
       "id": "cu-runtime-status-smoke",
       "evidence": ["cu.runtime-status"]
     },

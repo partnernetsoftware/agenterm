@@ -327,6 +327,7 @@
         "cu.host-open.macos",
         "cu.permissions-open.contract",
         "cu.host-notify.macos",
+        "cu.host-notify.linux",
         "cu.runtime-status",
         "cu.device-inventory",
         "cu.device-screenshot-inventory",
