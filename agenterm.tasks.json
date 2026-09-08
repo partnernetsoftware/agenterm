@@ -1561,6 +1561,23 @@
         "task.cu-linux-ps-smoke"
       ]
     },
+    "cu-linux-query-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-query-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-query-smoke"
+      ]
+    },
     "cu-linux-process-usage-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -5937,6 +5954,24 @@
       "id": "cu-linux-ps-smoke",
       "description": "Prove Linux ps inventory pid, parent_pid and executable_name match independent /proc exe/stat read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-ps-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-query-smoke",
+      "description": "Prove Linux query filtered flat nodes by --role and --text/--text-exact match independent AT-SPI application-scoped dump read-back on the owned GTK fixture; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-query-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
