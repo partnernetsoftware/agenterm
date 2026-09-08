@@ -52,6 +52,7 @@ const declared_evidence = [
   "cu.linux-atspi-menu-inspect",
   "cu.linux-atspi-menu-invoke",
   "cu.linux-atspi-node-text",
+  "cu.linux-atspi-snapshot-diff",
   "cu.linux-atspi-dclick",
   "cu.linux-atspi-focus",
   "cu.linux-atspi-observe",
@@ -1340,6 +1341,42 @@ try {
     "cu_linux_smoke_extents:" + JSON.stringify(extents.data)
   );
 
+  print("STEP snapshot names one bounded baseline and diff returns the entry text change while atomically advancing the baseline");
+  const snap_baseline = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "snapshot",
+    "--window", handle_text, "--depth", "16", "--max-nodes", "2000"
+  ]);
+  const snap_baseline_id = text_at(snap_baseline, "data.snapshot_id");
+  ensure(
+    snap_baseline_id !== ""
+      && int_at(snap_baseline, "data.nodes") > 1
+      && !flag_at(snap_baseline, "data.truncated")
+      && text_at(snap_baseline, "data.addressing") === "accessibility-tree"
+      && text_at(snap_baseline, "data.backend") === "at-spi2",
+    "cu_linux_smoke_snapshot:" + JSON.stringify(snap_baseline.data)
+  );
+  run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "send-text",
+    "--window", handle_text, "--name", "Fixture Entry", "--", "snapdiff-delta"
+  ]);
+  ensure(
+    node_text(run_directory, executable, handle_text, "Fixture Entry") === "snapdiff-delta",
+    "cu_linux_smoke_snapshot_mutation"
+  );
+  const snap_delta = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "diff",
+    "--window", handle_text, "--base", snap_baseline_id, "--advance", "--max", "100"
+  ]);
+  ensure(
+    text_at(snap_delta, "data.base.snapshot_id") === snap_baseline_id
+      && text_at(snap_delta, "data.base_selected_by") === "explicit"
+      && int_at(snap_delta, "data.changes") >= 1
+      && int_at(snap_delta, "data.counts.changed") >= 1
+      && text_at(snap_delta, "data.next_base") !== ""
+      && text_at(snap_delta, "data.next_base") !== snap_baseline_id,
+    "cu_linux_smoke_diff:" + JSON.stringify(snap_delta.data)
+  );
+
   print("STEP observe captures the changes made while it runs, with the before and after of each, rather than a snapshot taken after the fact");
   // The two independent mutation calls can consume most of a three-second
   // stream on a cold AT-SPI guest. Keep enough post-mutation polling time to
@@ -1367,7 +1404,7 @@ try {
   let saw_text_change = 0;
   for (const event of observed.events) {
     if (text_of(event.before) === "pressed 1" && text_of(event.after) === "pressed 2") { saw_label_change = 1; }
-    if (text_of(event.before) === "linuxtyped" && text_of(event.after) === "observed") { saw_text_change = 1; }
+    if (text_of(event.before) === "snapdiff-delta" && text_of(event.after) === "observed") { saw_text_change = 1; }
   }
   ensure(
     saw_label_change === 1 && saw_text_change === 1,
@@ -1726,6 +1763,7 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-inspect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-menu-invoke");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-node-text");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-dclick");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-focus");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe");
