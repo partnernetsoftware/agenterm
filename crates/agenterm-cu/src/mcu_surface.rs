@@ -444,7 +444,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
             } else {
                 "unsupported"
             },
-            "bounded user/system inventory and status, exact plan/apply, launchd plist-label admission and request/session-bound one-call user lifecycle are native on macOS/Linux; system privilege apply and daemon login-service remain typed migration gaps",
+            "bounded user/system inventory and status, exact plan/apply, launchd plist-label admission and request/session-bound one-call user lifecycle are native on macOS/Linux; system privilege apply remains a typed migration gap, while the removed MCU global-daemon login wrapper is retired",
         ),
         "privilege" => (
             "available",
@@ -452,7 +452,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "runtime" => (
             "available",
-            "runtime-status truthfully reports the on-demand coordinator and per-resource owners; session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; exact-window external terminal read/send/wait is live; global daemon lifecycle is not applicable, while daemon login-service remains a typed gap",
+            "runtime-status truthfully reports the on-demand coordinator and per-resource owners; session leases, target locks, request identity, bounded audit query/retention and managed-job ownership are live; exact-window external terminal read/send/wait is live; global daemon lifecycle and its login wrapper are retired, while arbitrary per-user services remain owned by the service family",
         ),
         "desktop-helper" => (
             "unsupported",

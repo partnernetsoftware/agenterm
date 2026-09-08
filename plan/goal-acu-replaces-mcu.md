@@ -319,7 +319,8 @@ The exact `storage devices` route and truthful `daemon status|caps`
 observations have left the static set. `setup refresh` now reaches the same
 owner-preserving native setup, and obsolete `daemon start|restart|stop`
 spellings return typed retirements instead of falling back to MCU. The distinct
-`daemon service` login-lifecycle shape remains a real provider gap. Other
+`daemon service` login wrapper retires with that removed global daemon; arbitrary
+per-user service definition and lifecycle work remains owned by `service.user.lifecycle`. Other
 storage mutation/volume shapes still fall over dynamically.
 The reviewed retirement of the no-authority `ghost` overlay and obsolete
 `desktop-helper` sidecar removed two more fallbacks without inventing replacement
@@ -755,7 +756,7 @@ Q3 owned runtime facades
 │  ├─ [x] runtime-status: on-demand coordinator + per-resource owner topology, non-publishing snapshot
 │  ├─ [~] daemon status/caps route to ACU; macOS + Windows aarch64 qjswasm green; Linux + Windows x86 pending
 │  ├─ [x] daemon start/restart/stop typed retirement; no MCU fallback and no false no-op
-│  ├─ [ ] per-user login-service install/status/uninstall provider
+│  ├─ [x] removed MCU global-daemon login wrapper retired; arbitrary per-user service install/status/uninstall stays with `service.user.lifecycle`
 │  ├─ [~] login-session parity (MCU itself is macOS-only)
 │  │  ├─ [x] scope decision: macOS native; Linux/Windows truthful typed unsupported
 │  │  ├─ [x] platform contract + bounded IOKit console inventory; no shell/private framework

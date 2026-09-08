@@ -1764,7 +1764,7 @@
           },
           "evidence": ["cu.service-plan", "cu.service-transaction", "agenterm-cu service transaction state-machine suite", "agenterm-platform service adapter suite"],
           "note": "Provider-qualified inventory and status plus user-domain plan/apply are native. Plans bind complete state and incarnation; launchd bootstrap also binds the canonical current-user-owned plist, declared Label, size and digest. The one-call compatibility transaction requires caller request/session identity, holds the exact service target lock and is closed by the outer replay ledger before entering plan/apply. Public qjswasm proves no-effect failure, exact retry refusal and lock release; it deliberately does not mutate a real service.",
-          "next": "run explicit apply/readback/rollback on macOS and Linux plus Windows typed-refusal courts"
+          "next": "run explicit apply/readback/rollback on macOS and Linux plus Windows typed-refusal courts; definition-file authoring, registration and caller-supplied KeepAlive or Restart crash-recovery policy remain owned here after runtime.login-service retirement, while Linux enable/disable remains typed-unavailable"
         },
         {
           "id": "service.system.lifecycle",
@@ -1812,17 +1812,9 @@
           "id": "runtime.login-service",
           "mcu_shape": "daemon service install|status|start|stop|uninstall with crash recovery",
           "acu_shape": null,
-          "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
-          "qualification": {
-            "schema": 2,
-            "platforms": {
-              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
-              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
-              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
-            }
-          },
-          "next": "per-user native login-service adapters with reversible installation and owned-resource preflight"
+          "state": "retired",
+          "evidence": ["cu.runtime-status", "acu.compat-todo-boundary"],
+          "note": "MCU daemon service only registered the removed global MCU daemon for login start. ACU starts on demand and owns no global daemon, so there is nothing to install; the compatibility spelling fails with the stable retired code, never as a successful no-op or an MCU fallback. Installing arbitrary per-user services, including caller-supplied KeepAlive or Restart policy, remains owned by service.user.lifecycle. Recreating a resident sidecar would regress the architecture."
         },
         {
           "id": "runtime.session-lease",

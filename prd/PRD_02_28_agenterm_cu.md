@@ -375,8 +375,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   native command. Obsolete `daemon start|restart|stop` spellings fail as typed
   retirements and no longer direct callers back to MCU; they are neither
   successful no-ops nor aliases for destructive owner cleanup. The distinct
-  `daemon service` login-lifecycle family remains an honest native-provider
-  gap.
+  `daemon service` spelling only wrapped that removed global daemon and is
+  retired too; arbitrary per-user service definition, registration and crash
+  recovery remain an honest `service.user.lifecycle` provider gap.
 - [x] Audit replay is not a replacement requirement. MCU exposed no such
   command; it recorded only a future idea. Audit rows are immutable evidence,
   never an effect queue. ACU's request-id state machine owns exact replay of a
@@ -760,8 +761,10 @@ known legacy shapes fail as `acu_todo`. Neither result is green evidence.
   the durable clock high-water mark or publishing state. The MCU compatibility
   shell maps `daemon status` to this result and `daemon caps` to the ACU
   capability catalog. `daemon start|restart|stop` are reviewed typed
-  retirements with no MCU fallback and no successful no-op. Per-user login
-  service installation remains a separate provider gap. The public qjswasm evidence is
+  retirements with no MCU fallback and no successful no-op. The removed MCU
+  daemon's login wrapper is retired with it; arbitrary per-user service
+  installation and recovery policy remains a separate `service.user.lifecycle`
+  provider gap. The public qjswasm evidence is
   `cu.runtime-status`; exact source `00d22433` passes it on Windows aarch64
   after a ten-file guest manifest match and disposable-court rollback. Linux
   and Windows x86_64 reruns remain open.
