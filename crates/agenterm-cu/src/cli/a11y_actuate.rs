@@ -608,14 +608,7 @@ mod tests {
         let command = click(
             "click",
             TargetRef::Current,
-            &mut args(&[
-                "--window",
-                "42",
-                "--name",
-                "Fixture Press",
-                "--count",
-                "2",
-            ]),
+            &mut args(&["--window", "42", "--name", "Fixture Press", "--count", "2"]),
         )
         .expect("parse");
         assert!(matches!(

@@ -8,7 +8,10 @@ pub struct KeyboardLayoutObservation {
     pub rules: String,
     pub model: String,
     pub layout: String,
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "String::is_empty"))]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "String::is_empty")
+    )]
     pub variant: String,
     /// Stable XKB layout identifier (`layout` or `layout+variant`).
     pub id: String,

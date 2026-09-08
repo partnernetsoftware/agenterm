@@ -54,8 +54,9 @@ pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
 
 pub(crate) fn pointer_grab() -> Result<(PointerPosition, u8, u8), InputInjectError> {
     Err(InputInjectError::Unsupported {
-        reason: "pointer-grab is not mapped on Windows; use pointer-position to observe coordinates"
-            .into(),
+        reason:
+            "pointer-grab is not mapped on Windows; use pointer-position to observe coordinates"
+                .into(),
     })
 }
 

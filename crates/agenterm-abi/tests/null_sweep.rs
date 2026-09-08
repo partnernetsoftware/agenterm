@@ -517,8 +517,7 @@ fn native_window_opacity_handle0(lib: &Library) -> i32 {
 }
 
 fn native_window_set_opacity_handle0(lib: &Library) -> i32 {
-    let f: Symbol<NativeWindowSetOpacity> =
-        unsafe { sym(lib, b"agt_native_window_set_opacity") };
+    let f: Symbol<NativeWindowSetOpacity> = unsafe { sym(lib, b"agt_native_window_set_opacity") };
     unsafe { f(0, 500) }
 }
 

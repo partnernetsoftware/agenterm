@@ -907,8 +907,9 @@ pub mod window_op {
                 ),
             });
         }
-        let f =
-            super::call_sym::<super::WindowWorkspaceDesktop>(b"agt_native_window_workspace_desktop")?;
+        let f = super::call_sym::<super::WindowWorkspaceDesktop>(
+            b"agt_native_window_workspace_desktop",
+        )?;
         let mut out = 0u32;
         let status = unsafe { f(handle, &mut out) };
         map_status("agt_native_window_workspace_desktop", status)?;

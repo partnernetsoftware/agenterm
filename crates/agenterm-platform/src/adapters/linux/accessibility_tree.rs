@@ -1279,10 +1279,7 @@ async fn a11y_bus_readiness_async() -> Result<serde_json::Value, AccessibilityTr
     }))
 }
 
-async fn read_a11y_status_flag(
-    properties: &zbus::Proxy<'_>,
-    flag: &str,
-) -> serde_json::Value {
+async fn read_a11y_status_flag(properties: &zbus::Proxy<'_>, flag: &str) -> serde_json::Value {
     match properties
         .call::<_, _, zbus::zvariant::OwnedValue>("Get", &(A11Y_STATUS_IFACE, flag))
         .await
