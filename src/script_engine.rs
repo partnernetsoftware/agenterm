@@ -906,11 +906,21 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
     fn execute_artifact(
         &self,
         artifact: &[u8],
-        _options: &ScriptInvocationOptions,
+        options: &ScriptInvocationOptions,
         fleet_bridge: Option<ScriptFleetBridgeFn>,
     ) -> Option<Result<ScriptInvocationResult, ScriptEngineError>> {
         let bridges = qjs_host_bridges(fleet_bridge);
-        let mut engine = agenterm_qjswasm::Engine::new();
+        // A packed `.qjs` artifact is still the same invocation: its tool
+        // door, arguments, ceilings, replay clock, environment projection and
+        // cancellation identity must not disappear merely because compilation
+        // happened earlier. Source execution builds the engine from this exact
+        // budget above; keep the artifact route symmetric.
+        let mut engine = if options.tool_door {
+            agenterm_qjswasm::Engine::with_tool_door(qjs_budget(options))
+        } else {
+            agenterm_qjswasm::Engine::with_budget(qjs_budget(options))
+        };
+        engine.set_tool_args(qjs_arguments(options.arguments.as_ref()));
         Some(
             engine
                 .run_once_with_bridges(
@@ -938,7 +948,12 @@ impl ScriptEngineBackend for QjswasmEngineBackend {
                             .immediate_stringify_host_argument_bytes,
                     }),
                 })
-                .map_err(|e| ScriptEngineError::from(e.to_string())),
+                .map_err(|e| {
+                    let mut error = qjs_engine_error(e);
+                    error.stdout = engine.take_failed_stdout();
+                    error.cost = engine.take_failed_cost().map(script_cost);
+                    error
+                }),
         )
     }
 
@@ -1513,6 +1528,33 @@ mod tests {
             qjs_budget(&options).max_bridge_result_bytes,
             3 * 1024 * 1024
         );
+    }
+
+    #[test]
+    #[cfg(feature = "script-qjswasm")]
+    fn qjs_compiled_artifact_keeps_the_invocation_cancellation_identity() {
+        use std::sync::atomic::AtomicBool;
+
+        let source = "let i = 0; while (true) { i = i + 1; } return i;";
+        let (artifact, extension) = QjswasmEngineBackend
+            .pack_artifact(source)
+            .expect("qjswasm owns a compiled artifact")
+            .expect("compile infinite-loop fixture");
+        assert_eq!(extension, "wasm");
+
+        let options = ScriptInvocationOptions {
+            cancellation: Some(Arc::new(AtomicBool::new(true))),
+            budgets: Some(ScriptBudgets {
+                operations: u64::MAX,
+                ..ScriptBudgets::default()
+            }),
+            ..ScriptInvocationOptions::default()
+        };
+        let error = QjswasmEngineBackend
+            .execute_artifact(&artifact, &options, None)
+            .expect("qjswasm executes its compiled artifact")
+            .expect_err("the compiled route must observe the same cancel token as source");
+        assert_eq!(error.category, ScriptFailureCategory::Cancelled);
     }
 
     // `gate_two_trait_equivalence` lived here: four assertions that the
