@@ -203,7 +203,11 @@ fn set_fullscreen(
     const NET_WM_STATE_ADD: u32 = 1;
     let wm_state = atom(conn, b"_NET_WM_STATE")?;
     let fullscreen_atom = atom(conn, b"_NET_WM_STATE_FULLSCREEN")?;
-    let action = if fullscreen { NET_WM_STATE_ADD } else { NET_WM_STATE_REMOVE };
+    let action = if fullscreen {
+        NET_WM_STATE_ADD
+    } else {
+        NET_WM_STATE_REMOVE
+    };
     send_root_message(&conn, window, wm_state, [action, fullscreen_atom, 0, 2, 0])
 }
 

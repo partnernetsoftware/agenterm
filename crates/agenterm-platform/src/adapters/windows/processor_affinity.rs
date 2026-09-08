@@ -14,9 +14,7 @@ pub(crate) fn current_process() -> Result<ProcessorAffinityFacts, ProcessorAffin
 
 pub(crate) fn process(pid: u32) -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
     use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle == 0 {
@@ -27,7 +25,9 @@ pub(crate) fn process(pid: u32) -> Result<ProcessorAffinityFacts, ProcessorAffin
     result
 }
 
-fn affinity_for_handle(handle: windows_sys::Win32::Foundation::HANDLE) -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
+fn affinity_for_handle(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+) -> Result<ProcessorAffinityFacts, ProcessorAffinityError> {
     let active_group_count = unsafe { GetActiveProcessorGroupCount() };
     if active_group_count == 0 {
         return Err(query_error("GetActiveProcessorGroupCount"));

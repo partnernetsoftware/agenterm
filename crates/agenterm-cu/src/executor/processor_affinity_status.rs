@@ -1,8 +1,6 @@
 //! Current-process or chosen-PID processor-affinity observation.
 
-use agenterm_platform::processor_affinity::{
-    ProcessorAffinityError, ProcessorAffinityErrorKind,
-};
+use agenterm_platform::processor_affinity::{ProcessorAffinityError, ProcessorAffinityErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
@@ -41,21 +39,23 @@ fn affinity_error(error: ProcessorAffinityError) -> CuError {
         } else {
             "unknown"
         };
-        return CuError::new("processor_affinity_unsupported", error.to_string()).with_detail(json!({
-            "os": os,
-            "required_os": "linux-or-windows",
-            "mechanism": if cfg!(target_os = "linux") {
-                "sched_getaffinity"
-            } else if cfg!(windows) {
-                "GetProcessAffinityMask"
-            } else {
-                "none"
-            },
-            "alternatives": [
-                "taskset -p PID",
-                "grep Cpus_allowed /proc/PID/status",
-            ],
-        }));
+        return CuError::new("processor_affinity_unsupported", error.to_string()).with_detail(
+            json!({
+                "os": os,
+                "required_os": "linux-or-windows",
+                "mechanism": if cfg!(target_os = "linux") {
+                    "sched_getaffinity"
+                } else if cfg!(windows) {
+                    "GetProcessAffinityMask"
+                } else {
+                    "none"
+                },
+                "alternatives": [
+                    "taskset -p PID",
+                    "grep Cpus_allowed /proc/PID/status",
+                ],
+            }),
+        );
     }
     let code = match error.kind() {
         ProcessorAffinityErrorKind::InvalidValue => "processor_affinity_invalid",

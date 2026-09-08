@@ -77,11 +77,7 @@ fn uptime_milliseconds() -> Result<u64, HostBootIdentityError> {
     seconds
         .checked_mul(1000)
         .and_then(|value| {
-            value.checked_add(
-                u64::try_from(time.tv_nsec)
-                    .ok()?
-                    .checked_div(1_000_000)?,
-            )
+            value.checked_add(u64::try_from(time.tv_nsec).ok()?.checked_div(1_000_000)?)
         })
         .ok_or_else(|| {
             HostBootIdentityError::new(
@@ -114,10 +110,12 @@ mod tests {
         assert_eq!(first.machine_id, second.machine_id);
         assert!(boot_id_shape(&first.boot_id));
         assert_eq!(first.machine_id.len(), 32);
-        assert!(first
-            .machine_id
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit()));
+        assert!(
+            first
+                .machine_id
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        );
         assert!(second.uptime_milliseconds >= first.uptime_milliseconds);
     }
 }

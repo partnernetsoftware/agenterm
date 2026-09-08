@@ -172,12 +172,22 @@ fn apply_with(
         });
     }
     if let Err(error) = provider.set(&native_before, desired_after) {
-        return Err(rollback_after_effect(provider, &native_before, before, error));
+        return Err(rollback_after_effect(
+            provider,
+            &native_before,
+            before,
+            error,
+        ));
     }
     let observed = match provider.query().and_then(|native| public_state(&native)) {
         Ok(state) => state,
         Err(error) => {
-            return Err(rollback_after_effect(provider, &native_before, before, error));
+            return Err(rollback_after_effect(
+                provider,
+                &native_before,
+                before,
+                error,
+            ));
         }
     };
     if observed.device.identity == before.device.identity && observed.settings == desired_after {

@@ -11,7 +11,8 @@ struct SystemBootEnvironmentInformation {
     boot_flags: u64,
 }
 
-pub(crate) fn query_facts() -> Result<crate::host_boot_identity::HostBootIdentityFacts, HostBootIdentityError> {
+pub(crate) fn query_facts()
+-> Result<crate::host_boot_identity::HostBootIdentityFacts, HostBootIdentityError> {
     Err(HostBootIdentityError::new(
         HostBootIdentityErrorKind::Query,
         "host boot identity facts are wired on Linux hosts only",

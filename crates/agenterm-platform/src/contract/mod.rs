@@ -56,7 +56,6 @@ pub mod network_interfaces;
 #[cfg(feature = "network-routes")]
 pub mod network_routes;
 pub mod pixel_present;
-pub mod proxy_env;
 #[cfg(feature = "process")]
 pub mod process;
 #[cfg(feature = "process-control")]
@@ -75,6 +74,7 @@ pub mod process_window;
 #[cfg(feature = "processor-affinity")]
 pub mod processor_affinity;
 pub mod processor_topology;
+pub mod proxy_env;
 #[cfg(feature = "pty")]
 pub mod pty;
 #[cfg(feature = "runtime")]

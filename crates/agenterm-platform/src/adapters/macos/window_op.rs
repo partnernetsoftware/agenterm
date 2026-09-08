@@ -41,11 +41,15 @@ pub(crate) fn maximized(_handle: isize) -> Result<bool, WindowOpError> {
 }
 
 pub(crate) fn fullscreen(_handle: isize) -> Result<bool, WindowOpError> {
-    Err(WindowOpError::Unsupported { reason: "reading the EWMH fullscreen state is not wired on macOS yet".into() })
+    Err(WindowOpError::Unsupported {
+        reason: "reading the EWMH fullscreen state is not wired on macOS yet".into(),
+    })
 }
 
 pub(crate) fn above(_handle: isize) -> Result<bool, WindowOpError> {
-    Err(WindowOpError::Unsupported { reason: "reading the EWMH above state is not wired on macOS yet".into() })
+    Err(WindowOpError::Unsupported {
+        reason: "reading the EWMH above state is not wired on macOS yet".into(),
+    })
 }
 
 pub(crate) fn workspace_desktop(_handle: isize) -> Result<u32, WindowOpError> {

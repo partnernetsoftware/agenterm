@@ -103,9 +103,8 @@ impl SystemdLogin {
                 "sd_get_sessions could not read the login-session inventory",
             ));
         }
-        let count = usize::try_from(count).map_err(|_| {
-            shape("sd_get_sessions returned an invalid session count")
-        })?;
+        let count = usize::try_from(count)
+            .map_err(|_| shape("sd_get_sessions returned an invalid session count"))?;
         if count > LOGIN_SESSION_MAX_ROWS {
             return Err(shape("native inventory exceeds the session row ceiling"));
         }
@@ -155,12 +154,8 @@ impl SystemdLogin {
         let graphical = matches!(session_type.as_str(), "x11" | "wayland");
         let user_class = class == "user";
         let state_active = state == "active";
-        let on_console = active
-            && !remote
-            && graphical
-            && user_class
-            && state_active
-            && !seat.is_empty();
+        let on_console =
+            active && !remote && graphical && user_class && state_active && !seat.is_empty();
         let login_complete = user_class && state_active;
         let group_id = group_for_uid(uid)?;
         Ok(NativeLoginSessionRow {

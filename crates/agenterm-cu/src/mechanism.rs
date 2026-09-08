@@ -553,7 +553,9 @@ pub mod window_enumerate {
                     let status = unsafe { f(buf.as_mut_ptr(), capacity, &mut got) };
                     if status == dynlib::AGT_OK {
                         buf.truncate(got);
-                        return Ok(enrich_window_states(buf.iter().map(record_to_info).collect()));
+                        return Ok(enrich_window_states(
+                            buf.iter().map(record_to_info).collect(),
+                        ));
                     }
                     if let Some(grown) = retry_capacity(status, capacity, got) {
                         capacity = grown;
@@ -726,10 +728,8 @@ pub mod window_enumerate {
         windows
             .into_iter()
             .map(|mut window| {
-                window.maximized =
-                    super::window_op::maximized(window.handle).unwrap_or(false);
-                window.fullscreen =
-                    super::window_op::fullscreen(window.handle).unwrap_or(false);
+                window.maximized = super::window_op::maximized(window.handle).unwrap_or(false);
+                window.fullscreen = super::window_op::fullscreen(window.handle).unwrap_or(false);
                 window.above = super::window_op::above(window.handle).unwrap_or(false);
                 window
             })

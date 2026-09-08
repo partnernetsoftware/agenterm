@@ -131,7 +131,11 @@ pub(crate) fn inventory() -> Result<LoginSessionInventory, LoginSessionError> {
     let locked = property(root.0, c"IOConsoleLocked")?;
     let locked = cf_boolean(locked.as_ptr(), "IOConsoleLocked")?;
     let rows = parse_users(users.as_ptr())?;
-    finish_inventory(crate::login_session::LoginSessionProvider::MacosIoRegistry, locked, rows)
+    finish_inventory(
+        crate::login_session::LoginSessionProvider::MacosIoRegistry,
+        locked,
+        rows,
+    )
 }
 
 pub(crate) fn lock_console() -> Result<(), LoginSessionError> {

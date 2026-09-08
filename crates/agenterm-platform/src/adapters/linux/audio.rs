@@ -45,8 +45,7 @@ pub(crate) fn unsupported_detail() -> AudioObserveUnsupported {
     let session_bus_available = session_bus_available();
     AudioObserveUnsupported {
         reason: if session_bus_available {
-            "no PulseAudio, PipeWire or ALSA default-output mechanism answered on this host"
-                .into()
+            "no PulseAudio, PipeWire or ALSA default-output mechanism answered on this host".into()
         } else {
             "the desktop session bus is unavailable and no ALSA default-output mechanism answered"
                 .into()

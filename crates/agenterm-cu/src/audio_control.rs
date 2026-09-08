@@ -175,11 +175,21 @@ pub fn status_with_provider(provider: &mut impl AudioProvider) -> Result<AudioSt
 }
 
 pub fn plan_volume(volume: u8, ttl_seconds: u64) -> Result<AudioPlan, CuError> {
-    plan_with_provider(&mut NativeAudioProvider::default(), Some(volume), None, ttl_seconds)
+    plan_with_provider(
+        &mut NativeAudioProvider::default(),
+        Some(volume),
+        None,
+        ttl_seconds,
+    )
 }
 
 pub fn plan_muted(muted: bool, ttl_seconds: u64) -> Result<AudioPlan, CuError> {
-    plan_with_provider(&mut NativeAudioProvider::default(), None, Some(muted), ttl_seconds)
+    plan_with_provider(
+        &mut NativeAudioProvider::default(),
+        None,
+        Some(muted),
+        ttl_seconds,
+    )
 }
 
 pub fn plan_with_provider(

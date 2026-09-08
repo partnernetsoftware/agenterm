@@ -214,7 +214,12 @@ mod tests {
         let mut later = row(300);
         later.on_console = false;
         later.uuid = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE".into();
-        let inventory = finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![later, row(257)]).unwrap();
+        let inventory = finish_inventory(
+            LoginSessionProvider::MacosIoRegistry,
+            false,
+            vec![later, row(257)],
+        )
+        .unwrap();
         assert_eq!(inventory.sessions[0].native_session_id, 257);
         assert_eq!(inventory.console_session().unwrap().username, "fixture");
         assert_ne!(
@@ -233,15 +238,25 @@ mod tests {
         let mut malformed = row(1);
         malformed.uuid = "not-a-uuid".into();
         assert_eq!(
-            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![malformed]).unwrap_err().kind(),
+            finish_inventory(
+                LoginSessionProvider::MacosIoRegistry,
+                false,
+                vec![malformed]
+            )
+            .unwrap_err()
+            .kind(),
             LoginSessionErrorKind::ProviderShape
         );
         let mut second = row(2);
         second.uuid = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE".into();
         assert_eq!(
-            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![row(1), second])
-                .unwrap_err()
-                .kind(),
+            finish_inventory(
+                LoginSessionProvider::MacosIoRegistry,
+                false,
+                vec![row(1), second]
+            )
+            .unwrap_err()
+            .kind(),
             LoginSessionErrorKind::AmbiguousConsole
         );
     }
@@ -250,7 +265,9 @@ mod tests {
     fn text_and_count_limits_are_strict() {
         let mut bad_name = row(1);
         bad_name.username = "bad\nname".into();
-        assert!(finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![bad_name]).is_err());
+        assert!(
+            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![bad_name]).is_err()
+        );
         let rows = (0..=LOGIN_SESSION_MAX_ROWS)
             .map(|index| {
                 let mut value = row(index as u64);
@@ -259,32 +276,48 @@ mod tests {
             })
             .collect();
         assert_eq!(
-            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, rows).unwrap_err().kind(),
+            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, rows)
+                .unwrap_err()
+                .kind(),
             LoginSessionErrorKind::ProviderShape
         );
 
         let mut oversized = row(2);
         oversized.username = "u".repeat(LOGIN_SESSION_USERNAME_MAX_BYTES + 1);
         assert_eq!(
-            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![oversized]).unwrap_err().kind(),
+            finish_inventory(
+                LoginSessionProvider::MacosIoRegistry,
+                false,
+                vec![oversized]
+            )
+            .unwrap_err()
+            .kind(),
             LoginSessionErrorKind::ProviderShape
         );
 
         let mut out_of_range = row(3);
         out_of_range.user_id = u64::from(u32::MAX) + 1;
         assert_eq!(
-            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![out_of_range])
-                .unwrap_err()
-                .kind(),
+            finish_inventory(
+                LoginSessionProvider::MacosIoRegistry,
+                false,
+                vec![out_of_range]
+            )
+            .unwrap_err()
+            .kind(),
             LoginSessionErrorKind::ProviderShape
         );
 
         let mut duplicate = row(4);
         duplicate.on_console = false;
         assert_eq!(
-            finish_inventory(LoginSessionProvider::MacosIoRegistry, false, vec![row(4), duplicate])
-                .unwrap_err()
-                .kind(),
+            finish_inventory(
+                LoginSessionProvider::MacosIoRegistry,
+                false,
+                vec![row(4), duplicate]
+            )
+            .unwrap_err()
+            .kind(),
             LoginSessionErrorKind::ProviderShape
         );
     }

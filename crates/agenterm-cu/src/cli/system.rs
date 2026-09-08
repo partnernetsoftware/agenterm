@@ -383,19 +383,13 @@ pub fn parse(
                 args.remove(0);
                 let value = args
                     .first()
-                    .ok_or_else(|| {
-                        "processor-affinity-status --pid requires a value".to_owned()
-                    })?;
-                pid = Some(
-                    value
-                        .parse::<u32>()
-                        .map_err(|_| {
-                            format!(
-                                "processor-affinity-status --pid must be a positive integer; got {:?}",
-                                value
-                            )
-                        })?,
-                );
+                    .ok_or_else(|| "processor-affinity-status --pid requires a value".to_owned())?;
+                pid = Some(value.parse::<u32>().map_err(|_| {
+                    format!(
+                        "processor-affinity-status --pid must be a positive integer; got {:?}",
+                        value
+                    )
+                })?);
                 args.remove(0);
                 continue;
             }
