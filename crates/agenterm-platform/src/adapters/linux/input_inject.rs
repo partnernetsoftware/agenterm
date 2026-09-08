@@ -50,6 +50,14 @@ fn session_kind() -> SessionKind {
     )
 }
 
+fn x11_screen_available(display: Option<&str>) -> bool {
+    display.is_some_and(|value| !value.is_empty())
+}
+
+fn x11_display_available() -> bool {
+    x11_screen_available(env::var("DISPLAY").ok().as_deref())
+}
+
 struct Context {
     connection: RustConnection,
     root: u32,
@@ -57,6 +65,18 @@ struct Context {
 
 fn failed(message: impl ToString) -> InputInjectError {
     InputInjectError::failed("input_inject_failed", message)
+}
+
+fn open_x11_root() -> Result<Context, InputInjectError> {
+    let (connection, screen) = x11rb::connect(None)
+        .map_err(|error| failed(format!("X11 display could not be opened: {error}")))?;
+    let root = connection
+        .setup()
+        .roots
+        .get(screen)
+        .ok_or_else(|| failed("configured X11 screen does not exist"))?
+        .root;
+    Ok(Context { connection, root })
 }
 
 fn connect() -> Result<Context, InputInjectError> {
@@ -73,15 +93,18 @@ fn connect() -> Result<Context, InputInjectError> {
             });
         }
     }
-    let (connection, screen) = x11rb::connect(None)
-        .map_err(|error| failed(format!("X11 display could not be opened: {error}")))?;
-    let root = connection
-        .setup()
-        .roots
-        .get(screen)
-        .ok_or_else(|| failed("configured X11 screen does not exist"))?
-        .root;
-    Ok(Context { connection, root })
+    open_x11_root()
+}
+
+/// Read-only pointer observation may use an XWayland display even when the
+/// session is classified as Wayland. Injection keeps the stricter gate.
+fn connect_for_observe() -> Result<Context, InputInjectError> {
+    if !x11_display_available() {
+        return Err(InputInjectError::Unsupported {
+            reason: "pointer-position requires an X11 display".into(),
+        });
+    }
+    open_x11_root()
 }
 
 fn require_xtest(context: &Context) -> Result<(), InputInjectError> {
@@ -244,7 +267,7 @@ pub(crate) fn pointer_move(position: PointerPosition) -> Result<(), InputInjectE
 }
 
 pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
-    let context = connect()?;
+    let context = connect_for_observe()?;
     let reply = context
         .connection
         .query_pointer(context.root)
@@ -463,5 +486,18 @@ mod tests {
     fn signed_scroll_axes_map_to_x11_wheel_buttons() {
         assert_eq!(wheel_buttons(2, -3), [5, 5, 5, 6, 6]);
         assert_eq!(wheel_buttons(-1, 1), [4, 7]);
+    }
+
+    #[test]
+    fn wayland_session_does_not_imply_missing_x11_display() {
+        // A Wayland session may still publish DISPLAY=:N for XWayland. Injection
+        // stays gated; pointer observation consults the display directly.
+        assert_eq!(
+            classify_session(Some("wayland"), Some("wayland-0"), Some(":2")),
+            SessionKind::Wayland
+        );
+        assert!(x11_screen_available(Some(":2")));
+        assert!(!x11_screen_available(Some("")));
+        assert!(!x11_screen_available(None));
     }
 }
