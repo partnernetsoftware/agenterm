@@ -280,6 +280,15 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   That existing Windows smoke predates operation binding; an exact schema-3
   public rerun remains required. Remote delegation and session-nonce
   invalidation remain open.
+- [~] The shared executor now composes a caller request identity with a
+  persisted current-target grant without ambient-authority union. It reserves
+  the durable request before consuming the grant, so a finalized replay does
+  not spend another use or repeat the effect; the request fingerprint also
+  binds a domain-separated digest of the exact grant id and store path. The
+  established ambient request fingerprint remains byte-compatible. Authorized
+  dispatch retains the original session context. This is an internal kernel,
+  not MCP promotion: the closed provider envelope, explicit sidecar grant
+  selection, session-lifetime budget and six-cell public court remain open.
 - [~] A sealed `TargetBinding` contract now separates opaque provider identity
   and exact desktop-session identity from routing material. Current, SSH and
   VNC fail typed when no crate-owned verified provider is available; RDP stays

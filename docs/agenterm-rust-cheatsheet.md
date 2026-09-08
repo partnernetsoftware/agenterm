@@ -5270,6 +5270,17 @@ error. Likewise, a descriptor is not shipped merely because an internal court
 can inject a provider: keep production discovery and dispatch closed until
 persisted target-bound authorization and native packaged courts are green.
 
+When one effect has both a durable caller request id and a persisted grant,
+reserve the caller request first and consume the grant only for a fresh
+reservation. A finalized replay must return before grant consumption; an
+uncertain request must refuse before grant consumption. Bind the request
+fingerprint to a domain-separated digest of the exact grant id and store path,
+while preserving the old fingerprint bytes for callers that do not use a
+persisted grant. After the fresh request reservation, a matched grant attempt
+is consumed even when the mechanism fails. Pass the original session-owned
+request context through authorized dispatch; do not silently drop job/device
+ownership merely because authorization moved into a helper.
+
 Canonical JSON is not validated merely because Serde can deserialize and
 round-trip it. Any bound enforced by a CLI parser must also live in
 `Command::validate` (preferably through shared constants), and the common

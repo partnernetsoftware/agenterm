@@ -9,6 +9,7 @@ impl Executor {
         &self,
         command: &Command,
         persisted: &PersistedAuthorization,
+        request_context: Option<&JobRequestContext<'_>>,
     ) -> CuReply {
         if command.target() != TargetRef::Current {
             return CuReply::err(
@@ -150,7 +151,10 @@ impl Executor {
                 "target_binding_changed",
             );
         }
-        let reply = self.execute_current(command);
+        let reply = match self.run_current(command, request_context) {
+            Ok(data) => CuReply::ok(command, data),
+            Err(error) => CuReply::err(command, error),
+        };
         let outcome = if reply.ok { "ok" } else { "failed" };
         let detail = reply.data.clone().or_else(|| {
             reply

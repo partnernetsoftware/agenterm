@@ -220,7 +220,11 @@ courts and a local fixed-sibling provider shell effect are green. Startup
 queueing is deterministic, and output disconnect is reported only after
 session cleanup. It remains unadvertised until persisted target-bound
 authorization, lease renewal and packaged six-cell interactive stdio execution
-are green.
+are green. The executor composition kernel now reserves the durable request
+before consuming a persisted grant, binds the request fingerprint to that
+grant selection and preserves session-owned dispatch context. Provider envelope
+and sidecar configuration remain deliberately closed, so this does not promote
+the MCP mutation tool.
 
 ```text
 MCU retirement blockers
