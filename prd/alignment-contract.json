@@ -292,6 +292,7 @@
         "cu.file-move-transaction",
         "cu.managed-job-lifecycle",
         "cu.managed-job-resources",
+        "acu.compat-job-resources",
         "cu.managed-job-limits",
         "cu.managed-job-adopt",
         "cu.managed-job-state-signal",

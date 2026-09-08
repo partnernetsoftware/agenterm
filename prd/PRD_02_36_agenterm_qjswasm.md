@@ -67,7 +67,8 @@ agenterm-qjswasm
 │  │  │  ├─ 95 dynamic witnesses remain frozen with source digests and redacted argv as the
 │  │  │  │  explicit gap/typed-rejection queue; no MCU fallback exists
 │  │  │  ├─ both dynamic-TODO rows retain their exact gap id; two permanent-scope rows reject locally
-│  │  │  ├─ 31 resolved rows: 18 exec · 8 compound · 5 usage · 0 TODO
+│  │  │  ├─ 32 resolved rows: 18 exec · 9 compound · 5 usage · 0 TODO
+│  │  │  │  └─ `job resources JOB_ID`: typed status→generation→resource point reply; sampling remains `acu.dynamic.018`
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
 │  │  │  └─ no Bun, executable discovery, CU child process, repository cwd or MCU fallback
 │  │  │     the real production resolver compiles the complete closure; an exact Wasm-import allowlist is the

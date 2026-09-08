@@ -1,0 +1,233 @@
+// Public black-box owner for the legacy point-in-time managed-job resource
+// spelling. The owned fixture is created and cleaned through typed agenterm-cu
+// commands; the behavior under test enters the real embedded acu.qjs through
+// `agenterm cli acu`, which must discover the generation and then execute
+// job-resources through the fixed-sibling provider.
+//
+// Args: REPO AGENTERM_LAUNCHER AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["acu.compat-job-resources"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text(value) {
+  return value === undefined || value === null ? "" : "" + value;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function append_all(target, values) {
+  for (const value of values) { target.push(value); }
+}
+
+function fixture_env(run_directory) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+    AGENTERM_CU_MANAGED_JOB_PATH: rh.join(run_directory, "cu-managed-jobs.json"),
+    AGENTERM_NO_ACTIVATE: "1"
+  };
+}
+
+function invoke(executable, arguments, run_directory, expected_command) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: fixture_env(run_directory),
+    timeout_ms: 30000
+  });
+  ensure(!output.timed_out && output.stdout.trim() !== "",
+    "acu_job_resources_empty:" + expected_command);
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "acu_job_resources_invalid_json:" + expected_command; }
+  ensure((output.exit_code === 0) === (reply.ok === true),
+    "acu_job_resources_exit_reply_disagree:" + expected_command);
+  ensure(reply.command === expected_command,
+    "acu_job_resources_wrong_command:" + expected_command);
+  return { output: output, reply: reply };
+}
+
+function invoke_ok(executable, arguments, run_directory, expected_command) {
+  const result = invoke(executable, arguments, run_directory, expected_command);
+  ensure(result.output.exit_code === 0 && result.reply.ok === true,
+    "acu_job_resources_failed:" + expected_command + ":"
+      + text(result.reply.error === null || result.reply.error === undefined
+        ? "" : result.reply.error.code));
+  ensure(result.reply.target === "current", "acu_job_resources_wrong_target:" + expected_command);
+  ensure(result.reply.data !== null && typeof result.reply.data === "object",
+    "acu_job_resources_missing_data:" + expected_command);
+  return result.reply.data;
+}
+
+function mutation_prefix(request_id, session_id, session_lease) {
+  return [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", request_id,
+    "--session", session_id,
+    "--session-lease", session_lease
+  ];
+}
+
+function processes_absent(owner_pid, process_pid) {
+  for (let poll = 0; poll < 100; poll = poll + 1) {
+    if (!rh.process_alive(owner_pid) && !rh.process_alive(process_pid)) { return true; }
+    harness.sleep_ms(100);
+  }
+  return false;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 3,
+  "expected: REPO AGENTERM_LAUNCHER AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let launcher = rh.absolute(args[1]);
+let executable = rh.absolute(args[2]);
+if (harness.host_is_windows()) {
+  if (!direct_file(launcher)) { launcher = launcher + ".exe"; }
+  if (!direct_file(executable)) { executable = executable + ".exe"; }
+}
+ensure(direct_file(launcher), "acu_job_resources_launcher_missing");
+ensure(direct_file(executable), "acu_job_resources_cu_missing");
+
+const context = harness.new_context(repo, "acu-job-resources-compat");
+const run_directory = context.run_directory;
+const request_root = "acu-job-resources-" + context.run_id;
+let session_id = "";
+let session_lease = "";
+let job = null;
+let owner_pid = 0;
+let process_pid = 0;
+let owner_is_absent = false;
+let session_ended = false;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP create one isolated session and owned managed job");
+  const session = invoke_ok(executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", "acu-job-resources-compat", "--ttl-seconds", "120"
+  ], run_directory, "session-start");
+  session_id = text(session.session_id);
+  session_lease = text(session.lease);
+  ensure(session_id !== "" && session_lease !== "", "acu_job_resources_session_identity");
+
+  const child = harness.host_is_windows()
+    ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 60"]
+    : ["/bin/sh", "-c", "while :; do sleep 1; done"];
+  const spawn = mutation_prefix(request_root + "-spawn", session_id, session_lease);
+  append_all(spawn, ["job-spawn", "--cwd", run_directory, "--ttl-seconds", "60", "--"]);
+  append_all(spawn, child);
+  const spawned = invoke_ok(executable, spawn, run_directory, "job-spawn");
+  job = { job_id: text(spawned.job_id), generation: spawned.generation };
+  ensure(job.job_id !== "" && job.generation > 0, "acu_job_resources_job_identity");
+
+  print("STEP prove status owns the generation used by the compatibility compound");
+  const status = invoke_ok(executable, [
+    "--target", "current", "--grant", "observe", "job-status", job.job_id
+  ], run_directory, "job-status");
+  ensure(status.job_id === job.job_id && status.generation === job.generation
+      && status.state === "running" && status.io_available === true,
+    "acu_job_resources_status_contract");
+  owner_pid = status.owner_pid;
+  process_pid = status.process_pid;
+  ensure(owner_pid > 0 && process_pid > 0, "acu_job_resources_process_identities");
+
+  print("STEP execute the generation-free legacy point shape through real agenterm cli acu");
+  const compat = invoke_ok(launcher, [
+    "cli", "acu", "job", "resources", job.job_id
+  ], run_directory, "job-resources");
+  ensure(compat.job_id === job.job_id && compat.generation === status.generation,
+    "acu_job_resources_generation_projection");
+  ensure(compat.scope === "containment-group" && compat.mode === "point"
+      && compat.verified === true && compat.member_count >= 1
+      && Array.isArray(compat.members) && compat.members.length === compat.member_count,
+    "acu_job_resources_point_contract");
+
+  print("STEP retain unsupported legacy sampling flags as the exact dynamic TODO");
+  const extended = invoke(launcher, [
+    "cli", "acu", "job", "resources", job.job_id,
+    "--generation", "" + job.generation, "--interval", "1"
+  ], run_directory, "job");
+  ensure(extended.output.exit_code === 2 && extended.reply.ok === false
+      && extended.reply.alert === "ACU_CAPABILITY_TODO"
+      && extended.reply.error.code === "acu_todo"
+      && extended.reply.error.gap_id === "acu.dynamic.018",
+    "acu_job_resources_extended_boundary");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+// This cleanup is the court's finally path: it runs after both success and
+// failure and uses only the exact session/job identities retained above.
+if (job !== null && session_id !== "" && session_lease !== "") {
+  // Match the managed-job court's cleanup contract: shorten the owner lease
+  // before stop so the terminal resident cannot wait behind the fixture TTL.
+  try {
+    const renew = mutation_prefix(request_root + "-renew-cleanup", session_id, session_lease);
+    append_all(renew, [
+      "job-renew", job.job_id, "" + job.generation, "--ttl-seconds", "1"
+    ]);
+    invoke_ok(executable, renew, run_directory, "job-renew");
+  } catch (error) {}
+  try {
+    const stop = mutation_prefix(request_root + "-stop", session_id, session_lease);
+    append_all(stop, [
+      "job-stop", job.job_id, "" + job.generation,
+      "--grace-ms", "100", "--expect-stopped"
+    ]);
+    invoke_ok(executable, stop, run_directory, "job-stop");
+  } catch (error) {}
+}
+if (session_id !== "" && session_lease !== "") {
+  try {
+    invoke_ok(executable, [
+      "--target", "current", "--grant", "actuate",
+      "session-end", session_id, "--lease", session_lease, "--confirm"
+    ], run_directory, "session-end");
+    session_ended = true;
+  } catch (error) {}
+}
+if (job !== null && owner_pid > 0 && process_pid > 0) {
+  try { owner_is_absent = processes_absent(owner_pid, process_pid); }
+  catch (error) {}
+}
+if (job !== null && !owner_is_absent) {
+  failure = failure === "" ? "acu_job_resources_owner_cleanup" : failure;
+}
+if (session_id !== "" && !session_ended) {
+  failure = failure === "" ? "acu_job_resources_session_cleanup" : failure;
+}
+if (failure !== "") { succeeded = 0; }
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "acu.compat-job-resources");
+  harness.remove_run(context);
+  print("PASS: legacy job resources discovered its generation and returned the shared typed point reply");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
