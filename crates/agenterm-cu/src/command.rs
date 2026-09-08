@@ -8191,7 +8191,6 @@ mod tests {
             window: Some(7),
             frame: Some([10, 20, 300, 200]),
             expect_geometry: None,
-            expect_geometry: None,
         };
         assert_eq!(
             serde_json::to_value(&framed).expect("serialize"),

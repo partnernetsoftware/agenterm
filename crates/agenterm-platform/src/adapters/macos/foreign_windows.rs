@@ -8,7 +8,7 @@ use std::ffi::{CStr, c_void};
 
 use crate::CapabilityStatus;
 use crate::contract::window_enumerate::{
-    ScreenInfo, WindowBounds, WindowEnumerateError, WindowInfo,
+    DisplayPhysicalFacts, ScreenInfo, WindowBounds, WindowEnumerateError, WindowInfo,
 };
 use crate::contract::window_op::WindowOpError;
 
@@ -406,6 +406,7 @@ pub(crate) fn list_screens() -> Result<Vec<ScreenInfo>, WindowEnumerateError> {
                 frame: bounds,
                 visible: bounds,
                 primary: id == main,
+                physical: DisplayPhysicalFacts::UNKNOWN,
             });
         }
         if out.is_empty() {

@@ -4,10 +4,12 @@ use std::time::{Duration, Instant};
 
 use x11rb::{
     connection::Connection,
-    protocol::{Event, xproto::{
-        Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask,
-        StackMode, Window,
-    },
+    protocol::{
+        Event,
+        xproto::{
+            Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask,
+            StackMode, Window,
+        },
     },
 };
 

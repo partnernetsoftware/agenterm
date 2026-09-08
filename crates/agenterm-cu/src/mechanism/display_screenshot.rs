@@ -47,8 +47,10 @@ fn display_capture_handle() -> Result<isize, MechanismError> {
 #[cfg(windows)]
 fn display_capture_handle() -> Result<isize, MechanismError> {
     use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
-    let hwnd = GetDesktopWindow();
-    if hwnd == 0 {
+    // SAFETY: `GetDesktopWindow` has no pointer arguments and returns a
+    // process-independent pseudo-window handle which we validate below.
+    let hwnd = unsafe { GetDesktopWindow() };
+    if hwnd.is_null() {
         return Err(MechanismError::Failed {
             code: "display_unavailable".to_owned(),
             message: "GetDesktopWindow returned null".to_owned(),

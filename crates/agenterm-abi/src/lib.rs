@@ -92,9 +92,10 @@ use agenterm_platform::accessibility_tree::{
     AccessibilityEvent, AccessibilityNodeAction, AccessibilityTree, AccessibilityTreeBudget,
     AccessibilityTreeError, ApplicationVisibility, click_node, drain_bus, focused_node_for_window,
     get_node_caret_offset, get_node_extents, get_node_selection, get_node_text, hover_node,
-    invoke_menu_path, last_text_write_via, menu_tree_for_window, observe_window, perform_node_action,
-    poke_manual_accessibility, scroll_node, send_node_keys, set_application_visibility,
-    set_node_caret_offset, set_node_selection, set_node_text, tree_for_window_bounded, wheel_node,
+    invoke_menu_path, last_text_write_via, menu_tree_for_window, observe_window,
+    perform_node_action, poke_manual_accessibility, scroll_node, send_node_keys,
+    set_application_visibility, set_node_caret_offset, set_node_selection, set_node_text,
+    tree_for_window_bounded, wheel_node,
 };
 use agenterm_platform::app_inventory::{launch as launch_app, list_installed};
 use agenterm_platform::clipboard::{
@@ -4855,7 +4856,11 @@ pub extern "C" fn agt_a11y_node_wheel(
         let node_id = match unsafe { CStr::from_ptr(node_id) }.to_str() {
             Ok(s) => s,
             Err(_) => {
-                record_error(c"agt_a11y_node_wheel", c"bad_encoding", "node_id is not UTF-8");
+                record_error(
+                    c"agt_a11y_node_wheel",
+                    c"bad_encoding",
+                    "node_id is not UTF-8",
+                );
                 return agt_status::AGT_FAILED;
             }
         };
@@ -4872,7 +4877,11 @@ pub extern "C" fn agt_a11y_node_wheel(
     match catch_unwind(AssertUnwindSafe(|| inner(window_handle, node_id, dx, dy))) {
         Ok(s) => s,
         Err(_) => {
-            record_error(c"agt_a11y_node_wheel", c"panic", "panic in agt_a11y_node_wheel");
+            record_error(
+                c"agt_a11y_node_wheel",
+                c"panic",
+                "panic in agt_a11y_node_wheel",
+            );
             agt_status::AGT_FAILED
         }
     }
@@ -6629,6 +6638,20 @@ fn screen_info_to_record(s: &ScreenInfo) -> agt_screen_info {
     }
 }
 
+/// ABI 1.31 caller-sized physical facts for one screen-list index.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[allow(non_camel_case_types)]
+pub struct agt_screen_physical_v1 {
+    pub struct_size: u32,
+    pub record_version: u32,
+    pub width_mm: u32,
+    pub height_mm: u32,
+    pub dpi_x: u32,
+    pub dpi_y: u32,
+    pub scale_factor: f64,
+}
+
 /// Enumerate the host's displays into a caller-allocated array (two-stage,
 /// §3.4 — identical semantics to `agt_window_enumerate`, reusing the same
 /// shape):
@@ -6686,6 +6709,75 @@ pub extern "C" fn agt_screen_list(
         Ok(s) => s,
         Err(_) => {
             record_error(c"agt_screen_list", c"panic", "panic in agt_screen_list");
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_screen_physical(
+    index: usize,
+    out: *mut agt_screen_physical_v1,
+) -> agt_status {
+    fn inner(index: usize, out: *mut agt_screen_physical_v1) -> agt_status {
+        if out.is_null() {
+            record_error(c"agt_screen_physical", c"bad_pointer", "out is null");
+            return agt_status::AGT_FAILED;
+        }
+        let struct_size = unsafe { (*out).struct_size };
+        let required = std::mem::size_of::<agt_screen_physical_v1>();
+        if (struct_size as usize) < required {
+            record_error(
+                c"agt_screen_physical",
+                c"bad_size",
+                format!("struct_size {struct_size} is smaller than required v1 size {required}"),
+            );
+            return agt_status::AGT_FAILED;
+        }
+        let screens = match list_screens() {
+            Ok(screens) => screens,
+            Err(agenterm_platform::window_enumerate::WindowEnumerateError::Unsupported {
+                reason,
+            }) => return unsupported_because(c"agt_screen_physical", reason.into_owned()),
+            Err(error) => {
+                record_error(
+                    c"agt_screen_physical",
+                    c"window_failed",
+                    format!("{error:?}"),
+                );
+                return agt_status::AGT_FAILED;
+            }
+        };
+        let Some(screen) = screens.get(index) else {
+            record_error(
+                c"agt_screen_physical",
+                c"bad_index",
+                format!("screen index {index} is outside {} records", screens.len()),
+            );
+            return agt_status::AGT_FAILED;
+        };
+        unsafe {
+            *out = agt_screen_physical_v1 {
+                struct_size,
+                record_version: 1,
+                width_mm: screen.physical.width_mm.unwrap_or(0),
+                height_mm: screen.physical.height_mm.unwrap_or(0),
+                dpi_x: screen.physical.dpi_x.unwrap_or(0),
+                dpi_y: screen.physical.dpi_y.unwrap_or(0),
+                scale_factor: screen.physical.scale_factor.unwrap_or(0.0),
+            };
+        }
+        agt_status::AGT_OK
+    }
+    match catch_unwind(AssertUnwindSafe(|| inner(index, out))) {
+        Ok(status) => status,
+        Err(_) => {
+            record_error(
+                c"agt_screen_physical",
+                c"panic",
+                "panic in agt_screen_physical",
+            );
             agt_status::AGT_FAILED
         }
     }
@@ -7475,7 +7567,7 @@ mod tests {
 
     #[test]
     fn current_abi_maps_show_menu_without_a_value() {
-        assert_eq!(ABI_MINOR, 29);
+        assert_eq!(ABI_MINOR, 31);
         assert_eq!(
             a11y_action_from_abi(AGT_A11Y_ACTION_SHOW_MENU, None),
             Ok(AccessibilityNodeAction::ShowMenu)
@@ -7602,6 +7694,37 @@ mod tests {
             std::mem::size_of::<agt_window_placement_info_v1>(),
             56 + std::mem::size_of::<isize>()
         );
+    }
+
+    #[test]
+    fn screen_records_keep_the_fixed_stride_and_physical_facts_are_caller_sized() {
+        assert_eq!(std::mem::size_of::<agt_screen_info>(), 36);
+        assert_eq!(std::mem::align_of::<agt_screen_info>(), 4);
+        assert_eq!(std::mem::offset_of!(agt_screen_physical_v1, struct_size), 0);
+        assert_eq!(
+            std::mem::offset_of!(agt_screen_physical_v1, record_version),
+            4
+        );
+        assert_eq!(std::mem::offset_of!(agt_screen_physical_v1, width_mm), 8);
+        assert_eq!(
+            std::mem::offset_of!(agt_screen_physical_v1, scale_factor),
+            24
+        );
+        assert_eq!(std::mem::size_of::<agt_screen_physical_v1>(), 32);
+    }
+
+    #[test]
+    fn screen_physical_rejects_invalid_storage_before_platform_query() {
+        assert_eq!(
+            agt_screen_physical(0, std::ptr::null_mut()),
+            agt_status::AGT_FAILED
+        );
+        let mut record = agt_screen_physical_v1 {
+            struct_size: (std::mem::size_of::<agt_screen_physical_v1>() - 1) as u32,
+            ..agt_screen_physical_v1::default()
+        };
+        assert_eq!(agt_screen_physical(0, &mut record), agt_status::AGT_FAILED);
+        assert_eq!(record.record_version, 0);
     }
 
     #[test]

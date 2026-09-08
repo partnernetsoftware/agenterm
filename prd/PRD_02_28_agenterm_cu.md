@@ -19,6 +19,32 @@ capability supported by its own named evidence.
 
 Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
 
+## Current priority and dependency memory palace
+
+`agenterm-cu` is the highest-priority active AgenTerm capability. It is not one
+feature among peers: it is the typed actuation, observation, cleanup, and
+evidence substrate used to shorten every later development cycle. Work stays
+focused on closing MCU-retirement TODOs and public cross-platform evidence;
+unrelated breadth does not pre-empt this line.
+
+```text
+agenterm-cu priority frontier
+├── behavior: close platform-limited cells and acu_todo entries without hidden fallback
+├── evidence: every shipped verb owns a public black-box court
+├── delivery: qualify exact bytes across the required host cells
+├── leverage: qjswasm / GUI / browser / device / release automation
+└── non-goal: unrelated feature breadth before retirement blockers close
+```
+
+```mermaid
+flowchart LR
+  A["agenterm-cu typed capability"] --> E["public black-box evidence"]
+  E --> Q["cross-platform qualification"]
+  Q --> D["faster reliable development"]
+  D --> N["qjswasm · GUI · browser · device · release"]
+  T["MCU retirement TODO"] --> A
+```
+
 ## Subtree map
 
 `agenterm-cu` is organized as four child modules under this root, plus the
@@ -592,7 +618,7 @@ ACU-only cutover
 │  │  ├─ public owned qjswasm menu court proves mark/tree read-back and unchanged foreground
 │  │  └─ Linux/Windows typed-not-applicable; exact-window `menu-invoke` remains available
 │  └─ [~] acu.dynamic.095 · window-local background hover without moving the real cursor
-│     └─ same research-only verdict as `.074`; no private provider entered product code
+│     └─ distinct from shipped Linux named hover, which moves the pointer; no private background provider entered product code
 ├─ [ ] native/product TODO registry
 │  ├─ capability truth and platform status → `plan/acu-mcu-capability-ledger.json`
 │  ├─ zero catalog capability gaps; `process.signal.privileged` is platform-limited
@@ -2557,7 +2583,7 @@ independent implementation.
 | 已有面 | owning 模块 | cu 的关系 |
 |--------|-------------|-----------|
 | OS 级 screenshot / window / input / process 机制 | [20 Native platform](PRD_02_20_native_platform.md) `agenterm-platform` | **消费**。cu 不得直调 OS API，新机制先沉入 platform 并带 typed `Unsupported`/`Failed` |
-| OS 级 accessibility-tree 机制（观察 + 节点动作） | `crates/agenterm-abi` libagenterm `agt_a11y_*`（里程碑 6）→ `agenterm-platform` 适配器 | **消费**。Linux `current` 的 `tree` / 结构化 `click` / `focus` / named `send-text` / focused `send-text --window` / named `copy` / focused `copy --window` / named `paste` / focused `paste --window` / named `send-keys` / focused `send-keys --window` 经 ABI 机制层，不在 cu 内复刻 AT-SPI/UIA/AX |
+| OS 级 accessibility-tree 机制（观察 + 节点动作） | `crates/agenterm-abi` libagenterm `agt_a11y_*`（里程碑 6）→ `agenterm-platform` 适配器 | **消费**。Linux `current` 的 `tree` / 结构化 `click` / `focus` / named `hover` / named `send-text` / focused `send-text --window` / named `copy` / focused `copy --window` / named `paste` / focused `paste --window` / named `send-keys` / focused `send-keys --window` 经 ABI 机制层，不在 cu 内复刻 AT-SPI/UIA/AX；macOS/Windows 对没有等价指针移动式节点 hover 的路径 typed-refuse。ABI 1.31 另以 caller-sized `agt_screen_physical_v1` 查询显示器物理尺寸，不改变既有 `agt_screen_info[]` 数组步长。 |
 | 工作台观察/控制、确定性等待、身份 | [07 Agent control plane](PRD_02_07_agent_control_plane.md) | **复用，不分叉**。cu 的 terminal facade 只能调用这条既有控制平面并验证同一 scope/epoch/@tab；不得提供第二个 tab/PTY owner |
 | `agenterm-cc` 的 screenshot/snapshot 投影 | [21 Control Center](PRD_02_21_control_center.md) | **不重叠**。CC 是产品投影，不是通用机器控制面 |
 | `agenterm-con cli` 的输入/截图/等待 | [26 con control CLI](https://github.com/partnernetsoftware/minicon/blob/main/prd/PRD_02_26_con_control_cli.md) | **不重叠**。con 是 GUI 生命期内的本进程终端控制 |

@@ -373,10 +373,10 @@ pub(crate) fn pointer_drag(
         .map_err(|_| failed("pointer x coordinate is outside the X11 range"))?;
     let from_y = i16::try_from(from.y)
         .map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
-    let to_x = i16::try_from(to.x)
-        .map_err(|_| failed("pointer x coordinate is outside the X11 range"))?;
-    let to_y = i16::try_from(to.y)
-        .map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
+    let to_x =
+        i16::try_from(to.x).map_err(|_| failed("pointer x coordinate is outside the X11 range"))?;
+    let to_y =
+        i16::try_from(to.y).map_err(|_| failed("pointer y coordinate is outside the X11 range"))?;
     xtest_input(&context, MOTION_NOTIFY_EVENT, 0, from_x, from_y)?;
     xtest_input(&context, BUTTON_PRESS_EVENT, detail, 0, 0)?;
     for (x, y) in drag_points(from, to, steps) {

@@ -141,6 +141,19 @@ pub struct agt_screen_info {
     pub primary: i32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+#[allow(non_camel_case_types)]
+pub struct agt_screen_physical_v1 {
+    pub struct_size: u32,
+    pub record_version: u32,
+    pub width_mm: u32,
+    pub height_mm: u32,
+    pub dpi_x: u32,
+    pub dpi_y: u32,
+    pub scale_factor: f64,
+}
+
 /// C-compatible resident desktop-host action specification.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -297,6 +310,8 @@ pub const POINTER_DRAG_ABI_MINOR: u16 = 25;
 pub const WINDOW_MINIMIZED_ABI_MINOR: u16 = 25;
 /// ABI 1.30: `agt_native_window_maximized` (the per-window maximized read).
 pub const WINDOW_MAXIMIZED_ABI_MINOR: u16 = 30;
+/// ABI 1.31: caller-sized physical display facts.
+pub const DISPLAY_PHYSICAL_ABI_MINOR: u16 = 31;
 /// ABI 1.26: `agt_native_window_activate`, the explicit desktop-foreground
 /// operation (not app-local raise and not accessibility-node focus).
 pub const WINDOW_ACTIVATE_ABI_MINOR: u16 = 26;

@@ -334,7 +334,8 @@ pub(super) fn hover(
 
 pub(crate) fn map_scroll_wheel_err(error: mechanism::MechanismError) -> CuError {
     let mapped = map_mechanism_err(error);
-    if mapped.code != "a11y_scroll_wheel_unavailable" && mapped.code != "a11y_scroll_wheel_no_effect"
+    if mapped.code != "a11y_scroll_wheel_unavailable"
+        && mapped.code != "a11y_scroll_wheel_no_effect"
         || crate::mcu_surface::host_os() != "linux"
     {
         return mapped;
@@ -385,8 +386,9 @@ pub(super) fn scroll_wheel(
     if delta_x == 0 && delta_y == 0 {
         return Err(map_scroll_wheel_err(mechanism::MechanismError::Failed {
             code: "a11y_scroll_wheel_no_effect".into(),
-            message: "wheel delivery was accepted but independent Component.GetExtents did not move"
-                .into(),
+            message:
+                "wheel delivery was accepted but independent Component.GetExtents did not move"
+                    .into(),
         }));
     }
     let mut payload = serde_json::json!({
@@ -459,10 +461,7 @@ pub(super) fn get_extents(
 }
 
 fn extents_center(bounds: &mechanism::A11yBounds) -> [i32; 2] {
-    [
-        bounds.x + bounds.width / 2,
-        bounds.y + bounds.height / 2,
-    ]
+    [bounds.x + bounds.width / 2, bounds.y + bounds.height / 2]
 }
 
 /// `drag --from-name` / `--to-name`: resolve both nodes, read independent
@@ -504,14 +503,13 @@ pub(super) fn drag_by_name(
                     "drag --from-name PAT --to-name PAT requires both names",
                 )
             })?;
-    let to_resolved =
-        resolve_actuation_node(Some(window), None, Some(to_name), to_role, "drag")?
-            .ok_or_else(|| {
-                CuError::new(
-                    "invalid_input",
-                    "drag --from-name PAT --to-name PAT requires both names",
-                )
-            })?;
+    let to_resolved = resolve_actuation_node(Some(window), None, Some(to_name), to_role, "drag")?
+        .ok_or_else(|| {
+        CuError::new(
+            "invalid_input",
+            "drag --from-name PAT --to-name PAT requires both names",
+        )
+    })?;
     let from_extents = mechanism::get_node_extents(Some(window), &from_resolved.node_id)
         .map_err(map_mechanism_err)?;
     let to_extents = mechanism::get_node_extents(Some(window), &to_resolved.node_id)
@@ -595,7 +593,6 @@ pub(super) fn drag_by_name(
     }
     Ok(payload)
 }
-
 
 /// `select --name` is one-shot AT-SPI `Text.SetSelection`
 /// (`agt_a11y_node_set_selection`). Missing Text / `UnknownMethod`

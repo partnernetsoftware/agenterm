@@ -1155,14 +1155,17 @@ pub(crate) fn wheel_node(
     dy: i32,
 ) -> Result<(), AccessibilityTreeError> {
     let center = runtime().block_on(async {
-        timeout(SNAPSHOT_TIMEOUT, wheel_node_center_async(window_handle, node_id))
-            .await
-            .map_err(|_| {
-                AccessibilityTreeError::failed(
-                    "a11y_action_timeout",
-                    "AT-SPI node wheel center lookup exceeded its deadline",
-                )
-            })?
+        timeout(
+            SNAPSHOT_TIMEOUT,
+            wheel_node_center_async(window_handle, node_id),
+        )
+        .await
+        .map_err(|_| {
+            AccessibilityTreeError::failed(
+                "a11y_action_timeout",
+                "AT-SPI node wheel center lookup exceeded its deadline",
+            )
+        })?
     })?;
     crate::contract::input_inject::validate_pointer_scroll(dx, dy).map_err(map_input_inject_err)?;
     crate::input_inject::pointer_scroll_at(center, dx, dy).map_err(map_input_inject_err)
@@ -4931,10 +4934,9 @@ fn is_unique_bus_name(name: &str) -> bool {
 
 fn map_input_inject_err(error: InputInjectError) -> AccessibilityTreeError {
     match error {
-        InputInjectError::Unsupported { reason } => AccessibilityTreeError::failed(
-            "a11y_scroll_wheel_unavailable",
-            reason,
-        ),
+        InputInjectError::Unsupported { reason } => {
+            AccessibilityTreeError::failed("a11y_scroll_wheel_unavailable", reason)
+        }
         InputInjectError::Failed { code, message } => AccessibilityTreeError::failed(
             "a11y_scroll_wheel_unavailable",
             format!("{code}: {message}"),

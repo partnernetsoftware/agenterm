@@ -45,6 +45,13 @@ power should prefer discoverable commands and programming interfaces, and
 secondary controls should stay contextual or hidden by default when that keeps
 the daily workspace quiet.
 
+**Current highest product priority:** `agenterm-cu` is AgenTerm's most important
+active capability. It is the automation and evidence substrate that determines
+how quickly later UI, qjswasm, six-cell qualification, release, device, browser,
+and fleet work can be developed and verified. Until the MCU-retirement TODO and
+required platform evidence are closed, unrelated feature breadth must not
+displace this frontier.
+
 Terminal durability comes from deterministic two-dimensional state, not from
 nostalgia. AgenTerm extends that contract from a character grid to the whole
 agent fleet: humans and agents must be able to address, read, wait for, and
@@ -134,6 +141,7 @@ AgenTerm — local agent & process fleet work OS
 │
 ├─ agenterm-cu（computer-use 子树 · partial；六格 execute-only Candidate court 已接线、待首跑）
 │  └─ 28 agenterm-cu            自有 computer-use 底座：定义、边界、不变量、晋升门
+│     ├─ priority               当前最高优先级与开发效率枢纽；后续能力先依赖 ACU 自动化与证据
 │     ├─ transition [x]         生产入口已切至内嵌 `acu.qjs → agenterm:acu`；外部 `acu`/`mcu`
 │     │                       薄壳只 exec `agenterm cli acu`，无 Bun/MCU fallback。历史 `acu.ts`
 │     │                       已移入只读归档；未实现形状返回稳定 `acu_todo` ALERT
@@ -229,7 +237,7 @@ AgenTerm — local agent & process fleet work OS
 │     │                       one-call 已绑定 request/session + target lock，静态 STAY 清零；privilege provider
 │     │                       core + typed public apply + Linux fixed-polkit rehearsal 已落，但 system install、
 │     │                       pre-consent broker、真实 consent、
-│     │                       OSX/Win provider、跨平台 mutation court 与 MCU-absent 总门未绿，故 MCU 继续保留
+│     │                       OSX/Win provider 与跨平台 mutation court 未绿，故该叶保持 platform-limited；MCU 不回退
 │     │                       managed job 的 Unix STOP/CONT 已绑定 owning session + generation + durable root，
 │     │                       复用 crash-recoverable exact-tree 日志并逐成员读回；非幂等 signal 在 request-id
 │     │                       replay 落地前拒绝，Windows 不采用未公开 Job Object freeze class

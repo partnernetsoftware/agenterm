@@ -17,6 +17,11 @@ ABI 1.29 在 1.28 之后，不新增导出，而是在既有
 `AXSubrole`；未发布独立 refinement 的后端返回空串，调用方不得从普通
 `role` 推断或伪造 subrole。旧消费者不请求新 kind，行为保持不变。
 
+ABI 1.30 增加 `agt_native_window_maximized`。ABI 1.31 增加
+`agt_a11y_node_click`、`agt_a11y_node_hover`、`agt_a11y_node_wheel` 与 caller-sized
+`agt_screen_physical_v1` 查询。既有 `agt_screen_info[]` 元素保持原大小；数组
+元素没有 stride/struct-size，禁止以 minor 版本名义追加字段。
+
 ABI 1.10 新增 `agt_window_placement_query` 与
 `AGT_CAP_WINDOW_PLACEMENT_INSPECT`：调用者传入原生窗口句柄、预期 PID 和
 caller-sized v1 记录，得到 role、movable/resizable 三态与显式/应用强制/未知
@@ -296,8 +301,9 @@ profile 下构建出的库没有任何 `catch_unwind` 保护，**只允许**这�
 
 - **major**：只在**破坏性变更**时递增——改签名、删符号、改语义。
   消费者必须拒绝不匹配的 major（`v >> 16 != AGT_ABI_MAJOR` 即视为不兼容）。
-- **minor**：新增 ABI 能力、导出或字段时递增（纯增量），老消费者不受影响，
-  无需重新编译。
+- **minor**：新增 ABI 能力、导出，或在 caller-sized 记录中增加可协商字段时
+  递增（纯增量），老消费者不受影响，无需重新编译。固定步长数组记录不能追加
+  字段；应新增 caller-sized 查询或新入口。
 
 当前 minor 以 `src/lib.rs` 的 `ABI_MINOR` 与 `include/agenterm.h` 的
 `AGT_ABI_MINOR` 为准：里程碑 2–10 陆续新增了
@@ -329,6 +335,10 @@ ABI 1.29 不增加新导出，而是在既有 `agt_a11y_node_string` 上增加
 `AGT_A11Y_STR_SUBROLE = 7`：macOS 返回真实 `AXSubrole`，没有独立 refinement
 的后端返回空串。消费者不得从普通 `role` 猜造 subrole；旧消费者不请求新 kind，
 因此行为不变。
+
+ABI 1.30 增加 `agt_native_window_maximized`。ABI 1.31 增加原生节点 click / hover / wheel
+导出，并以独立 caller-sized `agt_screen_physical_v1` 按 screen index 返回毫米、
+DPI 与 scale factor；未知值为 0，既有 `agt_screen_info[]` 字节布局不变。
 
 `agt_build_id()` 返回 `<crate 版本>+abi.<major>.<minor>`
 （例如 `0.1.16+abi.1.1`），在**编译期**由 `CARGO_PKG_VERSION` 与

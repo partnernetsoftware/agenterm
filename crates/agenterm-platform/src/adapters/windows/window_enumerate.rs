@@ -14,7 +14,8 @@ use windows_sys::Win32::{
 
 use crate::CapabilityStatus;
 use crate::contract::window_enumerate::{
-    WindowBounds, WindowEnumerateError, WindowInfo, WindowStacking, stacking_from_front_to_back,
+    DisplayPhysicalFacts, WindowBounds, WindowEnumerateError, WindowInfo, WindowStacking,
+    stacking_from_front_to_back,
 };
 
 pub(crate) fn capability_status() -> CapabilityStatus {
@@ -167,5 +168,6 @@ pub(crate) fn list_screens()
         frame: bounds,
         visible: bounds,
         primary: true,
+        physical: DisplayPhysicalFacts::UNKNOWN,
     }])
 }

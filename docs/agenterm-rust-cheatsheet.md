@@ -2498,6 +2498,17 @@ A test gated `all(unix, target_arch = "x86_64")` still runs on macOS x86_64.
 after the dyn exec-base merge. Pick the soname from `target_os`, not from
 "unix".
 
+## Fixed-stride ABI arrays cannot grow by appending fields
+
+If an ABI accepts `T* + record_count`, producer and consumer both step the
+array using their compile-time `sizeof(T)`. Appending fields to `T` is therefore
+breaking even when the ABI minor increases: a newer producer can overrun an
+older allocation, while an older producer makes a newer consumer read later
+records at the wrong offsets. Keep the record byte-for-byte frozen. Add a
+separate caller-sized query (`struct_size` + version), or introduce a new array
+entry point whose element stride is explicit. A minor-version check can gate a
+new symbol; it cannot repair a mismatched array stride.
+
 ## Native consumers must match the Rust target ABI
 
 Do not select a C or C++ compiler merely because it appears first on the host

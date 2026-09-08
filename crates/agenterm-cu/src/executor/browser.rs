@@ -1457,9 +1457,8 @@ fn tab_select_activate_cdp(
         ));
     }
     for page in candidates {
-        match tab_activate_cdp_page(port, &page.id)? {
-            false => continue,
-            true => {}
+        if !tab_activate_cdp_page(port, &page.id)? {
+            continue;
         }
         if tab_select_readback_once(window, pid, hit.index)?.0 {
             return Ok(page.id.clone());

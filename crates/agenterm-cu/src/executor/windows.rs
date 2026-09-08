@@ -690,6 +690,11 @@ pub(super) fn displays_payload() -> Result<serde_json::Value, CuError> {
             "primary": screen.primary,
             "frame": screen.frame,
             "workArea": screen.visible,
+            "widthMm": screen.physical.width_mm,
+            "heightMm": screen.physical.height_mm,
+            "dpiX": screen.physical.dpi_x,
+            "dpiY": screen.physical.dpi_y,
+            "scaleFactor": screen.physical.scale_factor,
         })).collect::<Vec<_>>(),
         "returned": screens.len(),
     }))

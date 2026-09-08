@@ -158,6 +158,13 @@ impl DeviceIoError {
     }
 }
 
+impl fmt::Display for DeviceIoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "device I/O failed ({}): {}", self.code, self.detail)
+    }
+}
+impl std::error::Error for DeviceIoError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,10 +182,3 @@ mod tests {
         assert_eq!(error.retry_safe(), Some(false));
     }
 }
-
-impl fmt::Display for DeviceIoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "device I/O failed ({}): {}", self.code, self.detail)
-    }
-}
-impl std::error::Error for DeviceIoError {}

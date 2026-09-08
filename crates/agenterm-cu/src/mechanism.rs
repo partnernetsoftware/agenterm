@@ -484,12 +484,32 @@ pub mod window_enumerate {
         pub height: u32,
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+    pub struct DisplayPhysicalFacts {
+        pub width_mm: Option<u32>,
+        pub height_mm: Option<u32>,
+        pub dpi_x: Option<u32>,
+        pub dpi_y: Option<u32>,
+        pub scale_factor: Option<f64>,
+    }
+
+    impl DisplayPhysicalFacts {
+        pub const UNKNOWN: Self = Self {
+            width_mm: None,
+            height_mm: None,
+            dpi_x: None,
+            dpi_y: None,
+            scale_factor: None,
+        };
+    }
+
     /// One display in top-origin coordinates (same space as [`WindowBounds`]).
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
     pub struct ScreenInfo {
         pub frame: WindowBounds,
         pub visible: WindowBounds,
         pub primary: bool,
+        pub physical: DisplayPhysicalFacts,
     }
 
     /// A snapshot of one visible top-level window.
@@ -650,7 +670,11 @@ pub mod window_enumerate {
                     let status = unsafe { f(buf.as_mut_ptr(), capacity, &mut got) };
                     if status == dynlib::AGT_OK {
                         buf.truncate(got);
-                        return Ok(buf.iter().map(record_to_screen).collect());
+                        return buf
+                            .iter()
+                            .enumerate()
+                            .map(|(index, record)| record_to_screen(index, record))
+                            .collect();
                     }
                     if let Some(grown) = retry_capacity(status, capacity, got) {
                         capacity = grown;
@@ -704,8 +728,33 @@ pub mod window_enumerate {
             .collect()
     }
 
-    fn record_to_screen(record: &dynlib::agt_screen_info) -> ScreenInfo {
-        ScreenInfo {
+    fn physical_for_screen(index: usize) -> Result<DisplayPhysicalFacts, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < dynlib::DISPLAY_PHYSICAL_ABI_MINOR {
+            return Ok(DisplayPhysicalFacts::UNKNOWN);
+        }
+        let f = call_sym::<super::ScreenPhysical>(b"agt_screen_physical")?;
+        let mut record = dynlib::agt_screen_physical_v1 {
+            struct_size: std::mem::size_of::<dynlib::agt_screen_physical_v1>() as u32,
+            ..Default::default()
+        };
+        let status = unsafe { f(index, &mut record) };
+        map_status("agt_screen_physical", status)?;
+        Ok(DisplayPhysicalFacts {
+            width_mm: (record.width_mm != 0).then_some(record.width_mm),
+            height_mm: (record.height_mm != 0).then_some(record.height_mm),
+            dpi_x: (record.dpi_x != 0).then_some(record.dpi_x),
+            dpi_y: (record.dpi_y != 0).then_some(record.dpi_y),
+            scale_factor: (record.scale_factor.is_finite() && record.scale_factor > 0.0)
+                .then_some(record.scale_factor),
+        })
+    }
+
+    fn record_to_screen(
+        index: usize,
+        record: &dynlib::agt_screen_info,
+    ) -> Result<ScreenInfo, MechanismError> {
+        Ok(ScreenInfo {
             frame: WindowBounds {
                 x: record.frame_x,
                 y: record.frame_y,
@@ -719,7 +768,11 @@ pub mod window_enumerate {
                 height: record.visible_height,
             },
             primary: record.primary != 0,
-        }
+            // Physical facts are an additive ABI 1.31 projection over the
+            // fixed-stride screen list. A hot-plug race or older/partial
+            // provider must not make frame geometry disappear.
+            physical: physical_for_screen(index).unwrap_or(DisplayPhysicalFacts::UNKNOWN),
+        })
     }
 }
 
@@ -2572,6 +2625,7 @@ type WindowStackingList =
 type WindowPlacementQuery =
     unsafe extern "C" fn(isize, u32, *mut dynlib::agt_window_placement_info_v1) -> i32;
 type ScreenList = unsafe extern "C" fn(*mut dynlib::agt_screen_info, usize, *mut usize) -> i32;
+type ScreenPhysical = unsafe extern "C" fn(usize, *mut dynlib::agt_screen_physical_v1) -> i32;
 type WindowShow = unsafe extern "C" fn(isize, i32) -> i32;
 type WindowActivate = unsafe extern "C" fn(isize) -> i32;
 type WindowMove = unsafe extern "C" fn(isize, i32, i32, u32, u32) -> i32;

@@ -259,6 +259,7 @@ mod tests {
             "invoke",
             "click",
             "focus",
+            "hover",
             "send-text",
             "paste",
             "window-place",
@@ -284,6 +285,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 102, "{actuate:?}");
+        assert_eq!(actuate.len(), 104, "{actuate:?}");
     }
 }

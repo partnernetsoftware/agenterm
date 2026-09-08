@@ -70,11 +70,11 @@ unsafe extern "C" {
         dictionary: CfDictionaryRef,
         key: CfTypeRef,
         value: *mut CfTypeRef,
-    ) -> bool;
+    ) -> u8;
     fn CFNumberGetTypeID() -> CfTypeId;
     fn CFNumberGetValue(number: CfTypeRef, kind: CfIndex, value: *mut c_void) -> bool;
     fn CFBooleanGetTypeID() -> CfTypeId;
-    fn CFBooleanGetValue(boolean: CfTypeRef) -> bool;
+    fn CFBooleanGetValue(boolean: CfTypeRef) -> u8;
 
     fn CGPreflightPostEventAccess() -> bool;
 }
@@ -245,7 +245,7 @@ fn dictionary_value(
     // SAFETY: `dictionary` was checked as CFDictionary and `key` is a live
     // CFString. The borrowed result stays alive with the dictionary.
     let present = unsafe { CFDictionaryGetValueIfPresent(dictionary, key.as_ptr(), &mut value) };
-    if !present || value.is_null() {
+    if present == 0 || value.is_null() {
         return Err(shape(format!("IOConsoleUsers row is missing {field}")));
     }
     Ok(value)
@@ -333,7 +333,7 @@ fn dictionary_boolean(
 fn cf_boolean(value: CfTypeRef, field: &'static str) -> Result<bool, LoginSessionError> {
     require_type(value, unsafe { CFBooleanGetTypeID() }, field)?;
     // SAFETY: type was checked as CFBoolean.
-    Ok(unsafe { CFBooleanGetValue(value) })
+    Ok(unsafe { CFBooleanGetValue(value) != 0 })
 }
 
 fn require_type(

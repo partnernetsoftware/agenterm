@@ -295,12 +295,12 @@ fn drag(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         );
     }
     let (from, to, from_name, to_name) = if named {
-        let from_name = from_name.filter(|value| !value.is_empty()).ok_or_else(|| {
-            "drag --from-name PAT --to-name PAT requires both names".to_owned()
-        })?;
-        let to_name = to_name.filter(|value| !value.is_empty()).ok_or_else(|| {
-            "drag --from-name PAT --to-name PAT requires both names".to_owned()
-        })?;
+        let from_name = from_name
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "drag --from-name PAT --to-name PAT requires both names".to_owned())?;
+        let to_name = to_name
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "drag --from-name PAT --to-name PAT requires both names".to_owned())?;
         ([0, 0], [0, 0], Some(from_name), Some(to_name))
     } else {
         let Some(from_raw) = from_coords else {

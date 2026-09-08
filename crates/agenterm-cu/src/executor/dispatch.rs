@@ -2185,7 +2185,7 @@ impl Executor {
                         &mut self.open_receipts(command.target())?,
                     )
                 }
-            },
+            }
             Command::Hit {
                 window,
                 x,

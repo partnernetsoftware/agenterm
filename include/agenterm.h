@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 30
+#define AGT_ABI_MINOR 31
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -501,6 +501,14 @@ agt_status agt_a11y_node_action_name(size_t node_index, size_t action_index,
 agt_status agt_a11y_node_perform(intptr_t window_handle, const char* node_id,
                                    agt_a11y_action_kind action);
 
+/* ABI 1.31: deliver a bounded native click, or move the pointer to the node
+ * center without clicking. Unsupported host mechanisms fail typed. */
+agt_status agt_a11y_node_click(intptr_t window_handle, const char* node_id,
+                               int32_t button, uint32_t clicks);
+agt_status agt_a11y_node_hover(intptr_t window_handle, const char* node_id);
+agt_status agt_a11y_node_wheel(intptr_t window_handle, const char* node_id,
+                               int32_t delta_x, int32_t delta_y);
+
 /* ABI 1.13: perform one semantic `invoke` action on `node_id` with the UTF-8
  * payload the kind needs: SET_VALUE / SELECT_OPTION take the text (an empty
  * payload clears a value), SET_CHECKED / SET_EXPANDED take "0" / "1" (or
@@ -945,6 +953,17 @@ typedef struct {
  * absent on this host -> AGT_UNSUPPORTED; platform failure ->
  * AGT_FAILED{code="window_failed"}. */
 agt_status agt_screen_list(agt_screen_info* buf, size_t cap, size_t* out_count);
+
+/* ABI 1.31: caller-sized physical facts for one index from agt_screen_list.
+ * Zero values mean the host did not publish that fact. */
+typedef struct {
+    uint32_t struct_size;
+    uint32_t record_version;
+    uint32_t width_mm, height_mm;
+    uint32_t dpi_x, dpi_y;
+    double   scale_factor;
+} agt_screen_physical_v1;
+agt_status agt_screen_physical(size_t index, agt_screen_physical_v1* out);
 
 /* Native-window operations. These act on raw OS handles obtained from
  * agt_window_enumerate, NEVER on the ABI's own window handle from

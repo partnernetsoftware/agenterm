@@ -45,10 +45,11 @@ pub(super) fn window_place(
     expect_geometry: Option<[i32; 2]>,
 ) -> Result<serde_json::Value, CuError> {
     let action = action_raw.trim();
-    if action == "resize" {
-        if let Some([expected_width, expected_height]) = expect_geometry {
-            if !window.is_some_and(|handle| handle != 0) {
-                return Err(CuError::new(
+    if action == "resize"
+        && let Some([expected_width, expected_height]) = expect_geometry
+    {
+        if !window.is_some_and(|handle| handle != 0) {
+            return Err(CuError::new(
                     "refused",
                     "resize with --expect needs an exact target (--window HANDLE) and a checkable geometry postcondition (--expect WxH); nothing was performed",
                 )
@@ -61,13 +62,12 @@ pub(super) fn window_place(
                     },
                     "effect": "not_performed",
                 })));
-            }
-            if frame.is_none_or(|rect| rect[2] != expected_width || rect[3] != expected_height) {
-                return Err(CuError::new(
-                    "invalid_input",
-                    "resize --expect geometry must match --width and --height",
-                ));
-            }
+        }
+        if frame.is_none_or(|rect| rect[2] != expected_width || rect[3] != expected_height) {
+            return Err(CuError::new(
+                "invalid_input",
+                "resize --expect geometry must match --width and --height",
+            ));
         }
     }
     let catalog_action = if matches!(action, "frame" | "move" | "resize") {
@@ -155,10 +155,10 @@ pub(super) fn window_place(
         &mut NativePlaceRuntime,
         &mut NativeHistoryCommitter,
     )?;
-    if action == "resize" {
-        if let Some([expected_width, expected_height]) = expect_geometry {
-            verify_resize_geometry(&reply, expected_width, expected_height)?;
-        }
+    if action == "resize"
+        && let Some([expected_width, expected_height]) = expect_geometry
+    {
+        verify_resize_geometry(&reply, expected_width, expected_height)?;
     }
     Ok(reply)
 }
@@ -192,8 +192,8 @@ fn verify_resize_geometry(
         .get("quantized")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
-    let bounded = geometry_within(got_width, expected_width)
-        && geometry_within(got_height, expected_height);
+    let bounded =
+        geometry_within(got_width, expected_width) && geometry_within(got_height, expected_height);
     if exact || (quantized && bounded) {
         return Ok(());
     }
@@ -1123,11 +1123,7 @@ mod tests {
             frame: bounds,
             visible: bounds,
             primary: true,
-            width_mm: None,
-            height_mm: None,
-            dpi_x: None,
-            dpi_y: None,
-            scale_factor: None,
+            physical: mechanism::window_enumerate::DisplayPhysicalFacts::UNKNOWN,
         }
     }
 
@@ -1523,6 +1519,7 @@ mod tests {
                     height: 760,
                 },
                 primary: true,
+                physical: mechanism::window_enumerate::DisplayPhysicalFacts::UNKNOWN,
             },
             ScreenInfo {
                 frame: WindowBounds {
@@ -1538,11 +1535,7 @@ mod tests {
                     height: 860,
                 },
                 primary: false,
-                width_mm: None,
-                height_mm: None,
-                dpi_x: None,
-                dpi_y: None,
-                scale_factor: None,
+                physical: mechanism::window_enumerate::DisplayPhysicalFacts::UNKNOWN,
             },
         ];
 
