@@ -3863,7 +3863,10 @@ Cancellation must cover construction-time guest execution as well as exported
 calls. A Wasm start section runs while a slot is being instantiated, before
 the caller can receive or cancel a published handle, so borrow the same
 operation-scoped interrupt through instantiation and do not retain it in the
-module or slot. On failure, remove local registration and publish no handle;
+module or slot. Every versioned envelope and exposure-classification layer must
+forward that control explicitly; calling an uncontrolled convenience adapter
+inside one layer silently severs the cancellation chain. On failure, remove
+local registration and publish no handle;
 do not claim transactional rollback of imported memory/table writes or host
 callbacks that completed before the interrupt was observed. Preserve failure
 precedence as acknowledged cancellation, host-budget refusal, host-door fault,

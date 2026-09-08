@@ -428,7 +428,7 @@ pub fn execute_request_from_environment_controlled(
             }
         }
         Some("mcp_call") if exact_keys(object, &["acu_request", "kind", "name", "arguments"]) => {
-            execute_mcp_call_from_environment(object)
+            execute_mcp_call_from_environment(object, control)
         }
         Some("identity_bound_command")
             if exact_keys(
@@ -522,6 +522,17 @@ fn identity_token(
 
 fn execute_mcp_call_from_environment(
     object: &serde_json::Map<String, serde_json::Value>,
+    control: crate::execution_control::ExecutionControl<'_>,
+) -> CuReply {
+    execute_mcp_call_with(object, control, |command, control| {
+        execute_command_from_environment_controlled(command, control)
+    })
+}
+
+fn execute_mcp_call_with(
+    object: &serde_json::Map<String, serde_json::Value>,
+    control: crate::execution_control::ExecutionControl<'_>,
+    execute: impl FnOnce(&Command, crate::execution_control::ExecutionControl<'_>) -> CuReply,
 ) -> CuReply {
     let Some(arguments) = object
         .get("arguments")
@@ -530,11 +541,12 @@ fn execute_mcp_call_from_environment(
         return malformed_request("ACU MCP tool arguments must be an object");
     };
     match object.get("name").and_then(serde_json::Value::as_str) {
-        Some("agenterm_acu_capabilities") if arguments.is_empty() => {
-            execute_command_from_environment(&Command::Capabilities {
+        Some("agenterm_acu_capabilities") if arguments.is_empty() => execute(
+            &Command::Capabilities {
                 target: crate::TargetRef::Current,
-            })
-        }
+            },
+            control,
+        ),
         Some("agenterm_acu_capabilities") => {
             malformed_request("agenterm_acu_capabilities arguments must be an empty object")
         }
@@ -544,7 +556,7 @@ fn execute_mcp_call_from_environment(
                 Err(message) => return malformed_request(message),
             };
             match mcp_exposure(&command) {
-                McpExposure::ReadOnly => execute_command_from_environment(&command),
+                McpExposure::ReadOnly => execute(&command, control),
                 McpExposure::Actuate => CuReply::err(
                     &command,
                     CuError::new(
@@ -919,6 +931,35 @@ mod tests {
         let reply = execute_request_from_environment_controlled(
             &request.to_string(),
             crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        );
+        assert!(!reply.ok);
+        let error = reply.error.expect("typed cancellation");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(error.detail.expect("detail")["effect"], "not_performed");
+    }
+
+    #[test]
+    fn controlled_mcp_dispatch_forwards_the_process_watch_probe() {
+        let request = serde_json::json!({
+            "name": "agenterm_acu_observe",
+            "arguments": {
+                "command": {
+                    "verb": "process-watch",
+                    "target": "current",
+                    "pid": u32::MAX,
+                    "duration_ms": 60000,
+                    "interval_ms": 60000
+                }
+            }
+        });
+        let probe = || true;
+        let reply = execute_mcp_call_with(
+            request.as_object().expect("request object"),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+            |command, control| match control.check_observe() {
+                Ok(()) => CuReply::ok(command, serde_json::json!({})),
+                Err(error) => CuReply::err(command, error),
+            },
         );
         assert!(!reply.ok);
         let error = reply.error.expect("typed cancellation");

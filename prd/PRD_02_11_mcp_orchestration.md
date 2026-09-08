@@ -200,6 +200,11 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
       read-only again, remains open-world because network/CDP observation can
       reach external systems, and a new `Command` variant cannot compile until
       it is assigned an exposure class
+    - [x] preserve the provider ABI's call-scoped cancellation probe through
+      the closed `mcp_call` envelope and `McpExposure` dispatch. A long-running
+      read-only command such as `process-watch` must acknowledge cancellation
+      as `effect:not_performed`; the MCP wrapper must not replace the
+      controlled Executor call with the uncontrolled convenience entry point
   - [ ] run the same exact provider bytes through Windows/Linux native courts,
     then design mutation tools only after cancellation and receipt semantics
     are explicit; no mutation tool is advertised in this slice
