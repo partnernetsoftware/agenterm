@@ -447,6 +447,12 @@
       ]
     },
     {
+      "id": "cu-linux-hit-honesty-smoke",
+      "evidence": [
+        "cu.linux-hit-readback"
+      ]
+    },
+    {
       "id": "cu-linux-screenshot-window-smoke",
       "evidence": [
         "cu.linux-screenshot-window-readback"
@@ -915,7 +921,8 @@
     {
       "id": "cu-linux-host-open-smoke",
       "evidence": [
-        "cu.host-open.linux"
+        "cu.host-open.linux",
+        "cu.linux-app-launch"
       ]
     },
     {

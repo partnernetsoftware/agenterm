@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use crate::contract::app_inventory::{
     AppInventoryError, InstalledApp, InstalledApps, MAX_APP_PATH_BYTES, MAX_INSTALLED_APPS,
 };
+use crate::process_spawn::spawn_breakaway_visible_child;
 
 /// Largest desktop entry this will read. Entries are small key/value files;
 /// anything larger is not one, and reading it would be unbounded work per
@@ -256,18 +257,18 @@ pub(crate) fn launch(path: &str) -> Result<(), AppInventoryError> {
             format!("{path} has an Exec line with no command"),
         ));
     };
-    std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    command
         .args(arguments)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            AppInventoryError::failed(
-                "app_launch_failed",
-                format!("could not start {program}: {error}"),
-            )
-        })?;
+        .stderr(std::process::Stdio::null());
+    spawn_breakaway_visible_child(&mut command).map_err(|error| {
+        AppInventoryError::failed(
+            "app_launch_failed",
+            format!("could not start {program}: {error}"),
+        )
+    })?;
     Ok(())
 }
 

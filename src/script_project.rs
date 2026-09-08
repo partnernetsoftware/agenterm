@@ -277,11 +277,11 @@ pub fn load_task_catalog(path: &Path) -> Result<ScriptTaskCatalog, String> {
     validate_origin(raw.project.origin.as_ref())?;
     validate_provenance(raw.project.provenance.as_ref())?;
     let (compatible, compatibility_reason) = validate_requirements(&raw.project.requires)?;
-    if raw.tasks.len() > 256 {
-        return Err("task_manifest_tasks: maximum is 256".to_owned());
+    if raw.tasks.len() > 512 {
+        return Err("task_manifest_tasks: maximum is 512".to_owned());
     }
-    if raw.contracts.len() > 256 {
-        return Err("task_manifest_contracts: maximum is 256".to_owned());
+    if raw.contracts.len() > 512 {
+        return Err("task_manifest_contracts: maximum is 512".to_owned());
     }
     for id in raw.contracts.keys() {
         validate_identity(id, "task_contract_id")?;

@@ -2221,6 +2221,25 @@
         "task.cu-linux-host-open-smoke"
       ]
     },
+    "cu-linux-query-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-query-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-query-smoke"
+      ]
+    },
     "cu-linux-gtk-copy-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5360,7 +5379,7 @@
     },
     {
       "id": "cu-scroll-wheel-smoke",
-      "description": "Prove Linux scroll-wheel --name on a Chrome scroll fixture: independent get-extents before and after must show OffscreenField screen geometry move after dy=-5 wheel delivery at the named node center; no --coords or screenshot degradation.",
+      "description": "Linux scroll-wheel --name on a Chrome scroll fixture: independent get-extents before and after must show OffscreenField screen geometry move after dy=-5 wheel delivery at the named node center; no --coords.",
       "entry": "scripts/qjs/cu-scroll-wheel-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5380,7 +5399,7 @@
     },
     {
       "id": "cu-linux-resize-expect-smoke",
-      "description": "Prove Linux resize --expect WxH on a named GTK fixture window: independent windows inventory bounds must match --expect after resize; no --coords or screenshot degradation.",
+      "description": "Linux resize --expect WxH on a named GTK fixture window: independent windows inventory bounds must match --expect after resize; no --coords.",
       "entry": "scripts/qjs/cu-linux-resize-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5400,7 +5419,7 @@
     },
     {
       "id": "cu-linux-window-move-smoke",
-      "description": "Prove Linux movewin --expect XxY on a disposable GTK fixture with independent windows inventory origin read-back; no --coords or screenshot degradation.",
+      "description": "Linux movewin --expect XxY on a disposable GTK fixture with independent windows inventory origin read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-window-move-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5420,7 +5439,7 @@
     },
     {
       "id": "cu-linux-window-opacity-smoke",
-      "description": "Prove Linux window-opacity --opacity/--expect on a disposable GTK fixture window: independent xprop _NET_WM_WINDOW_OPACITY and windows inventory opacity must match --expect after set; no --coords or screenshot degradation.",
+      "description": "Linux window-opacity --opacity/--expect on a disposable GTK fixture window: independent xprop _NET_WM_WINDOW_OPACITY and windows inventory opacity must match --expect after set; no --coords.",
       "entry": "scripts/qjs/cu-linux-window-opacity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5440,7 +5459,7 @@
     },
     {
       "id": "cu-linux-a11y-status-smoke",
-      "description": "Prove Linux doctor checks.a11y_bus reads org.a11y.Status IsEnabled and ScreenReaderEnabled with session-bus and AT-SPI bus readiness fields; no --coords or screenshot degradation.",
+      "description": "Linux doctor checks.a11y_bus reads org.a11y.Status IsEnabled and ScreenReaderEnabled with session-bus and AT-SPI bus readiness fields; no --coords.",
       "entry": "scripts/qjs/cu-linux-a11y-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5458,7 +5477,7 @@
     },
     {
       "id": "cu-linux-app-inventory-smoke",
-      "description": "Prove Linux apps --all rows match independent XDG desktop-entry and visible-window /proc comm read-back; no --coords or screenshot degradation.",
+      "description": "Linux apps --all rows match independent XDG desktop-entry and visible-window /proc comm read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-app-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5476,7 +5495,7 @@
     },
     {
       "id": "cu-linux-ime-status-smoke",
-      "description": "Prove Linux ime-status observe returns ok JSON with independent ibus/fcitx read-back or typed unsupported with session-bus and framework probe facts; no --coords or screenshot degradation.",
+      "description": "Linux ime-status observe returns ok JSON with independent ibus/fcitx read-back or typed unsupported with session-bus and framework probe facts; no --coords.",
       "entry": "scripts/qjs/cu-linux-ime-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5494,7 +5513,7 @@
     },
     {
       "id": "cu-linux-minimize-expect-smoke",
-      "description": "Prove Linux minimize/restore --expect minimized|restored on a disposable GTK fixture window: independent windows inventory minimized field must match --expect after each verb; no --coords or screenshot degradation.",
+      "description": "Linux minimize/restore --expect minimized|restored on a disposable GTK fixture window: independent windows inventory minimized field must match --expect after each verb; no --coords.",
       "entry": "scripts/qjs/cu-linux-minimize-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5514,7 +5533,7 @@
     },
     {
       "id": "cu-linux-maximize-expect-smoke",
-      "description": "Prove Linux maximize/unmaximize --expect maximized|unmaximized on a disposable GTK fixture window: independent windows inventory maximized field must match --expect after each verb; no --coords or screenshot degradation.",
+      "description": "Linux maximize/unmaximize --expect maximized|unmaximized on a disposable GTK fixture window: independent windows inventory maximized field must match --expect after each verb; no --coords.",
       "entry": "scripts/qjs/cu-linux-maximize-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5534,7 +5553,7 @@
     },
     {
       "id": "cu-linux-fullscreen-expect-smoke",
-      "description": "Prove Linux fullscreen/unfullscreen --expect fullscreen|unfullscreen on a disposable GTK fixture window: independent xprop _NET_WM_STATE and windows inventory fullscreen field must match --expect after each verb; no --coords or screenshot degradation.",
+      "description": "Linux fullscreen/unfullscreen --expect fullscreen|unfullscreen on a disposable GTK fixture window: independent xprop _NET_WM_STATE and windows inventory fullscreen field must match --expect after each verb; no --coords.",
       "entry": "scripts/qjs/cu-linux-fullscreen-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5554,7 +5573,7 @@
     },
     {
       "id": "cu-linux-hide-show-smoke",
-      "description": "Prove Linux app hide/show state on a disposable GTK fixture with independent windows inventory read-back; no --coords or screenshot degradation.",
+      "description": "Linux app hide/show state on a disposable GTK fixture with independent windows inventory read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-hide-show-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5574,7 +5593,7 @@
     },
     {
       "id": "cu-linux-topmost-expect-smoke",
-      "description": "Prove Linux topmost/untopmost --expect topmost|untopmost on a disposable GTK fixture window: independent xprop _NET_WM_STATE_ABOVE and windows inventory above field must match --expect after each verb; no --coords or screenshot degradation.",
+      "description": "Linux topmost/untopmost --expect topmost|untopmost on a disposable GTK fixture window: independent xprop _NET_WM_STATE_ABOVE and windows inventory above field must match --expect after each verb; no --coords.",
       "entry": "scripts/qjs/cu-linux-topmost-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5594,7 +5613,7 @@
     },
     {
       "id": "cu-linux-window-close-smoke",
-      "description": "Prove Linux close --snapshot --expect gone on a disposable GTK fixture window: independent windows inventory must no longer list the closed handle; typed refusals when the destructive gate is incomplete; no --coords or screenshot degradation.",
+      "description": "Linux close --snapshot --expect gone on a disposable GTK fixture window: independent windows inventory must no longer list the closed handle; typed refusals when the destructive gate is incomplete; no --coords.",
       "entry": "scripts/qjs/cu-linux-window-close-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5614,7 +5633,7 @@
     },
     {
       "id": "cu-linux-window-title-contains-smoke",
-      "description": "Prove Linux wait --window-title-contains matches Unicode GTK titles with case folding, unmet titles exit nonzero, and independent windows inventory title read-back; observe only, no --coords or screenshot degradation.",
+      "description": "Linux wait --window-title-contains matches Unicode GTK titles with case folding, unmet titles exit nonzero, and independent windows inventory title read-back; observe only, no --coords.",
       "entry": "scripts/qjs/cu-linux-window-title-contains-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5634,7 +5653,7 @@
     },
     {
       "id": "cu-linux-windows-inventory-smoke",
-      "description": "Prove Linux windows top-level inventory pid, title and app_name match independent EWMH/xdotool/AT-SPI read-back; no --coords or screenshot degradation.",
+      "description": "Linux windows top-level inventory pid, title and app_name match independent EWMH/xdotool/AT-SPI read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-windows-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5654,7 +5673,7 @@
     },
     {
       "id": "cu-linux-raise-activate-smoke",
-      "description": "Prove Linux activate and raise with independent windows --focused inventory read-back; background raise must fail foreground_changed; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux activate and raise with independent windows --focused inventory read-back; background raise must fail foreground_changed; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-raise-activate-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5674,7 +5693,7 @@
     },
     {
       "id": "cu-linux-orderwin-smoke",
-      "description": "Prove Linux orderwin above/below on two disposable GTK fixture windows: independent windows inventory z_index read-back must match each relation after the verb; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux orderwin above/below on two disposable GTK fixture windows: independent windows inventory z_index read-back must match each relation after the verb; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-orderwin-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5694,7 +5713,7 @@
     },
     {
       "id": "cu-linux-desktop-state-smoke",
-      "description": "Prove Linux desktop-state returns a bounded inventory+tree+pointer snapshot for one fixture window with independent AT-SPI/X11 read-back on title, tree budget, named entry text, and pointer coords; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux desktop-state returns a bounded inventory+tree+pointer snapshot for one fixture window with independent AT-SPI/X11 read-back on title, tree budget, named entry text, and pointer coords; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-desktop-state-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5714,7 +5733,7 @@
     },
     {
       "id": "cu-linux-tree-honesty-smoke",
-      "description": "Prove Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk; volatile focus/active/armed/selected states excluded; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk; volatile focus/active/armed/selected states excluded; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tree-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5734,7 +5753,7 @@
     },
     {
       "id": "cu-linux-snapshot-diff-smoke",
-      "description": "Prove Linux snapshot baseline then send-text mutation yields diff that matches independent pyatspi before/after AT-SPI tree delta on the same bounded walk budget, with --advance publishing a new baseline id; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux snapshot baseline then send-text mutation yields diff that matches independent pyatspi before/after AT-SPI tree delta on the same bounded walk budget, with --advance publishing a new baseline id; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-snapshot-diff-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5754,7 +5773,7 @@
     },
     {
       "id": "cu-linux-verify-expect-honesty-smoke",
-      "description": "Prove Linux verify --expect value and checked facts on named GTK fixture nodes match an independent pyatspi AT-SPI read-back of the same nodes, including after a disposable invoke set-value actuation; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux verify --expect value and checked facts on named GTK fixture nodes match an independent pyatspi AT-SPI read-back of the same nodes, including after a disposable invoke set-value actuation; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-verify-expect-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5774,7 +5793,7 @@
     },
     {
       "id": "cu-linux-workspace-desktop-smoke",
-      "description": "Prove Linux EWMH workspace/desktop index observe for one fixture window: windows inventory workspace_desktop must match independent xprop _NET_WM_DESKTOP read-back, or answer typed unsupported with alternatives; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux EWMH workspace/desktop index observe for one fixture window: windows inventory workspace_desktop must match independent xprop _NET_WM_DESKTOP read-back, or answer typed unsupported with alternatives; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-workspace-desktop-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5794,7 +5813,7 @@
     },
     {
       "id": "cu-linux-chrome-text-smoke",
-      "description": "Prove Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords or screenshot degradation.",
+      "description": "Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5814,7 +5833,7 @@
     },
     {
       "id": "cu-linux-unlock-honesty-smoke",
-      "description": "Prove Linux CU unlock returned_before/returned_after and grew agree with independent pyatspi BFS node/depth counts on an owned Chrome window before and after the org.a11y.Status poke; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux CU unlock returned_before/returned_after and grew agree with independent pyatspi BFS node/depth counts on an owned Chrome window before and after the org.a11y.Status poke; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-unlock-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5834,7 +5853,7 @@
     },
     {
       "id": "cu-linux-cdp-page-fill-smoke",
-      "description": "Prove Linux CDP page-nav to a disposable file:// input fixture, page-fill --clear writes SEED, and independent page-find --selector value read-back equals SEED; --port/--target-id only, no --coords or screenshot degradation.",
+      "description": "Linux CDP page-nav to a disposable file:// input fixture, page-fill --clear writes SEED, and independent page-find --selector value read-back equals SEED; --port/--target-id only, no --coords.",
       "entry": "scripts/qjs/cu-linux-cdp-page-fill-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5854,7 +5873,7 @@
     },
     {
       "id": "cu-linux-browser-profiles-open-smoke",
-      "description": "Prove Linux browser-profiles reads installed Google Chrome Local State without a live profile window and browser-open yields a new chrome window verified by independent windows inventory read-back; no --coords or screenshot degradation.",
+      "description": "Linux browser-profiles reads installed Google Chrome Local State without a live profile window and browser-open yields a new chrome window verified by independent windows inventory read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-browser-profiles-open-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5874,7 +5893,7 @@
     },
     {
       "id": "cu-linux-page-targets-smoke",
-      "description": "Prove Linux page-targets --port CDP /json inventory matches independent curl read of the same debugging port; disposable Chrome profile, no --coords or screenshot degradation.",
+      "description": "Linux page-targets --port CDP /json inventory matches independent curl read of the same debugging port; disposable Chrome profile, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-targets-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5894,7 +5913,7 @@
     },
     {
       "id": "cu-linux-page-find-smoke",
-      "description": "Prove Linux page-find --selector CDP node text/count matches an independent CDP Runtime.evaluate querySelectorAll probe on the same disposable page target; --port/--target-id only, no --coords or screenshot degradation.",
+      "description": "Linux page-find --selector CDP node text/count matches an independent CDP Runtime.evaluate querySelectorAll probe on the same disposable page target; --port/--target-id only, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-find-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5914,7 +5933,7 @@
     },
     {
       "id": "cu-linux-page-screenshot-smoke",
-      "description": "Prove Linux page-screenshot --port writes a real PNG whose magic bytes, size, sha256, and decoded dimensions are verified by independent host read-back; disposable Chrome+CDP, no --coords or screenshot-window degradation.",
+      "description": "Linux page-screenshot --port writes a real PNG whose magic bytes, size, sha256, and decoded dimensions are verified by independent host read-back; disposable Chrome+CDP, no --coords or screenshot-window degradation.",
       "entry": "scripts/qjs/cu-linux-page-screenshot-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5934,7 +5953,7 @@
     },
     {
       "id": "cu-linux-page-scroll-smoke",
-      "description": "Prove Linux CDP page-scroll --dy on a disposable scroll container and independent page-js scrollTop read-back increases; --port/--target-id only, no --coords or screenshot degradation.",
+      "description": "Linux CDP page-scroll --dy on a disposable scroll container and independent page-js scrollTop read-back increases; --port/--target-id only, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-scroll-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5954,7 +5973,7 @@
     },
     {
       "id": "cu-linux-page-hover-smoke",
-      "description": "Prove Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; no --coords or screenshot degradation.",
+      "description": "Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; no --coords.",
       "entry": "scripts/qjs/cu-linux-page-hover-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5974,7 +5993,7 @@
     },
     {
       "id": "cu-linux-browser-tabs-smoke",
-      "description": "Prove Linux browser-open with profile/URL then independent browser-tabs lists the tab with stable CDP title/URL evidence; AT-SPI/--name court only, no --coords or screenshot degradation.",
+      "description": "Linux browser-open with profile/URL then independent browser-tabs lists the tab with stable CDP title/URL evidence; AT-SPI/--name court only, no --coords.",
       "entry": "scripts/qjs/cu-linux-browser-tabs-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5994,7 +6013,7 @@
     },
     {
       "id": "cu-linux-browser-tab-select-smoke",
-      "description": "Prove Linux tab-select by --title or --index after browser-open with two tabs; independent tab-list shows exactly one selected with verified=true; AT-SPI/--name court only, no --coords or screenshot degradation.",
+      "description": "Linux tab-select by --title or --index after browser-open with two tabs; independent tab-list shows exactly one selected with verified=true; AT-SPI/--name court only, no --coords.",
       "entry": "scripts/qjs/cu-linux-browser-tab-select-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6014,7 +6033,7 @@
     },
     {
       "id": "cu-linux-tab-list-honesty-smoke",
-      "description": "Prove Linux CU tab-list on box-chrome-a11y matches an independent pyatspi AT-SPI tab-strip walk (page-tab-list/page-tab or Chromium application-frame fallback) for count, title, and selected; AT-SPI/--name court only, no --coords or screenshot degradation.",
+      "description": "Linux CU tab-list on box-chrome-a11y matches an independent pyatspi AT-SPI tab-strip walk (page-tab-list/page-tab or Chromium application-frame fallback) for count, title, and selected; AT-SPI/--name court only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tab-list-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6034,7 +6053,7 @@
     },
     {
       "id": "cu-linux-tab-close-smoke",
-      "description": "Prove Linux tab-close --expect gone on a disposable Chrome tab; independent tab-list and browser-tabs read-back show the tab gone while a keeper tab remains; CDP closeTarget via --port, AT-SPI/--name court only, no --coords or screenshot degradation.",
+      "description": "Linux tab-close --expect gone on a disposable Chrome tab; independent tab-list and browser-tabs read-back show the tab gone while a keeper tab remains; CDP closeTarget via --port, AT-SPI/--name court only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tab-close-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6054,7 +6073,7 @@
     },
     {
       "id": "cu-linux-gtk-button-focus-smoke",
-      "description": "Prove Linux GTK3 button click --name then three independent focused read-backs name the clicked button; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux GTK3 button click --name then three independent focused read-backs name the clicked button; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-button-focus-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6074,7 +6093,7 @@
     },
     {
       "id": "cu-linux-scroll-smoke",
-      "description": "Prove Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on a GTK ScrolledWindow fixture: independent get-extents before must fail for an off-screen named node, scroll must succeed via scroll-to, and a second get-extents must return on-screen geometry; no XTest wheel, --coords, or screenshot degradation.",
+      "description": "Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on a GTK ScrolledWindow fixture: independent get-extents before must fail for an off-screen named node, scroll must succeed via scroll-to, and a second get-extents must return on-screen geometry; no XTest wheel, --coords, or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-scroll-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6094,7 +6113,7 @@
     },
     {
       "id": "cu-linux-double-click-smoke",
-      "description": "Prove Linux GTK double-click by --name via click --count 2 and dclick alias; independent label read-back shows pressed +2 per actuation; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux GTK double-click by --name via click --count 2 and dclick alias; independent label read-back shows pressed +2 per actuation; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-double-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6114,7 +6133,7 @@
     },
     {
       "id": "cu-linux-gtk-rclick-smoke",
-      "description": "Prove Linux GTK secondary click by --name opens a named popover context menu with independent label read-back; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux GTK secondary click by --name opens a named popover context menu with independent label read-back; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-rclick-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6134,7 +6153,7 @@
     },
     {
       "id": "cu-linux-host-notify-smoke",
-      "description": "Prove Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed subtitle/sound refusal, and action-button dispatch plus ActionInvoked invoke read-back.",
+      "description": "Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed subtitle/sound refusal, and action-button dispatch plus ActionInvoked invoke read-back.",
       "entry": "scripts/qjs/cu-linux-host-notify-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6153,7 +6172,7 @@
     },
     {
       "id": "cu-linux-host-open-smoke",
-      "description": "Prove Linux host-open --app via desktop entry and PATH executable with independent windows/ps/get-text read-back; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux host-open --app and app launch --path open disposable GTK fixture; windows and get-text --name read-back; teardown clean. AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-host-open-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6173,7 +6192,7 @@
     },
     {
       "id": "cu-linux-gtk-copy-smoke",
-      "description": "Prove Linux GTK entry/label copy --name publishes AT-SPI Text.GetText onto native clipboard and independent clipboard-read matches the seeded entry text and label payload; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux GTK entry/label copy --name publishes AT-SPI Text.GetText onto native clipboard and independent clipboard-read matches the seeded entry text and label payload; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-copy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6193,7 +6212,7 @@
     },
     {
       "id": "cu-linux-get-extents-smoke",
-      "description": "Prove Linux get-extents --name for owned GTK fixture nodes matches independent AT-SPI Component.GetExtents(Screen) read-back, or both typed-fail for unreadable rects; no --coords or screenshot degradation.",
+      "description": "Linux get-extents --name for owned GTK fixture nodes matches independent AT-SPI Component.GetExtents(Screen) read-back, or both typed-fail for unreadable rects; no --coords.",
       "entry": "scripts/qjs/cu-linux-get-extents-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6212,7 +6231,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-paste-smoke",
-      "description": "Prove Linux GTK entry clipboard-write UTF-8 seed then paste --name with independent get-text == SEED; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux GTK entry clipboard-write UTF-8 seed then paste --name with independent get-text == SEED; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-paste-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6232,7 +6251,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-caret-smoke",
-      "description": "Prove Linux GTK entry set-caret / get-caret roundtrip by --name after send-text seeds SEED; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux GTK entry set-caret / get-caret roundtrip by --name after send-text seeds SEED; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-caret-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6252,7 +6271,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-send-keys-smoke",
-      "description": "Prove Linux GTK entry semantic modifier chords (ctrl+home, ctrl+end, ctrl+a, ctrl+c, ctrl+v, backspace) by --name with independent get-caret/get-selection/clipboard-read/get-text read-back; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux GTK entry semantic modifier chords (ctrl+home, ctrl+end, ctrl+a, ctrl+c, ctrl+v, backspace) by --name with independent get-caret/get-selection/clipboard-read/get-text read-back; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6272,7 +6291,7 @@
     },
     {
       "id": "cu-linux-get-text-honesty-smoke",
-      "description": "Prove Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-get-text-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6292,7 +6311,7 @@
     },
     {
       "id": "cu-linux-focused-honesty-smoke",
-      "description": "Prove Linux CU focused --window on a disposable GTK fixture matches independent pyatspi deepest STATE_FOCUSED node name and role after focus --name actuation; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux CU focused --window on a disposable GTK fixture matches independent pyatspi deepest STATE_FOCUSED node name and role after focus --name actuation; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-focused-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6312,7 +6331,7 @@
     },
     {
       "id": "cu-linux-screenshot-window-smoke",
-      "description": "Prove Linux screenshot --window for an owned GTK fixture writes a real PNG whose independent magic/IHDR/size read-back agrees with inventory bounds; optional full-display screenshot secondary; stale handle typed screenshot_window_unavailable; no --coords.",
+      "description": "Linux screenshot --window for an owned GTK fixture writes a real PNG whose independent magic/IHDR/size read-back agrees with inventory bounds; optional full-display screenshot secondary; stale handle typed screenshot_window_unavailable; no --coords.",
       "entry": "scripts/qjs/cu-linux-screenshot-window-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6332,7 +6351,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-focused-send-text-smoke",
-      "description": "Prove Linux GTK entry focus --name then send-text --window without --name into the focused control with independent get-text --window read-back == SEED; AT-SPI live-probe only, no --coords or screenshot degradation.",
+      "description": "Linux GTK entry focus --name then send-text --window without --name into the focused control with independent get-text --window read-back == SEED; AT-SPI live-probe only, no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-focused-send-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6352,7 +6371,7 @@
     },
     {
       "id": "cu-linux-display-scale-smoke",
-      "description": "Prove Linux displays inventory returns frame geometry plus physical size/DPI/scale with independent xrandr/X11 read-back; no --coords or screenshot degradation.",
+      "description": "Linux displays inventory returns frame geometry plus physical size/DPI/scale with independent xrandr/X11 read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-display-scale-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6371,7 +6390,7 @@
     },
     {
       "id": "cu-linux-keyboard-layout-smoke",
-      "description": "Prove Linux keyboard-layout observe returns the active XKB layout id/name with independent setxkbmap read-back; no --coords or screenshot degradation.",
+      "description": "Linux keyboard-layout observe returns the active XKB layout id/name with independent setxkbmap read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-keyboard-layout-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6390,7 +6409,7 @@
     },
     {
       "id": "cu-linux-menu-invoke-smoke",
-      "description": "Prove Linux GTK menu invoke by AT-SPI path on the owned fixture: menu inspect paths/states, invoke changes the menu label, disabled items are refused typed, and a checkable item round-trips its mark; no --coords or screenshot degradation.",
+      "description": "Linux GTK menu invoke by AT-SPI path on the owned fixture: menu inspect paths/states, invoke changes the menu label, disabled items are refused typed, and a checkable item round-trips its mark; no --coords.",
       "entry": "scripts/qjs/cu-linux-menu-invoke-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6410,7 +6429,7 @@
     },
     {
       "id": "cu-linux-menu-invoke-honesty-smoke",
-      "description": "Prove Linux CU menu invoke on a disposable GTK menubar changes fixture state that independent pyatspi AT-SPI label and checked-state read-back agree with, refuses disabled items typed without side effects, and round-trips a checkable mark; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux CU menu invoke on a disposable GTK menubar changes fixture state that independent pyatspi AT-SPI label and checked-state read-back agree with, refuses disabled items typed without side effects, and round-trips a checkable mark; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-menu-invoke-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6430,7 +6449,7 @@
     },
     {
       "id": "cu-linux-menu-inspect-smoke",
-      "description": "Prove Linux menu inspect menu-bar paths/items for one owned GTK fixture window match an independent pyatspi AT-SPI menu walk on the same application; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux menu inspect menu-bar paths/items for one owned GTK fixture window match an independent pyatspi AT-SPI menu walk on the same application; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-menu-inspect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6450,7 +6469,7 @@
     },
     {
       "id": "cu-linux-invoke-smoke",
-      "description": "Prove Linux CU invoke --name press and set-checked on disposable GTK controls agree with independent pyatspi label/state read-back and DoAction(0) side effects; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux CU invoke --name press and set-checked on disposable GTK controls agree with independent pyatspi label/state read-back and DoAction(0) side effects; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-invoke-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6470,7 +6489,7 @@
     },
     {
       "id": "cu-linux-observe-smoke",
-      "description": "Prove Linux CU observe poll-diff events for named GTK fixture node changes agree with independent pyatspi before/after probes taken at mutation time; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Linux CU observe poll-diff events for named GTK fixture node changes agree with independent pyatspi before/after probes taken at mutation time; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-observe-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6490,7 +6509,7 @@
     },
     {
       "id": "cu-linux-wait-ready-honesty-smoke",
-      "description": "Prove Linux CU wait --node-name-contains and wait --ready-path on disposable GTK and Chrome targets agree with independent pyatspi named-node probes and a direct on-disk ready-path marker read-back; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "description": "Linux CU wait --node-name-contains and wait --ready-path on disposable GTK and Chrome targets agree with independent pyatspi named-node probes and a direct on-disk ready-path marker read-back; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-wait-ready-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6510,7 +6529,7 @@
     },
     {
       "id": "cu-linux-pointer-smoke",
-      "description": "Prove Linux pointer-position observes absolute screen coordinates and pointer-grab/ungrab verify with an independent X11 grab probe on DISPLAY=:2; no AT-SPI fixture, --coords, or screenshot degradation.",
+      "description": "Linux pointer-position observes absolute screen coordinates and pointer-grab/ungrab verify with an independent X11 grab probe on DISPLAY=:2; no AT-SPI fixture, --coords, or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-pointer-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6528,7 +6547,7 @@
     },
     {
       "id": "cu-linux-power-status-smoke",
-      "description": "Prove Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
+      "description": "Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-power-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6546,7 +6565,7 @@
     },
     {
       "id": "cu-linux-privilege-plan-smoke",
-      "description": "Prove Linux privilege-plan observe for process.set-priority and system.power-action returns expiring host/boot-bound plans with mutation_performed=false and no independent nice, boot_id or uptime side effects; never privilege-apply; no --coords or screenshot degradation.",
+      "description": "Linux privilege-plan observe for process.set-priority and system.power-action returns expiring host/boot-bound plans with mutation_performed=false and no independent nice, boot_id or uptime side effects; never privilege-apply; no --coords.",
       "entry": "scripts/qjs/cu-linux-privilege-plan-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6564,7 +6583,7 @@
     },
     {
       "id": "cu-linux-process-argv-cwd-smoke",
-      "description": "Prove Linux process-argv and process-cwd match independent /proc/<pid>/cmdline, exe and cwd read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "description": "Linux process-argv and process-cwd match independent /proc/<pid>/cmdline, exe and cwd read-back for current and chosen PID; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-argv-cwd-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6582,7 +6601,7 @@
     },
     {
       "id": "cu-linux-process-environment-smoke",
-      "description": "Prove Linux process-environment key presence and values match independent /proc/<pid>/environ read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "description": "Linux process-environment key presence and values match independent /proc/<pid>/environ read-back for current and chosen PID; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-environment-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6600,7 +6619,7 @@
     },
     {
       "id": "cu-linux-processor-topology-smoke",
-      "description": "Prove Linux processor-topology-status online logical processors, physical cores, packages and NUMA nodes match independent /proc/cpuinfo, lscpu and sysfs read-back; no --coords or screenshot degradation.",
+      "description": "Linux processor-topology-status online logical processors, physical cores, packages and NUMA nodes match independent /proc/cpuinfo, lscpu and sysfs read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-processor-topology-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6618,7 +6637,7 @@
     },
     {
       "id": "cu-linux-host-memory-smoke",
-      "description": "Prove Linux host-memory-status page geometry, physical_bytes and available_physical_bytes match independent /proc/meminfo MemTotal and MemAvailable read-back; no --coords or screenshot degradation.",
+      "description": "Linux host-memory-status page geometry, physical_bytes and available_physical_bytes match independent /proc/meminfo MemTotal and MemAvailable read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-host-memory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6636,7 +6655,7 @@
     },
     {
       "id": "cu-linux-process-watch-smoke",
-      "description": "Prove Linux process-watch started/exited diffs match independent /proc scan pid/start-identity add/remove read-back over the same selector window; no --coords or screenshot degradation.",
+      "description": "Linux process-watch started/exited diffs match independent /proc scan pid/start-identity add/remove read-back over the same selector window; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6654,7 +6673,7 @@
     },
     {
       "id": "cu-linux-windows-watch-smoke",
-      "description": "Prove Linux windows-watch appeared/disappeared/title diffs match independent windows inventory handle/title/field diffs over the same poll window; no --coords or screenshot degradation.",
+      "description": "Linux windows-watch appeared/disappeared/title diffs match independent windows inventory handle/title/field diffs over the same poll window; no --coords.",
       "entry": "scripts/qjs/cu-linux-windows-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6672,7 +6691,7 @@
     },
     {
       "id": "cu-linux-process-fds-smoke",
-      "description": "Prove Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "description": "Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-fds-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6690,7 +6709,7 @@
     },
     {
       "id": "cu-linux-process-maps-smoke",
-      "description": "Prove Linux process-maps region ranges, permissions and paths match independent /proc/<pid>/maps read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "description": "Linux process-maps region ranges, permissions and paths match independent /proc/<pid>/maps read-back for current and chosen PID; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-maps-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6708,7 +6727,7 @@
     },
     {
       "id": "cu-linux-process-threads-smoke",
-      "description": "Prove Linux process-threads thread ids, counts and stat-derived fields match independent /proc/<pid>/task read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "description": "Linux process-threads thread ids, counts and stat-derived fields match independent /proc/<pid>/task read-back for current and chosen PID; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-threads-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6726,7 +6745,7 @@
     },
     {
       "id": "cu-linux-process-sockets-smoke",
-      "description": "Prove Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; no --coords or screenshot degradation.",
+      "description": "Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-sockets-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6745,7 +6764,7 @@
     },
     {
       "id": "cu-linux-file-inspect-smoke",
-      "description": "Prove Linux file-inspect size, unix mode, modified time, kind and inode identity match independent os.lstat read-back for a regular file, directory and final symlink; no --coords or screenshot degradation.",
+      "description": "Linux file-inspect size, unix mode, modified time, kind and inode identity match independent os.lstat read-back for a regular file, directory and final symlink; no --coords.",
       "entry": "scripts/qjs/cu-linux-file-inspect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6763,7 +6782,7 @@
     },
     {
       "id": "cu-linux-file-mode-smoke",
-      "description": "Prove Linux file-mode observe before_mode and actuate apply/restore agree with independent os.lstat permission read-back on a temp regular file; final symlink refusal; no --coords or screenshot degradation.",
+      "description": "Linux file-mode observe before_mode and actuate apply/restore agree with independent os.lstat permission read-back on a temp regular file; final symlink refusal; no --coords.",
       "entry": "scripts/qjs/cu-linux-file-mode-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6782,7 +6801,7 @@
     },
     {
       "id": "cu-linux-file-attributes-smoke",
-      "description": "Prove Linux file-attributes xattr inventory for one regular file matches independent os.listxattr/getxattr read-back (and getfattr when installed); digest-only default, explicit value disclosure, and final-symlink refusal; no --coords or screenshot degradation.",
+      "description": "Linux file-attributes xattr inventory for one regular file matches independent os.listxattr/getxattr read-back (and getfattr when installed); digest-only default, explicit value disclosure, and final-symlink refusal; no --coords.",
       "entry": "scripts/qjs/cu-linux-file-attributes-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6801,7 +6820,7 @@
     },
     {
       "id": "cu-linux-file-copy-smoke",
-      "description": "Prove Linux file-copy dry plan and actuate apply agree with independent src/dst byte+mode read-back on disposable temp files; no --coords or screenshot degradation.",
+      "description": "Linux file-copy dry plan and actuate apply agree with independent src/dst byte+mode read-back on disposable temp files; no --coords.",
       "entry": "scripts/qjs/cu-linux-file-copy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6820,7 +6839,7 @@
     },
     {
       "id": "cu-linux-ps-smoke",
-      "description": "Prove Linux ps inventory pid, parent_pid and executable_name match independent /proc exe/stat read-back; no --coords or screenshot degradation.",
+      "description": "Linux ps inventory pid, parent_pid and executable_name match independent /proc exe/stat read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-ps-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6838,7 +6857,7 @@
     },
     {
       "id": "cu-linux-query-smoke",
-      "description": "Prove Linux query filtered flat nodes by --role and --text/--text-exact match independent AT-SPI application-scoped dump read-back on the owned GTK fixture; no --coords or screenshot degradation.",
+      "description": "Linux query filtered flat nodes by --role and --text/--text-exact match independent AT-SPI application-scoped dump read-back on the owned GTK fixture; no --coords.",
       "entry": "scripts/qjs/cu-linux-query-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6856,7 +6875,7 @@
     },
     {
       "id": "cu-linux-process-usage-smoke",
-      "description": "Prove Linux process-usage CPU time, resident bytes, I/O counters and identity match independent /proc read-back; no --coords or screenshot degradation.",
+      "description": "Linux process-usage CPU time, resident bytes, I/O counters and identity match independent /proc read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-usage-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6874,7 +6893,7 @@
     },
     {
       "id": "cu-linux-process-state-smoke",
-      "description": "Prove Linux process-state pid, live/dead classification and start identity match independent /proc/<pid>/stat and status read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "description": "Linux process-state pid, live/dead classification and start identity match independent /proc/<pid>/stat and status read-back for current and chosen PID; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-state-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6892,7 +6911,7 @@
     },
     {
       "id": "cu-linux-process-wait-smoke",
-      "description": "Prove Linux process-wait exit observation, start identity and exit code match independent waitpid read-back on a disposable child; bounded timeout on a live child is verified without claiming exit; no --coords or screenshot degradation.",
+      "description": "Linux process-wait exit observation, start identity and exit code match independent waitpid read-back on a disposable child; bounded timeout on a live child is verified without claiming exit; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-wait-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6910,7 +6929,7 @@
     },
     {
       "id": "cu-linux-process-signal-smoke",
-      "description": "Prove Linux process-signal STOP/CONT/TERM/USR1 delivery matches independent /proc scheduler state, wait outcome or handler-marker read-back; ignored USR1 remains verified=false with live-process agreement; no --coords or screenshot degradation.",
+      "description": "Linux process-signal STOP/CONT/TERM/USR1 delivery matches independent /proc scheduler state, wait outcome or handler-marker read-back; ignored USR1 remains verified=false with live-process agreement; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-signal-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6928,7 +6947,7 @@
     },
     {
       "id": "cu-linux-process-kill-smoke",
-      "description": "Prove Linux process-kill graceful and forceful termination with start-identity matches independent waitpid exit read-back on disposable children; graceful refusal on TERM-ignoring child then forceful kill is verified; no --coords or screenshot degradation.",
+      "description": "Linux process-kill graceful and forceful termination with start-identity matches independent waitpid exit read-back on disposable children; graceful refusal on TERM-ignoring child then forceful kill is verified; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-kill-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6946,7 +6965,7 @@
     },
     {
       "id": "cu-linux-cache-hierarchy-smoke",
-      "description": "Prove Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; no --coords or screenshot degradation.",
+      "description": "Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-cache-hierarchy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6964,7 +6983,7 @@
     },
     {
       "id": "cu-linux-processor-affinity-smoke",
-      "description": "Prove Linux processor-affinity-status scheduler-allowed CPU set matches independent /proc/<pid>/status Cpus_allowed_list or taskset read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "description": "Linux processor-affinity-status scheduler-allowed CPU set matches independent /proc/<pid>/status Cpus_allowed_list or taskset read-back for current and chosen PID; no --coords.",
       "entry": "scripts/qjs/cu-linux-processor-affinity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6982,7 +7001,7 @@
     },
     {
       "id": "cu-linux-audio-status-smoke",
-      "description": "Prove Linux audio status default-output volume and mute match independent pactl, wpctl or amixer read-back, or return typed audio_unsupported with linux-default-output alternatives; no --coords or screenshot degradation.",
+      "description": "Linux audio status default-output volume and mute match independent pactl, wpctl or amixer read-back, or return typed audio_unsupported with linux-default-output alternatives; no --coords.",
       "entry": "scripts/qjs/cu-linux-audio-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7000,7 +7019,7 @@
     },
     {
       "id": "cu-linux-app-facts-smoke",
-      "description": "Prove Linux app-facts path, name and desktop_entry_id match independent XDG desktop-entry read-back and executable/running agree with /proc/exe inventory or return typed unavailable reasons; no --coords or screenshot degradation.",
+      "description": "Linux app-facts path, name and desktop_entry_id match independent XDG desktop-entry read-back and executable/running agree with /proc/exe inventory or return typed unavailable reasons; no --coords.",
       "entry": "scripts/qjs/cu-linux-app-facts-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7018,7 +7037,7 @@
     },
     {
       "id": "cu-linux-resource-status-smoke",
-      "description": "Prove Linux resource-status load, uptime, memory and process count match independent /proc loadavg, uptime, meminfo and executable-backed process inventory read-back; no --coords or screenshot degradation.",
+      "description": "Linux resource-status load, uptime, memory and process count match independent /proc loadavg, uptime, meminfo and executable-backed process inventory read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-resource-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7036,7 +7055,7 @@
     },
     {
       "id": "cu-linux-device-inventory-smoke",
-      "description": "Prove Linux device-list kind/count/provider status and identity continuity match independent sysfs read-back from the same class roots; no --coords or screenshot degradation.",
+      "description": "Linux device-list kind/count/provider status and identity continuity match independent sysfs read-back from the same class roots; no --coords.",
       "entry": "scripts/qjs/cu-linux-device-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7054,7 +7073,7 @@
     },
     {
       "id": "cu-linux-fontconfig-monospace-smoke",
-      "description": "Prove Linux font-discovery reports fontconfig monospace primary family and file that match independent fc-match read-back, or a typed hardcoded fallback with alternatives; no --coords or screenshot degradation.",
+      "description": "Linux font-discovery reports fontconfig monospace primary family and file that match independent fc-match read-back, or a typed hardcoded fallback with alternatives; no --coords.",
       "entry": "scripts/qjs/cu-linux-fontconfig-monospace-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7072,7 +7091,7 @@
     },
     {
       "id": "cu-linux-local-clock-smoke",
-      "description": "Prove Linux capabilities host_clock utc_offset and local civil time match independent date +%z read-back and stay stable across repeated observations; no --coords or screenshot degradation.",
+      "description": "Linux capabilities host_clock utc_offset and local civil time match independent date +%z read-back and stay stable across repeated observations; no --coords.",
       "entry": "scripts/qjs/cu-linux-local-clock-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7090,7 +7109,7 @@
     },
     {
       "id": "cu-linux-clipboard-utf8-smoke",
-      "description": "Prove Linux clipboard-write UTF-8 disposable token round-trips through independent clipboard-read --type with matching bytes, sha256 and value on X11; optional xclip/xsel cross-check or typed gap when absent; no --coords or screenshot degradation.",
+      "description": "Linux clipboard-write UTF-8 disposable token round-trips through independent clipboard-read --type with matching bytes, sha256 and value on X11; optional xclip/xsel cross-check or typed gap when absent; no --coords.",
       "entry": "scripts/qjs/cu-linux-clipboard-utf8-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7109,7 +7128,7 @@
     },
     {
       "id": "cu-linux-capabilities-honesty-smoke",
-      "description": "Prove Linux capabilities matrix present/absent status for a bounded verb set matches independent AT-SPI, cgroup, ip, inotify, X11, proc, desktop-entry and D-Bus host probes; no --coords or screenshot degradation.",
+      "description": "Linux capabilities matrix present/absent status for a bounded verb set matches independent AT-SPI, cgroup, ip, inotify, X11, proc, desktop-entry and D-Bus host probes; no --coords.",
       "entry": "scripts/qjs/cu-linux-capabilities-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7127,7 +7146,7 @@
     },
     {
       "id": "cu-linux-boot-identity-smoke",
-      "description": "Prove Linux capabilities host_boot_identity boot_id, machine_id and uptime_milliseconds match independent /proc/sys/kernel/random/boot_id, /etc/machine-id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
+      "description": "Linux capabilities host_boot_identity boot_id, machine_id and uptime_milliseconds match independent /proc/sys/kernel/random/boot_id, /etc/machine-id and CLOCK_BOOTTIME read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-boot-identity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7145,7 +7164,7 @@
     },
     {
       "id": "cu-linux-login-session-smoke",
-      "description": "Prove Linux login-session status matches independent loginctl/session-env read-back or returns typed systemd-logind unsupported honesty without macOS claims; no lock apply.",
+      "description": "Linux login-session status matches independent loginctl/session-env read-back or returns typed systemd-logind unsupported honesty without macOS claims; no lock apply.",
       "entry": "scripts/qjs/cu-linux-login-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7163,7 +7182,7 @@
     },
     {
       "id": "cu-linux-service-smoke",
-      "description": "Prove Linux service list|status|system-list|system-status match independent systemctl or sd-bus probe read-back, or return typed service_unsupported with systemd alternatives; observe-only, no lifecycle mutation.",
+      "description": "Linux service list|status|system-list|system-status match independent systemctl or sd-bus probe read-back, or return typed service_unsupported with systemd alternatives; observe-only, no lifecycle mutation.",
       "entry": "scripts/qjs/cu-linux-service-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7181,7 +7200,7 @@
     },
     {
       "id": "cu-linux-shell-exec-smoke",
-      "description": "Prove Linux shell-exec bounded command stdout, stderr and exit match independent identical /bin/sh read-back for disposable seeds; no --coords or screenshot degradation.",
+      "description": "Linux shell-exec bounded command stdout, stderr and exit match independent identical /bin/sh read-back for disposable seeds; no --coords.",
       "entry": "scripts/qjs/cu-linux-shell-exec-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7298,7 +7317,7 @@
     },
     {
       "id": "cu-linux-file-xattr-mutation-smoke",
-      "description": "Prove Linux identity-bound xattr preview (performed=false), actuate set with file-attributes read-back, actuate remove with native absence read-back, redacted replies, and final-symlink refusal through the public agenterm-cu CLI.",
+      "description": "Linux identity-bound xattr preview (performed=false), actuate set with file-attributes read-back, actuate remove with native absence read-back, redacted replies, and final-symlink refusal through the public agenterm-cu CLI.",
       "entry": "scripts/qjs/cu-linux-file-xattr-mutation-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7767,7 +7786,7 @@
     },
     {
       "id": "cu-linux-storage-devices-smoke",
-      "description": "Prove Linux storage-devices visited count, capacity and stable block fields match independent lsblk and /sys/block read-back; no --coords or screenshot degradation.",
+      "description": "Linux storage-devices visited count, capacity and stable block fields match independent lsblk and /sys/block read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-storage-devices-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8302,7 +8321,7 @@
     },
     {
       "id": "cu-process-cgroup-smoke",
-      "description": "Prove Linux cgroup v2 observation brackets the exact process identity, membership path and opened cgroup directory while non-Linux hosts return a typed not-applicable result.",
+      "description": "Linux cgroup v2 observation brackets the exact process identity, membership path and opened cgroup directory while non-Linux hosts return a typed not-applicable result.",
       "entry": "scripts/qjs/cu-process-cgroup-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8446,7 +8465,7 @@
     },
     {
       "id": "cu-linux-network-interfaces-smoke",
-      "description": "Prove Linux network-interfaces observe matches independent ip -j addr and sysfs ifindex/IFF_UP read-back; no --coords or screenshot degradation.",
+      "description": "Linux network-interfaces observe matches independent ip -j addr and sysfs ifindex/IFF_UP read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-network-interfaces-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8465,7 +8484,7 @@
     },
     {
       "id": "cu-linux-network-dns-smoke",
-      "description": "Prove Linux network-dns observe matches independent /etc/resolv.conf or resolvectl read-back for resolvers, search domains and coverage; no --coords or screenshot degradation.",
+      "description": "Linux network-dns observe matches independent /etc/resolv.conf or resolvectl read-back for resolvers, search domains and coverage; no --coords.",
       "entry": "scripts/qjs/cu-linux-network-dns-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8484,7 +8503,7 @@
     },
     {
       "id": "cu-linux-network-probe-smoke",
-      "description": "Prove Linux network-probe resolve-once and bounded TCP reachability match independent getent/getaddrinfo and python socket read-back for loopback reachable and closed-port failure; no --coords or screenshot degradation.",
+      "description": "Linux network-probe resolve-once and bounded TCP reachability match independent getent/getaddrinfo and python socket read-back for loopback reachable and closed-port failure; no --coords.",
       "entry": "scripts/qjs/cu-linux-network-probe-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8503,7 +8522,7 @@
     },
     {
       "id": "cu-linux-proxy-env-smoke",
-      "description": "Prove Linux capabilities proxy_env matches independent printenv read-back for http_proxy, HTTPS_PROXY and no_proxy; no --coords or screenshot degradation.",
+      "description": "Linux capabilities proxy_env matches independent printenv read-back for http_proxy, HTTPS_PROXY and no_proxy; no --coords.",
       "entry": "scripts/qjs/cu-linux-proxy-env-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
