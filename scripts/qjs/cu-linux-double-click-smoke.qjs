@@ -161,8 +161,23 @@ try {
   );
 
   print("STEP independent label read-back proves the named control received two clicks");
-  const after = label_text(run_directory, executable, handle_text, "pressed ");
-  ensure(after === "pressed 2", "cu_linux_double_click_after:" + after);
+  const after_click = label_text(run_directory, executable, handle_text, "pressed ");
+  ensure(after_click === "pressed 2", "cu_linux_double_click_after_click:" + after_click);
+
+  print("STEP dclick --name " + BUTTON_NAME + " alias delivers a second double-click through AT-SPI");
+  const dclicked = run_cu(run_directory, executable, "observe,actuate", [
+    "dclick", "--window", handle_text, "--name", BUTTON_NAME,
+  ]);
+  ensure(
+    flag_at(dclicked, "data.performed")
+      && text_at(dclicked, "data.addressing") === "accessibility-tree"
+      && int_at(dclicked, "data.clicks") === 2,
+    "cu_linux_double_click_dclick_actuation:" + JSON.stringify(dclicked.data)
+  );
+
+  print("STEP independent label read-back proves dclick advanced the counter by two more");
+  const after_dclick = label_text(run_directory, executable, handle_text, "pressed ");
+  ensure(after_dclick === "pressed 4", "cu_linux_double_click_after_dclick:" + after_dclick);
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-double-click");
   succeeded = 1;
@@ -179,4 +194,4 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_double_click_failed");
 harness.remove_run(context);
-print("PASS: Linux GTK double-click by --name via click --count 2 (AT-SPI label read-back, no --coords)");
+print("PASS: Linux GTK double-click by --name via click --count 2 and dclick alias (AT-SPI label read-back, no --coords)");

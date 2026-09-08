@@ -6094,7 +6094,7 @@
     },
     {
       "id": "cu-linux-double-click-smoke",
-      "description": "Prove Linux GTK double-click by --name via click --count 2; independent label read-back shows pressed +2; AT-SPI --name only, no --coords or screenshot degradation.",
+      "description": "Prove Linux GTK double-click by --name via click --count 2 and dclick alias; independent label read-back shows pressed +2 per actuation; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-double-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
