@@ -318,6 +318,7 @@ fn known_authorization_operation(operation: &str) -> bool {
         "device-screenshot",
         "diff",
         "file-copy",
+        "file-mode",
         "file-move",
         "file-transaction",
         "invoke",
@@ -350,6 +351,8 @@ fn known_authorization_operation(operation: &str) -> bool {
             | "audit-compact.apply"
             | "file-copy.plan"
             | "file-copy.apply"
+            | "file-mode.plan"
+            | "file-mode.apply"
             | "file-move.plan"
             | "file-move.apply"
             | "file-transaction.status"

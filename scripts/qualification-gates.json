@@ -433,6 +433,10 @@
       "evidence": ["cu.file-xattr-inspect.macos"]
     },
     {
+      "id": "cu-file-mode-smoke",
+      "evidence": ["cu.file-mode.macos"]
+    },
+    {
       "id": "cu-file-move-transaction-smoke",
       "evidence": ["cu.file-move-transaction"]
     },

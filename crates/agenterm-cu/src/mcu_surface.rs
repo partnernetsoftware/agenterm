@@ -426,7 +426,7 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
         ),
         "file" => (
             "available",
-            "file-inspect plus recoverable file-copy/file-move plan/apply/status/rollback/recover/finalize are live; metadata mutation remains a typed gap",
+            "file-inspect plus identity-bound Unix file-mode preview/apply and recoverable file-copy/file-move transactions are live; xattr mutation remains a typed gap",
         ),
         "network" => (
             "available",

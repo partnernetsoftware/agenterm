@@ -271,6 +271,7 @@ mod tests {
             "device-write",
             "device-renew",
             "device-release",
+            "file-mode",
             "simulator-boot",
             "simulator-launch",
             "simulator-terminate",
@@ -280,6 +281,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 98, "{actuate:?}");
+        assert_eq!(actuate.len(), 99, "{actuate:?}");
     }
 }

@@ -1,0 +1,179 @@
+// macOS public black-box court for identity-bound Unix file-mode changes.
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.file-mode.macos"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function native_mode(run_directory, path) {
+  const output = rh.command("/usr/bin/stat", ["-f", "%Lp", path], {
+    cwd: run_directory,
+    timeout_ms: 10000
+  });
+  ensure(output.success === true, "cu_file_mode_stat_failed:" + output.stderr);
+  return output.stdout.trim();
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push(argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+      AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+      HOME: run_directory,
+      XDG_DATA_HOME: rh.join(run_directory, "data"),
+      XDG_CONFIG_HOME: rh.join(run_directory, "config")
+    },
+    timeout_ms: 30000
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_file_mode_invalid_reply"; }
+  ensure(reply.command === "file-mode", "cu_file_mode_wrong_command:" + JSON.stringify(reply));
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_file_mode_expected_failure");
+    ensure(reply.error.code === expected_error,
+      "cu_file_mode_wrong_error:" + JSON.stringify(reply.error));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true,
+    "cu_file_mode_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+function ensure_identity(identity, message) {
+  ensure(identity !== null && typeof identity === "object", message + ":object");
+  ensure(typeof identity.filesystem_id === "string" && identity.filesystem_id.length > 0,
+    message + ":filesystem_id");
+  ensure(typeof identity.object_id === "string" && identity.object_id.length > 0,
+    message + ":object_id");
+  ensure(typeof identity.hard_link_count === "string" && identity.hard_link_count.length > 0,
+    message + ":hard_link_count");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_file_mode_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Darwin",
+  "cu_file_mode_requires_macos");
+
+const context = harness.new_context(repo, "cu-file-mode");
+const run_directory = context.run_directory;
+const fixture = rh.join(run_directory, "fixture.bin");
+const link = rh.join(run_directory, "fixture-link.bin");
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.write_text(fixture, "file-mode-fixture");
+  const prepared = rh.command("/bin/chmod", ["0640", fixture], {
+    cwd: run_directory,
+    timeout_ms: 10000
+  });
+  ensure(prepared.success === true, "cu_file_mode_fixture_setup_failed:" + prepared.stderr);
+  ensure(native_mode(run_directory, fixture) === "640", "cu_file_mode_fixture_initial_mode");
+
+  print("STEP observe produces a complete mutation-free 0600 plan");
+  const plan = invoke(run_directory, executable, "observe", [
+    "file-mode", fixture, "0600"
+  ]);
+  ensure_identity(plan.identity, "cu_file_mode_plan_identity");
+  ensure(plan.before_mode === "0640" && plan.requested_mode === "0600"
+    && plan.after_mode === "0640" && plan.previous_mode === null,
+    "cu_file_mode_plan_modes:" + JSON.stringify(plan));
+  ensure(plan.action.apply_requested === false && plan.action.performed === false
+    && plan.action.verified === false,
+    "cu_file_mode_plan_action:" + JSON.stringify(plan.action));
+  ensure(native_mode(run_directory, fixture) === "640", "cu_file_mode_plan_mutated");
+
+  print("STEP observe plus --apply is denied before mutation");
+  invoke(run_directory, executable, "observe", [
+    "file-mode", fixture, "0600", "--apply"
+  ], "refused");
+  ensure(native_mode(run_directory, fixture) === "640", "cu_file_mode_refusal_mutated");
+
+  print("STEP actuate plus --apply changes and verifies the requested mode");
+  const applied = invoke(run_directory, executable, "actuate", [
+    "file-mode", fixture, "0600", "--apply"
+  ]);
+  ensure_identity(applied.identity, "cu_file_mode_apply_identity");
+  ensure(applied.identity.filesystem_id === plan.identity.filesystem_id
+    && applied.identity.object_id === plan.identity.object_id,
+    "cu_file_mode_apply_identity_changed");
+  ensure(applied.before_mode === "0640" && applied.requested_mode === "0600"
+    && applied.after_mode === "0600" && applied.previous_mode === "0640",
+    "cu_file_mode_apply_modes:" + JSON.stringify(applied));
+  ensure(applied.action.apply_requested === true && applied.action.performed === true
+    && applied.action.verified === true,
+    "cu_file_mode_apply_action:" + JSON.stringify(applied.action));
+  ensure(native_mode(run_directory, fixture) === "600", "cu_file_mode_apply_not_visible");
+
+  print("STEP applying an already-satisfied mode is a verified no-op");
+  const unchanged = invoke(run_directory, executable, "actuate", [
+    "file", "chmod", fixture, "0600", "--apply"
+  ]);
+  ensure(unchanged.before_mode === "0600" && unchanged.after_mode === "0600"
+    && unchanged.previous_mode === "0600",
+    "cu_file_mode_noop_modes:" + JSON.stringify(unchanged));
+  ensure(unchanged.action.apply_requested === true && unchanged.action.performed === false
+    && unchanged.action.verified === true,
+    "cu_file_mode_noop_action:" + JSON.stringify(unchanged.action));
+  ensure(native_mode(run_directory, fixture) === "600", "cu_file_mode_noop_mutated");
+
+  print("STEP restoration is a new identity-bound apply using the returned previous mode");
+  const restored = invoke(run_directory, executable, "actuate", [
+    "file-mode", fixture, applied.previous_mode, "--apply"
+  ]);
+  ensure(restored.before_mode === "0600" && restored.requested_mode === "0640"
+    && restored.after_mode === "0640" && restored.previous_mode === "0600",
+    "cu_file_mode_restore_modes:" + JSON.stringify(restored));
+  ensure(restored.action.performed === true && restored.action.verified === true,
+    "cu_file_mode_restore_action:" + JSON.stringify(restored.action));
+  ensure(native_mode(run_directory, fixture) === "640", "cu_file_mode_restore_not_visible");
+
+  print("STEP a final symlink is refused and its target remains unchanged");
+  const linked = rh.command("/bin/ln", ["-s", fixture, link], {
+    cwd: run_directory,
+    timeout_ms: 10000
+  });
+  ensure(linked.success === true, "cu_file_mode_symlink_setup_failed:" + linked.stderr);
+  invoke(run_directory, executable, "actuate", [
+    "file-mode", link, "0600", "--apply"
+  ], "file_mode_not_regular");
+  ensure(native_mode(run_directory, fixture) === "640", "cu_file_mode_symlink_target_mutated");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: agenterm-cu macOS file mode plan, apply, no-op, restoration, and symlink refusal");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

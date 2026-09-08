@@ -296,7 +296,10 @@ pub fn apply_mode(file: &File, plan: &ModePlan) -> Result<ModeMutationResult, Fi
         ));
     }
     native::set_mode(file, plan.requested_mode)?;
-    let after = native::mode(file)?;
+    let after = native::mode(file).map_err(|mut error| {
+        error.operation = "file-mode-readback";
+        error
+    })?;
     if after != plan.requested_mode {
         return Err(FileAttributeError::new(
             FileAttributeErrorKind::ReadbackMismatch,

@@ -5222,3 +5222,13 @@ environment and raw start identity inside the platform adapter; a public
 observation may expose only the host PID and a domain-separated digest of the
 start identity. Bound app rows, process rows, captured bytes and the entire
 multi-command deadline, and fail closed when any identity changes.
+
+## Distinguish previous state from rollback authority in native mutations
+
+When a native mutation reports the state observed before its effect, name that
+field `previous_*`; do not call it a rollback token unless a durable receipt
+owns recovery. A reversal is a new identity-bound mutation that must re-open,
+re-plan, and revalidate the current object. Skip the native effect when the
+requested state already holds, but still report a verified no-op. If the
+effect syscall succeeds and post-effect readback fails, return a distinct
+effect-unknown error: neither success nor rollback is proven.

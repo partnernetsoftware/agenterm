@@ -33,6 +33,21 @@ pub fn parse(
                 include_values,
             })
         }
+        "file-mode" => {
+            consume_group_subcommand(spelled, args, "chmod")?;
+            let apply = take_switch(args, "--apply");
+            if args.len() != 2 || args.iter().any(String::is_empty) {
+                return Err("file-mode requires PATH OCTAL [--apply]".into());
+            }
+            let path = args.remove(0);
+            let mode = parse_octal_mode(&args.remove(0))?;
+            Ok(Command::FileMode {
+                target,
+                path,
+                mode,
+                apply,
+            })
+        }
         "file-copy" => {
             consume_group_subcommand(spelled, args, "copy")?;
             let replace = take_switch(args, "--replace");
@@ -107,6 +122,16 @@ fn parse_action(value: Option<&str>) -> Result<FileTransactionAction, String> {
     }
 }
 
+fn parse_octal_mode(value: &str) -> Result<u32, String> {
+    if value.is_empty()
+        || value.len() > 4
+        || value.bytes().any(|byte| !(b'0'..=b'7').contains(&byte))
+    {
+        return Err("file-mode OCTAL must contain one to four octal digits".into());
+    }
+    u32::from_str_radix(value, 8).map_err(|_| "file-mode OCTAL is invalid".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,6 +187,26 @@ mod tests {
                 ..
             } if path == "item"
         ));
+
+        let spec = crate::cli::verbs::resolve("file", Some("chmod")).unwrap();
+        let mut mode = vec![
+            "chmod".into(),
+            "item".into(),
+            "0640".into(),
+            "--apply".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "file", TargetRef::Current, &mut mode).unwrap(),
+            Command::FileMode {
+                path,
+                mode: 0o640,
+                apply: true,
+                ..
+            } if path == "item"
+        ));
+        let spec = crate::cli::verbs::lookup("file-mode").unwrap();
+        let mut bad_mode = vec!["item".into(), "888".into()];
+        assert!(parse(spec, "file-mode", TargetRef::Current, &mut bad_mode).is_err());
 
         let spec = crate::cli::verbs::resolve("file", Some("rollback")).unwrap();
         let mut rollback = vec!["rollback".into(), "fixture-id".into()];

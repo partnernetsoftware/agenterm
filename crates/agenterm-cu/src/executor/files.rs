@@ -115,6 +115,50 @@ pub(super) fn file_attributes_payload(
     }))
 }
 
+pub(super) fn file_mode_payload(
+    path: &str,
+    requested_mode: u32,
+    apply: bool,
+) -> Result<serde_json::Value, CuError> {
+    let path = Path::new(path);
+    let file = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .map_err(|error| CuError::new("file_mode_open_failed", error.to_string()))?;
+    let binding = agenterm_platform::file_attributes::bind_regular_file(path, &file)
+        .map_err(map_file_mode_error)?;
+    let plan = agenterm_platform::file_attributes::plan_mode(&file, binding, requested_mode)
+        .map_err(map_file_mode_error)?;
+    let identity = binding.identity();
+    let mut after_mode = plan.before_mode;
+    let mut performed = false;
+    let mut verified = apply && plan.before_mode == plan.requested_mode;
+    if apply && plan.before_mode != plan.requested_mode {
+        let result = agenterm_platform::file_attributes::apply_mode(&file, &plan)
+            .map_err(map_file_mode_error)?;
+        after_mode = result.after_mode;
+        performed = true;
+        verified = result.after_mode == plan.requested_mode;
+    }
+    Ok(serde_json::json!({
+        "path": path.to_string_lossy(),
+        "identity": {
+            "filesystem_id": identity.filesystem_id.to_string(),
+            "object_id": identity.object_id.to_string(),
+            "hard_link_count": identity.hard_link_count.to_string(),
+        },
+        "before_mode": format_mode(plan.before_mode),
+        "requested_mode": format_mode(plan.requested_mode),
+        "after_mode": format_mode(after_mode),
+        "previous_mode": if apply { Some(format_mode(plan.before_mode)) } else { None },
+        "action": {
+            "apply_requested": apply,
+            "performed": performed,
+            "verified": verified,
+        },
+    }))
+}
+
 fn map_file_attribute_error(
     error: agenterm_platform::file_attributes::FileAttributeError,
 ) -> CuError {
@@ -134,6 +178,27 @@ fn map_file_attribute_error(
     CuError::new(code, error.to_string())
 }
 
+fn map_file_mode_error(error: agenterm_platform::file_attributes::FileAttributeError) -> CuError {
+    use agenterm_platform::file_attributes::FileAttributeErrorKind;
+    let code = match error.kind {
+        FileAttributeErrorKind::Unsupported => "file_mode_unsupported",
+        FileAttributeErrorKind::NotRegularFile => "file_mode_not_regular",
+        FileAttributeErrorKind::IdentityChanged => "file_mode_identity_changed",
+        FileAttributeErrorKind::InvalidMode => "file_mode_invalid",
+        FileAttributeErrorKind::PreconditionChanged => "file_mode_precondition_changed",
+        FileAttributeErrorKind::ReadbackMismatch => "file_mode_effect_unknown",
+        FileAttributeErrorKind::Native if error.operation == "file-mode-readback" => {
+            "file_mode_effect_unknown"
+        }
+        FileAttributeErrorKind::Native => "file_mode_native_failed",
+        FileAttributeErrorKind::InvalidName | FileAttributeErrorKind::BudgetExceeded => {
+            "file_mode_failed"
+        }
+        _ => "file_mode_failed",
+    };
+    CuError::new(code, error.to_string())
+}
+
 fn hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(bytes.len() * 2);
@@ -142,6 +207,10 @@ fn hex_encode(bytes: &[u8]) -> String {
         encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
     encoded
+}
+
+fn format_mode(mode: u32) -> String {
+    format!("{mode:04o}")
 }
 
 #[cfg(test)]
@@ -161,6 +230,50 @@ mod tests {
         assert_eq!(value["size_bytes"], "5");
         assert_eq!(value["identity"]["available"], true);
         assert_eq!(value["followed_final_link"], false);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mode_plan_is_read_only_and_apply_reports_verified_previous_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root =
+            std::env::temp_dir().join(format!("agenterm-cu-file-mode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir(&root).unwrap();
+        let file = root.join("item");
+        std::fs::write(&file, b"mode-fixture").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        let plan = file_mode_payload(file.to_str().unwrap(), 0o600, false).unwrap();
+        assert_eq!(plan["before_mode"], "0640");
+        assert_eq!(plan["after_mode"], "0640");
+        assert_eq!(plan["previous_mode"], serde_json::Value::Null);
+        assert_eq!(plan["action"]["performed"], false);
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
+            0o640
+        );
+
+        let applied = file_mode_payload(file.to_str().unwrap(), 0o600, true).unwrap();
+        assert_eq!(applied["before_mode"], "0640");
+        assert_eq!(applied["after_mode"], "0600");
+        assert_eq!(applied["previous_mode"], "0640");
+        assert_eq!(applied["action"]["performed"], true);
+        assert_eq!(applied["action"]["verified"], true);
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+
+        let unchanged = file_mode_payload(file.to_str().unwrap(), 0o600, true).unwrap();
+        assert_eq!(unchanged["before_mode"], "0600");
+        assert_eq!(unchanged["after_mode"], "0600");
+        assert_eq!(unchanged["action"]["performed"], false);
+        assert_eq!(unchanged["action"]["verified"], true);
+
+        file_mode_payload(file.to_str().unwrap(), 0o640, true).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 

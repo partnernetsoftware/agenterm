@@ -515,6 +515,34 @@
       ]
     },
     {
+      "name": "file-mode",
+      "command": "file-mode",
+      "aliases": [
+        "file chmod"
+      ],
+      "grant": "actuate",
+      "family": "file",
+      "summary": "plan or apply one identity-bound Unix permission mode",
+      "usage": "file-mode PATH OCTAL [--apply]\nfile chmod PATH OCTAL [--apply]",
+      "args": [
+        {
+          "flag": "PATH",
+          "value": "",
+          "help": "one existing non-symlink regular file"
+        },
+        {
+          "flag": "OCTAL",
+          "value": "",
+          "help": "one to four octal permission digits, bounded to 07777"
+        },
+        {
+          "flag": "--apply",
+          "value": "",
+          "help": "apply the identity-bound plan and verify native readback; requires actuate grant"
+        }
+      ]
+    },
+    {
       "name": "file-move",
       "command": "file-move",
       "aliases": [
@@ -5894,6 +5922,10 @@
     {
       "name": "file-attributes",
       "text": "agenterm-cu file-attributes    (also: file attributes)\n  scope: observe    family: Filesystem\n\nusage (after the global flags):\n  file-attributes PATH [--include-values]\n  file attributes PATH [--include-values]\n\nInspects bounded extended-attribute metadata for one opened non-symlink regular file. The default reply exposes only attribute names, namespaces, byte lengths, SHA-256 digests, and stable object identity. --include-values explicitly discloses bounded values as hexadecimal. Linux and macOS use native xattrs; Windows returns typed unsupported instead of pretending ADS or ACLs are equivalent.\n"
+    },
+    {
+      "name": "file-mode",
+      "text": "agenterm-cu file-mode    (also: file chmod)\n  scope: observe for plan; actuate for --apply    family: Filesystem\n\nusage (after the global flags):\n  file-mode PATH OCTAL [--apply]\n  file chmod PATH OCTAL [--apply]\n\nThe default is a mutation-free preview over one opened, non-symlink regular file. OCTAL is one to four digits bounded to 07777. --apply plans again from the current opened object, rechecks its identity and current mode immediately before fchmod, then verifies native readback. A same-mode request is a verified no-op and reports performed=false. The reply includes previous_mode as a fact; a later reversal is a new identity-bound invocation, not a durable transaction. Files the caller cannot open are refused rather than weakened to a race-prone path chmod. Linux and macOS use native descriptor operations. Windows returns typed unsupported because ACLs and DOS attributes are not Unix octal modes. A post-effect readback failure returns file_mode_effect_unknown instead of claiming success or rollback.\n"
     },
     {
       "name": "file-copy",

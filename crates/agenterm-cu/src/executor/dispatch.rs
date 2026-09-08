@@ -481,6 +481,9 @@ impl Executor {
                 include_values,
                 ..
             } => super::files::file_attributes_payload(path, *include_values),
+            Command::FileMode {
+                path, mode, apply, ..
+            } => super::files::file_mode_payload(path, *mode, *apply),
             Command::FileMove {
                 source,
                 destination,

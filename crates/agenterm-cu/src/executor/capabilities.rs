@@ -622,6 +622,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "file-mode".into(),
+            serde_json::json!({
+                "status": if cfg!(any(target_os = "macos", target_os = "linux")) { "available" } else { "unsupported" },
+                "group": "file",
+                "grant": "observe-plan-actuate-apply",
+                "mode": "opened-regular-file-identity-bound-unix-mode",
+                "default": "mutation-free-preview",
+                "same_mode": "verified-no-op",
+                "readback_failure": "effect-unknown",
+                "windows_semantics": "typed-unsupported-not-acl-emulation",
+            }),
+        );
+        verbs.insert(
             "login-session".into(),
             serde_json::json!({
                 "status": if cfg!(target_os = "macos") { "available" } else { "unsupported" },

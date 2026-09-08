@@ -2011,7 +2011,16 @@ flowchart LR
   mechanism but still needs its public court; Windows returns typed unsupported
   because alternate data streams and ACLs are not equivalent to Unix xattrs.
   Mode and xattr mutation remain separate identity-bound plan/apply leaves and
-  are not implied by this observer.
+  are not implied by this observer. The mode leaf is now public as `file-mode
+  PATH OCTAL [--apply]` / `file chmod`: default preview is zero-write, apply
+  re-plans from the currently opened regular file, rechecks exact object
+  identity and current mode, then verifies descriptor-level native readback.
+  Same-mode apply is a verified no-op. `previous_mode` is an observed fact for
+  a new identity-bound restoration call, not a durable rollback token; a
+  post-effect readback failure is typed effect-unknown. The public macOS
+  qjswasm journey `cu.file-mode.macos` is green. Linux runtime and Windows
+  typed-not-applicable courts remain open; ACLs and DOS attributes never
+  masquerade as Unix octal mode.
   `file-move SOURCE DEST [--replace --apply]` now composes the same hardened
   copy publication with a recoverable source retirement. It atomically refuses
   occupied backup names, locks source and destination path namespaces in
@@ -2038,17 +2047,17 @@ flowchart LR
   ledger is `platform-limited`, not yet promoted to native or removed from the
   overall storage family. The exact inventory spelling already routes through
   ACU; mutation and volume sub-shapes remain dynamic compatibility fallbacks.
-  The platform mechanism now implements identity-bound Unix mode/xattr
-  inspect-plan-apply-readback-rollback, including macOS quarantine removal.
+  The platform mechanism implements identity-bound Unix mode/xattr
+  inspect-plan-apply-readback primitives, including macOS quarantine removal.
   It binds a no-follow opened directory entry to the caller's existing handle
   before any operation; Windows returns typed unsupported rather than
-  pretending ACL/attribute equivalence. These mechanisms are not yet public CU
-  verbs and have no Linux/Windows runtime evidence.
+  pretending ACL/attribute equivalence. Mode is now public; xattr mutation is
+  still internal-only. Neither mutation leaf has Linux/Windows runtime evidence.
   The MCU-shaped compatibility entry routes `acu file inspect PATH`, file copy,
   status, and explicit `--apply` rollback/recover/finalize to these typed ACU
-  facades. Move uses the same native recoverable transaction; mode and xattr
-  remain MCU fallbacks until the new platform mechanisms have public typed CU
-  commands and courts. The legacy transaction action without `--apply` is now
+  facades. Move uses the same native recoverable transaction; mode now has its
+  public typed ACU command and macOS court, while xattr mutation remains open.
+  The legacy transaction action without `--apply` is now
   rejected locally: observation uses status and mutation must be explicit; it
   no longer falls back to a second plan owner.
 - [~] Network replacement is classified into interfaces, routes, active DNS,

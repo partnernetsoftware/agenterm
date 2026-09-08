@@ -2052,6 +2052,16 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "is_false")]
         include_values: bool,
     },
+    /// Plan or apply one Unix permission-mode change against an opened,
+    /// identity-bound regular file. Windows returns typed unsupported rather
+    /// than pretending ACLs or DOS attributes are octal modes.
+    FileMode {
+        target: TargetRef,
+        path: String,
+        mode: u32,
+        #[serde(default, skip_serializing_if = "is_false")]
+        apply: bool,
+    },
     /// Plan or apply one recoverable regular-file copy. Planning is
     /// observation-only; `apply` persists the recovery receipt before the
     /// first filesystem mutation.
@@ -4085,6 +4095,7 @@ impl Command {
             Self::NetworkProbe { .. } => "network-probe".into(),
             Self::FileInspect { .. } => "file-inspect".into(),
             Self::FileAttributes { .. } => "file-attributes".into(),
+            Self::FileMode { .. } => "file-mode".into(),
             Self::FileCopy { .. } => "file-copy".into(),
             Self::FileMove { .. } => "file-move".into(),
             Self::FileTransaction { .. } => "file-transaction".into(),
@@ -4282,6 +4293,9 @@ impl Command {
             }
             Self::FileMove { apply, .. } => {
                 format!("file-move.{}", if *apply { "apply" } else { "plan" })
+            }
+            Self::FileMode { apply, .. } => {
+                format!("file-mode.{}", if *apply { "apply" } else { "plan" })
             }
             Self::FileTransaction { action, .. } => format!(
                 "file-transaction.{}",
@@ -4485,6 +4499,7 @@ impl Command {
             | Self::NetworkProbe { target, .. }
             | Self::FileInspect { target, .. }
             | Self::FileAttributes { target, .. }
+            | Self::FileMode { target, .. }
             | Self::FileCopy { target, .. }
             | Self::FileMove { target, .. }
             | Self::FileTransaction { target, .. }
@@ -4691,6 +4706,7 @@ impl Command {
             | Self::ShellExec { .. }
             | Self::FileCopy { apply: true, .. }
             | Self::FileMove { apply: true, .. }
+            | Self::FileMode { apply: true, .. }
             | Self::FileTransaction {
                 action:
                     FileTransactionAction::Rollback
@@ -8275,7 +8291,38 @@ mod tests {
     }
 
     #[test]
-    fn file_copy_plan_and_transaction_actions_have_exact_grants() {
+    fn file_mutation_plans_and_transaction_actions_have_exact_grants() {
+        let mode_plan = Command::FileMode {
+            target: TargetRef::Current,
+            path: "mode-target".into(),
+            mode: 0o640,
+            apply: false,
+        };
+        assert_eq!(mode_plan.required_grant(), Grant::Observe);
+        assert_eq!(
+            mode_plan.authorization_operation().as_deref(),
+            Some("file-mode.plan")
+        );
+        let mut mode_apply = mode_plan.clone();
+        if let Command::FileMode { apply, .. } = &mut mode_apply {
+            *apply = true;
+        }
+        assert_eq!(mode_apply.required_grant(), Grant::Actuate);
+        assert_eq!(
+            mode_apply.authorization_operation().as_deref(),
+            Some("file-mode.apply")
+        );
+        let round_trip: Command =
+            serde_json::from_value(serde_json::to_value(&mode_apply).unwrap()).unwrap();
+        assert!(matches!(
+            round_trip,
+            Command::FileMode {
+                mode: 0o640,
+                apply: true,
+                ..
+            }
+        ));
+
         let plan = Command::FileCopy {
             target: TargetRef::Ssh,
             source: "source".into(),

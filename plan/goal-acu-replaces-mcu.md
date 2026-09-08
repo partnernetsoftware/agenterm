@@ -829,6 +829,13 @@ Q3 owned runtime facades
    │  ├─ [x] macOS qjswasm public journey `cu.file-xattr-inspect.macos`
    │  ├─ [ ] Linux native public court
    │  └─ [x] Windows typed unsupported; ADS/ACL never masquerade as Unix xattrs
+   ├─ [~] identity-bound Unix file mode: mutation-free preview + explicit apply
+   │  ├─ [x] public `file-mode PATH OCTAL [--apply]` plus `file chmod` alias
+   │  ├─ [x] exact opened-object identity, precondition recheck and native readback
+   │  ├─ [x] same-mode verified no-op; `previous_mode` is a fact, not durable rollback
+   │  ├─ [x] macOS qjswasm public journey `cu.file-mode.macos`
+   │  ├─ [ ] Linux native public court
+   │  └─ [ ] Windows typed-not-applicable court; ACL/DOS attributes stay separate
    ├─ [~] recoverable file-move transaction: copy then retire with two retained backups
    │  ├─ [x] both path locks + atomic no-replace marker/backup publication
    │  ├─ [x] rollback/finalize + installed/retirement crash recovery
