@@ -151,7 +151,11 @@ impl Executor {
                 "target_binding_changed",
             );
         }
-        let reply = match self.run_current(command, request_context) {
+        let reply = match self.run_current(
+            command,
+            request_context,
+            crate::execution_control::ExecutionControl::none(),
+        ) {
             Ok(data) => CuReply::ok(command, data),
             Err(error) => CuReply::err(command, error),
         };

@@ -69,8 +69,8 @@ mod files;
 mod host_notification;
 mod host_open;
 mod ime;
-mod keyboard_layout;
 mod invoke;
+mod keyboard_layout;
 mod managed_jobs;
 mod menus;
 mod network_dns;
@@ -127,8 +127,8 @@ use files::*;
 use host_notification::*;
 use host_open::*;
 use ime::*;
-use keyboard_layout::*;
 use invoke::*;
+use keyboard_layout::*;
 use managed_jobs::*;
 use menus::*;
 use network_dns::*;
@@ -282,6 +282,19 @@ impl Executor {
     }
 
     pub fn execute(&self, command: &Command) -> CuReply {
+        self.execute_controlled(command, crate::execution_control::ExecutionControl::none())
+    }
+
+    /// Execute one command with a call-scoped robustness control.
+    ///
+    /// The first product slice is deliberately limited to the observe-only
+    /// `process-watch` wait. Mutations keep their existing authoritative reply
+    /// semantics until they gain phase-aware cancellation of their own.
+    pub fn execute_controlled(
+        &self,
+        command: &Command,
+        control: crate::execution_control::ExecutionControl<'_>,
+    ) -> CuReply {
         if matches!(command, Command::Setup { .. })
             && let Err(message) = command.validate()
         {
@@ -317,7 +330,7 @@ impl Executor {
         };
 
         let reply = match command.target() {
-            TargetRef::Current => self.execute_current(command),
+            TargetRef::Current => self.execute_current_controlled(command, control),
             TargetRef::Ssh => self.execute_ssh(command),
             TargetRef::Vnc => self.execute_vnc(command),
             TargetRef::Rdp => self.execute_rdp(command),
@@ -607,6 +620,7 @@ impl Executor {
                     session_lease: &identity.session_lease,
                     runtime: &runtime,
                 }),
+                crate::execution_control::ExecutionControl::none(),
             ) {
                 Ok(data) => CuReply::ok(command, data),
                 Err(error) => CuReply::err(command, error),
@@ -982,8 +996,12 @@ impl Executor {
         audit.record_actuation(command.target(), command, Grant::Actuate, outcome, detail)
     }
 
-    pub(super) fn execute_current(&self, command: &Command) -> CuReply {
-        match self.run_current(command, None) {
+    pub(super) fn execute_current_controlled(
+        &self,
+        command: &Command,
+        control: crate::execution_control::ExecutionControl<'_>,
+    ) -> CuReply {
+        match self.run_current(command, None, control) {
             Ok(data) => CuReply::ok(command, data),
             Err(error) => CuReply::err(command, error),
         }

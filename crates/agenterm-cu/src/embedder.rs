@@ -328,10 +328,24 @@ pub fn execute_json_with(executor: &Executor, command_json: &str) -> CuReply {
 
 /// The one `Command -> Executor` adapter used by CLI and in-process clients.
 pub fn execute_command(executor: &Executor, command: &Command) -> CuReply {
+    execute_command_controlled(
+        executor,
+        command,
+        crate::execution_control::ExecutionControl::none(),
+    )
+}
+
+/// The controlled form of [`execute_command`]. The borrowed probe is a
+/// robustness signal for the duration of this synchronous call, not authority.
+pub fn execute_command_controlled(
+    executor: &Executor,
+    command: &Command,
+    control: crate::execution_control::ExecutionControl<'_>,
+) -> CuReply {
     if let Err(message) = command.validate() {
         return CuReply::err(command, CuError::new("invalid_command", message));
     }
-    executor.execute(command)
+    executor.execute_controlled(command, control)
 }
 
 /// Decode and execute using the same ambient authorization source as a CLI
@@ -357,6 +371,18 @@ pub fn execute_json_from_environment(command_json: &str) -> CuReply {
 /// kind, missing field, extra field or wrong field type never falls back to
 /// `Command` deserialization.
 pub fn execute_request_from_environment(request_json: &str) -> CuReply {
+    execute_request_from_environment_controlled(
+        request_json,
+        crate::execution_control::ExecutionControl::none(),
+    )
+}
+
+/// Decode and execute an embedded request while lending one call-scoped
+/// cancellation probe to the observe-only mechanisms that support it.
+pub fn execute_request_from_environment_controlled(
+    request_json: &str,
+    control: crate::execution_control::ExecutionControl<'_>,
+) -> CuReply {
     let value = match serde_json::from_str::<serde_json::Value>(request_json) {
         Ok(value) => value,
         Err(error) => return malformed_command(error.to_string()),
@@ -366,7 +392,7 @@ pub fn execute_request_from_environment(request_json: &str) -> CuReply {
     };
     if !object.contains_key("acu_request") {
         return match serde_json::from_value::<Command>(value) {
-            Ok(command) => execute_command_from_environment(&command),
+            Ok(command) => execute_command_from_environment_controlled(&command, control),
             Err(error) => malformed_command(error.to_string()),
         };
     }
@@ -376,7 +402,7 @@ pub fn execute_request_from_environment(request_json: &str) -> CuReply {
     match object.get("kind").and_then(|value| value.as_str()) {
         Some("command") if exact_keys(object, &["acu_request", "kind", "command"]) => {
             match strict_command(object.get("command").expect("exact command envelope")) {
-                Ok(command) => execute_command_from_environment(&command),
+                Ok(command) => execute_command_from_environment_controlled(&command, control),
                 Err(message) => malformed_request(message),
             }
         }
@@ -386,7 +412,7 @@ pub fn execute_request_from_environment(request_json: &str) -> CuReply {
                 .cloned()
                 .and_then(|value| serde_json::from_value::<Vec<String>>(value).ok())
             {
-                Some(argv) => crate::argv::execute_argv_from_environment(argv),
+                Some(argv) => crate::argv::execute_argv_from_environment_controlled(argv, control),
                 None => malformed_request("argv envelope requires an array of strings"),
             }
         }
@@ -552,11 +578,21 @@ fn exact_keys(object: &serde_json::Map<String, serde_json::Value>, expected: &[&
 }
 
 fn execute_command_from_environment(command: &Command) -> CuReply {
+    execute_command_from_environment_controlled(
+        command,
+        crate::execution_control::ExecutionControl::none(),
+    )
+}
+
+fn execute_command_from_environment_controlled(
+    command: &Command,
+    control: crate::execution_control::ExecutionControl<'_>,
+) -> CuReply {
     let executor = match executor_from_environment(command) {
         Ok(executor) => executor,
         Err(reply) => return *reply,
     };
-    execute_command(&executor, command)
+    execute_command_controlled(&executor, command, control)
 }
 
 fn execute_command_with_identity_from_environment(
@@ -845,6 +881,28 @@ mod tests {
         });
         let follow_up = execute_json_with(&executor, &valid.to_string());
         assert!(follow_up.ok);
+    }
+
+    #[test]
+    fn controlled_argv_request_reaches_the_process_watch_probe() {
+        let request = serde_json::json!({
+            "acu_request": ACU_REQUEST_VERSION,
+            "kind": "argv",
+            "argv": [
+                "--target", "current", "--grant", "observe", "process-watch",
+                "--pid", u32::MAX.to_string(), "--duration-ms", "60000",
+                "--interval-ms", "60000"
+            ]
+        });
+        let probe = || true;
+        let reply = execute_request_from_environment_controlled(
+            &request.to_string(),
+            crate::execution_control::ExecutionControl::with_cancel_probe(&probe),
+        );
+        assert!(!reply.ok);
+        let error = reply.error.expect("typed cancellation");
+        assert_eq!(error.code, "cancelled");
+        assert_eq!(error.detail.expect("detail")["effect"], "not_performed");
     }
 
     #[test]

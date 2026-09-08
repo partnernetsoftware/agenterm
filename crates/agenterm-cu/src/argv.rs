@@ -6,6 +6,7 @@
 
 use crate::cli::global::{Globals, authority_environment_flags};
 use crate::cli::{self, verbs};
+use crate::execution_control::ExecutionControl;
 use crate::{Command, CuReply};
 
 pub const MAX_ARGV_COUNT: usize = 4_096;
@@ -14,16 +15,31 @@ pub const MAX_ARGV_BYTES: usize = 1_048_576;
 /// Execute ordinary `agenterm-cu` arguments with ambient authority and target
 /// environment resolution, without writing stdout or stderr.
 pub fn execute_argv_from_environment(args: impl IntoIterator<Item = String>) -> CuReply {
+    execute_argv_from_environment_controlled(args, ExecutionControl::none())
+}
+
+/// Controlled form of [`execute_argv_from_environment`] for synchronous
+/// embedders. Only mechanisms that explicitly accept the probe observe it.
+pub fn execute_argv_from_environment_controlled(
+    args: impl IntoIterator<Item = String>,
+    control: ExecutionControl<'_>,
+) -> CuReply {
     let args: Vec<String> = args.into_iter().collect();
     if let Err(reply) = validate_argv(&args) {
         return *reply;
     }
-    execute_argv_with_authority_flags(args, authority_environment_flags())
+    execute_argv_with_authority_flags_controlled(args, authority_environment_flags(), control)
 }
 
-fn execute_argv_with_authority_flags(
+#[cfg(test)]
+fn execute_argv_with_authority_flags(args: Vec<String>, flags: (bool, bool)) -> CuReply {
+    execute_argv_with_authority_flags_controlled(args, flags, ExecutionControl::none())
+}
+
+fn execute_argv_with_authority_flags_controlled(
     mut args: Vec<String>,
     (ambient_authority_present, unsupported_authority_environment): (bool, bool),
+    control: ExecutionControl<'_>,
 ) -> CuReply {
     if let Err(reply) = validate_argv(&args) {
         return *reply;
@@ -102,7 +118,7 @@ fn execute_argv_with_authority_flags(
         Ok(executor) => executor,
         Err(reply) => return *reply,
     };
-    crate::embedder::execute_command(&executor, &command)
+    crate::embedder::execute_command_controlled(&executor, &command, control)
 }
 
 fn validate_argv(args: &[String]) -> Result<(), Box<CuReply>> {
