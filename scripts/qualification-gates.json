@@ -323,8 +323,8 @@
       "evidence": ["cu.linux-network-interfaces-ip-sysfs"]
     },
     {
-      "id": "cu-linux-network-routes-smoke",
-      "evidence": ["cu.linux-network-routes-ip-readback"]
+      "id": "cu-linux-network-dns-smoke",
+      "evidence": ["cu.linux-network-dns-resolv"]
     },
     {
       "id": "cu-linux-fontconfig-monospace-smoke",

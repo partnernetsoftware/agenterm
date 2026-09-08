@@ -261,7 +261,7 @@ const evidence_suites = {
   "cu-linux-display-scale-smoke": true,
   "cu-linux-keyboard-layout-smoke": true,
   "cu-linux-network-interfaces-smoke": true,
-  "cu-linux-network-routes-smoke": true,
+  "cu-linux-network-dns-smoke": true,
   "cu-linux-resize-expect-smoke": true,
   "cu-linux-a11y-status-smoke": true,
   "cu-linux-ime-status-smoke": true,

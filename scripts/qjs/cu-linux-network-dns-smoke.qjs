@@ -1,0 +1,302 @@
+// CEO: Linux network-dns observe with independent /etc/resolv.conf or resolvectl read-back.
+// Acceptance is smoke read-back only: CU resolver/search-domain rows and coverage must
+// match facts parsed outside agenterm-cu from the same authoritative sources the
+// platform adapter uses. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-network-dns-resolv",
+];
+
+const RESOLV_CONF = "/etc/resolv.conf";
+const SYSTEMD_UPSTREAM = "/run/systemd/resolve/resolv.conf";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function split_whitespace(text) {
+  const parts = [];
+  let current = "";
+  for (let index = 0; index < text.length; index = index + 1) {
+    const code = text.charCodeAt(index);
+    if (code === 9 || code === 10 || code === 13 || code === 32) {
+      if (current.length > 0) {
+        parts.push(current);
+        current = "";
+      }
+    } else {
+      current = current + text.charAt(index);
+    }
+  }
+  if (current.length > 0) { parts.push(current); }
+  return parts;
+}
+
+function normalize_ip(address) {
+  const output = rh.command("ip", ["-j", "addr", "show", "to", address], {
+    timeout_ms: 10000,
+  });
+  if (!output.success) { return address.toLowerCase(); }
+  const document = JSON.parse(output.stdout.trim());
+  if (!Array.isArray(document)) { return address.toLowerCase(); }
+  for (let index = 0; index < document.length; index = index + 1) {
+    const iface = document[index];
+    const addrinfo = iface.addr_info;
+    if (!Array.isArray(addrinfo)) { continue; }
+    for (let addr_index = 0; addr_index < addrinfo.length; addr_index = addr_index + 1) {
+      const row = addrinfo[addr_index];
+      const local = "" + row.local;
+      if (local !== "") { return local.toLowerCase(); }
+    }
+  }
+  return address.toLowerCase();
+}
+
+function trim_trailing_dot(value) {
+  if (value.length > 0 && value.charAt(value.length - 1) === ".") {
+    return value.slice(0, value.length - 1);
+  }
+  return value;
+}
+
+function parse_ip_token(token) {
+  const percent = token.indexOf("%");
+  const bare = percent < 0 ? token : token.slice(0, percent);
+  if (bare.indexOf(":") >= 0) {
+    return { family: "IPv6", address: normalize_ip(bare) };
+  }
+  return { family: "IPv4", address: bare };
+}
+
+function parse_resolv_conf(text) {
+  const resolvers = [];
+  const search_domains = [];
+  const lines = text.split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index].split("#")[0].trim();
+    if (line === "") { continue; }
+    const parts = split_whitespace(line);
+    if (parts.length === 0) { continue; }
+    if (parts[0] === "nameserver" && parts.length >= 2) {
+      const parsed = parse_ip_token(parts[1]);
+      if (parsed.address !== "") {
+        resolvers.push(parsed);
+      }
+    } else if ((parts[0] === "search" || parts[0] === "domain") && parts.length >= 2) {
+      for (let domain_index = 1; domain_index < parts.length; domain_index = domain_index + 1) {
+        const domain = trim_trailing_dot(parts[domain_index]);
+        if (domain !== "") { search_domains.push(domain); }
+      }
+    }
+  }
+  return { resolvers: resolvers, search_domains: search_domains };
+}
+
+function is_systemd_stub(resolvers) {
+  for (let index = 0; index < resolvers.length; index = index + 1) {
+    if (resolvers[index].address === "127.0.0.53") { return true; }
+  }
+  return false;
+}
+
+function unique_sorted(values) {
+  const seen = {};
+  const rows = [];
+  for (let index = 0; index < values.length; index = index + 1) {
+    const value = values[index];
+    if (seen[value]) { continue; }
+    seen[value] = true;
+    rows.push(value);
+  }
+  rows.sort();
+  return rows;
+}
+
+function resolver_keys(resolvers) {
+  const keys = [];
+  for (let index = 0; index < resolvers.length; index = index + 1) {
+    const row = resolvers[index];
+    keys.push(row.family + ":" + row.address);
+  }
+  return unique_sorted(keys);
+}
+
+function parse_resolvectl_dns(stdout) {
+  const resolvers = [];
+  const lines = stdout.split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index].trim();
+    if (line === "" || line.indexOf(":") < 0) { continue; }
+    const colon = line.indexOf(":");
+    const tail = line.slice(colon + 1).trim();
+    if (tail === "") { continue; }
+    const parts = split_whitespace(tail);
+    for (let part_index = 0; part_index < parts.length; part_index = part_index + 1) {
+      const parsed = parse_ip_token(parts[part_index]);
+      if (parsed.address !== "" && parsed.address !== "127.0.0.53") {
+        resolvers.push(parsed);
+      }
+    }
+  }
+  return resolvers;
+}
+
+function try_resolvectl_upstream() {
+  const output = rh.command("resolvectl", ["dns"], { timeout_ms: 10000 });
+  if (!output.success) { return null; }
+  const resolvers = parse_resolvectl_dns(output.stdout);
+  if (resolvers.length === 0) { return null; }
+  return {
+    coverage: "system-effective",
+    resolvers: resolvers,
+    search_domains: [],
+    source: "resolvectl-dns",
+  };
+}
+
+function independent_dns_facts() {
+  if (!rh.exists(RESOLV_CONF)) {
+    return { unsupported: true, reason: "resolv.conf_missing" };
+  }
+  const primary = parse_resolv_conf(rh.read_text(RESOLV_CONF));
+  if (is_systemd_stub(primary.resolvers)) {
+    if (rh.exists(SYSTEMD_UPSTREAM)) {
+      const upstream = parse_resolv_conf(rh.read_text(SYSTEMD_UPSTREAM));
+      return {
+        unsupported: false,
+        coverage: "system-effective",
+        resolvers: upstream.resolvers,
+        search_domains: upstream.search_domains,
+        source: "systemd-upstream-file",
+      };
+    }
+    const resolvectl = try_resolvectl_upstream();
+    if (resolvectl !== null) {
+      return resolvectl;
+    }
+    return {
+      unsupported: false,
+      coverage: "stub-only",
+      resolvers: primary.resolvers,
+      search_domains: primary.search_domains,
+      source: "resolv.conf-stub",
+    };
+  }
+  return {
+    unsupported: false,
+    coverage: "resolver-file",
+    resolvers: primary.resolvers,
+    search_domains: primary.search_domains,
+    source: "resolv.conf",
+  };
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_network_dns_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_network_dns_reply_state");
+  return reply;
+}
+
+function assert_readback(cu_data, independent) {
+  ensure(text_at(cu_data, "coverage") === independent.coverage,
+         "cu_linux_network_dns_coverage_mismatch:cu=" + text_at(cu_data, "coverage")
+           + ":independent=" + independent.coverage + ":source=" + independent.source);
+  if (independent.coverage === "stub-only") {
+    ensure(cu_data.complete === false, "cu_linux_network_dns_stub_must_be_incomplete");
+  }
+  const cu_resolver_keys = resolver_keys(cu_data.resolvers);
+  const independent_resolver_keys = resolver_keys(independent.resolvers);
+  ensure(JSON.stringify(cu_resolver_keys) === JSON.stringify(independent_resolver_keys),
+         "cu_linux_network_dns_resolver_mismatch:cu=" + JSON.stringify(cu_resolver_keys)
+           + ":independent=" + JSON.stringify(independent_resolver_keys)
+           + ":source=" + independent.source);
+  const cu_domains = unique_sorted((function () {
+    const rows = [];
+    const domains = cu_data.search_domains;
+    for (let index = 0; index < domains.length; index = index + 1) {
+      rows.push(text_at(domains[index], "domain"));
+    }
+    return rows;
+  })());
+  const independent_domains = unique_sorted(independent.search_domains);
+  ensure(JSON.stringify(cu_domains) === JSON.stringify(independent_domains),
+         "cu_linux_network_dns_search_mismatch:cu=" + JSON.stringify(cu_domains)
+           + ":independent=" + JSON.stringify(independent_domains)
+           + ":source=" + independent.source);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-network-dns");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent /etc/resolv.conf or resolvectl read-back captures resolver facts");
+  const independent = independent_dns_facts();
+  if (independent.unsupported === true) {
+    print("STEP host lacks resolver inventory; network-dns must answer typed unavailable");
+    const reply = invoke(context.run_directory, executable, [
+      "network-dns", "--max", "20"
+    ], false);
+    ensure(reply.error.code === "network_dns_unavailable",
+           "cu_linux_network_dns_unavailable_code:" + JSON.stringify(reply.error));
+    succeeded = 1;
+  } else {
+    ensure(independent.resolvers.length > 0 || independent.coverage === "stub-only",
+           "cu_linux_network_dns_independent_empty:" + JSON.stringify(independent));
+    print("STEP network-dns observe matches independent resolver read-back (source="
+      + independent.source + ", coverage=" + independent.coverage + ")");
+    const reply = invoke(context.run_directory, executable, [
+      "network-dns", "--max", "5000"
+    ], true);
+    ensure(reply.command === "network-dns" && reply.target === "current",
+           "cu_linux_network_dns_identity");
+    assert_readback(reply.data, independent);
+    succeeded = 1;
+  }
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-network-dns-resolv");
+  harness.remove_run(context);
+  print("PASS: CEO Linux network-dns with independent /etc/resolv.conf or resolvectl read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

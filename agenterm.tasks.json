@@ -2358,12 +2358,12 @@
         "task.cu-linux-network-interfaces-smoke"
       ]
     },
-    "cu-linux-network-routes-smoke": {
+    "cu-linux-network-dns-smoke": {
       "inputs": [
         "built-agenterm-cu"
       ],
       "outputs": [
-        "cu-linux-network-routes-evidence"
+        "cu-linux-network-dns-evidence"
       ],
       "budget": {
         "timeout_ms": 120000,
@@ -2372,7 +2372,7 @@
       },
       "network": [],
       "evidence": [
-        "task.cu-linux-network-routes-smoke"
+        "task.cu-linux-network-dns-smoke"
       ]
     },
     "cu-linux-proxy-env-smoke": {
@@ -6023,9 +6023,9 @@
       ]
     },
     {
-      "id": "cu-linux-network-routes-smoke",
-      "description": "Prove Linux network-routes observe matches independent ip -j route and sysfs ifindex read-back; no --coords or screenshot degradation.",
-      "entry": "scripts/qjs/cu-linux-network-routes-smoke.qjs",
+      "id": "cu-linux-network-dns-smoke",
+      "description": "Prove Linux network-dns observe matches independent /etc/resolv.conf or resolvectl read-back for resolvers, search domains and coverage; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-network-dns-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
