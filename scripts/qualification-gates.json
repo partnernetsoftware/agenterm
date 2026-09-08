@@ -969,6 +969,12 @@
       ]
     },
     {
+      "id": "cu-linux-page-find-smoke",
+      "evidence": [
+        "cu.linux-page-find-honesty"
+      ]
+    },
+    {
       "id": "cu-linux-page-click-smoke",
       "evidence": [
         "cu.linux-cdp-page-click",

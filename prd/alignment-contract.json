@@ -176,6 +176,7 @@
         "cu.linux-cdp-page-click",
         "cu.linux-cdp-page-click-readback",
         "cu.linux-cdp-page-targets-readback",
+        "cu.linux-page-find-honesty",
         "cu.linux-cdp-page-screenshot-readback",
         "cu.linux-cdp-page-hover-readback",
         "cu.linux-browser-profiles-installed",

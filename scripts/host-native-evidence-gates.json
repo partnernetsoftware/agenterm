@@ -237,6 +237,13 @@
       ]
     },
     {
+      "id": "cu-linux-page-find-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-page-find-honesty"
+      ]
+    },
+    {
       "id": "cu-linux-page-click-smoke",
       "platform": "linux",
       "evidence": [
