@@ -986,6 +986,215 @@ pub(super) fn unmaximize_payload(
     Ok(payload)
 }
 
+fn read_opacity_permille(window: isize) -> Result<u32, CuError> {
+    mechanism::window_op::opacity(window).map_err(map_mechanism_err)
+}
+
+fn parse_opacity_permille(text: &str) -> Result<u32, CuError> {
+    let value = text.trim();
+    let parsed: f64 = value
+        .parse()
+        .map_err(|_| invalid_input(format!("opacity must be a number 0..1: {value}")))?;
+    if !(0.0..=1.0).contains(&parsed) {
+        return Err(invalid_input(format!(
+            "opacity must be between 0 and 1: {value}"
+        )));
+    }
+    Ok(((parsed * 1000.0).round() as u32).min(1000))
+}
+
+fn opacity_permille_json(permille: u32) -> serde_json::Value {
+    serde_json::json!(permille as f64 / 1000.0)
+}
+
+fn opacity_close(got: u32, want: u32) -> bool {
+    got.abs_diff(want) <= 2
+}
+
+pub(super) fn window_opacity_payload(
+    window: isize,
+    opacity_permille: u32,
+    expect: Option<&str>,
+    receipts: &mut ReceiptLog,
+) -> Result<serde_json::Value, CuError> {
+    let mut missing = Vec::new();
+    if window == 0 {
+        missing.push("target");
+    }
+    let expected_permille = match expect.map(str::trim) {
+        Some(value) => match parse_opacity_permille(value) {
+            Ok(permille) => Some(permille),
+            Err(error) => return Err(error),
+        },
+        None => {
+            missing.push("postcondition");
+            None
+        }
+    };
+    if opacity_permille > 1000 {
+        return Err(invalid_input("opacity must be between 0 and 1".into()));
+    }
+    if expected_permille.is_some_and(|want| want != opacity_permille) {
+        return Err(invalid_input(
+            "window-opacity --expect must match --opacity".into(),
+        ));
+    }
+    if !missing.is_empty() {
+        return Err(CuError::new(
+            "refused",
+            format!(
+                "window-opacity changes what the user sees: it needs an exact target \
+                 (--window HANDLE), a requested opacity (--opacity 0..1), and a checkable \
+                 postcondition (--expect matching --opacity); nothing was performed"
+            ),
+        )
+        .with_detail(serde_json::json!({
+            "reason": "destructive_gate",
+            "missing": missing,
+            "required": {
+                "target": "--window HANDLE",
+                "opacity": "--opacity 0..1",
+                "postcondition": "--expect <same as --opacity>",
+            },
+            "effect": "not_performed",
+        })));
+    }
+    let want = expected_permille.expect("gate checked expect");
+    let not_performed = |error: CuError| {
+        let mut detail = error.detail.clone().unwrap_or(serde_json::json!({}));
+        detail["effect"] = serde_json::json!("not_performed");
+        error.with_detail(detail)
+    };
+    let was = read_opacity_permille(window).map_err(not_performed)?;
+    let performed = !opacity_close(was, want);
+    let front_before = frontmost_app_now();
+    let before = serde_json::json!({
+        "opacity": opacity_permille_json(was),
+        "opacity_permille": was,
+    });
+    let ticket = receipts.reserve(
+        "window-opacity",
+        window,
+        serde_json::json!({
+            "action": "window-opacity",
+            "postcondition": expect,
+            "requested_opacity": opacity_permille_json(opacity_permille),
+            "requested_opacity_permille": opacity_permille,
+            "performed": performed,
+            "before": before,
+            "frontmost_app": frontmost_json(front_before.as_ref()),
+        }),
+    )?;
+    let mut mechanism_error = None;
+    if performed {
+        mechanism_error = mechanism::window_op::set_opacity(window, want)
+            .err()
+            .map(map_mechanism_err);
+    }
+    let started = Instant::now();
+    let mut polls = 0usize;
+    let mut now = was;
+    let mut readback_error = None;
+    loop {
+        polls += 1;
+        match read_opacity_permille(window) {
+            Ok(value) => now = value,
+            Err(error) => {
+                readback_error = Some(error);
+                break;
+            }
+        }
+        if opacity_close(now, want) || started.elapsed() >= STATE_READBACK {
+            break;
+        }
+        std::thread::sleep(STATE_READBACK_POLL);
+    }
+    let front_after = frontmost_app_now();
+    let front_pid_before = front_before.as_ref().map(|app| app.pid);
+    let front_pid_after = front_after.as_ref().map(|app| app.pid);
+    let foreground_unchanged = front_pid_before == front_pid_after;
+    let verified = mechanism_error.is_none()
+        && readback_error.is_none()
+        && opacity_close(now, want)
+        && foreground_unchanged;
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if readback_error.is_some() {
+        Some("readback_failed")
+    } else if !foreground_unchanged {
+        Some("foreground_changed")
+    } else if !opacity_close(now, want) {
+        Some("state_mismatch")
+    } else if !performed {
+        Some("already_at_opacity")
+    } else {
+        None
+    };
+    let verification = serde_json::json!({
+        "method": "window-opacity-readback",
+        "reason": reason,
+        "polls": polls,
+        "elapsed_ms": started.elapsed().as_millis(),
+    });
+    let after = serde_json::json!({
+        "opacity": opacity_permille_json(now),
+        "opacity_permille": now,
+    });
+    receipts.complete(
+        &ticket,
+        "window-opacity",
+        window,
+        verified,
+        serde_json::json!({
+            "performed": performed && mechanism_error.is_none(),
+            "after": after,
+            "verification": verification,
+            "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
+        }),
+    )?;
+    let payload = serde_json::json!({
+        "addressing": "window-handle",
+        "mechanism": "libagenterm",
+        "via": "native-window-opacity",
+        "window": window,
+        "action": "window-opacity",
+        "postcondition": expect,
+        "requested_opacity": opacity_permille_json(opacity_permille),
+        "performed": performed && mechanism_error.is_none(),
+        "verified": verified,
+        "verification": verification,
+        "before": before,
+        "after": after,
+        "frontmost_app_before": frontmost_json(front_before.as_ref()),
+        "frontmost_app_after": frontmost_json(front_after.as_ref()),
+        "frontmost_app_unchanged": foreground_unchanged,
+        "activated_application": false,
+        "receipt": ticket.json(),
+    });
+    if let Some(error) = mechanism_error.or(readback_error) {
+        return Err(error.with_detail(serde_json::json!({ "receipt": payload })));
+    }
+    if !foreground_unchanged {
+        return Err(CuError::new(
+            "foreground_changed",
+            format!(
+                "window-opacity on window {window} moved the system frontmost application; it must not activate anything"
+            ),
+        )
+        .with_detail(serde_json::json!({ "reason": "foreground_changed", "receipt": payload })));
+    }
+    if !opacity_close(now, want) {
+        return Err(CuError::new(
+            "unverified",
+            format!(
+                "window-opacity was delivered to window {window} but it reads {now} permille after {polls} polls, expected {want}"
+            ),
+        )
+        .with_detail(serde_json::json!({ "reason": "state_mismatch", "receipt": payload })));
+    }
+    Ok(payload)
+}
+
 /// The two handles' places in the front-to-back order, or why they are not
 /// readable. `z_index` 0 is frontmost.
 pub(super) struct OrderSnapshot {

@@ -5849,6 +5849,32 @@
       ]
     },
     {
+      "name": "window-opacity",
+      "command": "window-opacity",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "windows",
+      "summary": "EWMH window opacity with read-back",
+      "usage": "window-opacity --window HANDLE --opacity 0..1 --expect <same>",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--opacity",
+          "value": "0..1",
+          "help": "requested opacity (0 = transparent, 1 = opaque)"
+        },
+        {
+          "flag": "--expect",
+          "value": "0..1",
+          "help": "checkable postcondition: the window opacity reads back at the requested value"
+        }
+      ]
+    },
+    {
       "name": "orderwin",
       "command": "orderwin",
       "aliases": [],
@@ -6862,6 +6888,10 @@
     {
       "name": "unmaximize",
       "text": "agenterm-cu unmaximize\n  scope: actuate    family: Window placement\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  unmaximize --window HANDLE --expect unmaximized\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --expect unmaximized          checkable postcondition: the window reads back not maximized\n\nClears EWMH maximization on one exact window without activating its\napplication. Same destructive gate as `maximize --expect maximized`, with\nmaximized read-back and the windows inventory `maximized` field.\n"
+    },
+    {
+      "name": "window-opacity",
+      "text": "agenterm-cu window-opacity\n  scope: actuate    family: Windows\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  window-opacity --window HANDLE --opacity 0..1 --expect <same>\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --opacity 0..1                requested opacity (0 = transparent, 1 = opaque)\n  --expect 0..1                 checkable postcondition: opacity reads back at the requested value\n\nSets EWMH `_NET_WM_WINDOW_OPACITY` on one exact window without activating\nits application. Success is proven by the windows inventory `opacity` field\nor an independent xprop read-back. Linux X11 only; other hosts answer typed\nunsupported with alternatives.\n"
     },
     {
       "name": "orderwin",

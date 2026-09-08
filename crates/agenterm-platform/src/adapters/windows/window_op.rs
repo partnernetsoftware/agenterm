@@ -140,3 +140,15 @@ pub(crate) fn close(handle: isize) -> Result<(), WindowOpError> {
     }
     Ok(())
 }
+
+pub(crate) fn opacity(_handle: isize) -> Result<u32, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window opacity is not wired on Windows yet".into(),
+    })
+}
+
+pub(crate) fn set_opacity(_handle: isize, _permille: u32) -> Result<(), WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window opacity is not wired on Windows yet".into(),
+    })
+}

@@ -82,6 +82,8 @@ agt_native_window_set_topmost
 agt_native_window_close
 agt_native_window_minimized
 agt_native_window_maximized
+agt_native_window_opacity
+agt_native_window_set_opacity
 agt_input_pointer_position
 agt_input_pointer_move
 agt_input_pointer_scroll

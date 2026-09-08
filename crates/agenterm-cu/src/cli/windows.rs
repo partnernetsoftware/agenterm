@@ -74,6 +74,34 @@ pub fn parse(
                 expect,
             })
         }
+        "window-opacity" => {
+            let Some(window) = flag_window(args)? else {
+                return Ok(Command::WindowOpacity {
+                    target,
+                    window: 0,
+                    opacity_permille: 0,
+                    expect: flag_text(args, "--expect")?,
+                });
+            };
+            let opacity_text = flag_text(args, "--opacity")?;
+            let expect = flag_text(args, "--expect")?;
+            if !args.is_empty() {
+                return Err(format!(
+                    "window-opacity accepts only --window H --opacity 0..1 --expect <same>; unexpected {:?}",
+                    args[0]
+                ));
+            }
+            let opacity_permille = match opacity_text.as_deref() {
+                Some(value) => parse_opacity_permille(value)?,
+                None => 0,
+            };
+            Ok(Command::WindowOpacity {
+                target,
+                window,
+                opacity_permille,
+                expect,
+            })
+        }
         "receipts" => {
             let window = flag_window(args)?;
             let max = flag_parsed::<usize>(args, "--max")?;
@@ -261,6 +289,16 @@ fn window_state(verb: &str, args: &mut Vec<String>) -> Result<(isize, Option<Str
         ));
     }
     Ok((window, expect))
+}
+
+fn parse_opacity_permille(text: &str) -> Result<u32, String> {
+    let parsed: f64 = text
+        .parse()
+        .map_err(|_| format!("opacity must be a number 0..1: {text}"))?;
+    if !(0.0..=1.0).contains(&parsed) {
+        return Err(format!("opacity must be between 0 and 1: {text}"));
+    }
+    Ok(((parsed * 1000.0).round() as u32).min(1000))
 }
 
 /// The destructive verb: closed shape, every part of the gate is a flag the

@@ -3919,6 +3919,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expect: Option<String>,
     },
+    WindowOpacity {
+        target: TargetRef,
+        window: isize,
+        opacity_permille: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
     /// `drag`: one press, a bounded series of moves and one release,
     /// delivered as one gesture.
     ///
@@ -4396,6 +4403,7 @@ impl Command {
             Self::Restore { .. } => "restore".into(),
             Self::Maximize { .. } => "maximize".into(),
             Self::Unmaximize { .. } => "unmaximize".into(),
+            Self::WindowOpacity { .. } => "window-opacity".into(),
             Self::Drag { .. } => "drag".into(),
             Self::Hit { .. } => "hit".into(),
             Self::Zoom { .. } => "zoom".into(),
@@ -4828,6 +4836,7 @@ impl Command {
             | Self::Restore { target, .. }
             | Self::Maximize { target, .. }
             | Self::Unmaximize { target, .. }
+            | Self::WindowOpacity { target, .. }
             | Self::Drag { target, .. }
             | Self::Hit { target, .. }
             | Self::Zoom { target, .. }
@@ -4978,6 +4987,7 @@ impl Command {
             | Self::Restore { .. }
             | Self::Maximize { .. }
             | Self::Unmaximize { .. }
+            | Self::WindowOpacity { .. }
             | Self::Drag { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,

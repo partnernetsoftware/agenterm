@@ -1029,6 +1029,42 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         // postcondition checkable, so both are declared.
         verbs.insert("minimize".into(), window_state_verb.clone());
         verbs.insert("restore".into(), window_state_verb);
+        let window_opacity_verb = {
+            let mut declaration = capability_verb(
+                mechanism::Capability::WindowOp,
+                serde_json::json!({
+                    "group": "geometry",
+                    "mode": "ewmh-window-opacity",
+                    "grant": "actuate",
+                    "activates_application": false,
+                    "gate": ["--window", "--opacity", "--expect"],
+                }),
+            );
+            let readback = match mechanism::window_op::opacity(0) {
+                Err(mechanism::MechanismError::Failed { code, .. }) if code == "bad_handle" => {
+                    serde_json::json!("available")
+                }
+                Err(mechanism::MechanismError::Unsupported { reason }) => {
+                    serde_json::json!(reason)
+                }
+                Err(mechanism::MechanismError::Failed { code, message }) => {
+                    serde_json::json!(format!("{code}: {message}"))
+                }
+                Ok(_) => serde_json::json!("available"),
+            };
+            if let Some(object) = declaration.as_object_mut() {
+                object.insert("opacity_readback".into(), readback);
+                object.insert(
+                    "alternatives".into(),
+                    serde_json::json!([
+                        "xprop -id HANDLE _NET_WM_WINDOW_OPACITY",
+                        "compositor-specific opacity controls",
+                    ]),
+                );
+            }
+            declaration
+        };
+        verbs.insert("window-opacity".into(), window_opacity_verb);
         // Observation over the same bounded walk `tree` / `query` use, so
         // they carry the tree's own status.
         verbs.insert("hit".into(), tree_verb.clone());

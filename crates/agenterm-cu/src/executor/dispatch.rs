@@ -2161,6 +2161,17 @@ impl Executor {
                 expect.as_deref(),
                 &mut self.open_receipts(command.target())?,
             ),
+            Command::WindowOpacity {
+                window,
+                opacity_permille,
+                expect,
+                ..
+            } => window_opacity_payload(
+                *window,
+                *opacity_permille,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
             Command::Drag {
                 window,
                 from,

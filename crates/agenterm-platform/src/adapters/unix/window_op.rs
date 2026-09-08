@@ -70,3 +70,15 @@ pub(crate) fn close(_handle: isize) -> Result<(), WindowOpError> {
         reason: "window-op not wired on unix".into(),
     })
 }
+
+pub(crate) fn opacity(_handle: isize) -> Result<u32, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window opacity is not wired on unix".into(),
+    })
+}
+
+pub(crate) fn set_opacity(_handle: isize, _permille: u32) -> Result<(), WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window opacity is not wired on unix".into(),
+    })
+}

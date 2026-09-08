@@ -57,6 +57,14 @@ pub fn set_topmost(handle: isize, topmost: bool) -> Result<(), WindowOpError> {
     crate::selected::window_op::set_topmost(handle, topmost)
 }
 
+pub fn opacity(handle: isize) -> Result<u32, WindowOpError> {
+    crate::selected::window_op::opacity(handle)
+}
+
+pub fn set_opacity(handle: isize, permille: u32) -> Result<(), WindowOpError> {
+    crate::selected::window_op::set_opacity(handle, permille)
+}
+
 pub fn close(handle: isize) -> Result<(), WindowOpError> {
     crate::selected::window_op::close(handle)
 }

@@ -915,6 +915,38 @@ pub mod window_op {
         Ok(out)
     }
 
+    pub fn opacity(handle: isize) -> Result<u32, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < crate::dynlib::WINDOW_OPACITY_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "the window-opacity read requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    crate::dynlib::WINDOW_OPACITY_ABI_MINOR
+                ),
+            });
+        }
+        let f = super::call_sym::<super::WindowOpacity>(b"agt_native_window_opacity")?;
+        let mut out = 0u32;
+        let status = unsafe { f(handle, &mut out) };
+        map_status("agt_native_window_opacity", status)?;
+        Ok(out)
+    }
+
+    pub fn set_opacity(handle: isize, permille: u32) -> Result<(), MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        if major != 1 || minor < crate::dynlib::WINDOW_OPACITY_ABI_MINOR {
+            return Err(MechanismError::Unsupported {
+                reason: format!(
+                    "window-opacity set requires ABI 1.{}, loaded library reports {major}.{minor}",
+                    crate::dynlib::WINDOW_OPACITY_ABI_MINOR
+                ),
+            });
+        }
+        let f = super::call_sym::<super::WindowSetOpacity>(b"agt_native_window_set_opacity")?;
+        let status = unsafe { f(handle, permille) };
+        map_status("agt_native_window_set_opacity", status)
+    }
+
     /// Close a **native** window handle (distinct from the ABI's own
     /// `agt_window_close`).
     pub fn close(handle: isize) -> Result<(), MechanismError> {
@@ -2763,6 +2795,8 @@ type WindowClose = unsafe extern "C" fn(isize) -> i32;
 type WindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type WindowMaximized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type WindowWorkspaceDesktop = unsafe extern "C" fn(isize, *mut u32) -> i32;
+type WindowOpacity = unsafe extern "C" fn(isize, *mut u32) -> i32;
+type WindowSetOpacity = unsafe extern "C" fn(isize, u32) -> i32;
 type PointerMove = unsafe extern "C" fn(i32, i32) -> i32;
 type PointerScroll = unsafe extern "C" fn(i32, i32) -> i32;
 type PointerPosition = unsafe extern "C" fn(*mut i32, *mut i32) -> i32;

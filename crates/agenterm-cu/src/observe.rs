@@ -912,6 +912,15 @@ pub fn window_row_json_with_stacking(
     {
         object.insert("workspace_desktop".into(), serde_json::json!(index));
     }
+    #[cfg(target_os = "linux")]
+    if let Ok(permille) = crate::mechanism::window_op::opacity(window.handle)
+        && let Some(object) = row.as_object_mut()
+    {
+        object.insert(
+            "opacity".into(),
+            serde_json::json!(permille as f64 / 1000.0),
+        );
+    }
     row
 }
 

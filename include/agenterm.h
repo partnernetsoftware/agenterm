@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 32
+#define AGT_ABI_MINOR 33
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -1020,6 +1020,15 @@ agt_status agt_native_window_maximized(intptr_t handle, int32_t* out_maximized);
  * CARDINAL value (0-based index; 0xFFFFFFFF means sticky/all desktops).
  * A host without `_NET_WM_DESKTOP` is AGT_UNSUPPORTED, never 0. */
 agt_status agt_native_window_workspace_desktop(intptr_t handle, uint32_t* out_desktop);
+
+/* ABI 1.33: read/write EWMH `_NET_WM_WINDOW_OPACITY` as permille (0 =
+ * transparent, 1000 = opaque). handle == 0 -> AGT_FAILED{code="bad_handle"};
+ * out_permille == NULL -> AGT_FAILED{code="bad_pointer"}; opacity_permille >
+ * 1000 -> AGT_FAILED{code="bad_opacity"} before any platform call; mechanism
+ * absent -> AGT_UNSUPPORTED; platform failure ->
+ * AGT_FAILED{code="window_op_failed"}. */
+agt_status agt_native_window_opacity(intptr_t handle, uint32_t* out_permille);
+agt_status agt_native_window_set_opacity(intptr_t handle, uint32_t opacity_permille);
 
 /* Input injection. Mechanism absent on this host -> AGT_UNSUPPORTED;
  * platform failure -> AGT_FAILED{code="input_failed"}. */

@@ -8,9 +8,10 @@ use x11rb::{
         Event,
         xproto::{
             Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask,
-            StackMode, Window,
+            PropMode, StackMode, Window,
         },
     },
+    wrapper::ConnectionExt as _,
 };
 
 use crate::CapabilityStatus;
@@ -474,4 +475,59 @@ pub(crate) fn close(handle: isize) -> Result<(), WindowOpError> {
     let window = window_id(handle)?;
     let close_window = atom(&conn, b"_NET_CLOSE_WINDOW")?;
     send_root_message(&conn, window, close_window, [0, 2, 0, 0, 0])
+}
+
+const OPACITY_OPAQUE: u32 = 0xFFFF_FFFF;
+
+fn read_opacity_cardinal(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+) -> Result<Option<u32>, WindowOpError> {
+    let property = atom(conn, b"_NET_WM_WINDOW_OPACITY")?;
+    let reply = conn
+        .get_property(false, window, property, AtomEnum::CARDINAL, 0, 1)
+        .map_err(|error| failed(format!("_NET_WM_WINDOW_OPACITY request failed: {error}")))?
+        .reply()
+        .map_err(|error| failed(format!("_NET_WM_WINDOW_OPACITY reply failed: {error}")))?;
+    if reply.format != 32 || reply.type_ == u32::from(AtomEnum::NONE) {
+        return Ok(None);
+    }
+    Ok(reply.value32().and_then(|mut values| values.next()))
+}
+
+fn permille_from_cardinal(cardinal: u32) -> u32 {
+    ((cardinal as u64 * 1000) / OPACITY_OPAQUE as u64).min(1000) as u32
+}
+
+fn cardinal_from_permille(permille: u32) -> Result<u32, WindowOpError> {
+    if permille > 1000 {
+        return Err(failed("opacity permille must be 0..=1000"));
+    }
+    Ok(((permille as u64 * OPACITY_OPAQUE as u64) / 1000) as u32)
+}
+
+/// EWMH `_NET_WM_WINDOW_OPACITY` read as permille (0 = transparent, 1000 =
+/// opaque). An absent property is fully opaque.
+pub(crate) fn opacity(handle: isize) -> Result<u32, WindowOpError> {
+    let conn = connect()?;
+    let window = window_id(handle)?;
+    let cardinal = read_opacity_cardinal(&conn, window)?.unwrap_or(OPACITY_OPAQUE);
+    Ok(permille_from_cardinal(cardinal))
+}
+
+/// EWMH `_NET_WM_WINDOW_OPACITY` write. `permille` is 0..=1000.
+pub(crate) fn set_opacity(handle: isize, permille: u32) -> Result<(), WindowOpError> {
+    let conn = connect()?;
+    let window = window_id(handle)?;
+    let cardinal = cardinal_from_permille(permille)?;
+    let property = atom(&conn, b"_NET_WM_WINDOW_OPACITY")?;
+    conn.change_property32(
+        PropMode::REPLACE,
+        window,
+        property,
+        AtomEnum::CARDINAL,
+        &[cardinal],
+    )
+    .map_err(|error| failed(format!("_NET_WM_WINDOW_OPACITY write failed: {error}")))?;
+    sync(&conn)
 }

@@ -265,6 +265,7 @@ mod tests {
             "send-text",
             "paste",
             "window-place",
+            "window-opacity",
             "close",
             "page-click",
             "app",
@@ -287,6 +288,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 107, "{actuate:?}");
+        assert_eq!(actuate.len(), 108, "{actuate:?}");
     }
 }

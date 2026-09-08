@@ -214,6 +214,8 @@ type NativeWindowActivate = unsafe extern "C" fn(isize) -> i32;
 type NativeWindowMinimized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type NativeWindowMaximized = unsafe extern "C" fn(isize, *mut i32) -> i32;
 type NativeWindowWorkspaceDesktop = unsafe extern "C" fn(isize, *mut u32) -> i32;
+type NativeWindowOpacity = unsafe extern "C" fn(isize, *mut u32) -> i32;
+type NativeWindowSetOpacity = unsafe extern "C" fn(isize, u32) -> i32;
 type NativeWindowMove = unsafe extern "C" fn(isize, i32, i32, u32, u32) -> i32;
 type NativeWindowRect = unsafe extern "C" fn(isize, *mut i32, *mut i32, *mut u32, *mut u32) -> i32;
 type NativeWindowSetTopmost = unsafe extern "C" fn(isize, i32) -> i32;
@@ -506,6 +508,18 @@ fn native_window_workspace_desktop_handle0(lib: &Library) -> i32 {
         unsafe { sym(lib, b"agt_native_window_workspace_desktop") };
     let mut desktop = 0;
     unsafe { f(0, &mut desktop) }
+}
+
+fn native_window_opacity_handle0(lib: &Library) -> i32 {
+    let f: Symbol<NativeWindowOpacity> = unsafe { sym(lib, b"agt_native_window_opacity") };
+    let mut permille = 0;
+    unsafe { f(0, &mut permille) }
+}
+
+fn native_window_set_opacity_handle0(lib: &Library) -> i32 {
+    let f: Symbol<NativeWindowSetOpacity> =
+        unsafe { sym(lib, b"agt_native_window_set_opacity") };
+    unsafe { f(0, 500) }
 }
 
 fn native_window_move_handle0(lib: &Library) -> i32 {
@@ -1270,6 +1284,16 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| CallResult::Status(native_window_workspace_desktop_handle0(lib))),
         },
         SweepCase {
+            label: "agt_native_window_opacity[handle=0,out_permille=&value]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(native_window_opacity_handle0(lib))),
+        },
+        SweepCase {
+            label: "agt_native_window_set_opacity[handle=0,opacity_permille=500]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| CallResult::Status(native_window_set_opacity_handle0(lib))),
+        },
+        SweepCase {
             label: "agt_native_window_move[handle=0,x=0,y=0,w=0,h=0]",
             kind: Kind::MustFail,
             call: Box::new(|lib| CallResult::Status(native_window_move_handle0(lib))),
@@ -1989,6 +2013,14 @@ fn computer_use_sweep_capability_guards() {
         (
             "agt_native_window_workspace_desktop",
             native_window_workspace_desktop_handle0 as fn(&Library) -> i32,
+        ),
+        (
+            "agt_native_window_opacity",
+            native_window_opacity_handle0 as fn(&Library) -> i32,
+        ),
+        (
+            "agt_native_window_set_opacity",
+            native_window_set_opacity_handle0 as fn(&Library) -> i32,
         ),
         (
             "agt_native_window_move",

@@ -57,3 +57,15 @@ pub(crate) fn set_topmost(handle: isize, topmost: bool) -> Result<(), WindowOpEr
 pub(crate) fn close(handle: isize) -> Result<(), WindowOpError> {
     foreign_windows::close(handle)
 }
+
+pub(crate) fn opacity(_handle: isize) -> Result<u32, WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window opacity is not wired on macOS yet".into(),
+    })
+}
+
+pub(crate) fn set_opacity(_handle: isize, _permille: u32) -> Result<(), WindowOpError> {
+    Err(WindowOpError::Unsupported {
+        reason: "window opacity is not wired on macOS yet".into(),
+    })
+}
