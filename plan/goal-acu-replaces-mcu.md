@@ -929,7 +929,8 @@ capture remains a separate fixed-identity macOS qualification blocker.
 The bounded native network-interface inventory is now fully qualified: macOS,
 Linux arm64 Wayland and Windows arm64 public journeys share one gate and exact
 schema, while both Windows ISAs remain compile-covered. The Linux and Windows
-UTM receipts are persisted and both VMs were stopped after release.
+UTM receipts are retained locally under the gitignored `evidence/cu/` runtime
+area, and both VMs were stopped after release.
 
 At source `9837cf81`, the public report measures 76 blockers: one capability
 gap, 18 available leaves without registered evidence, and 57 incomplete
