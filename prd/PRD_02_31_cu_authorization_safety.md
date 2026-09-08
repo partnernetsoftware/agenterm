@@ -306,10 +306,16 @@ Legend: `[x]` shipped, `[~]` partial, `[ ]` planned.
   session facts use the already-opaque login-session identity plus numeric
   session/security/audit identifiers and expose no username, display name or
   native UUID; its key is a singly linked regular file owned by that user at
-  exact mode `0600`. CU now adapts those two opaque
+  exact mode `0600`. Linux now implements the same sealed contract through the
+  fixed sd-login ABI: the process must belong to the unique active local
+  graphical `user` session, that session must own its active seat, and a second
+  inventory must match before publication. Root, greeter, remote, headless,
+  ambiguous, changed and process/session-mismatch states fail typed; no
+  `DISPLAY`, D-Bus address, username or routing string enters the identity.
+  Its native runtime court is still pending. CU now adapts these opaque
   32-byte identities into its sealed, fixed-prefix target/session binding;
   resolution never creates state, while a separate explicit enrollment call
-  owns first installation. Linux remains explicitly unsupported. Store schema
+  owns first installation. Store schema
   3, the management CLI and the current-target
   executor now consume this verified binding; remote tiers still have no
   verified provider or delegation path.

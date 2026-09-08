@@ -140,7 +140,9 @@ research/mcp-persisted-session/
 
 ## 7. Not answered here
 
-- Linux verified current-session binding implementation.
+- Linux verified current-session binding runtime qualification; the fixed
+  sd-login implementation exists but has not yet run in both native desktop
+  cells.
 - Native six-cell packaged qualification.
 - Which non-shell mutation verbs MCP should eventually expose.
 - Human UX for issuing or backing up grants.

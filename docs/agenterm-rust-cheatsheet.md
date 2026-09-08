@@ -5047,6 +5047,19 @@ remaining budget into each provider call so a final poll cannot overrun the
 watch. Bound sample rows, accumulated events and the encoded response
 independently.
 
+Linux `current` target identity must prove the calling process is inside the
+one active local graphical session; an effective uid alone is not a desktop
+session. Query the fixed sd-login ABI in-process, reject root, remote,
+greeter/background, headless, inactive, ambiguous and process/session-mismatch
+states, and verify that the selected session is also the active owner of its
+seat. Because sd-login exposes a live inventory rather than one atomic
+snapshot, re-read the process session, eligible-session set, selected facts and
+seat owner before deriving the opaque identity. Do not bind the identity to
+caller-controlled `DISPLAY`, D-Bus, username or routing strings. On POSIX,
+accept an installation key only when it is a singly linked regular file owned
+by the effective user at exact mode `0600`, including rejection of special mode
+bits.
+
 ## Install stable CLI entrypoints without forking package identity
 
 A PATH setup command should publish a tiny owned launcher that points to the
@@ -5269,6 +5282,16 @@ make later writes no-ops, finish private cleanup, and only then return that
 error. Likewise, a descriptor is not shipped merely because an internal court
 can inject a provider: keep production discovery and dispatch closed until
 persisted target-bound authorization and native packaged courts are green.
+
+A generic blocking `BufRead` cannot be force-cancelled safely after the peer's
+stdout disappears. For a process-owned stdio sidecar, stop admitting frames,
+detach that reader at the process-lifetime boundary, drain the already
+dispatched provider call, cancel queued work and attempt session-end exactly
+once; do not wait for unrelated stdin EOF before returning the write error.
+Tests must keep the input writer open until the server has returned, otherwise
+a simultaneous EOF can falsely appear to prove stdout-only teardown. An
+in-process reusable server needs an explicitly cancellable input abstraction
+instead of relying on this process-lifetime rule.
 
 When one effect has both a durable caller request id and a persisted grant,
 reserve the caller request first and consume the grant only for a fresh

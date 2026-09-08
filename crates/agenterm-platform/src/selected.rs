@@ -135,11 +135,11 @@ pub(crate) const fn app_container_process_supported() -> bool {
 }
 
 pub(crate) const fn current_target_binding_supported() -> bool {
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     {
         true
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         false
     }
@@ -172,7 +172,7 @@ pub(crate) fn validate_private_key_metadata(
             )
         })?;
         if metadata.uid() != credentials.effective_user_id
-            || metadata.mode() & 0o777 != 0o600
+            || metadata.mode() & 0o7777 != 0o600
             || metadata.nlink() != 1
         {
             return Err(CurrentTargetBindingError::new(
