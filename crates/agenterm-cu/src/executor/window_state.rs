@@ -167,6 +167,29 @@ fn frontmost_json(app: Option<&FrontmostApp>) -> serde_json::Value {
         .unwrap_or(serde_json::Value::Null)
 }
 
+/// Desktop-wide frontmost application pid. macOS uses NSWorkspace; Linux and
+/// Windows fall back to the inventory row the mechanism marked focused.
+fn frontmost_pid_now() -> Option<u32> {
+    if let Some(app) = frontmost_app_now() {
+        return Some(app.pid);
+    }
+    match mechanism::window_enumerate::enumerate_top_level() {
+        Ok(rows) => rows
+            .into_iter()
+            .find(|row| row.focused)
+            .map(|row| row.process_id)
+            .filter(|pid| *pid > 0),
+        Err(_) => None,
+    }
+}
+
+fn foreground_pid_unchanged(before: Option<u32>, after: Option<u32>) -> bool {
+    match (before, after) {
+        (Some(b), Some(a)) => b == a,
+        _ => false,
+    }
+}
+
 /// The window's place among **its own application's** windows, front to
 /// back: `Some(0)` is the application's topmost window. `None` means this
 /// host reports no stacking order, which is not the same as "it did not
@@ -268,6 +291,7 @@ pub(super) fn raise_payload(
         "title": row.title,
     });
     let front_before = frontmost_app_now();
+    let front_pid_before = frontmost_pid_now();
     let before = app_order(window, pid);
     let ticket = receipts.reserve(
         "raise",
@@ -294,9 +318,8 @@ pub(super) fn raise_payload(
         after = app_order(window, pid);
     }
     let front_after = frontmost_app_now();
-    let front_pid_before = front_before.as_ref().map(|app| app.pid);
-    let front_pid_after = front_after.as_ref().map(|app| app.pid);
-    let foreground_unchanged = front_pid_before == front_pid_after;
+    let front_pid_after = frontmost_pid_now();
+    let foreground_unchanged = foreground_pid_unchanged(front_pid_before, front_pid_after);
     let unverifiable = after.rank.is_none() && after.reason.is_some();
     let verified =
         after.is_front() && foreground_unchanged && mechanism_error.is_none() && !unverifiable;

@@ -231,6 +231,14 @@
       ]
     },
     {
+      "id": "cu-linux-raise-activate-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-window-activate",
+        "cu.linux-atspi-raise"
+      ]
+    },
+    {
       "id": "cu-macos-external-terminal-send-smoke",
       "platform": "macos",
       "evidence": [

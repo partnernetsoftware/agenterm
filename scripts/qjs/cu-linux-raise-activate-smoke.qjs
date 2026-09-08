@@ -1,0 +1,283 @@
+// CEO: Linux raise + activate with independent windows inventory read-back.
+// activate must make the exact disposable window foreground; raise must
+// restack within the foreground application without changing the desktop
+// frontmost pid. No --coords, no screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-atspi-window-activate",
+  "cu.linux-atspi-raise",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu_reply(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_raise_activate_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const output = rh.command(executable, ["--target", "current", "--grant", grant].concat(arguments), {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_raise_activate_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_raise_activate_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_raise_activate_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function focused_row(run_directory, executable) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--focused", "true", "--max", "1",
+  ]);
+  const rows = reply.data.windows;
+  ensure(rows !== undefined && rows.length === 1, "cu_linux_raise_activate_focused_missing");
+  return rows[0];
+}
+
+function window_rows(run_directory, executable, pid) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  const by_title = {};
+  for (const row of rows) { by_title[text_at(row, "title")] = row; }
+  return by_title;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const run_directory = rh.join(repo, "target/cu-linux-raise-activate-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_raise_activate_fixture_missing:" + fixture_source);
+
+const witness_source = rh.join(run_directory, "agenterm_witness_window.py");
+rh.write_text(witness_source, [
+  "#!/usr/bin/env python3",
+  "import os, sys",
+  "import gi; gi.require_version('Gtk', '3.0')",
+  "from gi.repository import Gtk",
+  "w = Gtk.Window(title='agenterm-witness-%d' % os.getpid())",
+  "w.set_default_size(200, 100)",
+  "w.add(Gtk.Label(label='witness'))",
+  "w.connect('destroy', Gtk.main_quit)",
+  "w.show_all()",
+  "w.present()",
+  "sys.stdout.write('ready %d\\n' % os.getpid()); sys.stdout.flush()",
+  "Gtk.main()",
+].join("\n"));
+
+let fixture = -1;
+let witness = -1;
+let fixture_pid = 0;
+let witness_pid = 0;
+try {
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  const second_title = "agenterm-linux-second-" + fixture_pid;
+
+  witness = harness.start({
+    program: "python3",
+    args: [witness_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  witness_pid = harness.spawned_pid(witness);
+  const witness_title = "agenterm-witness-" + witness_pid;
+
+  const fixture_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(fixture_wait, "data.met"), "cu_linux_raise_activate_fixture_wait");
+  const witness_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", witness_title,
+  ]);
+  ensure(flag_at(witness_wait, "data.met"), "cu_linux_raise_activate_witness_wait");
+
+  const fixture_windows = window_rows(run_directory, executable, fixture_pid);
+  const witness_windows = window_rows(run_directory, executable, witness_pid);
+  const main_row = fixture_windows[fixture_title];
+  const second_row = fixture_windows[second_title];
+  const witness_row = witness_windows[witness_title];
+  ensure(main_row !== undefined && second_row !== undefined && witness_row !== undefined,
+    "cu_linux_raise_activate_window_inventory");
+  const main_handle = "" + int_at(main_row, "handle");
+  const second_handle = "" + int_at(second_row, "handle");
+  const witness_handle = "" + int_at(witness_row, "handle");
+
+  print("STEP activate witness; independent focused inventory must read that exact handle");
+  run_cu(run_directory, executable, "observe,actuate", [
+    "activate", "--window", witness_handle,
+  ]);
+  let focused = focused_row(run_directory, executable);
+  ensure(
+    int_at(focused, "handle") === int_at(witness_row, "handle")
+      && text_at(focused, "title") === witness_title,
+    "cu_linux_raise_activate_witness_focus:" + JSON.stringify(focused)
+  );
+
+  print("STEP activate main fixture; independent focused inventory must read that exact handle");
+  const activated_main = run_cu(run_directory, executable, "observe,actuate", [
+    "activate", "--window", main_handle,
+  ]);
+  ensure(
+    flag_at(activated_main, "data.verified") && flag_at(activated_main, "data.after.focused"),
+    "cu_linux_raise_activate_activate_reply:" + JSON.stringify(activated_main.data)
+  );
+  focused = focused_row(run_directory, executable);
+  ensure(
+    int_at(focused, "handle") === int_at(main_row, "handle")
+      && int_at(focused, "process_id") === fixture_pid
+      && text_at(focused, "title") === fixture_title,
+    "cu_linux_raise_activate_main_focus:" + JSON.stringify(focused)
+  );
+
+  print("STEP raise on a background application must fail typed foreground_changed");
+  run_cu(run_directory, executable, "observe,actuate", [
+    "activate", "--window", witness_handle,
+  ]);
+  focused = focused_row(run_directory, executable);
+  ensure(int_at(focused, "handle") === int_at(witness_row, "handle"),
+    "cu_linux_raise_activate_witness_reset:" + JSON.stringify(focused));
+  const background_raise = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "raise", "--window", main_handle,
+  ]);
+  ensure(
+    !flag_at(background_raise, "ok")
+      && text_at(background_raise, "error.code") === "foreground_changed",
+    "cu_linux_raise_activate_raise_background:" + JSON.stringify(background_raise)
+  );
+
+  print("STEP raise within the foreground application reorders by read-back without changing desktop frontmost pid");
+  run_cu(run_directory, executable, "observe,actuate", [
+    "activate", "--window", main_handle,
+  ]);
+  run_cu(run_directory, executable, "observe,actuate", [
+    "orderwin", "--window", second_handle, "--relation", "above", "--relative", main_handle,
+  ]);
+  const stacked = window_rows(run_directory, executable, fixture_pid);
+  ensure(
+    int_at(stacked[second_title], "z_index") < int_at(stacked[fixture_title], "z_index"),
+    "cu_linux_raise_activate_orderwin_readback:" + JSON.stringify(stacked)
+  );
+  const raised = run_cu(run_directory, executable, "observe,actuate", [
+    "raise", "--window", main_handle,
+  ]);
+  ensure(
+    flag_at(raised, "data.verified") && flag_at(raised, "data.frontmost_app_unchanged"),
+    "cu_linux_raise_activate_raise_reply:" + JSON.stringify(raised.data)
+  );
+  const after_raise = window_rows(run_directory, executable, fixture_pid);
+  ensure(
+    int_at(after_raise[fixture_title], "z_index")
+      < int_at(after_raise[second_title], "z_index"),
+    "cu_linux_raise_activate_raise_inventory:" + JSON.stringify(after_raise)
+  );
+  focused = focused_row(run_directory, executable);
+  ensure(
+    int_at(focused, "handle") === int_at(main_row, "handle")
+      && int_at(focused, "process_id") === fixture_pid,
+    "cu_linux_raise_activate_raise_focus:" + JSON.stringify(focused)
+  );
+} finally {
+  if (witness_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + witness_pid], { timeout_ms: 5000 });
+  }
+  if (fixture_pid !== 0) {
+    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  }
+  if (witness >= 0) {
+    try { harness.wait(witness, 5000); } catch (error) { print("cleanup witness: " + error); }
+  }
+  if (fixture >= 0) {
+    try { harness.wait(fixture, 5000); } catch (error) { print("cleanup fixture: " + error); }
+  }
+}
+
+const context = harness.new_context(repo, "cu-linux-raise-activate");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-activate");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-raise");
+harness.remove_run(context);
+print("PASS: CEO Linux raise+activate with independent windows inventory foreground read-back");
+return;
