@@ -1,0 +1,128 @@
+// Public black-box court for a read-only, host- and boot-bound power plan.
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.power-action-plan"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "runtime.json")
+  };
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000
+  });
+  const stdout = output.stdout.trim();
+  ensure(stdout !== "", "cu_power_action_plan_empty:" + output.stderr);
+  const reply = JSON.parse(stdout);
+  ensure(output.success === expect_success, "cu_power_action_plan_exit:" + stdout);
+  ensure(reply.ok === expect_success, "cu_power_action_plan_reply:" + stdout);
+  return reply;
+}
+
+function plan(run_directory, executable, action, ttl_seconds) {
+  return invoke(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "privilege", "plan", "system.power-action", action,
+    "--ttl-seconds", "" + ttl_seconds
+  ], true);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_power_action_plan_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-power-action-plan");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP setup enrolls one private installation identity for the isolated court");
+  const setup = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate", "setup", "--bin-dir",
+    rh.join(context.run_directory, "bin")
+  ], true);
+  ensure(setup.command === "setup", "cu_power_action_plan_setup");
+
+  print("STEP every closed power intent produces a read-only expiring plan");
+  let first = null;
+  for (const action of ["sleep", "restart", "shutdown"]) {
+    const reply = plan(context.run_directory, executable, action, 60);
+    ensure(reply.command === "privilege-plan", "cu_power_action_plan_command");
+    ensure(reply.data.schema_version === 1, "cu_power_action_plan_schema");
+    ensure(reply.data.operation === "system.power-action", "cu_power_action_plan_operation");
+    ensure(reply.data.action === action, "cu_power_action_plan_action");
+    ensure(reply.data.host_identity.startsWith("agt-cu-host-v1-"), "cu_power_action_plan_host");
+    ensure(reply.data.boot_identity.startsWith("agt-cu-boot-v1-"), "cu_power_action_plan_boot");
+    ensure(reply.data.expires_at_utc_ms - reply.data.issued_at_utc_ms === 60000,
+           "cu_power_action_plan_expiry");
+    ensure(reply.data.contract_digest.length === 64, "cu_power_action_plan_contract_digest");
+    ensure(reply.data.approval_digest.length === 64, "cu_power_action_plan_approval_digest");
+    ensure(typeof reply.data.request === "string" && reply.data.request.length > 0,
+           "cu_power_action_plan_request");
+    ensure(reply.data.approval === reply.data.approval_digest,
+           "cu_power_action_plan_approval");
+    ensure(reply.data.consent_requested === false, "cu_power_action_plan_consent");
+    ensure(reply.data.mutation_performed === false, "cu_power_action_plan_mutation");
+    if (first === null) { first = reply; }
+    else {
+      ensure(reply.data.host_identity === first.data.host_identity,
+             "cu_power_action_plan_host_stability");
+      ensure(reply.data.boot_identity === first.data.boot_identity,
+             "cu_power_action_plan_boot_stability");
+      ensure(reply.data.contract_digest !== first.data.contract_digest,
+             "cu_power_action_plan_intent_digest");
+    }
+  }
+
+  print("STEP invalid action and TTL fail before any native power effect");
+  for (const invalid of [
+    ["hibernate", "60"], ["sleep", "0"], ["restart", "601"]
+  ]) {
+    const reply = invoke(context.run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+      "privilege", "plan", "system.power-action", invalid[0],
+      "--ttl-seconds", invalid[1]
+    ], false);
+    ensure(reply.error.code === "usage", "cu_power_action_plan_invalid_error");
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.power-action-plan");
+  harness.remove_run(context);
+  print("PASS: power action planning is host-bound, boot-bound, expiring and mutation-free");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

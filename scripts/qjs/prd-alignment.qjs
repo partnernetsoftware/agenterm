@@ -292,6 +292,7 @@ const evidence_suites = {
   "cu-setup-runtime-refresh-smoke": true,
   "cu-doctor-smoke": true,
   "cu-power-status-smoke": true,
+  "cu-power-action-plan-smoke": true,
   "cu-host-open-smoke": true,
   "cu-permissions-open-smoke": true,
   "cu-host-notify-smoke": true,

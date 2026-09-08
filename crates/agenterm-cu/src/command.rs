@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     browser_bridge::ConnectionId,
-    privilege_apply::{MAX_PROVIDER_TIMEOUT_MS, PrivilegePlanV1},
-    privilege_plan::PrivilegeOperation,
+    privilege_apply::{PrivilegePlanV1, MAX_PROVIDER_TIMEOUT_MS},
+    privilege_plan::{PowerAction, PrivilegeOperation},
     service_control::{ServiceOperation, ServiceScope},
     target::TargetRef,
 };
@@ -1961,6 +1961,13 @@ pub enum Command {
         tree: bool,
         timeout_ms: u64,
         max_descendants: u32,
+        ttl_seconds: u64,
+    },
+    /// Prepare a canonical host- and boot-bound power-action plan. Planning
+    /// never requests consent or calls a native power mechanism.
+    PrivilegePlanPowerAction {
+        target: TargetRef,
+        action: PowerAction,
         ttl_seconds: u64,
     },
     /// Apply one typed expiring plan through the fixed native-consent
@@ -4107,9 +4114,9 @@ impl Command {
             Self::ProcessSetState { .. } => "process-set-state".into(),
             Self::ProcessPolicy { .. } => "process-policy".into(),
             Self::ProcessSignal { .. } => "process-signal".into(),
-            Self::PrivilegePlanProcessPriority { .. } | Self::PrivilegePlanProcessSignal { .. } => {
-                "privilege-plan".into()
-            }
+            Self::PrivilegePlanProcessPriority { .. }
+            | Self::PrivilegePlanProcessSignal { .. }
+            | Self::PrivilegePlanPowerAction { .. } => "privilege-plan".into(),
             Self::PrivilegeApply { .. } => "privilege-apply".into(),
             Self::PrivilegeProvider { .. } => "privilege-provider".into(),
             Self::ProcessWatch { .. } => "process-watch".into(),
@@ -4528,6 +4535,7 @@ impl Command {
             | Self::ProcessSignal { target, .. }
             | Self::PrivilegePlanProcessPriority { target, .. }
             | Self::PrivilegePlanProcessSignal { target, .. }
+            | Self::PrivilegePlanPowerAction { target, .. }
             | Self::PrivilegeApply { target, .. }
             | Self::PrivilegeProvider { target, .. }
             | Self::ProcessWatch { target, .. }
@@ -4830,6 +4838,12 @@ impl Command {
     /// the same field bounds before constructing managed-job variants.
     pub fn validate(&self) -> Result<(), &'static str> {
         match self {
+            Self::PrivilegePlanPowerAction { ttl_seconds, .. } => {
+                if !(1..=600).contains(ttl_seconds) {
+                    return Err("privilege power-action plan ttl_seconds must be in 1..=600");
+                }
+                Ok(())
+            }
             Self::AppFacts { selector, .. } => {
                 if selector.is_empty()
                     || selector.len() > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
@@ -6143,22 +6157,18 @@ mod tests {
         let too_many_environment = (0..=JOB_ENVIRONMENT_ENTRIES_MAX)
             .map(|index| serde_json::json!({"name": format!("K{index}"), "value": "x"}))
             .collect::<Vec<_>>();
-        assert!(
-            serde_json::from_value::<Command>(serde_json::json!({
-                "verb": "job-spawn", "target": "current", "command": ["x"],
-                "environment": too_many_environment, "ttl_seconds": 1
-            }))
-            .is_err()
-        );
+        assert!(serde_json::from_value::<Command>(serde_json::json!({
+            "verb": "job-spawn", "target": "current", "command": ["x"],
+            "environment": too_many_environment, "ttl_seconds": 1
+        }))
+        .is_err());
 
         let oversized_base64 = "A".repeat((JOB_WRITE_DECODED_BYTES_MAX / 3 + 1) * 4);
-        assert!(
-            serde_json::from_value::<Command>(serde_json::json!({
-                "verb": "job-write", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
-                "data_base64": oversized_base64
-            }))
-            .is_err()
-        );
+        assert!(serde_json::from_value::<Command>(serde_json::json!({
+            "verb": "job-write", "target": "current", "job_id": TEST_JOB_ID, "generation": 1,
+            "data_base64": oversized_base64
+        }))
+        .is_err());
     }
 
     #[test]
@@ -6824,6 +6834,23 @@ mod tests {
                 "timeout_ms": 5_000,
                 "max_descendants": 128,
                 "ttl_seconds": 60,
+            })
+        );
+
+        let power = Command::PrivilegePlanPowerAction {
+            target: TargetRef::Current,
+            action: PowerAction::Sleep,
+            ttl_seconds: 30,
+        };
+        assert_eq!(power.verb(), "privilege-plan");
+        assert_eq!(power.required_grant(), Grant::Observe);
+        assert_eq!(
+            serde_json::to_value(&power).expect("serialize"),
+            serde_json::json!({
+                "verb": "privilege-plan-power-action",
+                "target": "current",
+                "action": "sleep",
+                "ttl_seconds": 30,
             })
         );
     }

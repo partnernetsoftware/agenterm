@@ -476,6 +476,10 @@
       "evidence": ["cu.power-host-status"]
     },
     {
+      "id": "cu-power-action-plan-smoke",
+      "evidence": ["cu.power-action-plan"]
+    },
+    {
       "id": "cu-clipboard-roundtrip-smoke",
       "evidence": ["cu.clipboard-text-native-roundtrip"]
     },

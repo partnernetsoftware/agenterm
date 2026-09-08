@@ -1148,6 +1148,23 @@
         "task.cu-power-status-smoke"
       ]
     },
+    "cu-power-action-plan-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-power-action-plan-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-power-action-plan-smoke"
+      ]
+    },
     "cu-app-facts-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -3811,6 +3828,27 @@
       "id": "cu-power-status-smoke",
       "description": "Prove host and boot identities are stable installation-scoped pseudonyms, observation never enrolls state and no hardware or native process identity leaks.",
       "entry": "scripts/qjs/cu-power-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-power-action-plan-smoke",
+      "description": "Prove sleep, restart and shutdown plans bind one installation and boot identity, expire, digest-seal intent and never request consent or perform a power effect.",
+      "entry": "scripts/qjs/cu-power-action-plan-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

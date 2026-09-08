@@ -1,18 +1,19 @@
 use agenterm_platform::host_resource_snapshot::{
     HostResourceSnapshotError, HostResourceSnapshotErrorKind,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest as _, Sha256};
 use std::fmt::Write as _;
 
 use crate::{reply::CuError, target_binding::CurrentIdentityProvider};
 
+pub(super) struct PowerIdentity {
+    pub host_identity: String,
+    pub boot_identity: String,
+}
+
 pub(super) fn power_status_payload() -> Result<Value, CuError> {
-    let provider = CurrentIdentityProvider::default_for_current_user()
-        .map_err(|_| identity_error("the installation identity location is unavailable"))?;
-    let host_identity = provider
-        .load_installation_identity()
-        .map_err(|_| identity_error("the installation identity is not enrolled; run setup"))?;
+    let host_identity = load_host_identity()?;
     let before = boot_anchor_identity()?;
     let snapshot =
         agenterm_platform::host_resource_snapshot::snapshot().map_err(resource_snapshot_error)?;
@@ -23,17 +24,41 @@ pub(super) fn power_status_payload() -> Result<Value, CuError> {
             "the operating-system boot anchor changed during observation",
         ));
     }
-    let boot_identity = boot_identity(&host_identity, &before);
+    let scoped_boot_identity = boot_identity(&host_identity, &before);
     Ok(json!({
         "host_identity": host_identity,
         "host_identity_scope": "installation",
-        "boot_identity": boot_identity,
+        "boot_identity": scoped_boot_identity,
         "boot_identity_scope": "installation-and-boot",
         "boot_anchor": "native-boot-instance",
         "uptime_milliseconds": snapshot.uptime_milliseconds,
         "verified": true,
         "atomic_snapshot": false,
     }))
+}
+
+pub(super) fn power_identity() -> Result<PowerIdentity, CuError> {
+    let host_identity = load_host_identity()?;
+    let before = boot_anchor_identity()?;
+    let after = boot_anchor_identity()?;
+    if before != after {
+        return Err(CuError::new(
+            "host_boot_identity_changed",
+            "the operating-system boot anchor changed during observation",
+        ));
+    }
+    Ok(PowerIdentity {
+        boot_identity: boot_identity(&host_identity, &before),
+        host_identity,
+    })
+}
+
+fn load_host_identity() -> Result<String, CuError> {
+    let provider = CurrentIdentityProvider::default_for_current_user()
+        .map_err(|_| identity_error("the installation identity location is unavailable"))?;
+    provider
+        .load_installation_identity()
+        .map_err(|_| identity_error("the installation identity is not enrolled; run setup"))
 }
 
 fn boot_anchor_identity() -> Result<[u8; 32], CuError> {

@@ -915,7 +915,7 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
-The latest report reduces the total to 69: zero capability gaps, 14 available
+The latest report reduces the total to 68: zero capability gaps, 13 available
 leaves without registered evidence and 55
 incomplete schema-2 platform qualifications. In particular,
 `process.signal.privileged` already has a public typed plan/apply surface and
@@ -1091,6 +1091,15 @@ gate owns the complete evidence set, and both are resolved before lease. Exit
 zero plus an exact evidence multiset is the machine verdict; `PASS:` is retained
 only as human diagnostic text. Caller-supplied evidence/PASS overrides fail
 before a VM starts.
+
+The power branch now has a real plan-only ACU shape instead of an alert with no
+verb. `privilege plan system.power-action sleep|restart|shutdown` binds one
+installation identity, current boot identity, closed action and expiry into
+canonical contract/approval digests. The public qjswasm court proves that this
+step never requests consent or performs a native effect; Linux and Windows
+native executions remain queued. `power.action-apply` stays a separate TODO
+until its provider owns pre-effect reservation, terminal-effect uncertainty and
+replay refusal.
 
 ## Hard gates
 

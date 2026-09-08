@@ -1,10 +1,10 @@
 //! Read-only preparation of canonical privileged-operation plans.
 
 use agenterm_cu::{
-    Command, TargetRef,
     command::{PrivilegeProviderAction, ProcessSignalKind},
-    privilege_apply::{DEFAULT_PROVIDER_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS, decode_plan_request},
-    privilege_plan::PROCESS_SIGNAL_TREE_MAX_DESCENDANTS,
+    privilege_apply::{decode_plan_request, DEFAULT_PROVIDER_TIMEOUT_MS, MAX_PROVIDER_TIMEOUT_MS},
+    privilege_plan::{PowerAction, PROCESS_SIGNAL_TREE_MAX_DESCENDANTS},
+    Command, TargetRef,
 };
 
 use super::{flag_parsed, flag_text, take_switch, verbs::VerbSpec};
@@ -54,8 +54,32 @@ pub fn parse(
     match operation.as_str() {
         "process.set-priority" => parse_priority(target, args, ttl_seconds),
         "process.signal" => parse_signal(target, args, ttl_seconds),
-        _ => Err("privilege-plan operation must be process.set-priority or process.signal".into()),
+        "system.power-action" => parse_power_action(target, args, ttl_seconds),
+        _ => Err(
+            "privilege-plan operation must be process.set-priority, process.signal or system.power-action"
+                .into(),
+        ),
     }
+}
+
+fn parse_power_action(
+    target: TargetRef,
+    args: &[String],
+    ttl_seconds: u64,
+) -> Result<Command, String> {
+    if args.len() != 1 {
+        return Err(
+            "privilege-plan system.power-action requires exactly sleep, restart or shutdown".into(),
+        );
+    }
+    let action = PowerAction::parse(&args[0]).ok_or_else(|| {
+        "privilege-plan system.power-action must be sleep, restart or shutdown".to_owned()
+    })?;
+    Ok(Command::PrivilegePlanPowerAction {
+        target,
+        action,
+        ttl_seconds,
+    })
 }
 
 fn parse_provider(target: TargetRef, args: &mut [String]) -> Result<Command, String> {
@@ -239,16 +263,49 @@ mod tests {
         ));
 
         let mut kill_without_force = vec!["process.signal".into(), "42".into(), "KILL".into()];
-        assert!(
-            parse(
-                spec,
-                "privilege-plan",
-                TargetRef::Current,
-                &mut kill_without_force
-            )
-            .unwrap_err()
-            .contains("--force")
-        );
+        assert!(parse(
+            spec,
+            "privilege-plan",
+            TargetRef::Current,
+            &mut kill_without_force
+        )
+        .unwrap_err()
+        .contains("--force"));
+
+        let mut power = vec![
+            "plan".into(),
+            "system.power-action".into(),
+            "shutdown".into(),
+            "--ttl-seconds".into(),
+            "1".into(),
+        ];
+        assert!(matches!(
+            parse(spec, "privilege", TargetRef::Current, &mut power).unwrap(),
+            Command::PrivilegePlanPowerAction {
+                action: PowerAction::Shutdown,
+                ttl_seconds: 1,
+                ..
+            }
+        ));
+
+        for args in [
+            vec!["system.power-action".into(), "hibernate".into()],
+            vec![
+                "system.power-action".into(),
+                "sleep".into(),
+                "--ttl-seconds".into(),
+                "0".into(),
+            ],
+            vec![
+                "system.power-action".into(),
+                "restart".into(),
+                "--ttl-seconds".into(),
+                "601".into(),
+            ],
+        ] {
+            let mut args = args;
+            assert!(parse(spec, "privilege-plan", TargetRef::Current, &mut args).is_err());
+        }
     }
 
     #[test]

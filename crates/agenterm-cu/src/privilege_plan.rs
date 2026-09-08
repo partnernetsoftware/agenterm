@@ -11,7 +11,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{CuError, command::ProcessSignalKind};
+use crate::{command::ProcessSignalKind, CuError};
 
 pub const DEFAULT_PLAN_TTL_SECONDS: u64 = 120;
 pub const MIN_PLAN_TTL_SECONDS: u64 = 1;
@@ -30,6 +30,157 @@ pub enum PrivilegeOperation {
     ProcessSetPriority,
     #[serde(rename = "process.signal")]
     ProcessSignal,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PowerAction {
+    Sleep,
+    Restart,
+    Shutdown,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum PowerPlanOperation {
+    #[serde(rename = "system.power-action")]
+    SystemPowerAction,
+}
+
+impl PowerAction {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "sleep" => Some(Self::Sleep),
+            "restart" => Some(Self::Restart),
+            "shutdown" => Some(Self::Shutdown),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PowerActionPlan {
+    pub schema_version: u32,
+    pub operation: PowerPlanOperation,
+    pub action: PowerAction,
+    pub host_identity: String,
+    pub boot_identity: String,
+    pub issued_at_utc_ms: u64,
+    pub expires_at_utc_ms: u64,
+    pub contract_digest: String,
+    pub approval_digest: String,
+    pub consent_requested: bool,
+    pub mutation_performed: bool,
+}
+
+#[derive(Serialize)]
+struct PowerActionContractProjection<'a> {
+    schema_version: u32,
+    operation: PowerPlanOperation,
+    action: PowerAction,
+    host_identity: &'a str,
+    boot_identity: &'a str,
+}
+
+#[derive(Serialize)]
+struct PowerActionApprovalProjection<'a> {
+    contract: PowerActionContractProjection<'a>,
+    issued_at_utc_ms: u64,
+    expires_at_utc_ms: u64,
+}
+
+pub fn power_action_plan_now(
+    action: PowerAction,
+    host_identity: String,
+    boot_identity: String,
+    ttl_seconds: u64,
+) -> Result<serde_json::Value, CuError> {
+    let plan = power_action_plan(
+        action,
+        host_identity,
+        boot_identity,
+        ttl_seconds,
+        now_utc_ms()?,
+    )?;
+    power_action_plan_reply(plan)
+}
+
+fn power_action_plan_reply(plan: PowerActionPlan) -> Result<serde_json::Value, CuError> {
+    let bytes = serde_json::to_vec(&plan).map_err(|_| {
+        CuError::new(
+            "privilege_plan_serialization_failed",
+            "power action plan could not be serialized canonically",
+        )
+    })?;
+    let request = crate::managed_job_ipc::base64_encode(&bytes)
+        .replace('+', "-")
+        .replace('/', "_")
+        .trim_end_matches('=')
+        .to_owned();
+    let approval = plan.approval_digest.clone();
+    let mut value = serde_json::to_value(plan).map_err(|_| {
+        CuError::new(
+            "privilege_plan_serialization_failed",
+            "power action plan could not be serialized",
+        )
+    })?;
+    value["request"] = serde_json::Value::String(request);
+    value["approval"] = serde_json::Value::String(approval);
+    Ok(value)
+}
+
+pub fn power_action_plan(
+    action: PowerAction,
+    host_identity: String,
+    boot_identity: String,
+    ttl_seconds: u64,
+    now_utc_ms: u64,
+) -> Result<PowerActionPlan, CuError> {
+    if !(MIN_PLAN_TTL_SECONDS..=MAX_PLAN_TTL_SECONDS).contains(&ttl_seconds) {
+        return Err(CuError::new(
+            "privilege_plan_ttl_invalid",
+            format!(
+                "privilege plan TTL must be in {MIN_PLAN_TTL_SECONDS}..={MAX_PLAN_TTL_SECONDS} seconds"
+            ),
+        ));
+    }
+    if host_identity.is_empty()
+        || host_identity.len() > 256
+        || boot_identity.is_empty()
+        || boot_identity.len() > 256
+    {
+        return Err(CuError::new(
+            "privilege_target_invalid",
+            "power action requires bounded installation and boot identities",
+        ));
+    }
+    let expires_at_utc_ms = plan_expiry(now_utc_ms, ttl_seconds)?;
+    let contract = PowerActionContractProjection {
+        schema_version: 1,
+        operation: PowerPlanOperation::SystemPowerAction,
+        action,
+        host_identity: &host_identity,
+        boot_identity: &boot_identity,
+    };
+    let contract_digest = digest_json(&contract)?;
+    let approval_digest = digest_json(&PowerActionApprovalProjection {
+        contract,
+        issued_at_utc_ms: now_utc_ms,
+        expires_at_utc_ms,
+    })?;
+    Ok(PowerActionPlan {
+        schema_version: 1,
+        operation: PowerPlanOperation::SystemPowerAction,
+        action,
+        host_identity,
+        boot_identity,
+        issued_at_utc_ms: now_utc_ms,
+        expires_at_utc_ms,
+        contract_digest,
+        approval_digest,
+        consent_requested: false,
+        mutation_performed: false,
+    })
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -905,6 +1056,97 @@ fn digest_json(value: &impl Serialize) -> Result<String, CuError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn power_action_plan_is_canonical_expiring_and_read_only() {
+        let first = power_action_plan(
+            PowerAction::Restart,
+            "agt-host-v1-test".into(),
+            "agt-cu-boot-v1-test".into(),
+            60,
+            1_000_000,
+        )
+        .unwrap();
+        let repeated = power_action_plan(
+            PowerAction::Restart,
+            "agt-host-v1-test".into(),
+            "agt-cu-boot-v1-test".into(),
+            60,
+            1_000_000,
+        )
+        .unwrap();
+        assert_eq!(first, repeated);
+        assert_eq!(first.operation, PowerPlanOperation::SystemPowerAction);
+        assert_eq!(first.expires_at_utc_ms, 1_060_000);
+        assert_eq!(first.contract_digest.len(), 64);
+        assert_eq!(first.approval_digest.len(), 64);
+        assert!(!first.consent_requested);
+        assert!(!first.mutation_performed);
+
+        let reply = power_action_plan_reply(first.clone()).unwrap();
+        assert_eq!(reply["approval"], first.approval_digest);
+        let mut encoded = reply["request"].as_str().unwrap().replace('-', "+");
+        encoded = encoded.replace('_', "/");
+        while !encoded.len().is_multiple_of(4) {
+            encoded.push('=');
+        }
+        let decoded = crate::managed_job_ipc::base64_decode(&encoded).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<PowerActionPlan>(&decoded).unwrap(),
+            first
+        );
+
+        let later = power_action_plan(
+            PowerAction::Restart,
+            "agt-host-v1-test".into(),
+            "agt-cu-boot-v1-test".into(),
+            60,
+            1_000_001,
+        )
+        .unwrap();
+        assert_eq!(later.contract_digest, first.contract_digest);
+        assert_ne!(later.approval_digest, first.approval_digest);
+
+        let other_boot = power_action_plan(
+            PowerAction::Restart,
+            "agt-host-v1-test".into(),
+            "agt-cu-boot-v1-other".into(),
+            60,
+            1_000_000,
+        )
+        .unwrap();
+        assert_ne!(other_boot.contract_digest, first.contract_digest);
+        assert_ne!(
+            power_action_plan(
+                PowerAction::Shutdown,
+                "agt-host-v1-test".into(),
+                "agt-cu-boot-v1-test".into(),
+                60,
+                1_000_000,
+            )
+            .unwrap()
+            .contract_digest,
+            first.contract_digest
+        );
+    }
+
+    #[test]
+    fn power_action_plan_rejects_ttl_and_identity_before_planning() {
+        for ttl in [0, 601] {
+            assert_eq!(
+                power_action_plan(PowerAction::Sleep, "host".into(), "boot".into(), ttl, 1_000,)
+                    .unwrap_err()
+                    .code,
+                "privilege_plan_ttl_invalid"
+            );
+        }
+        assert_eq!(
+            power_action_plan(PowerAction::Sleep, String::new(), "boot".into(), 60, 1_000,)
+                .unwrap_err()
+                .code,
+            "privilege_target_invalid"
+        );
+    }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]

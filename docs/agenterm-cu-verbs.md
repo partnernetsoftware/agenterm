@@ -3477,6 +3477,7 @@ Runs one host-shell command through /bin/sh on Unix or PowerShell on Windows. Th
 ```text
 privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]
 privilege-plan process.signal PID SIGNAL [--tree --max N] [--force] [--timeout-ms N] [--ttl-seconds N]
+privilege plan system.power-action sleep|restart|shutdown [--ttl-seconds N]
 privilege plan OPERATION ...
 ```
 
@@ -3488,22 +3489,25 @@ usage (after the global flags, e.g. agenterm-cu --target current --grant observe
   privilege-plan process.set-priority PID|self NICE [--ttl-seconds N]
   privilege-plan process.signal PID SIGNAL [--tree --max N] [--force]
                  [--timeout-ms N] [--ttl-seconds N]
+  privilege plan system.power-action sleep|restart|shutdown [--ttl-seconds N]
   privilege plan OPERATION ...
 
 arguments:
   process.set-priority           bind exact identity/current and requested Unix nice
   process.signal PID SIGNAL      bind one exact process and scheduler state
+  system.power-action ACTION     bind sleep, restart or shutdown to this installation and boot
   --tree --max N                 bind at most 128 exact descendants and parent edges
   --force                        required exactly for SIGKILL
   --timeout-ms N                 provider read-back limit, 1..=60000 (default 5000)
   --ttl-seconds N                approval lifetime, 1..=600 (default 120)
 
-Planning observes a stable exact identity and before state twice, then returns a
-canonical expiring plan with separate contract_digest and approval_digest plus
-the bounded request and approval arguments accepted directly by privilege apply.
-A tree plan also freezes every pid, parent edge, depth, start identity and prior
-stopped state. Planning never mutates, starts a provider, invokes a shell, or
-opens consent. Windows keeps unsupported scheduler/signal semantics typed.
+Planning returns a canonical expiring plan with separate contract_digest and
+approval_digest plus a bounded canonical request. Process plans bind stable exact
+identity and before state. Power plans bind the installation host identity, the
+current operating-system boot identity and one closed action. Every plan reports
+consent_requested=false and mutation_performed=false where applicable. Planning
+never mutates, starts a provider, invokes a shell, native power effect or consent.
+Windows keeps unsupported scheduler/signal semantics typed.
 ```
 
 ### `privilege-apply`

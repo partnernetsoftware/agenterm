@@ -2505,6 +2505,37 @@ independent implementation.
 - [ ] no silent capability substitution. An unavailable backend fails typed; it
   never degrades to coordinate guessing while reporting structured success.
 
+## Power-action planning
+
+```text
+power.action-plan
+├── behavior: sleep | restart | shutdown → canonical expiring request
+├── identity: installation host + current native boot instance
+├── evidence: public qjswasm court; macOS native, Linux/Windows pending
+├── safe failure: unknown action, invalid TTL or unavailable identity → typed refusal
+└── non-goal: consent, broker dispatch and any native power effect
+```
+
+- [~] `privilege plan system.power-action` now prepares one closed,
+  mutation-free plan. Its contract digest binds the action, installation and
+  current boot; its approval digest additionally binds issue and expiry time.
+  The reply states `consent_requested=false` and
+  `mutation_performed=false`. The separate `power.action-apply` leaf remains
+  unavailable until a provider can reserve a durable at-most-once receipt
+  before a terminal effect and report disconnect-after-dispatch as
+  `outcome_unknown` rather than inviting replay.
+
+```mermaid
+flowchart LR
+    I["installation identity"] --> P["power action plan"]
+    B["native boot identity"] --> P
+    A["sleep · restart · shutdown"] --> P
+    P --> V{"public qjswasm court"}
+    V -->|macOS green| E["cu.power-action-plan"]
+    V -->|Linux / Windows| Q["native courts pending"]
+    P -. no consent / no effect .-> N["power.action-apply remains separate"]
+```
+
 ## Governing invariants
 
 - [ ] one command set across targets. `current` is the local degenerate tier of

@@ -856,6 +856,19 @@ impl Executor {
                     crate::privilege_apply::PrivilegePlanV1::ProcessSignal(plan),
                 )
             }
+            Command::PrivilegePlanPowerAction {
+                action,
+                ttl_seconds,
+                ..
+            } => {
+                let identity = power_identity()?;
+                crate::privilege_plan::power_action_plan_now(
+                    *action,
+                    identity.host_identity,
+                    identity.boot_identity,
+                    *ttl_seconds,
+                )
+            }
             Command::PrivilegeApply { .. } => Err(CuError::new(
                 "privilege_request_identity_required",
                 "privilege apply requires request-id, session and session-lease",

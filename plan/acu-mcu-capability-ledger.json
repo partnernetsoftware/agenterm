@@ -1723,10 +1723,29 @@
         {
           "id": "power.action-plan",
           "mcu_shape": "privilege plan system.power-action sleep|restart|shutdown binds host/boot identity, expiry and before state",
-          "acu_shape": null,
+          "acu_shape": "privilege plan system.power-action sleep|restart|shutdown [--ttl-seconds N] returns one mutation-free host+boot-bound canonical request",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "gap"},
-          "next": "closed privilege operation whose plan binds exact host+boot identity and expires before native consent"
+          "platforms": {"macos": "native-black-box", "linux": "native-court-pending", "windows": "native-court-pending"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-power-action-plan-smoke",
+                "evidence": ["cu.power-action-plan"]
+              },
+              "linux": {
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
+              }
+            }
+          },
+          "evidence": ["cu.power-action-plan"],
+          "next": "run the same no-effect public court on Linux and Windows; apply remains a separate consented receipt-owning capability"
         },
         {
           "id": "power.action-apply",
