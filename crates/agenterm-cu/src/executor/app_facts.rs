@@ -25,8 +25,7 @@ pub(super) fn app_facts_payload(
 fn query_app_facts(
     selector: &str,
     options: agenterm_platform::app_facts::AppFactsOptions,
-) -> Result<agenterm_platform::app_facts::AppFacts, agenterm_platform::app_facts::AppFactsError>
-{
+) -> Result<agenterm_platform::app_facts::AppFacts, agenterm_platform::app_facts::AppFactsError> {
     let candidates = app_facts_selector_candidates(selector);
     let mut last_not_found = None;
     for candidate in candidates {
@@ -59,10 +58,7 @@ fn app_facts_selector_candidates(selector: &str) -> Vec<String> {
 
 #[cfg(target_os = "linux")]
 fn linux_app_facts_selector_candidates(selector: &str, candidates: &mut Vec<String>) {
-    if !selector.contains('/')
-        && !selector.contains('\\')
-        && !selector.ends_with(".desktop")
-    {
+    if !selector.contains('/') && !selector.contains('\\') && !selector.ends_with(".desktop") {
         push_unique_candidate(candidates, format!("{selector}.desktop"));
     }
     if let Ok((installed, _)) = mechanism::list_installed_apps() {
@@ -82,8 +78,8 @@ fn linux_app_facts_selector_candidates(selector: &str, candidates: &mut Vec<Stri
                 stem.to_ascii_lowercase(),
                 app.name.to_ascii_lowercase(),
             ];
-            let exec_alias = read_desktop_exec_basename(&app.path)
-                .map(|name| name.to_ascii_lowercase());
+            let exec_alias =
+                read_desktop_exec_basename(&app.path).map(|name| name.to_ascii_lowercase());
             let matches = aliases.iter().any(|alias| *alias == wanted)
                 || exec_alias.as_deref() == Some(wanted.as_str());
             if matches {
@@ -192,7 +188,11 @@ mod tests {
     #[test]
     fn linux_selector_candidates_add_desktop_suffix() {
         let candidates = app_facts_selector_candidates("xfce4-terminal");
-        assert!(candidates.iter().any(|candidate| candidate == "xfce4-terminal.desktop"));
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| candidate == "xfce4-terminal.desktop")
+        );
     }
 
     #[cfg(target_os = "linux")]

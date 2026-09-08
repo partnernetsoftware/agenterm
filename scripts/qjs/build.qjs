@@ -67,6 +67,32 @@ function replay(output) {
   if (err !== "") { print(err); }
 }
 
+function cargo_invocation_args(common, selection, action_name) {
+  const command_args = [];
+  for (const value of common) { command_args.push(value); }
+  for (const value of selection) { command_args.push(value); }
+  if (action_name === "clippy") {
+    command_args.push("--");
+    command_args.push("-D");
+    command_args.push("warnings");
+  }
+  return command_args;
+}
+
+function run_cargo_selection(program, common, selection, action_name, repo, environment, label) {
+  const command_args = cargo_invocation_args(common, selection, action_name);
+  const result = rh.command(program, command_args, { cwd: repo, env: environment, timeout_ms: 3600000 });
+  const code = result.exit_code === null ? -1 : result.exit_code;
+  if (code !== 0) {
+    const failure_stdout = result.stdout.trim();
+    if (failure_stdout !== "") { print(failure_stdout); }
+    const failure_detail = result.stderr.trim();
+    throw label + ":exit=" + code + ":" + failure_detail;
+  }
+  replay(result);
+  return 0;
+}
+
 function promote_bootstrap_worker(repo, candidate, cache_name) {
   if (!rh.has_env("AGENTERM_BOOTSTRAP_CACHE_WORKER") ||
       !rh.has_env("AGENTERM_BOOTSTRAP_CACHE_STAMP") ||
@@ -443,45 +469,44 @@ if (target !== "") {
 }
 let executable_entries = [];
 let library_entries = [];
+const root_selection = ["--package", "agenterm"];
+const cu_selection = ["--package", "agenterm-cu"];
+let build_cu_separately = 0;
 if (cross_client !== 0 || unix_bootstrap !== 0) {
   executable_entries = platform_executables(repo, os_name, arch);
   library_entries = platform_libraries(repo, os_name, arch);
-  cargo_args.push("--package");
-  cargo_args.push("agenterm");
-  cargo_args.push("--package");
-  cargo_args.push("agenterm-cu");
   for (const executable of executable_entries) {
     const executable_name = "" + executable.name;
-    cargo_args.push("--bin");
-    cargo_args.push(cargo_binary(executable_name));
+    const binary_name = cargo_binary(executable_name);
+    if (binary_name === "agenterm-cu") {
+      build_cu_separately = 1;
+      cu_selection.push("--bin");
+      cu_selection.push(binary_name);
+    } else {
+      root_selection.push("--bin");
+      root_selection.push(binary_name);
+    }
   }
 } else {
-  cargo_args.push("--package");
-  cargo_args.push("agenterm");
   if (os_name === "windows") {
-    cargo_args.push("--package");
-    cargo_args.push("agenterm-cu");
+    build_cu_separately = 1;
   }
 }
-if (action === "clippy") {
-  cargo_args.push("--");
-  cargo_args.push("-D");
-  cargo_args.push("warnings");
-}
 
-// cargo reports all progress and diagnostics on stderr. rh streamed it live
-// interactively and captured it on CI; the door only captures, so it is
-// replayed after the command in both cases.
-const cargo_result = rh.command(cargo_program, cargo_args, { cwd: repo, env: environment, timeout_ms: 3600000 });
-const cargo_code = cargo_result.exit_code === null ? -1 : cargo_result.exit_code;
-if (cargo_code !== 0) {
+// Each final artifact is its own Cargo feature graph. Building `agenterm` and
+// `agenterm-cu` as roots of one invocation feature-unifies agenterm-platform's
+// device-capture adapter into the main executable. Loading the sibling ACU
+// provider then registers the same Objective-C class twice in one macOS
+// process. Keep the invocations serial and share only Cargo's target cache.
+try {
+  run_cargo_selection(cargo_program, cargo_args, root_selection, action, repo, environment, "build_agenterm_cargo");
+  if (build_cu_separately !== 0) {
+    run_cargo_selection(cargo_program, cargo_args, cu_selection, action, repo, environment, "build_agenterm_cu_cargo");
+  }
+} catch (error) {
   if (incremental_producer !== 0) { cleanup_incremental_state(incremental_state); }
-  const cargo_failure_stdout = cargo_result.stdout.trim();
-  if (cargo_failure_stdout !== "") { print(cargo_failure_stdout); }
-  const failure_detail = cargo_result.stderr.trim();
-  require(cargo_code === 0, "build_cargo:exit=" + cargo_code + ":" + failure_detail);
+  throw error;
 }
-replay(cargo_result);
 
 // libagenterm is a C ABI boundary and must retain unwind support. Build it
 // under the dedicated ABI profile, then merge only the dynamic library into
@@ -510,18 +535,34 @@ if (action === "build" && (os_name === "windows" || library_entries.length > 0))
   } else {
     abi_args.push(explicit_target + "." + glibc);
   }
-  abi_args.push("--package");
-  abi_args.push("agenterm-abi");
-  abi_args.push("--package");
-  abi_args.push("agenterm-cu-provider");
   // rh passed the identity keys and CARGO_TARGET_DIR here but not the
   // incremental-wrapper keys; the wrapper must not see the ABI build.
   let abi_environment = build_identity.environment(identity);
   if (environment.CARGO_TARGET_DIR !== undefined) {
     abi_environment = build_identity.environment_with_cargo_target(identity, environment.CARGO_TARGET_DIR);
   }
-  const abi_output = rh.command(abi_program, abi_args, { cwd: repo, env: abi_environment, timeout_ms: 3600000 });
-  require(abi_output.success, "build_abi_cargo:" + abi_output.stdout + abi_output.stderr);
+  // libagenterm and the ACU provider are separate final dynamic libraries.
+  // A joint Cargo invocation would feature-unify agenterm-platform's native
+  // device-capture Objective-C class into both images and make one process
+  // register it twice when the provider is loaded.
+  run_cargo_selection(
+    abi_program,
+    abi_args,
+    ["--package", "agenterm-abi"],
+    "build",
+    repo,
+    abi_environment,
+    "build_agenterm_abi_cargo"
+  );
+  run_cargo_selection(
+    abi_program,
+    abi_args,
+    ["--package", "agenterm-cu-provider"],
+    "build",
+    repo,
+    abi_environment,
+    "build_agenterm_cu_provider_cargo"
+  );
   const abi_root = rh.join(cargo_output, explicit_target);
   const abi_directory = rh.join(abi_root, abi_profile_name);
   let abi_library_name = "agenterm.dll";

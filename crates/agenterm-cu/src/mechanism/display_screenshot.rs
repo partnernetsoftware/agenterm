@@ -15,19 +15,23 @@ use super::map_status;
 pub fn capture_native_display_png(path: &Path) -> Result<ScreenshotWriteResult, MechanismError> {
     #[cfg(target_os = "macos")]
     {
-        return capture_macos_display_png(path);
+        capture_macos_display_png(path)
     }
-    let handle = display_capture_handle()?;
-    super::screenshot::capture_native_window_png(handle, path)
+    #[cfg(any(target_os = "linux", windows))]
+    {
+        let handle = display_capture_handle()?;
+        super::screenshot::capture_native_window_png(handle, path)
+    }
 }
 
 #[cfg(target_os = "linux")]
 fn display_capture_handle() -> Result<isize, MechanismError> {
     use x11rb::connection::Connection;
 
-    let (connection, screen) = x11rb::connect(None).map_err(|error| MechanismError::Unsupported {
-        reason: format!("X11 display could not be opened: {error}"),
-    })?;
+    let (connection, screen) =
+        x11rb::connect(None).map_err(|error| MechanismError::Unsupported {
+            reason: format!("X11 display could not be opened: {error}"),
+        })?;
     let root = connection
         .setup()
         .roots
@@ -55,7 +59,6 @@ fn display_capture_handle() -> Result<isize, MechanismError> {
 
 #[cfg(target_os = "macos")]
 fn capture_macos_display_png(path: &Path) -> Result<ScreenshotWriteResult, MechanismError> {
-    use std::borrow::Cow;
     use std::ffi::CString;
 
     let screens = super::window_enumerate::list_screens()?;
@@ -68,36 +71,25 @@ fn capture_macos_display_png(path: &Path) -> Result<ScreenshotWriteResult, Mecha
             message: "no displays are available".to_owned(),
         })?;
     let frame = &primary.frame;
-    if frame.width <= 0 || frame.height <= 0 {
+    if frame.width == 0 || frame.height == 0 {
         return Err(MechanismError::Failed {
             code: "display_unavailable".to_owned(),
             message: format!(
-                "primary display frame is empty ({frame.width}x{frame.height})"
+                "primary display frame is empty ({}x{})",
+                frame.width, frame.height
             ),
         });
     }
 
-    let pixels = macos::capture_on_screen_rect(
-        frame.x,
-        frame.y,
-        frame.width,
-        frame.height,
-    )?;
-    let width = u32::try_from(frame.width).map_err(|_| MechanismError::Failed {
-        code: "display_unavailable".to_owned(),
-        message: "display width is out of range".to_owned(),
-    })?;
-    let height = u32::try_from(frame.height).map_err(|_| MechanismError::Failed {
-        code: "display_unavailable".to_owned(),
-        message: "display height is out of range".to_owned(),
-    })?;
+    let pixels = macos::capture_on_screen_rect(frame.x, frame.y, frame.width, frame.height)?;
+    let width = frame.width;
+    let height = frame.height;
 
-    let path_c = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| {
-        MechanismError::Failed {
+    let path_c =
+        CString::new(path.to_string_lossy().as_bytes()).map_err(|_| MechanismError::Failed {
             code: "bad_path".to_owned(),
             message: "path contains an interior NUL byte".to_owned(),
-        }
-    })?;
+        })?;
     let f = super::call_sym::<super::ScreenshotWritePng>(b"agt_screenshot_write_png")?;
     let status = unsafe {
         f(
@@ -122,7 +114,6 @@ fn capture_macos_display_png(path: &Path) -> Result<ScreenshotWriteResult, Mecha
 #[cfg(target_os = "macos")]
 mod macos {
     use super::MechanismError;
-    use std::borrow::Cow;
 
     type CfTypeRef = *const std::ffi::c_void;
     type CgImageRef = *const std::ffi::c_void;
@@ -172,8 +163,8 @@ mod macos {
     pub(super) fn capture_on_screen_rect(
         x: i32,
         y: i32,
-        width: i32,
-        height: i32,
+        width: u32,
+        height: u32,
     ) -> Result<Vec<u32>, MechanismError> {
         type ListImage = unsafe extern "C" fn(CgRect, u32, u32, u32) -> CgImageRef;
 
@@ -181,15 +172,15 @@ mod macos {
         let handle = unsafe { dlopen(core_graphics.as_ptr(), 1) };
         if handle.is_null() {
             return Err(MechanismError::Unsupported {
-                reason: Cow::Borrowed("CoreGraphics.framework is not loadable"),
+                reason: "CoreGraphics.framework is not loadable".to_owned(),
             });
         }
         let symbol = unsafe { dlsym(handle, c"CGWindowListCreateImage".as_ptr()) };
         if symbol.is_null() {
             return Err(MechanismError::Unsupported {
-                reason: Cow::Borrowed(
-                    "CGWindowListCreateImage is unavailable; display capture needs ScreenCaptureKit",
-                ),
+                reason:
+                    "CGWindowListCreateImage is unavailable; display capture needs ScreenCaptureKit"
+                        .to_owned(),
             });
         }
         let list_image: ListImage = unsafe { std::mem::transmute(symbol) };
@@ -229,9 +220,9 @@ mod macos {
         }
         if bpp != 32 {
             return Err(MechanismError::Unsupported {
-                reason: Cow::Owned(format!(
+                reason: format!(
                     "display capture returned {bpp} bits per pixel, not the 32-bit case this converts"
-                )),
+                ),
             });
         }
         let provider = unsafe { CGImageGetDataProvider(image) };

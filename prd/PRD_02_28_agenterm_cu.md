@@ -193,13 +193,15 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   execution is still pending, so this is wired evidence rather than six-target
   qualification; mutation-bearing MCP verbs remain open.
 
-  The first complete local Candidate-cell rehearsal also exposed a macOS
-  packaging blocker: the executable and fixed sibling provider currently
-  register the same Objective-C device-capture class in one process. The
-  runtime warns about the duplicate class and the public court fails closed on
-  stderr. Promotion requires one process-global class owner or a genuinely
-  collision-free runtime identity; suppressing or allowlisting the warning is
-  not evidence.
+  The first complete local Candidate-cell rehearsal exposed and closed a macOS
+  packaging blocker. One joint Cargo invocation had feature-unified the native
+  device-capture translation unit into both the executable graph and fixed
+  sibling provider, so loading the provider registered the same Objective-C
+  class twice. Final executable, CU launcher, ABI library and CU provider are
+  now built in independent serial Cargo invocations that share only the target
+  cache. The release-fast images contain the class only in `agenterm-cu` and
+  the provider; both the direct qjs object and MCP stdio black boxes load the
+  packaged sibling with empty stderr. Warning suppression was not used.
 
 - [~] qjswasm drives MCP stdio into the fixed-sibling ACU provider and preserves shared typed capability and generic observation replies; macOS is green and the six native Candidate cells are wired but not yet remotely qualified.
 

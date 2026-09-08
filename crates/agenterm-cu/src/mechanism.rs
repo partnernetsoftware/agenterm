@@ -2513,13 +2513,8 @@ type InputSendKeys = unsafe extern "C" fn(*const u8, usize) -> i32;
 type CaptureWindow =
     unsafe extern "C" fn(isize, *const std::ffi::c_char, i32, i32, i32, i32, i32) -> i32;
 #[cfg(target_os = "macos")]
-type ScreenshotWritePng = unsafe extern "C" fn(
-    *const std::ffi::c_char,
-    *const u32,
-    usize,
-    u32,
-    u32,
-) -> i32;
+type ScreenshotWritePng =
+    unsafe extern "C" fn(*const std::ffi::c_char, *const u32, usize, u32, u32) -> i32;
 type DrainBus = unsafe extern "C" fn() -> i32;
 type LastTextWriteVia = unsafe extern "C" fn(*mut u8, usize, *mut usize) -> i32;
 type TreeSnapshot = unsafe extern "C" fn(isize, *mut usize) -> i32;

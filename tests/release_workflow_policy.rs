@@ -642,6 +642,25 @@ fn release_cleanup_does_not_serialize_a_large_development_deps_directory() {
 }
 
 #[test]
+fn final_artifacts_keep_independent_cargo_feature_graphs() {
+    for contract in [
+        "build_agenterm_cargo",
+        "build_agenterm_cu_cargo",
+        "build_agenterm_abi_cargo",
+        "build_agenterm_cu_provider_cargo",
+        "Each final artifact is its own Cargo feature graph",
+    ] {
+        assert!(
+            BUILD_QJS.contains(contract),
+            "missing split build contract: {contract}"
+        );
+    }
+    assert!(!BUILD_QJS.contains(
+        "abi_args.push(\"agenterm-abi\");\n  abi_args.push(\"--package\");\n  abi_args.push(\"agenterm-cu-provider\");"
+    ));
+}
+
+#[test]
 fn qualification_recreates_owned_scratch_after_a_gate_cleans_target() {
     let execute = CHECK_QJS
         .split_once("function execute(")

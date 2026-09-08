@@ -891,7 +891,7 @@ pub(super) fn screenshot(path: &str, window: Option<isize>) -> Result<serde_json
     }
     let path_ref = std::path::Path::new(path);
     let (result, via) = match window {
-        Some(raw) if raw == 0 => {
+        Some(0) => {
             return Err(CuError::new(
                 "invalid_input",
                 "screenshot window handle must be non-zero",

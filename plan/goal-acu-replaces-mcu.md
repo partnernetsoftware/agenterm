@@ -193,6 +193,12 @@ dynamic provider in native courts. The Candidate six-cell job now executes and
 hash-binds that provider in schema-6 cell receipts, including mutation-free
 power planning through both `agenterm:acu.call` and `.argv`; local macOS is
 green and the first exact-SHA remote run remains the qualification frontier.
+The local full-package rehearsal also caught a process-global Objective-C class
+collision caused by Cargo feature unification across jointly selected final
+artifacts. The build now uses independent serial Cargo invocations for the main
+executable, CU launcher, ABI library and CU provider; final-image inspection and
+both packaged-provider black boxes prove the main/ABI images no longer own the
+device-capture class and provider loading emits no warning.
 Immutable Git
 blob ids preserve corpus provenance:
 CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical
