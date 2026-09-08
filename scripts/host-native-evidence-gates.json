@@ -214,6 +214,13 @@
       ]
     },
     {
+      "id": "cu-linux-screenshot-window-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-screenshot-window-readback"
+      ]
+    },
+    {
       "id": "cu-linux-cdp-page-fill-smoke",
       "platform": "linux",
       "evidence": [

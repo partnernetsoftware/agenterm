@@ -447,6 +447,12 @@
       ]
     },
     {
+      "id": "cu-linux-screenshot-window-smoke",
+      "evidence": [
+        "cu.linux-screenshot-window-readback"
+      ]
+    },
+    {
       "id": "cu-linux-invoke-smoke",
       "evidence": [
         "cu.linux-atspi-invoke-readback"

@@ -1,11 +1,13 @@
 //! XRGB screenshot facade.
 
 use crate::{
-    contract::ui_screenshot::{ScreenshotWriteResult, UiScreenshotError, XrgbClip},
+    contract::ui_screenshot::{ScreenshotWriteResult, XrgbClip},
     selected,
 };
 
-pub use crate::contract::ui_screenshot::{NativeCaptureArea, ScreenshotWindowHandle, XrgbFrame};
+pub use crate::contract::ui_screenshot::{
+    NativeCaptureArea, ScreenshotWindowHandle, UiScreenshotError, XrgbFrame,
+};
 
 /// Maximum accepted framebuffer side length in pixels.
 pub const MAX_FRAME_SIDE: u32 = 16_384;

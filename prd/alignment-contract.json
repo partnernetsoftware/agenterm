@@ -114,6 +114,7 @@
         "cu.linux-get-text-readback",
         "cu.linux-focused-readback",
         "cu.linux-get-extents-readback",
+        "cu.linux-screenshot-window-readback",
         "cu.linux-atspi-invoke",
         "cu.linux-atspi-invoke-readback",
         "cu.linux-atspi-menu-inspect",

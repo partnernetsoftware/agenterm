@@ -127,8 +127,8 @@ use agenterm_platform::runtime::{
     user_config_directory,
 };
 use agenterm_platform::screenshot::{
-    MAX_FRAME_PIXELS, MAX_FRAME_SIDE, NativeCaptureArea, ScreenshotWindowHandle, XrgbFrame,
-    capture_native_window_png, write_xrgb_png,
+    MAX_FRAME_PIXELS, MAX_FRAME_SIDE, NativeCaptureArea, ScreenshotWindowHandle, UiScreenshotError,
+    XrgbFrame, capture_native_window_png, write_xrgb_png,
 };
 use agenterm_platform::threading::spawn_named_detached;
 use agenterm_platform::window_enumerate::{
@@ -2784,6 +2784,35 @@ pub extern "C" fn agt_screenshot_write_png(
 /// `path`. `native_window` is the platform window handle as `intptr_t`;
 /// `area_kind` 0 = whole window, 1 = client rectangle given by
 /// `left/top/width/height`.
+fn map_screenshot_error(
+    operation: &'static CStr,
+    error: UiScreenshotError,
+) -> agt_status {
+    match error {
+        UiScreenshotError::Unsupported { reason } => {
+            unsupported_because(operation, format!("{reason}"))
+        }
+        UiScreenshotError::Failed { code, message } => {
+            let static_code = match code.as_ref() {
+                "screenshot_window_unavailable" => c"screenshot_window_unavailable",
+                "screenshot_failed" => c"screenshot_failed",
+                "screenshot_unsupported" => c"screenshot_unsupported",
+                _ => c"screenshot_failed",
+            };
+            record_error(operation, static_code, message);
+            agt_status::AGT_FAILED
+        }
+        _ => {
+            record_error(
+                operation,
+                c"screenshot_failed",
+                "screenshot capture failed with an unknown error shape",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn agt_screenshot_capture_window(
     native_window: isize,
@@ -2860,14 +2889,7 @@ pub extern "C" fn agt_screenshot_capture_window(
         };
         match capture_native_window_png(window, path, area) {
             Ok(_) => agt_status::AGT_OK,
-            Err(e) => {
-                record_error(
-                    c"agt_screenshot_capture_window",
-                    c"screenshot_failed",
-                    format!("{e}"),
-                );
-                agt_status::AGT_FAILED
-            }
+            Err(error) => map_screenshot_error(c"agt_screenshot_capture_window", error),
         }
     }
     match catch_unwind(AssertUnwindSafe(|| {
