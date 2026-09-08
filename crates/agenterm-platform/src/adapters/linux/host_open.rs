@@ -7,6 +7,7 @@ use std::{
 use crate::host_open::{
     HostOpenError, HostOpenErrorDetail, HostOpenErrorKind, HostOpenOptions, HostOpenReceipt,
 };
+use crate::process_spawn::spawn_breakaway_visible_child;
 
 const XDG_OPEN_PATHS: &[&str] = &["/usr/bin/xdg-open", "/bin/xdg-open"];
 const GIO_PATHS: &[&str] = &["/usr/bin/gio", "/bin/gio"];
@@ -144,19 +145,22 @@ fn launch_desktop_entry(
 }
 
 fn launch_executable(executable: &Path, target: &str) -> Result<HostOpenReceipt, HostOpenError> {
-    let mut child = std::process::Command::new(executable)
+    let mut command = std::process::Command::new(executable);
+    command
         .arg(target)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|error| {
-            HostOpenError::new(
-                HostOpenErrorKind::Native,
-                format!("application launcher could not start: {error}"),
-            )
-        })?;
-    dispatch(&mut child, "linux-app-exec", "application exec")
+        .stderr(Stdio::null());
+    spawn_breakaway_visible_child(&mut command).map_err(|error| {
+        HostOpenError::new(
+            HostOpenErrorKind::Native,
+            format!("application launcher could not start: {error}"),
+        )
+    })?;
+    Ok(HostOpenReceipt {
+        provider: "linux-app-exec",
+        accepted: true,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

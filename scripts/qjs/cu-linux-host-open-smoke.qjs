@@ -1,0 +1,229 @@
+// Linux public black-box journey for host-open --app via desktop entry and PATH.
+// Acceptance is independent windows/ps/get-text read-back, never host-open
+// self-report. AT-SPI --name only; no --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE | --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.host-open.linux"];
+
+const TITLE_PREFIX = "agenterm-host-open-fixture-";
+const READY_NAME = "HostOpen Ready";
+const READY_TEXT = "host-open-ready";
+const DESKTOP_APP = "agenterm-host-open-fixture";
+const PATH_APP = "agenterm-host-open-path-exec";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(run_directory, bin_dir) {
+  const path_parts = [bin_dir];
+  const existing = rh.env_or("PATH", "");
+  if (existing !== "") { path_parts.push("" + existing); }
+  return {
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_NO_ACTIVATE: "1",
+    GTK_MODULES: "gail:atk-bridge",
+    PATH: path_parts.join(":"),
+    XDG_DATA_HOME: rh.join(run_directory, "share"),
+  };
+}
+
+function run_cu(run_directory, executable, grant, command_argv, env, expect_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const item of command_argv) { argv.push("" + item); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_host_open_empty_stdout");
+  const reply = JSON.parse(trimmed);
+  if (expect_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true && reply.error.code === expect_error,
+      "cu_linux_host_open_wrong_failure:" + JSON.stringify(reply));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true,
+    "cu_linux_host_open_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+function windows_rows(data) {
+  if (data.windows !== undefined) { return data.windows; }
+  return data;
+}
+
+function find_window_by_title_prefix(run_directory, executable, env, prefix) {
+  const reply = run_cu(run_directory, executable, "observe", ["windows"], env);
+  for (const row of windows_rows(reply)) {
+    const title = text_at(row, "title");
+    if (title.indexOf(prefix) === 0) { return row; }
+  }
+  return null;
+}
+
+function independent_readback(run_directory, executable, env) {
+  const waited = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", TITLE_PREFIX,
+  ], env);
+  ensure(flag_at(waited, "met"), "cu_linux_host_open_window_wait:" + JSON.stringify(waited));
+  const row = find_window_by_title_prefix(run_directory, executable, env, TITLE_PREFIX);
+  ensure(row !== null, "cu_linux_host_open_window_missing");
+  const pid = parseInt(text_at(row, "process_id"), 10);
+  const handle = text_at(row, "handle");
+  ensure(pid > 0, "cu_linux_host_open_window_pid");
+  ensure(handle !== "", "cu_linux_host_open_window_handle");
+
+  const ps = run_cu(run_directory, executable, "observe", ["ps", "--pid", "" + pid], env);
+  const processes = at(ps, "processes");
+  ensure(processes !== undefined && processes.length === 1,
+    "cu_linux_host_open_ps_readback:" + JSON.stringify(ps));
+  ensure(parseInt(text_at(processes[0], "pid"), 10) === pid,
+    "cu_linux_host_open_ps_pid_mismatch:" + JSON.stringify(processes[0]));
+
+  const windows_pid = run_cu(run_directory, executable, "observe", ["windows", "--pid", "" + pid], env);
+  let bound = false;
+  for (const bound_row of windows_rows(windows_pid)) {
+    if (text_at(bound_row, "handle") === handle && text_at(bound_row, "title").indexOf(TITLE_PREFIX) === 0) {
+      bound = true;
+      break;
+    }
+  }
+  ensure(bound, "cu_linux_host_open_windows_pid_readback");
+
+  const text = run_cu(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--name", READY_NAME,
+  ], env);
+  ensure(text_at(text, "text") === READY_TEXT,
+    "cu_linux_host_open_get_text:" + JSON.stringify(text));
+  return pid;
+}
+
+function stop_launched(pid) {
+  if (!(pid > 0)) { return; }
+  rh.command("kill", ["-TERM", "" + pid], { timeout_ms: 5000 });
+  harness.sleep_ms(250);
+}
+
+function write_wrapper(path, fixture_source) {
+  rh.write_text(path,
+    "#!/bin/sh\n"
+    + "export GTK_MODULES=gail:atk-bridge\n"
+    + "exec python3 '" + fixture_source + "' \"$@\"\n");
+  const chmod = rh.command("/bin/chmod", ["0755", path], { timeout_ms: 5000 });
+  ensure(chmod.success === true, "cu_linux_host_open_wrapper_chmod:" + path + ":" + chmod.stderr);
+}
+
+const script_argv = rh.args();
+if (script_argv.length === 1 && script_argv[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(script_argv.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(script_argv[0]);
+const executable = rh.absolute(script_argv[1]);
+ensure(direct_file(executable), "cu_linux_host_open_executable_missing");
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_host_open_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_host_open_fixture_missing:" + fixture_source);
+
+const context = harness.new_context(repo, "cu-linux-host-open");
+const run_directory = context.run_directory;
+const bin_dir = rh.join(run_directory, "bin");
+const apps_dir = rh.join(run_directory, "share/applications");
+rh.create_dir_all(bin_dir);
+rh.create_dir_all(apps_dir);
+
+const fixture_wrapper = rh.join(bin_dir, DESKTOP_APP);
+const path_wrapper = rh.join(bin_dir, PATH_APP);
+write_wrapper(fixture_wrapper, fixture_source);
+write_wrapper(path_wrapper, fixture_source);
+rh.write_text(rh.join(apps_dir, DESKTOP_APP + ".desktop"),
+  "[Desktop Entry]\n"
+  + "Type=Application\n"
+  + "Name=Agenterm Host Open Fixture\n"
+  + "Exec=" + fixture_wrapper + " %U\n"
+  + "Terminal=false\n"
+  + "Categories=Utility;\n");
+
+const env = cu_env(run_directory, bin_dir);
+let succeeded = 0;
+let failure = "";
+let launched_pid = 0;
+
+try {
+  print("STEP host-open --app desktop entry dispatches the fixture without shell involvement");
+  const desktop_open = run_cu(run_directory, executable, "actuate", [
+    "host-open", "/dev/null", "--app", DESKTOP_APP,
+  ], env);
+  ensure(
+    flag_at(desktop_open, "performed")
+      && flag_at(desktop_open, "accepted")
+      && flag_at(desktop_open, "verified") === false
+      && text_at(desktop_open, "verification") === "dispatcher-accepted-only",
+    "cu_linux_host_open_desktop_receipt:" + JSON.stringify(desktop_open)
+  );
+  ensure(
+    text_at(desktop_open, "provider") === "linux-gio-launch"
+      || text_at(desktop_open, "provider") === "linux-gtk-launch"
+      || text_at(desktop_open, "provider") === "linux-app-exec",
+    "cu_linux_host_open_desktop_provider:" + JSON.stringify(desktop_open)
+  );
+  launched_pid = independent_readback(run_directory, executable, env);
+  stop_launched(launched_pid);
+  launched_pid = 0;
+  harness.sleep_ms(500);
+
+  print("STEP host-open --app PATH executable dispatches the fixture without a desktop entry");
+  const path_open = run_cu(run_directory, executable, "actuate", [
+    "open", "/dev/null", "--app", PATH_APP,
+  ], env);
+  ensure(
+    flag_at(path_open, "performed")
+      && flag_at(path_open, "accepted")
+      && text_at(path_open, "provider") === "linux-app-exec",
+    "cu_linux_host_open_path_receipt:" + JSON.stringify(path_open)
+  );
+  launched_pid = independent_readback(run_directory, executable, env);
+  stop_launched(launched_pid);
+  launched_pid = 0;
+
+  harness.emit_evidence(context, declared_evidence, "cu.host-open.linux");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+stop_launched(launched_pid);
+if (succeeded !== 0 && failure === "") {
+  harness.remove_run(context);
+  print("PASS: Linux host-open --app desktop entry and PATH with independent windows/ps/get-text read-back (AT-SPI --name, no --coords)");
+}
+if (failure !== "") { throw failure; }
+return;

@@ -889,6 +889,24 @@
         "task.cu-linux-host-notify-smoke"
       ]
     },
+    "cu-linux-host-open-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-host-open-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-host-open-smoke"
+      ]
+    },
     "cu-linux-gtk-copy-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -3803,6 +3821,26 @@
       ]
     },
     {
+      "id": "cu-linux-host-open-smoke",
+      "description": "Prove Linux host-open --app via desktop entry and PATH executable with independent windows/ps/get-text read-back; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-host-open-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-gtk-copy-smoke",
       "description": "Prove Linux GTK entry/label copy --name publishes AT-SPI Text.GetText onto native clipboard and independent clipboard-read matches the seeded entry text and label payload; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-copy-smoke.qjs",
@@ -3826,6 +3864,26 @@
       "id": "cu-linux-gtk-entry-paste-smoke",
       "description": "Prove Linux GTK entry clipboard-write UTF-8 seed then paste --name with independent get-text == SEED; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-paste-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-entry-caret-smoke",
+      "description": "Prove Linux GTK entry set-caret / get-caret roundtrip by --name after send-text seeds SEED; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-gtk-entry-caret-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

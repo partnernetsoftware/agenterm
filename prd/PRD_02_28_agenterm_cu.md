@@ -1342,7 +1342,9 @@ flowchart LR
   acceptance is only `performed=true, accepted=true, verified=false`, never a
   fabricated claim that the handler rendered or consumed the target. The
   background no-window macOS qjswasm fixture is green as
-  `cu.host-open.macos`; Linux/Windows native courts remain open. MCU `open` now
+  `cu.host-open.macos`; Linux `--app` desktop-entry and PATH dispatch is green
+  through `cu.host-open.linux` with independent windows/ps/get-text read-back
+  (not CU self-report). Windows native court remains open. MCU `open` now
   routes here, reducing the top-level compatibility `STAY` set from 21 to 20.
 - [~] Desktop notification dispatch now follows the same typed boundary as
   host-open: `host-notify TITLE [BODY] [--subtitle TEXT] [--sound]` (alias
