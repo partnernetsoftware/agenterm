@@ -198,7 +198,7 @@ fn paste_to_node(
     resolved: ResolvedNode,
 ) -> Result<serde_json::Value, CuError> {
     if let Some(seed) = seed {
-        mechanism::clipboard::set_text(seed).map_err(map_mechanism_err)?;
+        mechanism::clipboard::publish_text(seed).map_err(map_mechanism_err)?;
     }
     let pasted = mechanism::clipboard::get_text().map_err(map_mechanism_err)?;
     mechanism::set_node_text(window, &resolved.node_id, &pasted).map_err(map_mechanism_err)?;
