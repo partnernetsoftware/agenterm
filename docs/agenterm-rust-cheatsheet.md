@@ -2668,6 +2668,10 @@ what each action means. Keep these recurring rules together:
   verification may intentionally distinguish an inaccessible/disappeared
   window from a generic backend failure; collapsing that code can turn a
   successful destructive or dismissive action into a false-negative receipt.
+- Validate closed command syntax and enum values before the first native
+  observation. Otherwise an invalid request can be mislabeled as a missing
+  display, window, or device merely because the host court is unavailable;
+  deterministic typed input errors must not depend on desktop state.
 - Give every menu, global-shortcut and native callback one product-owned
   `action_id -> Command -> Executor` function. Black-box self-test should call
   that exact function with insufficient authority and require a typed refusal:

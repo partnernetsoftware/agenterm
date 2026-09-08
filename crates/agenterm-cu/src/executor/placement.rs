@@ -44,6 +44,16 @@ pub(super) fn window_place(
     frame: Option<[i32; 4]>,
 ) -> Result<serde_json::Value, CuError> {
     let action = action_raw.trim();
+    let catalog_action = if matches!(action, "frame" | "move" | "resize") {
+        None
+    } else {
+        Some(crate::place::PlaceAction::parse(action_raw).ok_or_else(|| {
+            CuError::new(
+                "invalid_input",
+                format!("unknown window-place action '{action_raw}'"),
+            )
+        })?)
+    };
     let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     let screens = mechanism::window_enumerate::list_screens().map_err(map_mechanism_err)?;
     if screens.is_empty() {
@@ -107,12 +117,7 @@ pub(super) fn window_place(
                 format!("--x/--y/--width/--height belong to --action frame, not '{action_raw}'"),
             ));
         }
-        PlaceRequest::Catalog(crate::place::PlaceAction::parse(action_raw).ok_or_else(|| {
-            CuError::new(
-                "invalid_input",
-                format!("unknown window-place action '{action_raw}'"),
-            )
-        })?)
+        PlaceRequest::Catalog(catalog_action.expect("non-frame action validated before native IO"))
     };
     let history = crate::place::PlaceHistory::open()
         .map_err(|error| CuError::new("failed", format!("history: {error}")))?;
