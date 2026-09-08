@@ -1,0 +1,290 @@
+// CEO: Linux audio status observe with independent pactl/wpctl/amixer read-back.
+// Acceptance is smoke read-back only: CU default-output volume/mute must match
+// facts derived outside agenterm-cu, or return typed audio_unsupported with
+// linux-default-output alternatives (never macOS CoreAudio). No --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-audio-status-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env() {
+  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "PULSE_SERVER",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe", "audio"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true || output.exit_code === 1, "cu_linux_audio_status_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_audio_status_empty");
+  return JSON.parse(trimmed);
+}
+
+function safe_command(program, args, options) {
+  try {
+    return rh.command(program, args, options);
+  } catch (error) {
+    return null;
+  }
+}
+
+function session_bus_connected() {
+  const output = safe_command("dbus-send", [
+    "--session",
+    "--dest=org.freedesktop.DBus",
+    "--type=method_call",
+    "--print-reply",
+    "/org/freedesktop/DBus",
+    "org.freedesktop.DBus.GetId",
+  ], {
+    env: cu_env(),
+    timeout_ms: 10000,
+  });
+  return output !== null && output.success === true;
+}
+
+function split_whitespace(text) {
+  const parts = [];
+  let current = "";
+  for (let index = 0; index < text.length; index = index + 1) {
+    const code = text.charCodeAt(index);
+    if (code === 9 || code === 10 || code === 13 || code === 32) {
+      if (current.length > 0) {
+        parts.push(current);
+        current = "";
+      }
+    } else {
+      current = current + text.charAt(index);
+    }
+  }
+  if (current.length > 0) { parts.push(current); }
+  return parts;
+}
+
+function parse_pactl_volume_percent(stdout) {
+  const parts = split_whitespace(stdout);
+  for (let index = 0; index < parts.length; index = index + 1) {
+    const token = parts[index];
+    if (token.length > 1 && token.charAt(token.length - 1) === "%") {
+      const value = Number(token.slice(0, token.length - 1));
+      if (value === value) { return Math.max(0, Math.min(100, Math.round(value))); }
+    }
+  }
+  return -1;
+}
+
+function parse_pactl_mute(stdout) {
+  const trimmed = stdout.trim();
+  if (trimmed.length >= 3 && trimmed.slice(trimmed.length - 3) === "yes") { return true; }
+  if (trimmed.length >= 2 && trimmed.slice(trimmed.length - 2) === "no") { return false; }
+  return null;
+}
+
+function independent_pactl() {
+  const sink = safe_command("pactl", ["get-default-sink"], { env: cu_env(), timeout_ms: 10000 });
+  if (sink === null || !sink.success) { return null; }
+  const uid = sink.stdout.trim();
+  if (uid === "") { return null; }
+  const volume = safe_command("pactl", ["get-sink-volume", "@DEFAULT_SINK@"], { env: cu_env(), timeout_ms: 10000 });
+  const mute = safe_command("pactl", ["get-sink-mute", "@DEFAULT_SINK@"], { env: cu_env(), timeout_ms: 10000 });
+  if (volume === null || mute === null || !volume.success || !mute.success) { return null; }
+  const volume_percent = parse_pactl_volume_percent(volume.stdout);
+  const muted = parse_pactl_mute(mute.stdout);
+  if (volume_percent < 0 || muted === null) { return null; }
+  return {
+    mechanism: "pactl",
+    provider: "linux-pulse-pactl",
+    uid: uid,
+    volume: volume_percent,
+    muted: muted,
+  };
+}
+
+function independent_wpctl() {
+  const volume = safe_command("wpctl", ["get-volume", "@DEFAULT_AUDIO_SINK@"], { env: cu_env(), timeout_ms: 10000 });
+  const inspect = safe_command("wpctl", ["inspect", "@DEFAULT_AUDIO_SINK@"], { env: cu_env(), timeout_ms: 10000 });
+  if (volume === null || inspect === null || !volume.success || !inspect.success) { return null; }
+  const scalar = Number(split_whitespace(volume.stdout.trim())[0]);
+  if (scalar !== scalar) { return null; }
+  let muted = false;
+  for (const line of inspect.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.indexOf("mute:") === 0) {
+      const value = trimmed.slice("mute:".length).trim();
+      muted = value === "true" || value === "yes";
+    }
+  }
+  return {
+    mechanism: "wpctl",
+    provider: "linux-pipewire-wpctl",
+    uid: "default-audio-sink",
+    volume: Math.max(0, Math.min(100, Math.round(scalar * 100))),
+    muted: muted,
+  };
+}
+
+function parse_amixer_master(stdout) {
+  let volume = -1;
+  let muted = false;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.indexOf("Front Left:") === 0 || trimmed.indexOf("Mono:") === 0) {
+      const start = trimmed.indexOf("[");
+      const end = trimmed.indexOf("]", start + 1);
+      if (start >= 0 && end > start) {
+        const bracket = trimmed.slice(start + 1, end);
+        if (bracket.charAt(bracket.length - 1) === "%") {
+          const value = Number(bracket.slice(0, bracket.length - 1));
+          if (value === value) { volume = Math.max(0, Math.min(100, Math.round(value))); }
+        }
+      }
+    }
+    if (trimmed.indexOf("[off]") >= 0) { muted = true; }
+    if (trimmed.indexOf("[on]") >= 0) { muted = false; }
+  }
+  if (volume < 0) { return null; }
+  return { volume: volume, muted: muted };
+}
+
+function independent_amixer_pulse() {
+  const output = safe_command("amixer", ["-D", "pulse", "sget", "Master"], { env: cu_env(), timeout_ms: 10000 });
+  if (output === null || !output.success) { return null; }
+  const parsed = parse_amixer_master(output.stdout);
+  if (parsed === null) { return null; }
+  return {
+    mechanism: "amixer-pulse",
+    provider: "linux-alsa-amixer-pulse",
+    uid: "alsa-master-pulse",
+    volume: parsed.volume,
+    muted: parsed.muted,
+  };
+}
+
+function independent_amixer_default() {
+  const output = safe_command("amixer", ["sget", "Master"], { env: cu_env(), timeout_ms: 10000 });
+  if (output === null || !output.success) { return null; }
+  const parsed = parse_amixer_master(output.stdout);
+  if (parsed === null) { return null; }
+  return {
+    mechanism: "amixer-default",
+    provider: "linux-alsa-amixer",
+    uid: "alsa-master-default",
+    volume: parsed.volume,
+    muted: parsed.muted,
+  };
+}
+
+function independent_audio_probe() {
+  const probes = [
+    independent_pactl(),
+    independent_wpctl(),
+    independent_amixer_pulse(),
+    independent_amixer_default(),
+  ];
+  for (let index = 0; index < probes.length; index = index + 1) {
+    if (probes[index] !== null) { return probes[index]; }
+  }
+  return null;
+}
+
+function assert_ok_readback(reply, independent) {
+  ensure(flag_at(reply, "ok"), "cu_linux_audio_status_ok:" + JSON.stringify(reply));
+  const data = rh.field(reply, "data");
+  const provider = text_at(data, "provider");
+  const state = rh.field(data, "state");
+  const settings = rh.field(state, "settings");
+  const volume = Number(text_at(settings, "volume"));
+  const muted = flag_at(settings, "muted");
+  ensure(provider === independent.provider, "cu_linux_audio_status_provider:" + provider + "!=" + independent.provider);
+  ensure(provider.indexOf("macos") < 0, "cu_linux_audio_status_no_macos:" + provider);
+  ensure(volume === independent.volume, "cu_linux_audio_status_volume:" + volume + "!=" + independent.volume);
+  ensure(muted === independent.muted, "cu_linux_audio_status_muted:" + muted + "!=" + independent.muted);
+  ensure(text_at(rh.field(state, "device"), "uid") !== "", "cu_linux_audio_status_uid");
+}
+
+function assert_unsupported_readback(reply) {
+  ensure(!flag_at(reply, "ok"), "cu_linux_audio_status_unexpected_ok:" + JSON.stringify(reply));
+  ensure(text_at(reply, "error.code") === "audio_unsupported", "cu_linux_audio_status_code:" + JSON.stringify(reply.error));
+  const detail = at(reply, "error.detail");
+  ensure(text_at(detail, "effect") === "not_performed", "cu_linux_audio_status_effect:" + JSON.stringify(detail));
+  ensure(text_at(detail, "required_mechanism") === "linux-default-output", "cu_linux_audio_status_mechanism:" + JSON.stringify(detail));
+  ensure(at_array(detail, "alternatives").length > 0, "cu_linux_audio_status_alternatives:" + JSON.stringify(detail));
+  ensure(at_array(detail, "probed_mechanisms").length > 0, "cu_linux_audio_status_probed:" + JSON.stringify(detail));
+  ensure(typeof at(detail, "session_bus_available") === "boolean", "cu_linux_audio_status_bus:" + JSON.stringify(detail));
+  const bus_connected = session_bus_connected();
+  ensure(flag_at(detail, "session_bus_available") === bus_connected, "cu_linux_audio_status_bus_mismatch:" + bus_connected + ":" + JSON.stringify(detail));
+  ensure(JSON.stringify(reply).indexOf("macos-coreaudio") < 0, "cu_linux_audio_status_no_coreaudio_claim");
+  ensure(independent_audio_probe() === null, "cu_linux_audio_status_independent_should_be_absent");
+}
+
+function at_array(value, key) {
+  const current = rh.field(value, key);
+  return Array.isArray(current) ? current : [];
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
+
+print("STEP audio status observe matches independent pactl/wpctl/amixer read-back or typed unsupported");
+const independent = independent_audio_probe();
+const reply = run_cu(repo, executable, ["status"]);
+if (independent !== null) {
+  assert_ok_readback(reply, independent);
+  print("PASS: CEO Linux audio status with independent " + independent.mechanism + " read-back");
+  return;
+}
+assert_unsupported_readback(reply);
+print("PASS: CEO Linux audio status typed unsupported with independent probe absence read-back");

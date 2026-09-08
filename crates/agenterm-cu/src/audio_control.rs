@@ -102,6 +102,9 @@ pub struct AudioApplyReply {
 
 pub trait AudioProvider {
     fn status(&mut self) -> Result<AudioState, CuError>;
+    fn provider_name(&self) -> Option<&str> {
+        None
+    }
     fn apply(
         &mut self,
         expected: &AudioState,
@@ -111,13 +114,27 @@ pub trait AudioProvider {
 }
 
 #[derive(Default)]
-pub struct NativeAudioProvider;
+pub struct NativeAudioProvider {
+    last_provider: Option<String>,
+}
 
 impl AudioProvider for NativeAudioProvider {
     fn status(&mut self) -> Result<AudioState, CuError> {
-        agenterm_platform::audio::query_default_output()
-            .map(project_state)
-            .map_err(platform_error)
+        match agenterm_platform::audio::query_default_output_result() {
+            agenterm_platform::audio::AudioQueryResult::Ok(host) => {
+                self.last_provider = Some(host.provider.clone());
+                let state = project_state(host.state);
+                validate_state(&state)?;
+                Ok(state)
+            }
+            agenterm_platform::audio::AudioQueryResult::Unsupported(unsupported) => {
+                Err(crate::host_limit::audio_unsupported_detail(unsupported))
+            }
+        }
+    }
+
+    fn provider_name(&self) -> Option<&str> {
+        self.last_provider.as_deref()
     }
 
     fn apply(
@@ -142,24 +159,27 @@ impl AudioProvider for NativeAudioProvider {
 }
 
 pub fn status() -> Result<AudioStatus, CuError> {
-    status_with_provider(&mut NativeAudioProvider)
+    status_with_provider(&mut NativeAudioProvider::default())
 }
 
 pub fn status_with_provider(provider: &mut impl AudioProvider) -> Result<AudioStatus, CuError> {
     let state = provider.status()?;
     validate_state(&state)?;
     Ok(AudioStatus {
-        provider: "macos-coreaudio".into(),
+        provider: provider
+            .provider_name()
+            .map(str::to_owned)
+            .unwrap_or_else(|| "fixture".into()),
         state,
     })
 }
 
 pub fn plan_volume(volume: u8, ttl_seconds: u64) -> Result<AudioPlan, CuError> {
-    plan_with_provider(&mut NativeAudioProvider, Some(volume), None, ttl_seconds)
+    plan_with_provider(&mut NativeAudioProvider::default(), Some(volume), None, ttl_seconds)
 }
 
 pub fn plan_muted(muted: bool, ttl_seconds: u64) -> Result<AudioPlan, CuError> {
-    plan_with_provider(&mut NativeAudioProvider, None, Some(muted), ttl_seconds)
+    plan_with_provider(&mut NativeAudioProvider::default(), None, Some(muted), ttl_seconds)
 }
 
 pub fn plan_with_provider(
@@ -298,7 +318,7 @@ pub fn decode_request(encoded: &str) -> Result<AudioPlan, CuError> {
 
 pub fn apply(plan: &AudioPlan, approval: &str) -> Result<AudioApplyReply, CuError> {
     let store = IdempotencyStore::open()?;
-    apply_with_provider(&mut NativeAudioProvider, &store, plan, approval)
+    apply_with_provider(&mut NativeAudioProvider::default(), &store, plan, approval)
 }
 
 pub fn apply_with_provider(

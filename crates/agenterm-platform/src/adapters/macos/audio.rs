@@ -149,6 +149,8 @@ pub(crate) fn query() -> Result<NativeAudioState, AudioError> {
     }
     Ok(NativeAudioState {
         device_id,
+        provider: "macos-coreaudio",
+        identity_domain: crate::audio::COREAUDIO_IDENTITY_DOMAIN,
         uid,
         name,
         manufacturer,
