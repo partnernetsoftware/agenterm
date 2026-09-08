@@ -15,6 +15,12 @@ use crate::{
 /// Cross-host logical type for direct UTF-8 clipboard text.
 pub const CLIPBOARD_UTF8_TEXT_TYPE: &str = "text/plain;charset=utf-8";
 
+/// HTML clipboard payloads published through the typed write path.
+pub const CLIPBOARD_HTML_TYPE: &str = "text/html";
+
+/// PNG image clipboard payloads published through the typed write path.
+pub const CLIPBOARD_PNG_TYPE: &str = "image/png";
+
 fn is_false(value: &bool) -> bool {
     !*value
 }

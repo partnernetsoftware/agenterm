@@ -2050,6 +2050,10 @@ pub mod clipboard {
     /// X11 selection event loop instead of returning and dropping the owner.
     pub const X11_CLIPBOARD_SERVE_ENV: &str = "PLATFORM_X11_CLIPBOARD_SERVE";
 
+    /// When set on the detached owner, stdin carries raw bytes for this MIME
+    /// type instead of UTF-8 plain text.
+    pub const X11_CLIPBOARD_TYPE_ENV: &str = "AGENTERM_CLIPBOARD_TYPE";
+
     pub fn set_text(text: &str) -> Result<(), MechanismError> {
         let f = call_sym::<super::ClipboardSetText>(b"agt_clipboard_set_text")?;
         let status = unsafe { f(text.as_ptr(), text.len()) };
@@ -2063,18 +2067,80 @@ pub mod clipboard {
         #[cfg(target_os = "linux")]
         {
             if std::env::var_os("DISPLAY").is_some() {
-                return publish_x11_clipboard(text);
+                return publish_x11_clipboard_text(text);
             }
         }
         set_text(text)
     }
 
+    /// Publish one MIME payload so a later `cu` process can read it. On Linux
+    /// X11 the CLIPBOARD owner must outlive this caller; a detached `cu`
+    /// owner answers `SelectionRequest`.
+    pub fn publish_type(type_name: &str, bytes: &[u8]) -> Result<(), MechanismError> {
+        #[cfg(target_os = "linux")]
+        {
+            if std::env::var_os("DISPLAY").is_some() {
+                return publish_x11_clipboard_type(type_name, bytes);
+            }
+        }
+        set_type(type_name, bytes)
+    }
+
     #[cfg(target_os = "linux")]
-    fn publish_x11_clipboard(text: &str) -> Result<(), MechanismError> {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
+    fn publish_x11_clipboard_text(text: &str) -> Result<(), MechanismError> {
         use std::thread;
         use std::time::{Duration, Instant};
+
+        let expected = text.to_owned();
+        let mut child = match spawn_x11_clipboard_owner(None) {
+            Ok(child) => child,
+            Err(_) => return set_text(text),
+        };
+        write_x11_clipboard_owner_payload(&mut child, text.as_bytes())?;
+        let deadline = Instant::now() + Duration::from_millis(2_000);
+        loop {
+            match get_text() {
+                Ok(got) if got == expected => return Ok(()),
+                Ok(_) | Err(_) => {
+                    if let Err(error) = ensure_x11_clipboard_owner_alive(&mut child, deadline) {
+                        return Err(error);
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn publish_x11_clipboard_type(type_name: &str, bytes: &[u8]) -> Result<(), MechanismError> {
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let expected = bytes.to_vec();
+        let mut child = match spawn_x11_clipboard_owner(Some(type_name)) {
+            Ok(child) => child,
+            Err(_) => return set_type(type_name, bytes),
+        };
+        write_x11_clipboard_owner_payload(&mut child, bytes)?;
+        let deadline = Instant::now() + Duration::from_millis(2_000);
+        loop {
+            match get_type(type_name, expected.len().max(1)) {
+                Ok(got) if got == expected => return Ok(()),
+                Ok(_) | Err(_) => {
+                    if let Err(error) = ensure_x11_clipboard_owner_alive(&mut child, deadline) {
+                        return Err(error);
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn spawn_x11_clipboard_owner(
+        type_name: Option<&str>,
+    ) -> Result<std::process::Child, MechanismError> {
+        use std::process::{Command, Stdio};
 
         let exe = std::env::current_exe().map_err(|error| MechanismError::Failed {
             code: "clipboard_failed".into(),
@@ -2082,7 +2148,10 @@ pub mod clipboard {
         })?;
         let exe_name = exe.file_name().and_then(|name| name.to_str()).unwrap_or("");
         if exe_name != "agenterm-cu" && exe_name != "agenterm-cu.exe" {
-            return set_text(text);
+            return Err(MechanismError::Failed {
+                code: "clipboard_failed".into(),
+                message: "CLIPBOARD publish requires the agenterm-cu executable".into(),
+            });
         }
         let mut child = Command::new(&exe);
         child
@@ -2091,17 +2160,28 @@ pub mod clipboard {
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        if let Some(type_name) = type_name {
+            child.env(X11_CLIPBOARD_TYPE_ENV, type_name);
+        }
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
             child.process_group(0);
         }
-        let mut child = child.spawn().map_err(|error| MechanismError::Failed {
+        child.spawn().map_err(|error| MechanismError::Failed {
             code: "clipboard_failed".into(),
             message: format!("could not start CLIPBOARD owner: {error}"),
-        })?;
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn write_x11_clipboard_owner_payload(
+        child: &mut std::process::Child,
+        bytes: &[u8],
+    ) -> Result<(), MechanismError> {
+        use std::io::Write;
         match child.stdin.take() {
-            Some(mut stdin) => stdin.write_all(text.as_bytes()).map_err(|error| {
+            Some(mut stdin) => stdin.write_all(bytes).map_err(|error| {
                 let _ = child.kill();
                 MechanismError::Failed {
                     code: "clipboard_failed".into(),
@@ -2116,34 +2196,40 @@ pub mod clipboard {
                 });
             }
         }
-        let deadline = Instant::now() + Duration::from_millis(2_000);
-        loop {
-            match get_text() {
-                Ok(got) if got == text => return Ok(()),
-                Ok(_) | Err(_) => {
-                    if let Ok(Some(status)) = child.try_wait() {
-                        return Err(MechanismError::Failed {
-                            code: "clipboard_failed".into(),
-                            message: format!("CLIPBOARD owner exited before serving ({status})"),
-                        });
-                    }
-                    if Instant::now() >= deadline {
-                        let _ = child.kill();
-                        return Err(MechanismError::Failed {
-                            code: "clipboard_failed".into(),
-                            message: "CLIPBOARD owner did not become readable in time".into(),
-                        });
-                    }
-                    thread::sleep(Duration::from_millis(20));
-                }
-            }
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn ensure_x11_clipboard_owner_alive(
+        child: &mut std::process::Child,
+        deadline: std::time::Instant,
+    ) -> Result<(), MechanismError> {
+        if let Ok(Some(status)) = child.try_wait() {
+            return Err(MechanismError::Failed {
+                code: "clipboard_failed".into(),
+                message: format!("CLIPBOARD owner exited before serving ({status})"),
+            });
         }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            return Err(MechanismError::Failed {
+                code: "clipboard_failed".into(),
+                message: "CLIPBOARD owner did not become readable in time".into(),
+            });
+        }
+        Ok(())
     }
 
     /// Owner-process entry: publish `text` and (on X11 with the serve env)
     /// block in the selection loop until replaced.
     pub fn own_text(text: &str) -> Result<(), MechanismError> {
         set_text(text)
+    }
+
+    /// Owner-process entry: publish one MIME type and block in the selection
+    /// loop until replaced.
+    pub fn own_type(type_name: &str, bytes: &[u8]) -> Result<(), MechanismError> {
+        set_type(type_name, bytes)
     }
 
     /// Two-stage `agt_clipboard_types` (ABI 1.19): the type names on the

@@ -138,6 +138,7 @@ pub(super) fn clipboard_encoding_and_value(
         || type_name.contains("utf8")
         || type_name.contains("UTF8")
         || type_name.contains("text/plain")
+        || type_name.contains("text/html")
         || type_name == "CF_TEXT"
         || type_name == "CF_UNICODETEXT"
         || type_name == "CF_OEMTEXT"
@@ -274,6 +275,9 @@ pub(super) fn clipboard_write(
         })?;
         return clipboard_write_text(type_name, text);
     }
+    if uses_linux_x11_publish(type_name) {
+        return clipboard_write_published_type(type_name, &bytes);
+    }
     let sha256 = clipboard_sha256_hex(&bytes);
     mechanism::clipboard::set_type(type_name, &bytes).map_err(map_mechanism_err)?;
     let stored = mechanism::clipboard::get_type(type_name, MAX_CLIPBOARD_TYPE_BYTES)
@@ -295,6 +299,51 @@ fn clipboard_write_text(type_name: &str, text: &str) -> Result<serde_json::Value
     mechanism::clipboard::publish_text(text).map_err(map_mechanism_err)?;
     let stored = mechanism::clipboard::get_text().map_err(map_mechanism_err)?;
     verified_text_receipt(type_name, bytes, stored.as_bytes(), &sha256)
+}
+
+fn uses_linux_x11_publish(type_name: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("DISPLAY").is_some()
+            && (type_name == crate::command::CLIPBOARD_HTML_TYPE
+                || type_name == crate::command::CLIPBOARD_PNG_TYPE)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn clipboard_write_published_type(
+    type_name: &str,
+    bytes: &[u8],
+) -> Result<serde_json::Value, CuError> {
+    let sha256 = clipboard_sha256_hex(bytes);
+    mechanism::clipboard::publish_type(type_name, bytes).map_err(map_mechanism_err)?;
+    let stored = mechanism::clipboard::get_type(type_name, MAX_CLIPBOARD_TYPE_BYTES)
+        .map_err(map_mechanism_err)?;
+    verified_bytes_receipt(type_name, bytes, &stored, &sha256)
+}
+
+fn verified_bytes_receipt(
+    type_name: &str,
+    expected: &[u8],
+    stored: &[u8],
+    expected_sha256: &str,
+) -> Result<serde_json::Value, CuError> {
+    if stored.len() != expected.len() || clipboard_sha256_hex(stored) != expected_sha256 {
+        return Err(CuError::new(
+            "clipboard_verify_failed",
+            "clipboard-write read-back length/hash verification failed",
+        ));
+    }
+    Ok(serde_json::json!({
+        "type": type_name,
+        "bytes": expected.len(),
+        "sha256": expected_sha256,
+        "verified": true,
+        "mechanism": "libagenterm",
+    }))
 }
 
 fn validate_clipboard_text(type_name: &str, text: &str) -> Result<(), CuError> {
