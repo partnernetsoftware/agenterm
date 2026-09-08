@@ -155,6 +155,7 @@
         "cu.linux-device-inventory-readback",
         "cu.linux-storage-devices-readback",
         "cu.linux-local-clock-readback",
+        "cu.linux-capabilities-honesty-readback",
         "cu.linux-boot-identity-readback",
         "cu.linux-login-session-readback",
         "cu.linux-app-facts-readback",
