@@ -5404,7 +5404,7 @@
       "cwd": ".",
       "args": [
         ".",
-        "target/debug/agenterm-cu"
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [

@@ -175,15 +175,20 @@ try {
   ]);
   ensure(
     flag_at(wheeled, "data.verified")
-      && text_at(wheeled, "data.addressing") === "accessibility-tree",
+      && text_at(wheeled, "data.addressing") === "accessibility-tree"
+      && text_at(wheeled, "data.via") === "xtest-wheel-at-extents-center"
+      && int_at(wheeled, "data.before.y") === before_y
+      && int_at(wheeled, "data.delta.y") < 0,
     "cu_scroll_wheel_actuate:" + JSON.stringify(wheeled.data)
   );
 
   print("STEP independent get-extents confirms the field moved into view");
   const after_y = field_extents_y(run_directory, executable, window.handle);
   ensure(
-    after_y < before_y - 500,
+    after_y < before_y - 500
+      && ((after_y - before_y) * int_at(wheeled, "data.delta.y")) > 0,
     "cu_scroll_wheel_extents_readback:" + before_y + "->" + after_y
+      + ":" + JSON.stringify(wheeled.data)
   );
 } finally {
   if (chrome_child >= 0) {
