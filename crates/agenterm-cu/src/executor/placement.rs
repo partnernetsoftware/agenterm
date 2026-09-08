@@ -147,13 +147,69 @@ pub(super) fn window_place(
     };
     let history = crate::place::PlaceHistory::open()
         .map_err(|error| CuError::new("failed", format!("history: {error}")))?;
-    window_place_transaction(
+    let reply = window_place_transaction(
         request,
         target_window,
         &screens,
         history,
         &mut NativePlaceRuntime,
         &mut NativeHistoryCommitter,
+    )?;
+    if action == "resize" {
+        if let Some([expected_width, expected_height]) = expect_geometry {
+            verify_resize_geometry(&reply, expected_width, expected_height)?;
+        }
+    }
+    Ok(reply)
+}
+
+fn geometry_within(got: i32, want: i32) -> bool {
+    got >= want - 5 && got <= want
+}
+
+fn verify_resize_geometry(
+    reply: &serde_json::Value,
+    expected_width: i32,
+    expected_height: i32,
+) -> Result<(), CuError> {
+    let after = reply
+        .get("after")
+        .ok_or_else(|| CuError::new("failed", "resize reply is missing after geometry"))?;
+    let width = after
+        .get("width")
+        .and_then(|value| value.as_i64())
+        .ok_or_else(|| CuError::new("failed", "resize reply after.width is missing"))?;
+    let height = after
+        .get("height")
+        .and_then(|value| value.as_i64())
+        .ok_or_else(|| CuError::new("failed", "resize reply after.height is missing"))?;
+    let got_width = i32::try_from(width)
+        .map_err(|_| CuError::new("failed", "resize reply after.width is out of range"))?;
+    let got_height = i32::try_from(height)
+        .map_err(|_| CuError::new("failed", "resize reply after.height is out of range"))?;
+    let exact = got_width == expected_width && got_height == expected_height;
+    let quantized = reply
+        .get("quantized")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let bounded = geometry_within(got_width, expected_width)
+        && geometry_within(got_height, expected_height);
+    if exact || (quantized && bounded) {
+        return Ok(());
+    }
+    Err(
+        CuError::new(
+            "unverified",
+            format!(
+                "resize was delivered but reads {got_width}x{got_height}, expected {expected_width}x{expected_height}"
+            ),
+        )
+        .with_detail(serde_json::json!({
+            "reason": "geometry_mismatch",
+            "expected": {"width": expected_width, "height": expected_height},
+            "observed": {"width": got_width, "height": got_height},
+            "reply": reply,
+        })),
     )
 }
 

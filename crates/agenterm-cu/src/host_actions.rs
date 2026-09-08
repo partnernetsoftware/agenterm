@@ -161,6 +161,7 @@ pub fn command(id: u32) -> Option<Command> {
         action: action.place.kebab().to_owned(),
         window: None,
         frame: None,
+        expect_geometry: None,
     })
 }
 
