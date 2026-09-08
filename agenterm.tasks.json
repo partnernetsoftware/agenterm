@@ -1099,6 +1099,23 @@
         "task.cu-linux-power-status-smoke"
       ]
     },
+    "cu-linux-privilege-plan-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-privilege-plan-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-privilege-plan-smoke"
+      ]
+    },
     "cu-linux-processor-topology-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -4995,6 +5012,24 @@
       "id": "cu-linux-power-status-smoke",
       "description": "Prove Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-power-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-privilege-plan-smoke",
+      "description": "Prove Linux privilege-plan observe for process.set-priority and system.power-action returns expiring host/boot-bound plans with mutation_performed=false and no independent nice, boot_id or uptime side effects; never privilege-apply; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-privilege-plan-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

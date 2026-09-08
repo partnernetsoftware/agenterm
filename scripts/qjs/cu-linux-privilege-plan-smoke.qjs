@@ -1,0 +1,273 @@
+// CEO: Linux privilege-plan observe honesty with independent before/after read-back.
+// Acceptance is smoke read-back only: process.set-priority and system.power-action
+// plans must be expiring, identity-bound, mutation_performed=false, and must not
+// change independent nice, boot_id or CLOCK_BOOTTIME probes. Never privilege-apply.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-privilege-plan-readback",
+];
+
+const BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id";
+const UPTIME_SLACK_MS = 15000;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function isolated_env(run_directory, prefix) {
+  return {
+    HOME: run_directory,
+    USERPROFILE: run_directory,
+    APPDATA: rh.join(run_directory, "config"),
+    LOCALAPPDATA: rh.join(run_directory, "data"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, prefix + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, prefix + "-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+}
+
+function invoke(run_directory, executable, arguments, expect_success, prefix) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: isolated_env(run_directory, prefix),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_privilege_plan_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_privilege_plan_reply_state");
+  return reply;
+}
+
+function boot_id_shape(value) {
+  if (value.length !== 36) { return false; }
+  for (let index = 0; index < value.length; index = index + 1) {
+    const code = value.charCodeAt(index);
+    if (index === 8 || index === 13 || index === 18 || index === 23) {
+      if (code !== 45) { return false; }
+    } else if (code < 48 || (code > 57 && code < 65) || (code > 70 && code < 97) || code > 102) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function independent_boot_id() {
+  ensure(rh.exists(BOOT_ID_PATH), "cu_linux_privilege_plan_boot_id_missing");
+  const boot_id = rh.read_text(BOOT_ID_PATH).trim();
+  ensure(boot_id_shape(boot_id), "cu_linux_privilege_plan_boot_id_shape:" + boot_id);
+  return boot_id;
+}
+
+function independent_uptime_milliseconds() {
+  const script = [
+    "import time",
+    "print(int(time.clock_gettime(time.CLOCK_BOOTTIME) * 1000))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_privilege_plan_uptime_probe:" + output.stderr);
+  const value = Number(output.stdout.trim());
+  ensure(value === value && value >= 0, "cu_linux_privilege_plan_uptime_shape:" + output.stdout);
+  return value;
+}
+
+function independent_boot_identity(host_identity, boot_id) {
+  const script = [
+    "import hashlib, struct, sys",
+    "host = sys.argv[1]",
+    "material = sys.argv[2].strip().encode('ascii')",
+    "anchor = hashlib.sha256()",
+    "anchor.update(b'agenterm-platform/host-boot-identity/v1\\0')",
+    "anchor.update(struct.pack('<Q', len(material)))",
+    "anchor.update(material)",
+    "anchor = anchor.digest()",
+    "digest = hashlib.sha256()",
+    "digest.update(b'agenterm-cu/power-status/boot/v1\\0')",
+    "digest.update(struct.pack('<Q', len(host)))",
+    "digest.update(host.encode('ascii'))",
+    "digest.update(struct.pack('<Q', len(anchor)))",
+    "digest.update(anchor)",
+    "print('agt-cu-boot-v1-' + digest.hexdigest())",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, host_identity, boot_id], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_privilege_plan_boot_identity_probe:" + output.stderr);
+  const identity = output.stdout.trim();
+  ensure(identity.startsWith("agt-cu-boot-v1-") && identity.length === "agt-cu-boot-v1-".length + 64,
+         "cu_linux_privilege_plan_boot_identity_shape:" + identity);
+  return identity;
+}
+
+function independent_process_probe(pid) {
+  const script = [
+    "import os, sys",
+    "pid = int(sys.argv[1])",
+    "stat = open(f'/proc/{pid}/stat').read()",
+    "parts = stat.rsplit(') ', 1)[1].split()",
+    "start_ticks = parts[19]",
+    "nice = int(parts[16])",
+    "print(f'proc-start-ticks:{start_ticks}\\n{nice}')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_privilege_plan_process_probe:" + output.stderr);
+  const lines = output.stdout.trim().split("\n");
+  ensure(lines.length === 2, "cu_linux_privilege_plan_process_probe_shape:" + output.stdout);
+  const nice = Number(lines[1]);
+  ensure(nice === nice && nice >= -20 && nice <= 20,
+         "cu_linux_privilege_plan_process_probe_nice:" + output.stdout);
+  return { start_identity: lines[0], nice: nice };
+}
+
+function plan_priority(run_directory, executable, pid, nice, ttl_seconds) {
+  return invoke(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "privilege", "plan", "process.set-priority", "" + pid, "" + nice,
+    "--ttl-seconds", "" + ttl_seconds,
+  ], true, "priority");
+}
+
+function plan_power(run_directory, executable, action, ttl_seconds) {
+  return invoke(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "privilege", "plan", "system.power-action", action,
+    "--ttl-seconds", "" + ttl_seconds,
+  ], true, "power-" + action);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_linux_privilege_plan_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-privilege-plan");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP setup enrolls the private installation identity");
+  const setup = invoke(context.run_directory, executable,
+    ["--target", "current", "--grant", "actuate", "setup", "--bin-dir",
+     rh.join(context.run_directory, "bin")], true, "setup");
+  ensure(setup.command === "setup" && setup.data.installation_identity.status === "ready",
+         "cu_linux_privilege_plan_setup_identity");
+
+  print("STEP process.set-priority plan is identity-bound and does not mutate nice");
+  const pid = rh.pid();
+  const before_probe = independent_process_probe(pid);
+  const desired_nice = before_probe.nice === 0 ? 5 : 0;
+  const priority_reply = plan_priority(context.run_directory, executable, pid, desired_nice, 60);
+  const after_probe = independent_process_probe(pid);
+  ensure(before_probe.nice === after_probe.nice,
+         "cu_linux_privilege_plan_nice_mutated:before=" + before_probe.nice
+         + ":after=" + after_probe.nice);
+  ensure(before_probe.start_identity === after_probe.start_identity,
+         "cu_linux_privilege_plan_identity_mutated");
+  ensure(priority_reply.command === "privilege-plan", "cu_linux_privilege_plan_priority_command");
+  ensure(text_at(priority_reply, "data.operation") === "process.set-priority",
+         "cu_linux_privilege_plan_priority_operation");
+  ensure(text_at(priority_reply, "data.mutation_performed") === "false",
+         "cu_linux_privilege_plan_priority_mutation");
+  ensure(Number(text_at(priority_reply, "data.before.nice")) === before_probe.nice,
+         "cu_linux_privilege_plan_priority_before");
+  ensure(Number(text_at(priority_reply, "data.after.nice")) === desired_nice,
+         "cu_linux_privilege_plan_priority_after");
+  ensure(text_at(priority_reply, "data.target.start_identity") === before_probe.start_identity,
+         "cu_linux_privilege_plan_priority_identity");
+  ensure(text_at(priority_reply, "data.contract_digest").length === 64,
+         "cu_linux_privilege_plan_priority_contract");
+  ensure(text_at(priority_reply, "data.approval_digest").length === 64,
+         "cu_linux_privilege_plan_priority_approval");
+  ensure(
+    Number(text_at(priority_reply, "data.expires_at_utc_ms"))
+      - Number(text_at(priority_reply, "data.issued_at_utc_ms")) === 60000,
+    "cu_linux_privilege_plan_priority_expiry"
+  );
+
+  print("STEP every closed power intent is host/boot-bound and does not mutate boot state");
+  const boot_id_before = independent_boot_id();
+  const uptime_before = independent_uptime_milliseconds();
+  let first_power = null;
+  for (const action of ["sleep", "restart", "shutdown"]) {
+    const reply = plan_power(context.run_directory, executable, action, 60);
+    ensure(reply.command === "privilege-plan", "cu_linux_privilege_plan_power_command");
+    ensure(text_at(reply, "data.operation") === "system.power-action",
+           "cu_linux_privilege_plan_power_operation");
+    ensure(text_at(reply, "data.action") === action, "cu_linux_privilege_plan_power_action");
+    ensure(text_at(reply, "data.host_identity").startsWith("agt-cu-host-v1-"),
+           "cu_linux_privilege_plan_host_identity");
+    ensure(text_at(reply, "data.boot_identity").startsWith("agt-cu-boot-v1-"),
+           "cu_linux_privilege_plan_boot_identity");
+    ensure(text_at(reply, "data.consent_requested") === "false",
+           "cu_linux_privilege_plan_consent");
+    ensure(text_at(reply, "data.mutation_performed") === "false",
+           "cu_linux_privilege_plan_power_mutation");
+    ensure(text_at(reply, "data.contract_digest").length === 64,
+           "cu_linux_privilege_plan_power_contract");
+    ensure(
+      Number(text_at(reply, "data.expires_at_utc_ms"))
+        - Number(text_at(reply, "data.issued_at_utc_ms")) === 60000,
+      "cu_linux_privilege_plan_power_expiry"
+    );
+    const expected_boot = independent_boot_identity(
+      text_at(reply, "data.host_identity"),
+      boot_id_before
+    );
+    ensure(text_at(reply, "data.boot_identity") === expected_boot,
+           "cu_linux_privilege_plan_boot_identity_mismatch:" + action);
+    if (first_power === null) { first_power = reply; }
+    else {
+      ensure(text_at(reply, "data.host_identity") === text_at(first_power, "data.host_identity"),
+             "cu_linux_privilege_plan_host_stability");
+      ensure(text_at(reply, "data.boot_identity") === text_at(first_power, "data.boot_identity"),
+             "cu_linux_privilege_plan_boot_stability");
+      ensure(text_at(reply, "data.contract_digest") !== text_at(first_power, "data.contract_digest"),
+             "cu_linux_privilege_plan_intent_digest");
+    }
+  }
+  const boot_id_after = independent_boot_id();
+  const uptime_after = independent_uptime_milliseconds();
+  ensure(boot_id_before === boot_id_after,
+         "cu_linux_privilege_plan_boot_id_mutated:" + boot_id_before + "!=" + boot_id_after);
+  ensure(uptime_after >= uptime_before,
+         "cu_linux_privilege_plan_uptime_regressed:before=" + uptime_before
+         + ":after=" + uptime_after);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-privilege-plan-readback");
+  harness.remove_run(context);
+  print("PASS: CEO Linux privilege-plan observe honesty with independent process and boot read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
