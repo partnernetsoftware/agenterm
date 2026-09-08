@@ -1,0 +1,192 @@
+// CEO: Linux host_clock honesty via capabilities with independent date read-back.
+// Acceptance is smoke read-back only: utc_offset must match `date +%z`, local
+// civil fields must match an independent `date` bracket, and repeated calls must
+// keep the same UTC offset. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-local-clock-readback",
+];
+
+const LOCAL_SLACK_SECONDS = 5;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke(run_directory, executable, arguments) {
+  const output = rh.command(executable, arguments, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_local_clock_exit:" + output.exit_code + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_linux_local_clock_reply:" + JSON.stringify(reply));
+  return reply;
+}
+
+function independent_offset_z() {
+  const output = rh.command("date", ["+%z"], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_local_clock_date_z:" + output.stderr);
+  const offset = output.stdout.trim();
+  ensure(offset.length === 5 && (offset.charAt(0) === "+" || offset.charAt(0) === "-"),
+         "cu_linux_local_clock_date_z_shape:" + offset);
+  return offset;
+}
+
+function offset_z_to_seconds(offset_z) {
+  const sign = offset_z.charAt(0) === "-" ? -1 : 1;
+  const hours = Number(offset_z.substring(1, 3));
+  const minutes = Number(offset_z.substring(3, 5));
+  ensure(hours === hours && minutes === minutes,
+         "cu_linux_local_clock_offset_parse:" + offset_z);
+  return sign * (hours * 3600 + minutes * 60);
+}
+
+function independent_local_civil() {
+  const output = rh.command("date", ["+%Y %m %d %H %M %S"], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_local_clock_date_local:" + output.stderr);
+  const parts = output.stdout.trim().split(" ");
+  ensure(parts.length === 6, "cu_linux_local_clock_date_local_shape:" + output.stdout);
+  return {
+    year: Number(parts[0]),
+    month: Number(parts[1]),
+    day: Number(parts[2]),
+    hour: Number(parts[3]),
+    minute: Number(parts[4]),
+    second: Number(parts[5]),
+  };
+}
+
+function civil_seconds(civil) {
+  return civil.hour * 3600 + civil.minute * 60 + civil.second;
+}
+
+function civil_near(candidate, lower, upper) {
+  const value = civil_seconds(candidate);
+  const low = civil_seconds(lower) - LOCAL_SLACK_SECONDS;
+  const high = civil_seconds(upper) + LOCAL_SLACK_SECONDS;
+  return value >= low && value <= high;
+}
+
+function host_clock(reply) {
+  const data = rh.field(reply, "data");
+  const clock = rh.field(data, "host_clock");
+  ensure(clock !== undefined && clock !== null, "cu_linux_local_clock_missing");
+  return clock;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_linux_local_clock_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-local-clock");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent date +%z and local civil time bracket one capabilities observation");
+  const offset_before = independent_offset_z();
+  const local_before = independent_local_civil();
+  const reply = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "capabilities",
+  ]);
+  const offset_after = independent_offset_z();
+  const local_after = independent_local_civil();
+
+  ensure(reply.command === "capabilities" && reply.target === "current",
+         "cu_linux_local_clock_command");
+  const clock = host_clock(reply);
+  const offset_z = text_at(clock, "utc_offset");
+  const offset_seconds = Number(text_at(clock, "utc_offset_seconds"));
+
+  ensure(offset_before === offset_after,
+         "cu_linux_local_clock_host_offset_changed:" + offset_before + "!=" + offset_after);
+  ensure(offset_z === offset_before,
+         "cu_linux_local_clock_offset_mismatch:cu=" + offset_z + ":host=" + offset_before);
+
+  const expected_seconds = offset_z_to_seconds(offset_before);
+  ensure(offset_seconds === expected_seconds,
+         "cu_linux_local_clock_offset_seconds_mismatch:cu=" + offset_seconds
+         + ":expected=" + expected_seconds);
+
+  const local = rh.field(clock, "local");
+  ensure(local !== undefined && local !== null, "cu_linux_local_clock_local_missing");
+  ensure(Number(text_at(local, "year")) === local_before.year
+         && Number(text_at(local, "month")) === local_before.month
+         && Number(text_at(local, "day")) === local_before.day,
+         "cu_linux_local_clock_date_mismatch:cu="
+         + JSON.stringify(local) + ":host=" + JSON.stringify(local_before));
+  ensure(civil_near(local, local_before, local_after),
+         "cu_linux_local_clock_time_mismatch:cu="
+         + JSON.stringify(local) + ":before=" + JSON.stringify(local_before)
+         + ":after=" + JSON.stringify(local_after));
+
+  print("STEP repeated capabilities observations keep the same UTC offset");
+  const second = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "capabilities",
+  ]);
+  const second_clock = host_clock(second);
+  ensure(text_at(second_clock, "utc_offset") === offset_z,
+         "cu_linux_local_clock_offset_unstable");
+  ensure(Number(text_at(second_clock, "utc_offset_seconds")) === offset_seconds,
+         "cu_linux_local_clock_offset_seconds_unstable");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-local-clock-readback");
+  harness.remove_run(context);
+  print("PASS: Linux host_clock utc_offset and local civil time match independent date read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

@@ -331,6 +331,10 @@
       "evidence": ["cu.linux-desktop-state"]
     },
     {
+      "id": "cu-linux-local-clock-smoke",
+      "evidence": ["cu.linux-local-clock-readback"]
+    },
+    {
       "id": "cu-app-facts-smoke",
       "evidence": ["cu.app-facts.linux"]
     },

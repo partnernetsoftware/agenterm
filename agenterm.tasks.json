@@ -1075,6 +1075,23 @@
         "task.cu-linux-power-status-smoke"
       ]
     },
+    "cu-linux-local-clock-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-local-clock-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-local-clock-smoke"
+      ]
+    },
     "cu-linux-gtk-button-focus-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4623,6 +4640,24 @@
       "id": "cu-linux-power-status-smoke",
       "description": "Prove Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-power-status-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-local-clock-smoke",
+      "description": "Prove Linux capabilities host_clock utc_offset and local civil time match independent date +%z read-back and stay stable across repeated observations; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-local-clock-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
