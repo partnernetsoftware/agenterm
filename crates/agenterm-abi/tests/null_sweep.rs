@@ -163,6 +163,8 @@ type A11yNodeString = unsafe extern "C" fn(usize, i32, *mut u8, usize, *mut usiz
 type A11yNodeActionName = unsafe extern "C" fn(usize, usize, *mut u8, usize, *mut usize) -> i32;
 type A11yNodePerform = unsafe extern "C" fn(isize, *const c_char, i32) -> i32;
 type A11yNodeClick = unsafe extern "C" fn(isize, *const c_char, i32, u32) -> i32;
+type A11yDragBetweenNodes =
+    unsafe extern "C" fn(isize, *const c_char, *const c_char, i32, u32) -> i32;
 type A11yNodeHover = unsafe extern "C" fn(isize, *const c_char) -> i32;
 type A11yNodeWheel = unsafe extern "C" fn(isize, *const c_char, i32, i32) -> i32;
 type A11yNodeInvoke = unsafe extern "C" fn(isize, *const c_char, i32, *const u8, usize) -> i32;
@@ -858,6 +860,15 @@ fn null_group() -> Vec<SweepCase> {
             call: Box::new(|lib| {
                 let f: Symbol<A11yNodeClick> = unsafe { sym(lib, b"agt_a11y_node_click") };
                 unsafe { CallResult::Status(f(0, std::ptr::null(), 0, 1)) }
+            }),
+        },
+        SweepCase {
+            label: "agt_a11y_drag_between_nodes[window_handle=0,from=NULL,to=NULL,button=0,steps=1]",
+            kind: Kind::MustFail,
+            call: Box::new(|lib| {
+                let f: Symbol<A11yDragBetweenNodes> =
+                    unsafe { sym(lib, b"agt_a11y_drag_between_nodes") };
+                unsafe { CallResult::Status(f(0, std::ptr::null(), std::ptr::null(), 0, 1)) }
             }),
         },
         SweepCase {
@@ -1662,10 +1673,10 @@ fn cap_group() -> Vec<SweepCase> {
     ]
 }
 
-/// Milestone 12+63 sweep entry point: 49 pointer/handle-taking exports (the
+/// Milestone 12+63 sweep entry point: 50 pointer/handle-taking exports (the
 /// original 33 + the 11 milestone 43/45 computer-use exports swept since
 /// milestone 63 + five additive ABI exports) plus the
-/// `agt_process_kill(pid=0)` safety boundary, 84
+/// `agt_process_kill(pid=0)` safety boundary, 85
 /// combinations in total.
 #[test]
 fn null_sweep_every_pointer_export() {

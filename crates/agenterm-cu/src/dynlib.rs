@@ -432,6 +432,7 @@ const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[
     b"agt_a11y_node_action_name",
     b"agt_a11y_node_perform",
     b"agt_a11y_node_click",
+    b"agt_a11y_drag_between_nodes",
     b"agt_a11y_node_hover",
     b"agt_a11y_node_wheel",
     b"agt_a11y_node_invoke",

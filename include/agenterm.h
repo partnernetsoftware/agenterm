@@ -501,10 +501,15 @@ agt_status agt_a11y_node_action_name(size_t node_index, size_t action_index,
 agt_status agt_a11y_node_perform(intptr_t window_handle, const char* node_id,
                                    agt_a11y_action_kind action);
 
-/* ABI 1.31: deliver a bounded native click, or move the pointer to the node
- * center without clicking. Unsupported host mechanisms fail typed. */
+/* ABI 1.31: deliver a bounded native click, drag between two exact nodes,
+ * move the pointer to a node center, or deliver a bounded named-node wheel.
+ * Unsupported host mechanisms fail typed. */
 agt_status agt_a11y_node_click(intptr_t window_handle, const char* node_id,
                                int32_t button, uint32_t clicks);
+agt_status agt_a11y_drag_between_nodes(intptr_t window_handle,
+                                       const char* from_node_id,
+                                       const char* to_node_id,
+                                       int32_t button, uint32_t steps);
 agt_status agt_a11y_node_hover(intptr_t window_handle, const char* node_id);
 agt_status agt_a11y_node_wheel(intptr_t window_handle, const char* node_id,
                                int32_t delta_x, int32_t delta_y);
