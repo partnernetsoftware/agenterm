@@ -64,8 +64,8 @@ measures three variants using the same callback duration and lock:
 | variant | changed axis | expected discriminant |
 |---|---|---|
 | synchronous | no helper | cancellation waits for callback completion |
-| detached | helper returns on flag | fast return but active callback/held lock |
-| cooperative | callback polls the flag | fast return and no residual owner |
+| detached | helper returns on flag | fast return but active callback/held lock; measure the next lock acquisition |
+| cooperative | callback polls the flag | fast return and no residual owner; structural control only |
 
 No OS API, provider binary, GUI, or machine-control operation is involved.
 
@@ -77,13 +77,15 @@ No OS API, provider binary, GUI, or machine-control operation is involved.
 | C2 | boolean / safety | serialization lock is immediately available |
 | C3 | wall clock | cancellation returns below 100 ms |
 | C4 | behavior | synchronous baseline takes at least 200 ms |
+| C5 | slope / safety | a second provider call waits below 50 ms after cancellation |
 
-C1 then C2 dominate C3. Fast but still-running work loses.
+C1 then C2 dominate C3; C5 measures the user-visible cost rather than inferring
+it from the lock alone. Fast cancellation with delayed subsequent work loses.
 
 ## 4. Decision tree, kill criterion, and timebox
 
-1. If C1 or C2 fails, reject that variant regardless of C3.
-2. If C1 and C2 pass but C3 fails, retain process containment and design a
+1. If C1, C2, or C5 fails, reject that variant regardless of C3.
+2. If C1, C2 and C5 pass but C3 fails, retain process containment and design a
    cooperative cancellation contract before editing the bridge ABI.
 3. If all pass, the variant may proceed to a product integration court; this
    experiment alone does not ship it.
@@ -107,6 +109,8 @@ research/acu-bridge-cancellation/
 | asynchronous `CuReply` invented in qjswasm | duplicates product protocol and authority |
 | retry after worker kill | mutation outcome may be unknown |
 | one timeout for every verb | mixes runtime robustness with per-operation semantics |
+| `try_lock` and return provider-busy | authority work still runs after cancellation and a valid next call becomes a transient refusal |
+| join for a fixed grace | an uncooperative FFI callback has no finite join bound; this moves the same hang |
 
 ## 7. Not answered
 
@@ -117,11 +121,13 @@ research/acu-bridge-cancellation/
 
 ## 8. Result
 
-The 2026-09-08 run followed the decision tree directly: detached execution
-failed C1 and C2 despite passing C3, so it is rejected. Cooperative execution
-passed C1-C3; the synchronous baseline passed C4 and confirmed the original
-non-preemptible behavior. Therefore qjswasm must not wrap `AcuBridgeFn` in a
-detached helper thread. The existing Script worker remains the hard containment
+The 2026-09-08 policy gates reject detached execution by definition when work
+continues after cancellation; the probe demonstrates that violation and
+measures its consequence rather than discovering the policy. Detached execution
+failed C1, C2 and C5 despite passing C3. Cooperative execution passed C1-C3 and
+C5 in the structural control; the synchronous baseline passed C4. Therefore
+qjswasm must not wrap `AcuBridgeFn` in a detached helper thread. The existing
+Script worker remains the hard containment
 boundary until Executor/native waits accept and honor one cooperative cancel
 token. Exact measurements and the replay command live in
 `research/acu-bridge-cancellation/RESULTS.md`.
