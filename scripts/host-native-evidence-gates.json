@@ -184,6 +184,13 @@
       ]
     },
     {
+      "id": "cu-scroll-wheel-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.scroll-wheel-named-extents"
+      ]
+    },
+    {
       "id": "cu-macos-external-terminal-send-smoke",
       "platform": "macos",
       "evidence": [

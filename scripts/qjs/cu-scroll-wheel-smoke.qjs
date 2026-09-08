@@ -1,0 +1,197 @@
+// CEO#4: Linux scroll-wheel --name on a scrollable Chrome field.
+// Acceptance is smoke read-back only: independent get-extents before/after
+// must show the OffscreenField screen y coordinate move. No --coords,
+// no screenshot, no coordinate degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.scroll-wheel-named-extents",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_scroll_wheel_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_scroll_wheel_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_scroll_wheel_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function chrome_scroll_window(run_directory, executable, title_prefix) {
+  const inventory = run_cu(run_directory, executable, "observe", ["windows"]);
+  const rows = inventory.data.windows === undefined ? inventory.data : inventory.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title").indexOf(title_prefix) === 0) {
+      return {
+        handle: "" + at(row, "handle"),
+      };
+    }
+  }
+  return null;
+}
+
+function field_extents_y(run_directory, executable, handle_text) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle_text, "--name", "OffscreenField",
+  ]);
+  return int_at(reply, "data.extents.y");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_scroll_wheel_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_scroll_wheel_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-scroll-wheel");
+const run_directory = rh.join(repo, "target/cu-scroll-wheel-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_title = "CEO4 Scroll Wheel " + context.run_id;
+const fixture_source = rh.join(repo, "fixtures/cu/35-chrome-scroll.html");
+const fixture = rh.join(run_directory, "35-chrome-scroll.html");
+const fixture_html = rh.read_text(fixture_source).replace(
+  "35 Chrome Scroll Fixture",
+  fixture_title
+);
+rh.write_text(fixture, fixture_html);
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9299;
+let chrome_child = -1;
+
+try {
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "file://" + fixture,
+    ],
+    current_dir: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+
+  let window = null;
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_scroll_wheel_window_wait");
+  for (let attempt = 0; attempt < 20; attempt = attempt + 1) {
+    window = chrome_scroll_window(run_directory, executable, fixture_title);
+    if (window !== null) { break; }
+    harness.sleep_ms(250);
+  }
+  ensure(window !== null, "cu_scroll_wheel_window_missing");
+
+  let before_y = 0;
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    before_y = field_extents_y(run_directory, executable, window.handle);
+    if (before_y > 1000) { break; }
+    harness.sleep_ms(250);
+  }
+  ensure(
+    before_y > 1000,
+    "cu_scroll_wheel_offscreen_baseline:" + before_y
+  );
+
+  print("STEP independent get-extents reads OffscreenField below the fold (y=" + before_y + ")");
+  print("STEP scroll-wheel --name OffscreenField delivers dy=-5 at the named node center");
+  const wheeled = run_cu(run_directory, executable, "observe,actuate", [
+    "scroll-wheel", "--window", window.handle, "--name", "OffscreenField", "--dx", "0", "--dy", "-5",
+  ]);
+  ensure(
+    flag_at(wheeled, "data.verified")
+      && text_at(wheeled, "data.addressing") === "accessibility-tree",
+    "cu_scroll_wheel_actuate:" + JSON.stringify(wheeled.data)
+  );
+
+  print("STEP independent get-extents confirms the field moved into view");
+  const after_y = field_extents_y(run_directory, executable, window.handle);
+  ensure(
+    after_y < before_y - 500,
+    "cu_scroll_wheel_extents_readback:" + before_y + "->" + after_y
+  );
+} finally {
+  if (chrome_child >= 0) {
+    try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+  }
+}
+
+harness.emit_evidence(context, declared_evidence, "cu.scroll-wheel-named-extents");
+harness.remove_run(context);
+print("PASS: CEO#4 Linux scroll-wheel --name with independent extents read-back");
+return;

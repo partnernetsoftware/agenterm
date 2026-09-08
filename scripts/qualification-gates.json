@@ -547,6 +547,12 @@
       ]
     },
     {
+      "id": "cu-scroll-wheel-smoke",
+      "evidence": [
+        "cu.scroll-wheel-named-extents"
+      ]
+    },
+    {
       "id": "cu-tree-selector-smoke",
       "evidence": [
         "cu.tree-selector-subtree"
