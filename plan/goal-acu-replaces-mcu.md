@@ -218,13 +218,16 @@ queued. Queued cancellation is zero-provider/zero-effect; cancellation after
 dispatch cannot overwrite the authoritative effect receipt. Fake lifecycle
 courts and a local fixed-sibling provider shell effect are green. Startup
 queueing is deterministic, and output disconnect is reported only after
-session cleanup. It remains unadvertised until persisted target-bound
-authorization, lease renewal and packaged six-cell interactive stdio execution
-are green. The executor composition kernel now reserves the durable request
-before consuming a persisted grant, binds the request fingerprint to that
-grant selection and preserves session-owned dispatch context. Provider envelope
-and sidecar configuration remain deliberately closed, so this does not promote
-the MCP mutation tool.
+session cleanup. A stdout-only disconnect now stops admission at the first
+failed write, cancels queued work, waits for the dispatched provider call and
+attempts exactly one session-end while stdin remains open; tests no longer
+hide this path behind simultaneous EOF. It remains unadvertised until
+persisted target-bound authorization, lease renewal and packaged six-cell
+interactive stdio execution are green. The executor composition kernel now
+reserves the durable request before consuming a persisted grant, binds the
+request fingerprint to that grant selection and preserves session-owned
+dispatch context. Provider envelope and sidecar configuration remain
+deliberately closed, so this does not promote the MCP mutation tool.
 
 ```text
 MCU retirement blockers
@@ -1091,8 +1094,13 @@ do not consume a use, legacy schema-2 records never gain inferred authority,
 and unknown operation ids fail before creating product state. macOS now has a
 sealed completed-console-session provider and a public qjswasm court proving
 operation mismatch, zero consumption, exact intended consumption and durable
-revocation. Windows still needs the exact public rerun, while Linux needs its
-sealed current-session identity provider before this row can become native.
+revocation. Windows still needs the exact public rerun. Linux now has a sealed
+provider against the fixed sd-login ABI: it requires the process to belong to
+the unique active local graphical user session and active seat, rejects
+root/QGA, greeter, remote, headless, ambiguous and changing sessions, and
+re-reads the live inventory before publishing an opaque binding. Both Linux
+ISA test images link; native desktop execution and the public persisted-grant
+court remain the qualification gate before this row can become native.
 
 The historical TypeScript oracle is not a transition router or runtime. A
 remaining `acu_todo` means “ACU cannot yet express this exact public shape;
