@@ -62,9 +62,11 @@ client, and a deliberately bounded tmux/RMUX frontend.
   out to `partnernetsoftware/rh` on 2026-08-29; archived Rhai sources live
   under `scripts/archive/rhai/`. `agenterm rh` and `agenterm qjs` answer
   with where their verbs went.
-- `agenterm cli acu [ARGS...]` is the Bun-free compatibility entry for typed
-  computer use. Its qjswasm source is built into AgenTerm, so it works outside
-  the source checkout and never falls back to the archived MCU runtime.
+- `agenterm cli acu [--timeout-ms N] [ARGS...]` is the Bun-free compatibility
+  entry for typed computer use. Its qjswasm source is built into AgenTerm, so
+  it works outside the source checkout and never falls back to the archived
+  MCU runtime. The worker envelope defaults to 650 seconds so CU's narrower
+  provider-owned deadlines remain authoritative.
 - `agenterm cli mcp` is the on-demand read-only MCP surface (no separate
   `agenterm-mcp` PE). Its first v0.1.10 slice serves four metadata-only Fleet
   resources and one bounded `agenterm_wait` tool over stdio; it exposes no

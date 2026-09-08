@@ -1917,17 +1917,36 @@ fn run_acu_compat_command(arguments: &[String]) -> i32 {
     )
 }
 
+// ACU verbs own their narrower operation deadlines (the longest current
+// provider contract is 600 seconds). The compatibility entry therefore needs
+// a wider worker envelope than an ordinary 2-second tool script, or the host
+// kills a valid long-running CU operation before its typed deadline fires.
+const ACU_COMPAT_DEFAULT_TIMEOUT_MS: &str = "650000";
+
 fn acu_compat_script_arguments(arguments: &[String]) -> Vec<String> {
+    let (timeout_ms, legacy_arguments) = if arguments
+        .first()
+        .is_some_and(|value| value == "--timeout-ms")
+    {
+        (
+            arguments.get(1).map(String::as_str).unwrap_or(""),
+            arguments.get(2..).unwrap_or_default(),
+        )
+    } else {
+        (ACU_COMPAT_DEFAULT_TIMEOUT_MS, arguments)
+    };
     let mut translated = vec![
         "script".to_owned(),
         "run".to_owned(),
         "--profile".to_owned(),
         "tool".to_owned(),
+        "--timeout-ms".to_owned(),
+        timeout_ms.to_owned(),
         "--exit-code-from-value".to_owned(),
         crate::script_engine::AGENTERM_ACU_ENTRY_LABEL.to_owned(),
         "--".to_owned(),
     ];
-    translated.extend_from_slice(arguments);
+    translated.extend_from_slice(legacy_arguments);
     translated
 }
 
@@ -4938,18 +4957,39 @@ mod tests {
         ];
         let translated = super::acu_compat_script_arguments(&legacy);
         assert_eq!(
-            &translated[..7],
+            &translated[..9],
             [
                 "script",
                 "run",
                 "--profile",
                 "tool",
+                "--timeout-ms",
+                super::ACU_COMPAT_DEFAULT_TIMEOUT_MS,
                 "--exit-code-from-value",
                 crate::script_engine::AGENTERM_ACU_ENTRY_LABEL,
                 "--",
             ]
         );
-        assert_eq!(&translated[7..], legacy);
+        assert_eq!(&translated[9..], legacy);
+    }
+
+    #[test]
+    fn embedded_acu_translation_accepts_one_leading_worker_timeout_override() {
+        let legacy = vec![
+            "--timeout-ms".to_owned(),
+            "5000".to_owned(),
+            "job".to_owned(),
+            "wait".to_owned(),
+            "owned-job".to_owned(),
+            "--timeout-ms".to_owned(),
+            "4000".to_owned(),
+        ];
+        let translated = super::acu_compat_script_arguments(&legacy);
+        assert_eq!(&translated[4..6], ["--timeout-ms", "5000"]);
+        assert_eq!(
+            &translated[9..],
+            ["job", "wait", "owned-job", "--timeout-ms", "4000"]
+        );
     }
 
     /// Every `value_type` the catalog declares must have a real arm in the

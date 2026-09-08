@@ -449,7 +449,7 @@ pub(crate) fn validate_control_command(args: &[String]) -> Result<(), String> {
 fn control_command_spec(command: &str) -> Option<ControlCommandSpec> {
     let (usage, value_options, flag_options, child_at_first_positional) = match command {
         "acu" => (
-            "agenterm cli acu [LEGACY-ACU-ARGS...]",
+            "agenterm cli acu [--timeout-ms N] [LEGACY-ACU-ARGS...]",
             &[][..],
             &[][..],
             true,

@@ -91,6 +91,8 @@ agenterm-qjswasm
 │  ├─ [~] ACU cancellation ownership
 │  │  ├─ [x] detached helper rejected: it returns while callback and provider lock remain live
 │  │  ├─ [x] Script worker process remains the bounded hard-containment boundary
+│  │  ├─ [x] `agenterm cli acu` supplies a 650-second worker envelope for provider-owned
+│  │  │      deadlines up to 600 seconds; a leading `--timeout-ms N` explicitly overrides it
 │  │  └─ [ ] pass one cooperative token through Executor and interruptible native waits
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
