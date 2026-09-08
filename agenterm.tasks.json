@@ -833,6 +833,44 @@
         "task.cu-linux-gtk-button-focus-smoke"
       ]
     },
+    "cu-linux-gtk-copy-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-copy-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-copy-smoke"
+      ]
+    },
+    "cu-linux-gtk-entry-caret-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-entry-caret-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-entry-caret-smoke"
+      ]
+    },
     "cu-linux-gtk-entry-paste-smoke": {
       "inputs": [
         "built-agenterm-cu",

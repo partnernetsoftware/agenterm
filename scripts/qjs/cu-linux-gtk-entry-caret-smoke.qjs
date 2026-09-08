@@ -1,0 +1,195 @@
+// CEO#9: GTK entry set-caret / get-caret roundtrip by --name.
+// Plant SEED with send-text, set-caret to a known offset, independent
+// get-caret must return that offset. AT-SPI --name only; no --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-gtk-entry-set-caret",
+  "cu.linux-gtk-entry-get-caret",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_gtk_entry_caret_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_gtk_entry_caret_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_gtk_entry_caret_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const context = harness.new_context(repo, "cu-linux-gtk-entry-caret");
+const run_directory = rh.join(repo, "target/cu-linux-gtk-entry-caret-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_gtk_entry_caret_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_entry_caret_window_wait");
+  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(row !== null, "cu_linux_gtk_entry_caret_window_identity");
+  const handle = "" + at(row, "handle");
+
+  print("STEP focus moves AT-SPI focus to the named GTK entry");
+  run_cu(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  const focused = run_cu(run_directory, executable, "observe", [
+    "focused", "--window", handle,
+  ]);
+  ensure(
+    text_at(focused, "data.node.name") === "Fixture Entry",
+    "cu_linux_gtk_entry_caret_focused:" + JSON.stringify(focused.data)
+  );
+
+  const seed = "ceo9-caret-" + context.run_id;
+  const caret_offset = 3;
+  print("STEP send-text --name plants SEED through AT-SPI EditableText/Text");
+  const sent = run_cu(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--name", "Fixture Entry", "--", seed,
+  ]);
+  ensure(
+    text_at(sent, "data.typed") === seed
+      && text_at(sent, "data.addressing") === "accessibility-tree",
+    "cu_linux_gtk_entry_caret_send:" + JSON.stringify(sent.data)
+  );
+
+  print("STEP independent get-caret before set-caret is not the target offset");
+  const before = run_cu(run_directory, executable, "observe", [
+    "get-caret", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  ensure(
+    text_at(before, "data.via") === "get-caret-offset",
+    "cu_linux_gtk_entry_caret_before_via:" + JSON.stringify(before.data)
+  );
+  const before_offset = int_at(before, "data.offset");
+  ensure(
+    before_offset !== caret_offset,
+    "cu_linux_gtk_entry_caret_before_not_target:" + JSON.stringify({
+      before: before_offset,
+      target: caret_offset,
+    })
+  );
+
+  print("STEP set-caret --name --offset N moves caret through AT-SPI Text.SetCaretOffset");
+  const placed = run_cu(run_directory, executable, "observe,actuate", [
+    "set-caret", "--window", handle, "--name", "Fixture Entry",
+    "--offset", "" + caret_offset,
+  ]);
+  ensure(
+    text_at(placed, "data.addressing") === "accessibility-tree"
+      && text_at(placed, "data.via") === "set-caret-offset"
+      && int_at(placed, "data.offset") === caret_offset,
+    "cu_linux_gtk_entry_caret_set:" + JSON.stringify(placed.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-set-caret");
+
+  print("STEP independent get-caret --name must return the set offset");
+  const caret = run_cu(run_directory, executable, "observe", [
+    "get-caret", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  ensure(
+    text_at(caret, "data.via") === "get-caret-offset"
+      && int_at(caret, "data.offset") === caret_offset,
+    "cu_linux_gtk_entry_caret_readback:" + JSON.stringify({
+      target: caret_offset,
+      caret: caret.data,
+    })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-get-caret");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  harness.wait(fixture, 5000);
+}
+
+ensure(succeeded === 1, failure || "cu_linux_gtk_entry_caret_failed");
+print("PASS: CEO#9 GTK entry set-caret / get-caret roundtrip by --name (independent offset read-back)");
