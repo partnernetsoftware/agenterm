@@ -814,6 +814,25 @@
         "task.cu-linux-menu-invoke-smoke"
       ]
     },
+    "cu-linux-gtk-button-focus-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-button-focus-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-button-focus-smoke"
+      ]
+    },
     "cu-linux-menu-invoke-smoke": {
       "inputs": [
         "built-agenterm",
@@ -3575,6 +3594,26 @@
       "id": "cu-linux-browser-profiles-open-smoke",
       "description": "Prove Linux browser-profiles reads installed Google Chrome Local State without a live profile window and browser-open yields a new chrome window verified by independent windows inventory read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-browser-profiles-open-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-button-focus-smoke",
+      "description": "Prove Linux GTK3 button click --name then three independent focused read-backs name the clicked button; AT-SPI --name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-gtk-button-focus-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

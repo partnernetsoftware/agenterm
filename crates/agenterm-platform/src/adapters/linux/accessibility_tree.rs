@@ -555,13 +555,25 @@ pub(crate) fn invoke_menu_path(
     })
 }
 
-/// The window's App-local focused control. Prefer `STATE_FOCUSED` in a
-/// bounded tree walk; when a toolkit omits that state from `GetState`
-/// (measured on GTK3 fixtures), fall back to a live probe and the focus
+/// The window's App-local focused control. When a recent actuation hint
+/// exists (`grab_focus` / `click`), resolve it before the bounded tree
+/// walk: GTK3 buttons often omit `STATE_FOCUSED` while another node in
+/// the same window still carries it (measured: scroll panes after
+/// `click --name`). Otherwise prefer `STATE_FOCUSED` in the tree; when
+/// the toolkit omits that state, fall back to a live probe and the focus
 /// events the registry forwards after registration.
 pub(crate) fn focused_node_for_window(
     window_handle: Option<isize>,
 ) -> Result<AccessibilityNode, AccessibilityTreeError> {
+    if app_focus_hint_for_window(window_handle).is_some() {
+        let hinted = runtime().block_on(async {
+            let conn = connect().await?;
+            focused_node_via_actuation_hint(&conn, window_handle).await
+        });
+        if let Ok(Some(node)) = hinted {
+            return Ok(node);
+        }
+    }
     if let Ok(node) = focused_node_from_tree_snapshot(window_handle) {
         return Ok(node);
     }
@@ -648,6 +660,9 @@ async fn focused_node_via_actuation_hint(
     let Some(hint) = app_focus_hint_for_window(window_handle) else {
         return Ok(None);
     };
+    if let Some(node) = read_focus_hint_node(conn, &hint.object).await {
+        return Ok(Some(node));
+    }
     let identity = window_handle.and_then(window_identity);
     let roots = registry_children(conn).await?;
     let selected = select_roots(conn, roots, identity.as_ref()).await?;
@@ -702,6 +717,27 @@ async fn focused_node_via_actuation_hint(
         }
     }
     Ok(None)
+}
+
+async fn read_focus_hint_node(
+    conn: &zbus::Connection,
+    object: &BusObject,
+) -> Option<AccessibilityNode> {
+    let Ok(Ok(proxy)) = timeout(NODE_TIMEOUT, open_bus_object(conn, object)).await else {
+        return None;
+    };
+    let role = role_name(&proxy).await;
+    let states = states_from_proxy_with_role(&proxy, &role).await;
+    let focusable = states.iter().any(|state| state == "focusable")
+        || states.iter().any(|state| state == "editable");
+    if !focusable
+        || !states
+            .iter()
+            .any(|state| state == "showing" || state == "visible")
+    {
+        return None;
+    }
+    Some(read_node(&proxy, object.path.clone(), None).await)
 }
 
 async fn focused_node_via_live_probe(
@@ -5138,7 +5174,7 @@ fn map_input_inject_err(error: InputInjectError) -> AccessibilityTreeError {
         InputInjectError::Unsupported { reason } => {
             AccessibilityTreeError::failed("a11y_scroll_wheel_unavailable", reason)
         }
-        InputInjectError::Failed { code, message } => AccessibilityTreeError::failed(code, message),
+        InputInjectError::Failed { code, message } => AccessibilityTreeError::Failed { code, message },
     }
 }
 

@@ -2029,7 +2029,11 @@ the same way click's `GetActions` does, and the outer 10s snapshot
 deadline then fires as `a11y_action_timeout` before
 `Component.grab_focus` runs. Bound the Action probe to
 `ACTION_TIMEOUT` (250ms), then `grab_focus`. `click --name` also
-sets the AT-SPI `focused` state if a caller already has that path. `DISPLAY=:2` box-chrome
+records an actuation focus hint under `XDG_RUNTIME_DIR/agenterm/atspi-focus-hint.txt`.
+`focused --window` must resolve that hint (direct D-Bus open of the hinted
+AT-SPI object) before the bounded tree walk: GTK3 buttons often omit
+`STATE_FOCUSED` while a sibling scroll pane still carries it after
+`click --name` (CEO#8 `cu-linux-gtk-button-focus-smoke`). `DISPLAY=:2` box-chrome
 defaults to 9224, which standing `chrome-profile-2` already owns on
 `127.0.0.1` — a second window whose cmdline still says 9224 then
 writes the wrong CDP tree (`no writable node named …`). Launch the
