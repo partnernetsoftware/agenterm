@@ -149,6 +149,7 @@
         "cu.linux-network-probe",
         "cu.linux-network-probe-readback",
         "cu.linux-file-inspect",
+        "cu.linux-file-inspect-readback",
         "cu.linux-terminal-control",
         "cu.linux-external-terminal-observe",
         "cu.linux-display-scale",

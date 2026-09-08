@@ -1,0 +1,129 @@
+// CEO: Linux file-inspect honesty with independent os.lstat read-back.
+// Acceptance is smoke read-back only: CU file-inspect must agree with size,
+// unix mode, modified time, kind and inode identity derived outside agenterm-cu
+// for a regular file, directory and final symlink. No --coords or screenshot
+// degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-file-inspect-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function verify_readback(run_directory, executable) {
+  const script = [
+    "import json, os, shutil, stat, subprocess, sys",
+    "from pathlib import Path",
+    "root = Path(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "fixture = root / 'file-inspect-readback-fixture'",
+    "file_path = fixture / 'item.txt'",
+    "dir_path = fixture / 'subdir'",
+    "link_path = fixture / 'link'",
+    "target_path = fixture / 'target.txt'",
+    "def kind_from_mode(mode):",
+    "    if stat.S_ISLNK(mode):",
+    "        return 'link-like'",
+    "    if stat.S_ISDIR(mode):",
+    "        return 'directory'",
+    "    if stat.S_ISREG(mode):",
+    "        return 'file'",
+    "    return 'other'",
+    "def expected_identity(st, kind):",
+    "    if kind == 'link-like':",
+    "        return ('token', f'unix:{st.st_dev:x}:{st.st_ino:x}')",
+    "    return ('opened', str(st.st_dev), str(st.st_ino))",
+    "def assert_entry(path):",
+    "    st = os.lstat(path)",
+    "    kind = kind_from_mode(st.st_mode)",
+    "    out = subprocess.check_output(",
+    "        [cu, '--target', 'current', '--grant', 'observe', 'file-inspect', str(path)],",
+    "        text=True)",
+    "    reply = json.loads(out)",
+    "    if not reply.get('ok') or reply.get('command') != 'file-inspect':",
+    "        raise SystemExit('cu_linux_file_inspect_reply_state:' + path)",
+    "    data = reply['data']",
+    "    if data.get('followed_final_link') is not False:",
+    "        raise SystemExit('cu_linux_file_inspect_followed:' + path)",
+    "    if data.get('kind') != kind:",
+    "        raise SystemExit(f'cu_linux_file_inspect_kind:{path}:cu={data.get(\"kind\")}:lstat={kind}')",
+    "    if data.get('size_bytes') != str(st.st_size):",
+    "        raise SystemExit(f'cu_linux_file_inspect_size:{path}:cu={data.get(\"size_bytes\")}:lstat={st.st_size}')",
+    "    if data.get('unix_mode') != format(st.st_mode, 'o'):",
+    "        raise SystemExit(f'cu_linux_file_inspect_mode:{path}:cu={data.get(\"unix_mode\")}:lstat={format(st.st_mode, \"o\")}')",
+    "    if int(data.get('modified_unix_ns', '-1')) != st.st_mtime_ns:",
+    "        raise SystemExit(f'cu_linux_file_inspect_mtime:{path}:cu={data.get(\"modified_unix_ns\")}:lstat={st.st_mtime_ns}')",
+    "    identity = data.get('identity') or {}",
+    "    if identity.get('available') is not True:",
+    "        raise SystemExit('cu_linux_file_inspect_identity_unavailable:' + path)",
+    "    expected = expected_identity(st, kind)",
+    "    if expected[0] == 'token':",
+    "        if identity.get('scope') != 'final-entry-metadata' or identity.get('token') != expected[1]:",
+    "            raise SystemExit(f'cu_linux_file_inspect_identity:{path}:cu={identity}:expected_token={expected[1]}')",
+    "    else:",
+    "        if identity.get('scope') != 'opened-object':",
+    "            raise SystemExit('cu_linux_file_inspect_identity_scope:' + path)",
+    "        if identity.get('filesystem_id') != expected[1] or identity.get('object_id') != expected[2]:",
+    "            raise SystemExit(f'cu_linux_file_inspect_identity:{path}:cu={identity}:expected_fs={expected[1]}:expected_ino={expected[2]}')",
+    "    print(path, kind, data['size_bytes'], data['unix_mode'])",
+    "fixture.mkdir(parents=True, exist_ok=True)",
+    "file_path.write_text('file-inspect-readback', encoding='utf-8')",
+    "dir_path.mkdir()",
+    "target_path.write_text('link-target', encoding='utf-8')",
+    "os.symlink(str(target_path), str(link_path))",
+    "try:",
+    "    assert_entry(file_path)",
+    "    assert_entry(dir_path)",
+    "    assert_entry(link_path)",
+    "finally:",
+    "    shutil.rmtree(fixture, ignore_errors=True)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, run_directory, executable], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_file_inspect_readback:" + output.stderr + output.stdout);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-file-inspect");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP file-inspect observe matches independent os.lstat size/mode/mtime/kind/inode read-back");
+  verify_readback(context.run_directory, executable);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-file-inspect-readback");
+  harness.remove_run(context);
+  print("PASS: Linux file-inspect matches independent os.lstat size/mode/mtime/kind/inode read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
