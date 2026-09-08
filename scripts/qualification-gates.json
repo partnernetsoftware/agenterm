@@ -345,6 +345,12 @@
       ]
     },
     {
+      "id": "cu-linux-file-mode-smoke",
+      "evidence": [
+        "cu.linux-file-mode-readback"
+      ]
+    },
+    {
       "id": "cu-linux-fontconfig-monospace-smoke",
       "evidence": [
         "cu.linux-fontconfig-monospace"
@@ -387,6 +393,12 @@
       ]
     },
     {
+      "id": "cu-linux-process-state-smoke",
+      "evidence": [
+        "cu.linux-process-state-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-argv-cwd-smoke",
       "evidence": [
         "cu.linux-process-argv-readback",
@@ -397,6 +409,18 @@
       "id": "cu-linux-process-fds-smoke",
       "evidence": [
         "cu.linux-process-fds-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-process-threads-smoke",
+      "evidence": [
+        "cu.linux-process-threads-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-process-maps-smoke",
+      "evidence": [
+        "cu.linux-process-maps-readback"
       ]
     },
     {

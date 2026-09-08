@@ -1,0 +1,202 @@
+// CEO: Linux file-mode honesty with independent os.lstat permission read-back.
+// Acceptance is smoke read-back only: CU file-mode before_mode must agree with
+// stat.S_IMODE(os.lstat) on a temp regular file; optional actuate apply and
+// restoration must match independent lstat after each step. No --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-file-mode-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: rh.join(run_directory, "home"),
+    USERPROFILE: rh.join(run_directory, "home"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000,
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_linux_file_mode_invalid_reply"; }
+  ensure(reply.command === "file-mode", "cu_linux_file_mode_wrong_command:" + JSON.stringify(reply));
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_linux_file_mode_expected_failure");
+    ensure(reply.error.code === expected_error,
+      "cu_linux_file_mode_wrong_error:" + JSON.stringify(reply.error));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true,
+    "cu_linux_file_mode_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+function native_perm_mode(path) {
+  const script = [
+    "import os, stat, sys",
+    "st = os.lstat(sys.argv[1])",
+    "print(f'{stat.S_IMODE(st.st_mode):04o}')",
+  ].join("\n");
+  const output = rh.command("/usr/bin/python3", ["-c", script, path], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_file_mode_lstat_failed:" + output.stderr);
+  return output.stdout.trim();
+}
+
+function ensure_identity(identity, message) {
+  ensure(identity !== null && typeof identity === "object", message + ":object");
+  ensure(typeof identity.filesystem_id === "string" && identity.filesystem_id.length > 0,
+    message + ":filesystem_id");
+  ensure(typeof identity.object_id === "string" && identity.object_id.length > 0,
+    message + ":object_id");
+  ensure(typeof identity.hard_link_count === "string" && identity.hard_link_count.length > 0,
+    message + ":hard_link_count");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_file_mode_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_file_mode_requires_linux");
+
+const context = harness.new_context(repo, "cu-linux-file-mode");
+const run_directory = context.run_directory;
+const fixture = rh.join(run_directory, "fixture.bin");
+const link = rh.join(run_directory, "fixture-link.bin");
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.write_text(fixture, "file-mode-readback-fixture");
+  const prepared = rh.command("/bin/chmod", ["0640", fixture], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(prepared.success === true, "cu_linux_file_mode_fixture_setup_failed:" + prepared.stderr);
+  ensure(native_perm_mode(fixture) === "0640", "cu_linux_file_mode_fixture_initial_mode");
+
+  print("STEP observe before_mode matches independent os.lstat permission bits");
+  const plan = invoke(run_directory, executable, "observe", [
+    "file-mode", fixture, "0600",
+  ]);
+  ensure_identity(plan.identity, "cu_linux_file_mode_plan_identity");
+  ensure(plan.before_mode === native_perm_mode(fixture),
+    "cu_linux_file_mode_plan_before_mismatch:" + JSON.stringify(plan));
+  ensure(plan.before_mode === "0640" && plan.requested_mode === "0600"
+    && plan.after_mode === "0640" && plan.previous_mode === null,
+    "cu_linux_file_mode_plan_modes:" + JSON.stringify(plan));
+  ensure(plan.action.apply_requested === false && plan.action.performed === false
+    && plan.action.verified === false,
+    "cu_linux_file_mode_plan_action:" + JSON.stringify(plan.action));
+  ensure(native_perm_mode(fixture) === "0640", "cu_linux_file_mode_plan_mutated");
+
+  print("STEP observe plus --apply is denied before mutation");
+  invoke(run_directory, executable, "observe", [
+    "file-mode", fixture, "0600", "--apply",
+  ], "refused");
+  ensure(native_perm_mode(fixture) === "0640", "cu_linux_file_mode_refusal_mutated");
+
+  print("STEP actuate apply changes mode and matches independent lstat read-back");
+  const applied = invoke(run_directory, executable, "actuate", [
+    "file-mode", fixture, "0600", "--apply",
+  ]);
+  ensure_identity(applied.identity, "cu_linux_file_mode_apply_identity");
+  ensure(applied.before_mode === "0640" && applied.requested_mode === "0600"
+    && applied.after_mode === "0600" && applied.previous_mode === "0640",
+    "cu_linux_file_mode_apply_modes:" + JSON.stringify(applied));
+  ensure(applied.action.apply_requested === true && applied.action.performed === true
+    && applied.action.verified === true,
+    "cu_linux_file_mode_apply_action:" + JSON.stringify(applied.action));
+  ensure(native_perm_mode(fixture) === "0600", "cu_linux_file_mode_apply_lstat_mismatch");
+  ensure(applied.after_mode === native_perm_mode(fixture),
+    "cu_linux_file_mode_apply_after_mismatch:" + JSON.stringify(applied));
+
+  print("STEP same-mode apply is a verified no-op with stable lstat read-back");
+  const unchanged = invoke(run_directory, executable, "actuate", [
+    "file", "chmod", fixture, "0600", "--apply",
+  ]);
+  ensure(unchanged.before_mode === "0600" && unchanged.after_mode === "0600"
+    && unchanged.previous_mode === "0600",
+    "cu_linux_file_mode_noop_modes:" + JSON.stringify(unchanged));
+  ensure(unchanged.action.apply_requested === true && unchanged.action.performed === false
+    && unchanged.action.verified === true,
+    "cu_linux_file_mode_noop_action:" + JSON.stringify(unchanged.action));
+  ensure(native_perm_mode(fixture) === "0600", "cu_linux_file_mode_noop_lstat_mutated");
+
+  print("STEP restoration returns the temp fixture to its original mode");
+  const restored = invoke(run_directory, executable, "actuate", [
+    "file-mode", fixture, applied.previous_mode, "--apply",
+  ]);
+  ensure(restored.before_mode === "0600" && restored.requested_mode === "0640"
+    && restored.after_mode === "0640" && restored.previous_mode === "0600",
+    "cu_linux_file_mode_restore_modes:" + JSON.stringify(restored));
+  ensure(restored.action.performed === true && restored.action.verified === true,
+    "cu_linux_file_mode_restore_action:" + JSON.stringify(restored.action));
+  ensure(native_perm_mode(fixture) === "0640", "cu_linux_file_mode_restore_lstat_mismatch");
+  ensure(restored.after_mode === native_perm_mode(fixture),
+    "cu_linux_file_mode_restore_after_mismatch:" + JSON.stringify(restored));
+
+  print("STEP final symlink apply is refused and the target mode stays restored");
+  const linked = rh.command("/bin/ln", ["-s", fixture, link], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(linked.success === true, "cu_linux_file_mode_symlink_setup_failed:" + linked.stderr);
+  invoke(run_directory, executable, "actuate", [
+    "file-mode", link, "0600", "--apply",
+  ], "file_mode_not_regular");
+  ensure(native_perm_mode(fixture) === "0640", "cu_linux_file_mode_symlink_target_mutated");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-file-mode-readback");
+  harness.remove_run(context);
+  print("PASS: Linux file-mode before_mode and apply/restore agree with independent os.lstat permission read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

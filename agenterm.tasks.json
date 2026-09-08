@@ -1350,6 +1350,40 @@
         "task.cu-linux-process-fds-smoke"
       ]
     },
+    "cu-linux-process-maps-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-maps-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-maps-smoke"
+      ]
+    },
+    "cu-linux-process-threads-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-process-threads-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-process-threads-smoke"
+      ]
+    },
     "cu-linux-process-sockets-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -1384,6 +1418,23 @@
       "network": [],
       "evidence": [
         "task.cu-linux-file-inspect-smoke"
+      ]
+    },
+    "cu-linux-file-mode-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-file-mode-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-file-mode-smoke"
       ]
     },
     "cu-linux-process-usage-smoke": {
@@ -5394,6 +5445,24 @@
       ]
     },
     {
+      "id": "cu-linux-process-environment-smoke",
+      "description": "Prove Linux process-environment key presence and values match independent /proc/<pid>/environ read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-environment-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-processor-topology-smoke",
       "description": "Prove Linux processor-topology-status online logical processors, physical cores, packages and NUMA nodes match independent /proc/cpuinfo, lscpu and sysfs read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-processor-topology-smoke.qjs",
@@ -5448,6 +5517,42 @@
       ]
     },
     {
+      "id": "cu-linux-process-maps-smoke",
+      "description": "Prove Linux process-maps region ranges, permissions and paths match independent /proc/<pid>/maps read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-maps-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-process-threads-smoke",
+      "description": "Prove Linux process-threads thread ids, counts and stat-derived fields match independent /proc/<pid>/task read-back for current and chosen PID; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-process-threads-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-process-sockets-smoke",
       "description": "Prove Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-process-sockets-smoke.qjs",
@@ -5481,6 +5586,25 @@
         "linux"
       ],
       "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-file-mode-smoke",
+      "description": "Prove Linux file-mode observe before_mode and actuate apply/restore agree with independent os.lstat permission read-back on a temp regular file; final symlink refusal; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-file-mode-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
         "process_spawn"
       ]
     },
