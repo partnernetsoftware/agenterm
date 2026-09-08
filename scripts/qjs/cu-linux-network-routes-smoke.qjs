@@ -1,0 +1,276 @@
+// CEO: Linux network-routes observe with independent ip route read-back.
+// Acceptance is smoke read-back only: each CU row must match `ip -j route show
+// table all` destination, gateway, interface and sysfs ifindex. No --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-network-routes-ip-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_network_routes_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_network_routes_reply_state");
+  return reply;
+}
+
+function split_whitespace(text) {
+  const parts = [];
+  let current = "";
+  for (let index = 0; index < text.length; index = index + 1) {
+    const code = text.charCodeAt(index);
+    if (code === 9 || code === 10 || code === 13 || code === 32) {
+      if (current.length > 0) {
+        parts.push(current);
+        current = "";
+      }
+    } else {
+      current = current + text.charAt(index);
+    }
+  }
+  if (current.length > 0) { parts.push(current); }
+  return parts;
+}
+
+function normalize_ipv6(address) {
+  const output = rh.command("ip", ["-6", "route", "show", "table", "all", "to", address], {
+    timeout_ms: 10000,
+  });
+  if (!output.success) { return address.toLowerCase(); }
+  const lines = output.stdout.split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index].trim();
+    if (line.indexOf("to ") !== 0) { continue; }
+    const parts = split_whitespace(line);
+    if (parts.length >= 2) {
+      const candidate = parts[1];
+      const slash = candidate.indexOf("/");
+      const addr = slash < 0 ? candidate : candidate.slice(0, slash);
+      if (addr !== "") { return addr.toLowerCase(); }
+    }
+  }
+  return address.toLowerCase();
+}
+
+function normalize_destination(dst) {
+  if (dst === "default") {
+    return { family: "IPv4", destination: "0.0.0.0/0", address: "0.0.0.0", prefix: "0" };
+  }
+  const slash = dst.indexOf("/");
+  if (slash >= 0) {
+    const address = dst.slice(0, slash);
+    const prefix = dst.slice(slash + 1);
+    const family = address.indexOf(":") >= 0 ? "IPv6" : "IPv4";
+    const normalized = family === "IPv6"
+      ? normalize_ipv6(address)
+      : address;
+    return {
+      family: family,
+      destination: normalized + "/" + prefix,
+      address: normalized,
+      prefix: prefix,
+    };
+  }
+  const family = dst.indexOf(":") >= 0 ? "IPv6" : "IPv4";
+  const prefix = family === "IPv6" ? "128" : "32";
+  const normalized = family === "IPv6" ? normalize_ipv6(dst) : dst;
+  return {
+    family: family,
+    destination: normalized + "/" + prefix,
+    address: normalized,
+    prefix: prefix,
+  };
+}
+
+function independent_ip_routes() {
+  const output = rh.command("ip", ["-j", "route", "show", "table", "all"], {
+    timeout_ms: 15000,
+  });
+  ensure(output.success === true, "ip_route_show_failed:" + output.stderr);
+  const document = JSON.parse(output.stdout.trim());
+  ensure(Array.isArray(document), "ip_route_show_shape");
+  const rows = [];
+  for (let index = 0; index < document.length; index = index + 1) {
+    const route = document[index];
+    const dev = route.dev === undefined ? "" : "" + route.dev;
+    ensure(dev !== "", "ip_route_dev_missing:" + JSON.stringify(route));
+    const normalized = normalize_destination("" + route.dst);
+    rows.push({
+      family: normalized.family,
+      destination: normalized.destination,
+      gateway: route.gateway === undefined ? "" : "" + route.gateway,
+      interface: dev,
+      metric: route.metric === undefined ? null : Number(route.metric),
+    });
+  }
+  return rows;
+}
+
+function sysfs_ifindex(name) {
+  const path = "/sys/class/net/" + name + "/ifindex";
+  if (!rh.exists(path)) { return 0; }
+  const text = rh.read_text(path).trim();
+  if (text === "") { return 0; }
+  const value = Number(text);
+  ensure(value > 0, "sysfs_ifindex_shape:" + name + ":" + text);
+  return value;
+}
+
+function parse_cu_destination(destination) {
+  const slash = destination.indexOf("/");
+  ensure(slash > 0, "cu_route_destination_shape:" + destination);
+  const address = destination.slice(0, slash);
+  const prefix = destination.slice(slash + 1);
+  const family = address.indexOf(":") >= 0 ? "IPv6" : "IPv4";
+  const normalized = family === "IPv6"
+    ? normalize_ipv6(address)
+    : address;
+  return {
+    family: family,
+    destination: normalized + "/" + prefix,
+    address: normalized,
+    prefix: prefix,
+  };
+}
+
+function route_key(family, destination, gateway, interface_name) {
+  return family + "|" + destination + "|" + gateway + "|" + interface_name;
+}
+
+function find_cu_row(rows, key) {
+  for (let index = 0; index < rows.length; index = index + 1) {
+    const row = rows[index];
+    const parsed = parse_cu_destination(text_at(row, "destination"));
+    const gateway = text_at(row, "gateway");
+    const interface_name = text_at(row, "interface");
+    const candidate = route_key(
+      parsed.family,
+      parsed.destination,
+      gateway,
+      interface_name
+    );
+    if (candidate === key) { return row; }
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-network-routes");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent ip -j route show table all captures route inventory");
+  const ip_rows = independent_ip_routes();
+  ensure(ip_rows.length > 0, "cu_linux_network_routes_ip_empty");
+
+  print("STEP network-routes observe returns a complete bounded inventory");
+  const reply = invoke(context.run_directory, executable, [
+    "network-routes", "--max", "5000"
+  ], true);
+  ensure(reply.command === "network-routes" && reply.target === "current",
+         "cu_linux_network_routes_identity");
+  const data = reply.data;
+  const routes = data.routes;
+  ensure(Array.isArray(routes) && routes.length > 0, "cu_linux_network_routes_empty");
+  ensure(data.returned === routes.length && data.returned <= 5000,
+         "cu_linux_network_routes_counts");
+  ensure(data.read_errors === 0, "cu_linux_network_routes_read_errors");
+  ensure(data.truncated === false && data.truncated_scan === false,
+         "cu_linux_network_routes_truncated");
+
+  print("STEP each ip route row matches CU destination, gateway, interface and ifindex");
+  for (let index = 0; index < ip_rows.length; index = index + 1) {
+    const ip_row = ip_rows[index];
+    const key = route_key(
+      ip_row.family,
+      ip_row.destination,
+      ip_row.gateway,
+      ip_row.interface
+    );
+    const cu_row = find_cu_row(routes, key);
+    ensure(cu_row !== null,
+           "cu_linux_network_routes_ip_missing:" + JSON.stringify(ip_row));
+
+    const sysfs_index = sysfs_ifindex(ip_row.interface);
+    const native_id = text_at(cu_row, "native_id");
+    ensure("" + sysfs_index === native_id,
+           "cu_linux_network_routes_ifindex_mismatch:cu=" + native_id
+             + ":sysfs=" + sysfs_index + ":dev=" + ip_row.interface);
+    ensure(text_at(cu_row, "native_id_kind") === "ifindex",
+           "cu_linux_network_routes_native_kind:" + ip_row.interface);
+
+    if (ip_row.metric !== null) {
+      const cu_metric = text_at(cu_row, "metric");
+      ensure(cu_metric !== "" && Number(cu_metric) === ip_row.metric,
+             "cu_linux_network_routes_metric_mismatch:" + JSON.stringify({
+               ip: ip_row, cu_metric: cu_metric
+             }));
+    }
+  }
+
+  print("STEP main-table ip route probe is a subset of the CU inventory");
+  const main_output = rh.command("ip", ["-j", "route", "show"], { timeout_ms: 15000 });
+  ensure(main_output.success === true, "ip_route_main_failed:" + main_output.stderr);
+  const main_rows = JSON.parse(main_output.stdout.trim());
+  ensure(Array.isArray(main_rows), "ip_route_main_shape");
+  for (let index = 0; index < main_rows.length; index = index + 1) {
+    const route = main_rows[index];
+    const dev = route.dev === undefined ? "" : "" + route.dev;
+    const normalized = normalize_destination("" + route.dst);
+    const gateway = route.gateway === undefined ? "" : "" + route.gateway;
+    const key = route_key(normalized.family, normalized.destination, gateway, dev);
+    ensure(find_cu_row(routes, key) !== null,
+           "cu_linux_network_routes_main_missing:" + JSON.stringify(route));
+  }
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-network-routes-ip-readback");
+  harness.remove_run(context);
+  print("PASS: CEO Linux network-routes with independent ip route read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

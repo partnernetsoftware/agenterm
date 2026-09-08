@@ -2358,6 +2358,23 @@
         "task.cu-linux-network-interfaces-smoke"
       ]
     },
+    "cu-linux-network-routes-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-network-routes-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-network-routes-smoke"
+      ]
+    },
     "cu-linux-proxy-env-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -5990,6 +6007,25 @@
       "id": "cu-linux-network-interfaces-smoke",
       "description": "Prove Linux network-interfaces observe matches independent ip -j addr and sysfs ifindex/IFF_UP read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-network-interfaces-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-network-routes-smoke",
+      "description": "Prove Linux network-routes observe matches independent ip -j route and sysfs ifindex read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-network-routes-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
