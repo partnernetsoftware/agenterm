@@ -5261,6 +5261,15 @@ automatic replay. EOF stops admission, cancels queued work, drains dispatched
 work without writing another response, then performs exactly one session-end
 attempt before dropping the lease.
 
+Treat the response writer as another fallible transport, not as cleanup
+authority. A broken stdout may suppress later frames, but it must not return
+from the server before the dispatched effect is reconciled, the queued call is
+cancelled and session-end has been attempted. Retain the first write error,
+make later writes no-ops, finish private cleanup, and only then return that
+error. Likewise, a descriptor is not shipped merely because an internal court
+can inject a provider: keep production discovery and dispatch closed until
+persisted target-bound authorization and native packaged courts are green.
+
 Canonical JSON is not validated merely because Serde can deserialize and
 round-trip it. Any bound enforced by a CLI parser must also live in
 `Command::validate` (preferably through shared constants), and the common

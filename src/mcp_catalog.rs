@@ -179,7 +179,7 @@ pub fn capabilities() -> McpCapabilities {
             McpUnavailableRole {
                 stable_id: "tool.control",
                 availability: McpAvailability::Deferred,
-                reason: "the first delivery exposes no mutation tools",
+                reason: "mutation awaits target-bound authorization and native courts",
             },
             McpUnavailableRole {
                 stable_id: "role.client-federation",

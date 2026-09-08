@@ -73,6 +73,14 @@ impl<T> MutationRequest<T> {
             command,
         }
     }
+
+    pub(crate) fn json_rpc_id(&self) -> &JsonRpcRequestId {
+        &self.json_rpc_id
+    }
+
+    pub(crate) fn idempotency_key(&self) -> &IdempotencyKey {
+        &self.idempotency_key
+    }
 }
 
 /// In-memory bearer material. Deliberately has no `Debug` or `Display`.
@@ -264,6 +272,7 @@ impl<T> ConnectionMutationState<T> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn is_ended(&self) -> bool {
         self.phase == ConnectionPhase::Ended
     }
@@ -317,6 +326,7 @@ impl<T> ConnectionMutationState<T> {
         Ok(record)
     }
 
+    #[cfg(test)]
     pub(crate) fn session_end_record(&self) -> Option<SessionEndRecord> {
         self.session_end_record
     }

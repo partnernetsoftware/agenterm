@@ -124,7 +124,13 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  ├─ [x] `agenterm cli acu` executes the compiled-in entry from any cwd; PATH needs no Bun or repository
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] eight compound compatibility shapes execute through pure qjs projections + the same typed calls
-  │  ├─ [~] MCP uses the same provider/Executor for capabilities + canonical-Command observation; mutation remains closed
+  │  ├─ [~] MCP uses the same provider/Executor; bounded shell mutation is implemented but deliberately unadvertised
+  │  │  ├─ [x] lazy connection-owned session, one dispatched + one queued, typed cancellation and EOF drain
+  │  │  ├─ [x] JSON-RPC id owns transport cancellation; caller idempotency key owns durable effect identity
+  │  │  ├─ [x] private lease never enters public arguments/stdout; local real-provider shell exit is green
+  │  │  ├─ [x] startup admits exactly 1+1 deterministically; output disconnect still drains session-end before error
+  │  │  ├─ [ ] persisted target-bound authorization + lease renewal
+  │  │  └─ [ ] packaged six-cell interactive stdio mutation court; only then enter `tools/list`
   │  └─ [ ] close the remaining named dynamic sub-shapes, native courts and physical reference archive
   │  ├─ calls the public agenterm:acu object
   │  └─ contains mapping only; never a second Executor
@@ -228,7 +234,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
     USERS["typed consumers<br/>CLI · MCP · qjs"]
     MCPCLASS{"MCP exposure [~]<br/>ReadOnly · artifact · cursor<br/>arbitrary effect · Actuate"}
     MCPRO["read-only MCP subset [x]<br/>compiler-exhaustive admission"]
-    MCPMUT["mutation lifecycle [~]<br/>test model green · provider wiring open"]
+    MCPMUT["mutation lifecycle [~]<br/>internal smoke green · unadvertised<br/>authorization + six-cell court pending"]
     LEGACY["legacy callers<br/>temporary only"]
     DEBT["remaining TypeScript effect<br/>measured migration debt"]
     OWNER --> OBJ --> PROVIDER --> USERS

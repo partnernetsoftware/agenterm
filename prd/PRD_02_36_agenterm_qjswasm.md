@@ -53,7 +53,10 @@ agenterm-qjswasm
 │  │  │  ├─ separate ABI-versioned artifact; Win/macOS packaging and signing fail closed if absent
 │  │  │  ├─ public `acu-provider-smoke` executes typed command + argv capabilities in-process
 │  │  │  └─ no path search, static implementation, child process or MCU fallback
-│  │  ├─ [~] MCP consumes the same adapter: capabilities + generic canonical read-only commands are live; mutation remains closed
+│  │  ├─ [~] MCP consumes the same adapter: capabilities + canonical observation are public; bounded shell mutation stays internal
+│  │  │  ├─ lazy connection session; one dispatched + one queued; queued cancel is zero-provider/zero-effect
+│  │  │  ├─ dispatched cancel preserves authoritative CuReply; EOF drains, suppresses output and ends once
+│  │  │  └─ fake lifecycle + local provider effect green; target-bound authorization and packaged six-cell court pending
 │  │  ├─ [x] check-many resolves the same non-shadowable built-in module as execution
 │  │  ├─ [x] bootstrap worker identity covers the complete embedded `skills/acu` module closure and production assets
 │  │  │  ├─ tracked, dirty and untracked bytes all invalidate the worker; imported `.qjs` cannot execute stale code

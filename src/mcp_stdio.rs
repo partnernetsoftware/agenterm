@@ -12,6 +12,11 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::{
+    mcp_acu_mutation::{
+        CancelResult, CompletionDisposition, CompletionOutcome, ConnectionMutationState,
+        IdempotencyKey, JsonRpcRequestId, MutationRequest, ProviderCompletion,
+        SessionEndCompletion, SubmitResult,
+    },
     mcp_catalog::{MCP_PROTOCOL_REVISION, capabilities},
     mcp_fleet,
 };
@@ -25,6 +30,7 @@ const ERROR_NOT_INITIALIZED: i64 = -32002;
 const ERROR_PROTOCOL_VERSION: i64 = -32005;
 const ERROR_RESPONSE_TOO_LARGE: i64 = -32004;
 const ERROR_ACU_PROVIDER: i64 = -32006;
+const MCP_MUTATION_SESSION_TTL_SECONDS: u64 = 3_600;
 const WAIT_PENDING: u8 = 0;
 const WAIT_CANCELLED: u8 = 1;
 const WAIT_COMPLETED: u8 = 2;
@@ -50,6 +56,118 @@ enum ServerEvent {
         id: Value,
         result: Result<Value, mcp_fleet::McpFleetError>,
     },
+    ProviderComplete(ProviderComplete),
+}
+
+enum ProviderWork {
+    SessionStart,
+    ShellExec {
+        id: JsonRpcRequestId,
+        request: String,
+    },
+    SessionEnd {
+        request: String,
+    },
+    Shutdown,
+}
+
+enum ProviderComplete {
+    SessionStart(Result<String, String>),
+    ShellExec {
+        id: JsonRpcRequestId,
+        result: Result<String, String>,
+    },
+    SessionEnd(Result<String, String>),
+}
+
+#[derive(Clone)]
+struct ShellExecCommand {
+    command: String,
+    timeout_ms: u64,
+    max_output_bytes: usize,
+}
+
+enum MutationLifecycle {
+    Dormant,
+    Starting {
+        first: Option<MutationRequest<ShellExecCommand>>,
+        queued: Option<MutationRequest<ShellExecCommand>>,
+        eof: bool,
+    },
+    Active {
+        state: ConnectionMutationState<ShellExecCommand>,
+        exit_after_end: bool,
+    },
+}
+
+#[doc(hidden)]
+pub trait McpAcuProvider: Send + Sync + 'static {
+    fn call(&self, request: &str) -> Result<String, String>;
+}
+
+struct CleanupWriter<W> {
+    inner: W,
+    first_error: Option<io::Error>,
+}
+
+impl<W> CleanupWriter<W> {
+    fn new(inner: W) -> Self {
+        Self {
+            inner,
+            first_error: None,
+        }
+    }
+
+    fn take_error(&mut self) -> Option<io::Error> {
+        self.first_error.take()
+    }
+
+    fn record(&mut self, error: io::Error) {
+        if self.first_error.is_none() {
+            self.first_error = Some(error);
+        }
+    }
+}
+
+impl<W: Write> Write for CleanupWriter<W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.first_error.is_some() {
+            return Ok(bytes.len());
+        }
+        match self.inner.write(bytes) {
+            Ok(0) if !bytes.is_empty() => {
+                self.record(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "MCP output closed",
+                ));
+                Ok(bytes.len())
+            }
+            Ok(written) => Ok(written),
+            Err(error) => {
+                self.record(error);
+                Ok(bytes.len())
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if self.first_error.is_some() {
+            return Ok(());
+        }
+        if let Err(error) = self.inner.flush() {
+            self.record(error);
+        }
+        Ok(())
+    }
+}
+
+impl<F> McpAcuProvider for F
+where
+    F: Fn(&str) -> Result<String, String> + Send + Sync + 'static,
+{
+    fn call(&self, request: &str) -> Result<String, String> {
+        self(request)
+    }
 }
 
 struct ActiveWait {
@@ -69,50 +187,67 @@ pub fn serve_stdio<R: BufRead + Send + 'static, W: Write>(input: R, output: W) -
 
 pub fn serve_stdio_with_config<R: BufRead + Send + 'static, W: Write>(
     input: R,
-    mut output: W,
+    output: W,
     config: McpStdioConfig,
 ) -> io::Result<()> {
+    serve_stdio_core(input, output, config, crate::acu_provider::call, false)
+}
+
+#[doc(hidden)]
+pub fn serve_stdio_with_config_and_provider<
+    R: BufRead + Send + 'static,
+    W: Write,
+    P: McpAcuProvider,
+>(
+    input: R,
+    output: W,
+    config: McpStdioConfig,
+    provider: P,
+) -> io::Result<()> {
+    serve_stdio_core(input, output, config, provider, true)
+}
+
+fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
+    input: R,
+    output: W,
+    config: McpStdioConfig,
+    provider: P,
+    mutation_enabled: bool,
+) -> io::Result<()> {
+    let mut output = CleanupWriter::new(output);
     let limit = capabilities().limits.frame_bytes as usize;
     let (sender, receiver) = mpsc::channel();
     let reader = thread::spawn({
         let sender = sender.clone();
         move || read_input(input, limit, sender)
     });
+    let (provider_sender, provider_receiver) = mpsc::channel();
+    let provider_worker = thread::spawn({
+        let sender = sender.clone();
+        move || provider_loop(provider, provider_receiver, sender)
+    });
     let mut state = SessionState::New;
     let mut active = HashMap::<String, ActiveWait>::new();
+    let mut mutation = MutationLifecycle::Dormant;
+    let mut input_error = None;
     loop {
         match receiver.recv() {
-            Ok(ServerEvent::Input(BoundedLine::Eof)) | Err(_) => {
-                for wait in active.values() {
-                    let _ = wait.terminal.compare_exchange(
-                        WAIT_PENDING,
-                        WAIT_CANCELLED,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    );
-                    wait.cancelled.store(true, Ordering::Release);
+            Ok(ServerEvent::Input(BoundedLine::Eof)) => {
+                cancel_and_join_waits(&mut active);
+                receive_eof_and_maybe_end(&mut mutation, &provider_sender)
+                    .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+                if matches!(mutation, MutationLifecycle::Dormant) {
+                    break;
                 }
-                for (_, wait) in active {
-                    let _ = wait.worker.join();
-                }
-                let _ = reader.join();
-                return Ok(());
             }
             Ok(ServerEvent::InputError(error)) => {
-                for wait in active.values() {
-                    let _ = wait.terminal.compare_exchange(
-                        WAIT_PENDING,
-                        WAIT_CANCELLED,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    );
-                    wait.cancelled.store(true, Ordering::Release);
+                input_error = Some(error);
+                cancel_and_join_waits(&mut active);
+                receive_eof_and_maybe_end(&mut mutation, &provider_sender)
+                    .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+                if matches!(mutation, MutationLifecycle::Dormant) {
+                    break;
                 }
-                for (_, wait) in active {
-                    let _ = wait.worker.join();
-                }
-                let _ = reader.join();
-                return Err(error);
             }
             Ok(ServerEvent::Input(BoundedLine::Oversized)) => {
                 write_message(
@@ -134,6 +269,23 @@ pub fn serve_stdio_with_config<R: BufRead + Send + 'static, W: Write>(
                     }
                 };
                 if handle_cancel_notification(&message, &active) {
+                    handle_mutation_cancel(&message, &mut mutation, &mut output)?;
+                    continue;
+                }
+                if mutation_enabled
+                    && state == SessionState::Ready
+                    && is_shell_exec_tool_call(&message)
+                {
+                    // JSON-RPC notifications never receive a response and
+                    // cannot own an idempotent mutation lifecycle. Ignore the
+                    // notification before starting the private ACU session.
+                    if message.get("id").is_none() {
+                        continue;
+                    }
+                    match submit_shell_exec(&message, &mut mutation, &provider_sender) {
+                        Ok(()) => {}
+                        Err(response) => write_message(&mut output, &response)?,
+                    }
                     continue;
                 }
                 if state == SessionState::Ready && is_wait_tool_call(&message) {
@@ -149,7 +301,9 @@ pub fn serve_stdio_with_config<R: BufRead + Send + 'static, W: Write>(
                     }
                     continue;
                 }
-                if let Some(response) = process_message(message, &mut state, &config) {
+                if let Some(response) =
+                    process_message(message, &mut state, &config, mutation_enabled)
+                {
                     write_message(&mut output, &response)?;
                 }
             }
@@ -178,7 +332,28 @@ pub fn serve_stdio_with_config<R: BufRead + Send + 'static, W: Write>(
                 };
                 write_message(&mut output, &response)?;
             }
+            Ok(ServerEvent::ProviderComplete(completion)) => {
+                if handle_provider_complete(
+                    completion,
+                    &mut mutation,
+                    &provider_sender,
+                    &mut output,
+                )? {
+                    break;
+                }
+            }
+            Err(_) => break,
         }
+    }
+    let _ = provider_sender.send(ProviderWork::Shutdown);
+    let _ = provider_worker.join();
+    let _ = reader.join();
+    if let Some(error) = input_error {
+        Err(error)
+    } else if let Some(error) = output.take_error() {
+        Err(error)
+    } else {
+        Ok(())
     }
 }
 
@@ -196,6 +371,687 @@ fn read_input<R: BufRead>(mut input: R, limit: usize, sender: mpsc::Sender<Serve
                 return;
             }
         }
+    }
+}
+
+fn provider_loop<P: McpAcuProvider>(
+    provider: P,
+    receiver: mpsc::Receiver<ProviderWork>,
+    sender: mpsc::Sender<ServerEvent>,
+) {
+    while let Ok(work) = receiver.recv() {
+        let completion = match work {
+            ProviderWork::SessionStart => ProviderComplete::SessionStart(
+                provider.call(
+                    &json!({
+                        "acu_request": 1,
+                        "kind": "command",
+                        "command": {
+                            "verb": "session-start",
+                            "target": "current",
+                            "label": "agenterm-mcp",
+                            "ttl_seconds": MCP_MUTATION_SESSION_TTL_SECONDS
+                        }
+                    })
+                    .to_string(),
+                ),
+            ),
+            ProviderWork::ShellExec { id, request } => ProviderComplete::ShellExec {
+                id,
+                result: provider.call(&request),
+            },
+            ProviderWork::SessionEnd { request } => {
+                ProviderComplete::SessionEnd(provider.call(&request))
+            }
+            ProviderWork::Shutdown => return,
+        };
+        if sender
+            .send(ServerEvent::ProviderComplete(completion))
+            .is_err()
+        {
+            return;
+        }
+    }
+}
+
+fn cancel_and_join_waits(active: &mut HashMap<String, ActiveWait>) {
+    for wait in active.values() {
+        let _ = wait.terminal.compare_exchange(
+            WAIT_PENDING,
+            WAIT_CANCELLED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        wait.cancelled.store(true, Ordering::Release);
+    }
+    for (_, wait) in active.drain() {
+        let _ = wait.worker.join();
+    }
+}
+
+fn is_shell_exec_tool_call(message: &Value) -> bool {
+    message
+        .as_object()
+        .and_then(|object| object.get("method"))
+        .and_then(Value::as_str)
+        == Some("tools/call")
+        && message["params"]["name"] == "agenterm_acu_shell_exec"
+}
+
+fn submit_shell_exec(
+    message: &Value,
+    lifecycle: &mut MutationLifecycle,
+    provider: &mpsc::Sender<ProviderWork>,
+) -> Result<(), Value> {
+    let object = message.as_object().ok_or_else(|| {
+        error_response(
+            Value::Null,
+            ERROR_INVALID_REQUEST,
+            "Invalid JSON-RPC request",
+            None,
+        )
+    })?;
+    let id_value = object.get("id").cloned().ok_or_else(|| {
+        error_response(
+            Value::Null,
+            ERROR_INVALID_REQUEST,
+            "Mutating tool calls require an id",
+            None,
+        )
+    })?;
+    if object.get("jsonrpc").and_then(Value::as_str) != Some(JSON_RPC_VERSION) {
+        return Err(error_response(
+            Value::Null,
+            ERROR_INVALID_REQUEST,
+            "Invalid JSON-RPC request",
+            None,
+        ));
+    }
+    let id = mutation_request_id(&id_value)
+        .map_err(|message| error_response(id_value.clone(), ERROR_INVALID_PARAMS, message, None))?;
+    let arguments = object
+        .get("params")
+        .and_then(Value::as_object)
+        .and_then(|params| params.get("arguments"))
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            error_response(
+                id_value.clone(),
+                ERROR_INVALID_PARAMS,
+                "agenterm_acu_shell_exec arguments must be an object",
+                None,
+            )
+        })?;
+    let allowed = [
+        "idempotency_key",
+        "command",
+        "timeout_ms",
+        "max_output_bytes",
+    ];
+    if arguments.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err(error_response(
+            id_value,
+            ERROR_INVALID_PARAMS,
+            "agenterm_acu_shell_exec contains an unknown argument",
+            None,
+        ));
+    }
+    let key = arguments
+        .get("idempotency_key")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            error_response(
+                id_value.clone(),
+                ERROR_INVALID_PARAMS,
+                "agenterm_acu_shell_exec requires idempotency_key",
+                None,
+            )
+        })?;
+    let key = IdempotencyKey::new(key).map_err(|_| {
+        error_response(
+            id_value.clone(),
+            ERROR_INVALID_PARAMS,
+            "agenterm_acu_shell_exec idempotency_key is invalid",
+            None,
+        )
+    })?;
+    let command = arguments
+        .get("command")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 131_072 && !value.contains('\0'))
+        .ok_or_else(|| {
+            error_response(
+                id_value.clone(),
+                ERROR_INVALID_PARAMS,
+                "agenterm_acu_shell_exec command is outside the published limit",
+                None,
+            )
+        })?;
+    let timeout_ms = arguments
+        .get("timeout_ms")
+        .and_then(Value::as_u64)
+        .filter(|value| (100..=120_000).contains(value))
+        .ok_or_else(|| {
+            error_response(
+                id_value.clone(),
+                ERROR_INVALID_PARAMS,
+                "agenterm_acu_shell_exec timeout_ms is outside the published limit",
+                None,
+            )
+        })?;
+    let max_output_bytes = arguments
+        .get("max_output_bytes")
+        .and_then(Value::as_u64)
+        .filter(|value| (1..=16_777_216).contains(value))
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| {
+            error_response(
+                id_value.clone(),
+                ERROR_INVALID_PARAMS,
+                "agenterm_acu_shell_exec max_output_bytes is outside the published limit",
+                None,
+            )
+        })?;
+    let request = MutationRequest::new(
+        id,
+        key,
+        ShellExecCommand {
+            command: command.to_owned(),
+            timeout_ms,
+            max_output_bytes,
+        },
+    );
+    match lifecycle {
+        MutationLifecycle::Dormant => {
+            *lifecycle = MutationLifecycle::Starting {
+                first: Some(request),
+                queued: None,
+                eof: false,
+            };
+            provider.send(ProviderWork::SessionStart).map_err(|_| {
+                error_response(
+                    Value::Null,
+                    ERROR_ACU_PROVIDER,
+                    "agenterm-cu provider worker stopped",
+                    None,
+                )
+            })?;
+            Ok(())
+        }
+        MutationLifecycle::Starting { first, queued, .. } => {
+            let duplicate_id = first
+                .as_ref()
+                .is_some_and(|active| active.json_rpc_id() == request.json_rpc_id())
+                || queued
+                    .as_ref()
+                    .is_some_and(|active| active.json_rpc_id() == request.json_rpc_id());
+            let duplicate_key = first
+                .as_ref()
+                .is_some_and(|active| active.idempotency_key() == request.idempotency_key())
+                || queued
+                    .as_ref()
+                    .is_some_and(|active| active.idempotency_key() == request.idempotency_key());
+            if duplicate_id {
+                Err(error_response(
+                    id_value,
+                    ERROR_INVALID_REQUEST,
+                    "A request with this id is already active",
+                    None,
+                ))
+            } else if duplicate_key {
+                Err(error_response(
+                    id_value,
+                    ERROR_INVALID_PARAMS,
+                    "The idempotency_key is already active",
+                    None,
+                ))
+            } else if queued.is_some() {
+                Err(error_response(
+                    id_value,
+                    -32003,
+                    "MCP mutation capacity is exhausted while the session starts",
+                    Some(json!({"maximum_dispatched": 1, "maximum_queued": 1})),
+                ))
+            } else {
+                *queued = Some(request);
+                Ok(())
+            }
+        }
+        MutationLifecycle::Active { state, .. } => match state.submit(request) {
+            SubmitResult::Queued => {
+                dispatch_next(state, provider)?;
+                Ok(())
+            }
+            SubmitResult::Busy => Err(error_response(
+                id_value,
+                -32003,
+                "MCP mutation capacity is exhausted",
+                Some(json!({"maximum_dispatched": 1, "maximum_queued": 1})),
+            )),
+            SubmitResult::DuplicateJsonRpcId => Err(error_response(
+                id_value,
+                ERROR_INVALID_REQUEST,
+                "A request with this id is already active",
+                None,
+            )),
+            SubmitResult::DuplicateIdempotencyKey => Err(error_response(
+                id_value,
+                ERROR_INVALID_PARAMS,
+                "The idempotency_key is already active",
+                None,
+            )),
+            SubmitResult::RejectedAfterEof => Err(error_response(
+                id_value,
+                ERROR_INVALID_REQUEST,
+                "The MCP input is closed",
+                None,
+            )),
+        },
+    }
+}
+
+fn dispatch_next(
+    state: &mut ConnectionMutationState<ShellExecCommand>,
+    provider: &mpsc::Sender<ProviderWork>,
+) -> Result<(), Value> {
+    let Some(dispatch) = state.begin_dispatch() else {
+        return Ok(());
+    };
+    let command = dispatch.command();
+    let request = dispatch.with_session_lease(|lease| {
+        json!({
+            "acu_request": 1,
+            "kind": "identity_bound_command",
+            "command": {
+                "verb": "shell-exec",
+                "target": "current",
+                "command": command.command,
+                "timeout_ms": command.timeout_ms,
+                "max_output_bytes": command.max_output_bytes
+            },
+            "request_identity": {
+                "request_id": dispatch.idempotency_key().as_str(),
+                "session_id": dispatch.session_id(),
+                "session_lease": String::from_utf8_lossy(lease)
+            }
+        })
+        .to_string()
+    });
+    provider
+        .send(ProviderWork::ShellExec {
+            id: dispatch.json_rpc_id().clone(),
+            request,
+        })
+        .map_err(|_| {
+            error_response(
+                mutation_id_value(dispatch.json_rpc_id()),
+                ERROR_ACU_PROVIDER,
+                "agenterm-cu provider worker stopped",
+                None,
+            )
+        })
+}
+
+fn dispatch_session_end(
+    state: &mut ConnectionMutationState<ShellExecCommand>,
+    provider: &mpsc::Sender<ProviderWork>,
+) -> Result<(), Value> {
+    let end = state.begin_session_end().map_err(|_| {
+        error_response(
+            Value::Null,
+            ERROR_ACU_PROVIDER,
+            "agenterm-cu session end was not ready",
+            None,
+        )
+    })?;
+    let request = end.with_session_lease(|lease| {
+        json!({
+            "acu_request": 1,
+            "kind": "command",
+            "command": {
+                "verb": "session-end",
+                "target": "current",
+                "session_id": end.session_id(),
+                "lease": String::from_utf8_lossy(lease),
+                "confirm": true
+            }
+        })
+        .to_string()
+    });
+    provider
+        .send(ProviderWork::SessionEnd { request })
+        .map_err(|_| {
+            error_response(
+                Value::Null,
+                ERROR_ACU_PROVIDER,
+                "agenterm-cu provider worker stopped",
+                None,
+            )
+        })
+}
+
+fn receive_eof_mutation(lifecycle: &mut MutationLifecycle) {
+    match lifecycle {
+        MutationLifecycle::Dormant => {}
+        MutationLifecycle::Starting { first, queued, eof } => {
+            first.take();
+            queued.take();
+            *eof = true;
+        }
+        MutationLifecycle::Active {
+            state,
+            exit_after_end,
+        } => {
+            let eof = state.receive_eof();
+            let _ = (eof.cancelled_queued, eof.wait_for_dispatched);
+            *exit_after_end = true;
+        }
+    }
+}
+
+fn receive_eof_and_maybe_end(
+    lifecycle: &mut MutationLifecycle,
+    provider: &mpsc::Sender<ProviderWork>,
+) -> Result<(), Value> {
+    receive_eof_mutation(lifecycle);
+    if let MutationLifecycle::Active { state, .. } = lifecycle
+        && state.is_session_ending()
+    {
+        dispatch_session_end(state, provider)?;
+    }
+    Ok(())
+}
+
+fn cancellation_reply(id: Value) -> Value {
+    acu_tool_response(
+        id,
+        json!({
+            "ok": false,
+            "target": "current",
+            "command": "shell-exec",
+            "error": {
+                "code": "mcp_request_cancelled",
+                "message": "The mutating request was cancelled before provider dispatch",
+                "detail": {
+                    "provider_calls": 0,
+                    "reservations": 0,
+                    "effects": 0
+                }
+            }
+        }),
+    )
+}
+
+fn handle_mutation_cancel<W: Write>(
+    message: &Value,
+    lifecycle: &mut MutationLifecycle,
+    output: &mut W,
+) -> io::Result<()> {
+    let Some(request_id) = message["params"].get("requestId") else {
+        return Ok(());
+    };
+    let Ok(id) = mutation_request_id(request_id) else {
+        return Ok(());
+    };
+    match lifecycle {
+        MutationLifecycle::Dormant => {}
+        MutationLifecycle::Starting { first, queued, eof } => {
+            if first
+                .as_ref()
+                .is_some_and(|request| request.json_rpc_id() == &id)
+            {
+                first.take();
+                if !*eof {
+                    write_message(output, &cancellation_reply(request_id.clone()))?;
+                }
+            } else if queued
+                .as_ref()
+                .is_some_and(|request| request.json_rpc_id() == &id)
+            {
+                queued.take();
+                if !*eof {
+                    write_message(output, &cancellation_reply(request_id.clone()))?;
+                }
+            }
+        }
+        MutationLifecycle::Active { state, .. } => {
+            if let CancelResult::QueuedCancelled(_) = state.cancel(&id) {
+                write_message(output, &cancellation_reply(request_id.clone()))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_provider_reply(result: Result<String, String>) -> Result<Value, String> {
+    let encoded = result?;
+    let reply: Value =
+        serde_json::from_str(&encoded).map_err(|_| "acu_provider_reply_not_json".to_owned())?;
+    let Some(object) = reply.as_object() else {
+        return Err("acu_provider_reply_invalid_shape".to_owned());
+    };
+    if !object.get("ok").is_some_and(Value::is_boolean)
+        || !object.get("target").is_some_and(Value::is_string)
+        || !object.get("command").is_some_and(Value::is_string)
+    {
+        return Err("acu_provider_reply_invalid_shape".to_owned());
+    }
+    if object.get("ok").and_then(Value::as_bool) == Some(false)
+        && !object
+            .get("error")
+            .and_then(Value::as_object)
+            .is_some_and(|error| {
+                error.get("code").is_some_and(Value::is_string)
+                    && error.get("message").is_some_and(Value::is_string)
+            })
+    {
+        return Err("acu_provider_reply_invalid_shape".to_owned());
+    }
+    Ok(reply)
+}
+
+fn provider_boundary_reply(code: &str) -> Value {
+    json!({
+        "ok": false,
+        "target": "current",
+        "command": "shell-exec",
+        "error": {
+            "code": "outcome_unknown",
+            "message": "The provider outcome is unknown after dispatch",
+            "detail": {"provider_code": code}
+        }
+    })
+}
+
+fn acu_tool_response(id: Value, reply: Value) -> Value {
+    let is_error = reply.get("ok").and_then(Value::as_bool) != Some(true);
+    success_response(
+        id,
+        json!({
+            "content": [{
+                "type": "text",
+                "text": serde_json::to_string(&reply).expect("ACU reply serializes")
+            }],
+            "structuredContent": reply,
+            "isError": is_error
+        }),
+    )
+}
+
+fn handle_provider_complete<W: Write>(
+    completion: ProviderComplete,
+    lifecycle: &mut MutationLifecycle,
+    provider: &mpsc::Sender<ProviderWork>,
+    output: &mut W,
+) -> io::Result<bool> {
+    match completion {
+        ProviderComplete::SessionStart(result) => {
+            let MutationLifecycle::Starting {
+                mut first,
+                mut queued,
+                eof,
+            } = std::mem::replace(lifecycle, MutationLifecycle::Dormant)
+            else {
+                return Ok(false);
+            };
+            let parsed = parse_provider_reply(result);
+            let session = parsed.as_ref().ok().and_then(|reply| {
+                (reply["ok"] == true).then(|| {
+                    (
+                        reply["data"]["session_id"].as_str(),
+                        reply["data"]["lease"].as_str(),
+                    )
+                })
+            });
+            let Some((Some(session_id), Some(lease))) = session else {
+                if !eof {
+                    let reply = match parsed {
+                        Ok(reply) if reply["ok"] == false => reply,
+                        Ok(_) => provider_boundary_reply("acu_provider_session_identity_invalid"),
+                        Err(code) => provider_boundary_reply(&code),
+                    };
+                    for request in first.into_iter().chain(queued) {
+                        write_message(
+                            output,
+                            &acu_tool_response(
+                                mutation_id_value(request.json_rpc_id()),
+                                reply.clone(),
+                            ),
+                        )?;
+                    }
+                }
+                return Ok(eof);
+            };
+            let mut state = match ConnectionMutationState::new(
+                session_id.to_owned(),
+                lease.as_bytes().to_vec(),
+            ) {
+                Ok(state) => state,
+                Err(_) => {
+                    if !eof {
+                        for request in first.into_iter().chain(queued) {
+                            write_message(
+                                output,
+                                &acu_tool_response(
+                                    mutation_id_value(request.json_rpc_id()),
+                                    provider_boundary_reply(
+                                        "acu_provider_session_identity_invalid",
+                                    ),
+                                ),
+                            )?;
+                        }
+                    }
+                    return Ok(eof);
+                }
+            };
+            if !eof && (first.is_some() || queued.is_some()) {
+                if first.is_none() {
+                    first = queued.take();
+                }
+                if let Some(request) = first {
+                    debug_assert_eq!(state.submit(request), SubmitResult::Queued);
+                    dispatch_next(&mut state, provider)
+                        .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+                }
+                if let Some(request) = queued {
+                    debug_assert_eq!(state.submit(request), SubmitResult::Queued);
+                }
+            } else {
+                let eof = state.receive_eof();
+                let _ = (eof.cancelled_queued, eof.wait_for_dispatched);
+                dispatch_session_end(&mut state, provider)
+                    .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+            }
+            *lifecycle = MutationLifecycle::Active {
+                state,
+                exit_after_end: eof,
+            };
+        }
+        ProviderComplete::ShellExec { id, result } => {
+            let MutationLifecycle::Active { state, .. } = lifecycle else {
+                return Ok(false);
+            };
+            let completion = match parse_provider_reply(result) {
+                Ok(reply) => ProviderCompletion::Authoritative {
+                    reply,
+                    reservation_created: true,
+                    effect_attempted: true,
+                },
+                Err(_) => ProviderCompletion::LostAfterDispatch,
+            };
+            let disposition = state.complete(&id, completion).map_err(|_| {
+                io::Error::other("provider completion did not match the dispatched MCP request")
+            })?;
+            match disposition {
+                CompletionDisposition::Emit(completed) => {
+                    let _ = (&completed.idempotency_key, completed.cancellation_requested);
+                    let reply = match completed.outcome {
+                        CompletionOutcome::Authoritative { reply, counts } => {
+                            let _ = counts;
+                            reply
+                        }
+                        CompletionOutcome::OutcomeUnknown { counts } => {
+                            let _ = counts;
+                            provider_boundary_reply("acu_provider_boundary_lost_after_dispatch")
+                        }
+                    };
+                    write_message(
+                        output,
+                        &acu_tool_response(mutation_id_value(&completed.json_rpc_id), reply),
+                    )?;
+                    dispatch_next(state, provider)
+                        .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+                }
+                CompletionDisposition::SuppressAfterEof(_) => {}
+            }
+            if state.is_session_ending() {
+                dispatch_session_end(state, provider)
+                    .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+            }
+        }
+        ProviderComplete::SessionEnd(result) => {
+            let MutationLifecycle::Active {
+                state,
+                exit_after_end,
+            } = lifecycle
+            else {
+                return Ok(false);
+            };
+            let should_exit = *exit_after_end;
+            let completion = match parse_provider_reply(result) {
+                Ok(reply) if reply["ok"] == true => SessionEndCompletion::Authoritative,
+                _ => SessionEndCompletion::LostAfterDispatch,
+            };
+            state.finish_session_end(completion).map_err(|_| {
+                io::Error::other("provider session-end completion was not expected")
+            })?;
+            if !should_exit {
+                *lifecycle = MutationLifecycle::Dormant;
+            }
+            return Ok(should_exit);
+        }
+    }
+    Ok(false)
+}
+
+fn mutation_request_id(value: &Value) -> Result<JsonRpcRequestId, &'static str> {
+    if let Some(value) = value.as_str() {
+        return JsonRpcRequestId::text(value).map_err(|_| "JSON-RPC id is too long");
+    }
+    if let Some(value) = value.as_i64() {
+        return Ok(JsonRpcRequestId::Integer(value));
+    }
+    if let Some(value) = value.as_u64() {
+        return Ok(JsonRpcRequestId::Unsigned(value));
+    }
+    Err("JSON-RPC id must be a string or integer")
+}
+
+fn mutation_id_value(id: &JsonRpcRequestId) -> Value {
+    match id {
+        JsonRpcRequestId::Integer(value) => json!(value),
+        JsonRpcRequestId::Unsigned(value) => json!(value),
+        JsonRpcRequestId::Text(value) => json!(value),
     }
 }
 
@@ -470,6 +1326,7 @@ fn process_message(
     message: Value,
     state: &mut SessionState,
     config: &McpStdioConfig,
+    mutation_enabled: bool,
 ) -> Option<Value> {
     let Some(object) = message.as_object() else {
         return Some(error_response(
@@ -565,9 +1422,13 @@ fn process_message(
                         "name": "agenterm-mcp",
                         "title": "AgenTerm MCP",
                         "version": env!("CARGO_PKG_VERSION"),
-                        "description": "Read-only AgenTerm Fleet and agenterm-cu bridge"
+                        "description": "AgenTerm Fleet and bounded agenterm-cu bridge"
                     },
-                    "instructions": "Read metadata-safe Fleet resources, wait for one bounded Fleet event, inspect the canonical agenterm-cu capability inventory, or execute one canonical read-only agenterm-cu command."
+                    "instructions": if mutation_enabled {
+                        "Read metadata-safe Fleet resources, wait for one bounded Fleet event, inspect agenterm-cu, or exercise the internal bounded mutation court."
+                    } else {
+                        "Read metadata-safe Fleet resources, wait for one bounded Fleet event, or inspect agenterm-cu. Mutation tools remain unavailable."
+                    }
                 }),
             ))
         }
@@ -640,10 +1501,9 @@ fn process_message(
                 )),
             }
         }
-        "tools/list" => Some(success_response(
-            response_id,
-            json!({
-                "tools": [{
+        "tools/list" => {
+            let mut tools = vec![
+                json!({
                     "name": "agenterm_wait",
                     "title": "Wait for an AgenTerm Fleet event",
                     "description": "Read-only bounded wait from a verified epoch and sequence.",
@@ -690,13 +1550,21 @@ fn process_message(
                         "idempotentHint": false,
                         "openWorldHint": false
                     }
-                }, acu_tool_descriptor(
-                    include_str!("../crates/agenterm-cu/contract/mcp-capabilities-tool.json")
-                ), acu_tool_descriptor(
-                    include_str!("../crates/agenterm-cu/contract/mcp-observe-tool.json")
-                )]
-            }),
-        )),
+                }),
+                acu_tool_descriptor(include_str!(
+                    "../crates/agenterm-cu/contract/mcp-capabilities-tool.json"
+                )),
+                acu_tool_descriptor(include_str!(
+                    "../crates/agenterm-cu/contract/mcp-observe-tool.json"
+                )),
+            ];
+            if mutation_enabled {
+                tools.push(acu_tool_descriptor(include_str!(
+                    "../crates/agenterm-cu/contract/mcp-shell-exec-tool.json"
+                )));
+            }
+            Some(success_response(response_id, json!({"tools": tools})))
+        }
         "tools/call" => Some(call_acu_tool(response_id, params)),
         _ => Some(error_response(
             response_id,
@@ -1017,7 +1885,7 @@ mod tests {
     }
 
     #[test]
-    fn ready_session_lists_three_bounded_read_only_tools() {
+    fn ready_session_lists_three_read_only_tools() {
         let responses = exchange(concat!(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":",
             "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},",
@@ -1044,6 +1912,44 @@ mod tests {
         assert_eq!(
             tools[0]["inputSchema"]["properties"]["timeout_ms"]["maximum"],
             capabilities().limits.wait_timeout_ms_maximum
+        );
+    }
+
+    #[test]
+    fn production_stdio_refuses_the_unadvertised_mutation_without_provider_dispatch() {
+        let responses = exchange(concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":",
+            "{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},",
+            "\"clientInfo\":{\"name\":\"fixture\",\"version\":\"1\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":",
+            "{\"name\":\"agenterm_acu_shell_exec\",\"arguments\":{}}}\n"
+        ));
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[1]["id"], 2);
+        assert_eq!(responses[1]["error"]["code"], ERROR_INVALID_PARAMS);
+        assert_eq!(responses[1]["error"]["message"], "Unknown tool");
+    }
+
+    #[test]
+    fn provider_reply_requires_the_shared_cu_reply_shape() {
+        for invalid in [
+            "true",
+            r#"{"ok":true}"#,
+            r#"{"ok":false,"target":"current","command":"shell-exec"}"#,
+            r#"{"ok":false,"target":"current","command":"shell-exec","error":{"code":1,"message":"bad"}}"#,
+        ] {
+            assert_eq!(
+                parse_provider_reply(Ok(invalid.to_owned())).unwrap_err(),
+                "acu_provider_reply_invalid_shape",
+                "{invalid}"
+            );
+        }
+        assert!(
+            parse_provider_reply(Ok(
+                r#"{"ok":true,"target":"current","command":"shell-exec","data":{}}"#.to_owned()
+            ))
+            .is_ok()
         );
     }
 

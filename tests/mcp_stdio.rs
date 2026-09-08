@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        Arc,
+        Arc, Condvar, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -14,6 +14,558 @@ use std::{
 };
 
 use serde_json::{Value, json};
+
+struct ChannelInput {
+    receiver: mpsc::Receiver<Vec<u8>>,
+    buffer: Vec<u8>,
+    offset: usize,
+}
+
+impl Read for ChannelInput {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        let available = self.fill_buf()?;
+        let count = available.len().min(output.len());
+        output[..count].copy_from_slice(&available[..count]);
+        self.consume(count);
+        Ok(count)
+    }
+}
+
+impl BufRead for ChannelInput {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        if self.offset == self.buffer.len() {
+            self.buffer = self.receiver.recv().unwrap_or_default();
+            self.offset = 0;
+        }
+        Ok(&self.buffer[self.offset..])
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.offset = (self.offset + amount).min(self.buffer.len());
+    }
+}
+
+#[derive(Clone, Default)]
+struct SharedOutput(Arc<Mutex<Vec<u8>>>);
+
+impl Write for SharedOutput {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("output lock").extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+struct BrokenOutput;
+
+impl Write for BrokenOutput {
+    fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "fixture output disconnected",
+        ))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "fixture output disconnected",
+        ))
+    }
+}
+
+#[derive(Default)]
+struct FakeProviderState {
+    calls: Mutex<Vec<Value>>,
+    changed: Condvar,
+    gate_start: AtomicBool,
+    gate_first: AtomicBool,
+    invalid_start_identity: AtomicBool,
+    release_start: AtomicBool,
+    release_first: AtomicBool,
+}
+
+fn start_fake_stdio(
+    provider: Arc<FakeProviderState>,
+) -> (
+    mpsc::Sender<Vec<u8>>,
+    SharedOutput,
+    thread::JoinHandle<std::io::Result<()>>,
+) {
+    let (sender, receiver) = mpsc::channel();
+    let output = SharedOutput::default();
+    let worker_output = output.clone();
+    let worker = thread::spawn(move || {
+        agenterm::mcp_stdio::serve_stdio_with_config_and_provider(
+            ChannelInput {
+                receiver,
+                buffer: Vec::new(),
+                offset: 0,
+            },
+            worker_output,
+            agenterm::mcp_stdio::McpStdioConfig::default(),
+            move |request: &str| provider.call(request),
+        )
+    });
+    (sender, output, worker)
+}
+
+fn send_mcp(sender: &mpsc::Sender<Vec<u8>>, message: Value) {
+    let mut encoded = message.to_string().into_bytes();
+    encoded.push(b'\n');
+    sender.send(encoded).expect("send MCP input");
+}
+
+fn send_fake_initialize(sender: &mpsc::Sender<Vec<u8>>) {
+    send_mcp(
+        sender,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "mutation-fixture", "version": "1"}
+            }
+        }),
+    );
+    send_mcp(
+        sender,
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+    );
+}
+
+fn send_shell_exec(sender: &mpsc::Sender<Vec<u8>>, id: &str, key: &str, command: &str) {
+    send_mcp(
+        sender,
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {
+                "name": "agenterm_acu_shell_exec",
+                "arguments": {
+                    "idempotency_key": key,
+                    "command": command,
+                    "timeout_ms": 1000,
+                    "max_output_bytes": 4096
+                }
+            }
+        }),
+    );
+}
+
+fn send_fake_cancel(sender: &mpsc::Sender<Vec<u8>>, id: &str) {
+    send_mcp(
+        sender,
+        json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": {"requestId": id}
+        }),
+    );
+}
+
+fn wait_fake_responses(output: &SharedOutput, count: usize) -> Vec<Value> {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let bytes = output.0.lock().expect("output lock").clone();
+        let responses = String::from_utf8(bytes)
+            .expect("MCP output UTF-8")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("MCP output JSON"))
+            .collect::<Vec<_>>();
+        if responses.len() >= count {
+            return responses;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {count} MCP responses"
+        );
+        thread::yield_now();
+    }
+}
+
+fn provider_verbs(calls: &[Value]) -> Vec<&str> {
+    calls
+        .iter()
+        .map(|call| call["command"]["verb"].as_str().expect("provider verb"))
+        .collect()
+}
+
+#[test]
+fn public_stdio_mutation_is_lazy_queues_one_and_preserves_authoritative_completion() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_first.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"tools", "method":"tools/list"}),
+    );
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"before", "method":"ping"}),
+    );
+    let before = wait_fake_responses(&output, 3);
+    assert_eq!(
+        before.iter().map(|value| &value["id"]).collect::<Vec<_>>(),
+        [&json!(1), &json!("tools"), &json!("before")]
+    );
+    assert!(provider.calls.lock().expect("provider calls").is_empty());
+
+    send_shell_exec(&input, "first", "effect:first", "first");
+    let calls = provider.wait_for_calls(2);
+    assert_eq!(provider_verbs(&calls), ["session-start", "shell-exec"]);
+    assert_eq!(calls[0]["command"]["ttl_seconds"], 3_600);
+    assert_eq!(calls[1]["request_identity"]["request_id"], "effect:first");
+    assert_eq!(calls[1]["request_identity"]["session_lease"], "<REDACTED>");
+    send_shell_exec(&input, "second", "effect:second", "second");
+    send_fake_cancel(&input, "second");
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"queued-barrier", "method":"ping"}),
+    );
+    let queued = wait_fake_responses(&output, 5);
+    assert_eq!(queued[3]["id"], "second");
+    assert_eq!(
+        queued[3]["result"]["structuredContent"]["error"]["detail"]["provider_calls"],
+        0
+    );
+    assert_eq!(queued[4]["id"], "queued-barrier");
+    assert_eq!(provider.calls.lock().expect("provider calls").len(), 2);
+
+    send_fake_cancel(&input, "first");
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"dispatch-barrier", "method":"ping"}),
+    );
+    assert_eq!(wait_fake_responses(&output, 6)[5]["id"], "dispatch-barrier");
+    provider.release_first.store(true, Ordering::Release);
+    provider.changed.notify_all();
+    let completed = wait_fake_responses(&output, 7);
+    assert_eq!(completed[6]["id"], "first");
+    assert_eq!(
+        completed[6]["result"]["structuredContent"]["data"]["authoritative"],
+        true
+    );
+
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+    let calls = provider.wait_for_calls(3);
+    assert_eq!(
+        provider_verbs(&calls),
+        ["session-start", "shell-exec", "session-end"]
+    );
+    assert_eq!(calls[2]["command"]["lease"], "<REDACTED>");
+    assert!(
+        !String::from_utf8(output.0.lock().expect("output lock").clone())
+            .expect("MCP UTF-8")
+            .contains("fixture-private-lease")
+    );
+}
+
+#[test]
+fn internal_mutation_accepts_one_queued_call_while_the_session_starts() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_start.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+
+    send_shell_exec(&input, "first", "startup:first", "first");
+    assert_eq!(
+        provider_verbs(&provider.wait_for_calls(1)),
+        ["session-start"]
+    );
+    send_shell_exec(&input, "second", "startup:second", "second");
+    provider.release_start.store(true, Ordering::Release);
+    provider.changed.notify_all();
+
+    let calls = provider.wait_for_calls(3);
+    assert_eq!(
+        provider_verbs(&calls),
+        ["session-start", "shell-exec", "shell-exec"]
+    );
+    let responses = wait_fake_responses(&output, 3);
+    assert_eq!(responses[1]["id"], "first");
+    assert_eq!(responses[2]["id"], "second");
+
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+    assert_eq!(
+        provider_verbs(&provider.wait_for_calls(4)),
+        ["session-start", "shell-exec", "shell-exec", "session-end"]
+    );
+}
+
+#[test]
+fn output_disconnect_is_reported_only_after_private_session_cleanup() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_first.store(true, Ordering::Release);
+    let (sender, receiver) = mpsc::channel();
+    let worker_provider = Arc::clone(&provider);
+    let worker = thread::spawn(move || {
+        agenterm::mcp_stdio::serve_stdio_with_config_and_provider(
+            ChannelInput {
+                receiver,
+                buffer: Vec::new(),
+                offset: 0,
+            },
+            BrokenOutput,
+            agenterm::mcp_stdio::McpStdioConfig::default(),
+            move |request: &str| worker_provider.call(request),
+        )
+    });
+    send_fake_initialize(&sender);
+    send_shell_exec(&sender, "first", "disconnect:first", "first");
+    provider.wait_for_calls(2);
+    drop(sender);
+    provider.release_first.store(true, Ordering::Release);
+    provider.changed.notify_all();
+
+    let error = worker
+        .join()
+        .expect("join MCP worker")
+        .expect_err("disconnected output must be reported");
+    assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+    assert_eq!(
+        provider_verbs(&provider.wait_for_calls(3)),
+        ["session-start", "shell-exec", "session-end"]
+    );
+}
+
+#[test]
+fn public_stdio_eof_drains_dispatched_cancels_queued_and_emits_nothing_after_eof() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_first.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_shell_exec(&input, "first", "effect:first", "first");
+    provider.wait_for_calls(2);
+    send_shell_exec(&input, "second", "effect:second", "second");
+    drop(input);
+    provider.release_first.store(true, Ordering::Release);
+    provider.changed.notify_all();
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+    let calls = provider.wait_for_calls(3);
+    assert_eq!(
+        provider_verbs(&calls),
+        ["session-start", "shell-exec", "session-end"]
+    );
+    assert_eq!(wait_fake_responses(&output, 1).len(), 1);
+}
+
+#[test]
+fn public_stdio_cancel_during_lazy_session_start_never_dispatches_shell() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.gate_start.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_shell_exec(&input, "starting", "effect:starting", "never");
+    assert_eq!(
+        provider_verbs(&provider.wait_for_calls(1)),
+        ["session-start"]
+    );
+    send_fake_cancel(&input, "starting");
+    assert_eq!(wait_fake_responses(&output, 2)[1]["id"], "starting");
+    provider.release_start.store(true, Ordering::Release);
+    provider.changed.notify_all();
+    assert_eq!(
+        provider_verbs(&provider.wait_for_calls(2)),
+        ["session-start", "session-end"]
+    );
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"still-open", "method":"ping"}),
+    );
+    assert_eq!(wait_fake_responses(&output, 3)[2]["id"], "still-open");
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+}
+
+#[test]
+fn public_stdio_mutation_notification_emits_nothing_and_never_starts_provider() {
+    let provider = Arc::new(FakeProviderState::default());
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_mcp(
+        &input,
+        json!({
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": "agenterm_acu_shell_exec",
+                "arguments": {
+                    "idempotency_key": "notification",
+                    "command": "must-not-run",
+                    "timeout_ms": 1000,
+                    "max_output_bytes": 4096
+                }
+            }
+        }),
+    );
+    send_mcp(
+        &input,
+        json!({"jsonrpc":"2.0", "id":"barrier", "method":"ping"}),
+    );
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses[1]["id"], "barrier");
+    assert!(provider.calls.lock().expect("provider calls").is_empty());
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+}
+
+#[test]
+fn public_stdio_refuses_false_positive_session_start_without_private_identity() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider
+        .invalid_start_identity
+        .store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_shell_exec(
+        &input,
+        "missing-identity",
+        "missing-identity",
+        "must-not-run",
+    );
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses[1]["id"], "missing-identity");
+    assert_eq!(
+        responses[1]["result"]["structuredContent"]["error"]["code"],
+        "outcome_unknown"
+    );
+    assert_eq!(
+        responses[1]["result"]["structuredContent"]["error"]["detail"]["provider_code"],
+        "acu_provider_session_identity_invalid"
+    );
+    assert_eq!(
+        provider_verbs(&provider.wait_for_calls(1)),
+        ["session-start"]
+    );
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+}
+
+impl FakeProviderState {
+    fn call(&self, encoded: &str) -> Result<String, String> {
+        let request: Value = serde_json::from_str(encoded).expect("provider request JSON");
+        let verb = request["command"]["verb"]
+            .as_str()
+            .expect("provider command verb");
+        let command = request["command"]["command"].as_str();
+        let mut redacted = request.clone();
+        if let Some(identity) = redacted["request_identity"].as_object_mut() {
+            let lease = identity
+                .get("session_lease")
+                .and_then(Value::as_str)
+                .expect("private mutation lease");
+            assert_eq!(lease, "fixture-private-lease");
+            identity.insert("session_lease".to_owned(), json!("<REDACTED>"));
+        }
+        if verb == "session-end" {
+            assert_eq!(redacted["command"]["lease"], "fixture-private-lease");
+            redacted["command"]["lease"] = json!("<REDACTED>");
+        }
+        self.calls.lock().expect("provider calls").push(redacted);
+        self.changed.notify_all();
+        if verb == "session-start" && self.gate_start.load(Ordering::Acquire) {
+            self.wait_for_release(&self.release_start);
+        }
+        if verb == "shell-exec"
+            && command == Some("first")
+            && self.gate_first.load(Ordering::Acquire)
+        {
+            self.wait_for_release(&self.release_first);
+        }
+        let reply = match verb {
+            "session-start" if self.invalid_start_identity.load(Ordering::Acquire) => json!({
+                "ok": true,
+                "target": "current",
+                "command": "session-start",
+                "data": {"label": "agenterm-mcp"}
+            }),
+            "session-start" => json!({
+                "ok": true,
+                "target": "current",
+                "command": "session-start",
+                "data": {
+                    "session_id": "fixture-session",
+                    "lease": "fixture-private-lease",
+                    "label": "agenterm-mcp",
+                    "expires_at_utc_s": 9999999999_i64
+                }
+            }),
+            "shell-exec" => json!({
+                "ok": true,
+                "target": "current",
+                "command": "shell-exec",
+                "data": {"stdout": command, "authoritative": true}
+            }),
+            "session-end" => json!({
+                "ok": true,
+                "target": "current",
+                "command": "session-end",
+                "data": {"released_locks": 0}
+            }),
+            other => panic!("unexpected provider verb {other}"),
+        };
+        Ok(reply.to_string())
+    }
+
+    fn wait_for_release(&self, release: &AtomicBool) {
+        let mut calls = self.calls.lock().expect("provider calls");
+        while !release.load(Ordering::Acquire) {
+            calls = self.changed.wait(calls).expect("provider wait");
+        }
+    }
+
+    fn wait_for_calls(&self, count: usize) -> Vec<Value> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut calls = self.calls.lock().expect("provider calls");
+        while calls.len() < count {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "timed out waiting for provider call {count}"
+            );
+            let (next, timeout) = self
+                .changed
+                .wait_timeout(calls, remaining)
+                .expect("provider wait");
+            calls = next;
+            assert!(!timeout.timed_out() || calls.len() >= count);
+        }
+        calls.clone()
+    }
+}
 
 #[test]
 fn public_stdio_lifecycle_keeps_stdout_machine_only() {

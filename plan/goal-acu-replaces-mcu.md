@@ -209,11 +209,18 @@ CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical
 deadlines, cleanup, errors and receipts. Moving TypeScript logic line-for-line
 into qjswasm would preserve the duplication and is explicitly rejected.
 
-MCP mutation will use a server-owned ACU session. Its private session lease
-never enters public arguments or transcripts; JSON-RPC ids own transport
+The first MCP mutation implementation uses a server-owned ACU session. Its
+private session lease never enters public arguments or transcripts; JSON-RPC
+ids own transport
 cancellation while a separate non-secret idempotency key owns durable
-at-most-once effect identity. Queued cancellation is zero-effect, but a cancel
-after provider dispatch cannot overwrite the authoritative effect receipt.
+at-most-once effect identity. One call may be provider-dispatched and one
+queued. Queued cancellation is zero-provider/zero-effect; cancellation after
+dispatch cannot overwrite the authoritative effect receipt. Fake lifecycle
+courts and a local fixed-sibling provider shell effect are green. Startup
+queueing is deterministic, and output disconnect is reported only after
+session cleanup. It remains unadvertised until persisted target-bound
+authorization, lease renewal and packaged six-cell interactive stdio execution
+are green.
 
 ```text
 MCU retirement blockers
