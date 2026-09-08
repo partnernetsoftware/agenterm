@@ -112,6 +112,7 @@
         "cu.linux-atspi-query",
         "cu.linux-query-readback",
         "cu.linux-get-text-readback",
+        "cu.linux-focused-readback",
         "cu.linux-get-extents-readback",
         "cu.linux-atspi-invoke",
         "cu.linux-atspi-invoke-readback",

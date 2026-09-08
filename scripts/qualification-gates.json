@@ -435,6 +435,12 @@
       ]
     },
     {
+      "id": "cu-linux-focused-honesty-smoke",
+      "evidence": [
+        "cu.linux-focused-readback"
+      ]
+    },
+    {
       "id": "cu-linux-get-extents-smoke",
       "evidence": [
         "cu.linux-get-extents-readback"

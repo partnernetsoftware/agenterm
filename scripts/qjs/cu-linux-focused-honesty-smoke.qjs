@@ -1,0 +1,289 @@
+// CEO: Linux focused honesty with independent pyatspi STATE_FOCUSED read-back.
+// Acceptance is smoke read-back only: CU focused --window on a disposable GTK
+// fixture must agree with an independent AT-SPI deepest STATE_FOCUSED node
+// (name + role) after focus --name actuation. AT-SPI/--name only; no --coords
+// or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-focused-readback",
+];
+
+const FOCUS_CASES = [
+  { label: "entry", name: "Fixture Entry" },
+  { label: "button", name: "Fixture Press" },
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function normalize_role(role) {
+  return ("" + role).trim().toLowerCase().split("_").join(" ");
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_focused_honesty_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_focused_honesty_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_focused_honesty_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function independent_focus_probe_script() {
+  return [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "title = json.loads(sys.argv[1])['title']",
+    "",
+    "def node_role(obj):",
+    "    try:",
+    "        rn = obj.getRoleName()",
+    "        if rn and rn.strip(): return rn",
+    "    except Exception: pass",
+    "    return pyatspi.role.getName(obj.getRole()).lower()",
+    "",
+    "def node_name(obj):",
+    "    try: return obj.name or ''",
+    "    except Exception: return ''",
+    "",
+    "def find_frame():",
+    "    desktop = pyatspi.Registry.getDesktop(0)",
+    "    for index in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(index)",
+    "        if app is None:",
+    "            continue",
+    "        for child_index in range(app.childCount):",
+    "            window = app.getChildAtIndex(child_index)",
+    "            if window is not None and (window.name or '') == title:",
+    "                return window",
+    "    return None",
+    "",
+    "def deepest_focused(root):",
+    "    candidates = []",
+    "    def walk(obj, depth):",
+    "        try:",
+    "            focused = obj.getState().contains(pyatspi.STATE_FOCUSED)",
+    "        except Exception:",
+    "            focused = False",
+    "        if focused:",
+    "            candidates.append((depth, obj))",
+    "        for index in range(obj.childCount):",
+    "            child = obj.getChildAtIndex(index)",
+    "            if child is not None:",
+    "                walk(child, depth + 1)",
+    "    walk(root, 0)",
+    "    if not candidates:",
+    "        raise SystemExit('cu_linux_focused_probe_missing')",
+    "    candidates.sort(key=lambda item: item[0], reverse=True)",
+    "    node = candidates[0][1]",
+    "    return {'name': node_name(node), 'role': node_role(node)}",
+    "",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_focused_probe_window_missing')",
+    "print(json.dumps(deepest_focused(frame)))",
+  ].join("\n");
+}
+
+function independent_focus_probe(run_directory, executable, fixture_title) {
+  const output = rh.command("python3", [
+    "-c", independent_focus_probe_script(),
+    JSON.stringify({ title: fixture_title }),
+  ], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_focused_probe:" + output.stderr + output.stdout);
+  const document = JSON.parse(output.stdout.trim());
+  ensure(typeof document.name === "string", "cu_linux_focused_probe_name");
+  ensure(typeof document.role === "string", "cu_linux_focused_probe_role");
+  return document;
+}
+
+function assert_focused_agreement(
+  run_directory, executable, handle, fixture_title, focus_name, label
+) {
+  print("STEP focus --name " + focus_name + " then compare CU focused with pyatspi STATE_FOCUSED");
+  const focused_act = run_cu(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", focus_name,
+  ]);
+  ensure(
+    flag_at(focused_act, "data.verified"),
+    "cu_linux_focused_honesty_focus_verified_" + label + ":" + JSON.stringify(focused_act.data)
+  );
+
+  const cu_focused = run_cu(run_directory, executable, "observe", [
+    "focused", "--window", handle,
+  ]);
+  ensure(
+    text_at(cu_focused, "data.addressing") === "focused-control"
+      && text_at(cu_focused, "data.backend") === "at-spi2",
+    "cu_linux_focused_honesty_shape_" + label + ":" + JSON.stringify(cu_focused.data)
+  );
+
+  const cu_name = text_at(cu_focused, "data.node.name");
+  const cu_role = normalize_role(text_at(cu_focused, "data.node.role"));
+  const probe = independent_focus_probe(run_directory, executable, fixture_title);
+  const probe_role = normalize_role(probe.role);
+
+  ensure(
+    cu_name === probe.name,
+    "cu_linux_focused_honesty_name_" + label + ":" + JSON.stringify({
+      cu: cu_name, probe: probe.name, focus_name: focus_name,
+    })
+  );
+  ensure(
+    cu_role === probe_role,
+    "cu_linux_focused_honesty_role_" + label + ":" + JSON.stringify({
+      cu: cu_role, probe: probe_role, focus_name: focus_name,
+    })
+  );
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_focused_honesty_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_focused_honesty_requires_linux");
+
+const context = harness.new_context(repo, "cu-linux-focused-honesty");
+const run_directory = rh.join(repo, "target/cu-linux-focused-honesty-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_focused_honesty_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start owned GTK fixture and resolve one window handle");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_focused_honesty_window_wait");
+
+  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(row !== null, "cu_linux_focused_honesty_inventory_missing");
+  const handle = "" + int_at(row, "handle");
+  ensure(int_at(row, "handle") > 0, "cu_linux_focused_honesty_handle:" + JSON.stringify(row));
+
+  for (const focus_case of FOCUS_CASES) {
+    assert_focused_agreement(
+      run_directory, executable, handle, fixture_title, focus_case.name, focus_case.label
+    );
+  }
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+}
+
+if (succeeded !== 0) {
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS: Linux CU focused matches independent pyatspi STATE_FOCUSED (entry and button)");
+}
+if (failure !== "") { throw failure; }
+return;

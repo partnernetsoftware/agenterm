@@ -1154,6 +1154,25 @@
         "task.cu-linux-chrome-text-smoke"
       ]
     },
+    "cu-linux-unlock-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-unlock-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-unlock-honesty-smoke"
+      ]
+    },
     "cu-linux-cdp-page-fill-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -1249,6 +1268,25 @@
         "task.cu-linux-browser-tab-select-smoke"
       ]
     },
+    "cu-linux-tab-list-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-tab-list-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-tab-list-honesty-smoke"
+      ]
+    },
     "cu-linux-tab-close-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -1325,6 +1363,25 @@
       "network": [],
       "evidence": [
         "task.cu-linux-get-text-honesty-smoke"
+      ]
+    },
+    "cu-linux-focused-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-focused-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-focused-honesty-smoke"
       ]
     },
     "cu-linux-invoke-smoke": {
@@ -5626,6 +5683,26 @@
       ]
     },
     {
+      "id": "cu-linux-tab-list-honesty-smoke",
+      "description": "Prove Linux CU tab-list on box-chrome-a11y matches an independent pyatspi AT-SPI tab-strip walk (page-tab-list/page-tab or Chromium application-frame fallback) for count, title, and selected; AT-SPI/--name court only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-tab-list-honesty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-tab-close-smoke",
       "description": "Prove Linux tab-close --expect gone on a disposable Chrome tab; independent tab-list and browser-tabs read-back show the tab gone while a keeper tab remains; CDP closeTarget via --port, AT-SPI/--name court only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-tab-close-smoke.qjs",
@@ -5867,6 +5944,26 @@
       "id": "cu-linux-get-text-honesty-smoke",
       "description": "Prove Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; AT-SPI/--name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-get-text-honesty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-focused-honesty-smoke",
+      "description": "Prove Linux CU focused --window on a disposable GTK fixture matches independent pyatspi deepest STATE_FOCUSED node name and role after focus --name actuation; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-focused-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
