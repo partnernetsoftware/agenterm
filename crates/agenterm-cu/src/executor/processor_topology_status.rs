@@ -1,8 +1,6 @@
 //! Current-host processor and NUMA topology observation.
 
-use agenterm_platform::processor_topology::{
-    ProcessorTopologyError, ProcessorTopologyErrorKind,
-};
+use agenterm_platform::processor_topology::{ProcessorTopologyError, ProcessorTopologyErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;

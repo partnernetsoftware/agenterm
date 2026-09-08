@@ -1053,12 +1053,10 @@ pub(super) fn fullscreen_payload(
     )?;
     let mut mechanism_error = None;
     if performed {
-        mechanism_error = mechanism::window_op::show(
-            window,
-            crate::dynlib::AGT_NATIVE_WINDOW_FULLSCREEN,
-        )
-        .err()
-        .map(map_mechanism_err);
+        mechanism_error =
+            mechanism::window_op::show(window, crate::dynlib::AGT_NATIVE_WINDOW_FULLSCREEN)
+                .err()
+                .map(map_mechanism_err);
     }
     let started = Instant::now();
     let mut polls = 0usize;
@@ -1221,12 +1219,10 @@ pub(super) fn unfullscreen_payload(
     )?;
     let mut mechanism_error = None;
     if performed {
-        mechanism_error = mechanism::window_op::show(
-            window,
-            crate::dynlib::AGT_NATIVE_WINDOW_UNFULLSCREEN,
-        )
-        .err()
-        .map(map_mechanism_err);
+        mechanism_error =
+            mechanism::window_op::show(window, crate::dynlib::AGT_NATIVE_WINDOW_UNFULLSCREEN)
+                .err()
+                .map(map_mechanism_err);
     }
     let started = Instant::now();
     let mut polls = 0usize;
@@ -1338,7 +1334,9 @@ pub(super) fn topmost_payload(
 ) -> Result<serde_json::Value, CuError> {
     const POSTCONDITION: &str = "topmost";
     let mut missing = Vec::new();
-    if window == 0 { missing.push("target"); }
+    if window == 0 {
+        missing.push("target");
+    }
     match expect.map(str::trim) {
         Some(value) if value == POSTCONDITION => {}
         _ => missing.push("postcondition"),
@@ -1383,7 +1381,9 @@ pub(super) fn topmost_payload(
     )?;
     let mut mechanism_error = None;
     if performed {
-        mechanism_error = mechanism::window_op::set_topmost(window, true).err().map(map_mechanism_err);
+        mechanism_error = mechanism::window_op::set_topmost(window, true)
+            .err()
+            .map(map_mechanism_err);
     }
     let started = Instant::now();
     let mut polls = 0usize;
@@ -1393,9 +1393,14 @@ pub(super) fn topmost_payload(
         polls += 1;
         match read_above(window) {
             Ok(value) => now = value,
-            Err(error) => { readback_error = Some(error); break; }
+            Err(error) => {
+                readback_error = Some(error);
+                break;
+            }
         }
-        if now || mechanism_error.is_some() || started.elapsed() >= STATE_READBACK { break; }
+        if now || mechanism_error.is_some() || started.elapsed() >= STATE_READBACK {
+            break;
+        }
         thread::sleep(STATE_READBACK_POLL);
     }
     let is_present = inventory_present(window);
@@ -1403,22 +1408,37 @@ pub(super) fn topmost_payload(
     let front_pid_before = front_before.as_ref().map(|app| app.pid);
     let front_pid_after = front_after.as_ref().map(|app| app.pid);
     let foreground_unchanged = front_pid_before == front_pid_after;
-    let verified = now && foreground_unchanged && mechanism_error.is_none() && readback_error.is_none();
-    let reason = if mechanism_error.is_some() { Some("mechanism_failed") }
-        else if readback_error.is_some() { Some("readback_failed") }
-        else if !foreground_unchanged { Some("foreground_changed") }
-        else if !now { Some("state_mismatch") }
-        else if !performed { Some("already_topmost") } else { None };
+    let verified =
+        now && foreground_unchanged && mechanism_error.is_none() && readback_error.is_none();
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if readback_error.is_some() {
+        Some("readback_failed")
+    } else if !foreground_unchanged {
+        Some("foreground_changed")
+    } else if !now {
+        Some("state_mismatch")
+    } else if !performed {
+        Some("already_topmost")
+    } else {
+        None
+    };
     let verification = serde_json::json!({
         "method": "window-above-readback", "reason": reason,
         "polls": polls, "elapsed_ms": started.elapsed().as_millis(),
     });
     let after = serde_json::json!({"above": now, "inventory_present": is_present});
-    receipts.complete(&ticket, "topmost", window, verified, serde_json::json!({
-        "performed": performed && mechanism_error.is_none(),
-        "after": after, "verification": verification,
-        "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
-    }))?;
+    receipts.complete(
+        &ticket,
+        "topmost",
+        window,
+        verified,
+        serde_json::json!({
+            "performed": performed && mechanism_error.is_none(),
+            "after": after, "verification": verification,
+            "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
+        }),
+    )?;
     let payload = serde_json::json!({
         "addressing": "window-handle", "mechanism": "libagenterm",
         "via": "native-window-set-topmost", "window": window, "action": "topmost",
@@ -1453,7 +1473,9 @@ pub(super) fn untopmost_payload(
 ) -> Result<serde_json::Value, CuError> {
     const POSTCONDITION: &str = "untopmost";
     let mut missing = Vec::new();
-    if window == 0 { missing.push("target"); }
+    if window == 0 {
+        missing.push("target");
+    }
     match expect.map(str::trim) {
         Some(value) if value == POSTCONDITION => {}
         _ => missing.push("postcondition"),
@@ -1498,7 +1520,9 @@ pub(super) fn untopmost_payload(
     )?;
     let mut mechanism_error = None;
     if performed {
-        mechanism_error = mechanism::window_op::set_topmost(window, false).err().map(map_mechanism_err);
+        mechanism_error = mechanism::window_op::set_topmost(window, false)
+            .err()
+            .map(map_mechanism_err);
     }
     let started = Instant::now();
     let mut polls = 0usize;
@@ -1508,9 +1532,14 @@ pub(super) fn untopmost_payload(
         polls += 1;
         match read_above(window) {
             Ok(value) => now = value,
-            Err(error) => { readback_error = Some(error); break; }
+            Err(error) => {
+                readback_error = Some(error);
+                break;
+            }
         }
-        if !now || mechanism_error.is_some() || started.elapsed() >= STATE_READBACK { break; }
+        if !now || mechanism_error.is_some() || started.elapsed() >= STATE_READBACK {
+            break;
+        }
         thread::sleep(STATE_READBACK_POLL);
     }
     let is_present = inventory_present(window);
@@ -1518,22 +1547,37 @@ pub(super) fn untopmost_payload(
     let front_pid_before = front_before.as_ref().map(|app| app.pid);
     let front_pid_after = front_after.as_ref().map(|app| app.pid);
     let foreground_unchanged = front_pid_before == front_pid_after;
-    let verified = !now && foreground_unchanged && mechanism_error.is_none() && readback_error.is_none();
-    let reason = if mechanism_error.is_some() { Some("mechanism_failed") }
-        else if readback_error.is_some() { Some("readback_failed") }
-        else if !foreground_unchanged { Some("foreground_changed") }
-        else if now { Some("state_mismatch") }
-        else if !performed { Some("already_untopmost") } else { None };
+    let verified =
+        !now && foreground_unchanged && mechanism_error.is_none() && readback_error.is_none();
+    let reason = if mechanism_error.is_some() {
+        Some("mechanism_failed")
+    } else if readback_error.is_some() {
+        Some("readback_failed")
+    } else if !foreground_unchanged {
+        Some("foreground_changed")
+    } else if now {
+        Some("state_mismatch")
+    } else if !performed {
+        Some("already_untopmost")
+    } else {
+        None
+    };
     let verification = serde_json::json!({
         "method": "window-above-readback", "reason": reason,
         "polls": polls, "elapsed_ms": started.elapsed().as_millis(),
     });
     let after = serde_json::json!({"above": now, "inventory_present": is_present});
-    receipts.complete(&ticket, "untopmost", window, verified, serde_json::json!({
-        "performed": performed && mechanism_error.is_none(),
-        "after": after, "verification": verification,
-        "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
-    }))?;
+    receipts.complete(
+        &ticket,
+        "untopmost",
+        window,
+        verified,
+        serde_json::json!({
+            "performed": performed && mechanism_error.is_none(),
+            "after": after, "verification": verification,
+            "error": mechanism_error.as_ref().or(readback_error.as_ref()).map(error_payload),
+        }),
+    )?;
     let payload = serde_json::json!({
         "addressing": "window-handle", "mechanism": "libagenterm",
         "via": "native-window-set-topmost", "window": window, "action": "untopmost",
@@ -1559,7 +1603,6 @@ pub(super) fn untopmost_payload(
     }
     Ok(payload)
 }
-
 
 fn read_opacity_permille(window: isize) -> Result<u32, CuError> {
     mechanism::window_op::opacity(window).map_err(map_mechanism_err)

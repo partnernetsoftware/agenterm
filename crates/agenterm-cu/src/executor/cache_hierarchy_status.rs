@@ -1,8 +1,6 @@
 //! Current-host CPU cache hierarchy observation.
 
-use agenterm_platform::cache_hierarchy::{
-    CacheHierarchyError, CacheHierarchyErrorKind,
-};
+use agenterm_platform::cache_hierarchy::{CacheHierarchyError, CacheHierarchyErrorKind};
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
@@ -52,7 +50,11 @@ mod tests {
             return;
         }
         let value = cache_hierarchy_status_payload().expect("cache hierarchy payload");
-        assert!(value["geometries"].as_array().is_some_and(|rows| !rows.is_empty()));
+        assert!(
+            value["geometries"]
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty())
+        );
         assert_eq!(value["atomic_snapshot"], false);
     }
 }
