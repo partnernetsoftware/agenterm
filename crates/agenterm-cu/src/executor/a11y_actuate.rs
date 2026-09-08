@@ -575,6 +575,11 @@ pub(super) struct ResolvedNode {
 /// Text interface (`a11y_text_unavailable`) falls through to the next
 /// candidate; any other mechanism failure aborts. All candidates missing
 /// Text re-raises the innermost candidate's `a11y_text_unavailable`.
+/// When the bounded tree walk carries no `focused` state (measured on
+/// GTK3 after `grab_focus`), the same platform focused snapshot
+/// `focused --window` uses — live probe plus the actuation read-back hint
+/// from the last `focus` / `click` — supplies the node instead of typing
+/// into the void or falling through to XTest.
 pub(super) fn get_text_focused(window: Option<isize>) -> Result<(ResolvedNode, String), CuError> {
     let (_tree, resolved, text) = get_text_focused_in_tree(window)?;
     Ok((resolved, text))
@@ -593,45 +598,64 @@ pub(super) fn get_text_focused_in_tree(
         ));
     };
     let tree = mechanism::tree_for_window(Some(handle)).map_err(map_mechanism_err)?;
-    let (node, text) = {
-        let candidates = focused_candidates_innermost_first(&tree.nodes);
-        if candidates.is_empty() {
-            return Err(CuError::new(
-                "a11y_node_not_found",
-                "no showing focused accessibility node in window tree",
-            ));
-        }
-        let mut text_unavailable: Option<CuError> = None;
-        let mut hit = None;
-        for node in candidates {
-            match mechanism::get_node_text(window, &node.id) {
-                Ok(text) => {
-                    hit = Some((node.clone(), text));
-                    break;
-                }
-                Err(mechanism::MechanismError::Failed { code, message })
-                    if code == "a11y_text_unavailable" =>
-                {
-                    text_unavailable.get_or_insert(CuError::new(code, message));
-                }
-                Err(other) => return Err(map_mechanism_err(other)),
-            }
-        }
-        match hit {
-            Some(hit) => hit,
-            None => {
-                return Err(
-                    text_unavailable.expect("non-empty candidates yield Ok or a stored error")
-                );
-            }
-        }
+    if let Some((node, text)) = text_from_focused_tree_candidates(&tree, window)? {
+        let resolved = ResolvedNode {
+            node_id: node.id.clone(),
+            matched: Some(node),
+            backend: Some(tree.backend.clone()),
+        };
+        return Ok((tree, resolved, text));
+    }
+    let focused_tree = mechanism::focused_node(Some(handle)).map_err(map_mechanism_err)?;
+    let backend = focused_tree.backend.clone();
+    let Some(node) = focused_tree.nodes.into_iter().next() else {
+        return Err(CuError::new(
+            "a11y_focus_unavailable",
+            "the platform returned no focused control",
+        ));
     };
+    let text = mechanism::get_node_text(window, &node.id).map_err(map_mechanism_err)?;
     let resolved = ResolvedNode {
         node_id: node.id.clone(),
         matched: Some(node),
-        backend: Some(tree.backend.clone()),
+        backend: Some(backend),
     };
     Ok((tree, resolved, text))
+}
+
+/// Innermost showing `focused` tree node that exposes `Text.GetText`, or
+/// `None` when the snapshot carries no `focused` state so the caller can
+/// fall back to the platform focused snapshot.
+fn text_from_focused_tree_candidates(
+    tree: &mechanism::A11yTree,
+    window: Option<isize>,
+) -> Result<Option<(mechanism::A11yNode, String)>, CuError> {
+    let candidates = focused_candidates_innermost_first(&tree.nodes);
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    let mut text_unavailable: Option<CuError> = None;
+    let mut hit = None;
+    for node in candidates {
+        match mechanism::get_node_text(window, &node.id) {
+            Ok(text) => {
+                hit = Some((node.clone(), text));
+                break;
+            }
+            Err(mechanism::MechanismError::Failed { code, message })
+                if code == "a11y_text_unavailable" =>
+            {
+                text_unavailable.get_or_insert(CuError::new(code, message));
+            }
+            Err(other) => return Err(map_mechanism_err(other)),
+        }
+    }
+    match hit {
+        Some(hit) => Ok(Some(hit)),
+        None => Err(
+            text_unavailable.expect("non-empty candidates yield Ok or a stored error")
+        ),
+    }
 }
 
 /// Every showing node carrying the AT-SPI `focused` state, deepest child
@@ -836,6 +860,23 @@ mod tests {
         let candidates = focused_candidates_innermost_first(&nodes);
         let ids: Vec<&str> = candidates.iter().map(|node| node.id.as_str()).collect();
         assert_eq!(ids, vec![composer.id.as_str(), panel.id.as_str()]);
+    }
+
+    #[test]
+    fn focused_tree_candidates_without_focused_state_signal_platform_fallback() {
+        let tree = mechanism::A11yTree {
+            backend: "at-spi2".into(),
+            window_handle: Some(1),
+            root_id: "/0".into(),
+            nodes: vec![node_at("/0/1", "Fixture Entry", "text", &["showing", "editable"])],
+            truncated: false,
+            visited: 1,
+            returned: 1,
+        };
+        assert!(
+            text_from_focused_tree_candidates(&tree, Some(1)).unwrap().is_none(),
+            "GTK3-shaped trees without STATE_FOCUSED must fall through to the platform focused snapshot"
+        );
     }
 
     #[test]
