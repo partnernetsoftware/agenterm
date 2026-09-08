@@ -116,6 +116,15 @@ pub fn resolve(first: &str, second: Option<&str>) -> Option<&'static VerbSpec> {
         {
             return Some(spec);
         }
+        let prefix = format!("{joined} ");
+        let mut prefix_matches = VERBS
+            .iter()
+            .filter(|spec| spec.aliases.iter().any(|alias| alias.starts_with(&prefix)));
+        if let Some(spec) = prefix_matches.next()
+            && prefix_matches.next().is_none()
+        {
+            return Some(spec);
+        }
     }
     lookup(first)
 }
@@ -289,6 +298,6 @@ mod tests {
         for expected in ["hit", "zoom", "snapshot", "diff"] {
             assert!(!actuate.contains(expected), "{expected} must be observe");
         }
-        assert_eq!(actuate.len(), 111, "{actuate:?}");
+        assert_eq!(actuate.len(), 113, "{actuate:?}");
     }
 }

@@ -3647,7 +3647,7 @@
       "usage": "processor affinity status [--pid N]\nprocessor-affinity-status [--pid N]",
       "args": [
         {
-          "name": "--pid",
+          "flag": "--pid",
           "optional": true,
           "summary": "target process id; defaults to the current process"
         }

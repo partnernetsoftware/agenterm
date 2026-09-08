@@ -115,12 +115,12 @@ pub fn top_level_text() -> String {
         "  ime-status                        observe  read the session input-method framework and environment facts\n  hover                             actuate  AT-SPI GenerateMouseEvent(abs) at a named node's extents center\n  scroll-wheel                      actuate  bounded wheel at a named node's AT-SPI extents center\n  unmaximize                        actuate  EWMH unmaximize with read-back",
         "  hover  scroll-wheel  unmaximize actuate named desktop state",
     );
-    text = text.replace("  browser-session-stop  browser-session-remove\n", "");
     text = text.replace(
-        "  simulator-apps  simulator-status  simulator-boot  simulator-shutdown",
-        "  simulator-apps  simulator-status  simulator-boot  simulator-shutdown  browser-session-stop  browser-session-remove",
+        "System & permissions\n  capabilities",
+        "System & permissions  capabilities",
     );
     text = text.replace("Transports\n  exec", "Transports  exec");
+    text = text.replace("Clipboard\n  clipboard-read", "Clipboard  clipboard-read");
     text = text.replace(
         "  file-inspect                      observe  inspect one final filesystem entry without following it\n  file-watch                        observe  watch one directory for bounded native create/modify events\n  file-attributes                   observe  inspect bounded extended-attribute metadata for one regular file\n  file-mode                         actuate  plan or apply one identity-bound Unix permission mode\n  file-xattr-set                    actuate  plan or apply one bounded extended-attribute value\n  file-xattr-remove                 actuate  plan or apply removal of one extended attribute\n  file-quarantine-clear             actuate  plan or apply removal of macOS quarantine metadata\n  process-signal                    actuate  deliver one closed signal through exact native process objects\n  term-read                         observe  read one exact external terminal window's bounded accessibility buffer\n  term-send                         actuate  send to one exact external terminal with independent buffer verification\n  term-wait                         observe  wait for a regex in one exact external terminal without leaking timeout content",
         "  file-inspect  file-watch  file-attributes observe\n  file-mode  file-xattr-set  file-xattr-remove  file-quarantine-clear actuate\n  process-signal actuate exact process;  term-read observe;  term-send actuate;  term-wait observe",
@@ -302,6 +302,26 @@ pub fn verbs_text() -> String {
 /// readable, but default toward truthful discovery when a newly registered
 /// verb has not yet been manually placed into those prose blocks.
 fn append_missing_top_level_rows(text: &mut String) {
+    fn compact_rows<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
+        let mut rows = Vec::new();
+        let mut row = String::from("  ");
+        for name in names {
+            let separator = if row.len() == 2 { "" } else { "  " };
+            if row.len() + separator.len() + name.len() > 110 {
+                rows.push(row);
+                row = String::from("  ");
+            }
+            if row.len() > 2 {
+                row.push_str("  ");
+            }
+            row.push_str(name);
+        }
+        if row.len() > 2 {
+            rows.push(row);
+        }
+        rows.join("\n")
+    }
+
     let compact_inline = [
         "network-routes",
         "network-dns",
@@ -429,6 +449,25 @@ fn append_missing_top_level_rows(text: &mut String) {
         "simulator-terminate",
         "login-session",
     ];
+    let compact_misc = [
+        "processor-topology-status",
+        "cache-hierarchy-status",
+        "host-memory-status",
+        "processor-affinity-status",
+        "font-discovery",
+        "ime-status",
+        "keyboard-layout",
+        "pointer-grab",
+        "pointer-ungrab",
+        "hover",
+        "scroll-wheel",
+        "unmaximize",
+        "fullscreen",
+        "unfullscreen",
+        "topmost",
+        "untopmost",
+        "window-opacity",
+    ];
     let mut missing = verbs::VERBS
         .iter()
         .filter(|spec| !compact_process.contains(&spec.name))
@@ -436,6 +475,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         .filter(|spec| !compact_browser_session.contains(&spec.name))
         .filter(|spec| !compact_simulator.contains(&spec.name))
         .filter(|spec| !compact_runtime.contains(&spec.name))
+        .filter(|spec| !compact_misc.contains(&spec.name))
         .filter(|spec| !compact_inline.contains(&spec.name))
         .filter(|spec| {
             !text
@@ -457,28 +497,30 @@ fn append_missing_top_level_rows(text: &mut String) {
         .chain(compact_terminal.iter())
         .any(|name| !text.contains(&format!("  {name}")))
     {
-        missing.push(
-            "  pty-status  pty-snapshot  pty-diff  pty-wait-exit  terminal-close  terminal-snapshot\n  terminal-scroll  terminal-screenshot  terminal-events  terminal-output  pty-start  pty-list  pty-prune\n  pty-read  pty-events  pty-resize  pty-send  pty-wait  pty-signal  pty-stop  terminal-new  process-argv\n  process-cwd  process-environment  process-fds  process-maps  process-sockets  process-cgroup\n  process-threads  process-set-state  process-policy  audio  service\n  simulator-apps  simulator-status  simulator-boot  simulator-shutdown"
-                .to_owned(),
-        );
+        missing.push(compact_rows(
+            compact_terminal
+                .iter()
+                .chain(compact_process.iter())
+                .copied(),
+        ));
     }
     if compact_browser_session
         .iter()
         .any(|name| !text.contains(&format!("  {name}")))
     {
-        missing.push(
-            "  browser-bridge-setup  browser-bridge-connections  browser-bridge-status\n  browser-bridge-tabs  browser-bridge-attach  browser-bridge-reload  browser-bridge-windows\n  browser-bridge-window-open  browser-bridge-window-state  browser-bridge-debug-read\n  browser-bridge-debug-invoke  browser-bridge-debug-type  browser-bridge-debug-files\n  browser-session-start  browser-session-list  browser-session-status\n  browser-session-stop  browser-session-remove"
-                .to_owned(),
-        );
+        missing.push(compact_rows(compact_browser_session));
     }
     if compact_runtime
         .iter()
         .any(|name| !text.contains(&format!("  {name}")))
     {
-        missing.push(
-            "  host-open  host-notify  audit-query  audit-compact  session-start  session-list  simulator-launch\n  session-status  session-renew  session-end  lock-acquire  lock-list  lock-release  simulator-terminate\n  job-spawn  job-adopt  job-list  job-status  job-prune  job-resources  job-priority  login-session\n  job-events  job-output  job-write  job-wait  job-set-state  job-signal  job-stop  privilege-provider\n  job-renew  file-copy  file-move  file-transaction  privilege-plan  privilege-apply  simulator-devices"
-                .to_owned(),
-        );
+        missing.push(compact_rows(compact_runtime));
+    }
+    if compact_misc
+        .iter()
+        .any(|name| !text.contains(&format!("  {name}")))
+    {
+        missing.push(compact_rows(compact_misc));
     }
     if missing.is_empty() {
         return;
