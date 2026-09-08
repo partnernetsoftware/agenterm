@@ -4273,7 +4273,6 @@ impl Command {
             Self::Raise { .. } => "raise".into(),
             Self::Minimize { .. } => "minimize".into(),
             Self::Restore { .. } => "restore".into(),
-            Self::Maximize { .. } => "maximize".into(),
             Self::Drag { .. } => "drag".into(),
             Self::Hit { .. } => "hit".into(),
             Self::Zoom { .. } => "zoom".into(),
@@ -4694,7 +4693,6 @@ impl Command {
             | Self::Raise { target, .. }
             | Self::Minimize { target, .. }
             | Self::Restore { target, .. }
-            | Self::Maximize { target, .. }
             | Self::Drag { target, .. }
             | Self::Hit { target, .. }
             | Self::Zoom { target, .. }
@@ -4839,7 +4837,6 @@ impl Command {
             | Self::Raise { .. }
             | Self::Minimize { .. }
             | Self::Restore { .. }
-            | Self::Maximize { .. }
             | Self::Drag { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,
             _ => crate::auth::Grant::Observe,

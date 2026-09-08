@@ -353,7 +353,6 @@ mod tests {
             },
             focused: false,
             minimized: false,
-            maximized: false,
         }
     }
 
