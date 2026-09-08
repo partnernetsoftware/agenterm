@@ -153,6 +153,7 @@
         "cu.linux-atspi-tree-geometry",
         "cu.linux-atspi-query",
         "cu.linux-query-readback",
+        "cu.linux-get-extents-readback",
         "cu.linux-atspi-invoke",
         "cu.linux-atspi-menu-inspect",
         "cu.linux-atspi-menu-invoke",

@@ -411,6 +411,12 @@
       ]
     },
     {
+      "id": "cu-linux-get-extents-smoke",
+      "evidence": [
+        "cu.linux-get-extents-readback"
+      ]
+    },
+    {
       "id": "cu-linux-windows-inventory-smoke",
       "evidence": [
         "cu.linux-windows-inventory-readback"

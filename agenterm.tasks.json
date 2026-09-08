@@ -909,6 +909,25 @@
         "task.cu-linux-fullscreen-expect-smoke"
       ]
     },
+    "cu-linux-get-extents-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-get-extents-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-get-extents-smoke"
+      ]
+    },
     "cu-linux-window-move-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5532,6 +5551,25 @@
       ],
       "side_effects": [
         "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-get-extents-smoke",
+      "description": "Prove Linux get-extents --name for owned GTK fixture nodes matches independent AT-SPI Component.GetExtents(Screen) read-back, or both typed-fail for unreadable rects; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-get-extents-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
         "process_spawn",
         "gui_spawn"
       ]
