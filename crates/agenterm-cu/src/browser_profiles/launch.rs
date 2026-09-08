@@ -2,6 +2,28 @@
 
 use super::{BrowserApp, discovery};
 
+/// Infer a profile name for a Chromium window when the title omits the suffix.
+pub fn inferred_browser_profile(
+    window_app_name: &str,
+    title: &str,
+    app: &BrowserApp,
+    entries: &[super::ProfileEntry],
+) -> Option<String> {
+    if let Some(profile) = crate::observe::browser_profile_from_identity(window_app_name, title) {
+        return Some(profile);
+    }
+    if !cfg!(target_os = "linux") || !window_matches_catalog_app(window_app_name, app) {
+        return None;
+    }
+    if entries.len() == 1 {
+        return Some(entries[0].name.clone());
+    }
+    entries
+        .iter()
+        .find(|entry| entry.last_used)
+        .map(|entry| entry.name.clone())
+}
+
 /// Whether a window inventory `app_name` belongs to a catalog browser.
 pub fn window_matches_catalog_app(window_app_name: &str, app: &BrowserApp) -> bool {
     if window_app_name == app.name {
@@ -108,6 +130,54 @@ mod tests {
         assert!(window_matches_catalog_app("google-chrome-stable", &chrome));
         assert!(window_matches_catalog_app("Google Chrome", &chrome));
         assert!(!window_matches_catalog_app("xfce4-terminal", &chrome));
+    }
+
+    #[test]
+    fn inferred_browser_profile_uses_last_used_on_linux() {
+        use super::super::ProfileEntry;
+
+        let chrome = APPS[2];
+        let entries = vec![
+            ProfileEntry {
+                name: "work".into(),
+                directory: "Profile 1".into(),
+                last_used: false,
+            },
+            ProfileEntry {
+                name: "Default".into(),
+                directory: "Default".into(),
+                last_used: true,
+            },
+        ];
+        if cfg!(target_os = "linux") {
+            assert_eq!(
+                inferred_browser_profile("chrome", "Example Domain", &chrome, &entries),
+                Some("Default".into())
+            );
+        } else {
+            assert_eq!(
+                inferred_browser_profile("chrome", "Example Domain", &chrome, &entries),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn inferred_browser_profile_single_entry_on_linux() {
+        use super::super::ProfileEntry;
+
+        let chrome = APPS[2];
+        let entries = vec![ProfileEntry {
+            name: "Default".into(),
+            directory: "Default".into(),
+            last_used: false,
+        }];
+        if cfg!(target_os = "linux") {
+            assert_eq!(
+                inferred_browser_profile("google-chrome-stable", "New Tab", &chrome, &entries),
+                Some("Default".into())
+            );
+        }
     }
 
     #[test]

@@ -478,10 +478,15 @@ pub fn group_status(group_id: &str, os: &str) -> (&'static str, &'static str) {
                     "available",
                     "browser profiles (Local State + window inventory), browser open (open -na --profile-directory on the running instance), exact MV3 profile-wide browser-tabs and tab close are live; human profile/application binding remains a typed gap, ordinary web is AX query/invoke",
                 )
+            } else if os == "linux" {
+                (
+                    "available",
+                    "browser profiles reads ~/.config Local State; browser open spawns google-chrome/chromium/brave --profile-directory=<dir> and verifies a new window of that browser_profile in the inventory; exact MV3 profile-wide browser-tabs and a11y tab close are live",
+                )
             } else if tree_live(os) {
                 (
                     "available",
-                    "browser profiles reads ~/.config Local State; exact MV3 profile-wide browser-tabs and a11y tab close are live, while browser open needs macOS open -na (typed unsupported) and native owned-profile qualification remains pending",
+                    "browser profiles reads ~/.config Local State; exact MV3 profile-wide browser-tabs and a11y tab close are live; browser open is not mapped on Windows yet",
                 )
             } else {
                 (
@@ -736,14 +741,22 @@ pub fn verb_declaration(verb: &str) -> Value {
                 "profiles of the running Chromium-family browser (Local State profile.info_cache + last_used) joined to inventory windows by browser_profile; --app Brave Origin | Brave Browser | Google Chrome",
             ),
             "browser-open" => (
-                if os == "macos" {
+                if matches!(os, "macos" | "linux") {
                     "available"
                 } else {
                     "unsupported"
                 },
-                "open-na-profile-directory",
+                if os == "linux" {
+                    "chromium-profile-directory"
+                } else {
+                    "open-na-profile-directory"
+                },
                 "actuate",
-                "open -na <app> --args --profile-directory=<dir> [URL] on the running instance (never a restart), verified by a new / retitled window of that browser_profile in the inventory; no CDP port needed",
+                if os == "linux" {
+                    "<google-chrome|chromium|brave> --profile-directory=<dir> [URL], verified by a new / retitled window of that browser_profile in the inventory; no CDP port needed"
+                } else {
+                    "open -na <app> --args --profile-directory=<dir> [URL] on the running instance (never a restart), verified by a new / retitled window of that browser_profile in the inventory; no CDP port needed"
+                },
             ),
             _ => (
                 if tree_live(os) {
@@ -1045,9 +1058,26 @@ mod tests {
             assert!(reason.contains("browser-tabs"));
             assert!(reason.contains("human profile/application binding"));
             assert!(!reason.contains("MV3/Native Messaging is an ACU migration gap"));
+        } else if host_os() == "linux" {
+            let open = verb_declaration("browser-open");
+            assert_eq!(open["status"], "available");
+            assert_eq!(open["mode"], "chromium-profile-directory");
+            let reason = open["reason"].as_str().unwrap_or("");
+            assert!(reason.contains("profile-directory"), "{reason}");
+            assert!(!reason.contains("open -na"), "{reason}");
+            let (_, group_reason) = group_status("browser", "linux");
+            assert!(group_reason.contains("profile-directory"), "{group_reason}");
+            assert!(!group_reason.contains("open -na"), "{group_reason}");
         } else {
             assert_eq!(verb_declaration("browser-open")["status"], "unsupported");
         }
+        let linux_browser = alignment_rows("linux")
+            .into_iter()
+            .find(|row| row.group == "browser")
+            .expect("browser group");
+        assert_eq!(linux_browser.status, "available");
+        assert!(linux_browser.reason.contains("profile-directory"));
+        assert!(!linux_browser.reason.contains("open -na"));
         assert_eq!(verb_declaration("page-targets")["mode"], "cdp");
         assert_eq!(verb_declaration("page-targets")["status"], "available");
         let select = verb_declaration("tab-select");

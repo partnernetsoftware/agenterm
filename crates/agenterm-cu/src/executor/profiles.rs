@@ -39,16 +39,27 @@ impl ProfileWindow {
 
 /// Every window of `app` that carries a profile name, in inventory order.
 pub(super) fn profile_windows(app: &BrowserApp) -> Result<Vec<ProfileWindow>, CuError> {
+    profile_windows_for_entries(app, &[])
+}
+
+/// Like [`profile_windows`], but on Linux can attribute Chromium windows whose
+/// titles omit the profile suffix when `entries` makes the owner obvious.
+pub(super) fn profile_windows_for_entries(
+    app: &BrowserApp,
+    entries: &[ProfileEntry],
+) -> Result<Vec<ProfileWindow>, CuError> {
     let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     Ok(windows
         .iter()
         .filter(|window| profiles::window_matches_catalog_app(&window.app_name, app))
         .filter_map(|window| {
-            window_browser_profile(window).map(|profile| ProfileWindow {
-                handle: window.handle,
-                title: window.title.clone(),
-                profile,
-            })
+            profiles::inferred_browser_profile(&window.app_name, &window.title, app, entries).map(
+                |profile| ProfileWindow {
+                    handle: window.handle,
+                    title: window.title.clone(),
+                    profile,
+                },
+            )
         })
         .collect())
 }
@@ -173,7 +184,7 @@ fn load_local_state(app: &BrowserApp) -> Result<LocalState, CuError> {
 pub(super) fn browser_profiles_payload(app: Option<&str>) -> Result<serde_json::Value, CuError> {
     let app = resolve_app(app)?;
     let state = load_local_state(app)?;
-    let windows = profile_windows(app)?;
+    let windows = profile_windows_for_entries(app, &state.entries)?;
     let rows: Vec<serde_json::Value> = state
         .entries
         .iter()
@@ -278,7 +289,7 @@ pub(super) fn browser_open_payload(
     let entry = profiles::resolve_profile(&state.entries, profile)
         .map_err(|error| profile_error(error, profile, &state.entries))?
         .clone();
-    let before: Vec<ProfileWindow> = profile_windows(app)?
+    let before: Vec<ProfileWindow> = profile_windows_for_entries(app, &state.entries)?
         .into_iter()
         .filter(|window| window.profile == entry.name)
         .collect();
@@ -320,27 +331,43 @@ pub(super) fn browser_open_payload(
         }),
     )?;
     let started = Instant::now();
-    let launch_output = std::process::Command::new(&argv[0])
-        .args(&argv[1..])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .output();
-    let launch_error = match launch_output {
-        Ok(output) if output.status.success() => None,
-        Ok(output) => Some(CuError::new(
-            "browser_open_failed",
-            format!(
-                "{} exited with {}: {}",
-                argv.join(" "),
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-        )),
-        Err(error) => Some(CuError::new(
-            "browser_open_failed",
-            format!("could not run {}: {error}", argv.join(" ")),
-        )),
+    let launch_error = if cfg!(target_os = "linux") {
+        match std::process::Command::new(&argv[0])
+            .args(&argv[1..])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(_) => None,
+            Err(error) => Some(CuError::new(
+                "browser_open_failed",
+                format!("could not run {}: {error}", argv.join(" ")),
+            )),
+        }
+    } else {
+        match std::process::Command::new(&argv[0])
+            .args(&argv[1..])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .output()
+        {
+            Ok(output) if output.status.success() => None,
+            Ok(output) => Some(CuError::new(
+                "browser_open_failed",
+                format!(
+                    "{} exited with {}: {}",
+                    argv.join(" "),
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            )),
+            Err(error) => Some(CuError::new(
+                "browser_open_failed",
+                format!("could not run {}: {error}", argv.join(" ")),
+            )),
+        }
     };
     let mut polls = 0usize;
     let mut hit: Option<(ProfileWindow, bool)> = None;
@@ -348,7 +375,7 @@ pub(super) fn browser_open_payload(
     if launch_error.is_none() {
         loop {
             polls += 1;
-            match profile_windows(app) {
+            match profile_windows_for_entries(app, &state.entries) {
                 Ok(now) => {
                     let now: Vec<ProfileWindow> = now
                         .into_iter()
