@@ -19,6 +19,7 @@ use atspi::proxy::editable_text::EditableTextProxy;
 use atspi::proxy::proxy_ext::ProxyExt;
 use atspi::proxy::registry::RegistryProxy;
 use atspi::proxy::text::TextProxy;
+use atspi::proxy::value::ValueProxy;
 use atspi::{CoordType, Interface, Role, ScrollType, State, StateSet};
 use tokio::time::{Duration, timeout};
 use zbus::fdo::DBusProxy;
@@ -2035,6 +2036,9 @@ async fn invoke_atspi_component_scroll_to(
     if try_ancestor_viewport_scroll(proxy).await? {
         return Ok(());
     }
+    if try_gtk_vertical_scrollbar_top_edge(proxy).await? {
+        return Ok(());
+    }
 
     if component_proxy_for(proxy).await.is_err() {
         return Err(AccessibilityTreeError::failed(
@@ -2078,20 +2082,34 @@ async fn try_component_scroll_to(
 async fn try_component_scroll_to_point(
     proxy: &AccessibleProxy<'_>,
 ) -> Result<bool, AccessibilityTreeError> {
-    let Some((x, y)) = read_screen_origin(proxy).await? else {
-        return Ok(false);
-    };
+    for (x, y, coord_type) in collect_scroll_target_coords(proxy).await? {
+        if try_scroll_to_point_at_coord(proxy, coord_type, x, y).await? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn try_scroll_to_point_at(
+    proxy: &AccessibleProxy<'_>,
+    x: i32,
+    y: i32,
+) -> Result<bool, AccessibilityTreeError> {
+    try_scroll_to_point_at_coord(proxy, CoordType::Screen, x, y).await
+}
+
+async fn try_scroll_to_point_at_coord(
+    proxy: &AccessibleProxy<'_>,
+    coord_type: CoordType,
+    x: i32,
+    y: i32,
+) -> Result<bool, AccessibilityTreeError> {
     let component = match component_proxy_for(proxy).await {
         Ok(component) => component,
         Err(error) if is_missing_scroll_interface(&error) => return Ok(false),
         Err(error) => return Err(error),
     };
-    match timeout(
-        NODE_TIMEOUT,
-        component.scroll_to_point(CoordType::Screen, x, y),
-    )
-    .await
-    {
+    match timeout(NODE_TIMEOUT, component.scroll_to_point(coord_type, x, y)).await {
         Ok(Ok(scrolled)) => Ok(scrolled),
         Ok(Err(error)) => {
             let mapped = map_atspi_err(error);
@@ -2108,36 +2126,45 @@ async fn try_component_scroll_to_point(
     }
 }
 
-async fn try_scroll_to_point_at(
+async fn raw_extents_at_coord(
     proxy: &AccessibleProxy<'_>,
-    x: i32,
-    y: i32,
-) -> Result<bool, AccessibilityTreeError> {
+    coord_type: CoordType,
+) -> Result<Option<(i32, i32)>, AccessibilityTreeError> {
     let component = match component_proxy_for(proxy).await {
         Ok(component) => component,
-        Err(error) if is_missing_scroll_interface(&error) => return Ok(false),
+        Err(error) if is_missing_scroll_interface(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    match timeout(
-        NODE_TIMEOUT,
-        component.scroll_to_point(CoordType::Screen, x, y),
-    )
-    .await
-    {
-        Ok(Ok(scrolled)) => Ok(scrolled),
+    match timeout(NODE_TIMEOUT, component.get_extents(coord_type)).await {
+        Ok(Ok((x, y, width, height))) if is_readable_rect(x, y, width, height) => {
+            Ok(Some((x, y)))
+        }
+        Ok(Ok(_)) => Ok(None),
         Ok(Err(error)) => {
             let mapped = map_atspi_err(error);
             if is_missing_scroll_interface(&mapped) {
-                Ok(false)
+                Ok(None)
             } else {
                 Err(mapped)
             }
         }
         Err(_) => Err(AccessibilityTreeError::failed(
-            "a11y_scroll_unavailable",
-            "AT-SPI Component.ScrollToPoint exceeded its deadline",
+            "a11y_extents_unavailable",
+            "AT-SPI Component.GetExtents exceeded its deadline",
         )),
     }
+}
+
+async fn collect_scroll_target_coords(
+    proxy: &AccessibleProxy<'_>,
+) -> Result<Vec<(i32, i32, CoordType)>, AccessibilityTreeError> {
+    let mut coords = Vec::new();
+    for coord_type in [CoordType::Screen, CoordType::Window, CoordType::Parent] {
+        if let Some((x, y)) = raw_extents_at_coord(proxy, coord_type).await? {
+            coords.push((x, y, coord_type));
+        }
+    }
+    Ok(coords)
 }
 
 async fn read_screen_origin(
@@ -2154,9 +2181,13 @@ async fn try_ancestor_viewport_scroll(
     proxy: &AccessibleProxy<'_>,
 ) -> Result<bool, AccessibilityTreeError> {
     let conn = proxy.inner().connection();
-    let target_origin = read_screen_origin(proxy).await?;
+    let mut target_coords = collect_scroll_target_coords(proxy).await?;
+    if target_coords.is_empty() {
+        if let Some(origin) = read_screen_origin(proxy).await? {
+            target_coords.push((origin.0, origin.1, CoordType::Screen));
+        }
+    }
     let ancestors = collect_parent_objects(conn, proxy).await?;
-    let (target_x, target_y) = target_origin.unwrap_or((0, 0));
 
     for ancestor_obj in ancestors {
         let ancestor_proxy = match open_bus_object(conn, &ancestor_obj).await {
@@ -2170,12 +2201,113 @@ async fn try_ancestor_viewport_scroll(
         if !carrier && !ancestor_role_is_generic_container(ancestor_role.as_ref()) {
             continue;
         }
-        if try_scroll_to_point_at(&ancestor_proxy, target_x, target_y).await? {
-            return Ok(true);
+        for (target_x, target_y, coord_type) in &target_coords {
+            if try_scroll_to_point_at_coord(&ancestor_proxy, *coord_type, *target_x, *target_y)
+                .await?
+            {
+                return Ok(true);
+            }
         }
         if try_component_scroll_to(&ancestor_proxy, ScrollType::TopEdge).await? {
             return Ok(true);
         }
+    }
+    Ok(false)
+}
+
+fn scrollbar_states_vertical(states: &[String]) -> bool {
+    states.iter().any(|state| state == "vertical")
+        && !states.iter().any(|state| state == "horizontal")
+}
+
+async fn target_readable_screen_extents(
+    proxy: &AccessibleProxy<'_>,
+) -> Result<Option<AccessibilityBounds>, AccessibilityTreeError> {
+    match extents_from_component(proxy).await {
+        Ok(bounds) => Ok(Some(bounds)),
+        Err(AccessibilityTreeError::Failed { code, .. }) if code == "a11y_extents_unavailable" => {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn value_proxy_for<'a>(
+    proxy: &'a AccessibleProxy<'a>,
+) -> Result<ValueProxy<'a>, AccessibilityTreeError> {
+    let proxies = proxy.proxies().await.map_err(map_atspi_err)?;
+    proxies.value().await.map_err(|_| {
+        AccessibilityTreeError::failed(
+            "a11y_scroll_unavailable",
+            "node does not expose the AT-SPI Value interface",
+        )
+    })
+}
+
+/// Gtk.ScrolledWindow often returns false from native `Component.ScrollTo`
+/// while still publishing a vertical scrollbar `Value` range. Binary-search
+/// that range for the minimum position that reveals the target (TopEdge).
+async fn try_gtk_vertical_scrollbar_top_edge(
+    proxy: &AccessibleProxy<'_>,
+) -> Result<bool, AccessibilityTreeError> {
+    let conn = proxy.inner().connection();
+    for ancestor_obj in collect_parent_objects(conn, proxy).await? {
+        let pane = open_bus_object(conn, &ancestor_obj).await?;
+        if pane.get_role().await.ok().as_ref() != Some(&Role::ScrollPane) {
+            continue;
+        }
+        let children = raw_children(&pane, 8).await?;
+        let mut vertical_bar = None;
+        for child_obj in children {
+            let child = open_bus_object(conn, &child_obj).await?;
+            let role = child.get_role().await.ok();
+            let states = states_from_proxy(&child).await;
+            if role == Some(Role::ScrollBar) && scrollbar_states_vertical(&states) {
+                vertical_bar = Some(child);
+                break;
+            }
+        }
+        let vsb = match vertical_bar {
+            Some(proxy) => proxy,
+            None => continue,
+        };
+        let value = value_proxy_for(&vsb).await?;
+        let minimum = value.minimum_value().await.map_err(map_atspi_err)?;
+        let maximum = value.maximum_value().await.map_err(map_atspi_err)?;
+        let step = value.minimum_increment().await.unwrap_or(1.0);
+        if !maximum.is_finite() || maximum <= minimum || !step.is_finite() || step <= 0.0 {
+            continue;
+        }
+        let original = value.current_value().await.map_err(map_atspi_err)?;
+        value
+            .set_current_value(maximum)
+            .await
+            .map_err(map_atspi_err)?;
+        if target_readable_screen_extents(proxy).await?.is_none() {
+            value
+                .set_current_value(original)
+                .await
+                .map_err(map_atspi_err)?;
+            continue;
+        }
+        let mut lo = minimum;
+        let mut hi = maximum;
+        let mut best = maximum;
+        while lo <= hi {
+            let mid = (lo + hi) / 2.0;
+            value.set_current_value(mid).await.map_err(map_atspi_err)?;
+            if target_readable_screen_extents(proxy).await?.is_some() {
+                best = mid;
+                if mid <= minimum {
+                    break;
+                }
+                hi = mid - step;
+            } else {
+                lo = mid + step;
+            }
+        }
+        value.set_current_value(best).await.map_err(map_atspi_err)?;
+        return Ok(target_readable_screen_extents(proxy).await?.is_some());
     }
     Ok(false)
 }

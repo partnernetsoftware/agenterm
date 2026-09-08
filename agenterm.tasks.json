@@ -760,6 +760,25 @@
         "task.cu-scroll-wheel-smoke"
       ]
     },
+    "cu-linux-scroll-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-scroll-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-scroll-smoke"
+      ]
+    },
     "cu-linux-resize-expect-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -4772,6 +4791,26 @@
       "id": "cu-linux-gtk-button-focus-smoke",
       "description": "Prove Linux GTK3 button click --name then three independent focused read-backs name the clicked button; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-button-focus-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-scroll-smoke",
+      "description": "Prove Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on a GTK ScrolledWindow fixture: independent get-extents before must fail for an off-screen named node, scroll must succeed via scroll-to, and a second get-extents must return on-screen geometry; no XTest wheel, --coords, or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-scroll-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
