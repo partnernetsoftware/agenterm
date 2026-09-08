@@ -37,9 +37,9 @@ function base_env(run_directory) {
 
 function fixture_env(run_directory, registry_root, token) {
   const env = base_env(run_directory);
-  env.AGENTERM_PLATFORM_INTERNAL_DEVICE_FIXTURE = "1";
-  env.AGENTERM_PLATFORM_DEVICE_FIXTURE_ROOT = registry_root;
-  env.AGENTERM_PLATFORM_DEVICE_FIXTURE_TOKEN = token;
+  env.NATIVE_DEVICE_TEST_FIXTURE_ENABLE = "1";
+  env.NATIVE_DEVICE_TEST_FIXTURE_ROOT = registry_root;
+  env.NATIVE_DEVICE_TEST_FIXTURE_TOKEN = token;
   return env;
 }
 
@@ -140,7 +140,7 @@ try {
     program: executable,
     args: ["--agenterm-cu-internal-device-io-fixture", registry_root, "120000"],
     current_dir: run_directory,
-    env: { AGENTERM_CU_INTERNAL_TEST_FIXTURE: "1" },
+    env: { NATIVE_DEVICE_TEST_FIXTURE_CREATE: "1" },
     stdout_path: fixture_stdout,
     stderr_path: fixture_stderr,
     timeout_ms: 125000

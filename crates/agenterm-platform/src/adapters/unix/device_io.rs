@@ -24,9 +24,9 @@ use crate::{
     process_observation,
 };
 
-const FIXTURE_ENABLE_ENV: &str = "AGENTERM_PLATFORM_INTERNAL_DEVICE_FIXTURE";
-const FIXTURE_ROOT_ENV: &str = "AGENTERM_PLATFORM_DEVICE_FIXTURE_ROOT";
-const FIXTURE_TOKEN_ENV: &str = "AGENTERM_PLATFORM_DEVICE_FIXTURE_TOKEN";
+const FIXTURE_ENABLE_ENV: &str = "NATIVE_DEVICE_TEST_FIXTURE_ENABLE";
+const FIXTURE_ROOT_ENV: &str = "NATIVE_DEVICE_TEST_FIXTURE_ROOT";
+const FIXTURE_TOKEN_ENV: &str = "NATIVE_DEVICE_TEST_FIXTURE_TOKEN";
 const FIXTURE_REGISTRY_MAX_BYTES: usize = 16 * 1024;
 const FIXTURE_TOKEN_BYTES: usize = 32;
 
@@ -55,7 +55,7 @@ pub(crate) fn create_test_fixture(
     registry_root: &Path,
     lifetime: Duration,
 ) -> Result<(NativeDeviceIoTestFixture, String), DeviceIoError> {
-    if std::env::var_os("AGENTERM_CU_INTERNAL_TEST_FIXTURE").as_deref()
+    if std::env::var_os("NATIVE_DEVICE_TEST_FIXTURE_CREATE").as_deref()
         != Some(std::ffi::OsStr::new("1"))
         || lifetime < Duration::from_secs(1)
         || lifetime > Duration::from_secs(300)
@@ -121,7 +121,7 @@ pub(crate) fn create_test_fixture(
     let pid = std::process::id();
     let start_identity = process_observation::start_identity(pid)
         .map_err(|failure| fixture_failure("device-fixture-owner-identity", failure))?;
-    let identity = format!("agenterm-platform-device-fixture-v1:{token_digest}");
+    let identity = format!("native-device-test-fixture-v1:{token_digest}");
     let document = serde_json::json!({
         "schema_version": 1,
         "token_digest": token_digest,
@@ -365,8 +365,8 @@ pub(crate) fn append_test_fixture(
         identity_material,
         identity_continuity: DeviceIdentityContinuity::Topology,
         kind: DeviceKind::Usb,
-        name: Some("AgenTerm serial court fixture".to_owned()),
-        vendor: Some("AgenTerm".to_owned()),
+        name: Some("Private platform serial court fixture".to_owned()),
+        vendor: None,
         model: Some("PTY echo".to_owned()),
         transport: Some("private-pty-fixture".to_owned()),
         locator: Some(NativeDeviceLocator {
