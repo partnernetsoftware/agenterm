@@ -4,7 +4,7 @@
 use agenterm_cu::{Command, TargetRef};
 
 use super::verbs::VerbSpec;
-use super::{flag_parsed, flag_text, flag_tristate, flag_value, flag_window, take_switch};
+use super::{flag_parsed, flag_text, flag_tristate, flag_window, take_switch};
 
 pub fn parse(
     spec: &VerbSpec,

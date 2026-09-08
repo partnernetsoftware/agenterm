@@ -229,9 +229,8 @@ fn browser_tabs_via_cdp_linux(
             })));
         }
     };
-    let targets = crate::cdp::targets::list_targets(port).map_err(|error| {
-        CuError::new(error.code, error.message).with_detail(error.detail)
-    })?;
+    let targets = crate::cdp::targets::list_targets(port)
+        .map_err(|error| CuError::new(error.code, error.message).with_detail(error.detail))?;
     let pages: Vec<_> = targets.iter().filter(|target| target.is_page()).collect();
     let tabs: Vec<crate::browser_bridge::BrowserTab> = pages
         .iter()
@@ -280,6 +279,7 @@ fn browser_tabs_via_cdp_linux(
     unreachable!("browser_tabs_via_cdp_linux is only called on Linux")
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn browser_tabs_inventory_unsupported() -> CuError {
     CuError::new(
         "unsupported",
@@ -1505,13 +1505,20 @@ mod tests {
         let error = browser_tabs_inventory_unsupported();
         assert_eq!(error.code, "unsupported");
         let detail = error.detail.expect("detail");
-        assert_eq!(detail["mechanisms"], json!(["mv3-native-messaging", "cdp-json"]));
-        assert!(detail["next_actions"]
-            .as_array()
-            .is_some_and(|steps| steps.len() >= 2));
-        assert!(detail["alternatives"]
-            .as_array()
-            .is_some_and(|items| items.iter().any(|value| value == "page-targets")));
+        assert_eq!(
+            detail["mechanisms"],
+            json!(["mv3-native-messaging", "cdp-json"])
+        );
+        assert!(
+            detail["next_actions"]
+                .as_array()
+                .is_some_and(|steps| steps.len() >= 2)
+        );
+        assert!(
+            detail["alternatives"]
+                .as_array()
+                .is_some_and(|items| items.iter().any(|value| value == "page-targets"))
+        );
     }
 
     #[test]
@@ -1520,6 +1527,10 @@ mod tests {
         assert_eq!(error.code, "browser_bridge_profile_connection_not_found");
         let detail = error.detail.expect("detail");
         assert_eq!(detail["profile_instance_id"], "abc");
-        assert!(detail["next_actions"].as_array().is_some_and(|steps| !steps.is_empty()));
+        assert!(
+            detail["next_actions"]
+                .as_array()
+                .is_some_and(|steps| !steps.is_empty())
+        );
     }
 }

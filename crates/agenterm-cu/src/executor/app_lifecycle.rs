@@ -27,8 +27,7 @@ fn linux_set_application_hidden(process_id: u32, hidden: bool) -> Result<(), CuE
     } else {
         AGT_NATIVE_WINDOW_RESTORE
     };
-    let windows =
-        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
     let handles: Vec<isize> = windows
         .iter()
         .filter(|row| row.process_id == process_id)
