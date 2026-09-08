@@ -100,14 +100,25 @@ function window_rows(reply) {
   return data;
 }
 
-function window_row(run_directory, executable, pid, title) {
+function fixture_inventory(run_directory, executable, pid) {
   const reply = run_cu(run_directory, executable, "observe", [
     "windows", "--pid", "" + pid,
   ]);
-  for (const row of window_rows(reply)) {
+  return window_rows(reply);
+}
+
+function window_row(run_directory, executable, pid, title) {
+  for (const row of fixture_inventory(run_directory, executable, pid)) {
     if (text_at(row, "title") === title) { return row; }
   }
   return null;
+}
+
+function inventory_has_handle(rows, handle) {
+  for (const row of rows) {
+    if (int_at(row, "handle") === handle) { return true; }
+  }
+  return false;
 }
 
 const args = rh.args();
@@ -217,15 +228,28 @@ try {
   ensure(
     flag_at(closed, "data.performed")
       && flag_at(closed, "data.verified")
+      && text_at(closed, "data.addressing") === "window-handle"
+      && text_at(closed, "data.action") === "close"
       && text_at(closed, "data.postcondition") === "gone"
+      && text_at(closed, "data.verification.method") === "window-inventory"
+      && int_at(closed, "data.verification.polls") >= 1
+      && text_at(closed, "data.target.title") === second_title
+      && int_at(closed, "data.target.pid") === fixture_pid
+      && at(closed, "data.after.present") === false
       && flag_at(closed, "data.snapshot.in_receipt"),
     "cu_linux_window_close_reply:" + JSON.stringify(closed.data)
   );
 
-  print("STEP independent windows inventory read-back: second window must be absent");
+  print("STEP independent windows inventory read-back: title and handle must be absent");
   let closed_gone = 0;
   for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
-    if (window_row(run_directory, executable, fixture_pid, second_title) === null) {
+    const rows = fixture_inventory(run_directory, executable, fixture_pid);
+    let title_present = false;
+    for (const row of rows) {
+      if (text_at(row, "title") === second_title) { title_present = true; break; }
+    }
+    const handle_present = inventory_has_handle(rows, second_handle);
+    if (!title_present && !handle_present) {
       closed_gone = 1;
       break;
     }
@@ -238,6 +262,16 @@ try {
   ensure(
     window_row(run_directory, executable, fixture_pid, fixture_title) !== null,
     "cu_linux_window_close_main_gone"
+  );
+
+  print("STEP closing the same handle again is window_not_found with nothing performed");
+  const closed_again = close_refused(
+    run_directory, executable, "actuate",
+    ["--window", second_text, "--snapshot", "--expect", "gone"], "window_not_found"
+  );
+  ensure(
+    text_at(closed_again, "error.detail.effect") === "not_performed",
+    "cu_linux_window_close_again:" + JSON.stringify(closed_again)
   );
 } finally {
   if (fixture_pid !== 0) {
