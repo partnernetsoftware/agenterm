@@ -148,14 +148,7 @@ fn is_actionable_role(raw: &str) -> bool {
 fn is_structural_hit_role(raw: &str) -> bool {
     matches!(
         normalize_role(raw).as_str(),
-        "filler"
-            | "generic"
-            | "group"
-            | "panel"
-            | "section"
-            | "paragraph"
-            | "label"
-            | "statictext"
+        "filler" | "generic" | "group" | "panel" | "section" | "paragraph" | "label" | "statictext"
     )
 }
 
@@ -2921,7 +2914,10 @@ mod tests {
         let walked = tree(nodes, false);
         let flat = flatten(&walked);
         let hit = node_at_point(&flat, 160, 121).expect("the named entry under the point");
-        assert_eq!(hit.node.id, "/0/1/6", "named entries beat scroll-pane labels");
+        assert_eq!(
+            hit.node.id, "/0/1/6",
+            "named entries beat scroll-pane labels"
+        );
         assert_eq!(hit.node.name, "Fixture Drag Source");
     }
 
