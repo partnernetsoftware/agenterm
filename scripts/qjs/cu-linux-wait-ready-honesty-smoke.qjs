@@ -1,0 +1,459 @@
+// CEO: Linux wait --node-name-contains and wait --ready-path honesty with
+// independent AT-SPI / on-disk marker read-back. Acceptance is smoke
+// read-back only: CU wait met and returned node/marker must agree with
+// pyatspi named-node probes or a direct JSON read of the ready-path file,
+// never worker self-report alone. AT-SPI/--name only; no --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-wait-node-name-readback",
+  "cu.linux-wait-ready-path-readback",
+  "cu.linux-wait-chrome-node-name-readback",
+];
+
+const PRESS_BUTTON = "Fixture Press";
+const ENTRY_NAME = "Fixture Entry";
+const CHROME_FIELD = "GetTextField";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_wait_ready_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_wait_ready_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_wait_ready_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function chrome_window(run_directory, executable, title_prefix) {
+  const inventory = run_cu(run_directory, executable, "observe", ["windows"]);
+  const rows = inventory.data.windows === undefined ? inventory.data : inventory.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "app_name") === "chrome"
+      && text_at(row, "title").startsWith(title_prefix)) {
+      return {
+        handle: "" + at(row, "handle"),
+        pid: int_at(row, "process_id"),
+      };
+    }
+  }
+  return null;
+}
+
+function independent_named_node_probe(title, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "node_name = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and w.name == title:",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == node_name:",
+    "        states = node.getState()",
+    "        return {",
+    "            'name': node.name,",
+    "            'role': node.getRoleName(),",
+    "            'showing': states.contains(pyatspi.STATE_SHOWING),",
+    "        }",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_wait_ready_atspi_no_frame')",
+    "hit = walk(frame)",
+    "if hit is None:",
+    "    raise SystemExit('cu_linux_wait_ready_atspi_miss:' + node_name)",
+    "print(json.dumps(hit))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title, node_name], {
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_wait_ready_atspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function independent_named_node_probe_pid(pid, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "pid = int(sys.argv[1])",
+    "node_name = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "app = None",
+    "for i in range(desktop.childCount):",
+    "    candidate = desktop.getChildAtIndex(i)",
+    "    try:",
+    "        if candidate.get_process_id() == pid:",
+    "            app = candidate",
+    "            break",
+    "    except Exception:",
+    "        pass",
+    "if app is None:",
+    "    raise SystemExit('cu_linux_wait_ready_atspi_no_app')",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == node_name:",
+    "        states = node.getState()",
+    "        return {",
+    "            'name': node.name,",
+    "            'role': node.getRoleName(),",
+    "            'showing': states.contains(pyatspi.STATE_SHOWING),",
+    "        }",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "hit = walk(app)",
+    "if hit is None:",
+    "    raise SystemExit('cu_linux_wait_ready_atspi_miss:' + node_name)",
+    "print(json.dumps(hit))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid, node_name], {
+    timeout_ms: 30000,
+    env: cu_env(executable),
+  });
+  ensure(output.success === true, "cu_linux_wait_ready_atspi_pid:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function independent_ready_marker_read(path, expected_window) {
+  ensure(direct_file(path), "cu_linux_wait_ready_marker_missing:" + path);
+  const raw = rh.read_text(path).trim();
+  ensure(raw !== "", "cu_linux_wait_ready_marker_empty:" + path);
+  const marker = JSON.parse(raw);
+  ensure(
+    int_at(marker, "schema") === 1
+      && text_at(marker, "state") === "ready"
+      && text_at(marker, "mode") === "poll-diff"
+      && text_at(marker, "window") === expected_window,
+    "cu_linux_wait_ready_marker_shape:" + raw
+  );
+  return marker;
+}
+
+function independent_chrome_dom_value(fixture_path, field_id, expected) {
+  const script = [
+    "import json, re, sys",
+    "path = sys.argv[1]",
+    "field_id = sys.argv[2]",
+    "expected = sys.argv[3]",
+    "html = open(path, encoding='utf-8').read()",
+    "match = re.search(r'id=\"' + field_id + '\"[^>]*value=\"([^\"]*)\"', html)",
+    "if match is None:",
+    "    raise SystemExit('cu_linux_wait_ready_dom_field_missing:' + field_id)",
+    "value = match.group(1)",
+    "if value != expected:",
+    "    raise SystemExit('cu_linux_wait_ready_dom_mismatch:' + value + ':' + expected)",
+    "print(json.dumps({'value': value}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, fixture_path, field_id, expected], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_wait_ready_dom:" + output.stderr + output.stdout);
+  const document = JSON.parse(output.stdout.trim());
+  return text_at(document, "value");
+}
+
+function start_observer(run_directory, executable, handle_text, duration) {
+  const ready_path = rh.join(run_directory, "wait-ready-marker.json");
+  rh.try_remove_file(ready_path);
+  const handle = harness.start({
+    program: executable,
+    args: [
+      "--target", "current", "--grant", "observe", "observe",
+      "--window", handle_text, "--duration", duration,
+      "--ready-path", ready_path,
+    ],
+    current_dir: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  return { handle: handle, ready_path: ready_path };
+}
+
+function observer_result(observer) {
+  const output = harness.wait(observer.handle, 20000);
+  rh.try_remove_file(observer.ready_path);
+  ensure(output.success === true, "cu_linux_wait_ready_observer:" + JSON.stringify(output));
+  const document = JSON.parse(output.stdout.trim());
+  ensure(flag_at(document, "ok"), "cu_linux_wait_ready_observer_reply:" + JSON.stringify(document));
+  return document.data;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_wait_ready_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_wait_ready_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-wait-ready");
+const run_directory = rh.join(repo, "target/cu-linux-wait-ready-honesty-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_wait_ready_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP GTK: start owned fixture and resolve window by pid and exact title");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_wait_ready_gtk_window_wait");
+  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(row !== null, "cu_linux_wait_ready_gtk_window_identity");
+  const handle_text = "" + int_at(row, "handle");
+  ensure(int_at(row, "handle") > 0, "cu_linux_wait_ready_gtk_handle:" + JSON.stringify(row));
+
+  print("STEP GTK: wait --node-name-contains must met with accessibility-tree node");
+  const node_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000",
+    "--node-name-contains", PRESS_BUTTON,
+    "--window", handle_text,
+  ]);
+  ensure(
+    flag_at(node_wait, "data.met")
+      && text_at(node_wait, "data.addressing") === "accessibility-tree"
+      && text_at(node_wait, "data.node.name") === PRESS_BUTTON,
+    "cu_linux_wait_ready_node_wait:" + JSON.stringify(node_wait.data)
+  );
+  const press_probe = independent_named_node_probe(fixture_title, PRESS_BUTTON);
+  ensure(
+    press_probe.name === PRESS_BUTTON && press_probe.showing === true,
+    "cu_linux_wait_ready_node_probe:" + JSON.stringify(press_probe)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-wait-node-name-readback");
+
+  print("STEP GTK: wait --ready-path must met only after independent marker + AT-SPI agree");
+  const observer = start_observer(run_directory, executable, handle_text, "6");
+  const ready_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--ready-path", observer.ready_path,
+  ]);
+  ensure(
+    flag_at(ready_wait, "data.met")
+      && text_at(ready_wait, "data.addressing") === "ready-path"
+      && text_at(ready_wait, "data.marker.state") === "ready"
+      && text_at(ready_wait, "data.marker.mode") === "poll-diff"
+      && text_at(ready_wait, "data.marker.window") === handle_text,
+    "cu_linux_wait_ready_path_wait:" + JSON.stringify(ready_wait.data)
+  );
+  const marker = independent_ready_marker_read(observer.ready_path, handle_text);
+  ensure(text_at(marker, "backend") !== "", "cu_linux_wait_ready_marker_backend");
+  const entry_probe = independent_named_node_probe(fixture_title, ENTRY_NAME);
+  ensure(
+    entry_probe.name === ENTRY_NAME && entry_probe.showing === true,
+    "cu_linux_wait_ready_path_entry_probe:" + JSON.stringify(entry_probe)
+  );
+  observer_result(observer);
+  harness.emit_evidence(context, declared_evidence, "cu.linux-wait-ready-path-readback");
+
+  print("STEP Chrome: disposable page, unlock, wait --node-name-contains GetTextField");
+  const chrome_title = "CEO Wait Ready " + context.run_id;
+  const chrome_source = rh.join(repo, "fixtures/cu/311b-chrome-gettext.html");
+  const chrome_fixture = rh.join(run_directory, "wait-ready-chrome.html");
+  let chrome_html = rh.read_text(chrome_source);
+  chrome_html = chrome_html.replace("311b Chrome GetText Fixture", chrome_title);
+  chrome_html = chrome_html.replace(
+    "Prefill HELLO. Independent get-text --name GetTextField must equal HELLO.",
+    "Prefill HELLO for wait --node-name-contains read-back."
+  );
+  rh.write_text(chrome_fixture, chrome_html);
+  independent_chrome_dom_value(chrome_fixture, "field", "HELLO");
+
+  const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+  const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+  const port = 9900 + (rh.pid() % 500);
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.includes("Browser")), "cu_linux_wait_ready_chrome_port_in_use:" + port);
+
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "file://" + chrome_fixture,
+    ],
+    current_dir: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+      cwd: run_directory,
+      timeout_ms: 3000,
+    });
+    if (probe.success === true && probe.stdout.includes("Browser")) { break; }
+    harness.sleep_ms(250);
+  }
+  const chrome_window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "20000", "--window-title-contains", chrome_title,
+  ]);
+  ensure(flag_at(chrome_window_wait, "data.met"), "cu_linux_wait_ready_chrome_window_wait");
+  let chrome_row = null;
+  for (let attempt = 0; attempt < 40 && chrome_row === null; attempt = attempt + 1) {
+    chrome_row = chrome_window(run_directory, executable, chrome_title);
+    if (chrome_row === null) { harness.sleep_ms(250); }
+  }
+  ensure(chrome_row !== null, "cu_linux_wait_ready_chrome_window_missing");
+  const chrome_handle = chrome_row.handle;
+  const chrome_pid = chrome_row.pid;
+
+  const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+    "unlock", "--window", chrome_handle,
+  ]);
+  ensure(flag_at(unlocked, "data.poked"), "cu_linux_wait_ready_chrome_unlock:" + JSON.stringify(unlocked.data));
+
+  const chrome_node_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "20000",
+    "--node-name-contains", CHROME_FIELD,
+    "--window", chrome_handle,
+  ]);
+  ensure(
+    flag_at(chrome_node_wait, "data.met")
+      && text_at(chrome_node_wait, "data.addressing") === "accessibility-tree"
+      && text_at(chrome_node_wait, "data.node.name") === CHROME_FIELD,
+    "cu_linux_wait_ready_chrome_node_wait:" + JSON.stringify(chrome_node_wait.data)
+  );
+  const chrome_probe = independent_named_node_probe_pid(chrome_pid, CHROME_FIELD);
+  ensure(
+    chrome_probe.name === CHROME_FIELD && chrome_probe.showing === true,
+    "cu_linux_wait_ready_chrome_probe:" + JSON.stringify(chrome_probe)
+  );
+  independent_chrome_dom_value(chrome_fixture, "field", "HELLO");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-wait-chrome-node-name-readback");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  harness.wait(fixture, 5000);
+}
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup chrome: " + error); }
+  harness.wait(chrome_child, 10000);
+}
+
+ensure(succeeded === 1, failure || "cu_linux_wait_ready_failed");
+harness.remove_run(context);
+print("PASS: Linux wait node-name + ready-path honesty with independent AT-SPI/marker read-back (no --coords)");

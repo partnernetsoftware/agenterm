@@ -296,6 +296,7 @@ const evidence_suites = {
   "cu-linux-menu-inspect-smoke": true,
   "cu-linux-invoke-smoke": true,
   "cu-linux-observe-smoke": true,
+  "cu-linux-wait-ready-honesty-smoke": true,
   "cu-linux-power-status-smoke": true,
   "cu-linux-privilege-plan-smoke": true,
   "cu-linux-processor-topology-smoke": true,

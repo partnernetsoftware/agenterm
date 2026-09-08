@@ -477,6 +477,14 @@
       ]
     },
     {
+      "id": "cu-linux-wait-ready-honesty-smoke",
+      "evidence": [
+        "cu.linux-wait-node-name-readback",
+        "cu.linux-wait-ready-path-readback",
+        "cu.linux-wait-chrome-node-name-readback"
+      ]
+    },
+    {
       "id": "cu-linux-windows-inventory-smoke",
       "evidence": [
         "cu.linux-windows-inventory-readback"

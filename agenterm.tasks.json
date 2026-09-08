@@ -1517,6 +1517,25 @@
         "task.cu-linux-observe-smoke"
       ]
     },
+    "cu-linux-wait-ready-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-wait-ready-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-wait-ready-honesty-smoke"
+      ]
+    },
     "cu-windows-external-terminal-send-smoke": {
       "inputs": [
         "built-agenterm",
@@ -6356,6 +6375,26 @@
       "id": "cu-linux-observe-smoke",
       "description": "Prove Linux CU observe poll-diff events for named GTK fixture node changes agree with independent pyatspi before/after probes taken at mutation time; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-observe-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-wait-ready-honesty-smoke",
+      "description": "Prove Linux CU wait --node-name-contains and wait --ready-path on disposable GTK and Chrome targets agree with independent pyatspi named-node probes and a direct on-disk ready-path marker read-back; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-wait-ready-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
