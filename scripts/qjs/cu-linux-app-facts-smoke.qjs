@@ -1,0 +1,224 @@
+// CEO: Linux app-facts honesty with independent desktop-entry and /proc/exe read-back.
+// Acceptance is smoke read-back only: CU app-facts path, name and desktop_entry_id must
+// agree with an independent XDG desktop-entry parse, and executable/running must agree
+// with /proc/exe inventory or return typed unavailable reasons. No --coords or
+// screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["cu.linux-app-facts-readback"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS", "XDG_DATA_HOME", "XDG_DATA_DIRS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  return env;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_app_facts_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_app_facts_reply_state");
+  ensure(reply.command === "app-facts", "cu_linux_app_facts_command");
+  return reply;
+}
+
+function probe_identity() {
+  const script = [
+    "import json, os, sys",
+    "PREFERRED = ['xfce4-terminal.desktop', 'picom.desktop', 'plank.desktop', 'python3.13.desktop']",
+    "def app_dirs():",
+    "    dirs = []",
+    "    home = os.environ.get('HOME', '')",
+    "    xdg = os.environ.get('XDG_DATA_HOME', '')",
+    "    if xdg:",
+    "        dirs.append(os.path.join(xdg, 'applications'))",
+    "    elif home:",
+    "        dirs.append(os.path.join(home, '.local', 'share', 'applications'))",
+    "    for entry in os.environ.get('XDG_DATA_DIRS', '/usr/local/share:/usr/share').split(':'):",
+    "        if entry:",
+    "            dirs.append(os.path.join(entry, 'applications'))",
+    "    seen = set(); out = []",
+    "    for d in dirs:",
+    "        if d not in seen:",
+    "            seen.add(d); out.append(d)",
+    "    return out",
+    "def running_exes():",
+    "    exes = set(); bases = {}",
+    "    for pid in os.listdir('/proc'):",
+    "        if not pid.isdigit(): continue",
+    "        try:",
+    "            path = os.path.realpath(f'/proc/{pid}/exe')",
+    "        except OSError:",
+    "            continue",
+    "        exes.add(path)",
+    "        bases.setdefault(os.path.basename(path), path)",
+    "    return exes, bases",
+    "def parse_entry(path):",
+    "    text = open(path, encoding='utf-8', errors='replace').read()",
+    "    in_entry = False; name = None; exec_line = None; typ = None; hidden = False",
+    "    for line in text.splitlines():",
+    "        line = line.strip()",
+    "        if line.startswith('['):",
+    "            in_entry = line == '[Desktop Entry]'",
+    "            continue",
+    "        if not in_entry or not line or line.startswith('#'):",
+    "            continue",
+    "        if '=' not in line: continue",
+    "        key, value = line.split('=', 1)",
+    "        key = key.strip(); value = value.strip()",
+    "        if key == 'Name' and name is None: name = value",
+    "        elif key == 'Exec' and exec_line is None: exec_line = value",
+    "        elif key == 'Type': typ = value",
+    "        elif key == 'Hidden': hidden = value.lower() == 'true'",
+    "    if hidden or typ != 'Application' or not name or not exec_line:",
+    "        return None",
+    "    token = exec_line.split()[0].strip('\"')",
+    "    exec_absolute = token.startswith('/')",
+    "    exec_canonical = None",
+    "    if exec_absolute:",
+    "        try: exec_canonical = os.path.realpath(token)",
+    "        except OSError: exec_absolute = False",
+    "    return {",
+    "        'id': os.path.basename(path),",
+    "        'path': os.path.realpath(path),",
+    "        'name': name,",
+    "        'exec_token': token,",
+    "        'exec_absolute': exec_absolute,",
+    "        'exec_canonical': exec_canonical,",
+    "    }",
+    "def is_running(candidate, exes, bases):",
+    "    if candidate['exec_absolute'] and candidate['exec_canonical']:",
+    "        return candidate['exec_canonical'] in exes",
+    "    base = os.path.basename(candidate['exec_token'])",
+    "    return base in bases",
+    "exes, bases = running_exes()",
+    "by_id = {}",
+    "for root in app_dirs():",
+    "    if not os.path.isdir(root): continue",
+    "    for name in os.listdir(root):",
+    "        if not name.endswith('.desktop'): continue",
+    "        full = os.path.join(root, name)",
+    "        if not os.path.isfile(full): continue",
+    "        if name in by_id: continue",
+    "        parsed = parse_entry(full)",
+    "        if parsed is None: continue",
+    "        parsed['running'] = is_running(parsed, exes, bases)",
+    "        by_id[name] = parsed",
+    "ordered = []",
+    "for wanted in PREFERRED:",
+    "    if wanted in by_id and by_id[wanted]['running']:",
+    "        ordered.append(by_id[wanted])",
+    "for item in by_id.values():",
+    "    if item['running'] and item not in ordered:",
+    "        ordered.append(item)",
+    "if not ordered:",
+    "    print(json.dumps({'available': False})); sys.exit(0)",
+    "print(json.dumps({'available': True, 'candidate': ordered[0]}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(""),
+    timeout_ms: 30000,
+  });
+  ensure(output.success, "cu_linux_app_facts_probe:" + output.stderr + output.stdout);
+  const parsed = JSON.parse(output.stdout.trim());
+  return parsed.available === true ? parsed.candidate : null;
+}
+
+function verify_identity(reply, probe, selector) {
+  const data = rh.field(reply, "data");
+  ensure(text_at(data, "platform") === "linux", "cu_linux_app_facts_platform");
+  ensure(text_at(data, "selector") === selector, "cu_linux_app_facts_selector_echo");
+  ensure(text_at(data, "desktop_entry_id.status") === "present", "cu_linux_app_facts_id_status");
+  ensure(text_at(data, "desktop_entry_id.value") === probe.id, "cu_linux_app_facts_id_value");
+  ensure(text_at(data, "name.status") === "present", "cu_linux_app_facts_name_status");
+  ensure(text_at(data, "name.value") === probe.name, "cu_linux_app_facts_name_value");
+  ensure(text_at(data, "path.status") === "present", "cu_linux_app_facts_path_status");
+  ensure(text_at(data, "path.value") === probe.path, "cu_linux_app_facts_path_value");
+  if (probe.exec_absolute && probe.exec_canonical) {
+    ensure(text_at(data, "executable.status") === "present", "cu_linux_app_facts_executable_status");
+    ensure(text_at(data, "executable.value") === probe.exec_canonical, "cu_linux_app_facts_executable_value");
+    ensure(text_at(data, "running.status") === "present", "cu_linux_app_facts_running_status");
+    const running = rh.field(data, "running.value") === true;
+    ensure(running === probe.running, "cu_linux_app_facts_running_value");
+  } else {
+    ensure(text_at(data, "executable.status") === "unavailable", "cu_linux_app_facts_executable_unavailable");
+    ensure(text_at(data, "executable.reason").indexOf("path-search") >= 0,
+      "cu_linux_app_facts_executable_reason");
+    ensure(text_at(data, "running.status") === "unavailable", "cu_linux_app_facts_running_unavailable");
+    ensure(text_at(data, "running.reason").indexOf("path-search") >= 0,
+      "cu_linux_app_facts_running_reason");
+  }
+}
+
+function verify_unsupported(reply) {
+  ensure(reply.ok !== true, "cu_linux_app_facts_false_success");
+  ensure(text_at(reply, "error.code") === "app_facts_platform_unsupported"
+    || text_at(reply, "error.code") === "app_facts_scan_failed", "cu_linux_app_facts_unsupported_code");
+  ensure(text_at(reply, "error.message").length > 0, "cu_linux_app_facts_unsupported_message");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(rh.exists(executable), "cu_linux_app_facts_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-app-facts");
+const probe = probe_identity();
+if (probe === null) {
+  print("STEP typed gap when no running desktop application can be probed independently");
+  verify_unsupported(invoke(context.run_directory, executable,
+    ["app-facts", "--selector", "xfce4-terminal"], false));
+  harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+  harness.remove_run(context);
+  print("PASS typed gap with explicit app-facts failure when live probe is unavailable");
+  return;
+}
+
+print("STEP app-facts identity matches independent desktop-entry read-back for "
+  + probe.id);
+const selector = probe.id.endsWith(".desktop")
+  ? probe.id.substring(0, probe.id.length - ".desktop".length)
+  : probe.id;
+const reply = invoke(context.run_directory, executable,
+  ["app-facts", "--selector", selector], true);
+verify_identity(reply, probe, text_at(reply, "data.selector"));
+
+harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
+harness.remove_run(context);
+print("PASS Linux app-facts path, name and id agree with independent desktop/proc read-back");
