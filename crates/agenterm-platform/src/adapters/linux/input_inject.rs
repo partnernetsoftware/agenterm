@@ -268,6 +268,10 @@ pub(crate) fn pointer_move(position: PointerPosition) -> Result<(), InputInjectE
 
 pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
     let context = connect_for_observe()?;
+    pointer_position_in(&context)
+}
+
+fn pointer_position_in(context: &Context) -> Result<PointerPosition, InputInjectError> {
     let reply = context
         .connection
         .query_pointer(context.root)
@@ -278,6 +282,84 @@ pub(crate) fn pointer_position() -> Result<PointerPosition, InputInjectError> {
         x: i32::from(reply.root_x),
         y: i32::from(reply.root_y),
     })
+}
+
+const GRAB_SUCCESS: u8 = 0;
+const GRAB_ALREADY: u8 = 1;
+
+fn grab_pointer_status(context: &Context) -> Result<u8, InputInjectError> {
+    use x11rb::protocol::xproto::{EventMask, GrabMode};
+    let reply = context
+        .connection
+        .grab_pointer(
+            false,
+            context.root,
+            EventMask::NO_EVENT,
+            GrabMode::ASYNC,
+            GrabMode::ASYNC,
+            x11rb::NONE,
+            x11rb::NONE,
+            CURRENT_TIME,
+        )
+        .map_err(|_| failed("X11 pointer grab request could not be sent"))?
+        .reply()
+        .map_err(|_| failed("X11 pointer grab request failed"))?;
+    Ok(reply.status.into())
+}
+
+fn ungrab_pointer(context: &Context) -> Result<(), InputInjectError> {
+    context
+        .connection
+        .ungrab_pointer(CURRENT_TIME)
+        .map_err(|_| failed("X11 pointer ungrab request could not be sent"))?
+        .check()
+        .map_err(|_| failed("X11 pointer ungrab request failed"))?;
+    context
+        .connection
+        .flush()
+        .map_err(|_| failed("X11 pointer ungrab request could not be flushed"))
+}
+
+pub(crate) fn pointer_grab() -> Result<(PointerPosition, u8, u8), InputInjectError> {
+    let primary = connect_for_observe()?;
+    let position = pointer_position_in(&primary)?;
+    let grab_status = grab_pointer_status(&primary)?;
+    if grab_status != GRAB_SUCCESS {
+        return Err(InputInjectError::Failed {
+            code: "pointer_grab_refused".into(),
+            message: format!("XGrabPointer answered status {grab_status}"),
+        });
+    }
+    let verify = connect_for_observe()?;
+    let verify_status = grab_pointer_status(&verify)?;
+    ungrab_pointer(&primary)?;
+    if verify_status != GRAB_ALREADY {
+        return Err(InputInjectError::Failed {
+            code: "pointer_grab_unverified".into(),
+            message: format!(
+                "independent grab probe answered {verify_status}, expected {GRAB_ALREADY} (already grabbed)"
+            ),
+        });
+    }
+    Ok((position, grab_status, verify_status))
+}
+
+pub(crate) fn pointer_ungrab() -> Result<(PointerPosition, u8), InputInjectError> {
+    let primary = connect_for_observe()?;
+    let position = pointer_position_in(&primary)?;
+    ungrab_pointer(&primary)?;
+    let verify = connect_for_observe()?;
+    let verify_status = grab_pointer_status(&verify)?;
+    if verify_status != GRAB_SUCCESS {
+        return Err(InputInjectError::Failed {
+            code: "pointer_ungrab_unverified".into(),
+            message: format!(
+                "independent grab probe answered {verify_status}, expected {GRAB_SUCCESS} (grab available)"
+            ),
+        });
+    }
+    ungrab_pointer(&verify)?;
+    Ok((position, verify_status))
 }
 
 pub(crate) fn pointer_scroll(dx: i32, dy: i32) -> Result<(), InputInjectError> {

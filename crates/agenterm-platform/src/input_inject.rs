@@ -20,6 +20,14 @@ pub fn pointer_position() -> Result<PointerPosition, InputInjectError> {
     crate::selected::input_inject::pointer_position()
 }
 
+pub fn pointer_grab() -> Result<(PointerPosition, u8, u8), InputInjectError> {
+    crate::selected::input_inject::pointer_grab()
+}
+
+pub fn pointer_ungrab() -> Result<(PointerPosition, u8), InputInjectError> {
+    crate::selected::input_inject::pointer_ungrab()
+}
+
 /// Post signed wheel detents at the real pointer's current desktop location
 /// without moving the pointer. Positive `dx` scrolls left and positive `dy`
 /// scrolls up; negative values scroll right/down. At least one axis must be
