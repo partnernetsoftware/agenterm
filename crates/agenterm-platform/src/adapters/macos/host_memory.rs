@@ -92,3 +92,9 @@ pub(crate) fn availability() -> Result<HostMemoryAvailability, HostMemoryError> 
         HostMemoryAvailabilitySemantics::MacosFreeAndInactive,
     )
 }
+
+pub(crate) fn observed() -> Result<(HostMemoryFacts, HostMemoryAvailability), HostMemoryError> {
+    let facts = facts()?;
+    let availability = availability()?;
+    Ok((facts, availability))
+}

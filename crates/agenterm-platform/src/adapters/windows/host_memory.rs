@@ -26,6 +26,12 @@ pub(crate) fn availability() -> Result<HostMemoryAvailability, HostMemoryError> 
     )
 }
 
+pub(crate) fn observed() -> Result<(HostMemoryFacts, HostMemoryAvailability), HostMemoryError> {
+    let facts = facts()?;
+    let availability = availability()?;
+    Ok((facts, availability))
+}
+
 fn memory_status() -> Result<MEMORYSTATUSEX, HostMemoryError> {
     use windows_sys::Win32::System::SystemInformation::GlobalMemoryStatusEx;
 

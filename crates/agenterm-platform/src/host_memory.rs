@@ -18,6 +18,12 @@ pub fn availability() -> Result<HostMemoryAvailability, HostMemoryError> {
     crate::selected::host_memory::availability()
 }
 
+/// Read stable geometry and dynamic availability from one native snapshot when
+/// the selected adapter can provide it.
+pub fn observed() -> Result<(HostMemoryFacts, HostMemoryAvailability), HostMemoryError> {
+    crate::selected::host_memory::observed()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

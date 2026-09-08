@@ -25,6 +25,20 @@ pub(crate) fn availability() -> Result<HostMemoryAvailability, HostMemoryError> 
     )
 }
 
+pub(crate) fn observed() -> Result<(HostMemoryFacts, HostMemoryAvailability), HostMemoryError> {
+    let page_size = positive_sysconf(libc::_SC_PAGESIZE, "page size")?;
+    let meminfo = read_meminfo()?;
+    let physical_bytes = meminfo_kibibytes(&meminfo, "MemTotal:")?;
+    let available_physical_bytes = meminfo_kibibytes(&meminfo, "MemAvailable:")?;
+    let facts = checked_facts(page_size, page_size, physical_bytes)?;
+    let availability = checked_availability(
+        available_physical_bytes,
+        physical_bytes,
+        HostMemoryAvailabilitySemantics::LinuxMemAvailable,
+    )?;
+    Ok((facts, availability))
+}
+
 pub(crate) fn read_meminfo() -> Result<String, HostMemoryError> {
     let file = std::fs::File::open("/proc/meminfo").map_err(|error| {
         HostMemoryError::new(
