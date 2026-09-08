@@ -1282,6 +1282,12 @@ impl std::fmt::Debug for ClipboardWriteSource {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct HostNotifyAction {
+    pub key: String,
+    pub label: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "verb", rename_all = "kebab-case")]
 pub enum Command {
@@ -1422,6 +1428,8 @@ pub enum Command {
         subtitle: Option<String>,
         #[serde(default)]
         sound: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        actions: Vec<HostNotifyAction>,
     },
     /// Newest-first bounded read of the append-only control audit. Byte,
     /// record-scan and returned-result budgets are independent.

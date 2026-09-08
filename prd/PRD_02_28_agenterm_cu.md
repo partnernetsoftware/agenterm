@@ -1350,7 +1350,7 @@ flowchart LR
   (not CU self-report). Windows native court remains open. MCU `open` now
   routes here, reducing the top-level compatibility `STAY` set from 21 to 20.
 - [~] Desktop notification dispatch now follows the same typed boundary as
-  host-open: `host-notify TITLE [BODY] [--subtitle TEXT] [--sound]` (alias
+  host-open: `host-notify TITLE [BODY] [--subtitle TEXT] [--sound] [--action KEY LABEL]...` (alias
   `notify`) sends bounded text as native argv data, never shell or generated
   AppleScript source. Receipts redact all content to byte length and SHA-256.
   macOS Notification Center is green through `cu.host-notify.macos`; Linux FDO
@@ -1358,8 +1358,10 @@ flowchart LR
   dbus-monitor read-back (not CU self-report). The reply
   remains `verified=false` because acceptance cannot prove presentation or
   user attention. Linux `notify-send` / FDO dispatch and the Windows native
-  notification-icon provider compile for both ISAs; Linux FDO dispatch is now
-  evidenced, action buttons remain a typed AT-SPI blocker on dunst. Subtitle and
+  notification-icon provider compile for both ISAs; Linux FDO dispatch and
+  action-button pairs are evidenced through dbus-monitor Notify/ActionInvoked
+  read-back (not CU self-report); dunst still publishes no AT-SPI action controls.
+  Subtitle and
   sound are macOS-only until another provider can prove equivalent semantics.
   MCU `notify` now routes here, reducing top-level `STAY` from 20 to 19.
 - [x] The compatibility boundary no longer lies about `permissions`: `acu

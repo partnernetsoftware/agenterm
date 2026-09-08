@@ -1040,6 +1040,25 @@
         "task.cu-linux-gtk-entry-send-keys-smoke"
       ]
     },
+    "cu-linux-keyboard-layout-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-keyboard-layout-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 60000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-keyboard-layout-smoke"
+      ]
+    },
     "cu-linux-menu-invoke-smoke": {
       "inputs": [
         "built-agenterm",
@@ -3939,7 +3958,7 @@
     },
     {
       "id": "cu-linux-host-notify-smoke",
-      "description": "Prove Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed subtitle/sound refusal, and an action-button AT-SPI blocker.",
+      "description": "Prove Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed subtitle/sound refusal, and action-button dispatch plus ActionInvoked invoke read-back.",
       "entry": "scripts/qjs/cu-linux-host-notify-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -4054,6 +4073,25 @@
         "artifact_write",
         "process_spawn",
         "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-keyboard-layout-smoke",
+      "description": "Prove Linux keyboard-layout observe returns the active XKB layout id/name with independent setxkbmap read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-keyboard-layout-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
       ]
     },
     {

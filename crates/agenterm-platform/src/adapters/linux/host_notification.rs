@@ -1,8 +1,8 @@
 use std::{process::Stdio, sync::OnceLock, time::Duration};
 
 use crate::host_notification::{
-    HostNotificationError, HostNotificationErrorKind, HostNotificationOptions,
-    HostNotificationReceipt,
+    HostNotificationAction, HostNotificationError, HostNotificationErrorKind,
+    HostNotificationOptions, HostNotificationReceipt,
 };
 
 const NOTIFY_SEND_PATHS: &[&str] = &["/usr/bin/notify-send", "/bin/notify-send"];
@@ -22,17 +22,23 @@ pub(crate) fn notify(
         .iter()
         .find(|path| std::path::Path::new(**path).is_file())
     {
-        return notify_via_send(dispatcher, title, body);
+        return notify_via_send(dispatcher, title, body, options.actions);
     }
-    notify_via_fdo(title, body)
+    notify_via_fdo(title, body, options.actions)
 }
 
 fn notify_via_send(
     dispatcher: &str,
     title: &str,
     body: &str,
+    actions: &[HostNotificationAction<'_>],
 ) -> Result<HostNotificationReceipt, HostNotificationError> {
-    let mut child = std::process::Command::new(dispatcher)
+    let mut command = std::process::Command::new(dispatcher);
+    for action in actions {
+        command.arg(format!("--action={}", action.key));
+        command.arg(action.label);
+    }
+    let mut child = command
         .args([title, body])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -89,14 +95,15 @@ fn wait_send(
 fn notify_via_fdo(
     title: &str,
     body: &str,
+    actions: &[HostNotificationAction<'_>],
 ) -> Result<HostNotificationReceipt, HostNotificationError> {
     #[cfg(feature = "service")]
     {
-        return notify_via_fdo_session_bus(title, body);
+        return notify_via_fdo_session_bus(title, body, actions);
     }
     #[cfg(not(feature = "service"))]
     {
-        let _ = (title, body);
+        let _ = (title, body, actions);
         Err(HostNotificationError::new(
             HostNotificationErrorKind::DispatcherUnavailable,
             "notify-send is not installed and session-bus notification dispatch is unavailable",
@@ -108,6 +115,7 @@ fn notify_via_fdo(
 fn notify_via_fdo_session_bus(
     title: &str,
     body: &str,
+    actions: &[HostNotificationAction<'_>],
 ) -> Result<HostNotificationReceipt, HostNotificationError> {
     use tokio::time::{Duration as TokioDuration, timeout};
 
@@ -124,7 +132,7 @@ fn notify_via_fdo_session_bus(
     runtime().block_on(async {
         timeout(
             TokioDuration::from_secs(10),
-            notify_via_fdo_async(title, body),
+            notify_via_fdo_async(title, body, actions),
         )
         .await
         .map_err(|_| {
@@ -140,6 +148,7 @@ fn notify_via_fdo_session_bus(
 async fn notify_via_fdo_async(
     title: &str,
     body: &str,
+    actions: &[HostNotificationAction<'_>],
 ) -> Result<HostNotificationReceipt, HostNotificationError> {
     use std::collections::HashMap;
 
@@ -164,12 +173,16 @@ async fn notify_via_fdo_async(
             format!("org.freedesktop.Notifications proxy failed: {error}"),
         )
     })?;
-    let actions: Vec<String> = Vec::new();
+    let mut flat_actions: Vec<String> = Vec::with_capacity(actions.len() * 2);
+    for action in actions {
+        flat_actions.push(action.key.to_owned());
+        flat_actions.push(action.label.to_owned());
+    }
     let hints: HashMap<String, OwnedValue> = HashMap::new();
     let _: u32 = proxy
         .call(
             "Notify",
-            &("agenterm", 0u32, "", title, body, actions, hints, -1i32),
+            &("agenterm", 0u32, "", title, body, flat_actions, hints, -1i32),
         )
         .await
         .map_err(map_fdo_notify_error)?;
@@ -212,6 +225,7 @@ mod tests {
                 HostNotificationOptions {
                     subtitle: Some("sub"),
                     sound: false,
+                    actions: &[],
                 }
             )
             .unwrap_err()
@@ -225,6 +239,7 @@ mod tests {
                 HostNotificationOptions {
                     subtitle: None,
                     sound: true,
+                    actions: &[],
                 }
             )
             .unwrap_err()

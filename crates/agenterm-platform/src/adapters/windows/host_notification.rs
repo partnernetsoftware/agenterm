@@ -30,6 +30,12 @@ pub(crate) fn notify(
             "Windows host notification does not claim subtitle or sound semantics",
         ));
     }
+    if !options.actions.is_empty() {
+        return Err(HostNotificationError::new(
+            HostNotificationErrorKind::Unsupported,
+            "Windows host notification does not claim action-button semantics",
+        ));
+    }
     let class = "STATIC\0".encode_utf16().collect::<Vec<_>>();
     // SAFETY: the built-in STATIC class is NUL-terminated, all optional
     // pointers are null, and the returned HWND remains owned until destroy.

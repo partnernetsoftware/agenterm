@@ -1079,14 +1079,25 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         );
         verbs.insert(
             "host-notify".into(),
-            serde_json::json!({
-                "status": "available",
-                "group": "setup",
-                "grant": "actuate",
-                "mode": "agenterm-platform-desktop-notification",
-                "shell": false,
-                "verification": "dispatcher-accepted-only",
-            }),
+            {
+                let mut host_notify = serde_json::json!({
+                    "status": "available",
+                    "group": "setup",
+                    "grant": "actuate",
+                    "mode": "agenterm-platform-desktop-notification",
+                    "shell": false,
+                    "verification": "dispatcher-accepted-only",
+                });
+                if std::env::consts::OS == "linux" {
+                    host_notify["actions"] = serde_json::json!({
+                        "status": "available",
+                        "mode": "fdo-notify-action-pairs",
+                        "verification": "dispatcher-accepted-only",
+                        "invoke": "session-bus-action-invoked-only",
+                    });
+                }
+                host_notify
+            },
         );
     }
     if let Some(verbs) = payload.get("verbs").cloned() {

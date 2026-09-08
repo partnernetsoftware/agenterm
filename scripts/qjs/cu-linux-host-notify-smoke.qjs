@@ -1,7 +1,7 @@
 // Linux public black-box journey for FDO desktop notification dispatch.
 // Independent read-back uses session-bus dbus-monitor (not CU self-report).
-// Action buttons: FDO server may advertise them, but dunst does not publish
-// controls in AT-SPI, so the journey records an honest typed blocker.
+// Action buttons dispatch through FDO Notify pairs; invoke is proved by
+// ActionInvoked on the session bus after dunstctl action (not AT-SPI/coords).
 //
 // Args: REPO AGENTERM_CU_EXE | --list-evidence
 import * as rh from "lib/rh_compat";
@@ -26,8 +26,6 @@ function text_at(value, dotted) {
   if (value_at === undefined || value_at === null) { return ""; }
   return "" + value_at;
 }
-
-function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -78,14 +76,10 @@ function stop_dbus_monitor(pid) {
   harness.sleep_ms(250);
 }
 
-function dunst_window_handle() {
-  const output = rh.command("xdotool", ["search", "--class", "dunst"], { timeout_ms: 5000 });
-  ensure(output.success === true, "cu_linux_host_notify_dunst_missing:" + output.stderr);
-  const line = output.stdout.trim().split("\n")[0];
-  ensure(line !== "", "cu_linux_host_notify_dunst_handle_empty");
-  const handle = parseInt(line, 10);
-  ensure(handle > 0, "cu_linux_host_notify_dunst_handle_invalid:" + line);
-  return handle;
+function run_dunstctl(args) {
+  const output = rh.command("dunstctl", args, { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_host_notify_dunstctl:" + output.stderr);
+  return output.stdout;
 }
 
 const script_argv = rh.args();
@@ -102,7 +96,10 @@ const context = harness.new_context(repo, "cu-linux-host-notify");
 const run_directory = context.run_directory;
 const monitor_log = rh.join(run_directory, "dbus-notify.log");
 const monitor_pid_path = rh.join(run_directory, "dbus-notify.pid");
+const action_log = rh.join(run_directory, "dbus-action.log");
+const action_pid_path = rh.join(run_directory, "dbus-action.pid");
 let monitor_pid = 0;
+let action_pid = 0;
 let succeeded = 0;
 let failure = "";
 
@@ -113,6 +110,10 @@ try {
   ensure(text_at(notify_cap, "status") === "available", "cu_linux_host_notify_cap_status");
   ensure(text_at(notify_cap, "verification") === "dispatcher-accepted-only",
     "cu_linux_host_notify_cap_verification");
+  ensure(text_at(notify_cap, "actions.status") === "available",
+    "cu_linux_host_notify_actions_cap_status");
+  ensure(text_at(notify_cap, "actions.invoke") === "session-bus-action-invoked-only",
+    "cu_linux_host_notify_actions_invoke_truth");
 
   print("STEP FDO GetCapabilities reports the session notification server honestly");
   const capabilities_text = dbus_send([
@@ -169,24 +170,42 @@ try {
       && text_at(sent, "body_evidence.sha256").length === 64,
     "cu_linux_host_notify_redacted_evidence");
 
-  print("STEP action buttons remain a typed blocker: server advertises actions but dunst publishes no AT-SPI controls");
-  const dunst_handle = dunst_window_handle();
-  dbus_send([
-    "--session", "--print-reply",
-    "--dest=org.freedesktop.Notifications",
-    "/org/freedesktop/Notifications",
-    "org.freedesktop.Notifications.Notify",
-    "string:agenterm", "uint32:0", "string:", "string:Action Blocker", "string:probe",
-    "array:string:default,Ack", "dict:string:variant:", "int32:5000"
+  print("STEP action buttons dispatch through FDO Notify and invoke via ActionInvoked read-back");
+  run_dunstctl(["close-all"]);
+  harness.sleep_ms(150);
+  const action_key = "ack";
+  const action_label = "Acknowledge";
+  const action_token = "cu-host-notify-action-" + rh.now_ms();
+  action_pid = start_dbus_monitor(run_directory, action_log, action_pid_path);
+  harness.sleep_ms(150);
+  const action_sent = run_cu(run_directory, executable, "actuate", [
+    "host-notify", "AgenTerm Action", action_token,
+    "--action", action_key, action_label
   ]);
-  harness.sleep_ms(300);
-  const action_query = run_cu(run_directory, executable, "observe", [
-    "query", "--window", "" + dunst_handle, "--text", "Ack", "--max", "5"
-  ]);
-  ensure(action_query.matched === 0,
-    "cu_linux_host_notify_action_atspi_blocker:" + JSON.stringify(action_query));
-  ensure(notify_cap.actions === undefined,
-    "cu_linux_host_notify_action_cu_surface_honest");
+  harness.sleep_ms(250);
+  const action_monitor_text = rh.read_text(action_log);
+  ensure(action_monitor_text.indexOf("member=Notify") >= 0,
+    "cu_linux_host_notify_action_notify_missing");
+  ensure(action_monitor_text.indexOf(action_key) >= 0,
+    "cu_linux_host_notify_action_key_missing");
+  ensure(action_monitor_text.indexOf(action_label) >= 0,
+    "cu_linux_host_notify_action_label_missing");
+  ensure(action_monitor_text.indexOf(action_token) >= 0,
+    "cu_linux_host_notify_action_token_missing");
+  ensure(action_sent.actions_evidence.length === 1,
+    "cu_linux_host_notify_action_evidence_count:" + JSON.stringify(action_sent));
+  ensure(action_sent.actions_evidence[0].key_evidence.sha256.length === 64,
+    "cu_linux_host_notify_action_key_redacted");
+  run_dunstctl(["action", "0"]);
+  harness.sleep_ms(400);
+  stop_dbus_monitor(action_pid);
+  action_pid = 0;
+  const action_invoke_text = rh.read_text(action_log);
+  ensure(action_invoke_text.indexOf("member=ActionInvoked") >= 0,
+    "cu_linux_host_notify_action_invoked_missing");
+  ensure(action_invoke_text.indexOf('string "' + action_key + '"') >= 0,
+    "cu_linux_host_notify_action_invoked_key_missing");
+  run_dunstctl(["close-all"]);
 
   harness.emit_evidence(context, declared_evidence, "cu.host-notify.linux");
   succeeded = 1;
@@ -195,7 +214,8 @@ try {
 }
 
 if (monitor_pid > 0) { stop_dbus_monitor(monitor_pid); }
+if (action_pid > 0) { stop_dbus_monitor(action_pid); }
 ensure(succeeded === 1, failure || "cu_linux_host_notify_failed");
 harness.remove_run(context);
-print("PASS: Linux FDO host-notify dispatch with independent dbus read-back and honest action blocker");
+print("PASS: Linux FDO host-notify dispatch with dbus read-back and action-button invoke");
 return;

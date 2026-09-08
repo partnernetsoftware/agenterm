@@ -193,12 +193,14 @@ impl Executor {
                 body,
                 subtitle,
                 sound,
+                actions,
                 ..
             } => host_notify_payload(
                 title,
                 body,
                 subtitle.as_deref(),
                 *sound,
+                actions,
                 &mut self.open_receipts(command.target())?,
             ),
             Command::AuditQuery {

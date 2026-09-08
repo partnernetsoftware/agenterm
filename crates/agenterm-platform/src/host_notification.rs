@@ -5,6 +5,9 @@ use std::fmt;
 const MAX_TITLE_BYTES: usize = 1024;
 const MAX_BODY_BYTES: usize = 16 * 1024;
 const MAX_SUBTITLE_BYTES: usize = 1024;
+const MAX_ACTIONS: usize = 8;
+const MAX_ACTION_KEY_BYTES: usize = 256;
+const MAX_ACTION_LABEL_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -45,10 +48,27 @@ impl fmt::Display for HostNotificationError {
 
 impl std::error::Error for HostNotificationError {}
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HostNotificationAction<'a> {
+    pub key: &'a str,
+    pub label: &'a str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HostNotificationOptions<'a> {
     pub subtitle: Option<&'a str>,
     pub sound: bool,
+    pub actions: &'a [HostNotificationAction<'a>],
+}
+
+impl<'a> Default for HostNotificationOptions<'a> {
+    fn default() -> Self {
+        Self {
+            subtitle: None,
+            sound: false,
+            actions: &[],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,7 +89,22 @@ pub fn notify(
     if let Some(subtitle) = options.subtitle {
         validate("subtitle", subtitle, 1, MAX_SUBTITLE_BYTES)?;
     }
+    validate_actions(options.actions)?;
     crate::selected::host_notification::notify(title, body, options)
+}
+
+fn validate_actions(actions: &[HostNotificationAction<'_>]) -> Result<(), HostNotificationError> {
+    if actions.len() > MAX_ACTIONS {
+        return Err(HostNotificationError::new(
+            HostNotificationErrorKind::InvalidInput,
+            format!("notification actions must contain at most {MAX_ACTIONS} pairs"),
+        ));
+    }
+    for action in actions {
+        validate("action key", action.key, 1, MAX_ACTION_KEY_BYTES)?;
+        validate("action label", action.label, 1, MAX_ACTION_LABEL_BYTES)?;
+    }
+    Ok(())
 }
 
 fn validate(
@@ -90,6 +125,47 @@ fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_invalid_actions_before_dispatch() {
+        assert_eq!(
+            notify(
+                "title",
+                "body",
+                HostNotificationOptions {
+                    subtitle: None,
+                    sound: false,
+                    actions: &[HostNotificationAction {
+                        key: "",
+                        label: "Ack",
+                    }],
+                }
+            )
+            .unwrap_err()
+            .kind(),
+            HostNotificationErrorKind::InvalidInput
+        );
+        let too_many = (0..MAX_ACTIONS + 1)
+            .map(|_| HostNotificationAction {
+                key: "ack",
+                label: "Ack",
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            notify(
+                "title",
+                "body",
+                HostNotificationOptions {
+                    subtitle: None,
+                    sound: false,
+                    actions: &too_many,
+                }
+            )
+            .unwrap_err()
+            .kind(),
+            HostNotificationErrorKind::InvalidInput
+        );
+    }
 
     #[test]
     fn rejects_empty_title_nul_and_oversized_body_before_dispatch() {

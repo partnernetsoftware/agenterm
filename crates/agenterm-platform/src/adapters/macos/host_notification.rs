@@ -26,6 +26,12 @@ pub(crate) fn notify(
     body: &str,
     options: HostNotificationOptions<'_>,
 ) -> Result<HostNotificationReceipt, HostNotificationError> {
+    if !options.actions.is_empty() {
+        return Err(HostNotificationError::new(
+            HostNotificationErrorKind::Unsupported,
+            "macOS host notification does not claim action-button semantics",
+        ));
+    }
     let mut child = std::process::Command::new("/usr/bin/osascript")
         .args([
             "-e",

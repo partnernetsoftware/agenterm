@@ -1,9 +1,12 @@
 //! Typed host notification dispatch with content-redacted durable evidence.
 
-use agenterm_platform::host_notification::{HostNotificationErrorKind, HostNotificationOptions};
+use agenterm_platform::host_notification::{
+    HostNotificationAction, HostNotificationErrorKind, HostNotificationOptions,
+};
 use serde_json::json;
 
 use super::*;
+use crate::command::HostNotifyAction;
 
 fn evidence(value: &str) -> serde_json::Value {
     json!({ "byte_length": value.len(), "sha256": clipboard_sha256_hex(value.as_bytes()) })
@@ -14,11 +17,28 @@ pub(super) fn host_notify_payload(
     body: &str,
     subtitle: Option<&str>,
     sound: bool,
+    actions: &[HostNotifyAction],
     receipts: &mut ReceiptLog,
 ) -> Result<serde_json::Value, CuError> {
     let title_evidence = evidence(title);
     let body_evidence = evidence(body);
     let subtitle_evidence = subtitle.map(evidence);
+    let actions_evidence = actions
+        .iter()
+        .map(|action| {
+            json!({
+                "key_evidence": evidence(&action.key),
+                "label_evidence": evidence(&action.label),
+            })
+        })
+        .collect::<Vec<_>>();
+    let platform_actions: Vec<HostNotificationAction> = actions
+        .iter()
+        .map(|action| HostNotificationAction {
+            key: action.key.as_str(),
+            label: action.label.as_str(),
+        })
+        .collect();
     let ticket = receipts.reserve(
         "host-notify",
         0,
@@ -27,12 +47,17 @@ pub(super) fn host_notify_payload(
             "body_evidence": body_evidence,
             "subtitle_evidence": subtitle_evidence,
             "sound_requested": sound,
+            "actions_evidence": actions_evidence,
         }),
     )?;
     let native = match agenterm_platform::host_notification::notify(
         title,
         body,
-        HostNotificationOptions { subtitle, sound },
+        HostNotificationOptions {
+            subtitle,
+            sound,
+            actions: &platform_actions,
+        },
     ) {
         Ok(receipt) => receipt,
         Err(error) => {
@@ -84,6 +109,7 @@ pub(super) fn host_notify_payload(
         "provider": native.provider, "verification": "dispatcher-accepted-only",
         "title_evidence": title_evidence, "body_evidence": body_evidence,
         "subtitle_evidence": subtitle_evidence, "sound_requested": sound,
+        "actions_evidence": actions_evidence,
         "receipt": ticket.json(),
     }))
 }
@@ -100,7 +126,8 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&directory);
         let mut receipts = ReceiptLog::open_in(&directory, TargetRef::Current).unwrap();
-        let error = host_notify_payload("", "secret body", None, false, &mut receipts).unwrap_err();
+        let error =
+            host_notify_payload("", "secret body", None, false, &[], &mut receipts).unwrap_err();
         assert_eq!(error.code, "host_notification_invalid_input");
         let (lines, total) = receipts.list(None, 10).unwrap();
         assert_eq!(total, 2);

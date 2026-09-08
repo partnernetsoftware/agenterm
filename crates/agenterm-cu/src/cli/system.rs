@@ -6,7 +6,7 @@ use agenterm_cu::{
         DEVICE_INVENTORY_MAX, DEVICE_IO_BYTES_MAX, DEVICE_WATCH_DURATION_MS_MAX,
         DEVICE_WATCH_EVENTS_MAX, DEVICE_WATCH_INTERVAL_MS_MAX, DEVICE_WATCH_INTERVAL_MS_MIN,
         DeviceDataEncoding, DeviceSerialConfiguration, DeviceSerialFlow, DeviceSerialParity,
-        JobEnvironment, JobOutputCursor, JobOutputStream, JobPolicyAction, JobPolicyEnforcement,
+        HostNotifyAction, JobEnvironment, JobOutputCursor, JobOutputStream, JobPolicyAction, JobPolicyEnforcement,
         JobProcessLimits, JobResourcePolicy, JobStateFilter, ProcessRunState, ProcessSignalKind,
         STORAGE_DEVICES_MAX,
     },
@@ -549,6 +549,7 @@ pub fn parse(
         });
     }
     if spec.name == "host-notify" {
+        let actions = collect_host_notify_actions(args)?;
         let subtitle = flag_text(args, "--subtitle")?;
         let sound = take_switch(args, "--sound");
         let title = positional(args, "TITLE")?;
@@ -559,7 +560,7 @@ pub fn parse(
         };
         if !args.is_empty() {
             return Err(format!(
-                "host-notify accepts TITLE [BODY] [--subtitle TEXT] [--sound]; unexpected {:?}",
+                "host-notify accepts TITLE [BODY] [--subtitle TEXT] [--sound] [--action KEY LABEL]...; unexpected {:?}",
                 args[0]
             ));
         }
@@ -569,6 +570,7 @@ pub fn parse(
             body,
             subtitle,
             sound,
+            actions,
         });
     }
     if spec.name == "permissions" {
@@ -1145,6 +1147,23 @@ fn ttl_flag(args: &mut Vec<String>, default: u64) -> Result<u64, String> {
 
 fn lease_value(args: &mut Vec<String>) -> Result<String, String> {
     positional_or_flag(args, "--lease", "LEASE")
+}
+
+fn collect_host_notify_actions(args: &mut Vec<String>) -> Result<Vec<HostNotifyAction>, String> {
+    let mut actions = Vec::new();
+    while let Some(index) = args.iter().position(|arg| arg == "--action") {
+        args.remove(index);
+        if index >= args.len() {
+            return Err("--action requires KEY and LABEL".into());
+        }
+        let key = args.remove(index);
+        if index >= args.len() || args[index].starts_with('-') {
+            return Err("--action requires KEY and LABEL".into());
+        }
+        let label = args.remove(index);
+        actions.push(HostNotifyAction { key, label });
+    }
+    Ok(actions)
 }
 
 fn positional_or_flag(
