@@ -658,17 +658,17 @@ mod x11 {
     /// `hide` / `show` verbs: it acts on all of the process's windows and
     /// reads the window-manager state back rather than trusting the request.
     pub(super) fn set_application_hidden(
-        process_id: u32,
+        target_pid: u32,
         hidden: bool,
     ) -> Result<(), ProcessWindowError> {
         use crate::contract::window_op::WindowShowState;
         use std::time::{Duration, Instant};
 
-        let windows = application_windows(process_id)?;
+        let windows = application_windows(target_pid)?;
         if windows.is_empty() {
             return Err(error(
                 "process_window_not_found",
-                format!("process {process_id} owns no top-level window on this display"),
+                "the process owns no top-level window on this display",
                 "not_found",
             ));
         }
@@ -678,12 +678,12 @@ mod x11 {
             WindowShowState::Restore
         };
         for window in &windows {
-            crate::window_op::show(i64::from(*window), state).map_err(map_window_op_error)?;
+            crate::window_op::show(*window as isize, state).map_err(map_window_op_error)?;
         }
         let deadline = Instant::now() + Duration::from_millis(1_500);
         loop {
             let settled = windows.iter().all(|window| {
-                crate::window_op::minimized(i64::from(*window))
+                crate::window_op::minimized(*window as isize)
                     .map(|minimized| minimized == hidden)
                     .unwrap_or(false)
             });
@@ -693,10 +693,11 @@ mod x11 {
             if Instant::now() >= deadline {
                 return Err(error(
                     "process_window_visibility_not_applied",
-                    format!(
-                        "the window manager left process {process_id}'s windows {} after the request",
-                        if hidden { "on screen" } else { "put away" }
-                    ),
+                    if hidden {
+                        "the window manager left the process windows on screen after hide"
+                    } else {
+                        "the window manager left the process windows put away after show"
+                    },
                     "platform_error",
                 ));
             }
@@ -704,11 +705,11 @@ mod x11 {
         }
     }
 
-    fn application_windows(process_id: u32) -> Result<Vec<Window>, ProcessWindowError> {
+    fn application_windows(target_pid: u32) -> Result<Vec<Window>, ProcessWindowError> {
         let context = connect()?;
         let mut owned = Vec::new();
         for window in client_windows(&context)? {
-            if process_id(context, window)? == Some(process_id) {
+            if process_id(&context, window)? == Some(target_pid) {
                 owned.push(window);
             }
         }
@@ -718,10 +719,18 @@ mod x11 {
     fn map_window_op_error(error: crate::contract::window_op::WindowOpError) -> ProcessWindowError {
         match error {
             crate::contract::window_op::WindowOpError::Unsupported { reason } => {
-                unsupported(reason.as_ref())
+                let message = match reason {
+                    std::borrow::Cow::Borrowed(message) => message,
+                    std::borrow::Cow::Owned(_) => "the window operation is unsupported on this host",
+                };
+                unsupported(message)
             }
-            crate::contract::window_op::WindowOpError::Failed { code, message } => {
-                ProcessWindowError::new(code.as_ref(), message, Some("platform_error"))
+            crate::contract::window_op::WindowOpError::Failed { code, message: _ } => {
+                let code = match code {
+                    std::borrow::Cow::Borrowed(code) => code,
+                    std::borrow::Cow::Owned(_) => "window_op_failed",
+                };
+                ProcessWindowError::new(code, "the window operation failed", Some("platform_error"))
             }
         }
     }
