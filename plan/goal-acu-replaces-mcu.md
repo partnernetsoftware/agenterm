@@ -955,6 +955,13 @@ GitHub workflow rather than a second credential-bearing script.
 Only `enforce-absent` may emit `cu.retirement`; report-mode evidence proves that
 the blockers were measured, never that MCU may be removed.
 
+The `agenterm:acu` cancellation experiment rejected a tempting detached helper:
+it returned in 29 ms while one callback and the provider lock remained live.
+Cooperative cancellation returned in 33 ms with both owners clear. Until that
+token reaches Executor and interruptible native waits, the Script worker process
+is the hard containment boundary; qjswasm must not report cancellation while an
+authority-bearing callback continues in the background.
+
 The latest report contains 68 blockers: zero capability gaps, 12 available
 leaves without registered evidence and 56 incomplete schema-2 platform
 qualifications. The count rose because the old composite
