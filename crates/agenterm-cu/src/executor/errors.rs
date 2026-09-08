@@ -30,7 +30,15 @@ pub(super) fn error_payload(error: &CuError) -> serde_json::Value {
 
 pub(super) fn map_mechanism_err(error: mechanism::MechanismError) -> CuError {
     match error {
-        mechanism::MechanismError::Unsupported { reason } => CuError::new("unsupported", reason),
+        mechanism::MechanismError::Unsupported { reason } => {
+            if reason.contains("application hide")
+                || reason.contains("application-level hidden")
+                || reason.contains("agt_a11y_application_set_hidden")
+            {
+                return crate::host_limit::application_hide_unsupported(reason);
+            }
+            CuError::new("unsupported", reason)
+        }
         // An OS permission refusal is the PRD 31 `denied` vocabulary, with
         // the mechanism code and repair path kept in `detail` so a caller
         // never has to parse prose to know what to fix.

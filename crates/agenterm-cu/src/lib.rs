@@ -29,6 +29,7 @@ pub mod file_move_transactions;
 pub mod file_transactions;
 pub mod grant_management;
 pub mod host_actions;
+pub(crate) mod host_limit;
 pub mod hotkeys;
 pub mod idempotency_store;
 pub mod login_session;

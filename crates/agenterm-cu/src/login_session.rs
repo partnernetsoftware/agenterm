@@ -804,8 +804,10 @@ fn provider_name(provider: LoginSessionProvider) -> &'static str {
 }
 
 fn platform_error(error: LoginSessionError) -> CuError {
+    if error.kind() == LoginSessionErrorKind::Unsupported {
+        return crate::host_limit::login_session_unsupported();
+    }
     let code = match error.kind() {
-        LoginSessionErrorKind::Unsupported => "login_session_unsupported",
         LoginSessionErrorKind::ProviderUnavailable => "login_session_provider_unavailable",
         LoginSessionErrorKind::ProviderShape => "login_session_provider_shape",
         LoginSessionErrorKind::AmbiguousConsole => "login_session_console_ambiguous",
@@ -813,7 +815,7 @@ fn platform_error(error: LoginSessionError) -> CuError {
         LoginSessionErrorKind::DeliveryFailed => "session_lock_delivery_unknown",
         _ => "login_session_provider_failed",
     };
-    CuError::new(code, error.to_string())
+    CuError::new(code, error.detail().to_owned())
 }
 
 fn digest(domain: &[u8], value: &impl Serialize) -> Result<String, CuError> {

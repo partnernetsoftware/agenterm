@@ -873,15 +873,7 @@ pub(super) fn spaces_payload() -> Result<serde_json::Value, CuError> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err(
-            CuError::new("unsupported", "spaces inventory is macOS SkyLight only").with_detail(
-                serde_json::json!({
-                    "group": "geometry",
-                    "os": crate::mcu_surface::host_os(),
-                    "provider": "none",
-                }),
-            ),
-        )
+        Err(crate::host_limit::spaces_unsupported())
     }
 }
 

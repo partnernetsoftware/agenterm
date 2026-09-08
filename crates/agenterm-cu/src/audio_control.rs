@@ -577,8 +577,10 @@ fn decode_hex_32(value: &str) -> Result<[u8; 32], CuError> {
 }
 
 fn platform_error(error: AudioError) -> CuError {
+    if error.kind() == AudioErrorKind::Unsupported {
+        return crate::host_limit::audio_unsupported();
+    }
     let code = match error.kind() {
-        AudioErrorKind::Unsupported => "audio_unsupported",
         AudioErrorKind::InvalidNativeValue => "audio_provider_shape",
         AudioErrorKind::QueryFailed => "audio_query_failed",
         AudioErrorKind::StateChanged => "audio_state_changed",
