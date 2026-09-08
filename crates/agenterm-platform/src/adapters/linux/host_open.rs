@@ -143,10 +143,7 @@ fn launch_desktop_entry(
     Ok(None)
 }
 
-fn launch_executable(
-    executable: &Path,
-    target: &str,
-) -> Result<HostOpenReceipt, HostOpenError> {
+fn launch_executable(executable: &Path, target: &str) -> Result<HostOpenReceipt, HostOpenError> {
     let mut child = std::process::Command::new(executable)
         .arg(target)
         .stdin(Stdio::null())
@@ -247,7 +244,8 @@ fn scan_desktop_directory(
         };
         let path = entry.path();
         if file_type.is_dir() && !file_type.is_symlink() {
-            if let Some(found) = scan_desktop_directory(root, &path, selector, depth + 1, visited)? {
+            if let Some(found) = scan_desktop_directory(root, &path, selector, depth + 1, visited)?
+            {
                 return Ok(Some(found));
             }
             continue;
@@ -442,10 +440,12 @@ mod tests {
         let detail = error.detail().expect("unsupported detail");
         assert_eq!(detail.os, "linux");
         assert_eq!(detail.required_mechanism, "freedesktop-application-launch");
-        assert!(detail
-            .alternatives
-            .iter()
-            .any(|alternative| alternative.contains("host-open")));
+        assert!(
+            detail
+                .alternatives
+                .iter()
+                .any(|alternative| alternative.contains("host-open"))
+        );
     }
 
     #[test]
@@ -462,8 +462,8 @@ mod tests {
         let Some(_true_path) = resolve_executable("true") else {
             return;
         };
-        let receipt = open_with_application("/dev/null", "true")
-            .expect("true accepts a path argument");
+        let receipt =
+            open_with_application("/dev/null", "true").expect("true accepts a path argument");
         assert_eq!(receipt.provider, "linux-app-exec");
         assert!(receipt.accepted);
     }

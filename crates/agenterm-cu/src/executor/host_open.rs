@@ -129,8 +129,15 @@ mod tests {
         assert_eq!(detail["effect"], "not_performed");
         if cfg!(target_os = "linux") {
             assert_eq!(detail["os"], "linux");
-            assert_eq!(detail["required_mechanism"], "freedesktop-application-launch");
-            assert!(detail["alternatives"].as_array().is_some_and(|values| !values.is_empty()));
+            assert_eq!(
+                detail["required_mechanism"],
+                "freedesktop-application-launch"
+            );
+            assert!(
+                detail["alternatives"]
+                    .as_array()
+                    .is_some_and(|values| !values.is_empty())
+            );
         }
         std::fs::remove_dir_all(directory).expect("remove receipt fixture");
     }
