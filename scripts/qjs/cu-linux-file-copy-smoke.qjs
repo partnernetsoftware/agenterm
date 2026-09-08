@@ -1,0 +1,202 @@
+// CEO: Linux file-copy honesty with independent src/dst byte+mode read-back.
+// Acceptance is smoke read-back only: CU file-copy plan source_snapshot must
+// agree with independent os.lstat+sha256 on a temp regular file; the default
+// plan must not mutate; actuate --apply must publish destination bytes and
+// permissions that agree with independent read-back. No --coords or screenshot
+// degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-file-copy-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory) {
+  return {
+    HOME: rh.join(run_directory, "home"),
+    USERPROFILE: rh.join(run_directory, "home"),
+    XDG_CONFIG_HOME: rh.join(run_directory, "config"),
+    XDG_DATA_HOME: rh.join(run_directory, "data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+    AGENTERM_CU_FILE_TRANSACTION_DIR: rh.join(run_directory, "transactions"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_error) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000,
+  });
+  let reply = null;
+  try { reply = JSON.parse(output.stdout.trim()); }
+  catch (error) { throw "cu_linux_file_copy_invalid_reply"; }
+  ensure(reply.command === "file-copy", "cu_linux_file_copy_wrong_command:" + JSON.stringify(reply));
+  if (expected_error !== undefined) {
+    ensure(output.success !== true && reply.ok !== true, "cu_linux_file_copy_expected_failure");
+    ensure(reply.error.code === expected_error,
+      "cu_linux_file_copy_wrong_error:" + JSON.stringify(reply.error));
+    return reply.error;
+  }
+  ensure(output.success === true && reply.ok === true,
+    "cu_linux_file_copy_failed:" + JSON.stringify(reply));
+  return reply.data;
+}
+
+function independent_snapshot(path) {
+  const script = [
+    "import hashlib, json, os, stat, sys",
+    "path = sys.argv[1]",
+    "st = os.lstat(path)",
+    "with open(path, 'rb') as handle:",
+    "    payload = handle.read()",
+    "print(json.dumps({",
+    "    'size_bytes': str(st.st_size),",
+    "    'modified_unix_ns': str(st.st_mtime_ns),",
+    "    'unix_mode': st.st_mode,",
+    "    'sha256': hashlib.sha256(payload).hexdigest(),",
+    "    'filesystem_id': str(st.st_dev),",
+    "    'object_id': str(st.st_ino),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("/usr/bin/python3", ["-c", script, path], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_file_copy_readback_failed:" + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function ensure_snapshot(actual, expected, label) {
+  ensure(actual !== null && typeof actual === "object", label + ":object");
+  ensure(actual.size_bytes === expected.size_bytes,
+    label + ":size:" + JSON.stringify(actual) + ":expected:" + JSON.stringify(expected));
+  ensure(actual.sha256 === expected.sha256,
+    label + ":sha256:" + JSON.stringify(actual) + ":expected:" + JSON.stringify(expected));
+  ensure(Number(actual.unix_mode) === Number(expected.unix_mode),
+    label + ":mode:" + JSON.stringify(actual) + ":expected:" + JSON.stringify(expected));
+  ensure(actual.modified_unix_ns === expected.modified_unix_ns,
+    label + ":mtime:" + JSON.stringify(actual) + ":expected:" + JSON.stringify(expected));
+  ensure(actual.filesystem_id === expected.filesystem_id,
+    label + ":filesystem_id:" + JSON.stringify(actual) + ":expected:" + JSON.stringify(expected));
+  ensure(actual.object_id === expected.object_id,
+    label + ":object_id:" + JSON.stringify(actual) + ":expected:" + JSON.stringify(expected));
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_file_copy_executable_missing");
+
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_file_copy_requires_linux");
+
+const context = harness.new_context(repo, "cu-linux-file-copy");
+const run_directory = context.run_directory;
+const source = rh.join(run_directory, "source.bin");
+const destination = rh.join(run_directory, "destination.bin");
+let succeeded = 0;
+let failure = "";
+
+try {
+  rh.write_text(source, "file-copy-readback-fixture");
+  const prepared = rh.command("/bin/chmod", ["0640", source], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(prepared.success === true, "cu_linux_file_copy_fixture_setup_failed:" + prepared.stderr);
+  const source_before = independent_snapshot(source);
+
+  print("STEP dry plan source_snapshot matches independent src byte+mode read-back");
+  const plan = invoke(run_directory, executable, "observe", [
+    "file-copy", source, destination,
+  ]);
+  ensure(plan.operation === "file.copy" && plan.replace === false,
+    "cu_linux_file_copy_plan_shape:" + JSON.stringify(plan));
+  ensure(plan.destination_snapshot === null,
+    "cu_linux_file_copy_plan_destination_snapshot:" + JSON.stringify(plan));
+  ensure_snapshot(plan.source_snapshot, source_before, "cu_linux_file_copy_plan_source");
+  ensure(!rh.exists(destination), "cu_linux_file_copy_plan_created_destination");
+  ensure(independent_snapshot(source).sha256 === source_before.sha256,
+    "cu_linux_file_copy_plan_mutated_source");
+
+  print("STEP observe plus --apply is denied before mutation");
+  invoke(run_directory, executable, "observe", [
+    "file-copy", source, destination, "--apply",
+  ], "refused");
+  ensure(!rh.exists(destination), "cu_linux_file_copy_refusal_created_destination");
+
+  print("STEP actuate apply publishes destination bytes+mode matching independent read-back");
+  const applied = invoke(run_directory, executable, "actuate", [
+    "file-copy", source, destination, "--apply",
+  ]);
+  ensure(applied.state === "completed" && applied.destination_durable === true,
+    "cu_linux_file_copy_apply_state:" + JSON.stringify(applied));
+  ensure(applied.result_snapshot !== null && typeof applied.result_snapshot === "object",
+    "cu_linux_file_copy_apply_result_snapshot");
+  const destination_after = independent_snapshot(destination);
+  ensure_snapshot(applied.result_snapshot, destination_after, "cu_linux_file_copy_apply_result");
+  ensure(destination_after.sha256 === source_before.sha256,
+    "cu_linux_file_copy_apply_bytes_mismatch:" + JSON.stringify(destination_after));
+  ensure(Number(destination_after.unix_mode) === Number(source_before.unix_mode),
+    "cu_linux_file_copy_apply_mode_mismatch:" + JSON.stringify(destination_after));
+  ensure(independent_snapshot(source).sha256 === source_before.sha256,
+    "cu_linux_file_copy_apply_mutated_source");
+
+  print("STEP rollback removes the newly-created destination");
+  const rollback_argv = [
+    "--target", "current", "--grant", "actuate",
+    "file-transaction", "rollback", applied.transaction_id,
+  ];
+  const rollback_output = rh.command(executable, rollback_argv, {
+    cwd: run_directory,
+    env: isolated_env(run_directory),
+    timeout_ms: 30000,
+  });
+  let rollback_reply = null;
+  try { rollback_reply = JSON.parse(rollback_output.stdout.trim()); }
+  catch (error) { throw "cu_linux_file_copy_rollback_invalid_reply"; }
+  ensure(rollback_output.success === true && rollback_reply.ok === true,
+    "cu_linux_file_copy_rollback_failed:" + JSON.stringify(rollback_reply));
+  ensure(rollback_reply.data.state === "rolled_back", "cu_linux_file_copy_rollback_state");
+  ensure(!rh.exists(destination), "cu_linux_file_copy_rollback_left_destination");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-file-copy-readback");
+  harness.remove_run(context);
+  print("PASS: Linux file-copy plan/apply agree with independent src/dst byte+mode read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

@@ -1437,6 +1437,23 @@
         "task.cu-linux-file-mode-smoke"
       ]
     },
+    "cu-linux-file-copy-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-file-copy-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-file-copy-smoke"
+      ]
+    },
     "cu-linux-ps-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -5661,6 +5678,25 @@
       "id": "cu-linux-file-mode-smoke",
       "description": "Prove Linux file-mode observe before_mode and actuate apply/restore agree with independent os.lstat permission read-back on a temp regular file; final symlink refusal; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-file-mode-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-file-copy-smoke",
+      "description": "Prove Linux file-copy dry plan and actuate apply agree with independent src/dst byte+mode read-back on disposable temp files; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-file-copy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
