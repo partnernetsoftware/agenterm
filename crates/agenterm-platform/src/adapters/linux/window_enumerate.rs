@@ -11,8 +11,8 @@ use x11rb::{
 
 use crate::CapabilityStatus;
 use crate::contract::window_enumerate::{
-    WindowBounds, WindowEnumerateError, WindowInfo, WindowStacking,
-    display_physical_facts, stacking_from_front_to_back,
+    WindowBounds, WindowEnumerateError, WindowInfo, WindowStacking, display_physical_facts,
+    stacking_from_front_to_back,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

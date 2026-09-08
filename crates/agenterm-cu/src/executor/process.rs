@@ -3449,11 +3449,24 @@ mod tests {
         let state = process_state_payload(pid).expect("state");
         let identity = state["start_identity"].as_str().expect("identity");
         let payload = process_cgroup_payload(pid, Some(identity)).expect("current process cgroup");
-        assert!(payload["membership"]["path"].as_str().is_some_and(|path| path.starts_with('/')));
-        assert!(payload["membership"]["filesystem_path"].as_str().is_some_and(|path| path.starts_with("/sys/fs/cgroup")));
-        let hierarchy = payload["membership"]["hierarchy"].as_array().expect("hierarchy");
+        assert!(
+            payload["membership"]["path"]
+                .as_str()
+                .is_some_and(|path| path.starts_with('/'))
+        );
+        assert!(
+            payload["membership"]["filesystem_path"]
+                .as_str()
+                .is_some_and(|path| path.starts_with("/sys/fs/cgroup"))
+        );
+        let hierarchy = payload["membership"]["hierarchy"]
+            .as_array()
+            .expect("hierarchy");
         assert!(!hierarchy.is_empty());
-        assert_eq!(hierarchy.last().and_then(|value| value.as_str()), payload["membership"]["path"].as_str());
+        assert_eq!(
+            hierarchy.last().and_then(|value| value.as_str()),
+            payload["membership"]["path"].as_str()
+        );
     }
 
     #[test]

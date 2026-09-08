@@ -1523,11 +1523,6 @@ mod tests {
                     height: 760,
                 },
                 primary: true,
-                width_mm: None,
-                height_mm: None,
-                dpi_x: None,
-                dpi_y: None,
-                scale_factor: None,
             },
             ScreenInfo {
                 frame: WindowBounds {

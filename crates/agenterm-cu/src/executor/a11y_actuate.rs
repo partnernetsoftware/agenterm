@@ -942,9 +942,7 @@ fn text_from_focused_tree_candidates(
     }
     match hit {
         Some(hit) => Ok(Some(hit)),
-        None => Err(
-            text_unavailable.expect("non-empty candidates yield Ok or a stored error")
-        ),
+        None => Err(text_unavailable.expect("non-empty candidates yield Ok or a stored error")),
     }
 }
 
@@ -1158,13 +1156,20 @@ mod tests {
             backend: "at-spi2".into(),
             window_handle: Some(1),
             root_id: "/0".into(),
-            nodes: vec![node_at("/0/1", "Fixture Entry", "text", &["showing", "editable"])],
+            nodes: vec![node_at(
+                "/0/1",
+                "Fixture Entry",
+                "text",
+                &["showing", "editable"],
+            )],
             truncated: false,
             visited: 1,
             returned: 1,
         };
         assert!(
-            text_from_focused_tree_candidates(&tree, Some(1)).unwrap().is_none(),
+            text_from_focused_tree_candidates(&tree, Some(1))
+                .unwrap()
+                .is_none(),
             "GTK3-shaped trees without STATE_FOCUSED must fall through to the platform focused snapshot"
         );
     }
