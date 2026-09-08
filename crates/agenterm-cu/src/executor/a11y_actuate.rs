@@ -999,7 +999,11 @@ mod tests {
         if crate::mcu_surface::host_os() == "linux" {
             let detail = error.detail.expect("detail");
             assert_eq!(detail["os"], "linux");
-            assert!(detail["alternatives"].as_array().is_some_and(|items| !items.is_empty()));
+            assert!(
+                detail["alternatives"]
+                    .as_array()
+                    .is_some_and(|items| !items.is_empty())
+            );
         }
     }
 
