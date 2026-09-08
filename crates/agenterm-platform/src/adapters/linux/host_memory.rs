@@ -117,18 +117,18 @@ mod tests {
             7 * 1024
         );
         assert_eq!(meminfo_kibibytes(meminfo, "MemFree:").unwrap(), 3 * 1024);
-        for key in ["MemTotal:", "MemAvailable:", "MemFree:"] {
-            for input in [
-                "MemTotal: 10 kB\n",
-                "MemAvailable: nope kB\n",
-                "MemAvailable: 7 MB\n",
-                "MemFree: 7 kB extra\n",
-            ] {
-                assert_eq!(
-                    meminfo_kibibytes(input, key).unwrap_err().kind(),
-                    HostMemoryErrorKind::InvalidValue
-                );
-            }
+        for (key, input) in [
+            ("MemAvailable:", "MemTotal: 10 kB\n"),
+            ("MemAvailable:", "MemAvailable: nope kB\n"),
+            ("MemAvailable:", "MemAvailable: 7 MB\n"),
+            ("MemAvailable:", "MemAvailable: 7 kB extra\n"),
+            ("MemTotal:", "MemAvailable: 7 kB\n"),
+            ("MemFree:", "MemFree: 7 MB\n"),
+        ] {
+            assert_eq!(
+                meminfo_kibibytes(input, key).unwrap_err().kind(),
+                HostMemoryErrorKind::InvalidValue
+            );
         }
     }
 
