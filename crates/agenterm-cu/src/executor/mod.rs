@@ -18,6 +18,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use sha2::{Digest as _, Sha256};
+
 use crate::mechanism::window_enumerate::WindowInfo;
 
 use crate::{
@@ -281,7 +283,7 @@ impl Executor {
             return self.execute_with_request_identity(command, identity);
         }
         if let Some(persisted) = self.persisted.as_ref() {
-            return self.execute_persisted(command, persisted);
+            return self.execute_persisted(command, persisted, None);
         }
         let required = command.required_grant();
         if !self.auth.allows(required) {
@@ -363,16 +365,7 @@ impl Executor {
                 ),
             );
         }
-        if self.persisted.is_some() {
-            return CuReply::err(
-                command,
-                CuError::new(
-                    "request_identity_persisted_grant_unavailable",
-                    "caller request identity is not yet composed with persisted grant consumption",
-                ),
-            );
-        }
-        if !self.auth.allows(Grant::Actuate) {
+        if self.persisted.is_none() && !self.auth.allows(Grant::Actuate) {
             return CuReply::err(
                 command,
                 CuError::new(
@@ -417,11 +410,23 @@ impl Executor {
             return self.execute_privilege_with_request_identity(command, identity);
         }
 
-        let canonical = match serde_json::to_vec(&serde_json::json!({
-            "session_id": identity.session_id,
-            "effect_scope": self.request_effect_scope.as_deref().unwrap_or("current"),
-            "command": command,
-        })) {
+        let canonical_value = if let Some(persisted) = self.persisted.as_ref() {
+            serde_json::json!({
+                "session_id": identity.session_id,
+                "effect_scope": self.request_effect_scope.as_deref().unwrap_or("current"),
+                "authorization_scope": persisted_authorization_scope(persisted),
+                "command": command,
+            })
+        } else {
+            // Preserve the established ambient-authority fingerprint exactly;
+            // existing durable request receipts must survive this upgrade.
+            serde_json::json!({
+                "session_id": identity.session_id,
+                "effect_scope": self.request_effect_scope.as_deref().unwrap_or("current"),
+                "command": command,
+            })
+        };
+        let canonical = match serde_json::to_vec(&canonical_value) {
             Ok(bytes) => bytes,
             Err(_) => {
                 return CuReply::err(
@@ -558,46 +563,63 @@ impl Executor {
             Err(error) => return CuReply::err(command, error),
         };
 
-        let mut audit = match self.begin_audit(command) {
-            Ok(audit) => audit,
-            Err(error) => {
-                let _ = store.finalize(
+        // The durable caller request is reserved before the persisted grant.
+        // A same-id replay therefore returns above without consuming another
+        // grant use or repeating the effect. A fresh request consumes exactly
+        // one grant attempt even when the downstream mechanism fails.
+        let reply = if let Some(persisted) = self.persisted.as_ref() {
+            self.execute_persisted(
+                command,
+                persisted,
+                Some(&JobRequestContext {
+                    session_id: &identity.session_id,
+                    session_lease: &identity.session_lease,
+                    runtime: &runtime,
+                }),
+            )
+        } else {
+            let mut audit = match self.begin_audit(command) {
+                Ok(audit) => audit,
+                Err(error) => {
+                    let _ = store.finalize(
+                        &identity.request_id,
+                        &fingerprint,
+                        &reservation.completion_token,
+                        FinalOutcome::new(FinalOutcomeKind::Failed, "audit_unavailable", None)
+                            .expect("static outcome is valid"),
+                        now_ms,
+                    );
+                    return CuReply::err(command, error);
+                }
+            };
+            let reply = match self.run_current(
+                command,
+                Some(&JobRequestContext {
+                    session_id: &identity.session_id,
+                    session_lease: &identity.session_lease,
+                    runtime: &runtime,
+                }),
+            ) {
+                Ok(data) => CuReply::ok(command, data),
+                Err(error) => CuReply::err(command, error),
+            };
+            if let Err(mut error) = Self::audit_after(&mut audit, command, &reply) {
+                let _ = store.mark_outcome_unknown(
                     &identity.request_id,
                     &fingerprint,
                     &reservation.completion_token,
-                    FinalOutcome::new(FinalOutcomeKind::Failed, "audit_unavailable", None)
-                        .expect("static outcome is valid"),
-                    now_ms,
+                    now_utc_ms().unwrap_or(now_ms),
                 );
+                error.detail = Some(serde_json::json!({
+                    "stage": "audit_outcome",
+                    "effect": "unknown",
+                    "request_id": identity.request_id,
+                    "original_reply": reply,
+                }));
                 return CuReply::err(command, error);
             }
+            reply
         };
-        let reply = match self.run_current(
-            command,
-            Some(&JobRequestContext {
-                session_id: &identity.session_id,
-                session_lease: &identity.session_lease,
-                runtime: &runtime,
-            }),
-        ) {
-            Ok(data) => CuReply::ok(command, data),
-            Err(error) => CuReply::err(command, error),
-        };
-        if let Err(mut error) = Self::audit_after(&mut audit, command, &reply) {
-            let _ = store.mark_outcome_unknown(
-                &identity.request_id,
-                &fingerprint,
-                &reservation.completion_token,
-                now_utc_ms().unwrap_or(now_ms),
-            );
-            error.detail = Some(serde_json::json!({
-                "stage": "audit_outcome",
-                "effect": "unknown",
-                "request_id": identity.request_id,
-                "original_reply": reply,
-            }));
-            return CuReply::err(command, error);
-        }
 
         if reply.error.as_ref().is_some_and(|error| {
             matches!(
@@ -960,6 +982,43 @@ impl Executor {
     }
 }
 
+fn persisted_authorization_scope(persisted: &PersistedAuthorization) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"agenterm-cu/persisted-request-authorization/v1\0");
+    digest.update((persisted.grant_id.len() as u64).to_le_bytes());
+    digest.update(persisted.grant_id.as_bytes());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+        let bytes = persisted.store_path.as_os_str().as_bytes();
+        digest.update((bytes.len() as u64).to_le_bytes());
+        digest.update(bytes);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt as _;
+        let wide = persisted
+            .store_path
+            .as_os_str()
+            .encode_wide()
+            .collect::<Vec<_>>();
+        digest.update((wide.len() as u64).to_le_bytes());
+        for unit in wide {
+            digest.update(unit.to_le_bytes());
+        }
+    }
+
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = digest.finalize();
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
 fn browser_bridge_lock_audit_detail(reply: &CuReply) -> serde_json::Value {
     let source = reply
         .data
@@ -1041,6 +1100,8 @@ fn device_operation_audit_detail(command: &Command, reply: &CuReply) -> serde_js
 mod tests {
     use super::*;
 
+    use std::collections::BTreeSet;
+
     #[test]
     fn caller_request_identity_replays_terminal_receipt_without_repeating_effect() {
         let audit_path = audit_scratch("request-identity");
@@ -1083,6 +1144,91 @@ mod tests {
         assert_eq!(conflict.error.as_ref().unwrap().code, "request_id_conflict");
         let state = std::fs::read_to_string(request_path).unwrap();
         assert!(!state.contains(&session.lease));
+        remove_audit_scratch(&audit_path);
+    }
+
+    #[test]
+    fn persisted_request_identity_replays_before_consuming_another_grant_use() {
+        let audit_path = audit_scratch("persisted-request-identity");
+        let root = audit_path.parent().expect("scratch root");
+        let runtime_path = root.join("runtime.json");
+        let request_path = root.join("requests.json");
+        let grant_path = root.join("grants.json");
+        let now_ms = now_utc_ms().expect("test clock");
+        let session = RuntimeCoordinator::open_at(&runtime_path)
+            .unwrap()
+            .session_start(Some("persisted request fixture"), 60, now_ms / 1_000)
+            .unwrap();
+        let binding = crate::target_binding::TargetBinding {
+            tier: TargetRef::Current,
+            target_id: format!("agt-cu-tgt-v1-{}", "4".repeat(64)),
+            session_binding: format!("agt-cu-ses-v1-{}", "5".repeat(64)),
+        };
+        let grant_id = format!("cu1_{}", "6".repeat(64));
+        let command = Command::ClipboardClear {
+            target: TargetRef::Current,
+            apply: false,
+        };
+        let operation = command
+            .authorization_operation()
+            .expect("clipboard plan has a canonical authorization operation");
+        let mut grants = AuthStore::open_private_at(&grant_path).unwrap();
+        grants
+            .create(crate::auth_store::GrantSpec::new(
+                &grant_id,
+                &binding,
+                crate::auth_store::GrantAuthority::new(
+                    BTreeSet::from([Grant::Actuate]),
+                    BTreeSet::from([operation]),
+                ),
+                now_ms,
+                now_ms,
+                now_ms + 60_000,
+                2,
+            ))
+            .unwrap();
+        drop(grants);
+
+        let executor = Executor::new(Authorization::new(BTreeSet::new()))
+            .with_audit_path(audit_path.clone())
+            .with_request_state_paths(request_path.clone(), runtime_path)
+            .with_persisted_grant(&grant_id, &grant_path)
+            .with_persisted_binding(binding)
+            .with_request_identity(RequestIdentity {
+                request_id: "fixture.persisted-request-1".into(),
+                session_id: session.session_id.clone(),
+                session_lease: session.lease.clone(),
+            });
+
+        let first = executor.execute(&command);
+        assert!(first.ok, "{first:?}");
+        let replay = executor.execute(&command);
+        assert!(replay.ok, "{replay:?}");
+        assert_eq!(replay.data.as_ref().unwrap()["effect"], "not_repeated");
+        assert_eq!(
+            AuthStore::open_private_at(&grant_path).unwrap().list()[0].consumed_uses,
+            1,
+            "a durable replay must not reserve another persisted-grant attempt"
+        );
+
+        let different_grant = format!("cu1_{}", "7".repeat(64));
+        let conflict = Executor::new(Authorization::new(BTreeSet::new()))
+            .with_audit_path(audit_path.clone())
+            .with_request_state_paths(request_path, root.join("runtime.json"))
+            .with_persisted_grant(different_grant, &grant_path)
+            .with_persisted_binding(crate::target_binding::TargetBinding {
+                tier: TargetRef::Current,
+                target_id: format!("agt-cu-tgt-v1-{}", "4".repeat(64)),
+                session_binding: format!("agt-cu-ses-v1-{}", "5".repeat(64)),
+            })
+            .with_request_identity(RequestIdentity {
+                request_id: "fixture.persisted-request-1".into(),
+                session_id: session.session_id,
+                session_lease: session.lease,
+            })
+            .execute(&command);
+        assert!(!conflict.ok);
+        assert_eq!(conflict.error.as_ref().unwrap().code, "request_id_conflict");
         remove_audit_scratch(&audit_path);
     }
 

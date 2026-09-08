@@ -129,7 +129,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │  ├─ [x] JSON-RPC id owns transport cancellation; caller idempotency key owns durable effect identity
   │  │  ├─ [x] private lease never enters public arguments/stdout; local real-provider shell exit is green
   │  │  ├─ [x] startup admits exactly 1+1 deterministically; output disconnect still drains session-end before error
-  │  │  ├─ [ ] persisted target-bound authorization + lease renewal
+  │  │  ├─ [~] request id + persisted target grant compose; provider envelope + lease budget remain
   │  │  └─ [ ] packaged six-cell interactive stdio mutation court; only then enter `tools/list`
   │  └─ [ ] close the remaining named dynamic sub-shapes, native courts and physical reference archive
   │  ├─ calls the public agenterm:acu object
