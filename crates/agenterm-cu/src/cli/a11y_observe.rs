@@ -499,13 +499,14 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
     // `--` ends flag parsing so --text-equals / --text-contains may start with a dash.
     let literal_text = split_literal_tail(args, " ");
     let expect_present = args.iter().any(|arg| arg == "--expect");
+    let ready_path_present = args.iter().any(|arg| arg == "--ready-path");
     let absent = take_switch(args, "--absent");
     if absent && !expect_present {
         return Err("wait --absent requires --expect JSON".into());
     }
-    // `--expect` is a closed shape, so its timeout value is consumed (the
-    // older conditions' lenient `flag_u64` leaves it in place).
-    let timeout_ms = if expect_present {
+    // `--expect` and `--ready-path` are closed shapes, so their timeout value
+    // is consumed (the older conditions' lenient `flag_u64` leaves it in place).
+    let timeout_ms = if expect_present || ready_path_present {
         flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(5_000)
     } else {
         flag_u64(args, "--timeout-ms").unwrap_or(5_000)
@@ -593,9 +594,17 @@ fn wait(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
             role: flag_value(args, "--node-role"),
             window: flag_window_opt(args),
         }
+    } else if let Some(path) = flag_text(args, "--ready-path")? {
+        if !args.is_empty() {
+            return Err(format!(
+                "wait --ready-path accepts only --timeout-ms MS --ready-path PATH; unexpected {:?}",
+                args[0]
+            ));
+        }
+        WaitCondition::ReadyPath { path }
     } else {
         return Err(
-            "wait requires one of --window-count-gte, --window-title-contains, --focused-handle, --node-name-contains, --text-equals, or --text-contains".into(),
+            "wait requires one of --window-count-gte, --window-title-contains, --focused-handle, --node-name-contains, --text-equals, --text-contains, or --ready-path".into(),
         );
     };
     Ok(Command::Wait {

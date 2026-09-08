@@ -965,7 +965,7 @@ pub(super) fn observe_payload(
         mechanism::tree_for_window_bounded(Some(window), budget).map_err(map_mechanism_err)?;
     let backend = previous.backend.clone();
     if let Some(path) = ready_path {
-        publish_observe_ready(path, window, &backend)?;
+        publish_ready_marker(path, window, &backend, "poll-diff")?;
     }
     // `duration_ms` is the observation window, not baseline acquisition.
     // Starting it after the full baseline also makes slow accessibility
@@ -1049,12 +1049,31 @@ pub(super) fn observe_payload(
     }))
 }
 
+/// Read one schema-1 readiness marker. Partial or non-ready JSON returns
+/// `None` so callers keep polling instead of treating a torn write as met.
+pub(super) fn read_ready_marker(path: &str) -> Option<serde_json::Value> {
+    let bytes = std::fs::read(path).ok()?;
+    let marker = serde_json::from_slice::<serde_json::Value>(&bytes).ok()?;
+    if marker.get("schema") != Some(&serde_json::json!(1)) {
+        return None;
+    }
+    if marker.get("state") != Some(&serde_json::json!("ready")) {
+        return None;
+    }
+    Some(marker)
+}
+
 /// Publish the point after which mutations are ordered after the complete
 /// poll-diff baseline. The temporary file lives beside the destination and
 /// is published with a same-filesystem hard link, so publication is atomic,
 /// refuses to overwrite an existing caller marker, and a reader can never
 /// mistake partial JSON for readiness. The caller owns marker cleanup.
-fn publish_observe_ready(path: &str, window: isize, backend: &str) -> Result<(), CuError> {
+pub(super) fn publish_ready_marker(
+    path: &str,
+    window: isize,
+    backend: &str,
+    mode: &str,
+) -> Result<(), CuError> {
     use std::io::Write;
 
     let destination = std::path::Path::new(path);
@@ -1089,7 +1108,7 @@ fn publish_observe_ready(path: &str, window: isize, backend: &str) -> Result<(),
     let body = serde_json::to_vec(&serde_json::json!({
         "schema": 1,
         "state": "ready",
-        "mode": "poll-diff",
+        "mode": mode,
         "window": window,
         "backend": backend,
     }))
@@ -1462,7 +1481,7 @@ mod tests {
         ));
         std::fs::create_dir(&directory).expect("temporary directory");
         let path = directory.join("ready.json");
-        publish_observe_ready(path.to_str().expect("UTF-8 path"), 41, "atspi")
+        publish_ready_marker(path.to_str().expect("UTF-8 path"), 41, "atspi", "poll-diff")
             .expect("publish marker");
         let marker: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).expect("read marker"))
@@ -1472,7 +1491,7 @@ mod tests {
         assert_eq!(marker["mode"], "poll-diff");
         assert_eq!(marker["window"], 41);
         assert_eq!(marker["backend"], "atspi");
-        let error = publish_observe_ready(path.to_str().expect("UTF-8 path"), 42, "ax")
+        let error = publish_ready_marker(path.to_str().expect("UTF-8 path"), 42, "ax", "poll-diff")
             .expect_err("caller-owned marker is never overwritten");
         assert_eq!(error.code, "observe_ready_publish_failed");
         assert_eq!(

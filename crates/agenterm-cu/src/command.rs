@@ -4067,6 +4067,12 @@ pub enum WaitCondition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         window: Option<isize>,
     },
+    /// Polls until a caller-owned readiness marker exists with
+    /// `state: "ready"` (schema 1). Compatible with `observe --ready-path`
+    /// and any other atomic publisher on the same host.
+    ReadyPath {
+        path: String,
+    },
 }
 
 fn default_clicks() -> u32 {

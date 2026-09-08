@@ -293,18 +293,18 @@ function start_observer(run_directory, executable, handle_text, duration) {
     env: cu_env(run_directory),
     timeout_ms: 30000
   });
-  let ready = false;
-  for (let attempt = 0; attempt < 200; attempt = attempt + 1) {
-    if (direct_file(ready_path)) {
-      const marker = rh.parse_file(ready_path);
-      ready = text_at(marker, "state") === "ready"
-        && text_at(marker, "mode") === "poll-diff"
-        && text_at(marker, "window") === handle_text;
-      if (ready) { break; }
-    }
-    harness.sleep_ms(50);
-  }
-  ensure(ready, "cu_linux_smoke_observer_not_ready");
+  const wait_ready = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "15000", "--ready-path", ready_path
+  ]);
+  ensure(
+    flag_at(wait_ready, "data.met")
+      && text_at(wait_ready, "data.addressing") === "ready-path"
+      && text_at(wait_ready, "data.marker.state") === "ready"
+      && text_at(wait_ready, "data.marker.mode") === "poll-diff"
+      && text_at(wait_ready, "data.marker.window") === handle_text,
+    "cu_linux_smoke_wait_ready_path:" + JSON.stringify(wait_ready.data)
+  );
   return { handle: handle, ready_path: ready_path };
 }
 
@@ -952,6 +952,52 @@ try {
     "cu_linux_smoke_window_row:" + JSON.stringify(row)
   );
   const handle_text = "" + fixture_handle;
+
+  print("STEP wait gates GTK window content by AT-SPI name and observe readiness by atomic marker; absent conditions exit non-zero with honest met");
+  const absent_ready_path = rh.join(run_directory, "absent-ready-marker.json");
+  rh.try_remove_file(absent_ready_path);
+  const absent_ready_output = rh.command(
+    executable,
+    ["--target", "current", "--grant", "observe", "wait", "--timeout-ms", "200", "--ready-path", absent_ready_path],
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  ensure(
+    absent_ready_output.success === false,
+    "cu_linux_smoke_wait_ready_absent_exit:" + absent_ready_output.stdout + absent_ready_output.stderr
+  );
+  const absent_ready = JSON.parse(absent_ready_output.stdout.trim());
+  ensure(
+    !flag_at(absent_ready, "ok") && text_at(absent_ready, "error.code") === "timeout",
+    "cu_linux_smoke_wait_ready_absent:" + JSON.stringify(absent_ready)
+  );
+  const node_present = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "5000", "--window", handle_text, "--node-name-contains", "Fixture Entry"
+  ]);
+  ensure(
+    flag_at(node_present, "data.met")
+      && text_at(node_present, "data.addressing") === "accessibility-tree"
+      && text_at(node_present, "data.node.name") === "Fixture Entry",
+    "cu_linux_smoke_wait_node_present:" + JSON.stringify(node_present.data)
+  );
+  const absent_node_output = rh.command(
+    executable,
+    [
+      "--target", "current", "--grant", "observe", "wait",
+      "--timeout-ms", "200", "--window", handle_text,
+      "--node-name-contains", "agenterm-no-such-node-xyz"
+    ],
+    { cwd: run_directory, env: cu_env(run_directory), timeout_ms: 30000 }
+  );
+  ensure(
+    absent_node_output.success === false,
+    "cu_linux_smoke_wait_node_absent_exit:" + absent_node_output.stdout + absent_node_output.stderr
+  );
+  const absent_node = JSON.parse(absent_node_output.stdout.trim());
+  ensure(
+    !flag_at(absent_node, "ok") && text_at(absent_node, "error.code") === "timeout",
+    "cu_linux_smoke_wait_node_absent:" + JSON.stringify(absent_node)
+  );
 
   print("STEP process-state and process-usage bind real observations to the owned fixture pid and one stable start identity");
   const process_state = run_cu_json(run_directory, executable, [

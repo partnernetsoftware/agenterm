@@ -1021,6 +1021,24 @@ mod tests {
     }
 
     #[test]
+    fn wait_ready_path_cli_carries_the_closed_shape() {
+        let reply = dispatch(vec![
+            "--target".into(),
+            "current".into(),
+            "--grant".into(),
+            "observe".into(),
+            "wait".into(),
+            "--timeout-ms".into(),
+            "1".into(),
+            "--ready-path".into(),
+            "observe-ready.json".into(),
+        ]);
+        assert_eq!(reply.command, "wait");
+        let error = reply.error.expect("absent marker times out, not usage");
+        assert_eq!(error.code, "timeout");
+    }
+
+    #[test]
     fn query_window_accepts_mcu_app_hash_handle() {
         let reply = dispatch(vec![
             "--target".into(),

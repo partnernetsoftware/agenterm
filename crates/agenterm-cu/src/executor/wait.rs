@@ -51,6 +51,7 @@ pub(super) fn wait(
                 NodeTextMatch::Contains,
             );
         }
+        WaitCondition::ReadyPath { path } => return wait_ready_path(timeout_ms, path),
         _ => {}
     }
     let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
@@ -95,7 +96,8 @@ pub(super) fn condition_met(condition: &WaitCondition, windows: &[WindowInfo]) -
         WaitCondition::Expect { .. }
         | WaitCondition::NodeNameContains { .. }
         | WaitCondition::NodeTextEquals { .. }
-        | WaitCondition::NodeTextContains { .. } => false,
+        | WaitCondition::NodeTextContains { .. }
+        | WaitCondition::ReadyPath { .. } => false,
     }
 }
 
@@ -166,6 +168,36 @@ pub(super) fn wait_node(
         format!(
             "no showing accessibility node with {} after {timeout_ms}ms ({polls} polls, {detail})",
             name_scope(pattern, role)
+        ),
+    ))
+}
+
+/// Polls until `path` carries a schema-1 readiness marker with
+/// `state: "ready"`. Compatible with `observe --ready-path` and any
+/// other atomic publisher; partial JSON keeps polling.
+pub(super) fn wait_ready_path(timeout_ms: u64, path: &str) -> Result<serde_json::Value, CuError> {
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms.min(120_000));
+    let poll = Duration::from_millis(50);
+    let mut polls = 0usize;
+    loop {
+        polls += 1;
+        if let Some(marker) = super::a11y_observe::read_ready_marker(path) {
+            return Ok(serde_json::json!({
+                "met": true,
+                "addressing": "ready-path",
+                "polls": polls,
+                "marker": marker,
+            }));
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(poll);
+    }
+    Err(CuError::new(
+        "timeout",
+        format!(
+            "readiness marker at {path:?} did not reach state \"ready\" after {timeout_ms}ms ({polls} polls)"
         ),
     ))
 }
@@ -908,5 +940,59 @@ mod tests {
         assert!(payload["text"].as_str().unwrap().contains("GATE"));
         assert_ne!(payload["text"], "GATE");
         assert_ne!(payload["node"]["text"], "stale-snapshot");
+    }
+
+    #[test]
+    fn ready_path_wait_times_out_when_marker_is_absent() {
+        let auth = Authorization::new([Grant::Observe].into_iter().collect());
+        let executor = Executor::new(auth);
+        let command = Command::Wait {
+            target: TargetRef::Current,
+            timeout_ms: 1,
+            condition: WaitCondition::ReadyPath {
+                path: "agenterm-no-such-ready-marker.json".into(),
+            },
+        };
+        let reply = executor.execute(&command);
+        assert!(!reply.ok, "absent marker must not report success");
+        assert_eq!(reply.error.as_ref().unwrap().code, "timeout");
+    }
+
+    #[test]
+    fn ready_path_wait_reports_met_when_marker_is_ready() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let directory = std::env::temp_dir().join(format!(
+            "agenterm-cu-wait-ready-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).expect("temporary directory");
+        let path = directory.join("ready.json");
+        super::a11y_observe::publish_ready_marker(
+            path.to_str().expect("UTF-8 path"),
+            41,
+            "at-spi2",
+            "poll-diff",
+        )
+        .expect("publish marker");
+        let auth = Authorization::new([Grant::Observe].into_iter().collect());
+        let executor = Executor::new(auth);
+        let command = Command::Wait {
+            target: TargetRef::Current,
+            timeout_ms: 500,
+            condition: WaitCondition::ReadyPath {
+                path: path.to_string_lossy().into_owned(),
+            },
+        };
+        let reply = executor.execute(&command);
+        assert!(reply.ok, "ready marker must report success");
+        assert_eq!(reply.data.as_ref().unwrap()["met"], true);
+        assert_eq!(reply.data.as_ref().unwrap()["addressing"], "ready-path");
+        assert_eq!(reply.exit_code(), 0);
+        std::fs::remove_file(path).expect("remove marker");
+        std::fs::remove_dir(directory).expect("remove temporary directory");
     }
 }
