@@ -14,6 +14,11 @@ host callback, and qjswasm maps the distinct core `Interruption` class to
 or a persistent slot. The static core remains exactly 101,256 bytes; native
 host callbacks that are already blocked still require their own cooperative
 wait path or the Script worker's hard process-containment deadline.
+The `agenterm:acu` door passes that same borrowed identity into the product
+provider and distinguishes a cancellation request from an acknowledged
+pre-effect cancellation. Only the acknowledgement becomes an uncatchable
+`QjswasmError::Cancelled`; a late request without acknowledgement preserves the
+authoritative ACU reply. PRD 28 owns which Executor operations can acknowledge.
 
 Detailed invention, rejected alternatives, historical pass counts and earlier
 pins are preserved in
@@ -95,7 +100,9 @@ agenterm-qjswasm
 │  │  │      the same spelling after the legacy verb remains a verb-owned option
 │  │  ├─ [x] Unix hard-timeout cleanup preserves a descendant that crossed the explicit
 │  │  │      `setsid` ownership boundary while still terminating same-session descendants
-│  │  └─ [ ] pass the same cooperative token through Executor and interruptible native waits
+│  │  ├─ [x] pass the same token through the fixed-sibling provider into the observe-only
+│  │  │      `process-watch` wait without storing the callback or spawning a helper thread
+│  │  └─ [ ] migrate remaining native waits under operation-specific phase/effect semantics
 │  ├─ [x] check-many entry + canonical recursive imports share bytes/modules/deadline budgets
 │  └─ [x] shared path helper normalizes `.` / `./` before native identity comparison
 ├─ upstream performance frontier
