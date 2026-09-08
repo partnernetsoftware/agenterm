@@ -1,0 +1,302 @@
+// CEO: Linux get-text honesty with independent pyatspi Text.GetText read-back.
+// Acceptance is smoke read-back only: CU get-text on a named or focused GTK
+// text node must agree with a separate AT-SPI Text.GetText probe on the same
+// node. AT-SPI/--name only; no --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-get-text-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, cu_args) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of cu_args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_get_text_honesty_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_get_text_honesty_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_get_text_honesty_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function independent_probe_script() {
+  return [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "config = json.loads(sys.argv[1])",
+    "title = config['title']",
+    "mode = config['mode']",
+    "name_pattern = config.get('name_pattern', '')",
+    "",
+    "def gettext_of_node(obj):",
+    "    try:",
+    "        text_iface = obj.queryText()",
+    "        count = text_iface.characterCount",
+    "        return text_iface.getText(0, count)",
+    "    except Exception:",
+    "        return None",
+    "",
+    "def find_frame():",
+    "    desktop = pyatspi.Registry.getDesktop(0)",
+    "    for index in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(index)",
+    "        if app is None:",
+    "            continue",
+    "        for child_index in range(app.childCount):",
+    "            window = app.getChildAtIndex(child_index)",
+    "            if window is not None and (window.name or '') == title:",
+    "                return window",
+    "    return None",
+    "",
+    "def named_text(root, pattern):",
+    "    hits = []",
+    "    def walk(obj):",
+    "        name = obj.name or ''",
+    "        if pattern in name:",
+    "            text = gettext_of_node(obj)",
+    "            if text is not None:",
+    "                hits.append(text)",
+    "        for index in range(obj.childCount):",
+    "            child = obj.getChildAtIndex(index)",
+    "            if child is not None:",
+    "                walk(child)",
+    "    walk(root)",
+    "    if len(hits) != 1:",
+    "        raise SystemExit('cu_linux_get_text_probe_named_count:' + str(len(hits)))",
+    "    return hits[0]",
+    "",
+    "def focused_text(root):",
+    "    candidates = []",
+    "    def walk(obj, depth):",
+    "        try:",
+    "            focused = obj.getState().contains(pyatspi.STATE_FOCUSED)",
+    "        except Exception:",
+    "            focused = False",
+    "        if focused:",
+    "            text = gettext_of_node(obj)",
+    "            if text is not None:",
+    "                candidates.append((depth, text))",
+    "        for index in range(obj.childCount):",
+    "            child = obj.getChildAtIndex(index)",
+    "            if child is not None:",
+    "                walk(child, depth + 1)",
+    "    walk(root, 0)",
+    "    if not candidates:",
+    "        raise SystemExit('cu_linux_get_text_probe_focused_missing')",
+    "    candidates.sort(key=lambda item: item[0], reverse=True)",
+    "    return candidates[0][1]",
+    "",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_get_text_probe_window_missing')",
+    "",
+    "if mode == 'named':",
+    "    text = named_text(frame, name_pattern)",
+    "elif mode == 'focused':",
+    "    text = focused_text(frame)",
+    "else:",
+    "    raise SystemExit('cu_linux_get_text_probe_mode:' + mode)",
+    "",
+    "print(json.dumps({'mode': mode, 'text': text}))",
+  ].join("\n");
+}
+
+function independent_probe(run_directory, executable, probe_config_json) {
+  const output = rh.command("python3", ["-c", independent_probe_script(), probe_config_json], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true, "cu_linux_get_text_probe:" + output.stderr + output.stdout);
+  const document = JSON.parse(output.stdout.trim());
+  ensure(typeof document.text === "string", "cu_linux_get_text_probe_text");
+  return document;
+}
+
+function assert_get_text_agreement(run_directory, executable, handle, title, cu_args, probe_config, label) {
+  const cu = run_cu(run_directory, executable, "observe", cu_args);
+  ensure(text_at(cu, "data.addressing") === "accessibility-tree", "cu_linux_get_text_addressing_" + label);
+  ensure(text_at(cu, "data.via") === "gettext", "cu_linux_get_text_via_" + label);
+  ensure(flag_at(cu, "data.degraded") === false, "cu_linux_get_text_degraded_" + label);
+  const cu_text = text_at(cu, "data.text");
+  const probe = independent_probe(run_directory, executable, probe_config);
+  ensure(
+    cu_text === probe.text,
+    "cu_linux_get_text_mismatch_" + label + ":" + JSON.stringify({ cu: cu_text, probe: probe.text })
+  );
+  return cu_text;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-get-text-honesty");
+const run_directory = rh.join(repo, "target/cu-linux-get-text-honesty-smoke-run");
+rh.create_dir_all(run_directory);
+
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source), "cu_linux_get_text_honesty_fixture_missing:" + fixture_source);
+
+let fixture = -1;
+let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP start owned GTK fixture and resolve window by pid and exact title");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_get_text_honesty_window_wait");
+
+  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_row !== null, "cu_linux_get_text_honesty_window_identity");
+  const handle = "" + int_at(inventory_row, "handle");
+  ensure(int_at(inventory_row, "handle") > 0, "cu_linux_get_text_honesty_handle:" + JSON.stringify(inventory_row));
+
+  print("STEP focus --name and seed text through AT-SPI send-text on disposable entry");
+  run_cu(run_directory, executable, "observe,actuate", [
+    "focus", "--window", handle, "--name", "Fixture Entry",
+  ]);
+  const seed = "ceo-get-text-" + context.run_id;
+  const sent = run_cu(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--name", "Fixture Entry", "--", seed,
+  ]);
+  ensure(
+    text_at(sent, "data.typed") === seed
+      && text_at(sent, "data.addressing") === "accessibility-tree",
+    "cu_linux_get_text_honesty_seed:" + JSON.stringify(sent.data)
+  );
+
+  print("STEP get-text --name agrees with independent pyatspi Text.GetText");
+  const named_text = assert_get_text_agreement(
+    run_directory, executable, handle, fixture_title,
+    ["get-text", "--window", handle, "--name", "Fixture Entry"],
+    JSON.stringify({ title: fixture_title, mode: "named", name_pattern: "Fixture Entry" }),
+    "named"
+  );
+  ensure(named_text === seed, "cu_linux_get_text_honesty_named_seed:" + named_text + ":" + seed);
+
+  print("STEP get-text --window focused path agrees with independent pyatspi Text.GetText");
+  const focused_text = assert_get_text_agreement(
+    run_directory, executable, handle, fixture_title,
+    ["get-text", "--window", handle],
+    JSON.stringify({ title: fixture_title, mode: "focused" }),
+    "focused"
+  );
+  ensure(focused_text === seed, "cu_linux_get_text_honesty_focused_seed:" + focused_text + ":" + seed);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  harness.wait(fixture, 5000);
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-get-text-readback");
+  harness.remove_run(context);
+  print("PASS: Linux CU get-text matches independent pyatspi Text.GetText (named and focused)");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

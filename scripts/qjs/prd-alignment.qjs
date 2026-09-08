@@ -293,6 +293,7 @@ const evidence_suites = {
   "cu-linux-process-sockets-smoke": true,
   "cu-linux-ps-smoke": true,
   "cu-linux-query-smoke": true,
+  "cu-linux-get-text-honesty-smoke": true,
   "cu-linux-get-extents-smoke": true,
   "cu-linux-process-usage-smoke": true,
   "cu-linux-process-state-smoke": true,

@@ -411,6 +411,12 @@
       ]
     },
     {
+      "id": "cu-linux-get-text-honesty-smoke",
+      "evidence": [
+        "cu.linux-get-text-readback"
+      ]
+    },
+    {
       "id": "cu-linux-get-extents-smoke",
       "evidence": [
         "cu.linux-get-extents-readback"

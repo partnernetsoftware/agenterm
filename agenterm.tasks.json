@@ -1232,6 +1232,25 @@
         "task.cu-linux-menu-invoke-smoke"
       ]
     },
+    "cu-linux-get-text-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-get-text-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-get-text-honesty-smoke"
+      ]
+    },
     "cu-linux-invoke-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5618,6 +5637,26 @@
       "id": "cu-linux-gtk-entry-send-keys-smoke",
       "description": "Prove Linux GTK entry semantic modifier chords (ctrl+home, ctrl+end, ctrl+a, backspace) by --name with independent get-caret/get-selection/get-text read-back; AT-SPI --name only, no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-get-text-honesty-smoke",
+      "description": "Prove Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; AT-SPI/--name only, no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-get-text-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
