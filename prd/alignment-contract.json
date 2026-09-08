@@ -84,6 +84,7 @@
         "cu.linux-process-usage-readback",
         "cu.linux-process-fds-readback",
         "cu.linux-process-maps-readback",
+        "cu.linux-process-threads-readback",
         "cu.linux-process-sockets-readback",
         "cu.linux-process-wait",
         "cu.linux-process-kill",

@@ -1,0 +1,219 @@
+// CEO: Linux process-threads honesty with independent /proc/<pid>/task read-back.
+// Acceptance is smoke read-back only: CU process-threads must agree with thread
+// ids, counts and stat-derived fields outside agenterm-cu for the same live PID.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-process-threads-readback",
+];
+
+const MAX_VISITED = 256;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function verify_readback(run_directory, executable, pid) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "pid = int(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "max_visited = int(sys.argv[3])",
+    "STATE_MAP = {",
+    "    'R': 'running',",
+    "    'S': 'sleeping',",
+    "    'D': 'uninterruptible',",
+    "    'T': 'stopped',",
+    "    't': 'tracing-stop',",
+    "    'Z': 'zombie',",
+    "    'X': 'dead',",
+    "    'x': 'dead',",
+    "    'I': 'idle',",
+    "    'W': 'paging',",
+    "    'P': 'parked',",
+    "}",
+    "def map_state(raw):",
+    "    return STATE_MAP.get(raw, 'unknown')",
+    "def name_fields(name_bytes):",
+    "    try:",
+    "        return {'name_encoding': 'utf8', 'name': name_bytes.decode('utf-8')}",
+    "    except UnicodeDecodeError:",
+    "        return {'name_encoding': 'hex', 'name_hex': name_bytes.hex()}",
+    "def parse_thread_stat(tid, stat_bytes):",
+    "    open_paren = stat_bytes.find(b'(')",
+    "    close_paren = stat_bytes.rfind(b')')",
+    "    if open_paren < 0 or close_paren <= open_paren or close_paren + 2 >= len(stat_bytes):",
+    "        raise ValueError('thread stat name is malformed')",
+    "    name_bytes = stat_bytes[open_paren + 1:close_paren]",
+    "    fields = stat_bytes[close_paren + 2:].split()",
+    "    if len(fields) < 37:",
+    "        raise ValueError('thread stat has too few fields')",
+    "    state_raw = fields[0].decode('ascii')",
+    "    row = {",
+    "        'id': str(tid),",
+    "        'state': map_state(state_raw),",
+    "        'state_raw': state_raw,",
+    "        'user_time_raw': fields[11].decode('ascii'),",
+    "        'system_time_raw': fields[12].decode('ascii'),",
+    "        'time_unit': 'linux-clock-ticks',",
+    "        'priority': int(fields[15]),",
+    "        'nice': int(fields[16]),",
+    "        'processor': int(fields[36]),",
+    "    }",
+    "    row.update(name_fields(name_bytes))",
+    "    return row",
+    "def read_inventory():",
+    "    directory = f'/proc/{pid}/task'",
+    "    ids = []",
+    "    for entry in os.scandir(directory):",
+    "        try:",
+    "            ids.append(int(entry.name))",
+    "        except ValueError:",
+    "            continue",
+    "    ids.sort()",
+    "    truncated_scan = len(ids) > max_visited",
+    "    ids = ids[:max_visited]",
+    "    visited_count = len(ids)",
+    "    items = []",
+    "    read_errors = 0",
+    "    for tid in ids:",
+    "        try:",
+    "            with open(f'{directory}/{tid}/stat', 'rb') as handle:",
+    "                stat_bytes = handle.read()",
+    "            items.append(parse_thread_stat(tid, stat_bytes))",
+    "        except (OSError, ValueError):",
+    "            read_errors += 1",
+    "    return {",
+    "        'visited_count': visited_count,",
+    "        'read_errors': read_errors,",
+    "        'truncated_scan': truncated_scan,",
+    "        'threads': items,",
+    "    }",
+    "def compare_row(label, probe, cu):",
+    "    if probe['id'] != cu['id']:",
+    "        raise SystemExit(f'{label}:id:probe={probe[\"id\"]}:cu={cu[\"id\"]}')",
+    "    if probe['state'] != cu['state']:",
+    "        raise SystemExit(f'{label}:state:probe={probe[\"state\"]}:cu={cu[\"state\"]}')",
+    "    if probe['state_raw'] != cu['state_raw']:",
+    "        raise SystemExit(f'{label}:state_raw:probe={probe[\"state_raw\"]}:cu={cu[\"state_raw\"]}')",
+    "    if probe['user_time_raw'] != cu['user_time_raw']:",
+    "        raise SystemExit(f'{label}:user_time_raw:probe={probe[\"user_time_raw\"]}:cu={cu[\"user_time_raw\"]}')",
+    "    if probe['system_time_raw'] != cu['system_time_raw']:",
+    "        raise SystemExit(f'{label}:system_time_raw:probe={probe[\"system_time_raw\"]}:cu={cu[\"system_time_raw\"]}')",
+    "    if probe['time_unit'] != cu['time_unit']:",
+    "        raise SystemExit(f'{label}:time_unit:probe={probe[\"time_unit\"]}:cu={cu[\"time_unit\"]}')",
+    "    if probe['priority'] != cu.get('priority'):",
+    "        raise SystemExit(f'{label}:priority:probe={probe[\"priority\"]}:cu={cu.get(\"priority\")}')",
+    "    if probe['nice'] != cu.get('nice'):",
+    "        raise SystemExit(f'{label}:nice:probe={probe[\"nice\"]}:cu={cu.get(\"nice\")}')",
+    "    if probe['processor'] != cu.get('processor'):",
+    "        raise SystemExit(f'{label}:processor:probe={probe[\"processor\"]}:cu={cu.get(\"processor\")}')",
+    "    if probe['name_encoding'] != cu.get('name_encoding'):",
+    "        raise SystemExit(f'{label}:name_encoding:probe={probe[\"name_encoding\"]}:cu={cu.get(\"name_encoding\")}')",
+    "    if probe['name_encoding'] == 'utf8':",
+    "        if probe['name'] != cu.get('name'):",
+    "            raise SystemExit(f'{label}:name:probe={probe[\"name\"]}:cu={cu.get(\"name\")}')",
+    "    else:",
+    "        if probe['name_hex'] != cu.get('name_hex'):",
+    "            raise SystemExit(f'{label}:name_hex:probe={probe[\"name_hex\"]}:cu={cu.get(\"name_hex\")}')",
+    "before = read_inventory()",
+    "out = subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-threads', '--pid', str(pid), '--limit', str(max_visited),",
+    "     '--max-visited', str(max_visited)],",
+    "    text=True)",
+    "after = read_inventory()",
+    "reply = json.loads(out)",
+    "if not reply.get('ok') or reply.get('command') != 'process-threads':",
+    "    raise SystemExit('cu_linux_process_threads_reply_state')",
+    "data = reply['data']",
+    "if data.get('verified') is not True:",
+    "    raise SystemExit('cu_linux_process_threads_verified')",
+    "if int(data['pid']) != pid:",
+    "    raise SystemExit('cu_linux_process_threads_pid')",
+    "if int(data['visited_count']) != before['visited_count']:",
+    "    raise SystemExit('cu_linux_process_threads_visited_count')",
+    "if int(data['read_errors']) != before['read_errors']:",
+    "    raise SystemExit('cu_linux_process_threads_read_errors')",
+    "if bool(data['truncated_scan']) != before['truncated_scan']:",
+    "    raise SystemExit('cu_linux_process_threads_truncated_scan')",
+    "if int(data['matched_count']) != len(before['threads']):",
+    "    raise SystemExit('cu_linux_process_threads_matched_count')",
+    "if int(data['returned_count']) != len(before['threads']):",
+    "    raise SystemExit('cu_linux_process_threads_returned_count')",
+    "cu_rows = data.get('threads') or []",
+    "if len(cu_rows) != len(before['threads']):",
+    "    raise SystemExit('cu_linux_process_threads_thread_count')",
+    "for index, probe in enumerate(before['threads']):",
+    "    compare_row(f'cu_linux_process_threads_row_{index}', probe, cu_rows[index])",
+    "state = json.loads(subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe', 'process-state', '--pid', str(pid)],",
+    "    text=True))",
+    "if not state.get('ok') or state['data'].get('start_identity') != data.get('start_identity'):",
+    "    raise SystemExit('cu_linux_process_threads_start_identity')",
+    "if after['visited_count'] != before['visited_count']:",
+    "    raise SystemExit('cu_linux_process_threads_inventory_changed')",
+    "print('pid', pid)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid, executable, "" + MAX_VISITED], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_process_threads_readback:" + output.stderr + output.stdout);
+}
+
+function verify_pid(run_directory, executable, pid) {
+  verify_readback(run_directory, executable, pid);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-process-threads");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP process-threads observe matches independent /proc/<pid>/task read-back for self");
+  verify_pid(context.run_directory, executable, rh.pid());
+
+  print("STEP spawn disposable child and verify --pid read-back");
+  const child = harness.start({
+    program: "sleep",
+    args: ["300"],
+    current_dir: context.run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  verify_pid(context.run_directory, executable, harness.spawned_pid(child));
+  harness.kill(child);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-process-threads-readback");
+  harness.remove_run(context);
+  print("PASS: Linux process-threads matches independent /proc/<pid>/task read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
