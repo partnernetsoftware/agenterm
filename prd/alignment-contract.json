@@ -74,6 +74,7 @@
         "cu.linux-atspi-window-identity",
         "cu.linux-process-state",
         "cu.linux-process-state-readback",
+        "cu.linux-process-signal-readback",
         "cu.linux-process-argv",
         "cu.linux-process-argv-readback",
         "cu.linux-process-cwd",

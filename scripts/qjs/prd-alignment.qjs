@@ -290,6 +290,7 @@ const evidence_suites = {
   "cu-linux-ps-smoke": true,
   "cu-linux-process-usage-smoke": true,
   "cu-linux-process-state-smoke": true,
+  "cu-linux-process-signal-smoke": true,
   "cu-linux-process-wait-smoke": true,
   "cu-linux-process-argv-cwd-smoke": true,
   "cu-linux-process-environment-smoke": true,

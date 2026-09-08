@@ -1,0 +1,262 @@
+// CEO: Linux process-signal honesty with independent /proc and wait read-back.
+// Acceptance is smoke read-back only: CU process-signal delivery to disposable
+// children must agree with /proc scheduler state, wait outcome, or handler
+// markers derived outside agenterm-cu. Weaker signals may remain verified=false
+// when independent evidence cannot close the postcondition (typed gap).
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-process-signal-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function verify_readback(run_directory, executable, mode, pid, identity, marker_path) {
+  const script = [
+    "import json, os, subprocess, sys, time",
+    "mode = sys.argv[1]",
+    "pid = int(sys.argv[2])",
+    "cu = sys.argv[3]",
+    "identity = sys.argv[4]",
+    "marker_path = sys.argv[5]",
+    "def proc_state(pid):",
+    "    try:",
+    "        with open(f'/proc/{pid}/stat') as handle:",
+    "            stat = handle.read()",
+    "    except FileNotFoundError:",
+    "        return {'alive': False, 'stopped': False}",
+    "    close = stat.rfind(')')",
+    "    if close < 0:",
+    "        raise ValueError('process stat has no closing command delimiter')",
+    "    state = stat[close + 2]",
+    "    return {",
+    "        'alive': state not in ('Z', 'X', 'x'),",
+    "        'stopped': state == 'T',",
+    "    }",
+    "def invoke_actuate(signal, timeout_ms=5000, force=False):",
+    "    argv = [",
+    "        cu, '--target', 'current', '--grant', 'actuate',",
+    "        'process-signal', '--pid', str(pid), signal,",
+    "        '--start-identity', identity,",
+    "        '--timeout-ms', str(timeout_ms),",
+    "    ]",
+    "    if force:",
+    "        argv.append('--force')",
+    "    out = subprocess.check_output(argv, text=True)",
+    "    reply = json.loads(out)",
+    "    if not reply.get('ok'):",
+    "        raise SystemExit('cu_linux_process_signal_reply:' + out)",
+    "    return reply['data']",
+    "def wait_reaped(timeout_ms=5000):",
+    "    deadline = time.time() + (timeout_ms / 1000.0)",
+    "    while time.time() < deadline:",
+    "        try:",
+    "            waited_pid, status = os.waitpid(pid, os.WNOHANG)",
+    "        except ChildProcessError:",
+    "            return True",
+    "        if waited_pid == pid:",
+    "            return True",
+    "        if not proc_state(pid)['alive']:",
+    "            return True",
+    "        time.sleep(0.05)",
+    "    return not proc_state(pid)['alive']",
+    "if mode == 'stop-cont':",
+    "    before = proc_state(pid)",
+    "    if not before['alive'] or before['stopped']:",
+    "        raise SystemExit('cu_linux_process_signal_stop_fixture')",
+    "    stopped = invoke_actuate('STOP')",
+    "    after_stop = proc_state(pid)",
+    "    if stopped.get('verified') is not True or stopped.get('state') != 'stopped':",
+    "        raise SystemExit('cu_linux_process_signal_stop_cu:' + json.dumps(stopped))",
+    "    if not after_stop['alive'] or not after_stop['stopped']:",
+    "        raise SystemExit('cu_linux_process_signal_stop_proc')",
+    "    resumed = invoke_actuate('CONT')",
+    "    after_cont = proc_state(pid)",
+    "    if resumed.get('verified') is not True or resumed.get('state') != 'running':",
+    "        raise SystemExit('cu_linux_process_signal_cont_cu:' + json.dumps(resumed))",
+    "    if not after_cont['alive'] or after_cont['stopped']:",
+    "        raise SystemExit('cu_linux_process_signal_cont_proc')",
+    "    print('stop-cont', pid)",
+    "elif mode == 'term-exit':",
+    "    before = proc_state(pid)",
+    "    if not before['alive']:",
+    "        raise SystemExit('cu_linux_process_signal_term_fixture')",
+    "    delivered = invoke_actuate('TERM', timeout_ms=5000)",
+    "    reaped = wait_reaped(5000)",
+    "    if delivered.get('verified') is not True or delivered.get('state') != 'exited':",
+    "        raise SystemExit('cu_linux_process_signal_term_cu:' + json.dumps(delivered))",
+    "    if not reaped:",
+    "        raise SystemExit('cu_linux_process_signal_term_wait')",
+    "    print('term-exit', pid)",
+    "elif mode == 'usr1-marker':",
+    "    if not marker_path or marker_path == '-':",
+    "        raise SystemExit('cu_linux_process_signal_marker_path')",
+    "    if os.path.exists(marker_path):",
+    "        os.remove(marker_path)",
+    "    before = proc_state(pid)",
+    "    if not before['alive']:",
+    "        raise SystemExit('cu_linux_process_signal_usr1_fixture')",
+    "    delivered = invoke_actuate('USR1')",
+    "    deadline = time.time() + 5.0",
+    "    while time.time() < deadline and not os.path.exists(marker_path):",
+    "        time.sleep(0.05)",
+    "    after = proc_state(pid)",
+    "    if not os.path.exists(marker_path):",
+    "        raise SystemExit('cu_linux_process_signal_usr1_marker')",
+    "    if delivered.get('delivered') is not True or delivered.get('verified') is not False:",
+    "        raise SystemExit('cu_linux_process_signal_usr1_cu:' + json.dumps(delivered))",
+    "    if not after['alive']:",
+    "        raise SystemExit('cu_linux_process_signal_usr1_alive')",
+    "    print('usr1-marker', pid)",
+    "elif mode == 'usr1-ignored-gap':",
+    "    before = proc_state(pid)",
+    "    if not before['alive']:",
+    "        raise SystemExit('cu_linux_process_signal_ignored_fixture')",
+    "    delivered = invoke_actuate('USR1')",
+    "    after = proc_state(pid)",
+    "    if delivered.get('delivered') is not True or delivered.get('verified') is not False:",
+    "        raise SystemExit('cu_linux_process_signal_ignored_cu:' + json.dumps(delivered))",
+    "    if delivered.get('state') != 'live':",
+    "        raise SystemExit('cu_linux_process_signal_ignored_state:' + json.dumps(delivered))",
+    "    if not after['alive']:",
+    "        raise SystemExit('cu_linux_process_signal_ignored_proc')",
+    "    print('usr1-ignored-gap', pid)",
+    "else:",
+    "    raise SystemExit('cu_linux_process_signal_mode:' + mode)",
+  ].join("\n");
+  const argv = ["-c", script, mode, "" + pid, executable, identity, marker_path || "-"];
+  const output = rh.command("python3", argv, {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_process_signal_readback:" + mode + ":" + output.stderr + output.stdout);
+}
+
+function observe_identity(run_directory, executable, pid) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+    "process-state", "--pid", "" + pid,
+  ], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_process_signal_observe:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true && reply.data.state === "live", "cu_linux_process_signal_observe_state");
+  const identity = "" + reply.data.start_identity;
+  ensure(identity !== "", "cu_linux_process_signal_identity");
+  return identity;
+}
+
+function kill_child(run_directory, executable, pid, identity) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "actuate",
+    "process-signal", "--pid", "" + pid, "KILL",
+    "--start-identity", identity, "--force", "--timeout-ms", "5000",
+  ], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_process_signal_cleanup:" + output.stderr);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-process-signal");
+const children = [];
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP STOP/CONT actuation matches independent /proc scheduler read-back");
+  const stop_child = harness.start_child(context, {
+    program: "/bin/sh",
+    args: ["-c", "while :; do sleep 1; done"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000,
+  }, "stop-cont");
+  children.push(stop_child);
+  const stop_identity = observe_identity(context.run_directory, executable, stop_child.pid);
+  verify_readback(context.run_directory, executable, "stop-cont", stop_child.pid, stop_identity, null);
+  kill_child(context.run_directory, executable, stop_child.pid, stop_identity);
+  harness.child_wait(stop_child, 10000);
+
+  print("STEP TERM actuation matches independent wait/read-back exit outcome");
+  const term_child = harness.start_child(context, {
+    program: "sleep",
+    args: ["300"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000,
+  }, "term-exit");
+  children.push(term_child);
+  const term_identity = observe_identity(context.run_directory, executable, term_child.pid);
+  verify_readback(context.run_directory, executable, "term-exit", term_child.pid, term_identity, null);
+  harness.child_wait(term_child, 10000);
+
+  print("STEP USR1 handler marker proves delivery beyond CU self-report");
+  const marker_path = rh.join(context.run_directory, "usr1-marker");
+  const marker_child = harness.start_child(context, {
+    program: "/bin/sh",
+    args: ["-c", "trap 'touch \"$1\"' USR1; while :; do sleep 1; done", "_", marker_path],
+    current_dir: context.run_directory,
+    timeout_ms: 90000,
+  }, "usr1-marker");
+  children.push(marker_child);
+  const marker_identity = observe_identity(context.run_directory, executable, marker_child.pid);
+  verify_readback(
+    context.run_directory, executable, "usr1-marker",
+    marker_child.pid, marker_identity, marker_path,
+  );
+  kill_child(context.run_directory, executable, marker_child.pid, marker_identity);
+  harness.child_wait(marker_child, 10000);
+
+  print("STEP ignored USR1 keeps verified=false with live /proc agreement (typed gap)");
+  const ignored_child = harness.start_child(context, {
+    program: "/bin/sh",
+    args: ["-c", "trap '' USR1; while :; do sleep 1; done"],
+    current_dir: context.run_directory,
+    timeout_ms: 90000,
+  }, "usr1-ignored");
+  children.push(ignored_child);
+  const ignored_identity = observe_identity(context.run_directory, executable, ignored_child.pid);
+  verify_readback(
+    context.run_directory, executable, "usr1-ignored-gap",
+    ignored_child.pid, ignored_identity, null,
+  );
+  kill_child(context.run_directory, executable, ignored_child.pid, ignored_identity);
+  harness.child_wait(ignored_child, 10000);
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-process-signal-readback");
+  harness.remove_run(context);
+  print("PASS: Linux process-signal matches independent /proc and wait read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
