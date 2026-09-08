@@ -291,16 +291,20 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 - [~] Retirement now has one machine-enforced qjswasm court rather than a
   prose checklist. `acu-retirement-readiness` walks all 13 ledger families,
   rejects every `gap`, requires public evidence for available or
-  platform-limited claims, verifies the three native host tasks and six-cell
-  task registration, checks Candidate execution wiring, scans production
-  automation for Bun/MCU dependencies, and consumes the frozen compatibility
-  accounting report. Report mode succeeds only as an audit and emits
+  platform-limited claims, counts every frozen `dynamic-stay` witness as a
+  blocker, verifies the three native host tasks and six-cell task registration,
+  checks Candidate execution wiring, scans production automation for Bun/MCU
+  dependencies, and consumes the frozen compatibility accounting report.
+  Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; live capability totals belong exclusively to
   `plan/acu-mcu-capability-ledger.json`, while the argument-sensitive corpus
-  owns its own counts. Blockers never authorize MCU runtime fallback. Only
-  `enforce-absent` may emit
-  `cu.retirement`, after zero blockers and after the configured MCU path is
-  actually unavailable.
+  owns its own counts. Blockers never authorize MCU runtime fallback. The
+  public `acu-retirement` task owns `enforce-absent` and `cu.retirement`; only
+  that mode emits the evidence, after zero blockers and after
+  `ACU_MCU_REPOSITORY` resolves
+  to a Git checkout matching the checked-in archive markers while every
+  contract-derived live MCU runtime path is absent. An arbitrary missing path
+  is not retirement evidence.
 - [~] Platform-limited leaves no longer pass because a free-text
   `qualification` happens to be nonempty. The retirement contract requires a
   schema-versioned macOS/Linux/Windows matrix. Every qualified cell binds one

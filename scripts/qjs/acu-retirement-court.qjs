@@ -7,7 +7,9 @@
 //
 // report validates the checked-in engine-neutral compatibility corpus and emits
 // a bounded blocker inventory without Bun or another repository. enforce-absent
-// additionally requires ACU_MCU_ROOT to name an absent retired-runtime path.
+// additionally verifies ACU_MCU_REPOSITORY is a marker-matched archived source
+// checkout, then derives and rejects every retired live-runtime path from the
+// checked-in contract. A caller-chosen absent path is never accepted as proof.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -141,6 +143,17 @@ function qualification_error_names_pending(error) {
   return false;
 }
 
+function dynamic_stays_of(corpus) {
+  const stays = [];
+  if (!Array.isArray(corpus.dynamic_rows)) { return stays; }
+  for (const row of corpus.dynamic_rows) {
+    if (row.classification === "dynamic-stay" && has_text(row.gap_id)) {
+      stays.push("" + row.gap_id);
+    }
+  }
+  return stays;
+}
+
 function run_pending_self_test() {
   const fixtures = [
     { id: "a", qualification: { schema: 2, platforms: {
@@ -179,6 +192,13 @@ function run_pending_self_test() {
       && qualification_error_names_pending("macos:pending_without_blocker")
       && !qualification_error_names_pending("windows:gate_evidence")
       && !qualification_error_names_pending("schema"), "pending self-test visible classifier");
+  const stays = dynamic_stays_of({ dynamic_rows: [
+    { gap_id: "acu.dynamic.test-a", classification: "resolved" },
+    { gap_id: "acu.dynamic.test-b", classification: "dynamic-stay" },
+    { gap_id: "acu.dynamic.test-c", classification: "dynamic-stay" }
+  ] });
+  harness.require(stays.length === 2 && stays[0] === "acu.dynamic.test-b"
+      && stays[1] === "acu.dynamic.test-c", "dynamic-stay self-test accounting");
   print("PASS: retirement pending-cell accounting fixture");
 }
 
@@ -229,6 +249,8 @@ harness.require(has_rows(contract.production_scan_paths)
   && has_rows(contract.forbidden_production_patterns), "retirement_production_scan_contract");
 harness.require(has_rows(contract.embedded_acu_scan_paths)
   && has_rows(contract.forbidden_embedded_acu_patterns), "retirement_embedded_acu_scan_contract");
+harness.require(has_rows(contract.legacy_repository_markers)
+  && has_rows(contract.retired_runtime_relative_paths), "retirement_absence_target_contract");
 harness.require(Array.isArray(ledger.family_order) && ledger.family_order.length === 13, "retirement_family_order");
 harness.require(qualification_manifest.schema_version === 1, "retirement_qualification_schema");
 harness.require(host_native_manifest.schema_version === 1, "retirement_host_native_schema");
@@ -368,22 +390,46 @@ let compatibility_complete = compatibility_corpus.schema === "agenterm.acu.compa
 if (!compatibility_complete) {
   add(blockers, "dynamic_parity_corpus_incomplete", "checked-in engine-neutral corpus is malformed or incomplete");
 }
+const dynamic_stays = dynamic_stays_of(compatibility_corpus);
+for (const gap_id of dynamic_stays) {
+  add(blockers, "dynamic_compatibility_stay", gap_id);
+}
 const compatibility = {
   schema: 1,
   adapter: "acu.qjs",
   source: contract.compatibility_corpus,
   static_stays: [],
+  dynamic_stays: dynamic_stays,
   dynamic_corpus_complete: compatibility_complete,
   mcu_required: false
 };
 
 if (mode === "enforce-absent") {
-  const configured_mcu_root = rh.env_or("ACU_MCU_ROOT", "");
-  const mcu_root = configured_mcu_root === "" ? "" : rh.absolute(configured_mcu_root);
-  if (mcu_root === "") {
-    add(blockers, "mcu_absence_path_missing", "ACU_MCU_ROOT must name the retired path");
-  } else if (rh.exists(mcu_root)) {
-    add(blockers, "mcu_still_present", "retired path still exists");
+  const configured_repository = rh.env_or("ACU_MCU_REPOSITORY", "");
+  const repository = configured_repository === "" ? "" : rh.absolute(configured_repository);
+  if (repository === "") {
+    add(blockers, "mcu_repository_missing", "ACU_MCU_REPOSITORY must name the archived source checkout");
+  } else if (!rh.exists(repository) || !rh.metadata(repository).is_dir) {
+    add(blockers, "mcu_repository_invalid", "configured archived source checkout is not a directory");
+  } else {
+    const top = rh.command("git", ["-C", repository, "rev-parse", "--show-toplevel"], {
+      timeout_ms: 30000
+    });
+    if (!top.success || top.stdout.trim() === "") {
+      add(blockers, "mcu_repository_invalid", "configured path must belong to one Git checkout");
+    } else {
+      const repository_root = rh.absolute(top.stdout.trim());
+      for (const marker of contract.legacy_repository_markers) {
+        if (!rh.exists(rh.join(repository_root, marker))) {
+          add(blockers, "mcu_repository_marker_missing", "" + marker);
+        }
+      }
+      for (const relative of contract.retired_runtime_relative_paths) {
+        if (rh.exists(rh.join(repository_root, relative))) {
+          add(blockers, "mcu_still_present", "" + relative);
+        }
+      }
+    }
   }
 }
 

@@ -39,5 +39,14 @@
     "process_spawn[[:space:]]*[(]",
     "from[[:space:]].*skills/mcu",
     "require[(].*skills/mcu"
+  ],
+  "legacy_repository_markers": [
+    "INDEX.md",
+    "bin/mux",
+    "skills/archived/mcu-reference-20260907/ARCHIVE.md"
+  ],
+  "retired_runtime_relative_paths": [
+    "skills/mcu",
+    "skills/acu/acu.ts"
   ]
 }

@@ -2487,6 +2487,25 @@
         "task.acu-retirement-readiness"
       ]
     },
+    "acu-retirement": {
+      "inputs": [
+        "built-agenterm-cu",
+        "acu-retirement-ledger",
+        "acu-legacy-repository"
+      ],
+      "outputs": [
+        "acu-retirement-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 524288
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-retirement"
+      ]
+    },
     "cu-runtime-status-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -7043,7 +7062,7 @@
     },
     {
       "id": "acu-retirement-readiness",
-      "description": "Measure the one fail-closed ACU retirement contract: capability blockers plus every pending platform cell, registered evidence, compatibility corpus, host/six-cell wiring and production Bun/MCU absence. Remaining blockers are successful audit output, never hidden green retirement.",
+      "description": "Measure the one fail-closed ACU retirement contract: capability blockers plus every pending platform cell, dynamic-stay witnesses, registered evidence, compatibility corpus, host/six-cell wiring and production Bun/MCU absence. Remaining blockers are successful audit output, never hidden green retirement.",
       "entry": "scripts/qjs/acu-retirement-court.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7051,6 +7070,31 @@
         ".",
         "target/debug/agenterm-cu",
         "report"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "acu-retirement",
+      "description": "Enforce final ACU retirement against the marker-matched archived MCU source checkout named by ACU_MCU_REPOSITORY; every ledger, evidence, dynamic-stay, delivery, production-dependency and derived live-runtime absence check must be green.",
+      "entry": "scripts/qjs/acu-retirement-court.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu",
+        "enforce-absent"
+      ],
+      "env": [
+        "ACU_MCU_REPOSITORY"
       ],
       "dependencies": [],
       "platforms": [
