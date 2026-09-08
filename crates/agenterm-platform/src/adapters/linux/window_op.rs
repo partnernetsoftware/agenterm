@@ -1,10 +1,13 @@
 //! Linux X11 ConfigureWindow for foreign top-level windows.
 
+use std::time::{Duration, Instant};
+
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{
+    protocol::{Event, xproto::{
         Atom, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask,
         StackMode, Window,
+    },
     },
 };
 
@@ -325,7 +328,34 @@ pub(crate) fn move_window(
         .height(height.max(1));
     conn.configure_window(window, &aux)
         .map_err(|error| failed(format!("ConfigureWindow send failed: {error}")))?;
+    wait_configure_notify(&conn, window, width.max(1), height.max(1))?;
     sync(&conn)
+}
+
+fn wait_configure_notify(
+    conn: &x11rb::rust_connection::RustConnection,
+    window: Window,
+    width: u32,
+    height: u32,
+) -> Result<(), WindowOpError> {
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < deadline {
+        match conn.poll_for_event() {
+            Ok(Some(event)) => {
+                if let Event::ConfigureNotify(notify) = event {
+                    if notify.window == window
+                        && u32::from(notify.width) == width
+                        && u32::from(notify.height) == height
+                    {
+                        return Ok(());
+                    }
+                }
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(5)),
+            Err(error) => return Err(failed(format!("X11 poll_for_event failed: {error}"))),
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn window_rect(handle: isize) -> Result<WindowBounds, WindowOpError> {

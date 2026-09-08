@@ -1390,6 +1390,7 @@ mod tests {
             action: "left-half".into(),
             window: None,
             frame: None,
+            expect_geometry: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -1417,6 +1418,7 @@ mod tests {
             action: "left-half".into(),
             window: None,
             frame: None,
+            expect_geometry: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -1451,6 +1453,7 @@ mod tests {
             action: "left-half".into(),
             window: Some(7),
             frame: None,
+            expect_geometry: None,
         };
         let reply = CuReply::err(
             &command,

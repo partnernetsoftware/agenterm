@@ -796,6 +796,7 @@ mod tests {
             action: "left-half".into(),
             window: None,
             frame: None,
+            expect_geometry: None,
         }
     }
 

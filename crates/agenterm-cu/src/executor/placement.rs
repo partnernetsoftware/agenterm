@@ -42,8 +42,34 @@ pub(super) fn window_place(
     action_raw: &str,
     window: Option<isize>,
     frame: Option<[i32; 4]>,
+    expect_geometry: Option<[i32; 2]>,
 ) -> Result<serde_json::Value, CuError> {
     let action = action_raw.trim();
+    if action == "resize" {
+        if let Some([expected_width, expected_height]) = expect_geometry {
+            if !window.is_some_and(|handle| handle != 0) {
+                return Err(CuError::new(
+                    "refused",
+                    "resize with --expect needs an exact target (--window HANDLE) and a checkable geometry postcondition (--expect WxH); nothing was performed",
+                )
+                .with_detail(serde_json::json!({
+                    "reason": "destructive_gate",
+                    "missing": ["target", "postcondition"],
+                    "required": {
+                        "target": "--window HANDLE",
+                        "postcondition": "--expect WIDTHxHEIGHT",
+                    },
+                    "effect": "not_performed",
+                })));
+            }
+            if frame.is_none_or(|rect| rect[2] != expected_width || rect[3] != expected_height) {
+                return Err(CuError::new(
+                    "invalid_input",
+                    "resize --expect geometry must match --width and --height",
+                ));
+            }
+        }
+    }
     let catalog_action = if matches!(action, "frame" | "move" | "resize") {
         None
     } else {
@@ -1041,6 +1067,11 @@ mod tests {
             frame: bounds,
             visible: bounds,
             primary: true,
+            width_mm: None,
+            height_mm: None,
+            dpi_x: None,
+            dpi_y: None,
+            scale_factor: None,
         }
     }
 
@@ -1394,6 +1425,7 @@ mod tests {
             action: "left-half".into(),
             window: None,
             frame: None,
+            expect_geometry: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -1409,6 +1441,7 @@ mod tests {
             action: "tile-magic".into(),
             window: None,
             frame: None,
+            expect_geometry: None,
         };
         let reply = executor.execute(&command);
         assert!(!reply.ok);
@@ -1454,6 +1487,11 @@ mod tests {
                     height: 860,
                 },
                 primary: false,
+                width_mm: None,
+                height_mm: None,
+                dpi_x: None,
+                dpi_y: None,
+                scale_factor: None,
             },
         ];
 

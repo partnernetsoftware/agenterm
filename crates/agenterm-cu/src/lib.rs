@@ -3,6 +3,8 @@
 //! Orchestrator agents should drive desktops through structured observation and
 //! actuation, not screenshot/OCR coordinate guessing. See `README.md`.
 
+#![recursion_limit = "256"]
+
 extern crate self as agenterm_cu;
 
 pub mod argv;

@@ -57,6 +57,8 @@ const declared_evidence = [
   "cu.linux-atspi-snapshot-diff",
   "cu.linux-atspi-dclick",
   "cu.linux-atspi-focus",
+  "cu.linux-atspi-hover",
+  "cu.linux-atspi-drag",
   "cu.linux-atspi-observe",
   "cu.linux-atspi-screenshot",
   "cu.linux-atspi-window-place",
@@ -1222,6 +1224,36 @@ try {
     "cu_linux_smoke_focused:" + JSON.stringify(focused.data)
   );
 
+  print("STEP hover moves the pointer via AT-SPI GenerateMouseEvent(abs) and the fixture label reads hover active");
+  ensure(label_text(run_directory, executable, handle_text, "hover ") === "hover idle", "cu_linux_smoke_hover_idle");
+  const hovered = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "exec", "--json",
+    JSON.stringify({
+      verb: "hover",
+      target: "current",
+      window: rh.parse_int(handle_text),
+      name: "Fixture Hover",
+    }),
+  ]);
+  ensure(flag_at(hovered, "data.performed"), "cu_linux_smoke_hover:" + JSON.stringify(hovered.data));
+  ensure(label_text(run_directory, executable, handle_text, "hover ") === "hover active", "cu_linux_smoke_hover_active");
+
+  print("STEP named drag between two fixture controls resolves AT-SPI extents and lands the pointer at the target center");
+  const drag = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "drag",
+    "--window", handle_text,
+    "--from-name", "Fixture Press",
+    "--to-name", "Fixture Entry"
+  ]);
+  ensure(
+    text_at(drag, "data.addressing") === "accessibility-tree"
+      && flag_at(drag, "data.performed")
+      && flag_at(drag, "data.verified")
+      && text_at(drag, "data.from_name") === "Fixture Press"
+      && text_at(drag, "data.to_name") === "Fixture Entry",
+    "cu_linux_smoke_drag:" + JSON.stringify(drag.data)
+  );
+
   print("STEP menu inspect walks the background menu bar and reports the paths menu invoke accepts, with the enabled and checked states AT-SPI publishes only positively");
   const menu = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "observe", "menu", "inspect", "--window", handle_text
@@ -1798,6 +1830,8 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-zoom");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-snapshot-diff");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-dclick");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-focus");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-hover");
+harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-drag");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-screenshot");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-window-place");

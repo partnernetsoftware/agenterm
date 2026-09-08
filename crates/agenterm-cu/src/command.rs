@@ -2853,6 +2853,17 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         role: Option<String>,
     },
+    /// Named-node pointer hover via AT-SPI `GenerateMouseEvent("abs")` at
+    /// `Component.GetExtents` center. Never `--coords` or screenshot.
+    Hover {
+        target: TargetRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window: Option<isize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+    },
     SendText {
         target: TargetRef,
         text: String,
@@ -3084,6 +3095,8 @@ pub enum Command {
         window: Option<isize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         frame: Option<[i32; 4]>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect_geometry: Option<[i32; 2]>,
     },
     /// MCU `orderwin`: relative z-order. `above` raises `window`, `below`
     /// raises `relative`, through native show / macOS AXRaise. Linux is
@@ -4247,6 +4260,7 @@ impl Command {
             Self::PointerPosition { .. } => "pointer-position".into(),
             Self::Click { .. } => "click".into(),
             Self::Focus { .. } => "focus".into(),
+            Self::Hover { .. } => "hover".into(),
             Self::SendText { .. } => "send-text".into(),
             Self::ClipboardRead { .. } => "clipboard-read".into(),
             Self::ClipboardWrite { .. } => "clipboard-write".into(),
@@ -4672,6 +4686,7 @@ impl Command {
             | Self::PointerPosition { target, .. }
             | Self::Click { target, .. }
             | Self::Focus { target, .. }
+            | Self::Hover { target, .. }
             | Self::SendText { target, .. }
             | Self::ClipboardRead { target, .. }
             | Self::ClipboardWrite { target, .. }
@@ -4840,6 +4855,7 @@ impl Command {
             | Self::AppMenuInvoke { .. }
             | Self::Click { .. }
             | Self::Focus { .. }
+            | Self::Hover { .. }
             | Self::SendText { .. }
             | Self::Copy { .. }
             | Self::ClipboardWrite { .. }
@@ -8148,6 +8164,8 @@ mod tests {
             action: "frame".into(),
             window: Some(7),
             frame: Some([10, 20, 300, 200]),
+            expect_geometry: None,
+            expect_geometry: None,
         };
         assert_eq!(
             serde_json::to_value(&framed).expect("serialize"),

@@ -311,6 +311,7 @@ mod macos {
             action: "center".into(),
             window: None,
             frame: None,
+            expect_geometry: None,
         });
         if reply.ok {
             eprintln!("agenterm-cu host --self-test: window-place center ok");

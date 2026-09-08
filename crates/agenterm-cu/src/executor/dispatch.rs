@@ -2087,8 +2087,9 @@ impl Executor {
                 action,
                 window,
                 frame,
+                expect_geometry,
                 ..
-            } => window_place(action, *window, *frame),
+            } => window_place(action, *window, *frame, *expect_geometry),
             Command::OrderWin {
                 window,
                 relation,
