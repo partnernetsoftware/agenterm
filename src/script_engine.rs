@@ -1819,6 +1819,86 @@ return reply.ok + ":" + reply.command;
             .expect("embedded ACU entry and its reserved imports compile together");
     }
 
+    /// The retirement contract is about the compiled production closure, not
+    /// spelling in source files.  A source grep can be bypassed by aliases or
+    /// formatting and used to miss the inline `agenterm:acu` module entirely.
+    /// Decode the artifact emitted by the real product resolver and keep its
+    /// host door exact: argv/result/print plus the in-process ACU bridge, and
+    /// no `tool.process_*` import that could shell out to a second runtime.
+    #[cfg(feature = "script-acu-embedder")]
+    #[test]
+    fn embedded_acu_compiled_closure_has_only_the_exact_host_imports() {
+        let options = ScriptInvocationOptions {
+            tool_door: true,
+            ..ScriptInvocationOptions::default()
+        };
+        let resolve = qjs_module_resolver(&[]);
+        let wasm = compile_qjs_for(&options, AGENTERM_ACU_ENTRY_SOURCE, &resolve)
+            .expect("production ACU closure compiles");
+        assert_eq!(
+            wasm_function_import_names(&wasm),
+            [
+                "agenterm.print",
+                "agenterm.acu_call",
+                "agenterm.acu_result_len",
+                "agenterm.acu_result",
+                "tool.arg_count",
+                "tool.arg",
+                "tool.result_len",
+                "tool.result",
+            ]
+        );
+    }
+
+    #[cfg(feature = "script-acu-embedder")]
+    fn wasm_function_import_names(wasm: &[u8]) -> Vec<String> {
+        fn uleb(bytes: &[u8], at: &mut usize) -> usize {
+            let mut value = 0usize;
+            let mut shift = 0;
+            loop {
+                let byte = bytes[*at];
+                *at += 1;
+                value |= usize::from(byte & 0x7f) << shift;
+                if byte & 0x80 == 0 {
+                    return value;
+                }
+                shift += 7;
+            }
+        }
+
+        fn name(bytes: &[u8], at: &mut usize) -> String {
+            let len = uleb(bytes, at);
+            let value = std::str::from_utf8(&bytes[*at..*at + len])
+                .expect("Wasm import names are UTF-8")
+                .to_owned();
+            *at += len;
+            value
+        }
+
+        assert_eq!(&wasm[..8], b"\0asm\x01\0\0\0", "valid Wasm header");
+        let mut at = 8;
+        let mut imports = Vec::new();
+        while at < wasm.len() {
+            let section_id = wasm[at];
+            at += 1;
+            let section_len = uleb(wasm, &mut at);
+            let section_end = at + section_len;
+            if section_id == 2 {
+                let count = uleb(wasm, &mut at);
+                for _ in 0..count {
+                    let module = name(wasm, &mut at);
+                    let field = name(wasm, &mut at);
+                    assert_eq!(wasm[at], 0, "ACU closure imports functions only");
+                    at += 1;
+                    let _type_index = uleb(wasm, &mut at);
+                    imports.push(format!("{module}.{field}"));
+                }
+            }
+            at = section_end;
+        }
+        imports
+    }
+
     /// `check` and `execute` must agree about what the subset is.
     ///
     /// They compile through the same entry point, and this is the test that

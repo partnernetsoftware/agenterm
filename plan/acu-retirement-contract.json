@@ -15,12 +15,29 @@
   "production_scan_paths": [
     ".github",
     "scripts",
+    "skills/acu/acu.qjs",
+    ":(glob)skills/acu/lib/*.qjs",
+    "src/acu_provider.rs",
+    "src/script_engine.rs",
     "agenterm.tasks.json"
   ],
   "forbidden_production_patterns": [
-    "Bun\\.",
+    "Bun[.]",
     "#!/usr/bin/env bun",
     "from[[:space:]].*skills/mcu",
-    "require\\(.*skills/mcu"
+    "require[(].*skills/mcu"
+  ],
+  "embedded_acu_scan_paths": [
+    "skills/acu/acu.qjs",
+    ":(glob)skills/acu/lib/*.qjs"
+  ],
+  "forbidden_embedded_acu_patterns": [
+    "#!/usr/bin/env bun",
+    "Bun[.]",
+    "process_command[[:space:]]*[(]",
+    "process_command_stdout[[:space:]]*[(]",
+    "process_spawn[[:space:]]*[(]",
+    "from[[:space:]].*skills/mcu",
+    "require[(].*skills/mcu"
   ]
 }

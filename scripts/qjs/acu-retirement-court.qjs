@@ -145,6 +145,10 @@ const registered_evidence = {};
 harness.require(contract.schema === 1 && ledger.schema === 1, "retirement_contract_schema");
 harness.require(contract.platform_qualification_schema === 2,
   "retirement_platform_qualification_schema");
+harness.require(has_rows(contract.production_scan_paths)
+  && has_rows(contract.forbidden_production_patterns), "retirement_production_scan_contract");
+harness.require(has_rows(contract.embedded_acu_scan_paths)
+  && has_rows(contract.forbidden_embedded_acu_patterns), "retirement_embedded_acu_scan_contract");
 harness.require(Array.isArray(ledger.family_order) && ledger.family_order.length === 13, "retirement_family_order");
 harness.require(qualification_manifest.schema_version === 1, "retirement_qualification_schema");
 harness.require(host_native_manifest.schema_version === 1, "retirement_host_native_schema");
@@ -243,6 +247,21 @@ for (const pattern of contract.forbidden_production_patterns) {
     add(blockers, "production_dependency_forbidden", pattern);
   } else if (scan.exit_code !== 1) {
     add(blockers, "production_scan_failed", pattern + ":exit=" + scan.exit_code);
+  }
+}
+
+// `acu.qjs` is the compatibility surface, not a second runtime dispatcher.
+// Keep this narrower than the repository-wide scan: other qualification
+// scripts legitimately use bounded tool-process APIs, while this embedded
+// adapter must cross only the in-process `agenterm:acu` door.
+for (const pattern of contract.forbidden_embedded_acu_patterns) {
+  const grep_args = ["grep", "-n", "-I", "-E", pattern, "--"];
+  for (const path of contract.embedded_acu_scan_paths) { grep_args.push(path); }
+  const scan = rh.command("git", grep_args, { cwd: repo, timeout_ms: 30000 });
+  if (scan.exit_code === 0) {
+    add(blockers, "embedded_acu_dependency_forbidden", pattern);
+  } else if (scan.exit_code !== 1) {
+    add(blockers, "embedded_acu_scan_failed", pattern + ":exit=" + scan.exit_code);
   }
 }
 

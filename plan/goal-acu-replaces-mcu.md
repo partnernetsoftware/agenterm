@@ -199,6 +199,10 @@ artifacts. The build now uses independent serial Cargo invocations for the main
 executable, CU launcher, ABI library and CU provider; final-image inspection and
 both packaged-provider black boxes prove the main/ABI images no longer own the
 device-capture class and provider loading emits no warning.
+The real production resolver now compiles the complete embedded ACU module
+closure and its Wasm import table must equal the exact argv/result/print + ACU
+door allowlist. This semantic gate catches aliases and formatting that a grep
+cannot; the retirement source scan remains a cheap defense-in-depth alarm.
 Immutable Git
 blob ids preserve corpus provenance:
 CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical

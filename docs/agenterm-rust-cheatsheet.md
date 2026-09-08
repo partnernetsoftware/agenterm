@@ -4145,6 +4145,14 @@ cannot reinterpret trusted built-in bytes. Pass compatibility argv only after
 the script delimiter and preserve each token byte-for-byte; never recover the
 entry by searching the installation, repository, current directory, or PATH.
 
+Enforce a built-in closure's authority boundary on the compiled Wasm import
+table, not only with source grep. Aliases, line breaks and comments can bypass
+or confuse lexical call scans, and an inline built-in module may not live under
+the scanned filesystem path at all. Compile the real entry with the production
+resolver, decode its emitted imports independently of the compiler, and require
+an exact host-door allowlist. Keep source scanning as cheap defense in depth,
+not as proof that the compiled closure cannot reach a process door.
+
 ## Measure guest allocation below the page granularity
 
 Linear-memory pages are a budget receipt, not an allocation-lifetime trace: a

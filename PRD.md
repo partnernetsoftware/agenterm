@@ -150,7 +150,9 @@ AgenTerm — local agent & process fleet work OS
 │     │                       Linux x86_64 389,096 B，但 12 类 binary entry parity 尚红，未晋级
 │     ├─ Bun-free bridge [~]     `skills/acu/acu.qjs` 已以 bounded argv helper +
 │     │                       `agenterm:acu.argv` 跑通 native spelling；QJS→CU Executor 之间无
-│     │                       shell/child/fallback（公共 CLI 仍用通用 Script Worker 隔离）。冻结 42 个合法 legacy probe 已全部
+│     │                       shell/child/fallback（公共 CLI 仍用通用 Script Worker 隔离）；退休 court
+│     │                       编译完整内嵌 closure，并以 Wasm import 精确白名单拒绝 Bun/MCU/tool-process
+│     │                       逃逸；源码扫描只作低成本纵深防线。冻结 42 个合法 legacy probe 已全部
 │     │                       映射；`kill PID` 仍以 process-state → identity-bound process-kill 两段
 │     │                       typed 调用执行。95 条动态 witness 的 31 条 resolved 已全部清账：
 │     │                       18 exec + 8 compound + 5 usage；2 条 dynamic-stay witness 与 11 类此前

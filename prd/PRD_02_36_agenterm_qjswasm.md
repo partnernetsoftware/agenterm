@@ -67,6 +67,8 @@ agenterm-qjswasm
 │  │  │  ├─ 31 resolved rows: 18 exec · 8 compound · 5 usage · 0 TODO
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
 │  │  │  └─ no Bun, executable discovery, CU child process, repository cwd or MCU fallback
+│  │  │     the real production resolver compiles the complete closure; an exact Wasm-import allowlist is the
+│  │  │     semantic gate, while retirement source scans remain cheap defense in depth
 │  │  ├─ no shell-out fallback or duplicated machine-control mechanism
 │  │  ├─ MCU-absent black-box parity precedes switching the default entry
 │  │  └─ generic tinyvm remains free of AgenTerm machine-control authority
