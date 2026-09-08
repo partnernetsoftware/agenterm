@@ -22,7 +22,7 @@ pub(crate) fn enumerate_native(
             "-J",
             "-b",
             "-o",
-            "NAME,KNAME,PATH,TYPE,SIZE,ROTA,RO,RM,TRAN,MODEL,STATE",
+            "NAME,KNAME,PATH,TYPE,SIZE,ROTA,RO,RM,TRAN,MODEL,STATE,HOTPLUG",
         ],
         None,
         deadline,
@@ -122,29 +122,80 @@ fn parse_device(
     let id = bounded_text(record.get("kname"), "kernel device name")?
         .or(bounded_text(record.get("name"), "device name")?)
         .ok_or_else(|| malformed("kernel device name"))?;
+    let kind = bounded_text(record.get("type"), "device kind")?;
+    let bus = bounded_text(record.get("tran"), "transport")?;
     let name = bounded_text(record.get("model"), "device model")?
-        .or(bounded_text(record.get("name"), "device name")?)
+        .or_else(|| display_name(kind.as_deref(), bus.as_deref(), &id))
         .unwrap_or_else(|| id.clone());
-    let health = bounded_text(record.get("state"), "device state")?;
     let rotating = optional_bool(record.get("rota"), "rotating flag")?;
+    let removable = optional_bool(record.get("rm"), "removable flag")?;
+    let hotplug = optional_bool(record.get("hotplug"), "hotplug flag")?;
+    let operational = operational_state(record.get("state"))?;
+    let virtual_device = infer_virtual_device(kind.as_deref(), bus.as_deref());
     Ok(StorageDevice {
         id,
         node: bounded_text(record.get("path"), "device node")?,
         name,
-        kind: bounded_text(record.get("type"), "device kind")?,
+        kind,
         size_bytes: optional_u64(record.get("size"), "device size")?,
-        media_type: None,
-        bus: bounded_text(record.get("tran"), "transport")?,
-        health_semantics: health.as_ref().map(|_| "lsblk-state"),
-        health,
-        operational: Vec::new(),
-        internal: None,
-        removable: optional_bool(record.get("rm"), "removable flag")?,
-        ejectable: None,
+        media_type: media_type_from_rotating(rotating),
+        bus,
+        health_semantics: None,
+        health: None,
+        operational,
+        internal: removable.map(|value| !value),
+        removable,
+        ejectable: ejectable_from_flags(removable, hotplug),
         solid_state: rotating.map(|value| !value),
         read_only: optional_bool(record.get("ro"), "read-only flag")?,
-        virtual_device: None,
+        virtual_device,
     })
+}
+
+fn display_name(kind: Option<&str>, bus: Option<&str>, id: &str) -> Option<String> {
+    let label = match (kind, bus) {
+        (Some(kind), Some(bus)) => format!("{bus} {kind}"),
+        (Some(kind), None) => kind.to_owned(),
+        (None, Some(bus)) => bus.to_owned(),
+        (None, None) => return None,
+    };
+    Some(format!("{label} {id}"))
+}
+
+fn media_type_from_rotating(rotating: Option<bool>) -> Option<String> {
+    rotating.map(|value| {
+        if value {
+            "rotational".to_owned()
+        } else {
+            "solid-state".to_owned()
+        }
+    })
+}
+
+fn infer_virtual_device(kind: Option<&str>, bus: Option<&str>) -> Option<bool> {
+    if kind == Some("loop") {
+        return Some(true);
+    }
+    match bus {
+        Some("virtio") | Some("vhost") => Some(true),
+        Some("sata") | Some("sas") | Some("ata") | Some("scsi") | Some("usb") | Some("nvme") => {
+            Some(false)
+        }
+        _ => None,
+    }
+}
+
+fn ejectable_from_flags(removable: Option<bool>, hotplug: Option<bool>) -> Option<bool> {
+    match (removable, hotplug) {
+        (Some(true), Some(true)) => Some(true),
+        (Some(true), Some(false)) => Some(false),
+        (Some(false), _) => Some(false),
+        _ => None,
+    }
+}
+
+fn operational_state(value: Option<&Value>) -> Result<Vec<String>, StorageDeviceError> {
+    Ok(bounded_text(value, "device state")?.into_iter().collect())
 }
 
 #[cfg(test)]
@@ -153,13 +204,28 @@ mod tests {
 
     #[test]
     fn hierarchy_is_flattened_with_exact_large_capacity() {
-        let raw = br#"{"blockdevices":[{"name":"sda","kname":"sda","path":"/dev/sda","type":"disk","size":9007199254740993,"rota":false,"ro":false,"rm":false,"tran":"nvme","model":"Example","state":"running","children":[{"name":"sda1","kname":"sda1","path":"/dev/sda1","type":"part","size":"4096"}]}]}"#;
+        let raw = br#"{"blockdevices":[{"name":"sda","kname":"sda","path":"/dev/sda","type":"disk","size":9007199254740993,"rota":false,"ro":false,"rm":false,"tran":"nvme","model":"Example","state":"running","hotplug":false,"children":[{"name":"sda1","kname":"sda1","path":"/dev/sda1","type":"part","size":"4096"}]}]}"#;
         let inventory = parse_inventory(raw).unwrap();
         assert_eq!(inventory.visited, 2);
         assert_eq!(inventory.devices[0].size_bytes, Some(9_007_199_254_740_993));
         assert_eq!(inventory.devices[0].solid_state, Some(true));
+        assert_eq!(inventory.devices[0].media_type.as_deref(), Some("solid-state"));
+        assert_eq!(inventory.devices[0].virtual_device, Some(false));
+        assert_eq!(inventory.devices[0].operational, ["running"]);
         assert_eq!(inventory.devices[1].size_bytes, Some(4_096));
         assert!(!inventory.complete); // the facade establishes completeness
+    }
+
+    #[test]
+    fn virtio_disks_are_virtual_with_transport_fallback_name() {
+        let raw = br#"{"blockdevices":[{"name":"vda","kname":"vda","path":"/dev/vda","type":"disk","size":128,"rota":true,"ro":false,"rm":false,"tran":"virtio","model":null,"state":null,"hotplug":false}]}"#;
+        let device = parse_inventory(raw).unwrap().devices[0];
+        assert_eq!(device.name, "virtio disk vda");
+        assert_eq!(device.virtual_device, Some(true));
+        assert_eq!(device.internal, Some(true));
+        assert_eq!(device.media_type.as_deref(), Some("rotational"));
+        assert!(device.health.is_none());
+        assert!(device.operational.is_empty());
     }
 
     #[test]
