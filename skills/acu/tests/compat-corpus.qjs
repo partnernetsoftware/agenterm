@@ -16,6 +16,20 @@ require(corpus.schema === "agenterm.acu.compat-corpus.v1", "compat corpus schema
 require(corpus.dynamic_rows.length === 95, "dynamic corpus count");
 require(corpus.positive_rows.length === 42, "positive corpus count");
 
+const corpus_gap_ids = [];
+for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
+  corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
+}
+require(compat.LEGACY_TODO_GAP_IDS.length === 11,
+  "legacy TODO catalog count drifted from the reviewed archive");
+for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
+  const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
+  require(corpus_gap_ids.includes(gap_id),
+    "legacy TODO catalog id is absent from frozen corpus: " + gap_id);
+  require(compat.LEGACY_TODO_GAP_IDS.indexOf(gap_id) === i,
+    "legacy TODO catalog id is duplicated: " + gap_id);
+}
+
 let executable = 0;
 let explicit_todo = 0;
 for (let i = 0; i < corpus.positive_rows.length; i = i + 1) {
@@ -177,4 +191,45 @@ require(space_with_unmapped_filter.kind === "todo", "unmapped watch filter remai
 require(space_with_unmapped_filter.gap_id === "acu.dynamic.084",
   "unmapped watch filter keeps stable dynamic id");
 
-"compat-corpus.qjs PASS 42 positive exec / 31 resolved dispositions (18 exec + 8 compound + 5 usage) / 2 dynamic TODO / 2 permanent rejections / 95 frozen";
+function todo_case(argv, gap_id, label) {
+  const mapped = compat.canonicalize(argv);
+  require(mapped.kind === "todo", label + " must be a typed TODO");
+  require(mapped.gap_id === gap_id, label + " gap=" + mapped.gap_id);
+}
+
+todo_case(["drag", "10", "20", "30", "40", "--to", "Window#1"],
+  "acu.dynamic.004", "legacy drag");
+todo_case(["zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4"],
+  "acu.dynamic.005", "legacy zoom");
+todo_case(["job", "resources", "job-1", "--generation", "7", "--interval", "1"],
+  "acu.dynamic.018", "legacy job resources");
+todo_case(["resource", "pressure"], "acu.dynamic.051", "legacy resource");
+todo_case(["device", "claim", "legacy-device-path"], "acu.dynamic.054", "legacy device claim");
+todo_case(["storage", "mount", "disk-1"], "acu.dynamic.057", "legacy storage mount");
+todo_case(["privilege", "plan", "process.signal", "42", "TERM"],
+  "acu.dynamic.058", "legacy privilege plan");
+todo_case(["browser", "bridge", "status"], "acu.dynamic.075", "legacy browser bridge");
+todo_case(["elements", "Window#1", "--actionable", "true"],
+  "acu.dynamic.078", "legacy elements projection");
+todo_case(["observe", "Window#1", "--action", "press"],
+  "acu.dynamic.081", "legacy observe filter");
+todo_case(["windows", "--space", "7", "--occluded", "true"],
+  "acu.dynamic.085", "legacy windows Space filter");
+
+require(compat.canonicalize(["unknown-verb"]).kind === "exec",
+  "ordinary unknown spelling must reach native usage, not TODO");
+require(compat.canonicalize(["job", "resorces", "job-1"]).kind === "exec",
+  "ordinary unknown subcommand must reach native usage, not TODO");
+
+require(compat.canonicalize(["drag", "--window", "41", "--from", "1,2", "--to", "3,4"]).kind === "exec",
+  "native drag shape must remain direct");
+require(compat.canonicalize(["zoom", "--window", "41", "--region", "1,2,3,4", "--out", "zoom.png"]).kind === "exec",
+  "native zoom shape must remain direct");
+require(tree_value_bound.kind === "exec", "native tree value shape must remain direct");
+require(exact_profile_tabs.kind === "exec", "native browser profile id must remain direct");
+require(compat.canonicalize(["observe", "Window#1", "--role", "Button"]).kind === "observe-roles",
+  "resolved observe role projection must remain direct");
+require(compat.canonicalize(["windows", "--space", "7"]).kind === "windows-space-page",
+  "resolved windows Space projection must remain direct");
+
+"compat-corpus.qjs PASS frozen corpus + legacy TODO boundary coverage";

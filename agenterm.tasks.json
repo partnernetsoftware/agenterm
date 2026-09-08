@@ -2798,6 +2798,24 @@
         "task.acu-compat-corpus"
       ]
     },
+    "acu-compat-todo-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "acu-compatibility-corpus"
+      ],
+      "outputs": [
+        "acu-compat-todo-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-compat-todo-smoke"
+      ]
+    },
     "acu-compound-projection": {
       "inputs": [
         "acu-compound-fixtures"
@@ -5721,6 +5739,25 @@
         "macos"
       ],
       "side_effects": []
+    },
+    {
+      "id": "acu-compat-todo-smoke",
+      "description": "Prove archived legacy shapes return stable acu_todo identities before dispatch while unknown spellings remain ordinary native usage errors.",
+      "entry": "scripts/qjs/acu-compat-todo-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "target/debug/agenterm"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
     },
     {
       "id": "acu-compound-projection",

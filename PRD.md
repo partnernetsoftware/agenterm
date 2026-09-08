@@ -153,8 +153,8 @@ AgenTerm — local agent & process fleet work OS
 │     │                       shell/child/fallback（公共 CLI 仍用通用 Script Worker 隔离）。冻结 42 个合法 legacy probe 已全部
 │     │                       映射；`kill PID` 仍以 process-state → identity-bound process-kill 两段
 │     │                       typed 调用执行。95 条动态 witness 的 31 条 resolved 已全部清账：
-│     │                       18 exec + 8 compound + 5 usage；2 条 dynamic-stay witness 继续按稳定
-│     │                       gap_id 修复；剩余两条是窗口局部滚轮与后台 hover，均禁止移动真指针
+│     │                       18 exec + 8 compound + 5 usage；2 条 dynamic-stay witness 与 11 类此前
+│     │                       裸 `usage` 的已知旧形状现均返回稳定 gap_id；未知拼写仍是普通 usage
 │     ├─ retirement             MCU 立即退出生产入口；TODO 动态补 ACU。调用者迁到 typed
 │     │                       `acu` 对象后，过渡 `acu.qjs` 也可归档
 │     ├─ active frontier        先补齐 MCU 必需能力与原生证据；实时数量只认
@@ -288,7 +288,7 @@ flowchart LR
   ACUSIZE{"dynamic provider court<br/>Windows PE ≤ 4 MiB?"}
   ACUDYN["fixed sibling provider<br/>ABI checked · no fallback<br/>separate signed artifact"]
   ACULAUNCH["standalone thin launcher [~]<br/>same provider · full entry parity<br/>Linux 4 MiB / Windows 2 MiB"]
-  ACUQJS["agenterm cli acu [~]<br/>embedded · Bun-free · any cwd<br/>42/42 positive · 31 resolved · 2 TODO"]
+  ACUQJS["agenterm cli acu [~]<br/>embedded · Bun-free · any cwd<br/>42/42 positive · typed TODO queue"]
   TODO["acu_todo ALERT<br/>stable gap id · explicit missing behavior"]
   MCUARC["archived MCU source<br/>read-only implementation reference"]
   BRIDGE["stable MV3 profile<br/>exact-tab lock · unique reconnect"]

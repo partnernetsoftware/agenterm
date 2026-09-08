@@ -15,6 +15,18 @@ export const LEGACY_TOP_LEVEL = [
   "resource"
 ];
 
+// Stable ids for argument-sensitive legacy shapes that are still meaningful
+// but cannot be forwarded to a same-named native command without changing
+// their contract. The compatibility-corpus test locks these ids to the frozen
+// archive; unknown spellings are deliberately absent and continue to native
+// usage handling.
+export const LEGACY_TODO_GAP_IDS = [
+  "acu.dynamic.004", "acu.dynamic.005", "acu.dynamic.018",
+  "acu.dynamic.051", "acu.dynamic.054", "acu.dynamic.057",
+  "acu.dynamic.058", "acu.dynamic.075", "acu.dynamic.078",
+  "acu.dynamic.081", "acu.dynamic.085"
+];
+
 function contains(values, wanted) {
   for (let i = 0; i < values.length; i = i + 1) {
     if (values[i] === wanted) { return true; }
@@ -36,6 +48,13 @@ function exec_with_prefix(prefix, argv) {
 function has_arg(argv, wanted) {
   for (let i = 0; i < argv.length; i = i + 1) {
     if (argv[i] === wanted || argv[i].startsWith(wanted + "=")) { return true; }
+  }
+  return false;
+}
+
+function has_any_arg(argv, wanted) {
+  for (let i = 0; i < wanted.length; i = i + 1) {
+    if (has_arg(argv, wanted[i])) { return true; }
   }
   return false;
 }
@@ -146,6 +165,51 @@ function compound_plan(kind, command, fields) {
 function known_dynamic_boundary(argv) {
   const verb = argv[0];
   const sub = argv.length > 1 ? argv[1] : undefined;
+  if (verb === "drag" && has_arg(argv, "--to")
+      && !(has_arg(argv, "--window") && has_arg(argv, "--from"))) {
+    return todo("acu.dynamic.004", "drag",
+      "legacy window-local drag coordinates need a lossless typed adapter");
+  }
+  if (verb === "zoom" && has_any_arg(argv, ["--x1", "--y1", "--x2", "--y2"])) {
+    return todo("acu.dynamic.005", "zoom",
+      "legacy window-local corner coordinates need a lossless typed adapter");
+  }
+  if (verb === "job" && sub === "resources"
+      && has_any_arg(argv, ["--interval", "--max-samples", "--top", "--max"])) {
+    return todo("acu.dynamic.018", "job",
+      "legacy job resource sampling options need a typed adapter");
+  }
+  if (verb === "device" && sub === "claim" && argv.length >= 3) {
+    return todo("acu.dynamic.054", "device",
+      "legacy raw-path device claims are not lossless aliases of opaque device ids");
+  }
+  if (verb === "storage" && (sub === "mount" || sub === "unmount" || sub === "eject")) {
+    return todo("acu.dynamic.057", "storage",
+      "legacy storage volume operations need a typed adapter");
+  }
+  if (verb === "privilege" && sub === "plan" && argv.length >= 3
+      && argv[2] === "process.signal") {
+    return todo("acu.dynamic.058", "privilege",
+      "legacy privileged process signals need a typed plan adapter");
+  }
+  if (verb === "browser" && (sub === "open" || sub === "bridge"
+      || sub === "profile" || sub === "nav")) {
+    return todo("acu.dynamic.075", "browser",
+      "legacy browser profile and bridge shapes need an exact native identity binding");
+  }
+  if ((verb === "tree" || verb === "elements")
+      && has_any_arg(argv, ["--actionable", "--index", "--offset", "--max"])) {
+    return todo("acu.dynamic.078", verb,
+      "legacy actionable or index-space tree projection needs a typed adapter");
+  }
+  if (verb === "observe" && has_any_arg(argv, [
+      "--action", "--text", "--enabled", "--focused", "--selected", "--checked",
+      "--expanded", "--required", "--actionable", "--min-depth", "--max-depth",
+      "--within", "--offset", "--max"
+    ])) {
+    return todo("acu.dynamic.081", "observe",
+      "legacy observe filters need a lossless event-stream projection");
+  }
   if (verb === "simulator" && sub === "status") {
     const parsed = without_value_flags(argv, ["device"]);
     if (!parsed.ok) { return { kind: "usage", command: "simulator", message: parsed.message }; }
@@ -313,6 +377,12 @@ function known_dynamic_boundary(argv) {
     return { kind: "exec", argv: native };
   }
   if (verb === "windows" && sub !== "watch" && has_arg(argv, "--space")) {
+    if (has_any_arg(argv, ["--ax-meta", "--ax-role", "--ax-subrole",
+        "--ax-identifier", "--ax-scan-max", "--onscreen", "--occluded",
+        "--all", "--type"])) {
+      return todo("acu.dynamic.085", "windows",
+        "legacy Space inventory filters need a lossless typed projection");
+    }
     const parsed = without_value_flags(argv, ["space", "offset", "max"]);
     if (!parsed.ok) { return { kind: "usage", command: "windows", message: parsed.message }; }
     const offset = optional_integer(parsed.values.offset, 0, "windows --offset");

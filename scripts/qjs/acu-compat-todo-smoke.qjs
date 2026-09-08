@@ -1,0 +1,65 @@
+// Public CLI black box for legacy compatibility gaps. Every listed command is
+// intercepted before native dispatch, so this court performs no GUI, browser,
+// device, storage, privilege, job or pointer operation.
+//
+// Args: AGENTERM_LAUNCHER
+import * as rh from "lib/rh_compat";
+
+function require_ok(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function run(launcher, argv) {
+  const command = ["cli", "acu"];
+  for (let i = 0; i < argv.length; i = i + 1) { command.push(argv[i]); }
+  const result = rh.command(launcher, command, {
+    env: { AGENTERM_NO_ACTIVATE: "1" }, timeout_ms: 30000
+  });
+  require_ok(!result.timed_out && result.exit_code === 2,
+    "acu_compat_exit:" + argv[0] + ":" + result.stderr);
+  return JSON.parse(result.stdout.trim());
+}
+
+function require_todo(launcher, argv, gap_id) {
+  const reply = run(launcher, argv);
+  require_ok(reply.ok === false && reply.alert === "ACU_CAPABILITY_TODO",
+    "acu_compat_alert:" + gap_id);
+  require_ok(reply.error !== null && reply.error.code === "acu_todo"
+      && reply.error.gap_id === gap_id,
+    "acu_compat_gap:" + gap_id + ":" + JSON.stringify(reply));
+  require_ok(reply.error.todo !== null && reply.error.todo.id === gap_id
+      && reply.error.todo.status === "open",
+    "acu_compat_todo:" + gap_id);
+}
+
+const args = rh.args();
+require_ok(args.length === 1, "expected: AGENTERM_LAUNCHER");
+const launcher = rh.absolute(args[0]);
+require_ok(rh.exists(launcher) && rh.metadata(launcher).is_file,
+  "acu_compat_launcher_missing");
+
+const cases = [
+  [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
+  [["zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4"], "acu.dynamic.005"],
+  [["job", "resources", "job-1", "--generation", "7", "--interval", "1"], "acu.dynamic.018"],
+  [["resource", "pressure"], "acu.dynamic.051"],
+  [["device", "claim", "legacy-device-path"], "acu.dynamic.054"],
+  [["storage", "mount", "disk-1"], "acu.dynamic.057"],
+  [["privilege", "plan", "process.signal", "42", "TERM"], "acu.dynamic.058"],
+  [["browser", "bridge", "status"], "acu.dynamic.075"],
+  [["elements", "Window#1", "--actionable", "true"], "acu.dynamic.078"],
+  [["observe", "Window#1", "--action", "press"], "acu.dynamic.081"],
+  [["windows", "--space", "7", "--occluded", "true"], "acu.dynamic.085"]
+];
+for (let i = 0; i < cases.length; i = i + 1) {
+  require_todo(launcher, cases[i][0], cases[i][1]);
+}
+
+const typo = run(launcher, ["unknown-verb"]);
+require_ok(typo.error.code === "usage" && typo.alert === undefined
+    && typo.error.todo === undefined,
+  "unknown spelling must remain usage, not TODO");
+
+print("EVIDENCE acu.compat-todo-boundary");
+print("PASS: legacy compatibility gaps returned structured acu_todo without dispatch");
+return;

@@ -137,7 +137,11 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   rejections. The 31 resolved witnesses now have an executable disposition:
   18 direct exec, 8 Bun-free compound projections, and 5 local usage refusals; no resolved
   row remains TODO. All 95 dynamic witnesses remain frozen, and the 2 remaining
-  dynamic-stay witness rows keep their stable repair identities. The `.050` witness now
+  dynamic-stay witness rows keep their stable repair identities. A public black-box
+  compatibility court additionally proves 11 known argument-sensitive legacy shapes
+  return `ACU_CAPABILITY_TODO` with their exact `gap_id` instead of falling through to
+  naked native `usage`; unknown verbs and misspelled subcommands deliberately remain
+  ordinary usage errors. The `.050` witness now
   maps to native exact simulator app status, `.072` maps exact application facts through
   the Linux provider without borrowing window evidence, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
