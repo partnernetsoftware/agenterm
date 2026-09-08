@@ -148,7 +148,6 @@
         "cu.linux-process-lifecycle-watch",
         "cu.linux-network-probe",
         "cu.linux-file-inspect",
-        "cu.linux-file-inspect-readback",
         "cu.linux-terminal-control",
         "cu.linux-external-terminal-observe",
         "cu.linux-atspi-tree-geometry",
