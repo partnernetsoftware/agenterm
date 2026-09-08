@@ -316,6 +316,8 @@ const evidence_suites = {
   "cu-linux-device-inventory-smoke": true,
   "cu-linux-fontconfig-monospace-smoke": true,
   "cu-linux-local-clock-smoke": true,
+  "cu-linux-clipboard-utf8-smoke": true,
+  "cu-linux-capabilities-honesty-smoke": true,
   "cu-linux-boot-identity-smoke": true,
   "cu-linux-login-session-smoke": true,
   "cu-linux-app-facts-smoke": true,

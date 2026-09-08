@@ -1,0 +1,216 @@
+// CEO: Linux clipboard-write/read UTF-8 honesty on X11.
+// Acceptance is independent clipboard-read --type after clipboard-write with
+// matching type, bytes, sha256 and value; default text view must agree.
+// Optional xclip/xsel cross-check when present, otherwise a typed gap.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-clipboard-utf8-roundtrip",
+];
+
+const text_type = "text/plain;charset=utf-8";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function flag_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current === true;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke(run_directory, executable, grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_clipboard_utf8_exit:" + arguments[0] + ":" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === true, "cu_linux_clipboard_utf8_reply:" + arguments[0] + ":" + JSON.stringify(reply));
+  return reply;
+}
+
+function digest_of_text(run_directory, name, text) {
+  const path = rh.join(run_directory, name);
+  rh.write_text(path, text);
+  return rh.sha256_file(path);
+}
+
+function command_on_path(name) {
+  const output = rh.command("sh", ["-c", "command -v " + name], { timeout_ms: 5000 });
+  return output.success && output.stdout.trim() !== "";
+}
+
+function independent_clipboard_text(executable, tool) {
+  const env = cu_env(executable);
+  if (tool === "xclip") {
+    const output = rh.command("xclip", ["-selection", "clipboard", "-o"], {
+      env: env,
+      timeout_ms: 10000,
+    });
+    return output.success ? output.stdout : null;
+  }
+  if (tool === "xsel") {
+    const output = rh.command("xsel", ["--clipboard", "--output"], {
+      env: env,
+      timeout_ms: 10000,
+    });
+    return output.success ? output.stdout : null;
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_linux_clipboard_utf8_executable_missing:" + executable);
+ensure(rh.env_or("DISPLAY", "") !== "", "cu_linux_clipboard_utf8_display_missing");
+
+const context = harness.new_context(repo, "cu-linux-clipboard-utf8");
+let succeeded = 0;
+let failure = "";
+let mutated = false;
+try {
+  print("STEP clear clipboard to admitted empty initial state");
+  invoke(context.run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
+  const empty = invoke(context.run_directory, executable, "observe", ["clipboard-read", "--metadata-only"]);
+  ensure(flag_at(empty, "data.types_available") && empty.data.types.length === 0,
+         "cu_linux_clipboard_utf8_not_empty:" + JSON.stringify(empty.data));
+
+  const token = "CEO-utf8-" + context.run_id + " ≠ 你好\n";
+  const digest = digest_of_text(context.run_directory, "token.txt", token);
+  mutated = true;
+
+  print("STEP clipboard-write disposable UTF-8 token");
+  const write = invoke(context.run_directory, executable, "actuate", [
+    "clipboard-write", "--type", text_type, "--text", token,
+  ]);
+  ensure(write.command === "clipboard-write" && text_at(write, "data.type") === text_type,
+         "cu_linux_clipboard_utf8_write_identity");
+  ensure(flag_at(write, "data.verified") && text_at(write, "data.sha256") === digest,
+         "cu_linux_clipboard_utf8_write_verified:" + JSON.stringify(write.data));
+  const write_bytes = Number(text_at(write, "data.bytes"));
+  ensure(write_bytes > 0, "cu_linux_clipboard_utf8_write_bytes");
+
+  print("STEP independent clipboard-read --type text/plain;charset=utf-8");
+  const typed = invoke(context.run_directory, executable, "observe", [
+    "clipboard-read", "--type", text_type,
+  ]);
+  ensure(text_at(typed, "data.type") === text_type,
+         "cu_linux_clipboard_utf8_read_type");
+  ensure(text_at(typed, "data.sha256") === digest && text_at(typed, "data.value") === token,
+         "cu_linux_clipboard_utf8_read_digest:" + JSON.stringify(typed.data));
+  ensure(text_at(typed, "data.encoding") === "utf8",
+         "cu_linux_clipboard_utf8_read_encoding:" + text_at(typed, "data.encoding"));
+  ensure(Number(text_at(typed, "data.bytes")) === write_bytes,
+         "cu_linux_clipboard_utf8_read_bytes");
+
+  print("STEP default clipboard-read text view agrees with typed read-back");
+  const text_view = invoke(context.run_directory, executable, "observe", ["clipboard-read"]);
+  ensure(text_at(text_view, "data.text") === token && text_at(text_view, "data.format") === text_type,
+         "cu_linux_clipboard_utf8_text_view:" + JSON.stringify(text_view.data));
+  ensure(Number(text_at(text_view, "data.bytes")) === write_bytes,
+         "cu_linux_clipboard_utf8_text_view_bytes");
+
+  print("STEP inventory lists UTF-8 flavour without reading payload bytes");
+  const inventory = invoke(context.run_directory, executable, "observe", ["clipboard-read", "--metadata-only"]);
+  ensure(flag_at(inventory, "data.payload_read") === false,
+         "cu_linux_clipboard_utf8_inventory_payload_leak");
+  const types = inventory.data.types;
+  ensure(Array.isArray(types) && (types.indexOf(text_type) >= 0 || types.indexOf("UTF8_STRING") >= 0),
+         "cu_linux_clipboard_utf8_inventory_types:" + JSON.stringify(types));
+
+  let cross_checked = false;
+  for (const tool of ["xclip", "xsel"]) {
+    if (!command_on_path(tool)) { continue; }
+    print("STEP independent " + tool + " cross-check");
+    const host_text = independent_clipboard_text(executable, tool);
+    ensure(host_text === token, "cu_linux_clipboard_utf8_" + tool + "_mismatch:"
+           + JSON.stringify({ expected: token, host: host_text }));
+    cross_checked = true;
+    break;
+  }
+  if (!cross_checked) {
+    print("STEP typed-gap: no xclip/xsel on PATH; clipboard-read --type digest read-back is the acceptance path");
+  }
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (mutated) {
+  try {
+    print("STEP clear back to empty and re-verify");
+    invoke(context.run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
+    const back = invoke(context.run_directory, executable, "observe", ["clipboard-read", "--metadata-only"]);
+    ensure(back.data.types.length === 0, "cu_linux_clipboard_utf8_restore_empty");
+  } catch (error) {
+    if (failure === "") { failure = "" + error; } else { failure = failure + "; restore: " + error; }
+    succeeded = 0;
+  }
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-clipboard-utf8-roundtrip");
+  harness.remove_run(context);
+  print("PASS: Linux clipboard-write/read UTF-8 roundtrip with independent typed read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

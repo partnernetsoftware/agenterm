@@ -1795,6 +1795,41 @@
         "task.cu-linux-local-clock-smoke"
       ]
     },
+    "cu-linux-clipboard-utf8-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-clipboard-utf8-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-clipboard-utf8-smoke"
+      ]
+    },
+    "cu-linux-capabilities-honesty-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-capabilities-honesty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-capabilities-honesty-smoke"
+      ]
+    },
     "cu-linux-boot-identity-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -6495,6 +6530,43 @@
       "id": "cu-linux-local-clock-smoke",
       "description": "Prove Linux capabilities host_clock utc_offset and local civil time match independent date +%z read-back and stay stable across repeated observations; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-local-clock-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-clipboard-utf8-smoke",
+      "description": "Prove Linux clipboard-write UTF-8 disposable token round-trips through independent clipboard-read --type with matching bytes, sha256 and value on X11; optional xclip/xsel cross-check or typed gap when absent; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-clipboard-utf8-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-capabilities-honesty-smoke",
+      "description": "Prove Linux capabilities matrix present/absent status for a bounded verb set matches independent AT-SPI, cgroup, ip, inotify, X11, proc, desktop-entry and D-Bus host probes; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-capabilities-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

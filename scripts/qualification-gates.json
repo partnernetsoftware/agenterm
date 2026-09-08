@@ -562,6 +562,18 @@
       ]
     },
     {
+      "id": "cu-linux-clipboard-utf8-smoke",
+      "evidence": [
+        "cu.linux-clipboard-utf8-roundtrip"
+      ]
+    },
+    {
+      "id": "cu-linux-capabilities-honesty-smoke",
+      "evidence": [
+        "cu.linux-capabilities-honesty-readback"
+      ]
+    },
+    {
       "id": "cu-linux-boot-identity-smoke",
       "evidence": [
         "cu.linux-boot-identity-readback"
