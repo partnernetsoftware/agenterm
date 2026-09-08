@@ -37,6 +37,16 @@ impl ProfileWindow {
     }
 }
 
+/// Top-level handles of one catalog browser, in inventory order.
+fn catalog_app_handles(app: &BrowserApp) -> Result<Vec<(isize, String)>, CuError> {
+    let windows = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    Ok(windows
+        .iter()
+        .filter(|window| profiles::window_matches_catalog_app(&window.app_name, app))
+        .map(|window| (window.handle, window.title.clone()))
+        .collect())
+}
+
 /// Every window of `app` that carries a profile name, in inventory order. On
 /// Linux this can attribute Chromium windows whose
 /// titles omit the profile suffix when `entries` makes the owner obvious.
@@ -290,6 +300,10 @@ pub(super) fn browser_open_payload(
         .filter(|window| window.profile == entry.name)
         .collect();
     let before_json: Vec<serde_json::Value> = before.iter().map(ProfileWindow::json).collect();
+    let catalog_handles_before: std::collections::HashSet<isize> = catalog_app_handles(app)?
+        .into_iter()
+        .map(|(handle, _)| handle)
+        .collect();
     // The strips of the profile's windows before the launch, so the reply
     // can say which tab the URL became (the selected tab the strip gained).
     let strips_before: Vec<(isize, Vec<TabRow>)> = before
@@ -403,6 +417,24 @@ pub(super) fn browser_open_payload(
                                 profile: changed.profile.clone(),
                             },
                             false,
+                        ));
+                    } else if before.is_empty()
+                        && cfg!(target_os = "linux")
+                        && let Ok(raw) = catalog_app_handles(app)
+                        && let Some((handle, title)) = raw
+                            .into_iter()
+                            .find(|(handle, _)| !catalog_handles_before.contains(handle))
+                    {
+                        // Linux titles often omit the profile suffix, so a
+                        // first open of a non-last-used profile is closed by
+                        // a new catalog window handle instead of name join.
+                        hit = Some((
+                            ProfileWindow {
+                                handle,
+                                title,
+                                profile: entry.name.clone(),
+                            },
+                            true,
                         ));
                     }
                 }

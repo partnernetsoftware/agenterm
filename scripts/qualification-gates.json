@@ -555,6 +555,13 @@
       ]
     },
     {
+      "id": "cu-linux-browser-profiles-open-smoke",
+      "evidence": [
+        "cu.linux-browser-profiles-installed",
+        "cu.linux-browser-open-window"
+      ]
+    },
+    {
       "id": "cu-tree-selector-smoke",
       "evidence": [
         "cu.tree-selector-subtree"

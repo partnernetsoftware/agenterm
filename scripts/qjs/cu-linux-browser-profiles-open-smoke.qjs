@@ -1,0 +1,219 @@
+// CEO: Linux browser-profiles (installed Local State, no live profile window)
+// plus browser-open with independent windows inventory read-back.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-browser-profiles-installed",
+  "cu.linux-browser-open-window",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function isolated_env(run_directory) {
+  const env = {
+    HOME: run_directory,
+    XDG_CONFIG_HOME: rh.join(run_directory, ".config"),
+    XDG_DATA_HOME: rh.join(run_directory, ".data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_linux_browser_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_browser_empty");
+  const document = JSON.parse(trimmed);
+  ensure(flag_at(document, "ok"), "cu_linux_browser_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function profile_row(data, name) {
+  for (const row of data.profiles) {
+    if (row.name === name) { return row; }
+  }
+  throw "cu_linux_browser_missing_profile:" + name;
+}
+
+function chrome_handles(document) {
+  const rows = document.data.windows === undefined ? document.data : document.data.windows;
+  const handles = [];
+  for (const row of rows) {
+    const app = text_at(row, "app_name").toLowerCase();
+    if (app.indexOf("chrome") >= 0 || app === "google-chrome" || app === "google-chrome-stable") {
+      handles.push("" + at(row, "handle"));
+    }
+  }
+  return handles;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+harness.require(!harness.host_is_windows(),
+  "cu.linux-browser-profiles-open requires Linux Local State mapping");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_browser_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_browser_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-browser-profiles-open");
+const run_directory = context.run_directory;
+const user_data = rh.join(run_directory, ".config/google-chrome");
+const local_state = rh.join(user_data, "Local State");
+const html_dir = rh.join(run_directory, "html");
+const fixture = rh.join(html_dir, "fixture.html");
+const fixture_title = "CEO Browser Open " + context.run_id;
+const env = isolated_env(run_directory);
+env.AGENTERM_ABI_LIB = abi_library;
+
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP write synthetic Chromium Local State under an invocation-owned HOME");
+  rh.create_dir_all(rh.join(user_data, "Default"));
+  rh.create_dir_all(html_dir);
+  rh.write_text(fixture, "<!DOCTYPE html><html><head><title>"
+    + fixture_title + "</title></head><body>ok</body></html>");
+  rh.write_text(local_state, JSON.stringify({
+    profile: {
+      last_used: "Profile 7",
+      profiles_order: ["Profile 7", "Default"],
+      info_cache: {
+        Default: { name: "court-alpha" },
+        "Profile 7": { name: "court-beta" },
+      },
+    },
+  }));
+
+  print("STEP browser-profiles lists Google Chrome from installed Local State without a live court-alpha window");
+  const profiles = run_cu(run_directory, executable, "observe", [
+    "browser-profiles", "--app", "Google Chrome",
+  ], env);
+  ensure(profiles.command === "browser-profiles", "cu_linux_browser_profiles_identity");
+  const data = profiles.data;
+  ensure(data.app === "Google Chrome"
+      && data.mechanism === "local-state+window-inventory"
+      && data.local_state.startsWith("~/")
+      && !data.local_state.includes(run_directory)
+      && data.returned === 2,
+    "cu_linux_browser_profiles_contract");
+  const alpha = profile_row(data, "court-alpha");
+  const beta = profile_row(data, "court-beta");
+  ensure(alpha.directory === "Default" && alpha.last_used === false,
+    "cu_linux_browser_profiles_alpha");
+  ensure(beta.directory === "Profile 7" && beta.last_used === true,
+    "cu_linux_browser_profiles_beta");
+  ensure(Array.isArray(alpha.windows) && alpha.windows.length === 0,
+    "cu_linux_browser_profiles_alpha_no_live_window:" + JSON.stringify(alpha.windows));
+  harness.emit_evidence(context, declared_evidence, "cu.linux-browser-profiles-installed");
+
+  print("STEP record independent chrome window handles before browser-open");
+  const before_inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
+  const before_handles = chrome_handles(before_inventory);
+  const before_set = {};
+  for (const handle of before_handles) { before_set[handle] = true; }
+
+  print("STEP browser-open court-alpha and verify a new chrome window through windows inventory");
+  const fixture_url = "file://" + fixture;
+  const opened = run_cu(run_directory, executable, "actuate", [
+    "browser-open",
+    "--profile", "court-alpha",
+    "--url", fixture_url,
+    "--app", "Google Chrome",
+    "--timeout-ms", "30000",
+  ], env);
+  ensure(opened.command === "browser-open", "cu_linux_browser_open_identity");
+  const open_handle = "" + at(opened, "data.handle");
+  ensure(open_handle !== "" && open_handle !== "0",
+    "cu_linux_browser_open_handle:" + JSON.stringify(opened.data));
+
+  let readback_handle = null;
+  for (let attempt = 0; attempt < 40 && readback_handle === null; attempt = attempt + 1) {
+    const inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
+    for (const handle of chrome_handles(inventory)) {
+      if (before_set[handle] !== true) {
+        readback_handle = handle;
+        break;
+      }
+    }
+    if (readback_handle === null) { harness.sleep_ms(250); }
+  }
+  ensure(readback_handle !== null, "cu_linux_browser_open_readback_missing");
+  ensure(readback_handle === open_handle,
+    "cu_linux_browser_open_handle_mismatch:" + JSON.stringify({
+      open: open_handle,
+      readback: readback_handle,
+    }));
+  harness.emit_evidence(context, declared_evidence, "cu.linux-browser-open-window");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.remove_run(context);
+  print("PASS: Linux browser-profiles installed inventory + browser-open windows read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
