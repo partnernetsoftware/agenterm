@@ -4537,7 +4537,7 @@
     },
     {
       "id": "acu-retirement-readiness",
-      "description": "Measure the one fail-closed ACU retirement contract: capability/evidence ledger, frozen engine-neutral compatibility corpus, three-host task registration, six-cell Candidate wiring and production Bun/MCU dependencies. Remaining blockers are successful audit output, never hidden green retirement.",
+      "description": "Measure the one fail-closed ACU retirement contract: capability blockers plus every pending platform cell, registered evidence, compatibility corpus, host/six-cell wiring and production Bun/MCU absence. Remaining blockers are successful audit output, never hidden green retirement.",
       "entry": "scripts/qjs/acu-retirement-court.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -4559,7 +4559,7 @@
     },
     {
       "id": "cu-runtime-status-smoke",
-      "description": "Prove ACU reports its on-demand coordinator and per-resource owner topology without inventing a global daemon, probing child liveness, creating durable state or writing an effect receipt.",
+      "description": "Prove ACU reports its on-demand coordinator and per-resource owner topology, and rejects the removed daemon login wrapper without publishing state or an effect receipt.",
       "entry": "scripts/qjs/cu-runtime-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
