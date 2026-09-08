@@ -1,10 +1,48 @@
 // Platform-neutral public black-box court for bounded mounted-volume capacity.
+// On Linux, acceptance also requires independent findmnt or /proc/mounts read-back
+// that matches returned mount paths and skipped-unsafe accounting.
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = ["cu.storage-volumes"];
+
+const SAFE_LINUX_FS_TYPES = {
+  "btrfs": true,
+  "cgroup": true,
+  "cgroup2": true,
+  "debugfs": true,
+  "devpts": true,
+  "devtmpfs": true,
+  "efivarfs": true,
+  "erofs": true,
+  "exfat": true,
+  "ext2": true,
+  "ext3": true,
+  "ext4": true,
+  "f2fs": true,
+  "hugetlbfs": true,
+  "iso9660": true,
+  "mqueue": true,
+  "nilfs2": true,
+  "ntfs": true,
+  "ntfs3": true,
+  "overlay": true,
+  "proc": true,
+  "pstore": true,
+  "ramfs": true,
+  "reiserfs": true,
+  "securityfs": true,
+  "squashfs": true,
+  "sysfs": true,
+  "tmpfs": true,
+  "tracefs": true,
+  "udf": true,
+  "vfat": true,
+  "xfs": true,
+  "zfs": true,
+};
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -48,6 +86,109 @@ function decimal_le(left, right) {
   left = canonical_decimal(left);
   right = canonical_decimal(right);
   return left.length < right.length || (left.length === right.length && left <= right);
+}
+
+function host_platform() {
+  if (harness.host_is_windows()) { return "windows"; }
+  const uname = rh.command("uname", ["-s"], { timeout_ms: 10000 });
+  ensure(uname.success === true, "cu_storage_volumes_uname_failed");
+  if (uname.stdout.trim() === "Darwin") { return "macos"; }
+  ensure(uname.stdout.trim() === "Linux", "cu_storage_volumes_host_unsupported");
+  return "linux";
+}
+
+function linux_fs_is_safe(fs_type) {
+  return SAFE_LINUX_FS_TYPES[fs_type.toLowerCase()] === true;
+}
+
+function split_whitespace(text) {
+  const parts = [];
+  let current = "";
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code === 9 || code === 10 || code === 13 || code === 32) {
+      if (current.length > 0) {
+        parts.push(current);
+        current = "";
+      }
+    } else {
+      current = current + text.charAt(index);
+    }
+  }
+  if (current.length > 0) { parts.push(current); }
+  return parts;
+}
+
+function inventory_from_mount_map(by_target) {
+  const targets = Object.keys(by_target);
+  let skipped_unsafe = 0;
+  for (let index = 0; index < targets.length; index += 1) {
+    if (!linux_fs_is_safe(by_target[targets[index]])) {
+      skipped_unsafe += 1;
+    }
+  }
+  return {
+    by_target: by_target,
+    visited: targets.length,
+    skipped_unsafe: skipped_unsafe,
+  };
+}
+
+function parse_findmnt_output(text) {
+  const document = JSON.parse(text);
+  const filesystems = document.filesystems;
+  ensure(Array.isArray(filesystems), "cu_storage_volumes_findmnt_json_shape");
+  const by_target = {};
+  for (let index = 0; index < filesystems.length; index += 1) {
+    const row = filesystems[index];
+    const target = "" + row.target;
+    const fs_type = "" + row.fstype;
+    ensure(target.length > 0 && fs_type.length > 0, "cu_storage_volumes_findmnt_fields");
+    by_target[target] = fs_type;
+  }
+  return inventory_from_mount_map(by_target);
+}
+
+function parse_proc_mounts_output(text) {
+  const by_target = {};
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") { continue; }
+    const parts = split_whitespace(trimmed);
+    ensure(parts.length >= 3, "cu_storage_volumes_mounts_shape:" + trimmed);
+    by_target[parts[1]] = parts[2];
+  }
+  return inventory_from_mount_map(by_target);
+}
+
+function independent_linux_mount_inventory() {
+  const findmnt = rh.command("findmnt", ["-l", "--json", "-o", "TARGET,FSTYPE"], { timeout_ms: 10000 });
+  if (findmnt.success === true) {
+    return parse_findmnt_output(findmnt.stdout);
+  }
+  ensure(rh.exists("/proc/self/mounts"), "cu_storage_volumes_linux_mounts_missing");
+  return parse_proc_mounts_output(rh.read_text("/proc/self/mounts"));
+}
+
+function assert_linux_independent_readback(data) {
+  const independent = independent_linux_mount_inventory();
+  ensure(
+    data.visited === independent.visited,
+    "cu_storage_volumes_linux_visited_mismatch:cu=" + data.visited + ":independent=" + independent.visited
+  );
+  ensure(
+    data.skipped_unsafe === independent.skipped_unsafe,
+    "cu_storage_volumes_linux_skipped_unsafe_mismatch:cu=" + data.skipped_unsafe + ":independent=" + independent.skipped_unsafe
+  );
+  ensure(data.coverage === "local-mounted-filesystems", "cu_storage_volumes_linux_coverage");
+  for (const row of data.volumes) {
+    const fs_type = independent.by_target[row.mount_path];
+    ensure(typeof fs_type === "string", "cu_storage_volumes_linux_mount_missing:" + row.mount_path);
+    ensure(
+      linux_fs_is_safe(fs_type),
+      "cu_storage_volumes_linux_unsafe_mount_returned:" + row.mount_path + ":" + fs_type
+    );
+  }
 }
 
 function assert_inventory(reply, max) {
@@ -101,13 +242,18 @@ if (!direct_file(executable) && harness.host_is_windows()) { executable = execut
 ensure(direct_file(executable), "cu_storage_volumes_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-storage-volumes");
+const platform = host_platform();
 let succeeded = 0;
 let failure = "";
 try {
   print("STEP mounted-volume capacity is bounded, coherent and read-only");
-  assert_inventory(invoke(context.run_directory, executable, [
+  const inventory = assert_inventory(invoke(context.run_directory, executable, [
     "--target", "current", "--grant", "observe", "storage-volumes", "--max", "16"
   ], true), 16);
+  if (platform === "linux") {
+    print("STEP linux mounted volumes match independent findmnt or /proc/mounts read-back");
+    assert_linux_independent_readback(inventory);
+  }
 
   print("STEP grouped alias preserves the bounded contract");
   assert_inventory(invoke(context.run_directory, executable, [
@@ -132,7 +278,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.storage-volumes");
   harness.remove_run(context);
-  print("PASS: native mounted-volume capacity is bounded, coherent and privacy-minimized");
+  if (platform === "linux") {
+    print("PASS: native mounted-volume capacity is bounded, coherent, privacy-minimized and matches independent mount read-back");
+  } else {
+    print("PASS: native mounted-volume capacity is bounded, coherent and privacy-minimized");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
