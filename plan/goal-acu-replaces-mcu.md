@@ -603,6 +603,10 @@ shapes fail typed instead of being ignored.
   10,000-record / 1 MiB bounds. The MCU-shaped `network routes [--max N]`
   routes losslessly; macOS public qjswasm evidence is green while Linux and
   Windows native courts remain.
+  DNS service identity stays on the existing `network-dns` rows: macOS joins
+  Device to Hardware Port with a fixed contained `networksetup` provider,
+  Windows uses the adapter FriendlyName, and Linux returns `null`. The macOS
+  public qjswasm court is green; the Linux and Windows cells remain pending.
   The active qjswasm/tinyvm host surface still has no generic TCP or DNS API;
   historical catalog names are not implementation. DNS remains native platform
   work. Process-owned socket rows now join one native fd to a snapshot

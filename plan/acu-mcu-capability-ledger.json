@@ -1467,18 +1467,34 @@
         {
           "id": "network.dns.services",
           "mcu_shape": "network dns-services --max N",
-          "acu_shape": null,
+          "acu_shape": "network-dns --max N rows carry the host-defined service identity when one exists; Linux returns null rather than fabricating a portable service name",
           "state": "platform-limited",
-          "platforms": {"macos": "gap", "linux": "provider-specific", "windows": "provider-specific"},
+          "platforms": {
+            "macos": "native-public-qjswasm-qualified",
+            "linux": "provider-specific-public-court-not-run",
+            "windows": "provider-specific-public-court-not-run"
+          },
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
-              "macos": {"result": "pending", "blocker_code": "no-registered-public-evidence"},
-              "windows": {"result": "pending", "blocker_code": "no-registered-public-evidence"}
+              "linux": {
+                "result": "pending",
+                "blocker_code": "linux-dns-service-identity-court-not-run"
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-network-dns-smoke",
+                "evidence": ["cu.network-dns-services"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "windows-dns-service-identity-court-not-run"
+              }
             }
           },
-          "next": "define per-service DNS identity separately for each OS instead of treating the current macOS networksetup shape as portable"
+          "evidence": ["cu.network-dns-services"],
+          "next": "run the unchanged public DNS service-identity journey on both Linux ISAs and both Windows ISAs before promoting their provider-specific cells",
+          "note": "Exact source 647f83ea passed the public macOS qjswasm court. It independently joins each scutil interface to /usr/sbin/networksetup -listallhardwareports Device -> Hardware Port output, requires at least one observed mapped row and keeps resolver data when the supplemental provider fails while marking the result incomplete. Windows defines service as the native adapter FriendlyName; Linux intentionally returns null. No provider contacts a resolver or treats a macOS Hardware Port label as portable."
         },
         {
           "id": "network.sockets",

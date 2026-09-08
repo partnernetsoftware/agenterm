@@ -2261,6 +2261,15 @@ flowchart LR
   Windows arm64 also passed at exact source `c6295175` after the court
   normalized PowerShell UTF-16LE/CRLF evidence into canonical UTF-8/LF; its
   compact runtime receipt is local and gitignored.
+  `network.dns.services` now reuses those same typed `network-dns` rows rather
+  than adding a second command or pretending one portable service vocabulary
+  exists. On macOS the fixed, contained `networksetup -listallhardwareports`
+  provider joins Device to Hardware Port without retaining hardware addresses;
+  its failure preserves the scoped resolver rows but makes completeness false.
+  Windows keeps the native adapter FriendlyName and Linux returns `null`.
+  Exact source `647f83ea` passed the macOS public qjswasm journey against an
+  independent `networksetup` oracle. Linux and Windows service-identity courts
+  remain pending and cannot borrow that macOS result.
   The schema-2 verdict still leaves Windows pending: its x86_64 interactive
   agent failed to claim a nonce at both 180 and 360 seconds, so the ARM64
   result cannot be borrowed as a platform-wide qualification. That is a
