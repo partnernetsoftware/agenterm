@@ -3614,6 +3614,18 @@
       "args": []
     },
     {
+      "name": "cache-hierarchy-status",
+      "command": "cache-hierarchy-status",
+      "aliases": [
+        "cache hierarchy status"
+      ],
+      "grant": "observe",
+      "family": "system",
+      "summary": "read CPU cache levels, kinds, per-instance capacity and sharing geometry",
+      "usage": "cache hierarchy status\ncache-hierarchy-status",
+      "args": []
+    },
+    {
       "name": "font-discovery",
       "command": "font-discovery",
       "aliases": [
@@ -6801,6 +6813,48 @@
       ]
     },
     {
+      "name": "topmost",
+      "command": "topmost",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "placement",
+      "summary": "EWMH always-on-top with read-back",
+      "usage": "topmost --window HANDLE --expect topmost",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--expect",
+          "value": "topmost",
+          "help": "checkable postcondition: the window reads back above"
+        }
+      ]
+    },
+    {
+      "name": "untopmost",
+      "command": "untopmost",
+      "aliases": [],
+      "grant": "actuate",
+      "family": "placement",
+      "summary": "EWMH clear always-on-top with read-back",
+      "usage": "untopmost --window HANDLE --expect untopmost",
+      "args": [
+        {
+          "flag": "--window",
+          "value": "HANDLE",
+          "help": "window handle from `windows` (numeric or App#N)"
+        },
+        {
+          "flag": "--expect",
+          "value": "untopmost",
+          "help": "checkable postcondition: the window reads back not above"
+        }
+      ]
+    },
+    {
       "name": "window-opacity",
       "command": "window-opacity",
       "aliases": [],
@@ -7478,6 +7532,10 @@
       "text": "agenterm-cu processor-topology-status    (also: processor topology status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  processor topology status\n  processor-topology-status\n\nReturns the host operating system's online logical processor count plus\nphysical core, package/socket and NUMA node counts when the native provider\ncan derive them honestly. Optional fields remain null instead of inventing\ncross-host guesses. The query is read-only and atomic_snapshot is always\nfalse.\n"
     },
     {
+      "name": "cache-hierarchy-status",
+      "text": "agenterm-cu cache-hierarchy-status    (also: cache hierarchy status)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  cache hierarchy status\n  cache-hierarchy-status\n\nReturns grouped CPU cache geometry from the native provider: level, kind,\nper-instance capacity, coherency line size, instance count and shared logical\nprocessor count when sysfs exposes them honestly. The query is read-only and\natomic_snapshot is always false.\n"
+    },
+    {
       "name": "font-discovery",
       "text": "agenterm-cu font-discovery    (also: font discovery)\n  scope: observe    family: System & permissions\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  font discovery\n  font-discovery\n\nReports how the Linux monospace terminal primary face was resolved. When\nfontconfig is available the primary family and file path come from\n`fc-match monospace`; otherwise the reply names the hard-coded fallback path\nand any installed alternatives. Non-Linux hosts return a typed unsupported\nresult instead of screenshot or coordinate degradation.\n"
     },
@@ -7858,6 +7916,14 @@
       "text": "agenterm-cu unfullscreen\n  scope: actuate    family: Window placement\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  unfullscreen --window HANDLE --expect unfullscreen\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --expect unfullscreen         checkable postcondition: the window reads back not fullscreen\n\nClears EWMH fullscreen on one exact window without activating its application.\n"
     },
     {
+      "name": "topmost",
+      "text": "agenterm-cu topmost\n  scope: actuate    family: Window placement\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  topmost --window HANDLE --expect topmost\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --expect topmost              checkable postcondition: the window reads back above\n\nSets EWMH `_NET_WM_STATE_ABOVE` on one exact window without activating its application.\n"
+    },
+    {
+      "name": "untopmost",
+      "text": "agenterm-cu untopmost\n  scope: actuate    family: Window placement\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  untopmost --window HANDLE --expect untopmost\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --expect untopmost            checkable postcondition: the window reads back not above\n\nClears EWMH always-on-top on one exact window without activating its application.\n"
+    },
+    {
       "name": "window-opacity",
       "text": "agenterm-cu window-opacity\n  scope: actuate    family: Windows\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant actuate):\n  window-opacity --window HANDLE --opacity 0..1 --expect <same>\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --opacity 0..1                requested opacity (0 = transparent, 1 = opaque)\n  --expect 0..1                 checkable postcondition: opacity reads back at the requested value\n\nSets EWMH `_NET_WM_WINDOW_OPACITY` on one exact window without activating\nits application. Success is proven by the windows inventory `opacity` field\nor an independent xprop read-back. Linux X11 only; other hosts answer typed\nunsupported with alternatives.\n"
     },
@@ -7867,7 +7933,7 @@
     },
     {
       "name": "exec",
-      "text": "agenterm-cu exec\n  scope: none       family: Transports\n\nusage:\n  agenterm-cu exec [--grant observe,actuate] [--grant-id ID] [--grant-store PATH] --json '<command-json>'\n  agenterm-cu exec [...] --json -  |  --json-stdin  |  -            (JSON command on stdin)\n\narguments:\n  --json JSON|-                 the command payload, or - for stdin\n  --json-stdin                  read the payload from stdin\n  --grant S                     strict scopes (also --grant=S); CLI wins over AGENTERM_CU_GRANT\n  --grant-id ID                 persisted grant selector (exclusive with every other source)\n  --grant-store PATH            store override; valid only with --grant-id\n\nExecutes one Command serialized as JSON (the same shape `verbs --json`\nconsumers build). The ssh and vnc transports spawn `agenterm-cu --grant \u2026\nexec --json -` on the worker side; global flags may precede `exec`. The\ncommand's own target and scope apply; grant sources never union.\n"
+      "text": "agenterm-cu exec\n  scope: none       family: Transports\n\nusage:\n  agenterm-cu exec [--grant observe,actuate] [--grant-id ID] [--grant-store PATH] --json '<command-json>'\n  agenterm-cu exec [...] --json -  |  --json-stdin  |  -            (JSON command on stdin)\n\narguments:\n  --json JSON|-                 the command payload, or - for stdin\n  --json-stdin                  read the payload from stdin\n  --grant S                     strict scopes (also --grant=S); CLI wins over AGENTERM_CU_GRANT\n  --grant-id ID                 persisted grant selector (exclusive with every other source)\n  --grant-store PATH            store override; valid only with --grant-id\n\nExecutes one Command serialized as JSON (the same shape `verbs --json`\nconsumers build). The ssh and vnc transports spawn `agenterm-cu --grant …\nexec --json -` on the worker side; global flags may precede `exec`. The\ncommand's own target and scope apply; grant sources never union.\n"
     },
     {
       "name": "grant",

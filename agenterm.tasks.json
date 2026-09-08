@@ -1116,6 +1116,23 @@
         "task.cu-linux-processor-topology-smoke"
       ]
     },
+    "cu-linux-cache-hierarchy-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-linux-cache-hierarchy-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-cache-hierarchy-smoke"
+      ]
+    },
     "cu-linux-resource-status-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -4838,6 +4855,24 @@
       "id": "cu-linux-processor-topology-smoke",
       "description": "Prove Linux processor-topology-status online logical processors, physical cores, packages and NUMA nodes match independent /proc/cpuinfo, lscpu and sysfs read-back; no --coords or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-processor-topology-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-cache-hierarchy-smoke",
+      "description": "Prove Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; no --coords or screenshot degradation.",
+      "entry": "scripts/qjs/cu-linux-cache-hierarchy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

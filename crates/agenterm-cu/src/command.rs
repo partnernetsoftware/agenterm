@@ -2699,6 +2699,9 @@ pub enum Command {
     ProcessorTopologyStatus {
         target: TargetRef,
     },
+    CacheHierarchyStatus {
+        target: TargetRef,
+    },
     FontDiscovery {
         target: TargetRef,
     },
@@ -3941,6 +3944,18 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expect: Option<String>,
     },
+    Topmost {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
+    Untopmost {
+        target: TargetRef,
+        window: isize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expect: Option<String>,
+    },
     WindowOpacity {
         target: TargetRef,
         window: isize,
@@ -4331,6 +4346,7 @@ impl Command {
             Self::ResourcePressure { .. } => "resource-pressure".into(),
             Self::PowerStatus { .. } => "power-status".into(),
             Self::ProcessorTopologyStatus { .. } => "processor-topology-status".into(),
+            Self::CacheHierarchyStatus { .. } => "cache-hierarchy-status".into(),
             Self::FontDiscovery { .. } => "font-discovery".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::StorageVolumes { .. } => "storage-volumes".into(),
@@ -4429,6 +4445,8 @@ impl Command {
             Self::Unmaximize { .. } => "unmaximize".into(),
             Self::Fullscreen { .. } => "fullscreen".into(),
             Self::Unfullscreen { .. } => "unfullscreen".into(),
+            Self::Topmost { .. } => "topmost".into(),
+            Self::Untopmost { .. } => "untopmost".into(),
             Self::WindowOpacity { .. } => "window-opacity".into(),
             Self::Drag { .. } => "drag".into(),
             Self::Hit { .. } => "hit".into(),
@@ -4768,6 +4786,7 @@ impl Command {
             | Self::ResourcePressure { target }
             | Self::PowerStatus { target }
             | Self::ProcessorTopologyStatus { target }
+            | Self::CacheHierarchyStatus { target }
             | Self::FontDiscovery { target }
             | Self::StorageDevices { target, .. }
             | Self::StorageVolumes { target, .. }
@@ -4866,6 +4885,8 @@ impl Command {
             | Self::Unmaximize { target, .. }
             | Self::Fullscreen { target, .. }
             | Self::Unfullscreen { target, .. }
+            | Self::Topmost { target, .. }
+            | Self::Untopmost { target, .. }
             | Self::WindowOpacity { target, .. }
             | Self::Drag { target, .. }
             | Self::Hit { target, .. }
@@ -5019,6 +5040,8 @@ impl Command {
             | Self::Unmaximize { .. }
             | Self::Fullscreen { .. }
             | Self::Unfullscreen { .. }
+            | Self::Topmost { .. }
+            | Self::Untopmost { .. }
             | Self::WindowOpacity { .. }
             | Self::Drag { .. }
             | Self::App { .. } => crate::auth::Grant::Actuate,

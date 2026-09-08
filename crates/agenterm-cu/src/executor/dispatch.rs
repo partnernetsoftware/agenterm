@@ -1850,6 +1850,7 @@ impl Executor {
             Command::ResourcePressure { .. } => resource_pressure_payload(),
             Command::PowerStatus { .. } => power_status_payload(),
             Command::ProcessorTopologyStatus { .. } => processor_topology_status_payload(),
+            Command::CacheHierarchyStatus { .. } => cache_hierarchy_status_payload(),
             Command::FontDiscovery { .. } => font_discovery_payload(),
             Command::StorageDevices { max, .. } => storage_devices_payload(*max),
             Command::StorageVolumes { max, .. } => storage_volumes_payload(*max),
@@ -2171,6 +2172,16 @@ impl Executor {
                 &mut self.open_receipts(command.target())?,
             ),
             Command::Unfullscreen { window, expect, .. } => unfullscreen_payload(
+                *window,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::Topmost { window, expect, .. } => topmost_payload(
+                *window,
+                expect.as_deref(),
+                &mut self.open_receipts(command.target())?,
+            ),
+            Command::Untopmost { window, expect, .. } => untopmost_payload(
                 *window,
                 expect.as_deref(),
                 &mut self.open_receipts(command.target())?,

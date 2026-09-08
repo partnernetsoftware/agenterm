@@ -1,0 +1,255 @@
+// CEO: Linux cache hierarchy honesty with independent /sys cache read-back.
+// Acceptance is smoke read-back only: CU cache-hierarchy-status must agree with
+// facts derived outside agenterm-cu. No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cache-hierarchy-readback",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function invoke(run_directory, executable, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === expect_success, "cu_linux_cache_hierarchy_exit:" + output.exit_code);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(reply.ok === expect_success, "cu_linux_cache_hierarchy_reply_state");
+  return reply;
+}
+
+function independent_cache_hierarchy() {
+  const script = [
+    "import glob, os, re",
+    "from collections import defaultdict",
+    "",
+    "KIND = {",
+    "    'Unified': 'unified',",
+    "    'Data': 'data',",
+    "    'Instruction': 'instruction',",
+    "    'Trace': 'trace',",
+    "}",
+    "",
+    "def parse_size(value):",
+    "    digits = len(value) - len(value.lstrip('0123456789'))",
+    "    if digits == 0:",
+    "        return None",
+    "    amount = int(value[:digits])",
+    "    unit = value[digits:].strip().upper()",
+    "    mult = {'': 1, 'B': 1, 'K': 1024, 'KB': 1024, 'M': 1024 ** 2, 'MB': 1024 ** 2, 'G': 1024 ** 3, 'GB': 1024 ** 3}.get(unit)",
+    "    return amount * mult if mult else None",
+    "",
+    "def parse_cpu_list(value):",
+    "    cpus = set()",
+    "    for part in value.split(','):",
+    "        if '-' in part:",
+    "            start, end = part.split('-', 1)",
+    "            cpus.update(range(int(start), int(end) + 1))",
+    "        else:",
+    "            cpus.add(int(part))",
+    "    return sorted(cpus)",
+    "",
+    "online = set()",
+    "for path in glob.glob('/sys/devices/system/cpu/cpu[0-9]*'):",
+    "    name = os.path.basename(path)",
+    "    if not re.fullmatch(r'cpu\\d+', name):",
+    "        continue",
+    "    cpu = int(name[3:])",
+    "    online_path = os.path.join(path, 'online')",
+    "    if os.path.exists(online_path) and open(online_path).read().strip() == '0':",
+    "        continue",
+    "    online.add(cpu)",
+    "",
+    "instances = set()",
+    "for cpu in sorted(online):",
+    "    cache_root = f'/sys/devices/system/cpu/cpu{cpu}/cache'",
+    "    for idx in glob.glob(cache_root + '/index*'):",
+    "        level = int(open(os.path.join(idx, 'level')).read().strip())",
+    "        kind = KIND.get(open(os.path.join(idx, 'type')).read().strip(), 'other')",
+    "        size = parse_size(open(os.path.join(idx, 'size')).read().strip())",
+    "        line = int(open(os.path.join(idx, 'coherency_line_size')).read().strip())",
+    "        shared = tuple(",
+    "            c for c in parse_cpu_list(open(os.path.join(idx, 'shared_cpu_list')).read().strip())",
+    "            if c in online",
+    "        )",
+    "        instances.add((level, kind, size, line, len(shared), shared))",
+    "",
+    "grouped = defaultdict(int)",
+    "for level, kind, size, line, shared_online, shared in instances:",
+    "    grouped[(level, kind, size, line, shared_online)] += 1",
+    "",
+    "for (level, kind, size, line, shared_online), count in sorted(grouped.items()):",
+    "    print('GEO', level, kind, size, line, count, shared_online, sep=' ')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 15000 });
+  ensure(output.success === true, "cu_linux_cache_hierarchy_probe:" + output.stderr);
+  const rows = [];
+  const lines = output.stdout.trim().split("\n");
+  for (let index = 0; index < lines.length; index = index + 1) {
+    const line = lines[index].trim();
+    if (line === "" || !line.startsWith("GEO ")) { continue; }
+    const parts = line.split(" ");
+    ensure(parts.length === 7, "cu_linux_cache_hierarchy_probe_shape:" + line);
+    rows.push({
+      level: Number(parts[1]),
+      kind: parts[2],
+      size_bytes: Number(parts[3]),
+      line_bytes: Number(parts[4]),
+      instances: Number(parts[5]),
+      shared_logical_processors: Number(parts[6]),
+    });
+  }
+  ensure(rows.length > 0, "cu_linux_cache_hierarchy_probe_empty");
+  return rows;
+}
+
+function compare_number(a, b) {
+  if (a < b) { return -1; }
+  if (a > b) { return 1; }
+  return 0;
+}
+
+function compare_rows(a, b) {
+  let order = compare_number(a.level, b.level);
+  if (order !== 0) { return order; }
+  if (a.kind < b.kind) { return -1; }
+  if (a.kind > b.kind) { return 1; }
+  order = compare_number(a.size_bytes, b.size_bytes);
+  if (order !== 0) { return order; }
+  order = compare_number(a.line_bytes, b.line_bytes);
+  if (order !== 0) { return order; }
+  order = compare_number(a.instances, b.instances);
+  if (order !== 0) { return order; }
+  return compare_number(a.shared_logical_processors, b.shared_logical_processors);
+}
+
+function sort_rows(rows) {
+  for (let outer = 0; outer < rows.length; outer = outer + 1) {
+    for (let inner = outer + 1; inner < rows.length; inner = inner + 1) {
+      if (compare_rows(rows[outer], rows[inner]) > 0) {
+        const swap = rows[outer];
+        rows[outer] = rows[inner];
+        rows[inner] = swap;
+      }
+    }
+  }
+  return rows;
+}
+
+function geometry_key(row) {
+  return [
+    row.level,
+    row.kind,
+    row.size_bytes,
+    row.line_bytes,
+    row.instances,
+    row.shared_logical_processors,
+  ].join(":");
+}
+
+function cu_geometries(reply) {
+  const rows = reply.data.geometries;
+  ensure(Array.isArray(rows), "cu_linux_cache_hierarchy_geometries_shape");
+  const out = [];
+  for (let index = 0; index < rows.length; index = index + 1) {
+    const row = rows[index];
+    out.push({
+      level: Number(text_at(row, "level")),
+      kind: "" + text_at(row, "kind"),
+      size_bytes: Number(text_at(row, "size_bytes")),
+      line_bytes: Number(text_at(row, "line_bytes")),
+      instances: Number(text_at(row, "instances")),
+      shared_logical_processors: Number(text_at(row, "shared_logical_processors")),
+    });
+  }
+  return sort_rows(out);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+harness.require(rh.exists(executable), "agenterm-cu executable missing");
+
+const context = harness.new_context(repo, "cu-linux-cache-hierarchy");
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP independent /sys/devices/system/cpu/*/cache capture");
+  const probe = sort_rows(independent_cache_hierarchy());
+
+  print("STEP cache-hierarchy-status observe matches independent read-back");
+  const reply = invoke(context.run_directory, executable, ["cache-hierarchy-status"], true);
+  ensure(reply.command === "cache-hierarchy-status" && reply.target === "current",
+         "cu_linux_cache_hierarchy_identity");
+  ensure(text_at(reply, "data.atomic_snapshot") === "false",
+         "cu_linux_cache_hierarchy_atomic_snapshot");
+
+  const cu = cu_geometries(reply);
+  ensure(cu.length === probe.length,
+         "cu_linux_cache_hierarchy_count_mismatch:cu=" + cu.length
+           + ":probe=" + probe.length);
+  for (let index = 0; index < probe.length; index = index + 1) {
+    ensure(geometry_key(cu[index]) === geometry_key(probe[index]),
+           "cu_linux_cache_hierarchy_geometry_mismatch:cu=" + geometry_key(cu[index])
+             + ":probe=" + geometry_key(probe[index]));
+  }
+
+  let max_data_line = 0;
+  for (let index = 0; index < cu.length; index = index + 1) {
+    const row = cu[index];
+    if (row.kind === "data" || row.kind === "unified") {
+      if (row.line_bytes > max_data_line) { max_data_line = row.line_bytes; }
+    }
+  }
+  ensure(Number(text_at(reply, "data.max_data_line_bytes")) === max_data_line,
+         "cu_linux_cache_hierarchy_max_data_line_mismatch:cu="
+           + text_at(reply, "data.max_data_line_bytes") + ":probe=" + max_data_line);
+
+  print("STEP grouped alias preserves the same cache hierarchy facts");
+  const grouped = invoke(context.run_directory, executable,
+    ["cache", "hierarchy", "status"], true);
+  ensure(JSON.stringify(grouped.data.geometries) === JSON.stringify(reply.data.geometries),
+         "cu_linux_cache_hierarchy_alias_geometries");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cache-hierarchy-readback");
+  harness.remove_run(context);
+  print("PASS: Linux cache-hierarchy-status matches independent /sys cache read-back");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

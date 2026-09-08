@@ -669,6 +669,16 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "cache-hierarchy-status".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "host",
+                "grant": "observe",
+                "mode": "native-cpu-cache-hierarchy",
+                "mutation_performed": false,
+            }),
+        );
+        verbs.insert(
             "font-discovery".into(),
             if cfg!(target_os = "linux") {
                 serde_json::json!({

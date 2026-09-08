@@ -355,6 +355,21 @@ pub fn parse(
         }
         return Ok(Command::ProcessorTopologyStatus { target });
     }
+    if spec.name == "cache-hierarchy-status" {
+        if args.first().is_some_and(|arg| arg == "hierarchy") {
+            args.remove(0);
+        }
+        if args.first().is_some_and(|arg| arg == "status") {
+            args.remove(0);
+        }
+        if !args.is_empty() {
+            return Err(format!(
+                "cache-hierarchy-status accepts no arguments; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::CacheHierarchyStatus { target });
+    }
     if spec.name == "font-discovery" {
         if args.first().is_some_and(|arg| arg == "discovery") {
             args.remove(0);
@@ -1561,6 +1576,20 @@ mod tests {
         ));
         assert!(parse("processor-topology-status", &["extra"]).is_err());
         assert!(parse("processor", &["topology", "status", "extra"]).is_err());
+    }
+
+    #[test]
+    fn cache_hierarchy_status_flat_and_grouped_shapes_are_closed() {
+        assert!(matches!(
+            parse("cache-hierarchy-status", &[]).unwrap(),
+            Command::CacheHierarchyStatus { .. }
+        ));
+        assert!(matches!(
+            parse("cache", &["hierarchy", "status"]).unwrap(),
+            Command::CacheHierarchyStatus { .. }
+        ));
+        assert!(parse("cache-hierarchy-status", &["extra"]).is_err());
+        assert!(parse("cache", &["hierarchy", "status", "extra"]).is_err());
     }
 
     #[test]

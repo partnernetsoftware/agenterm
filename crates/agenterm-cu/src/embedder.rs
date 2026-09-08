@@ -189,6 +189,8 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::Unmaximize { .. }
         | Command::Fullscreen { .. }
         | Command::Unfullscreen { .. }
+        | Command::Topmost { .. }
+        | Command::Untopmost { .. }
         | Command::WindowOpacity { .. }
         | Command::NetworkDns { .. }
         | Command::NetworkInterfaces { .. }
@@ -217,6 +219,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::PointerScroll { .. }
         | Command::PowerStatus { .. }
         | Command::ProcessorTopologyStatus { .. }
+        | Command::CacheHierarchyStatus { .. }
         | Command::FontDiscovery { .. }
         | Command::ImeStatus { .. }
         | Command::KeyboardLayoutStatus { .. }
