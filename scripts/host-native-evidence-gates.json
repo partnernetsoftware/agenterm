@@ -191,6 +191,13 @@
       ]
     },
     {
+      "id": "cu-linux-file-mode-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-file-mode-readback"
+      ]
+    },
+    {
       "id": "cu-linux-external-terminal-send-smoke",
       "platform": "linux",
       "evidence": [
