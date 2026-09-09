@@ -6912,7 +6912,7 @@
     },
     {
       "id": "cu-linux-double-click-smoke",
-      "description": "Linux GTK double-click by --name via click --count 2 and dclick alias; independent pyatspi label/state read-back shows pressed +2 per actuation; typed click/dclick usage rejects --coords/--bogus; typed get-extents --name usage AND host-limit paths before actuate/read-back court; miss and no-AT-SPI host-limit paths; AT-SPI --name only, no --coords.",
+      "description": "Linux GTK double-click by --name via click --count 2 and dclick alias; independent pyatspi label/state read-back shows pressed +2 per actuation; typed click/dclick --coords/--bogus usage_rejects_unexpected (never fake command=usage); typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage before process-state/desktop-state and actuate/read-back court (no atspi gating); miss and no-AT-SPI host-limit paths; AT-SPI --name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-double-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
