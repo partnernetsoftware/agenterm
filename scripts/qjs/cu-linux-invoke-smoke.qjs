@@ -132,6 +132,11 @@ function independent_atspi_probe(title, mode, expected) {
     "        return name",
     "    if mode == 'check_state' and name == 'Fixture Check':",
     "        return 'checked' if node.getState().contains(pyatspi.STATE_CHECKED) else 'unchecked'",
+    "    if mode == 'action_names' and name == 'Fixture Press':",
+    "        if not node.is_action():",
+    "            return ''",
+    "        count = node.get_n_actions()",
+    "        return ','.join(node.get_action_name(i) for i in range(count))",
     "    if mode == 'do_action' and name == 'Fixture Press':",
     "        return 'true' if node.do_action(0) else 'false'",
     "    for k in range(node.childCount):",
@@ -196,9 +201,11 @@ try {
   const handle_text = "" + int_at(row, "handle");
   ensure(int_at(row, "handle") > 0, "cu_linux_invoke_handle:" + JSON.stringify(row));
 
-  print("STEP independent AT-SPI read-back reports press label before CU invoke");
+  print("STEP independent AT-SPI read-back reports press label and action names before CU invoke");
   const press_before = independent_atspi_probe(fixture_title, "press_label", "pressed 0");
   ensure(press_before.value === "pressed 0", "cu_linux_invoke_press_before:" + JSON.stringify(press_before));
+  const actions_before = independent_atspi_probe(fixture_title, "action_names", "click");
+  ensure(actions_before.value === "click", "cu_linux_invoke_actions_before:" + JSON.stringify(actions_before));
 
   print("STEP CU invoke press --name advances the count and independent read-back agrees");
   const pressed = run_cu(run_directory, executable, "observe,actuate", [
@@ -243,6 +250,18 @@ try {
   );
   const check_still = independent_atspi_probe(fixture_title, "check_state", "checked");
   ensure(check_still.value === "checked", "cu_linux_invoke_check_still:" + JSON.stringify(check_still));
+
+  print("STEP CU invoke set-checked false clears check state and independent AT-SPI state agrees");
+  const unchecked = run_cu(run_directory, executable, "observe,actuate", [
+    "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "false",
+  ]);
+  ensure(
+    flag_at(unchecked, "data.performed")
+      && flag_at(unchecked, "data.verified"),
+    "cu_linux_invoke_check_off:" + JSON.stringify(unchecked.data)
+  );
+  const check_off = independent_atspi_probe(fixture_title, "check_state", "unchecked");
+  ensure(check_off.value === "unchecked", "cu_linux_invoke_check_off:" + JSON.stringify(check_off));
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke-readback");
   succeeded = 1;
