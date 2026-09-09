@@ -172,6 +172,11 @@ try {
   ensure(row !== null, "cu_linux_window_opacity_window_missing");
   const handle_text = "" + int_at(row, "handle");
   ensure(int_at(row, "handle") > 0, "cu_linux_window_opacity_handle:" + JSON.stringify(row));
+  const baseline_permille = Math.round(float_at(row, "opacity") * 1000);
+  ensure(
+    opacity_close(baseline_permille, 1000),
+    "cu_linux_window_opacity_baseline_opaque:" + JSON.stringify(row)
+  );
 
   const caps = run_cu(run_directory, executable, "observe", ["capabilities"]);
   const opacity_readback = text_at(caps, "data.verbs.window-opacity.opacity_readback");
@@ -194,7 +199,8 @@ try {
     "--expect", "" + TARGET_OPACITY,
   ]);
   ensure(
-    flag_at(set_reply, "data.verified") === true,
+    flag_at(set_reply, "data.verified") === true
+      && opacity_close(int_at(set_reply, "data.after.opacity_permille"), TARGET_PERMILLE),
     "cu_linux_window_opacity_set_reply:" + JSON.stringify(set_reply.data)
   );
 
@@ -223,8 +229,27 @@ try {
     "--expect", "1",
   ]);
   ensure(
-    flag_at(restore, "data.verified") === true,
+    flag_at(restore, "data.verified") === true
+      && opacity_close(int_at(restore, "data.after.opacity_permille"), 1000),
     "cu_linux_window_opacity_restore_reply:" + JSON.stringify(restore.data)
+  );
+
+  print("STEP independent xprop _NET_WM_WINDOW_OPACITY read-back: opaque");
+  const restored_cardinal = independent_net_wm_opacity(run_directory, int_at(row, "handle"));
+  const restored_xprop_permille = cardinal_to_permille(restored_cardinal);
+  ensure(
+    opacity_close(restored_xprop_permille, 1000),
+    "cu_linux_window_opacity_xprop_restore_mismatch:cardinal=" + restored_cardinal
+      + ":permille=" + restored_xprop_permille
+  );
+
+  print("STEP independent windows inventory opacity read-back: opaque");
+  const restored_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(restored_row !== null, "cu_linux_window_opacity_restored_row_missing");
+  const restored_inventory_permille = Math.round(float_at(restored_row, "opacity") * 1000);
+  ensure(
+    opacity_close(restored_inventory_permille, 1000),
+    "cu_linux_window_opacity_inventory_restore_mismatch:" + JSON.stringify(restored_row)
   );
 } finally {
   if (fixture_pid !== 0) {
