@@ -1,8 +1,10 @@
 // CEO: Linux host memory honesty with independent /proc/meminfo read-back.
 // Acceptance is smoke read-back only: CU host-memory-status must agree with
 // MemTotal and MemAvailable derived outside agenterm-cu, and unreadable meminfo
-// must typed-fail instead of inventing facts. No --coords or screenshot
-// degradation.
+// must typed-fail instead of inventing facts. Typed host-memory-status usage
+// must reject AT-SPI --name and other unexpected arguments; typed get-extents
+// --name usage/host-limit paths must hold before the /proc/meminfo read-back
+// court. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -13,6 +15,7 @@ const declared_evidence = [
   "cu.linux-host-memory-readback",
 ];
 
+const AT_SPI_PROBE_NAME = "Host Memory Court Anchor";
 const MEMINFO_PATH = "/proc/meminfo";
 
 function ensure(condition, message) {
@@ -35,6 +38,8 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function cu_env(executable) {
   const env = {
     AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
@@ -53,6 +58,120 @@ function cu_env(executable) {
     env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
   }
   return env;
+}
+
+function run_cu_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "", "cu_linux_host_memory_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "host-memory-status" || text_at(reply, "command") === "usage",
+    "cu_linux_host_memory_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "", "cu_linux_host_memory_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_host_memory_usage_limit(run_directory, executable, env) {
+  const with_name = run_cu_reply(run_directory, executable, [
+    "host-memory-status", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(with_name),
+    "cu_linux_host_memory_usage_name_ok:" + JSON.stringify(with_name));
+  ensure(
+    text_at(with_name, "error.code") === "usage",
+    "cu_linux_host_memory_usage_name_code:" + JSON.stringify(with_name.error)
+  );
+  ensure(
+    text_at(with_name, "command") === "usage",
+    "cu_linux_host_memory_usage_name_command:" + JSON.stringify(with_name)
+  );
+  ensure(
+    text_at(with_name, "error.message").indexOf("--name") >= 0
+      || text_at(with_name, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_host_memory_usage_name_message:" + JSON.stringify(with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, ["host-memory-status", "--bogus"], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_host_memory_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_host_memory_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("no arguments") >= 0
+      || text_at(with_bogus, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_host_memory_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_host_memory_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_host_memory_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_host_memory_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_host_memory_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_host_memory_extents_unavailable_code:" + code
+  );
 }
 
 function run_cu(run_directory, executable, arguments, expect_success) {
@@ -247,10 +366,23 @@ if (!rh.exists(executable) && harness.host_is_windows()) { executable = executab
 ensure(rh.exists(executable), "cu_linux_host_memory_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-host-memory");
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 const host_sources = probe_meminfo_sources();
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP host-memory-status typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_host_memory_usage_limit(context.run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before /proc/meminfo read-back");
+    assert_get_extents_usage_limit(context.run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
+
   if (!host_sources.readable || !host_sources.mem_total || !host_sources.mem_available) {
     print("STEP typed host-limit when independent /proc/meminfo probe is unreadable or incomplete"
       + " (readable=" + host_sources.readable
@@ -290,9 +422,15 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-host-memory-readback");
   harness.remove_run(context);
   if (host_sources.readable && host_sources.mem_total && host_sources.mem_available) {
-    print("PASS: Linux host-memory-status matches independent /proc/meminfo MemTotal and MemAvailable read-back with unreadable host-limit honesty");
+    if (atspi_available) {
+      print("PASS: Linux host-memory-status matches independent /proc/meminfo MemTotal and MemAvailable read-back with unreadable host-limit honesty and typed host-memory-status/get-extents usage honesty (AT-SPI --name, no --coords)");
+    } else {
+      print("PASS: Linux host-memory-status matches independent /proc/meminfo MemTotal and MemAvailable read-back with unreadable host-limit honesty and typed host-memory-status/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    }
+  } else if (atspi_available) {
+    print("PASS: Linux host-memory-status typed-fails when independent /proc/meminfo is unreadable or incomplete with typed host-memory-status/get-extents usage honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux host-memory-status typed-fails when independent /proc/meminfo is unreadable or incomplete");
+    print("PASS: Linux host-memory-status typed-fails when independent /proc/meminfo is unreadable or incomplete with typed host-memory-status/get-extents host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

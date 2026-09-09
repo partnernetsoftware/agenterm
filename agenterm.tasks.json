@@ -7030,7 +7030,7 @@
     },
     {
       "id": "cu-linux-host-memory-smoke",
-      "description": "Linux host-memory-status page geometry, physical_bytes and available_physical_bytes match independent /proc/meminfo MemTotal and MemAvailable read-back; unreadable or incomplete meminfo typed-fails with host_memory_* detail; no --coords.",
+      "description": "Linux host-memory-status page geometry, physical_bytes and available_physical_bytes match independent /proc/meminfo MemTotal and MemAvailable read-back; unreadable or incomplete meminfo typed-fails with host_memory_* detail; typed host-memory-status usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc/meminfo read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-host-memory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
