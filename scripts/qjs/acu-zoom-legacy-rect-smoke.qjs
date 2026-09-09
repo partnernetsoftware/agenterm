@@ -1,0 +1,123 @@
+// Pure public court for the Bun-free legacy zoom rectangle and reply
+// projection. It owns no GUI, capture, process or network effects.
+//
+// Args: REPO | --list-evidence
+import * as compound from "skills/acu/lib/compound";
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["acu.compat-zoom-legacy-rect"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function close(left, right) {
+  const delta = left - right;
+  return delta > -0.0000001 && delta < 0.0000001;
+}
+
+function rect(x1, y1, x2, y2, label) {
+  const result = compound.legacy_zoom_rect(x1, y1, x2, y2);
+  ensure(result.ok === true, label + ":" + result.code);
+  return result.value;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 1, "expected: REPO");
+const context = harness.new_context(rh.absolute(args[0]), "acu-zoom-legacy-rect");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const normal = rect(100, 100, 200, 200, "normal");
+  ensure(normal.pad === 0.2 && normal.padded.x1 === 80
+      && normal.padded.y1 === 80 && normal.padded.x2 === 220
+      && normal.padded.y2 === 220,
+    "acu_zoom_legacy_normal_padding");
+  ensure(normal.local_region[0] === 80 && normal.local_region[1] === 80
+      && normal.local_region[2] === 140 && normal.local_region[3] === 140,
+    "acu_zoom_legacy_normal_outward_rect");
+
+  const degenerate = rect(10, 10, 10, 10, "degenerate");
+  ensure(close(degenerate.padded.x1, 9.8) && close(degenerate.padded.y1, 9.8)
+      && close(degenerate.padded.x2, 10.2) && close(degenerate.padded.y2, 10.2)
+      && degenerate.local_region[0] === 9 && degenerate.local_region[1] === 9
+      && degenerate.local_region[2] === 2 && degenerate.local_region[3] === 2,
+    "acu_zoom_legacy_degenerate_minimum_extent");
+
+  const fractional = rect(-1.25, 2.5, 3.25, 7.75, "fractional");
+  ensure(fractional.local_region[0] === -3 && fractional.local_region[1] === 1
+      && fractional.local_region[2] === 8 && fractional.local_region[3] === 8,
+    "acu_zoom_legacy_fractional_negative_outward_rounding");
+  const reversed = rect(10, 20, 5, 15, "reversed");
+  ensure(reversed.local_region[0] === 5 && reversed.local_region[1] === 15
+      && reversed.local_region[2] === 5 && reversed.local_region[3] === 5,
+    "acu_zoom_legacy_reversed_corners_are_bounded");
+
+  const outside = rect(-50, -40, 150, 120, "outside");
+  ensure(outside.local_region[0] === -90 && outside.local_region[1] === -72
+      && outside.local_region[2] === 280 && outside.local_region[3] === 224,
+    "acu_zoom_legacy_must_not_preclamp_to_window");
+
+  const native_reply = { ok: true, data: {
+    mechanism: "libagenterm", window: 41, local_region: outside.local_region,
+    window_local_region: { x: 0, y: 0, width: 100, height: 80 },
+    capture: { width: 200, height: 160, scale_x: 2, scale_y: 2 },
+    output_width: 200, output_height: 160, output_pixels: 32000
+  } };
+  const projected = compound.legacy_zoom_reply_projection(native_reply, outside);
+  ensure(projected.ok === true && projected.value.mechanism === "libagenterm"
+      && projected.value.legacy_zoom.requested.x1 === -50
+      && projected.value.legacy_zoom.requested.y2 === 120
+      && projected.value.legacy_zoom.pad === 0.2
+      && projected.value.legacy_zoom.padded.x1 === -90
+      && projected.value.legacy_zoom.clipped.width === 100
+      && projected.value.legacy_zoom.image.width === 200
+      && projected.value.legacy_zoom.image.height === 160
+      && projected.value.legacy_zoom.scale.x === 2
+      && projected.value.legacy_zoom.scale.y === 2,
+    "acu_zoom_legacy_reply_projection");
+  projected.value.window = 99;
+  projected.value.legacy_zoom.clipped.width = 1;
+  ensure(native_reply.data.window === 41
+      && native_reply.data.window_local_region.width === 100,
+    "acu_zoom_legacy_projection_must_not_alias_reply");
+
+  ensure(compound.legacy_zoom_rect(undefined, 0, 1, 1).code
+      === "acu_compound_zoom_rect_invalid",
+    "acu_zoom_legacy_missing_corner_typed");
+  ensure(compound.legacy_zoom_rect(0 / 0, 0, 1, 1).code
+      === "acu_compound_zoom_rect_invalid",
+    "acu_zoom_legacy_nonfinite_corner_typed");
+  ensure(compound.legacy_zoom_rect(3000000000, 0, 3000000000, 1).code
+      === "acu_compound_zoom_rect_invalid",
+    "acu_zoom_legacy_native_coordinate_overflow_typed");
+  ensure(compound.legacy_zoom_reply_projection({ ok: true, data: {
+    window_local_region: {}, capture: {}, output_width: 1, output_height: 1
+  } }, normal).code === "acu_compound_zoom_reply_invalid",
+    "acu_zoom_legacy_malformed_reply_typed");
+  ensure(compound.legacy_zoom_reply_projection({ ok: false, error: {
+    code: "region_outside_window", message: "outside"
+  } }, normal).code === "region_outside_window",
+    "acu_zoom_legacy_native_failure_preserved");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "acu.compat-zoom-legacy-rect");
+  harness.remove_run(context);
+  print("PASS: legacy zoom geometry keeps 20% padding, outward rounding and native clipping facts");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

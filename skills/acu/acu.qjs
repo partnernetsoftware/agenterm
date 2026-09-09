@@ -99,6 +99,18 @@ function projected_reply(command, reply, projection) {
 }
 
 function execute_compound(request) {
+  if (request.kind === "zoom-legacy-rect") {
+    const rect = compound.legacy_zoom_rect(request.x1, request.y1, request.x2, request.y2);
+    if (!rect.ok) { return acu_error(request.command, rect.code, rect.message); }
+    const local = rect.value.local_region;
+    const reply = acu.argv(prefixed(request.globals, [
+      "zoom", "--window", request.window, "--local-region",
+      "" + local[0] + "," + local[1] + "," + local[2] + "," + local[3],
+      "--pad", "0", "--out", request.out, "--replace"
+    ]));
+    return projected_reply(request.command, reply,
+      compound.legacy_zoom_reply_projection(reply, rect.value));
+  }
   if (request.kind === "job-generation") {
     const status = acu.argv(prefixed(request.globals, ["job-status", request.job_id]));
     const generation = compound.job_generation(status, request.job_id);

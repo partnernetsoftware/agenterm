@@ -20,7 +20,7 @@ const corpus_gap_ids = [];
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
 }
-require(compat.LEGACY_TODO_GAP_IDS.length === 6,
+require(compat.LEGACY_TODO_GAP_IDS.length === 5,
   "legacy TODO catalog count drifted from the reviewed archive");
 for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
   const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
@@ -67,6 +67,7 @@ const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.083",
   "acu.dynamic.088", "acu.dynamic.094"];
 const resolved_compound = {
+  "acu.dynamic.005": "zoom-legacy-rect",
   "acu.dynamic.018": "job-resources-projection",
   "acu.dynamic.019": "job-generation",
   "acu.dynamic.020": "job-generation",
@@ -146,7 +147,7 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
 }
 require(dynamic_stays === 3, "dynamic stay corpus count");
 require(permanent_rejections === 2, "permanent rejection corpus count");
-require(resolved_checked === 31, "resolved dynamic corpus count");
+require(resolved_checked === 32, "resolved dynamic corpus count");
 
 const point_job_resources = compat.canonicalize(["job", "resources", "job-1"]);
 require(point_job_resources.kind === "job-generation",
@@ -332,8 +333,17 @@ function todo_case(argv, gap_id, label) {
 
 todo_case(["drag", "10", "20", "30", "40", "--to", "Window#1"],
   "acu.dynamic.004", "legacy drag");
-todo_case(["zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4"],
-  "acu.dynamic.005", "legacy zoom");
+const legacy_zoom = compat.canonicalize([
+  "zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4",
+  "--out", "zoom.png"
+]);
+require(legacy_zoom.kind === "zoom-legacy-rect", "legacy zoom maps through bounded geometry");
+require(legacy_zoom.window === "Window#1" && legacy_zoom.x1 === 1 && legacy_zoom.y1 === 2
+    && legacy_zoom.x2 === 3 && legacy_zoom.y2 === 4 && legacy_zoom.out === "zoom.png",
+  "legacy zoom keeps exact corners, handle and explicit output");
+require(compat.canonicalize([
+  "zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4"
+]).kind === "usage", "legacy zoom refuses a hidden default output path");
 todo_case(["device", "claim", "legacy-device-path"], "acu.dynamic.054", "legacy device claim");
 todo_case(["storage", "mount", "disk-1"], "acu.dynamic.057", "legacy storage mount");
 todo_case(["browser", "bridge", "status"], "acu.dynamic.075", "legacy browser bridge");

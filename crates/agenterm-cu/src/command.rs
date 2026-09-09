@@ -94,6 +94,7 @@ pub const SHELL_EXEC_COMMAND_BYTES_MAX: usize = 128 * 1024;
 pub const SHELL_EXEC_TIMEOUT_MS_MIN: u64 = 100;
 pub const SHELL_EXEC_TIMEOUT_MS_MAX: u64 = 120_000;
 pub const SHELL_EXEC_OUTPUT_BYTES_MAX: usize = 16 * 1024 * 1024;
+pub const ZOOM_PAD_MAX: u32 = 512;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -4136,7 +4137,12 @@ pub enum Command {
         window: isize,
         /// `x, y, width, height` in screen coordinates (the space
         /// `query --within` and node `bounds` use).
-        region: [i32; 4],
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        region: Option<[i32; 4]>,
+        /// `x, y, width, height` in the selected window's top-left-origin
+        /// coordinate space. Exactly one region spelling is required.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        local_region: Option<[i32; 4]>,
         out: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         replace: bool,
@@ -5234,6 +5240,31 @@ impl Command {
                 {
                     return Err(
                         "app-watch requires 1..=16 non-empty selectors, duration_ms in 1..=86400000, interval_ms in 1..=60000, max_events in 1..=4096 and max_processes in 1..=5000",
+                    );
+                }
+                Ok(())
+            }
+            Self::Zoom {
+                window,
+                region,
+                local_region,
+                out,
+                pad,
+                ..
+            } => {
+                let selected = match (region, local_region) {
+                    (Some(value), None) | (None, Some(value)) => value,
+                    _ => return Err("zoom requires exactly one region or local_region"),
+                };
+                if *window == 0
+                    || selected[2] <= 0
+                    || selected[3] <= 0
+                    || out.trim().is_empty()
+                    || out.contains('\0')
+                    || pad.is_some_and(|value| value > ZOOM_PAD_MAX)
+                {
+                    return Err(
+                        "zoom requires a non-zero window, one positive region, a non-empty non-NUL output path and pad <= 512",
                     );
                 }
                 Ok(())

@@ -238,10 +238,18 @@ pub fn parse(
             let Some(window) = flag_window(args)? else {
                 return Err("zoom requires --window <handle>".into());
             };
-            let Some(region) = flag_text(args, "--region")? else {
-                return Err("zoom requires --region X,Y,W,H".into());
-            };
-            let region = parse_rect(&region)?;
+            let region = flag_text(args, "--region")?
+                .map(|raw| parse_rect(&raw, "--region"))
+                .transpose()?;
+            let local_region = flag_text(args, "--local-region")?
+                .map(|raw| parse_rect(&raw, "--local-region"))
+                .transpose()?;
+            if region.is_some() == local_region.is_some() {
+                return Err(
+                    "zoom requires exactly one of --region X,Y,W,H or --local-region X,Y,W,H"
+                        .into(),
+                );
+            }
             let Some(out) = flag_text(args, "--out")? else {
                 return Err("zoom requires --out <PATH>".into());
             };
@@ -249,7 +257,7 @@ pub fn parse(
             let pad = flag_parsed::<u32>(args, "--pad")?;
             if !args.is_empty() {
                 return Err(format!(
-                    "zoom accepts only --window H --region X,Y,W,H --out PATH [--replace] [--pad N]; unexpected {:?}",
+                    "zoom accepts only --window H (--region X,Y,W,H | --local-region X,Y,W,H) --out PATH [--replace] [--pad N]; unexpected {:?}",
                     args[0]
                 ));
             }
@@ -257,6 +265,7 @@ pub fn parse(
                 target,
                 window,
                 region,
+                local_region,
                 out,
                 replace,
                 pad,
@@ -279,18 +288,18 @@ pub fn parse(
 
 /// `X,Y,W,H`, the same four-field spelling `query --within` takes. A
 /// malformed rectangle is a usage error before anything is captured.
-fn parse_rect(raw: &str) -> Result<[i32; 4], String> {
+fn parse_rect(raw: &str, flag: &str) -> Result<[i32; 4], String> {
     let parts: Vec<&str> = raw.split(',').map(str::trim).collect();
     if parts.len() != 4 {
         return Err(format!(
-            "--region must be X,Y,W,H (four comma-separated integers), got {raw:?}"
+            "{flag} must be X,Y,W,H (four comma-separated integers), got {raw:?}"
         ));
     }
     let mut rect = [0i32; 4];
     for (slot, part) in rect.iter_mut().zip(parts) {
         *slot = part
             .parse()
-            .map_err(|_| format!("--region field {part:?} is not an integer"))?;
+            .map_err(|_| format!("{flag} field {part:?} is not an integer"))?;
     }
     Ok(rect)
 }

@@ -2696,6 +2696,54 @@ try {
       && direct_file(zoom_path) && rh.metadata(zoom_path).len > 100,
     "cu_macos_smoke_zoom:" + JSON.stringify(zoom.data)
   );
+  const exact_zoom_path = rh.join(run_directory, "fixture-text-exact-zoom.png");
+  const exact_zoom = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "zoom",
+    "--window", handle_text,
+    "--region", "" + int_at(extents, "data.extents.x") + ","
+      + int_at(extents, "data.extents.y") + ","
+      + int_at(extents, "data.extents.width") + ","
+      + int_at(extents, "data.extents.height"),
+    "--out", exact_zoom_path, "--pad", "0"
+  ]);
+  ensure(
+    int_at(zoom, "data.pad") === 4
+      && JSON.stringify(zoom.data.padded_region) !== JSON.stringify(zoom.data.region)
+      && int_at(zoom, "data.output_width") >= int_at(exact_zoom, "data.output_width")
+      && int_at(zoom, "data.output_height") >= int_at(exact_zoom, "data.output_height")
+      && direct_file(exact_zoom_path) && rh.metadata(exact_zoom_path).len > 100,
+    "cu_macos_smoke_zoom_padding:" + JSON.stringify(zoom.data)
+  );
+  // Re-address the exact clipped region reported by the screen-space call.
+  // This avoids guessing across the host's AX and capture coordinate spaces
+  // and proves that both public address forms reach the same native pixels.
+  const local_x = int_at(exact_zoom, "data.window_local_region.x");
+  const local_y = int_at(exact_zoom, "data.window_local_region.y");
+  const local_width = int_at(exact_zoom, "data.window_local_region.width");
+  const local_height = int_at(exact_zoom, "data.window_local_region.height");
+  const local_region = [local_x, local_y, local_width, local_height];
+  const local_zoom_path = rh.join(run_directory, "fixture-text-local-zoom.png");
+  const local_zoom = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "zoom",
+    "--window", handle_text,
+    "--local-region", "" + local_x + "," + local_y + ","
+      + local_width + "," + local_height,
+    "--out", local_zoom_path, "--pad", "0"
+  ]);
+  ensure(
+    text_at(local_zoom, "data.via") === "window-capture-clip"
+      && text_at(local_zoom, "data.region_space") === "window-local"
+      && JSON.stringify(local_zoom.data.requested_local_region) === JSON.stringify(local_region)
+      && int_at(local_zoom, "data.window_local_region.x") === local_x
+      && int_at(local_zoom, "data.window_local_region.y") === local_y
+      && int_at(local_zoom, "data.window_local_region.width") === local_width
+      && int_at(local_zoom, "data.window_local_region.height") === local_height
+      && JSON.stringify(local_zoom.data.clip_pixels) === JSON.stringify(exact_zoom.data.clip_pixels)
+      && int_at(local_zoom, "data.output_width") === int_at(exact_zoom, "data.output_width")
+      && int_at(local_zoom, "data.output_height") === int_at(exact_zoom, "data.output_height")
+      && direct_file(local_zoom_path) && rh.metadata(local_zoom_path).len > 100,
+    "cu_macos_smoke_local_zoom:" + JSON.stringify(local_zoom.data)
+  );
 
   print("STEP raise keeps the system frontmost application unchanged; minimize and restore require explicit postconditions and prove the window state by read-back");
   const raised_main = run_cu_json(run_directory, executable, [

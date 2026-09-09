@@ -69,6 +69,94 @@ function lower(value) {
   return value.toLowerCase();
 }
 
+function finite_number(value) {
+  return typeof value === "number" && value === value && value - value === 0;
+}
+
+function floor_number(value) {
+  const truncated = value - value % 1;
+  return value < truncated ? truncated - 1 : truncated;
+}
+
+function ceil_number(value) {
+  const truncated = value - value % 1;
+  return value > truncated ? truncated + 1 : truncated;
+}
+
+function zoom_rect_shape(value) {
+  return object_value(value) && object_value(value.requested)
+    && object_value(value.padded) && Array.isArray(value.local_region)
+    && value.local_region.length === 4 && value.pad === 0.2;
+}
+
+// The archived MCU expanded window-local corner coordinates by 20% on each
+// side, using a one-point minimum source extent. Native zoom accepts an
+// integer window-local rectangle, so this projection takes the outward integer
+// bounds. It deliberately does not clamp to a window: the native command owns
+// intersection, clipping and the typed outside-window refusal.
+export function legacy_zoom_rect(x1, y1, x2, y2) {
+  if (!finite_number(x1) || !finite_number(y1)
+      || !finite_number(x2) || !finite_number(y2)) {
+    return failure("acu_compound_zoom_rect_invalid",
+      "legacy zoom corners must be finite numbers");
+  }
+  const source_width = x2 - x1 > 1 ? x2 - x1 : 1;
+  const source_height = y2 - y1 > 1 ? y2 - y1 : 1;
+  const padded = {
+    x1: x1 - source_width * 0.2,
+    y1: y1 - source_height * 0.2,
+    x2: x2 + source_width * 0.2,
+    y2: y2 + source_height * 0.2
+  };
+  const left = floor_number(padded.x1 < padded.x2 ? padded.x1 : padded.x2);
+  const top = floor_number(padded.y1 < padded.y2 ? padded.y1 : padded.y2);
+  const right = ceil_number(padded.x1 > padded.x2 ? padded.x1 : padded.x2);
+  const bottom = ceil_number(padded.y1 > padded.y2 ? padded.y1 : padded.y2);
+  const width = right - left;
+  const height = bottom - top;
+  if (!finite_number(left) || !finite_number(top)
+      || !finite_number(right) || !finite_number(bottom)
+      || left < -2147483648 || left > 2147483647
+      || top < -2147483648 || top > 2147483647
+      || width < 1 || width > 2147483647
+      || height < 1 || height > 2147483647) {
+    return failure("acu_compound_zoom_rect_invalid",
+      "legacy zoom padding must fit one positive native i32 rectangle");
+  }
+  return success({
+    requested: { x1: x1, y1: y1, x2: x2, y2: y2 },
+    pad: 0.2,
+    padded: padded,
+    local_region: [left, top, width, height]
+  });
+}
+
+// Preserve the native zoom facts and add only the legacy geometry needed by
+// callers that still consume the MCU-shaped crop receipt.
+export function legacy_zoom_reply_projection(reply, rect) {
+  const unpacked = reply_data(reply, "zoom reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  if (!zoom_rect_shape(rect) || !object_value(data)
+      || !object_value(data.window_local_region) || !object_value(data.capture)
+      || !positive_integer(data.output_width) || !positive_integer(data.output_height)
+      || !finite_number(data.capture.scale_x) || data.capture.scale_x <= 0
+      || !finite_number(data.capture.scale_y) || data.capture.scale_y <= 0) {
+    return failure("acu_compound_zoom_reply_invalid",
+      "zoom reply must contain clipped geometry, image dimensions and finite scales");
+  }
+  const out = clone(data);
+  out.legacy_zoom = {
+    requested: clone(rect.requested),
+    pad: 0.2,
+    padded: clone(rect.padded),
+    clipped: clone(data.window_local_region),
+    image: { width: data.output_width, height: data.output_height },
+    scale: { x: data.capture.scale_x, y: data.capture.scale_y }
+  };
+  return success(out);
+}
+
 export function job_generation(reply, job_id) {
   const unpacked = reply_data(reply, "job-status reply");
   if (!unpacked.ok) { return unpacked; }

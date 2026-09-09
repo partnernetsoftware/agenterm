@@ -4458,7 +4458,7 @@
       "grant": "observe",
       "family": "a11y-observe",
       "summary": "crop one region of a window capture to a PNG",
-      "usage": "zoom --window HANDLE --region X,Y,W,H --out PATH [--replace] [--pad N]",
+      "usage": "zoom --window HANDLE (--region X,Y,W,H | --local-region X,Y,W,H) --out PATH [--replace] [--pad N]",
       "args": [
         {
           "flag": "--window",
@@ -4469,6 +4469,11 @@
           "flag": "--region",
           "value": "X,Y,W,H",
           "help": "screen rectangle to crop (the space node bounds use)"
+        },
+        {
+          "flag": "--local-region",
+          "value": "X,Y,W,H",
+          "help": "window-local rectangle to crop (top-left origin)"
         },
         {
           "flag": "--out",
@@ -7805,7 +7810,7 @@
     },
     {
       "name": "zoom",
-      "text": "agenterm-cu zoom\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  zoom --window HANDLE --region X,Y,W,H --out PATH [--replace] [--pad N]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --region X,Y,W,H              screen rectangle to crop (the space node bounds use)\n  --out PATH                    PNG path\n  --replace                     overwrite an existing file\n  --pad N                       pixels of context kept around the region (default 8, at most 512)\n\nCrops one region out of the window's own capture, so a caller can look\nat a detail without a full-screen image. --region is in screen\ncoordinates -- the same space node bounds and query --within use -- so a\nnode's bounds can be passed straight in.\n\nA region that does not intersect the window is typed\n\"region_outside_window\" and NO file is written; a region that straddles\nan edge is clipped to the window. --pad adds context around a region that\nalready intersects; it never rescues one that misses.\n\nThe crop is a clip of the window capture, never a screen grab: the reply\nreports the capture size and the point -> pixel scale it applied (a\nRetina window is captured at 2x, and the region is scaled into that\nspace). Still the last resort, like `screenshot`: the a11y verbs are the\nprimary observation.\n"
+      "text": "agenterm-cu zoom\n  scope: observe    family: Accessibility: observe\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  zoom --window HANDLE (--region X,Y,W,H | --local-region X,Y,W,H) --out PATH [--replace] [--pad N]\n\narguments:\n  --window HANDLE               window handle from `windows` (numeric or App#N)\n  --region X,Y,W,H              screen rectangle to crop (the space node bounds use)\n  --local-region X,Y,W,H        window-local rectangle to crop (top-left origin)\n  --out PATH                    PNG path\n  --replace                     overwrite an existing file\n  --pad N                       pixels of context kept around the region (default 8, at most 512)\n\nCrops one region out of the window's own capture, so a caller can look\nat a detail without a full-screen image. Exactly one rectangle is required.\n--region is in screen coordinates -- the same space node bounds and query\n--within use -- so a node's bounds can be passed straight in. --local-region\nuses the window's top-left point as its origin. The native executor reads the\nwindow bounds once, translates with checked arithmetic, and then uses the same\nclipping and capture path as --region.\n\nA region that does not intersect the window is typed\n\"region_outside_window\" and NO file is written; a region that straddles\nan edge is clipped to the window. --pad adds context around a region that\nalready intersects; it never rescues one that misses.\n\nThe crop is a clip of the window capture, never a screen grab: the reply\nreports the capture size and the point -> pixel scale it applied (a\nRetina window is captured at 2x, and the region is scaled into that\nspace). A window-local reply additionally reports region_space and the exact\nrequested_local_region. The legacy `zoom --x1/--y1/--x2/--y2` compatibility\nshape applies its archived 20% padding in bounded arithmetic, requires an\nexplicit output path, and routes through --local-region without persisting\nhidden zoom state. Still the last resort, like `screenshot`: the a11y verbs\nare the primary observation.\n"
     },
     {
       "name": "pointer-position",

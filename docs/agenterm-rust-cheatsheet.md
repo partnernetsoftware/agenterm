@@ -2739,6 +2739,13 @@ arithmetic, and perform checked narrowing before multiplying indexes or scaled
 values; an ordinary comparison does not constrain `NaN`, and unchecked casts
 or products can collapse or panic at native callback boundaries.
 
+When a public operation accepts window-local geometry, translate it at the
+native execution boundary after one window-bounds observation. Widen the
+addition, reject an unrepresentable screen coordinate, and then reuse the
+existing screen-space clipping and capture path. Do not query bounds in a
+compatibility layer and act later: the window can move between those calls,
+and saturating an overflowing address silently changes the requested region.
+
 ## Raw-handle field widths can vary by compilation target
 
 A variant in a cross-platform raw-handle enum can expose a different integer

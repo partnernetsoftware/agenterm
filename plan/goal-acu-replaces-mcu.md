@@ -473,10 +473,12 @@ shapes fail typed instead of being ignored.
   ACU-native `drag`/`zoom` are reachable through the compatibility entry.
   MCU-shaped `drag` remains a gap because it promises background-local input
   while the current ACU path requires explicit degraded global-pointer
-  admission; MCU-shaped `zoom` remains a gap because its window-local corner
-  coordinates and percentage padding are not the same contract as ACU's
-  screen rectangle and pixel padding. Both fail typed instead of silently
-  changing behavior.
+  admission. MCU-shaped `zoom` is now losslessly projected through native
+  `--local-region`: bounded pure arithmetic applies the archived 20 percent
+  padding, native clipping uses one observed window bound, and the caller must
+  name the output instead of receiving a hidden fixed-path write. No hidden
+  zoom state is persisted; the separate `click --from-zoom` shape is not
+  claimed by this closure.
 - The browser endpoint gap is closed at the compatibility boundary. All ACU
   CDP page verbs accept either `--port N` or `--pid PID`; the PID route binds
   the process start identity around a bounded native command-line read,

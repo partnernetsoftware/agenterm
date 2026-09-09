@@ -2821,7 +2821,7 @@ uses Camera permission, not Screen Recording.
 ### `zoom`
 
 ```text
-zoom --window HANDLE --region X,Y,W,H --out PATH [--replace] [--pad N]
+zoom --window HANDLE (--region X,Y,W,H | --local-region X,Y,W,H) --out PATH [--replace] [--pad N]
 ```
 
 ```text
@@ -2829,19 +2829,23 @@ agenterm-cu zoom
   scope: observe    family: Accessibility: observe
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  zoom --window HANDLE --region X,Y,W,H --out PATH [--replace] [--pad N]
+  zoom --window HANDLE (--region X,Y,W,H | --local-region X,Y,W,H) --out PATH [--replace] [--pad N]
 
 arguments:
   --window HANDLE               window handle from `windows` (numeric or App#N)
   --region X,Y,W,H              screen rectangle to crop (the space node bounds use)
+  --local-region X,Y,W,H        window-local rectangle to crop (top-left origin)
   --out PATH                    PNG path
   --replace                     overwrite an existing file
   --pad N                       pixels of context kept around the region (default 8, at most 512)
 
 Crops one region out of the window's own capture, so a caller can look
-at a detail without a full-screen image. --region is in screen
-coordinates -- the same space node bounds and query --within use -- so a
-node's bounds can be passed straight in.
+at a detail without a full-screen image. Exactly one rectangle is required.
+--region is in screen coordinates -- the same space node bounds and query
+--within use -- so a node's bounds can be passed straight in. --local-region
+uses the window's top-left point as its origin. The native executor reads the
+window bounds once, translates with checked arithmetic, and then uses the same
+clipping and capture path as --region.
 
 A region that does not intersect the window is typed
 "region_outside_window" and NO file is written; a region that straddles
@@ -2851,8 +2855,12 @@ already intersects; it never rescues one that misses.
 The crop is a clip of the window capture, never a screen grab: the reply
 reports the capture size and the point -> pixel scale it applied (a
 Retina window is captured at 2x, and the region is scaled into that
-space). Still the last resort, like `screenshot`: the a11y verbs are the
-primary observation.
+space). A window-local reply additionally reports region_space and the exact
+requested_local_region. The legacy `zoom --x1/--y1/--x2/--y2` compatibility
+shape applies its archived 20% padding in bounded arithmetic, requires an
+explicit output path, and routes through --local-region without persisting
+hidden zoom state. Still the last resort, like `screenshot`: the a11y verbs
+are the primary observation.
 ```
 
 ### `pointer-position`

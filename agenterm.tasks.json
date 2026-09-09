@@ -5148,6 +5148,23 @@
         "task.acu-job-resources-projection-smoke"
       ]
     },
+    "acu-zoom-legacy-rect-smoke": {
+      "inputs": [
+        "acu-compound-fixtures"
+      ],
+      "outputs": [
+        "acu-zoom-legacy-rect-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-zoom-legacy-rect-smoke"
+      ]
+    },
     "acu-compound-projection": {
       "inputs": [
         "acu-compound-fixtures"
@@ -10874,6 +10891,25 @@
       "id": "acu-job-resources-projection-smoke",
       "description": "Prove pure legacy job-resource projection preserves complete aggregates, decimal ranking, stable tie-breaks and typed incomplete-membership or undefined-rate failures without host effects.",
       "entry": "scripts/qjs/acu-job-resources-projection-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "acu-zoom-legacy-rect-smoke",
+      "description": "Prove pure legacy zoom projection applies archived 20 percent padding with outward rounding, preserves native clipping and scale facts, and fails typed on invalid geometry without host effects.",
+      "entry": "scripts/qjs/acu-zoom-legacy-rect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

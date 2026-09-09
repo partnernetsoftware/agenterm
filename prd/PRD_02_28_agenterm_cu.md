@@ -596,6 +596,9 @@ ACU-only cutover
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green,
 │  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
+│  ├─ [x] acu.dynamic.005 · legacy window-local zoom corners map to native `--local-region`;
+│  │  └─ bounded pure arithmetic preserves the archived 20 percent padding while native
+│  │     clipping uses one observed window bound; explicit output replaces the hidden path
 │  ├─ [~] acu.dynamic.050 · exact simulator application status is native and Bun-free;
 │  │  └─ bounded macOS read-only court proves installed/non-running truth; a pre-existing
 │  │     running fixture must still prove the host-PID/start-identity/device join

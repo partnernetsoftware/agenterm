@@ -1301,7 +1301,7 @@ pub(super) fn screenshot(path: &str, window: Option<isize>) -> Result<serde_json
 /// Default and ceiling for `zoom --pad`: a little context around the
 /// region, because a crop with no margin is often unreadable.
 pub(super) const DEFAULT_ZOOM_PAD: u32 = 8;
-pub(super) const MAX_ZOOM_PAD: u32 = 512;
+pub(super) const MAX_ZOOM_PAD: u32 = crate::command::ZOOM_PAD_MAX;
 
 /// A screen rectangle intersected with a window's rectangle, in the
 /// window's own top-left-origin coordinates. `None` when they do not
@@ -1351,11 +1351,27 @@ pub(super) fn scale_region(
     )
 }
 
+/// Translate one window-local rectangle into screen coordinates without
+/// saturating a caller value into a plausible but different rectangle.
+fn screen_region_from_local(
+    window_origin: (i32, i32),
+    local: [i32; 4],
+) -> Result<[i32; 4], CuError> {
+    let x = i32::try_from(i64::from(window_origin.0) + i64::from(local[0])).map_err(|_| {
+        invalid_input("zoom --local-region x cannot be represented in screen coordinates".into())
+    })?;
+    let y = i32::try_from(i64::from(window_origin.1) + i64::from(local[1])).map_err(|_| {
+        invalid_input("zoom --local-region y cannot be represented in screen coordinates".into())
+    })?;
+    Ok([x, y, local[2], local[3]])
+}
+
 /// `zoom --window H --region X,Y,W,H --out PATH`: one crop of one window
 /// capture, so a caller can look at a detail without a full-screen image.
 pub(super) fn zoom_payload(
     window: isize,
-    region: [i32; 4],
+    region: Option<[i32; 4]>,
+    requested_local_region: Option<[i32; 4]>,
     out: &str,
     replace: bool,
     pad: Option<u32>,
@@ -1370,10 +1386,18 @@ pub(super) fn zoom_payload(
             "zoom requires --out PATH (a writable PNG path)".into(),
         ));
     }
-    if region[2] <= 0 || region[3] <= 0 {
+    let requested = match (region, requested_local_region) {
+        (Some(value), None) | (None, Some(value)) => value,
+        _ => {
+            return Err(invalid_input(
+                "zoom requires exactly one screen region or window-local region".into(),
+            ));
+        }
+    };
+    if requested[2] <= 0 || requested[3] <= 0 {
         return Err(invalid_input(format!(
-            "zoom --region X,Y,W,H needs a positive width and height, got {}x{}",
-            region[2], region[3]
+            "zoom region X,Y,W,H needs a positive width and height, got {}x{}",
+            requested[2], requested[3]
         )));
     }
     let pad = match pad {
@@ -1404,6 +1428,11 @@ pub(super) fn zoom_payload(
         bounds.width as i32,
         bounds.height as i32,
     );
+    let region = if let Some(local) = requested_local_region {
+        screen_region_from_local((bounds.x, bounds.y), local)?
+    } else {
+        requested
+    };
     // The refusal is judged on the region the caller asked for: padding is
     // context around a region that already intersects, never a way for a
     // region that misses the window to be rescued into one that does not.
@@ -1465,7 +1494,7 @@ pub(super) fn zoom_payload(
         height,
     )
     .map_err(map_mechanism_err)?;
-    Ok(serde_json::json!({
+    let mut reply = serde_json::json!({
         "addressing": "window-handle",
         "mechanism": "libagenterm",
         "via": "window-capture-clip",
@@ -1486,7 +1515,12 @@ pub(super) fn zoom_payload(
         "output_width": cropped.output_width,
         "output_height": cropped.output_height,
         "output_pixels": cropped.output_pixels,
-    }))
+    });
+    if let Some(local) = requested_local_region {
+        reply["region_space"] = serde_json::json!("window-local");
+        reply["requested_local_region"] = serde_json::json!(local);
+    }
+    Ok(reply)
 }
 
 #[cfg(test)]
@@ -1562,26 +1596,68 @@ mod tests {
     }
 
     #[test]
+    fn a_window_local_region_translates_without_saturation() {
+        assert_eq!(
+            screen_region_from_local((100, -50), [-20, 30, 40, 50]).expect("translated"),
+            [80, -20, 40, 50]
+        );
+        let error = screen_region_from_local((i32::MAX, 0), [1, 0, 1, 1])
+            .expect_err("overflow must fail typed");
+        assert_eq!(error.code, "invalid_input");
+    }
+
+    #[test]
     fn zoom_refuses_its_bad_inputs_before_any_capture() {
         let executor = observe_executor();
-        let zoom = |window: isize, region: [i32; 4], out: &str, pad: Option<u32>| {
-            executor.execute(&Command::Zoom {
-                target: TargetRef::Current,
-                window,
-                region,
-                out: out.into(),
-                replace: true,
-                pad,
-            })
-        };
+        let zoom =
+            |window: isize, region: Option<[i32; 4]>, local_region, out: &str, pad: Option<u32>| {
+                executor.execute(&Command::Zoom {
+                    target: TargetRef::Current,
+                    window,
+                    region,
+                    local_region,
+                    out: out.into(),
+                    replace: true,
+                    pad,
+                })
+            };
         for (reply, what) in [
-            (zoom(0, [0, 0, 10, 10], "/dev/null", None), "no window"),
-            (zoom(7, [0, 0, 0, 10], "/dev/null", None), "zero width"),
-            (zoom(7, [0, 0, 10, 0], "/dev/null", None), "zero height"),
-            (zoom(7, [0, 0, 10, 10], "  ", None), "empty path"),
             (
-                zoom(7, [0, 0, 10, 10], "/dev/null", Some(MAX_ZOOM_PAD + 1)),
+                zoom(0, Some([0, 0, 10, 10]), None, "/dev/null", None),
+                "no window",
+            ),
+            (
+                zoom(7, Some([0, 0, 0, 10]), None, "/dev/null", None),
+                "zero width",
+            ),
+            (
+                zoom(7, None, Some([0, 0, 10, 0]), "/dev/null", None),
+                "zero height",
+            ),
+            (
+                zoom(7, Some([0, 0, 10, 10]), None, "  ", None),
+                "empty path",
+            ),
+            (
+                zoom(
+                    7,
+                    Some([0, 0, 10, 10]),
+                    None,
+                    "/dev/null",
+                    Some(MAX_ZOOM_PAD + 1),
+                ),
                 "pad too large",
+            ),
+            (zoom(7, None, None, "/dev/null", None), "no region"),
+            (
+                zoom(
+                    7,
+                    Some([0, 0, 10, 10]),
+                    Some([0, 0, 10, 10]),
+                    "/dev/null",
+                    None,
+                ),
+                "two regions",
             ),
         ] {
             assert_eq!(reply.command, "zoom", "{what}");

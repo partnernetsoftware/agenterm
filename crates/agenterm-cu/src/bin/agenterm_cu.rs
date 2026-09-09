@@ -1993,6 +1993,27 @@ mod surface_tests {
             }
             other => panic!("{other:?}"),
         }
+        match parse(&[
+            "zoom",
+            "--window",
+            "42",
+            "--local-region",
+            "-1,2,30,40",
+            "--out",
+            "/tmp/local-z.png",
+        ])
+        .expect("local zoom")
+        {
+            Command::Zoom {
+                region,
+                local_region,
+                ..
+            } => {
+                assert_eq!(region, None);
+                assert_eq!(local_region, Some([-1, 2, 30, 40]));
+            }
+            other => panic!("{other:?}"),
+        }
         match parse(&["drag", "--window", "42", "--from", "1,2", "--to", "3,4"]).expect("drag") {
             Command::Drag {
                 button,
@@ -2076,13 +2097,15 @@ mod surface_tests {
             Command::Zoom {
                 window,
                 region,
+                local_region,
                 out,
                 replace,
                 pad,
                 ..
             } => {
                 assert_eq!(window, 42);
-                assert_eq!(region, [1, 2, 30, 40]);
+                assert_eq!(region, Some([1, 2, 30, 40]));
+                assert_eq!(local_region, None);
                 assert_eq!(out, "/tmp/z.png");
                 assert!(replace);
                 assert_eq!(pad, Some(4));
@@ -2173,6 +2196,18 @@ mod surface_tests {
             &["zoom", "--window", "1", "--region", "1,2,3", "--out", "z"][..],
             &["zoom", "--window", "1", "--region", "1,2,3,x", "--out", "z"][..],
             &["zoom", "--window", "1", "--region", "1,2,3,4"][..],
+            &[
+                "zoom",
+                "--window",
+                "1",
+                "--region",
+                "1,2,3,4",
+                "--local-region",
+                "1,2,3,4",
+                "--out",
+                "z",
+            ][..],
+            &["zoom", "--window", "1", "--out", "z"][..],
         ] {
             assert!(parse(argv).is_err(), "{argv:?} must be a usage error");
         }

@@ -21,8 +21,7 @@ export const LEGACY_TOP_LEVEL = [
 // archive; unknown spellings are deliberately absent and continue to native
 // usage handling.
 export const LEGACY_TODO_GAP_IDS = [
-  "acu.dynamic.004", "acu.dynamic.005",
-  "acu.dynamic.054", "acu.dynamic.057",
+  "acu.dynamic.004", "acu.dynamic.054", "acu.dynamic.057",
   "acu.dynamic.075", "acu.dynamic.078.page-index-space",
 ];
 
@@ -142,6 +141,11 @@ function legacy_bounded_integer(raw, minimum, maximum) {
   return value >= minimum && value <= maximum && value % 1 === 0 ? value : null;
 }
 
+function legacy_finite_number(raw) {
+  const value = Number(raw);
+  return value === value && value - value === 0 ? value : null;
+}
+
 function lower_hex_prefix(raw) {
   if (typeof raw !== "string" || raw.length < 1 || raw.length > 32) { return false; }
   for (let i = 0; i < raw.length; i = i + 1) {
@@ -183,9 +187,27 @@ function known_dynamic_boundary(argv) {
     return todo("acu.dynamic.004", "drag",
       "legacy window-local drag coordinates need a lossless typed adapter");
   }
-  if (verb === "zoom" && has_any_arg(argv, ["--x1", "--y1", "--x2", "--y2"])) {
-    return todo("acu.dynamic.005", "zoom",
-      "legacy window-local corner coordinates need a lossless typed adapter");
+  if (verb === "zoom" && (argv.length > 1 && !argv[1].startsWith("--")
+      || has_any_arg(argv, ["--x1", "--y1", "--x2", "--y2"]))) {
+    const parsed = without_value_flags(argv, ["x1", "y1", "x2", "y2", "out"]);
+    if (!parsed.ok) { return { kind: "usage", command: "zoom", message: parsed.message }; }
+    if (parsed.argv.length !== 2 || parsed.argv[1].startsWith("--")) {
+      return { kind: "usage", command: "zoom",
+        message: "zoom requires one window handle and --x1 --y1 --x2 --y2 --out" };
+    }
+    const x1 = parsed.values.x1 === null ? null : legacy_finite_number(parsed.values.x1);
+    const y1 = parsed.values.y1 === null ? null : legacy_finite_number(parsed.values.y1);
+    const x2 = parsed.values.x2 === null ? null : legacy_finite_number(parsed.values.x2);
+    const y2 = parsed.values.y2 === null ? null : legacy_finite_number(parsed.values.y2);
+    if (x1 === null || y1 === null || x2 === null || y2 === null
+        || parsed.values.out === null || parsed.values.out.length === 0) {
+      return { kind: "usage", command: "zoom",
+        message: "zoom requires finite --x1 --y1 --x2 --y2 and an explicit --out path" };
+    }
+    return compound_plan("zoom-legacy-rect", "zoom", {
+      window: parsed.argv[1], x1: x1, y1: y1, x2: x2, y2: y2,
+      out: parsed.values.out
+    });
   }
   if (verb === "job" && sub === "resources") {
     const parsed = without_value_flags(argv,

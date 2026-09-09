@@ -470,10 +470,11 @@
         },
         {
           "id": "desktop.snapshot.diff",
-          "mcu_shape": "snapshot/diff/zoom/hit",
-          "acu_shape": "snapshot/diff/zoom/hit with stable ids and advance receipts",
+          "mcu_shape": "snapshot/diff/zoom/hit; zoom HANDLE --x1/--y1/--x2/--y2 [--out]",
+          "acu_shape": "snapshot/diff/zoom/hit with stable ids and advance receipts; zoom --local-region",
           "state": "delegated",
-          "evidence": ["cu.macos-ax-snapshot-diff", "cu.macos-ax-hit-zoom"]
+          "evidence": ["cu.macos-ax-snapshot-diff", "cu.macos-ax-hit-zoom", "acu.compat-zoom-legacy-rect"],
+          "note": "The Bun-free legacy zoom projection applies the archived 20 percent window-local padding with bounded outward rounding, while the native --local-region path performs the equivalent edge clipping against one observed window bound and preserves point-to-pixel scale facts. Compatibility requires an explicit output path, does not persist hidden zoom state, and does not cover the separate click --from-zoom shape."
         },
         {
           "id": "desktop.window.geometry",

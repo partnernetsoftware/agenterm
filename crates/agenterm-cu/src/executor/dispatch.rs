@@ -2321,11 +2321,12 @@ impl Executor {
             Command::Zoom {
                 window,
                 region,
+                local_region,
                 out,
                 replace,
                 pad,
                 ..
-            } => zoom_payload(*window, *region, out, *replace, *pad),
+            } => zoom_payload(*window, *region, *local_region, out, *replace, *pad),
             Command::Snapshot {
                 window,
                 depth,

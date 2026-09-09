@@ -63,9 +63,20 @@
     {
       "gap_id": "acu.dynamic.005",
       "argv": [
-        "zoom"
+        "zoom",
+        "Window#1",
+        "--x1",
+        "1",
+        "--y1",
+        "2",
+        "--x2",
+        "3",
+        "--y2",
+        "4",
+        "--out",
+        "zoom.png"
       ],
-      "classification": "typed-rejection"
+      "classification": "resolved"
     },
     {
       "gap_id": "acu.dynamic.006",

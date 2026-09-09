@@ -375,6 +375,7 @@ const evidence_suites = {
   "acu-mcp-provider-smoke": true,
   "acu-job-resources-compat-smoke": true,
   "acu-job-resources-projection-smoke": true,
+  "acu-zoom-legacy-rect-smoke": true,
   "cu-process-inventory-smoke": true,
   "cu-process-inspection-smoke": true,
   "cu-process-sockets-smoke": true,
