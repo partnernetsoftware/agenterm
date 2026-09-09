@@ -304,6 +304,13 @@
       ]
     },
     {
+      "id": "cu-linux-process-watch-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-watch-readback"
+      ]
+    },
+    {
       "id": "cu-linux-pty-smoke",
       "platform": "linux",
       "evidence": [
