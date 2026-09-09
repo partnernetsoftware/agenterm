@@ -8917,7 +8917,7 @@
     },
     {
       "id": "cu-linux-network-interfaces-smoke",
-      "description": "Linux network-interfaces observe matches independent ip -j addr and sysfs ifindex/IFF_UP read-back; no --coords.",
+      "description": "Linux network-interfaces observe matches independent ip -j addr and sysfs ifindex/IFF_UP/cidr/mac read-back with typed network_interfaces_unavailable when getifaddrs fails; no --coords.",
       "entry": "scripts/qjs/cu-linux-network-interfaces-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
