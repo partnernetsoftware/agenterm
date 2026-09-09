@@ -7717,7 +7717,7 @@
     },
     {
       "id": "cu-linux-file-watch-smoke",
-      "description": "Linux bounded single-directory inotify file-watch: direct-entry create, modify, rename and remove events have independent filesystem read-back; nested and outside changes do not leak; max-events 1 truncates and returns early; typed file-watch usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage/host-limit paths before the inotify read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux bounded single-directory inotify file-watch: direct-entry create, modify, rename and remove events have independent filesystem read-back; nested and outside changes do not leak; max-events 1 truncates and returns early; typed file-watch usage rejects AT-SPI --name/--coords/--bogus (usage_rejects_unexpected); typed get-extents --name usage/host-limit plus --coords/--bogus command=usage before the inotify read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-file-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
