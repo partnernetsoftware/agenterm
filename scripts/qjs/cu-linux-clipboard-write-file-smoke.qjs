@@ -130,6 +130,29 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
+function assert_clipboard_usage_reject(run_directory, executable, grant, arguments, env, label, token) {
+  const reply = invoke_clipboard_reply(run_directory, executable, grant, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_clipboard_write_file_usage_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_usage_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf(token) >= 0
+      || message.indexOf("unexpected") >= 0
+      || message.indexOf("no arguments") >= 0,
+    "cu_linux_clipboard_write_file_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+  if (token === "--coords") {
+    ensure(
+      message.indexOf("--coords") >= 0,
+      "cu_linux_clipboard_write_file_usage_coords_token:" + JSON.stringify(reply.error)
+    );
+  }
+}
+
 function assert_clipboard_usage_limit(run_directory, executable, env, probe_path) {
   const read_flat = invoke_clipboard_reply(run_directory, executable, "observe", [
     "clipboard-read", "--type", URI_LIST_TYPE, "--name", AT_SPI_PROBE_NAME,
@@ -230,6 +253,16 @@ function assert_clipboard_usage_limit(run_directory, executable, env, probe_path
       || text_at(read_bogus, "error.message").indexOf("--bogus") >= 0,
     "cu_linux_clipboard_write_file_read_bogus_message:" + JSON.stringify(read_bogus.error)
   );
+
+  assert_clipboard_usage_reject(run_directory, executable, "observe", [
+    "clipboard-read", "--type", URI_LIST_TYPE, "--coords", "0,0",
+  ], env, "read_coords", "--coords");
+  assert_clipboard_usage_reject(run_directory, executable, "actuate", [
+    "clipboard-write-file", "--path", probe_path, "--coords", "0,0",
+  ], env, "write_file_coords", "--coords");
+  assert_clipboard_usage_reject(run_directory, executable, "actuate", [
+    "clipboard-clear", "--apply", "--coords", "0,0",
+  ], env, "clear_coords", "--coords");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -399,7 +432,7 @@ try {
   const probe_path = rh.join(context.run_directory, "probe-token.txt");
   rh.write_text(probe_path, "CEO-write-file-probe\n");
 
-  print("STEP clipboard-write-file/read/clear typed-fail usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP clipboard-write-file/read/clear typed-fail usage when AT-SPI --name, --coords, or other unexpected arguments are present");
   assert_clipboard_usage_limit(context.run_directory, executable, env, probe_path);
 
   if (atspi_available) {
