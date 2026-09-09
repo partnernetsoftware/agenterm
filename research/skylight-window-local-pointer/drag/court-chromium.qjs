@@ -2,8 +2,9 @@
 //
 // RESEARCH ONLY. This runner registers no public evidence, changes no product
 // capability state and cannot close the compatibility TODO. A fully green run
-// proves only plan/design-skylight-window-local-pointer-experiment.md G1-G8 on
-// one current host. G9 repeatability and G10 host coverage remain separate.
+// proves only the section 10.6 G1-G8 focus-lease contract on one current host.
+// A conclusive failure selects its precommitted macOS HANDLE retirement branch;
+// G9 repeatability and G10 host coverage remain separate.
 //
 // The court owns one direct Chromium profile, two windows (target B and peer A)
 // and a separate foreground guard. Before the first native post it freezes a
@@ -12,7 +13,8 @@
 // shuffled PRIVATE/PUBLIC_LOC/PUBLIC_OFF triplets, alternating the inside and
 // inside-to-outside trajectories.
 //
-// Args: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST
+// Args: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE
+//       SOURCE_SHA PROBE_DIGEST DRY_ATTEMPT REPAIR_COUNT RUN_NUMBER
 // or:   --list-evidence   (prints nothing; research is not public evidence)
 //
 // Page contract (drag/page.html):
@@ -25,19 +27,20 @@
 //   Each event carries {seq,kind,button,buttons,clientX,clientY,target_id,
 //   target_path_ids}. The path starts at target_id and walks toward the root.
 //
-// Injector contract (drag gesture):
-//   --mode gesture --arm private|public-loc|public-off
-//   --pid PID --window CGID --window-x X --window-y Y
+// Injector contract (dry lease, drag gesture and release closure):
+//   --mode lease-only|gesture|release-only --arm private|public-loc|public-off
+//   --pid PID --window CGID --peer-window CGID --guard-window CGID
+//   --phase-state PATH --phase-ack PATH --window-x X --window-y Y
 //   --window-width W --window-height H --start-x X --start-y Y --end-x X --end-y Y
 //   --off-dx DX --off-dy DY --steps 20 --cadence-us 6000 --guard-state PATH
-// The one JSON receipt must prove the frozen identity, 1 down attempt, 20 move
-// attempts, 1 same-target up attempt, a baseline plus 22 complete host samples,
-// <=50 ms post-to-sample latency, and outcome_unknown=false.
+// The schema-2 receipt must prove exact A->B->A focus closure, frozen
+// z-order/foreground/pointer state, 1 down, 20 moves, 1 same-target up,
+// complete per-event samples, <=50 ms latency and outcome_unknown=false.
 //
 // If the gesture process crashes, times out or cannot prove an up attempt, the
 // parent invokes the same injector once with --mode release-only and the exact
 // same identity/final point. Recovery never makes the trial green. The verdict
-// is FAIL_RELEASE/outcome_unknown and no later gesture/down is launched.
+// is measured-safety retirement/outcome_unknown and no later down is launched.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -162,8 +165,8 @@ function arm_order_for_round() {
 
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") { return; }
-harness.require(args.length === 7,
-  "expected: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST");
+harness.require(args.length === 10,
+  "expected: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST DRY_ATTEMPT REPAIR_COUNT RUN_NUMBER");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const chromium = rh.absolute(args[2]);
@@ -171,6 +174,13 @@ const injector = rh.absolute(args[3]);
 const guard_fixture = rh.absolute(args[4]);
 const source_sha = "" + args[5];
 const probe_digest = "" + args[6];
+const dry_attempt = rh.parse_int("" + args[7]);
+const repair_count = rh.parse_int("" + args[8]);
+const run_number = rh.parse_int("" + args[9]);
+harness.require(dry_attempt >= 1 && dry_attempt <= 6
+    && repair_count >= 0 && repair_count <= 2
+    && run_number >= 1 && run_number <= 2,
+  "section 10.6 counters are out of bounds");
 
 const context = harness.new_context(repo, "acu-004-chromium-drag-discriminator");
 const run_directory = context.run_directory;
@@ -313,7 +323,8 @@ function snapshot_oracle(port, target_id, label, trial_nonce) {
   const value = JSON.parse("" + raw);
   ensure(value.label === label && value.nonce === nonce
       && value.trial_nonce === trial_nonce && typeof value.has_focus === "boolean"
-      && Array.isArray(value.sequence),
+      && Array.isArray(value.sequence) && Array.isArray(value.focus_sequence)
+      && value.focus_sequence.length <= 128,
     "acu004_snapshot_identity:" + label + ":" + raw);
   return value;
 }
@@ -426,13 +437,18 @@ function translated_control(path, target_bounds, peer_bounds, guard_bounds) {
   return translation;
 }
 
+let injector_sequence = 0;
+
 function build_injector_argv(mode, arm, trajectory, browser_pid, target_window,
-    target_bounds, path, translation) {
-  return [
+    peer_window, guard_window, target_bounds, path, translation,
+    phase_state_path, phase_ack_path, expected_focus) {
+  const argv = [
     "--mode", mode,
     "--arm", arm,
     "--pid", "" + browser_pid,
     "--window", "" + target_window,
+    "--peer-window", "" + peer_window,
+    "--guard-window", "" + guard_window,
     "--window-x", "" + target_bounds.x,
     "--window-y", "" + target_bounds.y,
     "--window-width", "" + target_bounds.width,
@@ -445,16 +461,19 @@ function build_injector_argv(mode, arm, trajectory, browser_pid, target_window,
     "--off-dy", "" + translation.y,
     "--steps", "" + STEPS,
     "--cadence-us", "" + CADENCE_US,
-    "--guard-state", guard_state_path
+    "--guard-state", guard_state_path,
+    "--phase-state", phase_state_path,
+    "--phase-ack", phase_ack_path,
+    "--timeout-ms", "25000"
   ];
+  if (expected_focus !== null) {
+    argv.push("--expected-prior-focus", JSON.stringify(expected_focus.prior));
+    argv.push("--expected-target-focus", JSON.stringify(expected_focus.target));
+  }
+  return argv;
 }
 
-function run_injector(argv, timeout_ms) {
-  const output = rh.command(injector, argv, {
-    cwd: run_directory,
-    env: cu_env,
-    timeout_ms: timeout_ms
-  });
+function parsed_process_output(output) {
   const text = output.stdout.trim();
   let reply = null;
   if (text !== "") {
@@ -464,22 +483,154 @@ function run_injector(argv, timeout_ms) {
   return { output: output, reply: reply, stdout: text };
 }
 
+function page_focus_fact(snapshot) {
+  return {
+    has_focus: snapshot.has_focus,
+    pointer_sequence_length: snapshot.sequence.length,
+    focus_sequence: snapshot.focus_sequence.slice(0)
+  };
+}
+
+function same_page_focus(left, right) {
+  return left.has_focus === right.has_focus
+    && JSON.stringify(left.focus_sequence) === JSON.stringify(right.focus_sequence);
+}
+
+function run_injector_phased(mode, arm, trajectory, browser_pid, target_window,
+    peer_window, guard_window, target_bounds, path, translation,
+    port, target_a, target_b, trial_nonce, expected_page_focus,
+    expected_native_focus) {
+  injector_sequence = injector_sequence + 1;
+  const stem = "phase-" + injector_sequence;
+  const phase_state_path = rh.join(run_directory, stem + "-state.json");
+  const phase_ack_path = rh.join(run_directory, stem + "-ack.json");
+  rh.try_remove_file(phase_state_path);
+  rh.try_remove_file(phase_ack_path);
+  const expected_phases = mode === "release-only"
+    ? [{ sequence: 2, phase: "restored" }]
+    : [{ sequence: 1, phase: "acquired" }, { sequence: 2, phase: "restored" }];
+  const argv = build_injector_argv(mode, arm, trajectory, browser_pid,
+    target_window, peer_window, guard_window, target_bounds, path, translation,
+    phase_state_path, phase_ack_path, expected_native_focus);
+  const child = harness.start({
+    program: injector,
+    args: argv,
+    current_dir: run_directory,
+    env: cu_env,
+    timeout_ms: 30000
+  });
+  const phase_facts = [];
+  let phase_error = "";
+  let process_error = "";
+  const deadline = rh.now_ms() + 28000;
+  let seen = 0;
+  let output = null;
+  try {
+    while (rh.now_ms() < deadline) {
+      if (rh.exists(phase_state_path)) {
+        let phase = null;
+        try { phase = JSON.parse(rh.read_text(phase_state_path)); }
+        catch (error) { phase = null; }
+        if (mode !== "release-only" && seen === 0 && phase !== null
+            && phase.schema === 1 && phase.sequence === 2
+            && phase.phase === "restored") {
+          phase_error = "acu004_phase_missing:acquired";
+          phase_facts.push({
+            schema: 1, sequence: 1, phase: "acquired",
+            page_a: null, page_b: null, missing: true
+          });
+          seen = 1;
+        }
+        const expected_phase = expected_phases[seen];
+        if (phase !== null && phase.schema === 1
+            && typeof expected_phase === "object" && expected_phase !== null
+            && phase.sequence === expected_phase.sequence
+            && phase.phase === expected_phase.phase) {
+          let phase_matches = true;
+          let fact = null;
+          try {
+            const snap_a = snapshot_oracle(port, target_a, "A", trial_nonce);
+            const snap_b = snapshot_oracle(port, target_b, "B", trial_nonce);
+            fact = {
+              schema: 1,
+              sequence: phase.sequence,
+              phase: phase.phase,
+              page_a: page_focus_fact(snap_a),
+              page_b: page_focus_fact(snap_b)
+            };
+            if (expected_page_focus !== null) {
+              const expected = expected_page_focus[phase.phase];
+              if (!(typeof expected === "object" && expected !== null
+                  && same_page_focus(fact.page_a, expected.page_a)
+                  && same_page_focus(fact.page_b, expected.page_b))) {
+                phase_error = "acu004_page_focus_phase_mismatch:" + phase.phase;
+                phase_matches = false;
+              }
+            }
+          } catch (error) {
+            phase_error = "acu004_page_focus_phase_unavailable:" + phase.phase;
+            phase_matches = false;
+          }
+          phase_facts.push(fact === null ? {
+            schema: 1, sequence: phase.sequence, phase: phase.phase,
+            page_a: null, page_b: null
+          } : fact);
+          rh.atomic_write(phase_ack_path, JSON.stringify({
+            schema: phase.schema,
+            sequence: phase.sequence,
+            phase: phase.phase,
+            proceed: phase_matches
+          }));
+          seen = seen + 1;
+        }
+      }
+      if (harness.state(child) !== "running") { break; }
+      rh.sleep_ms(10);
+    }
+    if (harness.state(child) === "running") { harness.kill(child); }
+    output = harness.wait(child, 2000);
+  } catch (error) {
+    process_error = scrubbed_failure(error);
+    try {
+      if (harness.state(child) === "running") { harness.kill(child); }
+    } catch (cleanup_error) {
+      process_error = process_error + ":kill:" + scrubbed_failure(cleanup_error);
+    }
+    try { output = harness.wait(child, 2000); }
+    catch (wait_error) {
+      process_error = process_error + ":wait:" + scrubbed_failure(wait_error);
+    }
+  }
+  rh.try_remove_file(phase_state_path);
+  rh.try_remove_file(phase_ack_path);
+  const result = output === null
+    ? { output: { success: false, stdout: "" }, reply: null, stdout: "" }
+    : parsed_process_output(output);
+  result.phase_facts = phase_facts;
+  result.phase_complete = seen === expected_phases.length;
+  result.phase_error = phase_error;
+  result.process_error = process_error;
+  return result;
+}
+
 function host_state_equal(left, right) {
-  return number_at(left, "pointer.x") === number_at(right, "pointer.x")
-    && number_at(left, "pointer.y") === number_at(right, "pointer.y")
-    && integer_at(left, "frontmost_pid") === integer_at(right, "frontmost_pid")
-    && text_at(left, "frontmost_window") === text_at(right, "frontmost_window")
-    && text_at(left, "target_ax_main_window") === text_at(right, "target_ax_main_window")
-    && text_at(left, "target_ax_focused_window")
-      === text_at(right, "target_ax_focused_window");
+  return number_at(left, "g6a.pointer.x") === number_at(right, "g6a.pointer.x")
+    && number_at(left, "g6a.pointer.y") === number_at(right, "g6a.pointer.y")
+    && integer_at(left, "g6a.frontmost_pid") === integer_at(right, "g6a.frontmost_pid")
+    && text_at(left, "g6a.frontmost_window") === text_at(right, "g6a.frontmost_window")
+    && integer_at(left, "g6a.guard.pid") === integer_at(right, "g6a.guard.pid")
+    && integer_at(left, "g6a.guard.window") === integer_at(right, "g6a.guard.window")
+    && text_at(left, "g6a.z_order_digest") === text_at(right, "g6a.z_order_digest")
+    && JSON.stringify(at(left, "g6a.z_order")) === JSON.stringify(at(right, "g6a.z_order"));
 }
 
 function receipt_release_proved(reply) {
-  return reply !== null && reply.mode === "gesture"
+  return reply !== null && reply.schema === 2 && reply.mode === "gesture"
     && reply.down_attempts === 1
     && reply.up_attempts === 1 && reply.up_attempted === true
-    && reply.up_post_uncertain === false
-    && reply.outcome_unknown === false;
+    && reply.up_proven === true
+    && reply.up_proof === "same-route-native-post-returned"
+    && reply.up_post_uncertain === false;
 }
 
 function receipt_proves_pre_down_failure(result) {
@@ -494,16 +645,23 @@ function receipt_proves_pre_down_failure(result) {
     "fixture_guard_not_frontmost", "fixture_guard_changed",
     "host_state_unavailable", "stale_window", "window_owner_changed",
     "window_not_onscreen", "window_geometry_invalid", "window_geometry_changed",
-    "path_invalid", "control_path_invalid", "event_create_failed"
+    "path_invalid", "control_path_invalid", "event_create_failed",
+    "focus_tuple_precondition_failed", "focus_tuple_unavailable",
+    "focus_tuple_ambiguous", "focus_lease_set_failed",
+    "focus_lease_acquire_unverified", "focus_lease_acquire_failed",
+    "focus_lease_drift", "g6a_host_state_changed",
+    "phase_handshake_publish_failed", "phase_handshake_timeout",
+    "phase_handshake_rejected", "phase_handshake_failed"
   ].includes(reply.error.code);
 }
 
 function validate_gesture_receipt(reply, arm, trajectory, browser_pid,
-    target_window, target_bounds, path, translation) {
-  ensure(reply !== null && reply.ok === true && reply.schema === 1
+    target_window, peer_window, guard_window, target_bounds, path, translation) {
+  ensure(reply !== null && reply.ok === true && reply.schema === 2
       && reply.mode === "gesture" && reply.arm === arm,
     "acu004_gesture_receipt_shape");
   ensure(reply.pid === browser_pid && reply.window === target_window
+      && reply.peer_window === peer_window && reply.guard_window === guard_window
       && reply.same_identity === true,
     "acu004_gesture_receipt_identity");
   ensure(typeof reply.frozen_window_bounds === "object"
@@ -526,15 +684,35 @@ function validate_gesture_receipt(reply, arm, trajectory, browser_pid,
     "acu004_gesture_path_receipt");
   ensure(reply.cadence_us === CADENCE_US && reply.host_samples_complete === true
       && reply.host_unchanged === true && Array.isArray(reply.host_samples)
-      && reply.host_samples.length === STEPS + 3,
+      && reply.host_samples.length === STEPS + 6,
     "acu004_host_sampling_completeness");
   const baseline = reply.host_samples[0];
   ensure(typeof baseline === "object" && baseline !== null,
     "acu004_host_baseline_missing");
-  ensure(text_at(baseline, "stage") === "before"
-      && text_at(reply.host_samples[1], "stage") === "after-down"
-      && text_at(reply.host_samples[reply.host_samples.length - 1], "stage") === "after-up",
+  ensure(text_at(baseline, "stage") === "before-acquire",
+    "acu004_host_baseline_stage");
+  ensure(text_at(reply.host_samples[1], "stage") === "after-acquire"
+      && text_at(reply.host_samples[2], "stage") === "before-down"
+      && text_at(reply.host_samples[3], "stage") === "after-down"
+      && text_at(reply.host_samples[reply.host_samples.length - 2], "stage") === "after-up"
+      && text_at(reply.host_samples[reply.host_samples.length - 1], "stage") === "after-restore",
     "acu004_host_sample_stage_order");
+  ensure(typeof reply.focus_lease === "object" && reply.focus_lease !== null
+      && reply.focus_lease.acquire.attempted === true
+      && reply.focus_lease.acquire.verified === true
+      && reply.focus_lease.restore.attempted === true
+      && reply.focus_lease.restore.verified === true
+      && JSON.stringify(reply.focus_lease.prior)
+        === JSON.stringify(reply.focus_lease.restore.readback)
+      && JSON.stringify(reply.focus_lease.target)
+        === JSON.stringify(reply.focus_lease.acquire.readback)
+      && Array.isArray(reply.focus_lease.phase_handshakes)
+      && reply.focus_lease.phase_handshakes.length === 2
+      && reply.focus_lease.phase_handshakes[0].phase === "acquired"
+      && reply.focus_lease.phase_handshakes[0].acknowledged === true
+      && reply.focus_lease.phase_handshakes[1].phase === "restored"
+      && reply.focus_lease.phase_handshakes[1].acknowledged === true,
+    "acu004_focus_lease_receipt");
   let previous_t_ns = -1;
   for (let index = 0; index < reply.host_samples.length; index = index + 1) {
     const sample = reply.host_samples[index];
@@ -542,6 +720,10 @@ function validate_gesture_receipt(reply, arm, trajectory, browser_pid,
         && number_at(sample, "t_ns") >= previous_t_ns
         && host_state_equal(baseline, sample),
       "acu004_host_sample_invalid:" + index);
+    const expected_focus = index === 0 || index === reply.host_samples.length - 1
+      ? reply.focus_lease.prior : reply.focus_lease.target;
+    ensure(JSON.stringify(sample.focus) === JSON.stringify(expected_focus),
+      "acu004_focus_sample_invalid:" + index);
     previous_t_ns = sample.t_ns;
   }
   ensure(number_at(reply, "max_post_to_sample_ms") >= 0
@@ -550,19 +732,42 @@ function validate_gesture_receipt(reply, arm, trajectory, browser_pid,
   return reply.max_post_to_sample_ms;
 }
 
-function release_only(arm, trajectory, browser_pid, target_window, target_bounds,
-    path, translation) {
-  const argv = build_injector_argv("release-only", arm, trajectory, browser_pid,
-    target_window, target_bounds, path, translation);
-  const result = run_injector(argv, 15000);
+function release_only(arm, trajectory, browser_pid, target_window, peer_window,
+    guard_window, target_bounds, path, translation, port, target_a, target_b,
+    trial_nonce, expected_page_focus, expected_native_focus) {
+  const result = run_injector_phased("release-only", arm, trajectory, browser_pid,
+    target_window, peer_window, guard_window, target_bounds, path, translation,
+    port, target_a, target_b, trial_nonce, expected_page_focus,
+    expected_native_focus);
   const reply = result.reply;
+  const final_a = snapshot_oracle(port, target_a, "A", trial_nonce);
+  const final_b = snapshot_oracle(port, target_b, "B", trial_nonce);
+  const release_a = observed_release_cardinality(final_a);
+  const release_b = observed_release_cardinality(final_b);
+  const dom_release_closed = release_a.down_count <= 1 && release_b.down_count <= 1
+    && release_a.up_count <= 1 && release_b.up_count <= 1
+    && (release_a.down_count === 0 || release_a.up_count === 1)
+    && (release_b.down_count === 0 || release_b.up_count === 1);
   return {
     attempted: true,
     process_success: result.output.success === true,
     proved: reply !== null && reply.ok === true && reply.mode === "release-only"
       && reply.pid === browser_pid && reply.window === target_window
-      && reply.up_attempts === 1 && reply.up_attempted === true,
-    reply: reply
+      && reply.peer_window === peer_window && reply.guard_window === guard_window
+      && reply.up_attempts === 1 && reply.up_attempted === true
+      && reply.focus_lease.restore.verified === true
+      && JSON.stringify(reply.focus_lease.restore.readback)
+        === JSON.stringify(expected_native_focus.prior)
+      && result.phase_complete === true && dom_release_closed,
+    reply: reply,
+    phase_facts: result.phase_facts,
+    dom_release_closed: dom_release_closed,
+    page_release: {
+      page_a: release_a,
+      page_b: release_b,
+      page_a_sequence: final_a.sequence.slice(0),
+      page_b_sequence: final_b.sequence.slice(0)
+    }
   };
 }
 
@@ -676,6 +881,9 @@ let behavioral_failure = "";
 let unstable_failure = "";
 let dependency_failure = "";
 let identity = null;
+let dry_cycle = null;
+let dry_page_focus = null;
+let dry_native_focus = null;
 let triplets_run = 0;
 let private_exact = 0;
 let public_loc_exact = 0;
@@ -867,6 +1075,79 @@ try {
     }
   };
 
+  stage = "focus-lease-dry";
+  const dry_trial = "dry-" + nonce;
+  reset_oracle(port, target_a, "A", dry_trial);
+  reset_oracle(port, target_b, "B", dry_trial);
+  const dry_before_a = snapshot_oracle(port, target_a, "A", dry_trial);
+  const dry_before_b = snapshot_oracle(port, target_b, "B", dry_trial);
+  ensure(empty_sequence(dry_before_a) && empty_sequence(dry_before_b),
+    "acu004_dry_oracle_not_clean");
+  const dry_result = run_injector_phased("lease-only", "private", "inside",
+    browser_pid, target_window, peer_window, guard_window.handle,
+    native_b.bounds, inside_path, inside_translation,
+    port, target_a, target_b, dry_trial, null, null);
+  const dry_reply = dry_result.reply;
+  dry_cycle = {
+    process_success: dry_result.output.success === true,
+    process_error: dry_result.process_error,
+    phase_complete: dry_result.phase_complete,
+    phase_error: dry_result.phase_error,
+    page_before: {
+      page_a: page_focus_fact(dry_before_a),
+      page_b: page_focus_fact(dry_before_b)
+    },
+    phase_facts: dry_result.phase_facts,
+    injector: dry_reply
+  };
+  ensure(dry_reply !== null && dry_reply.ok === true && dry_reply.schema === 2
+      && dry_reply.mode === "lease-only"
+      && dry_reply.down_attempts === 0 && dry_reply.move_attempts === 0
+      && dry_reply.up_attempts === 0 && dry_reply.outcome_unknown === false
+      && dry_reply.retry_safe === true && dry_result.phase_complete === true
+      && dry_result.phase_facts.length === 2,
+    "acu004_focus_lease_dry_failed");
+  ensure(dry_reply.pid === browser_pid && dry_reply.window === target_window
+      && dry_reply.peer_window === peer_window
+      && dry_reply.guard_window === guard_window.handle
+      && dry_reply.host_samples_complete === true
+      && dry_reply.host_samples.length === 3
+      && host_state_equal(dry_reply.host_samples[0], dry_reply.host_samples[1])
+      && host_state_equal(dry_reply.host_samples[0], dry_reply.host_samples[2]),
+    "acu004_focus_lease_dry_g6a");
+  ensure(text_at(dry_reply.host_samples[0], "stage") === "before-acquire"
+      && text_at(dry_reply.host_samples[1], "stage") === "after-acquire"
+      && text_at(dry_reply.host_samples[2], "stage") === "after-restore"
+      && dry_reply.focus_lease.prior.app_focused_window === peer_window
+      && dry_reply.focus_lease.target.app_focused_window === target_window
+      && JSON.stringify(dry_reply.focus_lease.prior)
+        !== JSON.stringify(dry_reply.focus_lease.target)
+      && Array.isArray(dry_reply.focus_lease.unavailable_fields)
+      && JSON.stringify(dry_reply.focus_lease.not_sampled_fields)
+        === JSON.stringify(["application.key_window"])
+      && JSON.stringify(dry_reply.focus_lease.prior)
+        === JSON.stringify(dry_reply.focus_lease.restore.readback)
+      && JSON.stringify(dry_reply.focus_lease.target)
+        === JSON.stringify(dry_reply.focus_lease.acquire.readback),
+    "acu004_focus_lease_dry_g6b");
+  ensure(dry_result.phase_facts[0].phase === "acquired"
+      && dry_result.phase_facts[1].phase === "restored"
+      && dry_result.phase_facts[0].page_a.pointer_sequence_length === 0
+      && dry_result.phase_facts[0].page_b.pointer_sequence_length === 0
+      && dry_result.phase_facts[1].page_a.pointer_sequence_length === 0
+      && dry_result.phase_facts[1].page_b.pointer_sequence_length === 0,
+    "acu004_focus_lease_dry_posted_pointer_event");
+  dry_page_focus = {
+    acquired: dry_result.phase_facts[0],
+    restored: dry_result.phase_facts[1]
+  };
+  dry_native_focus = {
+    prior: dry_reply.focus_lease.prior,
+    target: dry_reply.focus_lease.target,
+    unavailable_fields: dry_reply.focus_lease.unavailable_fields,
+    not_sampled_fields: dry_reply.focus_lease.not_sampled_fields
+  };
+
   stage = "triplets";
   for (let round = 0; round < TRIPLETS && !stop_downs; round = round + 1) {
     const trajectory = round % 2 === 0 ? "inside" : "boundary";
@@ -887,24 +1168,45 @@ try {
       const before_a = snapshot_oracle(port, target_a, "A", trial_nonce);
       const before_b = snapshot_oracle(port, target_b, "B", trial_nonce);
       ensure(empty_sequence(before_a) && empty_sequence(before_b)
-          && before_a.has_focus === false && before_b.has_focus === false,
+          && same_page_focus(page_focus_fact(before_a), dry_page_focus.restored.page_a)
+          && same_page_focus(page_focus_fact(before_b), dry_page_focus.restored.page_b),
         "acu004_oracle_not_clean_before:" + trial_nonce);
       const before_front = focused_native_window();
       ensure(before_front.process_id === guard.pid && before_front.handle === guard_window.handle,
         "acu004_guard_lost_before:" + trial_nonce);
 
-      const primary = run_injector(build_injector_argv("gesture", arm, trajectory,
-        browser_pid, target_window, native_b.bounds, path, translation), 30000);
+      const primary = run_injector_phased("gesture", arm, trajectory,
+        browser_pid, target_window, peer_window, guard_window.handle,
+        native_b.bounds, path, translation, port, target_a, target_b,
+        trial_nonce, dry_page_focus, dry_native_focus);
       const reply = primary.reply;
       const down_known_absent = receipt_proves_pre_down_failure(primary);
-      if (!receipt_release_proved(reply)) {
+      rh.sleep_ms(500);
+      const snap_b = snapshot_oracle(port, target_b, "B", trial_nonce);
+      const snap_a = snapshot_oracle(port, target_a, "A", trial_nonce);
+      const release_a = observed_release_cardinality(snap_a);
+      const release_b = observed_release_cardinality(snap_b);
+      const oracle_release_contradiction =
+        (release_a.down_count > 0
+          && (release_a.down_count !== 1 || release_a.up_count !== 1))
+        || (release_b.down_count > 0
+          && (release_b.down_count !== 1 || release_b.up_count !== 1));
+      const oracle_release_proved = !oracle_release_contradiction
+        && release_a.down_count + release_b.down_count > 0;
+      const release_proved = !oracle_release_contradiction
+        && (receipt_release_proved(reply) || oracle_release_proved);
+      if (!release_proved) {
         if (!down_known_absent) {
           release_failed = true;
-          release_failure = "primary receipt did not prove exactly one same-target up attempt";
+          release_failure = oracle_release_contradiction
+            ? "a page oracle observed down without exactly one up"
+            : "primary receipt did not prove exactly one same-target up attempt";
           stop_downs = true;
           try {
             release_recovery = release_only(arm, trajectory, browser_pid,
-              target_window, native_b.bounds, path, translation);
+              target_window, peer_window, guard_window.handle, native_b.bounds,
+              path, translation, port, target_a, target_b, trial_nonce,
+              dry_page_focus, dry_native_focus);
           } catch (error) {
             release_recovery = {
               process_success: false,
@@ -913,15 +1215,22 @@ try {
             };
           }
         } else {
-          dependency_failure = reply !== null && typeof reply.error === "object"
-            && reply.error !== null && typeof reply.error.code === "string"
-            ? "injector failed before its first down:" + reply.error.code
-            : "injector failed before its first down:unstructured";
+          const pre_down_code = reply !== null && typeof reply.error === "object"
+              && reply.error !== null && typeof reply.error.code === "string"
+            ? reply.error.code : "unstructured";
+          if (["provider_unavailable", "focus_tuple_unavailable",
+              "focus_tuple_ambiguous", "host_state_unavailable"].includes(pre_down_code)) {
+            dependency_failure = "injector failed before its first down:" + pre_down_code;
+          } else {
+            behavioral_failure = "acu004_pre_down_safety_failure:" + pre_down_code;
+          }
           stop_downs = true;
         }
         round_record.results.push({
           arm: arm,
           primary: reply,
+          phase_facts: primary.phase_facts,
+          process_error: primary.process_error,
           release_recovery: release_recovery,
           outcome_unknown: !down_known_absent
         });
@@ -931,7 +1240,20 @@ try {
       let receipt_latency = 0;
       try {
         receipt_latency = validate_gesture_receipt(reply, arm, trajectory,
-          browser_pid, target_window, native_b.bounds, path, translation);
+          browser_pid, target_window, peer_window, guard_window.handle,
+          native_b.bounds, path, translation);
+        ensure(primary.phase_complete === true && primary.phase_error === ""
+            && primary.phase_facts.length === 2,
+          "acu004_gesture_phase_receipt");
+        ensure(JSON.stringify(reply.focus_lease.prior)
+            === JSON.stringify(dry_native_focus.prior)
+            && JSON.stringify(reply.focus_lease.target)
+            === JSON.stringify(dry_native_focus.target)
+            && JSON.stringify(reply.focus_lease.unavailable_fields)
+            === JSON.stringify(dry_native_focus.unavailable_fields)
+            && JSON.stringify(reply.focus_lease.not_sampled_fields)
+            === JSON.stringify(dry_native_focus.not_sampled_fields),
+          "acu004_gesture_focus_differs_from_dry");
       } catch (error) {
         if (arm === "private") { behavioral_failure = "" + error; }
         else { unstable_failure = "" + error; }
@@ -940,21 +1262,10 @@ try {
       if (receipt_latency > maximum_post_to_sample_ms) {
         maximum_post_to_sample_ms = receipt_latency;
       }
-
-      rh.sleep_ms(500);
-      const snap_b = snapshot_oracle(port, target_b, "B", trial_nonce);
-      const snap_a = snapshot_oracle(port, target_a, "A", trial_nonce);
-      const release_a = observed_release_cardinality(snap_a);
-      const release_b = observed_release_cardinality(snap_b);
-      if ((release_a.down_count > 0 && release_a.up_count !== 1)
-          || (release_b.down_count > 0 && release_b.up_count !== 1)) {
-        release_failed = true;
-        release_failure = "a page oracle observed down without exactly one up";
-        stop_downs = true;
-      }
       const after_front = focused_native_window();
       if (after_front.process_id !== guard.pid || after_front.handle !== guard_window.handle
-          || snap_a.has_focus !== false || snap_b.has_focus !== false) {
+          || !same_page_focus(page_focus_fact(snap_a), dry_page_focus.restored.page_a)
+          || !same_page_focus(page_focus_fact(snap_b), dry_page_focus.restored.page_b)) {
         if (arm === "private") {
           behavioral_failure = "acu004_focus_or_foreground_drift:" + trial_nonce;
         } else {
@@ -1014,7 +1325,9 @@ try {
         target_sequence_length: snap_b.sequence.length,
         peer_sequence_length: snap_a.sequence.length,
         sequence: sequence_facts,
-        injector: reply
+        injector: reply,
+        phase_facts: primary.phase_facts,
+        process_error: primary.process_error
       });
     }
     rounds.push(round_record);
@@ -1045,12 +1358,32 @@ try {
 }
 
 let verdict = "INCONCLUSIVE";
+let retirement_rationale = null;
+const dry_error_code = dry_cycle !== null && dry_cycle.injector !== null
+    && typeof dry_cycle.injector.error === "object"
+    && dry_cycle.injector.error !== null
+  ? text_at(dry_cycle.injector, "error.code") : "";
+const dry_phase_error = dry_cycle !== null ? text_at(dry_cycle, "phase_error") : "";
+const dry_dependency = ["focus_tuple_unavailable", "focus_tuple_ambiguous",
+  "provider_unavailable", "focus_lease_set_failed",
+  "phase_handshake_publish_failed", "phase_handshake_timeout"].includes(dry_error_code)
+  || dry_phase_error.startsWith("acu004_page_focus_phase_unavailable:");
 if (release_failed) {
-  verdict = "FAIL_RELEASE";
+  verdict = "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE";
+  retirement_rationale = "measured-safety-failure";
 } else if (behavioral_failure !== "") {
-  verdict = "FAIL_PRIVATE";
+  verdict = "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE";
+  retirement_rationale = "measured-safety-failure";
 } else if (unstable_failure !== "") {
-  verdict = "INCONCLUSIVE_UNSTABLE";
+  verdict = "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE";
+  retirement_rationale = "measured-safety-failure";
+} else if (stage === "focus-lease-dry" && failure !== "" && dry_dependency) {
+  verdict = "INCONCLUSIVE_DEPENDENCY";
+} else if (stage === "focus-lease-dry" && failure !== "") {
+  verdict = "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE";
+  retirement_rationale = "measured-safety-failure";
+} else if (dependency_failure !== "") {
+  verdict = "INCONCLUSIVE_DEPENDENCY";
 } else if (failure === "" && dependency_failure === "" && cleanup_failure === ""
     && triplets_run === TRIPLETS && private_exact === TRIPLETS
     && public_off_delivery === 0 && peer_delivery === 0
@@ -1061,8 +1394,10 @@ if (release_failed) {
     verdict = "PASS_G1_G8_RESEARCH_ONLY";
   } else if (public_loc_exact === TRIPLETS) {
     verdict = "FAIL_NONDISTINGUISHING";
+    retirement_rationale = "FAIL_NONDISTINGUISHING";
   } else {
-    verdict = "INCONCLUSIVE_UNSTABLE";
+    verdict = "RETIRE_HANDLE_RESEARCH_BUDGET_EXHAUSTED";
+    retirement_rationale = "research-budget-exhausted-without-a-discriminating-result";
   }
 }
 
@@ -1072,10 +1407,14 @@ const report = {
   product_eligible: false,
   closes_gap: false,
   registers_evidence: false,
-  criteria_measured: ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+  criteria_measured: ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8"],
   criteria_remaining: ["G9", "G10"],
   source_sha: source_sha,
   probe_digest: probe_digest,
+  precommitment: "section-10.6",
+  dry_attempt: dry_attempt,
+  repair_count: repair_count,
+  run_number: run_number,
   seed: SEED,
   triplets_requested: TRIPLETS,
   triplets_run: triplets_run,
@@ -1084,6 +1423,8 @@ const report = {
   public_off_delivery_count: public_off_delivery,
   peer_delivery_count: peer_delivery,
   tracks: track_counts,
+  focus_lease_dry_cycle: dry_cycle,
+  retirement_rationale: retirement_rationale,
   gesture: {
     button: "left",
     move_attempts: STEPS,
@@ -1112,7 +1453,7 @@ const report = {
 };
 print(JSON.stringify(report));
 
-if (verdict === "INCONCLUSIVE" || verdict === "INCONCLUSIVE_UNSTABLE"
+if (verdict === "INCONCLUSIVE" || verdict === "INCONCLUSIVE_DEPENDENCY"
     || cleanup_failure !== "") {
   throw "acu004_" + verdict
     + (dependency_failure !== "" ? ":" + scrubbed_failure(dependency_failure) : "")

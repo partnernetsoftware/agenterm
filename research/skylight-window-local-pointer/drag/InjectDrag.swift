@@ -30,11 +30,140 @@ private enum Route: String {
 private enum Mode: String {
     case gesture
     case releaseOnly = "release-only"
+    case leaseOnly = "lease-only"
 }
 
 private struct GuardState: Decodable {
     let role: String
     let pid: Int32
+}
+
+private struct PhaseMessage: Codable, Equatable {
+    let schema: Int
+    let sequence: Int
+    let phase: String
+}
+
+private struct PhaseAck: Codable {
+    let schema: Int
+    let sequence: Int
+    let phase: String
+    let proceed: Bool
+}
+
+private struct PhaseReceipt {
+    let sequence: Int
+    let phase: String
+    let published: Bool
+    let publishedNs: UInt64
+    var acknowledgedNs: UInt64?
+
+    var json: [String: Any] {
+        [
+            "sequence": sequence,
+            "phase": phase,
+            "published": published,
+            "published_ns": publishedNs,
+            "acknowledged_ns": acknowledgedNs.map { $0 as Any } ?? NSNull(),
+            "acknowledged": acknowledgedNs != nil,
+        ]
+    }
+
+}
+
+private struct FocusTuple: Codable, Equatable {
+    let appFocusedWindow: UInt32?
+    let peerMain: Bool?
+    let peerFocused: Bool?
+    let targetMain: Bool?
+    let targetFocused: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case appFocusedWindow = "app_focused_window"
+        case peer
+        case target
+    }
+
+    private enum WindowCodingKeys: String, CodingKey {
+        case main
+        case focused
+    }
+
+    init(
+        appFocusedWindow: UInt32?,
+        peerMain: Bool?,
+        peerFocused: Bool?,
+        targetMain: Bool?,
+        targetFocused: Bool?
+    ) {
+        self.appFocusedWindow = appFocusedWindow
+        self.peerMain = peerMain
+        self.peerFocused = peerFocused
+        self.targetMain = targetMain
+        self.targetFocused = targetFocused
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        appFocusedWindow = try values.decodeIfPresent(UInt32.self, forKey: .appFocusedWindow)
+        let peer = try values.nestedContainer(keyedBy: WindowCodingKeys.self, forKey: .peer)
+        peerMain = try peer.decodeIfPresent(Bool.self, forKey: .main)
+        peerFocused = try peer.decodeIfPresent(Bool.self, forKey: .focused)
+        let target = try values.nestedContainer(keyedBy: WindowCodingKeys.self, forKey: .target)
+        targetMain = try target.decodeIfPresent(Bool.self, forKey: .main)
+        targetFocused = try target.decodeIfPresent(Bool.self, forKey: .focused)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encodeIfPresent(appFocusedWindow, forKey: .appFocusedWindow)
+        var peer = values.nestedContainer(keyedBy: WindowCodingKeys.self, forKey: .peer)
+        try peer.encodeIfPresent(peerMain, forKey: .main)
+        try peer.encodeIfPresent(peerFocused, forKey: .focused)
+        var target = values.nestedContainer(keyedBy: WindowCodingKeys.self, forKey: .target)
+        try target.encodeIfPresent(targetMain, forKey: .main)
+        try target.encodeIfPresent(targetFocused, forKey: .focused)
+    }
+
+    var json: [String: Any] {
+        [
+            "app_focused_window": appFocusedWindow.map { Int($0) as Any } ?? NSNull(),
+            "peer": [
+                "main": peerMain.map { $0 as Any } ?? NSNull(),
+                "focused": peerFocused.map { $0 as Any } ?? NSNull(),
+            ],
+            "target": [
+                "main": targetMain.map { $0 as Any } ?? NSNull(),
+                "focused": targetFocused.map { $0 as Any } ?? NSNull(),
+            ],
+        ]
+    }
+
+    func unavailableFields(_ phase: String) -> [String] {
+        var fields: [String] = []
+        if appFocusedWindow == nil { fields.append("\(phase).application.focused_window") }
+        if peerMain == nil { fields.append("\(phase).peer.main") }
+        if peerFocused == nil { fields.append("\(phase).peer.focused") }
+        if targetMain == nil { fields.append("\(phase).target.main") }
+        if targetFocused == nil { fields.append("\(phase).target.focused") }
+        return fields
+    }
+}
+
+private struct WindowOrder: Equatable {
+    let window: UInt32
+    let owner: Int32
+    let rank: Int?
+    let layer: Int?
+
+    var json: [String: Any] {
+        [
+            "window": Int(window),
+            "owner": owner,
+            "rank": rank.map { $0 as Any } ?? NSNull(),
+            "layer": layer.map { $0 as Any } ?? NSNull(),
+        ]
+    }
 }
 
 private struct HostSample: Equatable {
@@ -44,27 +173,40 @@ private struct HostSample: Equatable {
     let pointerY: Double
     let frontmostPid: Int32
     let frontmostWindow: UInt32?
-    let targetAXMainWindow: UInt32?
-    let targetAXFocusedWindow: UInt32?
+    let guardPid: Int32
+    let guardWindow: UInt32
+    let peerOrder: WindowOrder
+    let targetOrder: WindowOrder
+    let guardOrder: WindowOrder
+    let zOrderDigest: String
+    let focus: FocusTuple
 
-    func sameHostState(as baseline: HostSample) -> Bool {
+    func sameG6a(as baseline: HostSample) -> Bool {
         pointerX == baseline.pointerX
             && pointerY == baseline.pointerY
             && frontmostPid == baseline.frontmostPid
             && frontmostWindow == baseline.frontmostWindow
-            && targetAXMainWindow == baseline.targetAXMainWindow
-            && targetAXFocusedWindow == baseline.targetAXFocusedWindow
+            && guardPid == baseline.guardPid
+            && guardWindow == baseline.guardWindow
+            && peerOrder == baseline.peerOrder
+            && targetOrder == baseline.targetOrder
+            && guardOrder == baseline.guardOrder
+            && zOrderDigest == baseline.zOrderDigest
     }
 
     var json: [String: Any] {
         [
             "stage": stage,
             "t_ns": tNs,
-            "pointer": ["x": pointerX, "y": pointerY],
-            "frontmost_pid": frontmostPid,
-            "frontmost_window": frontmostWindow.map { Int($0) as Any } ?? NSNull(),
-            "target_ax_main_window": targetAXMainWindow.map { Int($0) as Any } ?? NSNull(),
-            "target_ax_focused_window": targetAXFocusedWindow.map { Int($0) as Any } ?? NSNull(),
+            "g6a": [
+                "pointer": ["x": pointerX, "y": pointerY],
+                "frontmost_pid": frontmostPid,
+                "frontmost_window": frontmostWindow.map { Int($0) as Any } ?? NSNull(),
+                "guard": ["pid": guardPid, "window": Int(guardWindow)],
+                "z_order_digest": zOrderDigest,
+                "z_order": [peerOrder.json, targetOrder.json, guardOrder.json],
+            ],
+            "focus": focus.json,
         ]
     }
 }
@@ -119,45 +261,103 @@ private final class AXWindowReader {
 
     deinit { if let handle { dlclose(handle) } }
 
-    private func windowIdentity(pid: pid_t, attribute: CFString) throws -> UInt32? {
+    private func windowIdentity(_ element: AXUIElement) throws -> UInt32? {
         guard let getWindow else {
             throw InjectorFailure.typed(
-                "host_state_unavailable",
-                "the AX focused-window identity symbol is unavailable"
+                "focus_tuple_unavailable",
+                "the AX window identity symbol is unavailable"
             )
         }
-        let app = AXUIElementCreateApplication(pid)
-        var value: CFTypeRef?
-        let status = AXUIElementCopyAttributeValue(
-            app,
-            attribute,
-            &value
-        )
-        if status == .noValue || status == .attributeUnsupported { return nil }
-        guard status == .success, let value else {
-            throw InjectorFailure.typed(
-                "host_state_unavailable",
-                "the target application's AX focused window could not be sampled (\(status.rawValue))"
-            )
-        }
-        let windowElement = unsafeBitCast(value, to: AXUIElement.self)
         var id: CGWindowID = 0
-        let idStatus = getWindow(windowElement, &id)
-        guard idStatus == .success else {
+        let status = getWindow(element, &id)
+        guard status == .success else {
             throw InjectorFailure.typed(
-                "host_state_unavailable",
-                "the target AX focused window has no stable CGWindowID (\(idStatus.rawValue))"
+                "focus_tuple_unavailable",
+                "an AX window has no stable CGWindowID"
             )
         }
         return id == 0 ? nil : id
     }
 
-    func mainWindow(pid: pid_t) throws -> UInt32? {
-        try windowIdentity(pid: pid, attribute: kAXMainWindowAttribute as CFString)
+    private func windowAttribute(pid: pid_t, attribute: CFString) throws -> UInt32? {
+        let app = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(app, attribute, &value)
+        if status == .noValue || status == .attributeUnsupported { return nil }
+        guard status == .success, let value else {
+            throw InjectorFailure.typed(
+                "focus_tuple_unavailable",
+                "the application AX window identity could not be sampled"
+            )
+        }
+        let windowElement = unsafeBitCast(value, to: AXUIElement.self)
+        return try windowIdentity(windowElement)
     }
 
-    func focusedWindow(pid: pid_t) throws -> UInt32? {
-        try windowIdentity(pid: pid, attribute: kAXFocusedWindowAttribute as CFString)
+    private func windowElement(pid: pid_t, id: UInt32) throws -> AXUIElement {
+        let app = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(
+            app, kAXWindowsAttribute as CFString, &value
+        )
+        guard status == .success, let windows = value as? [AXUIElement] else {
+            throw InjectorFailure.typed(
+                "focus_tuple_unavailable",
+                "the application AX window inventory could not be sampled"
+            )
+        }
+        var matches: [AXUIElement] = []
+        for window in windows where try windowIdentity(window) == id {
+            matches.append(window)
+        }
+        guard matches.count == 1 else {
+            throw InjectorFailure.typed(
+                "focus_tuple_ambiguous",
+                "the exact CGWindowID does not name one AX window"
+            )
+        }
+        return matches[0]
+    }
+
+    private func boolAttribute(_ element: AXUIElement, _ attribute: CFString) throws -> Bool? {
+        var value: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(element, attribute, &value)
+        if status == .noValue || status == .attributeUnsupported { return nil }
+        guard status == .success, let number = value as? NSNumber else {
+            throw InjectorFailure.typed(
+                "focus_tuple_unavailable",
+                "an AX focus tuple field could not be sampled"
+            )
+        }
+        return number.boolValue
+    }
+
+    func tuple(pid: pid_t, peer: UInt32, target: UInt32) throws -> FocusTuple {
+        let peerElement = try windowElement(pid: pid, id: peer)
+        let targetElement = try windowElement(pid: pid, id: target)
+        return FocusTuple(
+            appFocusedWindow: try windowAttribute(
+                pid: pid, attribute: kAXFocusedWindowAttribute as CFString
+            ),
+            peerMain: try boolAttribute(peerElement, kAXMainAttribute as CFString),
+            peerFocused: try boolAttribute(peerElement, kAXFocusedAttribute as CFString),
+            targetMain: try boolAttribute(targetElement, kAXMainAttribute as CFString),
+            targetFocused: try boolAttribute(targetElement, kAXFocusedAttribute as CFString)
+        )
+    }
+
+    func setFocusedWindow(pid: pid_t, id: UInt32) throws {
+        let app = AXUIElementCreateApplication(pid)
+        let window = try windowElement(pid: pid, id: id)
+        let status = AXUIElementSetAttributeValue(
+            app, kAXFocusedWindowAttribute as CFString, window
+        )
+        guard status == .success else {
+            throw InjectorFailure.typed(
+                "focus_lease_set_failed",
+                "the application focused window could not be changed"
+            )
+        }
     }
 }
 
@@ -172,6 +372,18 @@ private func requiredArgument(_ name: String) throws -> String {
         throw InjectorFailure.typed("argument_missing", "missing \(name)")
     }
     return value
+}
+
+private func focusTupleArgument(_ name: String) throws -> FocusTuple {
+    let raw = try requiredArgument(name)
+    guard let data = raw.data(using: .utf8) else {
+        throw InjectorFailure.typed("argument_invalid", "\(name) must be UTF-8 JSON")
+    }
+    do {
+        return try JSONDecoder().decode(FocusTuple.self, from: data)
+    } catch {
+        throw InjectorFailure.typed("argument_invalid", "\(name) must be one exact focus tuple")
+    }
 }
 
 private func parseDouble(_ name: String) throws -> Double {
@@ -208,10 +420,57 @@ private func parseMode() throws -> Mode {
     guard let mode = Mode(rawValue: raw) else {
         throw InjectorFailure.typed(
             "argument_invalid",
-            "--mode must be gesture or release-only"
+            "--mode must be gesture, release-only or lease-only"
         )
     }
     return mode
+}
+
+private func phaseHandshake(
+    statePath: String,
+    ackPath: String,
+    sequence: Int,
+    phase: String,
+    startedNs: UInt64,
+    deadlineNs: UInt64
+) throws -> PhaseReceipt {
+    let message = PhaseMessage(schema: 1, sequence: sequence, phase: phase)
+    let publishedNs = DispatchTime.now().uptimeNanoseconds - startedNs
+    do {
+        let data = try JSONEncoder().encode(message)
+        try data.write(to: URL(fileURLWithPath: statePath), options: .atomic)
+    } catch {
+        throw InjectorFailure.typed(
+            "phase_handshake_publish_failed",
+            "the bounded phase state could not be published"
+        )
+    }
+    while DispatchTime.now().uptimeNanoseconds < deadlineNs {
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: ackPath)),
+           let ack = try? JSONDecoder().decode(PhaseAck.self, from: data),
+           ack.schema == message.schema,
+           ack.sequence == message.sequence,
+           ack.phase == message.phase {
+            guard ack.proceed else {
+                throw InjectorFailure.typed(
+                    "phase_handshake_rejected",
+                    "the parent rejected the observed focus phase"
+                )
+            }
+            return PhaseReceipt(
+                sequence: sequence,
+                phase: phase,
+                published: true,
+                publishedNs: publishedNs,
+                acknowledgedNs: DispatchTime.now().uptimeNanoseconds - startedNs
+            )
+        }
+        usleep(10_000)
+    }
+    throw InjectorFailure.typed(
+        "phase_handshake_timeout",
+        "the parent did not acknowledge the bounded focus phase before the deadline"
+    )
 }
 
 private func parseRoute() throws -> Route {
@@ -302,14 +561,78 @@ private func frontmostWindow(pid: pid_t) -> UInt32? {
     }.flatMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
 }
 
+private func fnvDigest(_ text: String) -> String {
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in text.utf8 {
+        hash ^= UInt64(byte)
+        hash = hash &* 1_099_511_628_211
+    }
+    return String(format: "%016llx", hash)
+}
+
+private func orderSnapshot(
+    peer: UInt32,
+    target: UInt32,
+    guardWindow: UInt32,
+    targetPid: pid_t,
+    guardPid: pid_t
+) throws -> (WindowOrder, WindowOrder, WindowOrder, String) {
+    let rows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID)
+        as? [[String: Any]] ?? []
+    func order(_ id: UInt32, owner: pid_t) throws -> WindowOrder {
+        var match: (Int, [String: Any])?
+        for index in 0..<rows.count {
+            let row = rows[index]
+            if (row[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id {
+                guard match == nil else {
+                    throw InjectorFailure.typed(
+                        "z_order_ambiguous", "a frozen window occurs more than once in the window list"
+                    )
+                }
+                match = (index, row)
+            }
+        }
+        guard let match,
+              (match.1[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == owner else {
+            throw InjectorFailure.typed(
+                "z_order_unavailable", "a frozen window is absent or has changed owner"
+            )
+        }
+        return WindowOrder(
+            window: id,
+            owner: owner,
+            rank: match.0,
+            layer: (match.1[kCGWindowLayer as String] as? NSNumber)?.intValue
+        )
+    }
+    let peerOrder = try order(peer, owner: targetPid)
+    let targetOrder = try order(target, owner: targetPid)
+    let guardOrder = try order(guardWindow, owner: guardPid)
+    let material = [peerOrder, targetOrder, guardOrder].map {
+        "\($0.window):\($0.owner):\($0.rank ?? -1):\($0.layer ?? -1)"
+    }.joined(separator: "|")
+    return (peerOrder, targetOrder, guardOrder, fnvDigest(material))
+}
+
 private func sampleHost(
     stage: String,
     startedNs: UInt64,
     targetPid: pid_t,
+    peerWindow: UInt32,
+    targetWindow: UInt32,
+    guardPid: pid_t,
+    guardWindow: UInt32,
     ax: AXWindowReader
 ) throws -> HostSample {
     let pointer = NSEvent.mouseLocation
     let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+    let order = try orderSnapshot(
+        peer: peerWindow,
+        target: targetWindow,
+        guardWindow: guardWindow,
+        targetPid: targetPid,
+        guardPid: guardPid
+    )
     return HostSample(
         stage: stage,
         tNs: DispatchTime.now().uptimeNanoseconds - startedNs,
@@ -317,8 +640,13 @@ private func sampleHost(
         pointerY: pointer.y,
         frontmostPid: frontmostPid,
         frontmostWindow: frontmostWindow(pid: frontmostPid),
-        targetAXMainWindow: try ax.mainWindow(pid: targetPid),
-        targetAXFocusedWindow: try ax.focusedWindow(pid: targetPid)
+        guardPid: guardPid,
+        guardWindow: guardWindow,
+        peerOrder: order.0,
+        targetOrder: order.1,
+        guardOrder: order.2,
+        zOrderDigest: order.3,
+        focus: try ax.tuple(pid: targetPid, peer: peerWindow, target: targetWindow)
     )
 }
 
@@ -380,7 +708,9 @@ private func preparedEvents(
             specifications.append(("move-\(index)", .leftMouseDragged, translated(point), 3))
         }
     }
-    specifications.append(("up", .leftMouseUp, translated(to), 3))
+    if mode != .leaseOnly {
+        specifications.append(("up", .leftMouseUp, translated(to), 3))
+    }
 
     var events: [PreparedEvent] = []
     events.reserveCapacity(specifications.count)
@@ -396,7 +726,7 @@ private func preparedEvents(
                 "CoreGraphics refused a drag event before the button-down"
             )
         }
-        if route == .private {
+        if mode != .leaseOnly {
             let local = CGPoint(x: screen.x - bounds.minX, y: screen.y - bounds.minY)
             try stamp(
                 event,
@@ -437,6 +767,13 @@ private func run() throws -> [String: Any] {
     let route = try parseRoute()
     let pid = try parseInt32("--pid")
     let window = try parseUInt32("--window")
+    let peerWindow = try parseUInt32("--peer-window")
+    let guardWindow = try parseUInt32("--guard-window")
+    guard window != peerWindow, window != guardWindow, peerWindow != guardWindow else {
+        throw InjectorFailure.typed(
+            "argument_invalid", "target, peer and guard windows must be distinct"
+        )
+    }
     let frozenBounds = CGRect(
         x: try parseDouble("--window-x"),
         y: try parseDouble("--window-y"),
@@ -463,6 +800,12 @@ private func run() throws -> [String: Any] {
     }
 
     let guardPath = try requiredArgument("--guard-state")
+    let phaseStatePath = try requiredArgument("--phase-state")
+    let phaseAckPath = try requiredArgument("--phase-ack")
+    let expectedPriorFocus = mode == .leaseOnly
+        ? nil : try focusTupleArgument("--expected-prior-focus")
+    let expectedTargetFocus = mode == .leaseOnly
+        ? nil : try focusTupleArgument("--expected-target-focus")
     let guardState = try JSONDecoder().decode(
         GuardState.self,
         from: Data(contentsOf: URL(fileURLWithPath: guardPath))
@@ -476,6 +819,7 @@ private func run() throws -> [String: Any] {
     }
 
     let currentBounds = try exactWindow(id: window, owner: pid)
+    _ = try exactWindow(id: peerWindow, owner: pid)
     if mode == .gesture && !sameRect(currentBounds, frozenBounds) {
         throw InjectorFailure.typed(
             "window_geometry_changed",
@@ -491,7 +835,7 @@ private func run() throws -> [String: Any] {
     }
 
     let sky = SkyLight()
-    if route == .private && !sky.available {
+    if mode != .leaseOnly && !sky.available {
         throw InjectorFailure.typed("provider_unavailable", "required SkyLight symbols are missing")
     }
     let ax = AXWindowReader()
@@ -509,9 +853,33 @@ private func run() throws -> [String: Any] {
 
     let startedNs = DispatchTime.now().uptimeNanoseconds
     let deadlineNs = startedNs + UInt64(timeoutMs) * 1_000_000
-    let baseline = try sampleHost(stage: "before", startedNs: startedNs, targetPid: pid, ax: ax)
-    guard baseline.frontmostPid == guardState.pid else {
+    let baseline = try sampleHost(
+        stage: "before-acquire",
+        startedNs: startedNs,
+        targetPid: pid,
+        peerWindow: peerWindow,
+        targetWindow: window,
+        guardPid: guardState.pid,
+        guardWindow: guardWindow,
+        ax: ax
+    )
+    guard baseline.frontmostPid == guardState.pid,
+          baseline.frontmostWindow == guardWindow else {
         throw InjectorFailure.typed("fixture_guard_changed", "the foreground guard changed before injection")
+    }
+
+    let initialFocus = baseline.focus
+    if mode != .releaseOnly && initialFocus.appFocusedWindow != peerWindow {
+        throw InjectorFailure.typed(
+            "focus_tuple_precondition_failed",
+            "the application focus tuple does not start on the frozen peer window"
+        )
+    }
+    if let expectedPriorFocus, mode == .gesture, initialFocus != expectedPriorFocus {
+        throw InjectorFailure.typed(
+            "focus_tuple_precondition_failed",
+            "the application focus tuple differs from the dry-cycle prior tuple"
+        )
     }
 
     var samples = [baseline]
@@ -524,6 +892,19 @@ private func run() throws -> [String: Any] {
     var failureMessage: String?
     var downPostUncertain = false
     var upPostUncertain = false
+    var acquireAttempted = false
+    var acquireVerified = false
+    var acquireReadback: FocusTuple?
+    var acquireStartedNs: UInt64?
+    var acquireVerifiedNs: UInt64?
+    var restoreAttempted = false
+    var restoreVerified = false
+    var restoreReadback: FocusTuple?
+    var restoreStartedNs: UInt64?
+    var restoreVerifiedNs: UInt64?
+    var priorFocus: FocusTuple? = expectedPriorFocus ?? (mode == .releaseOnly ? nil : initialFocus)
+    var targetFocus: FocusTuple? = expectedTargetFocus ?? (mode == .releaseOnly ? initialFocus : nil)
+    var phaseReceipts: [PhaseReceipt] = []
 
     func recordFailure(_ code: String, _ message: String) {
         if failureCode == nil {
@@ -532,31 +913,146 @@ private func run() throws -> [String: Any] {
         }
     }
 
-    func sampleAfter(_ label: String, postedNs: UInt64) {
+    func sample(_ label: String) -> HostSample? {
         do {
-            let sample = try sampleHost(stage: label, startedNs: startedNs, targetPid: pid, ax: ax)
-            samples.append(sample)
-            maxPostToSampleNs = max(
-                maxPostToSampleNs,
-                DispatchTime.now().uptimeNanoseconds - postedNs
+            let observed = try sampleHost(
+                stage: label,
+                startedNs: startedNs,
+                targetPid: pid,
+                peerWindow: peerWindow,
+                targetWindow: window,
+                guardPid: guardState.pid,
+                guardWindow: guardWindow,
+                ax: ax
             )
-            if DispatchTime.now().uptimeNanoseconds - postedNs > 50_000_000 {
+            samples.append(observed)
+            if !observed.sameG6a(as: baseline) {
+                recordFailure(
+                    "g6a_host_state_changed",
+                    "pointer, foreground, guard identity or frozen window order changed"
+                )
+            }
+            return observed
+        } catch let InjectorFailure.typed(code, message) {
+            recordFailure(code, message)
+        } catch {
+            recordFailure("host_state_unavailable", "a bounded host-state sample failed")
+        }
+        return nil
+    }
+
+    func sampleAfter(_ label: String, postedNs: UInt64, expectedFocus: FocusTuple?) {
+        if let observed = sample(label) {
+            let elapsedNs = DispatchTime.now().uptimeNanoseconds - postedNs
+            maxPostToSampleNs = max(maxPostToSampleNs, elapsedNs)
+            if elapsedNs > 50_000_000 {
                 recordFailure(
                     "host_sample_deadline_exceeded",
                     "a post-to-host-sample interval exceeded 50 milliseconds"
                 )
             }
-            if !sample.sameHostState(as: baseline) {
-                recordFailure("host_state_changed", "pointer, foreground or AX focused-window identity changed")
+            if let expectedFocus, observed.focus != expectedFocus {
+                recordFailure(
+                    "focus_lease_drift",
+                    "the application focus tuple left the acquired target phase"
+                )
+            }
+        }
+    }
+
+    func handshake(_ sequence: Int, _ phase: String) {
+        let attemptedNs = DispatchTime.now().uptimeNanoseconds - startedNs
+        do {
+            let receipt = try phaseHandshake(
+                statePath: phaseStatePath,
+                ackPath: phaseAckPath,
+                sequence: sequence,
+                phase: phase,
+                startedNs: startedNs,
+                deadlineNs: deadlineNs
+            )
+            phaseReceipts.append(receipt)
+        } catch let InjectorFailure.typed(code, message) {
+            phaseReceipts.append(PhaseReceipt(
+                sequence: sequence,
+                phase: phase,
+                published: code != "phase_handshake_publish_failed",
+                publishedNs: attemptedNs,
+                acknowledgedNs: nil
+            ))
+            recordFailure(code, message)
+        } catch {
+            phaseReceipts.append(PhaseReceipt(
+                sequence: sequence,
+                phase: phase,
+                published: false,
+                publishedNs: attemptedNs,
+                acknowledgedNs: nil
+            ))
+            recordFailure("phase_handshake_failed", "the bounded phase handshake failed")
+        }
+    }
+
+    func acquireTarget() {
+        acquireAttempted = true
+        acquireStartedNs = DispatchTime.now().uptimeNanoseconds - startedNs
+        do {
+            try ax.setFocusedWindow(pid: pid, id: window)
+            if let acquired = sample("after-acquire") {
+                acquireReadback = acquired.focus
+                if targetFocus == nil { targetFocus = acquired.focus }
+                acquireVerified = acquired.focus.appFocusedWindow == window
+                    && acquired.focus == targetFocus
+                    && acquired.sameG6a(as: baseline)
+                if !acquireVerified {
+                    recordFailure(
+                        "focus_lease_acquire_unverified",
+                        "the target focus tuple or frozen host state was not verified"
+                    )
+                } else {
+                    acquireVerifiedNs = DispatchTime.now().uptimeNanoseconds - startedNs
+                }
             }
         } catch let InjectorFailure.typed(code, message) {
             recordFailure(code, message)
         } catch {
-            recordFailure("host_state_unavailable", "a host-state sample failed")
+            recordFailure("focus_lease_acquire_failed", "the target focus lease could not be acquired")
         }
+        if acquireVerified { handshake(1, "acquired") }
     }
 
-    if mode == .releaseOnly {
+    func restorePeer() {
+        restoreAttempted = true
+        restoreStartedNs = DispatchTime.now().uptimeNanoseconds - startedNs
+        do {
+            try ax.setFocusedWindow(pid: pid, id: peerWindow)
+            if let restored = sample("after-restore") {
+                restoreReadback = restored.focus
+                if priorFocus == nil { priorFocus = restored.focus }
+                restoreVerified = restored.focus.appFocusedWindow == peerWindow
+                    && restored.focus == priorFocus
+                    && restored.sameG6a(as: baseline)
+                if !restoreVerified {
+                    recordFailure(
+                        "focus_lease_restore_unverified",
+                        "the prior focus tuple or frozen host state was not restored"
+                    )
+                } else {
+                    restoreVerifiedNs = DispatchTime.now().uptimeNanoseconds - startedNs
+                }
+            }
+        } catch let InjectorFailure.typed(code, message) {
+            recordFailure(code, message)
+        } catch {
+            recordFailure("focus_lease_restore_failed", "the prior focus tuple could not be restored")
+        }
+        if restoreVerified { handshake(2, "restored") }
+    }
+
+    if mode == .leaseOnly {
+        acquireTarget()
+        restorePeer()
+    } else if mode == .releaseOnly {
         upAttempts = 1
         let postedNs = DispatchTime.now().uptimeNanoseconds
         do {
@@ -568,22 +1064,33 @@ private func run() throws -> [String: Any] {
             upPostUncertain = true
             recordFailure("release_failed", "the release-only native post failed")
         }
-        sampleAfter("after-up", postedNs: postedNs)
+        sampleAfter("after-up", postedNs: postedNs, expectedFocus: nil)
+        restorePeer()
     } else {
-        // Every event is retained and fully stamped before this first post.
-        downAttempts = 1
-        let downPostedNs = DispatchTime.now().uptimeNanoseconds
-        do {
-            try post(events[0].event, route: route, pid: pid, sky: sky)
-        } catch let InjectorFailure.typed(code, message) {
-            downPostUncertain = true
-            recordFailure(code, message)
-        } catch {
-            downPostUncertain = true
-            recordFailure("down_post_failed", "the button-down native post failed")
+        acquireTarget()
+        if failureCode == nil, acquireVerified, let targetFocus,
+           let beforeDown = sample("before-down"), beforeDown.focus != targetFocus {
+            recordFailure(
+                "focus_lease_drift",
+                "the application focus tuple changed before the button-down"
+            )
         }
-        if failureCode == nil { usleep(cadenceMicroseconds) }
-        sampleAfter("after-down", postedNs: downPostedNs)
+        // Every event is retained and fully stamped before this first post.
+        if failureCode == nil, acquireVerified, let targetFocus {
+            downAttempts = 1
+            let downPostedNs = DispatchTime.now().uptimeNanoseconds
+            do {
+                try post(events[0].event, route: route, pid: pid, sky: sky)
+            } catch let InjectorFailure.typed(code, message) {
+                downPostUncertain = true
+                recordFailure(code, message)
+            } catch {
+                downPostUncertain = true
+                recordFailure("down_post_failed", "the button-down native post failed")
+            }
+            if failureCode == nil { usleep(cadenceMicroseconds) }
+            sampleAfter("after-down", postedNs: downPostedNs, expectedFocus: targetFocus)
+        }
 
         if failureCode == nil {
             for event in events.dropFirst().dropLast() {
@@ -603,7 +1110,9 @@ private func run() throws -> [String: Any] {
                     let postedNs = DispatchTime.now().uptimeNanoseconds
                     try post(event.event, route: route, pid: pid, sky: sky)
                     usleep(cadenceMicroseconds)
-                    sampleAfter("after-\(event.label)", postedNs: postedNs)
+                    sampleAfter(
+                        "after-\(event.label)", postedNs: postedNs, expectedFocus: targetFocus
+                    )
                 } catch let InjectorFailure.typed(code, message) {
                     sameIdentity = false
                     recordFailure(code, message)
@@ -616,27 +1125,34 @@ private func run() throws -> [String: Any] {
 
         // A down attempt owns exactly one same-route, same-pid, same-window up
         // attempt even if identity, timing or host-state checks failed above.
-        let release = events[events.count - 1]
-        upAttempts = 1
-        let upPostedNs = DispatchTime.now().uptimeNanoseconds
-        do {
-            try post(release.event, route: route, pid: pid, sky: sky)
-        } catch let InjectorFailure.typed(code, message) {
-            upPostUncertain = true
-            recordFailure(code, message)
-        } catch {
-            upPostUncertain = true
-            recordFailure("release_failed", "the button-up native post failed")
+        if downAttempts == 1 {
+            let release = events[events.count - 1]
+            upAttempts = 1
+            let upPostedNs = DispatchTime.now().uptimeNanoseconds
+            do {
+                try post(release.event, route: route, pid: pid, sky: sky)
+            } catch let InjectorFailure.typed(code, message) {
+                upPostUncertain = true
+                recordFailure(code, message)
+            } catch {
+                upPostUncertain = true
+                recordFailure("release_failed", "the button-up native post failed")
+            }
+            sampleAfter("after-up", postedNs: upPostedNs, expectedFocus: targetFocus)
+            if let observedBounds = try? exactWindow(id: window, owner: pid),
+               !sameRect(observedBounds, frozenBounds) {
+                sameIdentity = false
+                recordFailure(
+                    "window_geometry_changed", "the exact target geometry changed during the gesture"
+                )
+            } else if (try? exactWindow(id: window, owner: pid)) == nil {
+                sameIdentity = false
+                recordFailure(
+                    "window_identity_changed", "the exact target identity changed during the gesture"
+                )
+            }
         }
-        sampleAfter("after-up", postedNs: upPostedNs)
-        if let observedBounds = try? exactWindow(id: window, owner: pid),
-           !sameRect(observedBounds, frozenBounds) {
-            sameIdentity = false
-            recordFailure("window_geometry_changed", "the exact target geometry changed during the gesture")
-        } else if (try? exactWindow(id: window, owner: pid)) == nil {
-            sameIdentity = false
-            recordFailure("window_identity_changed", "the exact target identity changed during the gesture")
-        }
+        restorePeer()
     }
 
     if mode == .releaseOnly && (try? exactWindow(id: window, owner: pid)) == nil {
@@ -644,21 +1160,36 @@ private func run() throws -> [String: Any] {
         recordFailure("window_identity_changed", "the exact target identity changed during release recovery")
     }
 
-    let expectedSamples = mode == .gesture ? dragSteps + 3 : 2
+    let expectedSamples: Int
+    switch mode {
+    case .gesture:
+        expectedSamples = downAttempts == 1 ? moveAttempts + 6 : 4
+    case .releaseOnly:
+        expectedSamples = 3
+    case .leaseOnly:
+        expectedSamples = 3
+    }
     let hostSamplesComplete = samples.count == expectedSamples
     if !hostSamplesComplete {
         recordFailure("host_samples_incomplete", "an intermediate host-state sample is missing")
     }
-    let ok = failureCode == nil
+    let ok = failureCode == nil && acquireVerified == (mode != .releaseOnly)
+        && restoreVerified
     let outcomeUnknown = mode == .releaseOnly || downPostUncertain
-        || upPostUncertain || upAttempts != 1
+        || upPostUncertain || (downAttempts == 1 && upAttempts != 1) || !restoreVerified
+        || (downAttempts > 0 && failureCode != nil)
+    let unavailableFocusFields = (priorFocus?.unavailableFields("prior") ?? [])
+        + (targetFocus?.unavailableFields("target") ?? [])
+    let notSampledFocusFields = ["application.key_window"]
     return [
         "ok": ok && hostSamplesComplete && sameIdentity,
-        "schema": 1,
+        "schema": 2,
         "mode": mode.rawValue,
         "arm": route.rawValue,
         "pid": pid,
         "window": window,
+        "peer_window": peerWindow,
+        "guard_window": guardWindow,
         "frozen_window_bounds": [
             "x": frozenBounds.minX,
             "y": frozenBounds.minY,
@@ -673,18 +1204,47 @@ private func run() throws -> [String: Any] {
         "down_attempts": downAttempts,
         "move_attempts": moveAttempts,
         "up_attempts": upAttempts,
+        "down_post_uncertain": downPostUncertain,
         "up_attempted": upAttempts == 1,
         "up_post_uncertain": upPostUncertain,
-        "up_proven": false,
-        "up_proof": "parent-page-oracle-required",
+        "up_proven": upAttempts == 1 && !upPostUncertain,
+        "up_proof": upAttempts == 1 && !upPostUncertain
+            ? "same-route-native-post-returned" : "unproved",
         "same_identity": sameIdentity,
         "host_samples_complete": hostSamplesComplete,
-        "host_unchanged": samples.allSatisfy { $0.sameHostState(as: baseline) },
+        "host_unchanged": samples.allSatisfy { $0.sameG6a(as: baseline) },
         "max_post_to_sample_ms": Double(maxPostToSampleNs) / 1_000_000.0,
         "host_samples": samples.map(\.json),
+        "focus_lease": [
+            "prior": priorFocus?.json as Any? ?? NSNull(),
+            "target": targetFocus?.json as Any? ?? NSNull(),
+            "unavailable_fields": unavailableFocusFields,
+            "not_sampled_fields": notSampledFocusFields,
+            "acquire": [
+                "attempted": acquireAttempted,
+                "verified": acquireVerified,
+                "readback": acquireReadback?.json as Any? ?? NSNull(),
+                "started_ns": acquireStartedNs as Any? ?? NSNull(),
+                "verified_ns": acquireVerifiedNs as Any? ?? NSNull(),
+            ],
+            "restore": [
+                "attempted": restoreAttempted,
+                "verified": restoreVerified,
+                "readback": restoreReadback?.json as Any? ?? NSNull(),
+                "started_ns": restoreStartedNs as Any? ?? NSNull(),
+                "verified_ns": restoreVerifiedNs as Any? ?? NSNull(),
+            ],
+            "phase_handshakes": phaseReceipts.map(\.json),
+            "z_order_phases": samples.map {
+                ["stage": $0.stage, "t_ns": $0.tNs, "digest": $0.zOrderDigest]
+            },
+        ],
         "outcome_unknown": outcomeUnknown,
+        "retry_safe": !outcomeUnknown,
         "outcome": ok
-            ? (mode == .releaseOnly ? "release-posted-awaiting-oracle" : "posted-awaiting-oracle")
+            ? (mode == .leaseOnly ? "focus-lease-verified"
+                : mode == .releaseOnly ? "release-posted-focus-restored-awaiting-oracle"
+                : "posted-focus-restored-awaiting-oracle")
             : (downAttempts == 0 ? "failed-before-down" : "failed-after-down-release-attempted"),
         "error": failureCode.map {
             ["code": $0, "message": failureMessage ?? ""] as Any
@@ -699,10 +1259,11 @@ do {
 } catch let InjectorFailure.typed(code, message) {
     writeJSON([
         "ok": false,
-        "schema": 1,
+        "schema": 2,
         "down_attempts": 0,
         "move_attempts": 0,
         "up_attempts": 0,
+        "down_post_uncertain": false,
         "up_attempted": false,
         "up_post_uncertain": false,
         "up_proven": false,
@@ -711,17 +1272,20 @@ do {
         "host_unchanged": false,
         "max_post_to_sample_ms": 0,
         "outcome_unknown": false,
+        "retry_safe": true,
         "outcome": "failed-before-down",
+        "focus_lease": NSNull(),
         "error": ["code": code, "message": message],
     ])
     exit(1)
 } catch {
     writeJSON([
         "ok": false,
-        "schema": 1,
+        "schema": 2,
         "down_attempts": 0,
         "move_attempts": 0,
         "up_attempts": 0,
+        "down_post_uncertain": false,
         "up_attempted": false,
         "up_post_uncertain": false,
         "up_proven": false,
@@ -730,7 +1294,9 @@ do {
         "host_unchanged": false,
         "max_post_to_sample_ms": 0,
         "outcome_unknown": false,
+        "retry_safe": true,
         "outcome": "failed-before-down",
+        "focus_lease": NSNull(),
         "error": ["code": "injector_failed", "message": "the injector failed before the button-down"],
     ])
     exit(1)

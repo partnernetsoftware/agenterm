@@ -13,6 +13,9 @@ INJECT_SOURCE="$ROOT/drag/InjectDrag.swift"
 GUARD_SOURCE="$ROOT/fixture/Fixture.swift"
 INJECTOR="$BUILD/InjectDrag"
 GUARD="$BUILD/GuardFixture"
+DRY_ATTEMPT=${ACU004_DRY_ATTEMPT:-1}
+REPAIR_COUNT=${ACU004_REPAIR_COUNT:-0}
+RUN_NUMBER=${ACU004_RUN_NUMBER:-1}
 
 require_file() {
   [ -f "$1" ] || {
@@ -29,13 +32,35 @@ require_file "$PAGE" drag/page.html
 require_file "$INJECT_SOURCE" drag/InjectDrag.swift
 require_file "$GUARD_SOURCE" fixture/Fixture.swift
 
+case "$DRY_ATTEMPT:$REPAIR_COUNT:$RUN_NUMBER" in
+  [1-6]:[0-2]:[1-2]) ;;
+  *)
+    printf '%s\n' "ACU004_DRY_ATTEMPT must be 1..6, ACU004_REPAIR_COUNT 0..2, and ACU004_RUN_NUMBER 1..2" >&2
+    exit 2
+    ;;
+esac
+
+DIRTY=$(git -C "$REPO" status --porcelain --untracked-files=all -- \
+  research/skylight-window-local-pointer/drag \
+  research/skylight-window-local-pointer/fixture/Fixture.swift \
+  research/skylight-window-local-pointer/run-drag-current-host.sh)
+if [ -n "$DIRTY" ]; then
+  printf '%s\n' "the section 10.6 research sources must be frozen in the current commit" >&2
+  exit 2
+fi
+
+SOURCE_SHA=$(git -C "$REPO" rev-parse HEAD)
+git -C "$REPO" merge-base --is-ancestor "$SOURCE_SHA" origin/main || {
+  printf '%s\n' "the frozen section 10.6 commit must be reachable from origin/main" >&2
+  exit 2
+}
+
 mkdir -p "$BUILD"
 xcrun swiftc -O -framework AppKit -framework ApplicationServices \
   -framework CoreGraphics -framework Foundation "$INJECT_SOURCE" -o "$INJECTOR"
 xcrun swiftc -O -framework AppKit -framework Foundation \
   "$GUARD_SOURCE" -o "$GUARD"
 
-SOURCE_SHA=$(git -C "$REPO" rev-parse HEAD)
 PROBE_DIGEST=$(
   {
     for source in \
@@ -67,4 +92,7 @@ exec "$AGENTERM_EXE" cli script run \
   "$INJECTOR" \
   "$GUARD" \
   "$SOURCE_SHA" \
-  "$PROBE_DIGEST"
+  "$PROBE_DIGEST" \
+  "$DRY_ATTEMPT" \
+  "$REPAIR_COUNT" \
+  "$RUN_NUMBER"

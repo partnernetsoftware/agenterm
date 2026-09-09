@@ -135,6 +135,8 @@
       trialNonce: String(trialNonce),
       sequence: [],
       nextSequence: 1,
+      focusSequence: [],
+      nextFocusSequence: 1,
       active: false,
       downTarget: null,
       upTarget: null,
@@ -145,6 +147,19 @@
       tokenOffset: { x: 0, y: 0 }
     };
   }
+
+  function recordFocus(kind) {
+    if (state.focusSequence.length >= 128) { return; }
+    state.focusSequence.push({
+      seq: state.nextFocusSequence,
+      kind: kind,
+      has_focus: document.hasFocus()
+    });
+    state.nextFocusSequence += 1;
+  }
+
+  window.addEventListener("focus", function () { recordFocus("focus"); }, true);
+  window.addEventListener("blur", function () { recordFocus("blur"); }, true);
 
   function stableId(node) {
     var current = node;
@@ -321,7 +336,9 @@
         down_up_common_ancestor_id: nearestCommonAncestorId(
           state.downTarget, state.upTarget),
         sequence_length: state.sequence.length,
-        sequence: state.sequence.slice(0)
+        sequence: state.sequence.slice(0),
+        focus_sequence_length: state.focusSequence.length,
+        focus_sequence: state.focusSequence.slice(0)
       });
     }
   };
