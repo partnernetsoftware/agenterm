@@ -7795,7 +7795,7 @@
     },
     {
       "id": "cu-linux-process-wait-smoke",
-      "description": "Linux process-wait exit observation, start identity and exit code match independent waitpid read-back on a disposable child; bounded timeout on a live child is verified without claiming exit; typed process-wait usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the waitpid read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux process-wait exit observation, start identity and exit code match independent waitpid read-back on a disposable child; bounded timeout on a live child is verified without claiming exit; typed process-wait usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the waitpid read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-wait-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
