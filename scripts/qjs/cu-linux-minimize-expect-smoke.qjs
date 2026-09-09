@@ -1,6 +1,7 @@
 // CEO: minimize/restore --expect minimized|restored on Linux.
-// Acceptance is smoke read-back only: independent windows inventory
-// minimized field must match --expect after each verb. No --coords or screenshot.
+// Acceptance is smoke read-back only: independent xprop _NET_WM_STATE,
+// xwininfo Map State, and windows inventory minimized field must match
+// --expect after each verb. No --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -92,6 +93,31 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
+function independent_net_wm_hidden(run_directory, handle) {
+  const xprop = rh.command("xprop", ["-id", "" + handle, "_NET_WM_STATE"], {
+    cwd: run_directory,
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  if (!xprop.success) { return false; }
+  return xprop.stdout.indexOf("_NET_WM_STATE_HIDDEN") >= 0;
+}
+
+function independent_map_viewable(run_directory, handle) {
+  const xwininfo = rh.command("xwininfo", ["-id", "" + handle], {
+    cwd: run_directory,
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  if (!xwininfo.success) { return false; }
+  for (const line of xwininfo.stdout.split("\n")) {
+    if (line.indexOf("Map State:") >= 0) {
+      return line.indexOf("IsViewable") >= 0;
+    }
+  }
+  return false;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -132,6 +158,14 @@ try {
     flag_at(row, "minimized") === false,
     "cu_linux_minimize_expect_baseline_not_minimized:" + JSON.stringify(row)
   );
+  ensure(
+    independent_net_wm_hidden(run_directory, int_at(row, "handle")) === false,
+    "cu_linux_minimize_expect_baseline_xprop_not_hidden"
+  );
+  ensure(
+    independent_map_viewable(run_directory, int_at(row, "handle")) === true,
+    "cu_linux_minimize_expect_baseline_map_viewable"
+  );
 
   print("STEP minimize --window " + handle_text + " --expect minimized");
   const minimized = run_cu(run_directory, executable, "actuate", [
@@ -141,6 +175,18 @@ try {
     flag_at(minimized, "data.verified")
       && flag_at(minimized, "data.after.minimized") === true,
     "cu_linux_minimize_expect_reply_minimized:" + JSON.stringify(minimized.data)
+  );
+
+  print("STEP independent xprop _NET_WM_STATE read-back: minimized must be true");
+  ensure(
+    independent_net_wm_hidden(run_directory, int_at(row, "handle")) === true,
+    "cu_linux_minimize_expect_xprop_minimized"
+  );
+
+  print("STEP independent xwininfo Map State read-back: minimized must be unmapped");
+  ensure(
+    independent_map_viewable(run_directory, int_at(row, "handle")) === false,
+    "cu_linux_minimize_expect_map_unmapped"
   );
 
   print("STEP independent windows inventory read-back: minimized must be true");
@@ -159,6 +205,18 @@ try {
     flag_at(restored, "data.verified")
       && flag_at(restored, "data.after.minimized") === false,
     "cu_linux_minimize_expect_reply_restored:" + JSON.stringify(restored.data)
+  );
+
+  print("STEP independent xprop _NET_WM_STATE read-back: minimized must be false");
+  ensure(
+    independent_net_wm_hidden(run_directory, int_at(row, "handle")) === false,
+    "cu_linux_minimize_expect_xprop_restored"
+  );
+
+  print("STEP independent xwininfo Map State read-back: restored must be viewable");
+  ensure(
+    independent_map_viewable(run_directory, int_at(row, "handle")) === true,
+    "cu_linux_minimize_expect_map_viewable"
   );
 
   print("STEP independent windows inventory read-back: minimized must be false");
@@ -180,5 +238,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-minimize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-minimize-expect-state");
 harness.remove_run(context);
-print("PASS: CEO Linux minimize/restore --expect with independent windows inventory minimized read-back");
+print("PASS: CEO Linux minimize/restore --expect with independent xprop, xwininfo Map State, and windows inventory minimized read-back");
 return;
