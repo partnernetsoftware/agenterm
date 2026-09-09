@@ -6451,6 +6451,26 @@
       ]
     },
     {
+      "id": "cu-linux-page-dialog-smoke",
+      "description": "Linux CDP page-dialog accept/dismiss one real JavaScript dialog and independent page-js dialog-closed read-back proves the exact effect; typed page-dialog usage rejects AT-SPI --name/--bogus and --dismiss+--text; typed get-extents --name usage/host-limit court before actuate; missing dialog typed cdp_dialog_not_open does nothing; disposable Chrome+CDP; --port/--target-id only; no --coords.",
+      "entry": "scripts/qjs/cu-linux-page-dialog-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
       "id": "cu-linux-page-type-smoke",
       "description": "Linux CDP page-type inserts text at the current editable focus and independent page-js DOM read-back proves the exact value growth; typed page-type usage rejects AT-SPI --name/--bogus; typed get-extents --name usage/host-limit court before actuate; miss and no-CDP host-limit paths; disposable Chrome profile; no --coords.",
       "entry": "scripts/qjs/cu-linux-page-type-smoke.qjs",

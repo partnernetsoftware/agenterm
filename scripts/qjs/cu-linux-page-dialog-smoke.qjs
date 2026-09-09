@@ -1,0 +1,649 @@
+// CEO: Linux CDP page-dialog honesty — accept/dismiss a real JS dialog; prove
+// with independent page-js dialog-closed effect read-back (not page-dialog
+// performed/verified alone). Typed page-dialog usage must reject AT-SPI --name
+// and other unexpected arguments; typed get-extents --name usage/host-limit
+// paths must hold before the page-dialog actuate/read-back court. Missing
+// dialog typed cdp_dialog_not_open does nothing. Disposable Chrome+CDP;
+// --port/--target-id only; no --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-dialog-accept",
+  "cu.linux-cdp-page-dialog-accept-readback",
+  "cu.linux-cdp-page-dialog-dismiss",
+  "cu.linux-cdp-page-dialog-dismiss-readback",
+];
+
+const AT_SPI_PROBE_NAME = "Page Dialog Court Anchor";
+const MISSING_NODE = "agenterm-no-such-page-dialog-node";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_dialog_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_page_dialog_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_page_dialog_usage(run_directory, executable, env, port) {
+  const dismiss_with_text = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", "unused",
+    "--dismiss", "--text", "seed",
+  ], env);
+  ensure(!output_success(dismiss_with_text),
+    "cu_linux_page_dialog_usage_dismiss_text_ok:" + JSON.stringify(dismiss_with_text));
+  ensure(
+    text_at(dismiss_with_text, "error.code") === "usage",
+    "cu_linux_page_dialog_usage_dismiss_text_code:" + JSON.stringify(dismiss_with_text.error)
+  );
+  ensure(
+    text_at(dismiss_with_text, "error.message").indexOf("--dismiss") >= 0
+      || text_at(dismiss_with_text, "error.message").indexOf("--text") >= 0,
+    "cu_linux_page_dialog_usage_dismiss_text_message:" + JSON.stringify(dismiss_with_text.error)
+  );
+
+  const bad_wait = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", "unused", "--wait-ms", "0",
+  ], env);
+  ensure(!output_success(bad_wait),
+    "cu_linux_page_dialog_usage_wait_ok:" + JSON.stringify(bad_wait));
+  ensure(
+    text_at(bad_wait, "error.code") === "usage",
+    "cu_linux_page_dialog_usage_wait_code:" + JSON.stringify(bad_wait.error)
+  );
+  ensure(
+    text_at(bad_wait, "error.message").indexOf("--wait-ms") >= 0,
+    "cu_linux_page_dialog_usage_wait_message:" + JSON.stringify(bad_wait.error)
+  );
+}
+
+function assert_page_dialog_usage_rejects_name(run_directory, executable, env, port) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", "unused",
+    "--text", "seed", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_page_dialog_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_page_dialog_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_page_dialog_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_page_dialog_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page", "dialog", "--port", "" + port, "--target-id", "unused",
+    "--text", "seed", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_page_dialog_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_page_dialog_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_page_dialog_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", "unused",
+    "--text", "seed", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_page_dialog_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_page_dialog_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_page_dialog_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_page_dialog_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_dialog_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_dialog_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_page_dialog_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_page_dialog_extents_unavailable_code:" + code
+  );
+}
+
+function assert_get_extents_missing_node(run_directory, executable, env, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", MISSING_NODE,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_dialog_extents_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_page_dialog_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function independent_pyatspi_extents(run_directory, env, window_title, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "want = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and title in (w.name or ''):",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == want:",
+    "        return node",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_page_dialog_atspi_no_frame')",
+    "node = walk(frame)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_page_dialog_atspi_miss:' + want)",
+    "component = node.queryComponent()",
+    "ext = component.getExtents(pyatspi.DESKTOP_COORDS)",
+    "x, y, w, h = int(ext.x), int(ext.y), int(ext.width), int(ext.height)",
+    "print(json.dumps({",
+    "    'name': want,",
+    "    'x': x, 'y': y, 'width': w, 'height': h,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, window_title, node_name], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_page_dialog_pyatspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_get_extents_agreement(run_directory, executable, env, handle, window_title, node_name) {
+  const pyatspi_anchor = independent_pyatspi_extents(
+    run_directory, env, window_title, node_name
+  );
+  const anchor_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", node_name,
+  ], env);
+  ensure(
+    int_at(anchor_extents, "data.extents.x") === pyatspi_anchor.x
+      && int_at(anchor_extents, "data.extents.y") === pyatspi_anchor.y
+      && int_at(anchor_extents, "data.extents.width") === pyatspi_anchor.width
+      && int_at(anchor_extents, "data.extents.height") === pyatspi_anchor.height,
+    "cu_linux_page_dialog_extents_agree:" + JSON.stringify({
+      cu: anchor_extents.data.extents,
+      pyatspi_anchor: pyatspi_anchor,
+    })
+  );
+}
+
+function windows_rows(reply) {
+  const data = at(reply, "data");
+  if (data.windows !== undefined) { return data.windows; }
+  return data;
+}
+
+function window_row_for_title(run_directory, executable, env, title_needle) {
+  const reply = run_cu(run_directory, executable, "observe", ["windows"], env);
+  for (const row of windows_rows(reply)) {
+    const title = text_at(row, "title");
+    if (title.indexOf(title_needle) < 0) { continue; }
+    const handle = int_at(row, "handle");
+    if (handle > 0) { return row; }
+  }
+  return null;
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", "unused", "--wait-ms", "500",
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_dialog_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_dialog_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_dialog_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_dialog_miss_target(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", "deadbeef", "--wait-ms", "500",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_dialog_miss_target_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_dialog_miss_target_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--target-id") >= 0,
+    "cu_linux_page_dialog_miss_target_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function dialog_state(run_directory, executable, env, port, target_id) {
+  const read = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", "document.body.dataset.dialog || ''",
+  ], env);
+  return text_at(read, "data.value");
+}
+
+function arm_prompt_dialog(run_directory, executable, env, port, target_id) {
+  const armed = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression",
+    "setTimeout(()=>{document.body.dataset.dialog=prompt('Question','')||'dismissed'},100);'armed'",
+  ], env);
+  ensure(
+    text_at(armed, "data.value") === "armed",
+    "cu_linux_page_dialog_not_armed:" + JSON.stringify(armed.data)
+  );
+}
+
+function assert_page_dialog_not_open(
+  run_directory, executable, env, port, target_id, expected_state, label
+) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", target_id, "--wait-ms", "500",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_dialog_not_open_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_dialog_not_open",
+    "cu_linux_page_dialog_not_open_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("nothing was handled") >= 0
+      || text_at(reply, "error.message").indexOf("no JavaScript dialog") >= 0,
+    "cu_linux_page_dialog_not_open_message_" + label + ":" + JSON.stringify(reply.error)
+  );
+  const unchanged = dialog_state(run_directory, executable, env, port, target_id);
+  ensure(
+    unchanged === expected_state,
+    "cu_linux_page_dialog_not_open_state_" + label + ":" + JSON.stringify({
+      expected: expected_state,
+      value: unchanged,
+    })
+  );
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (text_at(row, "type") === "page") { return row; }
+  }
+  return null;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_dialog_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_dialog_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-dialog");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+
+const fixture_title = "CEO CDP Dialog " + context.run_id;
+const fixture = rh.join(run_directory, "cdp-dialog.html");
+const fixture_html = "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title></head><body>"
+  + "<button id='go' type='button' aria-label='" + AT_SPI_PROBE_NAME + "'"
+  + " onclick=\"document.getElementById('out').textContent='clicked'\">Go</button>"
+  + "<p id='out'>idle</p>"
+  + "</body></html>";
+rh.write_text(fixture, fixture_html);
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9500 + (rh.pid() % 500);
+const accept_secret = "ceo-prompt-" + rh.pid();
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_dialog_port_in_use:" + port);
+
+  print("STEP page-dialog typed-fails usage when --dismiss combines with --text or --wait-ms is invalid");
+  assert_page_dialog_usage(run_directory, executable, env, port);
+
+  print("STEP page-dialog typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_dialog_usage_rejects_name(run_directory, executable, env, port);
+
+  print("STEP page-dialog typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-dialog actuate court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
+  print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "about:blank",
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
+    harness.sleep_ms(250);
+  }
+  ensure(cdp_ready(run_directory, port), "cu_linux_page_dialog_cdp_not_ready:" + port);
+
+  print("STEP page-dialog typed-fails cdp_target_not_found for a bogus --target-id");
+  assert_page_dialog_miss_target(run_directory, executable, env, port);
+
+  const targets = run_cu(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  const target = page_target(targets.data.targets);
+  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_dialog_target_missing");
+  const target_id = text_at(target, "id");
+
+  print("STEP page-nav loads the disposable HTML fixture in this owned tab");
+  const nav_url = "file://" + fixture;
+  const nav = run_cu(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", target_id,
+    "--url", nav_url, "--wait-ms", "10000",
+  ], env);
+  ensure(
+    flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
+    "cu_linux_page_dialog_nav:" + JSON.stringify(nav.data)
+  );
+
+  if (atspi_available) {
+    print("STEP wait for owned Chrome window and unlock accessibility tree before named read-back");
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+    ], env);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_dialog_window_wait");
+
+    let window_row = null;
+    for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
+      window_row = window_row_for_title(run_directory, executable, env, fixture_title);
+      if (window_row === null) { harness.sleep_ms(250); }
+    }
+    ensure(window_row !== null, "cu_linux_page_dialog_window_missing:" + fixture_title);
+    const window_handle = "" + int_at(window_row, "handle");
+    const window_title = text_at(window_row, "title");
+    ensure(window_handle !== "" && window_handle !== "0",
+      "cu_linux_page_dialog_window_handle:" + JSON.stringify(window_row));
+
+    const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+      "unlock", "--window", window_handle,
+    ], env);
+    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_dialog_unlock:" + JSON.stringify(unlocked.data));
+
+    print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
+    assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_dialog");
+
+    print("STEP independent pyatspi extents and CU get-extents --name agree before page-dialog actuate");
+    assert_get_extents_agreement(
+      run_directory, executable, env, window_handle, window_title, AT_SPI_PROBE_NAME
+    );
+  }
+
+  print("STEP independent page-js baseline proves dialog state starts empty");
+  const before_state = dialog_state(run_directory, executable, env, port, target_id);
+  ensure(
+    before_state === "",
+    "cu_linux_page_dialog_before:" + JSON.stringify({ state: before_state })
+  );
+
+  print("STEP page-dialog typed-fails cdp_dialog_not_open when no dialog is open and does nothing");
+  assert_page_dialog_not_open(
+    run_directory, executable, env, port, target_id, "", "baseline"
+  );
+
+  print("STEP arm a real prompt dialog via page-js and page-dialog --text accepts it");
+  arm_prompt_dialog(run_directory, executable, env, port, target_id);
+  const accepted = run_cu(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", target_id,
+    "--text", accept_secret, "--wait-ms", "5000",
+  ], env);
+  ensure(
+    flag_at(accepted, "data.verified"),
+    "cu_linux_page_dialog_accept:" + JSON.stringify(accepted.data)
+  );
+  ensure(
+    JSON.stringify(accepted).indexOf(accept_secret) < 0,
+    "cu_linux_page_dialog_accept_secret_leak:" + JSON.stringify(accepted.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-dialog-accept");
+
+  print("STEP independent page-js read-back proves prompt accept stored the secret");
+  let accept_readback = "";
+  for (let attempt = 0; attempt < 40 && accept_readback !== accept_secret; attempt = attempt + 1) {
+    accept_readback = dialog_state(run_directory, executable, env, port, target_id);
+    if (accept_readback !== accept_secret) { harness.sleep_ms(250); }
+  }
+  ensure(
+    accept_readback === accept_secret,
+    "cu_linux_page_dialog_accept_readback:" + JSON.stringify({
+      expected: accept_secret,
+      state: accept_readback,
+    })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-dialog-accept-readback");
+
+  print("STEP page-dialog typed-fails cdp_dialog_not_open after accept and leaves stored state");
+  assert_page_dialog_not_open(
+    run_directory, executable, env, port, target_id, accept_secret, "after_accept"
+  );
+
+  print("STEP arm another prompt dialog and page-dialog --dismiss closes it");
+  arm_prompt_dialog(run_directory, executable, env, port, target_id);
+  const dismissed = run_cu(run_directory, executable, "observe,actuate", [
+    "page-dialog", "--port", "" + port, "--target-id", target_id,
+    "--dismiss", "--wait-ms", "5000",
+  ], env);
+  ensure(
+    flag_at(dismissed, "data.verified"),
+    "cu_linux_page_dialog_dismiss:" + JSON.stringify(dismissed.data)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-dialog-dismiss");
+
+  print("STEP independent page-js read-back proves dismiss stored the dismissed sentinel");
+  let dismiss_readback = "";
+  for (let attempt = 0; attempt < 40 && dismiss_readback !== "dismissed"; attempt = attempt + 1) {
+    dismiss_readback = dialog_state(run_directory, executable, env, port, target_id);
+    if (dismiss_readback !== "dismissed") { harness.sleep_ms(250); }
+  }
+  ensure(
+    dismiss_readback === "dismissed",
+    "cu_linux_page_dialog_dismiss_readback:" + JSON.stringify({
+      expected: "dismissed",
+      state: dismiss_readback,
+    })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-dialog-dismiss-readback");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_dialog_failed");
+harness.remove_run(context);
+if (atspi_available) {
+  print("PASS: Linux page-dialog accept/dismiss usage/host-limit/miss honesty + independent page-js dialog-closed read-back with typed page-dialog/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux page-dialog accept/dismiss usage/host-limit/miss honesty + independent page-js dialog-closed read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
+return;
