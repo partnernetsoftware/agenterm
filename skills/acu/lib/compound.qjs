@@ -659,3 +659,201 @@ export function observe_roles(reply, roles) {
   projected.value.roles = clone(wanted.value);
   return projected;
 }
+
+// Archived shared/tree-query.ts actionable role vocabulary. Page results keep
+// this second-stage vocabulary separate from the provider-side CDP predicate.
+const LEGACY_PAGE_ACTIONABLE_ROLES = [
+  "button", "pushbutton", "togglebutton", "checkbox", "radiobutton",
+  "textfield", "textarea", "entry", "passwordtext", "combobox",
+  "popupbutton", "spinbutton", "slider", "link", "menuitem", "tab",
+  "row", "cell"
+];
+
+export function legacy_page_role_key(raw) {
+  if (typeof raw !== "string") { return ""; }
+  let value = raw.toLowerCase();
+  if (value.startsWith("ax")) { value = value.substring(2); }
+  if (value.startsWith("controltype.")) {
+    value = value.substring("controltype.".length);
+  }
+  let out = "";
+  for (let i = 0; i < value.length; i = i + 1) {
+    const ch = value.charAt(i);
+    if ((ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")) {
+      out = out + ch;
+    }
+  }
+  return out;
+}
+
+export function legacy_page_actionable(role) {
+  const key = legacy_page_role_key(role);
+  for (let i = 0; i < LEGACY_PAGE_ACTIONABLE_ROLES.length; i = i + 1) {
+    if (LEGACY_PAGE_ACTIONABLE_ROLES[i] === key) { return true; }
+  }
+  return false;
+}
+
+function lower_hex(value, length) {
+  if (typeof value !== "string" || value.length !== length) { return false; }
+  for (let i = 0; i < value.length; i = i + 1) {
+    const code = value.charCodeAt(i);
+    if (!((code >= 48 && code <= 57) || (code >= 97 && code <= 102))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Resolve one exact MV3 connection and tab through native browser-tabs. The
+// returned connection id, not the reply-local page index, owns later reads.
+export function elements_page_tab(reply, tab_id, profile) {
+  if (!positive_integer(tab_id)) {
+    return failure("elements_page_tab_invalid", "elements --tab-id must be a positive integer");
+  }
+  const unpacked = reply_data(reply, "browser-tabs reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  if (!object_value(data) || data.mechanism !== "mv3-native-messaging") {
+    return failure("browser_bridge_profile_connection_not_found",
+      "page elements need one exact live MV3 profile connection");
+  }
+  if (data.truncated === true) {
+    return failure("browser_bridge_tabs_inventory_truncated",
+      "bridge tab inventory is truncated; the requested tab cannot be proved present");
+  }
+  if (!lower_hex(data.connection_id, 64) || !lower_hex(data.profile_instance_id, 32)
+      || data.verified !== true || data.focus_changed !== false
+      || !Array.isArray(data.tabs) || !nonnegative_integer(data.returned)
+      || data.tabs.length !== data.returned || !object_value(data.selection)
+      || data.selection.tab_id !== tab_id || data.selection.connection_id !== null
+      || data.selection.match !== null
+      || (profile === null && data.selection.profile_instance_id !== null)
+      || (profile !== null && data.selection.profile_instance_id !== profile)
+      || (profile !== null && !data.profile_instance_id.startsWith(profile))) {
+    return failure("elements_page_shape_invalid",
+      "browser-tabs did not prove one exact MV3 connection and bounded tab inventory");
+  }
+  if (data.tabs.length === 0) {
+    return failure("browser_bridge_tab_not_found",
+      "the requested tab is not present in the exact bridge tab inventory");
+  }
+  if (data.tabs.length !== 1) {
+    return failure("elements_page_shape_invalid",
+      "browser-tabs returned more than the one requested tab");
+  }
+  const tab = data.tabs[0];
+  if (!object_value(tab) || tab.tab_id !== tab_id || !positive_integer(tab.window_id)
+      || typeof tab.active !== "boolean") {
+    return failure("elements_page_shape_invalid",
+      "browser-tabs returned a mismatched or incomplete tab identity");
+  }
+  return success({
+    connection_id: data.connection_id,
+    profile_instance_id: data.profile_instance_id,
+    tab_id: tab.tab_id,
+    window_id: tab.window_id,
+    active: tab.active
+  });
+}
+
+function checked_page_node(node) {
+  if (!object_value(node) || !positive_integer(node.backend_node_id)
+      || typeof node.frame_id !== "string" || node.frame_id.length === 0
+      || !nonnegative_integer(node.depth)
+      || typeof node.role !== "string" || node.role.length === 0
+      || typeof node.name !== "string"
+      || typeof node.actionable !== "boolean"
+      || typeof node.disabled !== "boolean"
+      || typeof node.focused !== "boolean") {
+    return null;
+  }
+  return node;
+}
+
+// The page index is positional inside this one reply. Exact follow-up identity
+// is always connection + tab + frame + backend node, never invoke --index.
+export function elements_page_projection(reply, options) {
+  if (!object_value(options) || typeof options.actionable !== "boolean"
+      || !positive_integer(options.max) || options.max > 1000
+      || !positive_integer(options.tab_id) || !lower_hex(options.connection_id, 64)) {
+    return failure("elements_page_options_invalid",
+      "elements page projection needs actionable, max 1..1000, tab_id and connection_id");
+  }
+  const unpacked = reply_data(reply, "browser-bridge-debug-read reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  if (!object_value(data) || data.connection_id !== options.connection_id
+      || !object_value(data.result)) {
+    return failure("elements_page_shape_invalid",
+      "bridge debug-read reply belongs to a different or unproven connection");
+  }
+  const result = data.result;
+  if (result.tab_id !== options.tab_id
+      || result.request_actionable !== options.actionable
+      || !Array.isArray(result.nodes) || result.nodes.length > options.max + 1
+      || !object_value(result.presentation) || !object_value(result.detach)
+      || result.detach.outcome !== "detached" || typeof result.truncated !== "boolean"
+      || !positive_integer(result.frame_count) || !nonnegative_integer(result.scanned)) {
+    return failure("elements_page_shape_invalid",
+      "bridge debug-read did not prove the requested filter, bounds and detach");
+  }
+  if (result.presentation.tab_active_before !== result.presentation.tab_active_after
+      || result.presentation.window_focused_before !== result.presentation.window_focused_after
+      || result.presentation.activation_requested !== false) {
+    return failure("elements_page_presentation_changed",
+      "bridge debug-read changed tab or window presentation; refusing to project");
+  }
+  const filtered = [];
+  for (let i = 0; i < result.nodes.length; i = i + 1) {
+    const node = checked_page_node(result.nodes[i]);
+    if (node === null || (options.actionable && node.actionable !== true)) {
+      return failure("elements_page_shape_invalid",
+        "bridge debug-read node lacks exact identity or requested actionable facts");
+    }
+    const actionable = node.actionable === true || legacy_page_actionable(node.role);
+    if (!options.actionable || actionable) {
+      filtered.push({ node: node, actionable: actionable });
+    }
+  }
+  const elements = [];
+  for (let i = 0; i < filtered.length && i < options.max; i = i + 1) {
+    const node = filtered[i].node;
+    elements.push({
+      index: i,
+      role: node.role,
+      name: node.name,
+      selector: "page:" + node.frame_id + ":" + node.role + ":" + node.name,
+      actions: filtered[i].actionable ? ["press"] : [],
+      enabled: node.disabled !== true,
+      focused: node.focused === true,
+      frame_id: node.frame_id,
+      backend_node_id: node.backend_node_id,
+      depth: node.depth
+    });
+  }
+  const next_actions = [];
+  if (elements.length > 0) {
+    next_actions.push("browser-bridge-debug-invoke " + options.connection_id
+      + " --tab-id " + options.tab_id
+      + " --frame-id <frame_id> --backend-node-id <backend_node_id>"
+      + " --role <role> --name <name>; page indices are never valid for invoke --index");
+  }
+  return success({
+    screenshot: false,
+    provider: "page-ax",
+    indexSpace: "page",
+    ax: "content",
+    connection_id: options.connection_id,
+    tab_id: options.tab_id,
+    frame_count: result.frame_count,
+    visited: result.scanned,
+    returned: elements.length,
+    truncated: filtered.length > options.max || result.truncated === true,
+    handle_ignored: true,
+    request_actionable: options.actionable,
+    max_effective_ceiling: 1000,
+    elements: elements,
+    nextActions: next_actions
+  });
+}

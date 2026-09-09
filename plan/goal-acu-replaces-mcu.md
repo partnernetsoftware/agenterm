@@ -80,10 +80,10 @@ ACU replaces MCU
 │  │     families remain G1-red until provider preserves framing/lifetime/cleanup parity
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
-│  │  all 3 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
+│  │  all 2 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
 │  │  `.051` keeps frozen `resource top` native and maps related `resource pressure` losslessly with a public qjswasm court;
 │  │  `.084` maps archived watch timing, event/window ceilings and state/type/all filters to native per-sample semantics;
-│  │  all 33 resolved witnesses have a checked disposition (20 exec · 9 compound · 4 usage · 0 TODO);
+│  │  all 34 resolved witnesses have a checked disposition (20 exec · 10 compound · 4 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
 │  │  external wrapper now execs that entry; remaining dynamic mappings, MCP mutation design and native courts remain
@@ -285,6 +285,7 @@ MCU retirement blockers
 │  │  ├─ [x] same-binary native host + current-user manifest/registry installer
 │  │  ├─ [x] public exact-connection setup/connections/status/tabs/windows/debug-read CLI
 │  │  ├─ [x] provider-side debug-read actionable filtering precedes result truncation and publishes control-state facts
+│  │  ├─ [x] legacy page elements bind browser-tabs to debug-read, retain reply-local page indices, and expose exact frame/backend-node follow-up identity
 │  │  ├─ [x] guarded exact `window-state`: closed state vocabulary + focus/tab read-back + rollback
 │  │  ├─ [x] macOS owned Profile loads exact extension; live connection + host EOF/TTL cleanup qjswasm court
 │  │  ├─ [x] child-frame closed shadow: exact read/type/focus/press/files + secret-free durable evidence

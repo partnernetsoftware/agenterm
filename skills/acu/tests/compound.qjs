@@ -146,6 +146,43 @@ fails(compound.observe_filters({ ok: true, data: {
 
 fails(compound.observe_roles({ ok: true, data: { events: [{ node: {} }] } }, "button"),
   "acu_compound_observe_invalid", "observe malformed event");
+
+const page_connection = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const page_profile = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const page_tab = ok(compound.elements_page_tab({ ok: true, data: {
+  mechanism: "mv3-native-messaging", connection_id: page_connection,
+  profile_instance_id: page_profile, returned: 1, truncated: false,
+  verified: true, focus_changed: false,
+  selection: { profile_instance_id: null, connection_id: null, match: null, tab_id: 4 },
+  tabs: [{ tab_id: 4, window_id: 9, active: false }]
+} }, 4, null), "elements page tab");
+require(page_tab.connection_id === page_connection && page_tab.tab_id === 4,
+  "elements page exact tab identity");
+const page_native = { ok: true, data: { connection_id: page_connection, result: {
+  tab_id: 4, request_actionable: true, frame_count: 1, scanned: 3, truncated: false,
+  nodes: [
+    { frame_id: "F", backend_node_id: 1, depth: 1, role: "button", name: "A",
+      actionable: true, disabled: false, focused: false },
+    { frame_id: "F", backend_node_id: 2, depth: 1, role: "link", name: "B",
+      actionable: true, disabled: false, focused: true }
+  ],
+  presentation: { tab_active_before: false, tab_active_after: false,
+    window_focused_before: false, window_focused_after: false,
+    activation_requested: false },
+  detach: { outcome: "detached" }
+} } };
+const page_view = ok(compound.elements_page_projection(page_native, {
+  actionable: true, max: 1, tab_id: 4, connection_id: page_connection
+}), "elements page projection");
+require(page_view.returned === 1 && page_view.truncated === true
+    && page_view.elements[0].index === 0 && page_view.elements[0].backend_node_id === 1,
+  "elements page max+1 and reply-local index");
+page_native.data.connection_id = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+fails(compound.elements_page_projection(page_native, {
+  actionable: true, max: 1, tab_id: 4, connection_id: page_connection
+}), "elements_page_shape_invalid", "elements page connection receipt");
+page_native.data.connection_id = page_connection;
+
 fails(compound.apps_page({ ok: false, error: {
   code: "denied", message: "grant missing"
 } }, "x", 0, 1), "denied", "typed CuReply failure");

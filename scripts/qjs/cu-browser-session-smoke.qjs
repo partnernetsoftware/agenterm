@@ -70,6 +70,24 @@ function invoke(grant, arguments) {
   return { output: output, reply: JSON.parse(text) };
 }
 
+function invoke_acu(arguments) {
+  const argv = ["cli", "acu"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(product, argv, {
+    cwd: context.run_directory,
+    env: {
+      AGENTERM_CU_AUDIT_PATH: audit_path,
+      AGENTERM_CU_RUNTIME_PATH: rh.join(context.run_directory, "cu-runtime.json"),
+      AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(context.run_directory, "cu-idempotency.json"),
+      AGENTERM_NO_ACTIVATE: "1"
+    },
+    timeout_ms: 30000
+  });
+  const text = output.stdout.trim();
+  ensure(text !== "", "cu_browser_session_empty_acu_reply");
+  return { output: output, reply: JSON.parse(text) };
+}
+
 function require_ok(result, label) {
   ensure(result.output.success === true && result.reply.ok === true, label);
   return result.reply;
@@ -355,6 +373,33 @@ try {
     "cu_browser_profile_tabs_filter_identity");
   harness.emit_evidence(context, declared_evidence, "cu.browser-profile-tabs.macos");
 
+  print("STEP legacy page elements preserve reply-local indices and exact bridge identity");
+  const legacy_page_call = invoke_acu([
+    "elements", "Window#1", "--page", "--tab-id", "" + attached_tab_id,
+    "--profile", profile_instance_id.substring(0, 8), "--max", "50"
+  ]);
+  ensure(legacy_page_call.output.success === true && legacy_page_call.reply.ok === true,
+    "cu_browser_legacy_page_elements_failed_" + JSON.stringify(legacy_page_call.reply));
+  const legacy_page = legacy_page_call.reply;
+  ensure(legacy_page.data.provider === "page-ax" && legacy_page.data.indexSpace === "page" &&
+    legacy_page.data.connection_id === bridge_id && legacy_page.data.tab_id === attached_tab_id &&
+    legacy_page.data.request_actionable === true && legacy_page.data.handle_ignored === true &&
+    legacy_page.data.returned === legacy_page.data.elements.length && legacy_page.data.returned > 0,
+    "cu_browser_legacy_page_envelope");
+  for (let page_index = 0; page_index < legacy_page.data.elements.length; page_index = page_index + 1) {
+    const element = legacy_page.data.elements[page_index];
+    ensure(element.index === page_index && element.backend_node_id > 0 &&
+      typeof element.frame_id === "string" && element.frame_id.length > 0 &&
+      typeof element.enabled === "boolean" && typeof element.focused === "boolean",
+      "cu_browser_legacy_page_identity_" + page_index);
+  }
+  ensure(legacy_page.data.nextActions.length === 0 ||
+    (legacy_page.data.nextActions[0].indexOf("browser-bridge-debug-invoke") === 0 &&
+      legacy_page.data.nextActions[0].indexOf("invoke --index") > 0),
+    "cu_browser_legacy_page_index_space_mixed");
+  ensure(bridge_find_node(legacy_page.data.elements, "button", "Commit closed") !== null,
+    "cu_browser_legacy_page_actionable_button_missing");
+
   print("STEP stable profile identity owns one exact tab across a background bridge reload");
   runtime_session = require_ok(invoke("actuate", [
     "session-start", "--label", "browser-bridge-court", "--ttl-seconds", "120"
@@ -444,6 +489,7 @@ try {
       typeof node.focused === "boolean" && node.actionable === true,
       "cu_browser_closed_tree_actionable_fact_invalid");
   }
+
   ensure(closed_read.data.result.detach.outcome === "detached",
     "cu_browser_closed_tree_detach");
   ensure(closed_read.data.result.frame_count >= 2,

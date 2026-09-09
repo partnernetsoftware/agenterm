@@ -674,6 +674,12 @@
       ]
     },
     {
+      "id": "acu-elements-page-compat-smoke",
+      "evidence": [
+        "acu.compat-elements-page"
+      ]
+    },
+    {
       "id": "acu-storage-legacy-boundary-smoke",
       "evidence": [
         "acu.compat-storage-legacy-boundary"

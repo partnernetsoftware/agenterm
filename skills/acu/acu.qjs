@@ -138,6 +138,32 @@ function execute_compound(request) {
     return projected_reply(request.command, reply,
       compound.apps_page(reply, request.match, request.offset, request.max));
   }
+  if (request.kind === "elements-page") {
+    const tabs_argv = ["browser-tabs", "--tab-id", "" + request.tab_id];
+    if (request.profile !== null) {
+      append_argv(tabs_argv, ["--profile-instance-id", request.profile]);
+    }
+    const tabs = acu.argv(prefixed(request.globals, tabs_argv));
+    const selected = compound.elements_page_tab(tabs, request.tab_id, request.profile);
+    if (!selected.ok) {
+      return acu_error(request.command, selected.code, selected.message);
+    }
+    const debug_argv = [
+      "browser-bridge-debug-read", selected.value.connection_id,
+      "--tab-id", "" + request.tab_id,
+      "--max-frames", "64", "--max-depth", "" + request.depth,
+      "--max-scan", "5000", "--max-results", "" + (request.max + 1)
+    ];
+    if (request.actionable) { debug_argv.push("--actionable"); }
+    const reply = acu.argv(prefixed(request.globals, debug_argv));
+    return projected_reply(request.command, reply,
+      compound.elements_page_projection(reply, {
+        actionable: request.actionable,
+        max: request.max,
+        tab_id: request.tab_id,
+        connection_id: selected.value.connection_id
+      }));
+  }
   if (request.kind === "focused-pid") {
     const windows = acu.argv(prefixed(request.globals,
       ["windows", "--pid", "" + request.pid, "--max", "2"]));

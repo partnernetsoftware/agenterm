@@ -163,7 +163,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │  └─ [ ] migrate each remaining native wait with phase-aware evidence; mutation replies
   │  │         remain authoritative after effect dispatch and must never be hidden by late cancel
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
-  │  ├─ [x] eight compound compatibility shapes execute through pure qjs projections + the same typed calls
+  │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
   │  ├─ [~] MCP uses the same provider/Executor; bounded shell mutation is implemented but deliberately unadvertised
   │  │  ├─ [x] lazy connection-owned session, one dispatched + one queued, typed cancellation and EOF drain
   │  │  ├─ [x] JSON-RPC id owns transport cancellation; caller idempotency key owns durable effect identity
@@ -179,12 +179,12 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `3 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 33 resolved witnesses now have an executable disposition:
-  20 direct exec, 9 Bun-free compound projections, and 4 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 3 remaining
+  `2 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 34 resolved witnesses now have an executable disposition:
+  20 direct exec, 10 Bun-free compound projections, and 4 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 2 remaining
   dynamic-stay witness rows keep their stable repair identities. A public black-box
-  compatibility court additionally proves 3 known argument-sensitive legacy shapes
+  compatibility court additionally proves 2 known argument-sensitive legacy shapes
   return `ACU_CAPABILITY_TODO` with their exact `gap_id` instead of falling through to
   naked native `usage`; the archived raw-path device lifecycle instead returns one
   explicit typed retirement with its opaque-id and explicit-session migration, while
@@ -662,16 +662,17 @@ ACU-only cutover
 │  │  └─ Linux/Windows native desktop qualification remains delivery evidence debt
 │  ├─ [x] acu.dynamic.077 · native `query --subrole` preserves macOS `AXSubrole` through ABI 1.29;
 │  │  └─ public owned Save Panel qjswasm court proves a deterministic `AXDialog` accessory probe
-│  ├─ [~] acu.dynamic.078 · static legacy `elements` maps to native `query` with
+│  ├─ [x] acu.dynamic.078 · static legacy `elements` maps to native `query` with
 │  │  ├─ the archived depth 12 / max 200 / actionable-by-default projection;
 │  │  ├─ filtering before paging and original flatten indices shared with `invoke --index`;
 │  │  ├─ invalid legacy `tree --page` and non-MCU tree/index/offset flags closed as usage;
 │  │  ├─ valid `tree --max-value-bytes` maps to bounded previews and completeness truth;
-│  │  └─ [~] acu.dynamic.078.page-index-space · browser debug-read elements stay typed
+│  │  └─ [x] acu.dynamic.078.page-index-space · browser debug-read elements bind one exact tab
 │  │     ├─ [x] fixed MV3 debug-read filters actionable rows before its result budget
 │  │     │  and publishes actionable/disabled/focused plus a request-side receipt
-│  │     └─ [ ] bind the legacy reply-local page indices to exact tab/frame/backend-node
-│  │        identities without ever presenting them as native `invoke --index` values
+│  │     └─ [x] the compound validates connection/tab/filter receipts, applies the legacy
+│  │        second-stage role filter, and emits reply-local indices alongside exact
+│  │        frame/backend-node identities without presenting them as `invoke --index`
 │  ├─ [x] acu.dynamic.081 · legacy `observe` filters are a Bun-free post-capture projection;
 │  │  ├─ poll-diff events carry same-walk actions/bounds/depth/states/text facts
 │  │  ├─ unknown boolean facts match neither true nor false; `required` fails typed

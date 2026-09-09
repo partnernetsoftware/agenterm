@@ -1,0 +1,222 @@
+// Pure public court for the Bun-free legacy `elements --page` projection.
+// It owns no GUI, browser, process or network effects; all replies are synthetic.
+// Args: REPO | --list-evidence
+import * as compound from "skills/acu/lib/compound";
+import * as compat from "skills/acu/lib/compat";
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["acu.compat-elements-page"];
+const CONNECTION = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const OTHER_CONNECTION = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const PROFILE = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+function ensure(condition, message) { if (!condition) { throw message; } }
+
+function node(frame, id, role, name, flags) {
+  const facts = flags || {};
+  return {
+    frame_id: frame, backend_node_id: id, depth: 1, role: role, name: name,
+    actionable: facts.actionable === true,
+    disabled: facts.disabled === true,
+    focused: facts.focused === true
+  };
+}
+
+function tabs_reply(tabs, selector) {
+  return { ok: true, data: {
+    mechanism: "mv3-native-messaging",
+    connection_id: CONNECTION,
+    profile_instance_id: PROFILE,
+    selection: {
+      profile_instance_id: selector,
+      connection_id: null,
+      match: null,
+      tab_id: 4
+    },
+    returned: tabs.length,
+    truncated: false,
+    tabs: tabs,
+    focus_changed: false,
+    verified: true
+  } };
+}
+
+function read_reply(nodes, request_actionable, truncated, connection) {
+  return { ok: true, data: {
+    connection_id: connection || CONNECTION,
+    result: {
+      tab_id: 4,
+      request_actionable: request_actionable,
+      frame_count: 2,
+      scanned: nodes.length + 3,
+      truncated: truncated === true,
+      nodes: nodes,
+      presentation: {
+        tab_active_before: false,
+        tab_active_after: false,
+        window_focused_before: false,
+        window_focused_after: false,
+        activation_requested: false
+      },
+      detach: { outcome: "detached" }
+    }
+  } };
+}
+
+const OPTIONS = { actionable: true, max: 200, tab_id: 4, connection_id: CONNECTION };
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 1, "expected: REPO");
+const context = harness.new_context(rh.absolute(args[0]), "acu-elements-page-compat");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const default_plan = compat.canonicalize([
+    "elements", "Window#1", "--page", "--tab-id", "4"
+  ]);
+  ensure(default_plan.kind === "elements-page" && default_plan.depth === 12 &&
+    default_plan.max === 200 && default_plan.actionable === true &&
+    default_plan.tab_id === 4 && default_plan.profile === null,
+    "acu_elements_page_default_route");
+  const explicit_plan = compat.canonicalize([
+    "elements", "Window#1", "--page", "--tab-id", "4", "--depth", "7",
+    "--max", "1000", "--actionable", "false", "--profile", PROFILE.substring(0, 8)
+  ]);
+  ensure(explicit_plan.kind === "elements-page" && explicit_plan.depth === 7 &&
+    explicit_plan.max === 1000 && explicit_plan.actionable === false &&
+    explicit_plan.profile === PROFILE.substring(0, 8),
+    "acu_elements_page_explicit_route");
+  ensure(compat.canonicalize([
+    "elements", "Window#1", "--page", "--tab-id", "4", "--max", "1001"
+  ]).kind === "usage", "acu_elements_page_archived_ceiling_route");
+  ensure(compat.canonicalize([
+    "elements", "Window#1", "--page"
+  ]).kind === "usage", "acu_elements_page_missing_tab_route");
+
+  for (const role of ["button", "AXButton", "ControlType.Button", "push-button",
+      "AXTextField", "menuitem", "Tab", "row", "cell", "Link", "spin-button"]) {
+    ensure(compound.legacy_page_actionable(role), "acu_elements_page_actionable_role_" + role);
+  }
+  for (const role of ["heading", "generic", "StaticText", "AXGroup", "textbox", "img"]) {
+    ensure(!compound.legacy_page_actionable(role), "acu_elements_page_nonactionable_role_" + role);
+  }
+  ensure(compound.legacy_page_role_key("ControlType.Push-Button") === "pushbutton",
+    "acu_elements_page_role_normalization");
+
+  const tab = { tab_id: 4, window_id: 9, active: false, title: "T", url: "data:text/html,T" };
+  const profile_prefix = PROFILE.substring(0, 8);
+  const selected = compound.elements_page_tab(tabs_reply([tab], profile_prefix), 4,
+    profile_prefix);
+  ensure(selected.ok === true && selected.value.connection_id === CONNECTION
+      && selected.value.profile_instance_id === PROFILE && selected.value.window_id === 9,
+    "acu_elements_page_exact_tab_binding");
+  const wrong_profile = tabs_reply([tab], profile_prefix);
+  wrong_profile.data.profile_instance_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  ensure(compound.elements_page_tab(wrong_profile, 4, profile_prefix).code
+      === "elements_page_shape_invalid", "acu_elements_page_profile_prefix_binding");
+  ensure(compound.elements_page_tab(tabs_reply([], null), 4, null).code
+      === "browser_bridge_tab_not_found", "acu_elements_page_missing_tab_typed");
+  const cdp = tabs_reply([tab], null); cdp.data.mechanism = "cdp-json";
+  ensure(compound.elements_page_tab(cdp, 4, null).code
+      === "browser_bridge_profile_connection_not_found", "acu_elements_page_bridge_required");
+  const wrong_selection = tabs_reply([tab], null); wrong_selection.data.selection.tab_id = 7;
+  ensure(compound.elements_page_tab(wrong_selection, 4, null).code
+      === "elements_page_shape_invalid", "acu_elements_page_selection_mismatch");
+
+  const filtered_nodes = [
+    node("F1", 12, "button", "Save", { actionable: true, disabled: true }),
+    node("F2", 21, "textbox", "Query", { actionable: true, focused: true }),
+    node("F2", 22, "link", "Docs", { actionable: true }),
+    node("F2", 23, "checkbox", "Agree", { actionable: true }),
+    node("F2", 24, "generic", "Focusable", { actionable: true })
+  ];
+  const projected = compound.elements_page_projection(
+    read_reply(filtered_nodes, true, false), OPTIONS);
+  ensure(projected.ok === true, "acu_elements_page_projection_" + projected.code);
+  const view = projected.value;
+  ensure(view.indexSpace === "page" && view.provider === "page-ax"
+      && view.ax === "content" && view.handle_ignored === true
+      && view.returned === 5 && view.elements.length === 5,
+    "acu_elements_page_envelope");
+  ensure(view.elements[0].index === 0 && view.elements[0].backend_node_id === 12
+      && view.elements[1].index === 1 && view.elements[1].backend_node_id === 21
+      && view.elements[4].index === 4 && view.elements[4].backend_node_id === 24,
+    "acu_elements_page_reply_local_index");
+  ensure(view.elements[0].selector === "page:F1:button:Save"
+      && view.elements[0].actions[0] === "press"
+      && view.elements[0].enabled === false && view.elements[1].focused === true,
+    "acu_elements_page_facts");
+  ensure(view.nextActions.length === 1
+      && view.nextActions[0].indexOf("browser-bridge-debug-invoke") === 0
+      && view.nextActions[0].indexOf("invoke --index") > 0,
+    "acu_elements_page_never_mixes_index_spaces");
+
+  const all_nodes = [
+    node("F1", 1, "heading", "Title"),
+    node("F1", 2, "AXCheckBox", "Agree"),
+    node("F1", 3, "generic", "Focusable", { actionable: true })
+  ];
+  const all = compound.elements_page_projection(read_reply(all_nodes, false, false), {
+    actionable: false, max: 200, tab_id: 4, connection_id: CONNECTION
+  });
+  ensure(all.ok === true && all.value.returned === 3
+      && all.value.elements[0].actions.length === 0
+      && all.value.elements[1].actions[0] === "press"
+      && all.value.elements[2].actions[0] === "press",
+    "acu_elements_page_actionable_false_keeps_rows");
+
+  const sentinel_nodes = [filtered_nodes[0], filtered_nodes[1], filtered_nodes[2]];
+  const sentinel = compound.elements_page_projection(read_reply(sentinel_nodes, true, false), {
+    actionable: true, max: 2, tab_id: 4, connection_id: CONNECTION
+  });
+  ensure(sentinel.ok === true && sentinel.value.returned === 2
+      && sentinel.value.truncated === true, "acu_elements_page_max_plus_one");
+  const native_truncated = compound.elements_page_projection(
+    read_reply([filtered_nodes[0], filtered_nodes[1]], true, true), {
+      actionable: true, max: 2, tab_id: 4, connection_id: CONNECTION
+    });
+  ensure(native_truncated.ok === true && native_truncated.value.truncated === true,
+    "acu_elements_page_native_truncation");
+
+  ensure(compound.elements_page_projection(
+    read_reply(filtered_nodes, true, false, OTHER_CONNECTION), OPTIONS).code
+      === "elements_page_shape_invalid", "acu_elements_page_connection_mismatch");
+  ensure(compound.elements_page_projection(
+    read_reply(filtered_nodes, false, false), OPTIONS).code
+      === "elements_page_shape_invalid", "acu_elements_page_filter_receipt_mismatch");
+  const moved = read_reply(filtered_nodes, true, false);
+  moved.data.result.presentation.tab_active_after = true;
+  ensure(compound.elements_page_projection(moved, OPTIONS).code
+      === "elements_page_presentation_changed", "acu_elements_page_presentation_change");
+  const undetached = read_reply(filtered_nodes, true, false);
+  undetached.data.result.detach.outcome = "failed";
+  ensure(compound.elements_page_projection(undetached, OPTIONS).code
+      === "elements_page_shape_invalid", "acu_elements_page_detach_required");
+  ensure(compound.elements_page_projection(read_reply(filtered_nodes, true, false), {
+    actionable: true, max: 1001, tab_id: 4, connection_id: CONNECTION
+  }).code === "elements_page_options_invalid", "acu_elements_page_legacy_provider_ceiling");
+  ensure(compound.elements_page_projection({ ok: false, error: {
+    code: "browser_bridge_debug_read_detach_failed", message: "detach"
+  } }, OPTIONS).code === "browser_bridge_debug_read_detach_failed",
+  "acu_elements_page_native_error_passthrough");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "acu.compat-elements-page");
+  harness.remove_run(context);
+  print("PASS: legacy page elements keep reply-local indices and exact bridge identity");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

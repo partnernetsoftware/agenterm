@@ -20,7 +20,7 @@ const corpus_gap_ids = [];
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
 }
-require(compat.LEGACY_TODO_GAP_IDS.length === 3,
+require(compat.LEGACY_TODO_GAP_IDS.length === 2,
   "legacy TODO catalog count drifted from the reviewed archive");
 for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
   const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
@@ -75,6 +75,7 @@ const resolved_compound = {
   "acu.dynamic.073": "apps-page",
   "acu.dynamic.080": "focused-pid",
   "acu.dynamic.081": "observe-filters",
+  "acu.dynamic.078.page-index-space": "elements-page",
   "acu.dynamic.093": "selector-dclick"
 };
 let resolved_checked = 0;
@@ -148,9 +149,9 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
     resolved_checked = resolved_checked + 1;
   }
 }
-require(dynamic_stays === 3, "dynamic stay corpus count");
+require(dynamic_stays === 2, "dynamic stay corpus count");
 require(permanent_rejections === 2, "permanent rejection corpus count");
-require(resolved_checked === 33, "resolved dynamic corpus count");
+require(resolved_checked === 34, "resolved dynamic corpus count");
 
 const point_job_resources = compat.canonicalize(["job", "resources", "job-1"]);
 require(point_job_resources.kind === "job-generation",
@@ -382,8 +383,24 @@ require(compat.canonicalize(["storage", "unmount", "disk-1"]).kind === "usage",
 require(compat.canonicalize(["storage", "eject", "disk-1"]).kind === "usage",
   "legacy storage eject was never an MCU storage subcommand");
 todo_case(["browser", "bridge", "status"], "acu.dynamic.075", "legacy browser bridge");
-todo_case(["elements", "Window#1", "--page", "--tab-id", "4"],
-  "acu.dynamic.078.page-index-space", "legacy page elements index space");
+const page_elements = compat.canonicalize([
+  "elements", "Window#1", "--page", "--tab-id", "4"
+]);
+require(page_elements.kind === "elements-page",
+  "legacy page elements must use the exact bridge compound");
+require(page_elements.window === "Window#1" && page_elements.tab_id === 4
+    && page_elements.depth === 12 && page_elements.max === 200
+    && page_elements.actionable === true && page_elements.profile === null,
+  "legacy page elements must freeze archived defaults");
+require(compat.canonicalize([
+  "elements", "Window#1", "--page", "--tab-id", "4", "--max", "1001"
+]).kind === "usage", "legacy page elements must keep the archived 1000-row ceiling");
+require(compat.canonicalize([
+  "elements", "Window#1", "--page"
+]).kind === "usage", "legacy page elements must reject a missing tab id locally");
+require(compat.canonicalize([
+  "elements", "Window#1", "--page", "false", "--tab-id", "4", "--profile", "ignored"
+]).kind === "exec", "legacy false page switch must retain the ordinary AX path");
 const default_elements = compat.canonicalize(["elements", "Window#1"]);
 require(default_elements.kind === "exec", "legacy default elements maps to native query");
 same_argv(default_elements.argv, [

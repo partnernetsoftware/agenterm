@@ -44,8 +44,7 @@ require_ok(rh.exists(launcher) && rh.metadata(launcher).is_file,
 
 const cases = [
   [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
-  [["browser", "bridge", "status"], "acu.dynamic.075"],
-  [["elements", "Window#1", "--page", "--tab-id", "4"], "acu.dynamic.078.page-index-space"]
+  [["browser", "bridge", "status"], "acu.dynamic.075"]
 ];
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);
@@ -87,6 +86,15 @@ require_ok(elements_projection.ok === false
     && elements_projection.command === "query"
     && elements_projection.error.code !== "usage",
   "legacy elements must reach the native query provider:" + JSON.stringify(elements_projection));
+
+const page_elements = invoke(launcher, [
+  "elements", "Window#1", "--page", "--tab-id", "2147483647"
+], 1);
+require_ok(page_elements.ok === false && page_elements.command === "elements"
+    && page_elements.error.code !== "usage"
+    && page_elements.error.code !== "acu_todo",
+  "legacy page elements must reach the exact bridge provider:"
+    + JSON.stringify(page_elements));
 
 const observe_projection = invoke(launcher, [
   "observe", "Window#1", "--action", "press"

@@ -455,6 +455,7 @@
         "acu.compat-job-resources",
         "acu.compat-job-resources-projection",
         "acu.compat-zoom-legacy-rect",
+        "acu.compat-elements-page",
         "acu.compat-storage-legacy-boundary",
         "acu.compat-resource-volumes",
         "acu.compat-resource-pressure",

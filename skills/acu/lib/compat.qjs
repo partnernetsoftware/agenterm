@@ -21,7 +21,7 @@ export const LEGACY_TOP_LEVEL = [
 // archive; unknown spellings are deliberately absent and continue to native
 // usage handling.
 export const LEGACY_TODO_GAP_IDS = [
-  "acu.dynamic.004", "acu.dynamic.075", "acu.dynamic.078.page-index-space",
+  "acu.dynamic.004", "acu.dynamic.075",
 ];
 
 function contains(values, wanted) {
@@ -597,6 +597,7 @@ export function canonicalize(input) {
   }
   if (mapped.kind === "focused-pid" || mapped.kind === "observe-roles"
       || mapped.kind === "observe-filters"
+      || mapped.kind === "elements-page"
       || mapped.kind === "selector-dclick") {
     mapped.globals = copy(extracted.prefix);
     return mapped;

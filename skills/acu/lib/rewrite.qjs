@@ -89,6 +89,17 @@ function digits_only(raw) {
   return true;
 }
 
+function lower_hex_prefix(raw) {
+  if (typeof raw !== "string" || raw.length < 1 || raw.length > 32) { return false; }
+  for (let i = 0; i < raw.length; i = i + 1) {
+    const code = raw.charCodeAt(i);
+    if (!((code >= 48 && code <= 57) || (code >= 97 && code <= 102))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function milliseconds(raw) {
   let text = raw;
   if (text.startsWith("+")) { text = text.slice(1); }
@@ -308,9 +319,41 @@ function elements(rest, flags) {
     return usage("elements", "elements needs exactly one HANDLE");
   }
   if (legacy.flagTruthy(flags.page)) {
-    return todo("acu.dynamic.078.page-index-space", "elements",
-      "legacy page elements use a browser page index space distinct from accessibility indices");
+    if (!bounded_integer(flags, "depth", 1, 12)) {
+      return usage("elements", "elements --page --depth must be within 1..12");
+    }
+    if (!bounded_integer(flags, "max", 1, 1000)) {
+      return usage("elements",
+        "elements --page --max must be within 1..1000; the archived extension also refused larger pages");
+    }
+    if (flags["tab-id"] === undefined) {
+      return usage("elements", "elements --page requires --tab-id");
+    }
+    if (!bounded_integer(flags, "tab-id", 1, 2147483647)) {
+      return usage("elements", "elements --page requires a positive --tab-id");
+    }
+    const actionable = flags.actionable === undefined ? true : legacy_bool(flags.actionable);
+    if (actionable === null) {
+      return usage("elements", "elements --actionable requires true or false");
+    }
+    if (flags.profile !== undefined && !lower_hex_prefix(flags.profile)) {
+      return todo("acu.dynamic.075.profile-name-binding", "elements",
+        "human browser profile names need a cryptographic binding to one MV3 profile instance");
+    }
+    return {
+      kind: "elements-page", command: "elements", window: handle,
+      tab_id: Number(flags["tab-id"]),
+      depth: flags.depth === undefined ? 12 : Number(flags.depth),
+      max: flags.max === undefined ? 200 : Number(flags.max),
+      actionable: actionable,
+      profile: flags.profile === undefined ? null : flags.profile
+    };
   }
+  // The archived non-page path ignored these browser-only flags, including
+  // an explicit `--page false`; retain that behavior without mixing indices.
+  flags.page = undefined;
+  flags["tab-id"] = undefined;
+  flags.profile = undefined;
   if (!bounded_integer(flags, "depth", 1, 12)) {
     return usage("elements", "elements --depth must be within 1..12");
   }
