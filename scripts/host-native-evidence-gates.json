@@ -471,6 +471,16 @@
       ]
     },
     {
+      "id": "cu-linux-gtk-entry-caret-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-gtk-entry-set-caret",
+        "cu.linux-gtk-entry-get-caret",
+        "cu.linux-gtk-entry-set-caret-end",
+        "cu.linux-gtk-entry-get-caret-end"
+      ]
+    },
+    {
       "id": "cu-linux-gtk-entry-paste-smoke",
       "platform": "linux",
       "evidence": [
