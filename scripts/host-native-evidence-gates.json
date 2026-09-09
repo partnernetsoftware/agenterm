@@ -524,6 +524,13 @@
       ]
     },
     {
+      "id": "cu-linux-local-clock-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-local-clock-readback"
+      ]
+    },
+    {
       "id": "cu-linux-menu-invoke-honesty-smoke",
       "platform": "linux",
       "evidence": [
