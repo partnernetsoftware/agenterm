@@ -353,6 +353,24 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
+function assert_service_usage_reject(run_directory, executable, args, env, token, label) {
+  const reply = invoke_reply(run_directory, executable, args, env);
+  ensure(!output_success(reply), "cu_linux_service_usage_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_service_usage_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_service_usage_" + label + "_command:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf(token) >= 0 || message.indexOf("unexpected") >= 0,
+    "cu_linux_service_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+}
+
 function assert_service_usage_limit(run_directory, executable, env) {
   const list_with_name = invoke_reply(run_directory, executable, ["list", "--name", AT_SPI_PROBE_NAME], env);
   ensure(!output_success(list_with_name), "cu_linux_service_usage_list_name_ok:" + JSON.stringify(list_with_name));
@@ -430,6 +448,21 @@ function assert_service_usage_limit(run_directory, executable, env) {
     text_at(missing_subcommand, "error.code") === "usage",
     "cu_linux_service_usage_missing_subcommand_code:" + JSON.stringify(missing_subcommand.error)
   );
+
+  assert_service_usage_reject(run_directory, executable, ["list", "--coords", "0,0"], env, "--coords", "list_coords");
+  assert_service_usage_reject(run_directory, executable, ["list", "--bogus"], env, "--bogus", "list_bogus");
+  assert_service_usage_reject(run_directory, executable,
+    ["system-list", "--coords", "0,0"], env, "--coords", "system_list_coords");
+  assert_service_usage_reject(run_directory, executable,
+    ["system-list", "--bogus"], env, "--bogus", "system_list_bogus");
+  assert_service_usage_reject(run_directory, executable,
+    ["status", missing_service_name, "--coords", "0,0"], env, "--coords", "status_coords");
+  assert_service_usage_reject(run_directory, executable,
+    ["status", missing_service_name, "--bogus"], env, "--bogus", "status_bogus");
+  assert_service_usage_reject(run_directory, executable,
+    ["system-status", missing_service_name, "--coords", "0,0"], env, "--coords", "system_status_coords");
+  assert_service_usage_reject(run_directory, executable,
+    ["system-status", missing_service_name, "--bogus"], env, "--bogus", "system_status_bogus");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -579,13 +612,28 @@ function verify_unsupported(reply) {
   ensure(encoded.indexOf('"state":"running"') < 0, "cu_linux_service_fake_running:" + encoded);
 }
 
-function verify_scope_unsupported(run_directory, executable, scope) {
+function verify_scope_unsupported(run_directory, executable, scope, absence) {
   const list_args = scope === "system" ? ["system-list", "--max", "8"] : ["list", "--max", "8"];
   const status_args = scope === "system"
     ? ["system-status", missing_service_name]
     : ["status", missing_service_name];
   verify_unsupported(invoke(run_directory, executable, list_args, false));
   verify_unsupported(invoke(run_directory, executable, status_args, false));
+  if (scope === "system") {
+    ensure(
+      absence.system_bus_socket_exists !== true
+        || absence.system_bus_connect !== true
+        || absence.system_systemd_manager !== true,
+      "cu_linux_service_system_unsupported_without_socket_bus_evidence:"
+        + absence_text(absence)
+    );
+  } else {
+    ensure(
+      absence.session_bus_connect !== true || absence.session_systemd_manager !== true,
+      "cu_linux_service_user_unsupported_without_session_bus_evidence:"
+        + absence_text(absence)
+    );
+  }
 }
 
 function scope_manager_ready(absence, scope) {
@@ -677,7 +725,7 @@ const context = harness.new_context(repo, "cu-linux-service");
 const env = cu_env_full(executable);
 const atspi_available = probe_atspi_available(executable);
 
-print("STEP service typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+print("STEP service typed-fails usage when AT-SPI --name, --coords, --bogus, or other unexpected arguments are present");
 assert_service_usage_limit(context.run_directory, executable, env);
 
 if (atspi_available) {
@@ -707,7 +755,7 @@ for (let scope_index = 0; scope_index < scope_names.length; scope_index = scope_
     print("STEP " + scope + " scope typed service_unsupported host-limit; independent systemd manager absent ("
       + absence_text(absence) + ")");
     ensure(manager_ready !== true, "cu_linux_service_manager_ready_without_inventory:" + scope);
-    verify_scope_unsupported(context.run_directory, executable, scope);
+    verify_scope_unsupported(context.run_directory, executable, scope, absence);
   } else {
     print("STEP " + scope + " service inventory/status match independent "
       + text_at(probe, "mechanism") + " read-back");

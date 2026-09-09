@@ -8030,7 +8030,7 @@
     },
     {
       "id": "cu-linux-service-smoke",
-      "description": "Linux service list|status|system-list|system-status match independent systemd D-Bus manager read-back, or typed service_unsupported host-limit when the system-bus/manager probe is absent (systemctl inventory must not promote a positive path); typed service usage rejects AT-SPI --name; typed get-extents --name usage/host-limit before any list/system-status path; observe-only; AT-SPI/--name only, no --coords.",
+      "description": "Linux service list|status|system-list|system-status match independent systemd D-Bus manager read-back, or typed service_unsupported host-limit when the system-bus socket or org.freedesktop.systemd1 manager probe is absent (systemctl inventory must not promote a positive path); typed service usage rejects AT-SPI --name, --coords, and --bogus; typed get-extents --name usage/host-limit before any list/system-status path; observe-only; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-service-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
