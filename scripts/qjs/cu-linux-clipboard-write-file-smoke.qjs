@@ -1,12 +1,18 @@
 // CEO: Linux clipboard-write-file richer-types honesty on X11.
-// Acceptance is independent clipboard-read --type text/uri-list after
-// clipboard-write-file with matching uri bytes, sha256 and value; inventory
-// must list text/uri-list. Optional xclip TARGETS/text/uri-list cross-check
-// when present, otherwise a typed gap.
+// clipboard-write-file puts a file:// URI as text/uri-list. UTF-8/HTML/PNG
+// writes keep a detached CLIPBOARD owner after the CLI exits; write-file
+// currently does not. Do not treat in-process data.verified as roundtrip
+// success. Acceptance is independent clipboard-read --type text/uri-list
+// (and xclip TARGETS/text/uri-list when present, or an X11 GetSelectionOwner
+// probe) after the writer process has exited:
+//   - surviving uri bytes/sha256/value plus inventory listing text/uri-list
+//     is a real roundtrip;
+//   - owner/URI loss is a typed gap / host-limit with that independent
+//     evidence, not a fake pass.
 // Typed clipboard-write-file/read/clear usage must reject AT-SPI --name and
-// other unexpected arguments; typed get-extents --name usage/host-limit paths
-// must hold before the actuate/read-back court. AT-SPI/--name only; no --coords
-// or screenshot degradation.
+// other unexpected arguments; typed get-extents --name usage/miss/host-limit
+// paths must hold before the actuate/read-back court. AT-SPI/--name only; no
+// --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -242,6 +248,19 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   );
 }
 
+function assert_get_extents_name_miss(run_directory, executable, env) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(reply),
+    "cu_linux_clipboard_write_file_extents_miss_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_node_not_found" || code === "bad_handle" || code === "a11y_backend_failed",
+    "cu_linux_clipboard_write_file_extents_miss_code:" + code
+  );
+}
+
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
   const reply = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
@@ -293,6 +312,70 @@ function independent_xclip_uri_list(executable) {
   return output.stdout;
 }
 
+function independent_clipboard_owner_xid(executable) {
+  const script = [
+    "import ctypes, ctypes.util",
+    "lib = ctypes.util.find_library('X11')",
+    "if not lib:",
+    "    print('absent')",
+    "    raise SystemExit(0)",
+    "X11 = ctypes.cdll.LoadLibrary(lib)",
+    "X11.XOpenDisplay.restype = ctypes.c_void_p",
+    "X11.XOpenDisplay.argtypes = [ctypes.c_char_p]",
+    "X11.XInternAtom.restype = ctypes.c_ulong",
+    "X11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]",
+    "X11.XGetSelectionOwner.restype = ctypes.c_ulong",
+    "X11.XGetSelectionOwner.argtypes = [ctypes.c_void_p, ctypes.c_ulong]",
+    "dpy = X11.XOpenDisplay(None)",
+    "if not dpy:",
+    "    print('absent')",
+    "    raise SystemExit(0)",
+    "atom = X11.XInternAtom(dpy, b'CLIPBOARD', 0)",
+    "owner = X11.XGetSelectionOwner(dpy, atom)",
+    "print(str(int(owner)))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  if (output.success !== true) { return null; }
+  const text = output.stdout.trim();
+  if (text === "" || text === "absent") { return null; }
+  return text;
+}
+
+function inventory_has_uri_list(inventory) {
+  const types = at(inventory, "data.types");
+  return Array.isArray(types) && types.indexOf(URI_LIST_TYPE) >= 0;
+}
+
+function typed_uri_matches(typed, expected_uri, digest) {
+  return output_success(typed)
+    && text_at(typed, "data.type") === URI_LIST_TYPE
+    && text_at(typed, "data.sha256") === digest
+    && text_at(typed, "data.value") === expected_uri
+    && text_at(typed, "data.encoding") === "utf8";
+}
+
+function typed_uri_lost(typed) {
+  if (output_success(typed)) { return false; }
+  const code = text_at(typed, "error.code");
+  if (
+    code !== "clipboard_failed"
+    && code !== "clipboard_unavailable"
+    && code !== "clipboard_empty"
+    && code !== "unsupported"
+  ) {
+    return false;
+  }
+  const message = text_at(typed, "error.message");
+  return message.indexOf("target") >= 0
+    || message.indexOf("selection") >= 0
+    || message.indexOf("owner") >= 0
+    || message.indexOf("empty") >= 0
+    || message.indexOf("unavailable") >= 0;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -311,6 +394,7 @@ const atspi_available = probe_atspi_available(executable);
 let succeeded = 0;
 let failure = "";
 let mutated = false;
+let owner_loss = false;
 try {
   const probe_path = rh.join(context.run_directory, "probe-token.txt");
   rh.write_text(probe_path, "CEO-write-file-probe\n");
@@ -321,6 +405,8 @@ try {
   if (atspi_available) {
     print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
     assert_get_extents_usage_limit(context.run_directory, executable, env);
+    print("STEP get-extents typed-fail miss when --name is absent before actuate/read-back court");
+    assert_get_extents_name_miss(context.run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
     assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
@@ -345,46 +431,81 @@ try {
   ], env);
   ensure(write.command === "clipboard-write-file" && text_at(write, "data.path") === abs_path,
          "cu_linux_clipboard_write_file_write_identity");
-  ensure(flag_at(write, "data.verified"),
-         "cu_linux_clipboard_write_file_write_verified:" + JSON.stringify(write.data));
+  const write_claimed_verified = flag_at(write, "data.verified");
 
-  print("STEP independent clipboard-read --type text/uri-list");
-  const typed = invoke(context.run_directory, executable, "observe", [
+  print("STEP independent clipboard-read --type text/uri-list after writer exit");
+  const typed = invoke_clipboard_reply(context.run_directory, executable, "observe", [
     "clipboard-read", "--type", URI_LIST_TYPE,
   ], env);
-  ensure(text_at(typed, "data.type") === URI_LIST_TYPE,
-         "cu_linux_clipboard_write_file_read_type");
-  ensure(text_at(typed, "data.sha256") === digest && text_at(typed, "data.value") === expected_uri,
-         "cu_linux_clipboard_write_file_read_digest:" + JSON.stringify(typed.data));
-  ensure(text_at(typed, "data.encoding") === "utf8",
-         "cu_linux_clipboard_write_file_read_encoding:" + text_at(typed, "data.encoding"));
-  const read_bytes = Number(text_at(typed, "data.bytes"));
-  ensure(read_bytes > 0, "cu_linux_clipboard_write_file_read_bytes");
-
-  print("STEP inventory lists text/uri-list without reading payload bytes");
   const inventory = invoke(context.run_directory, executable, "observe", ["clipboard-read", "--metadata-only"], env);
   ensure(flag_at(inventory, "data.payload_read") === false,
          "cu_linux_clipboard_write_file_inventory_payload_leak");
-  const types = inventory.data.types;
-  ensure(Array.isArray(types) && types.indexOf(URI_LIST_TYPE) >= 0,
-         "cu_linux_clipboard_write_file_inventory_types:" + JSON.stringify(types));
+  const owner_xid = independent_clipboard_owner_xid(executable);
+  const has_xclip = command_on_path("xclip");
+  const xclip_targets = has_xclip ? independent_xclip_targets(executable) : null;
+  const xclip_uri = has_xclip ? independent_xclip_uri_list(executable) : null;
+  const survived = typed_uri_matches(typed, expected_uri, digest);
 
-  let cross_checked = false;
-  if (command_on_path("xclip")) {
-    print("STEP independent xclip TARGETS lists text/uri-list");
-    const targets = independent_xclip_targets(executable);
-    ensure(targets !== null, "cu_linux_clipboard_write_file_xclip_targets_failed");
-    ensure(targets.indexOf(URI_LIST_TYPE) >= 0,
-           "cu_linux_clipboard_write_file_xclip_targets_missing:" + JSON.stringify(targets));
-    print("STEP independent xclip text/uri-list cross-check");
-    const host_uri = independent_xclip_uri_list(executable);
-    ensure(host_uri === expected_uri,
-           "cu_linux_clipboard_write_file_xclip_uri_mismatch:"
-           + JSON.stringify({ expected: expected_uri, host: host_uri }));
-    cross_checked = true;
-  }
-  if (!cross_checked) {
-    print("STEP typed-gap: no xclip on PATH; clipboard-read --type text/uri-list digest read-back is the acceptance path");
+  if (survived) {
+    print("STEP inventory lists text/uri-list without reading payload bytes");
+    ensure(inventory_has_uri_list(inventory),
+           "cu_linux_clipboard_write_file_inventory_types:" + JSON.stringify(inventory.data.types));
+    ensure(write_claimed_verified,
+           "cu_linux_clipboard_write_file_write_verified:" + JSON.stringify(write.data));
+    const read_bytes = Number(text_at(typed, "data.bytes"));
+    ensure(read_bytes > 0, "cu_linux_clipboard_write_file_read_bytes");
+    if (has_xclip) {
+      print("STEP independent xclip TARGETS lists text/uri-list");
+      ensure(xclip_targets !== null, "cu_linux_clipboard_write_file_xclip_targets_failed");
+      ensure(xclip_targets.indexOf(URI_LIST_TYPE) >= 0,
+             "cu_linux_clipboard_write_file_xclip_targets_missing:" + JSON.stringify(xclip_targets));
+      print("STEP independent xclip text/uri-list cross-check");
+      ensure(xclip_uri === expected_uri,
+             "cu_linux_clipboard_write_file_xclip_uri_mismatch:"
+             + JSON.stringify({ expected: expected_uri, host: xclip_uri }));
+    } else {
+      print("STEP typed-gap: no xclip on PATH; clipboard-read --type text/uri-list digest read-back is the acceptance path");
+    }
+    if (owner_xid !== null) {
+      ensure(owner_xid !== "0",
+             "cu_linux_clipboard_write_file_owner_none_on_surviving_uri:" + owner_xid);
+    }
+  } else {
+    owner_loss = true;
+    print("STEP typed-gap: clipboard-write-file lost CLIPBOARD uri-list ownership after writer exit");
+    ensure(typed_uri_lost(typed),
+           "cu_linux_clipboard_write_file_read_not_typed_loss:" + JSON.stringify(typed));
+    ensure(!inventory_has_uri_list(inventory),
+           "cu_linux_clipboard_write_file_inventory_still_lists_uri:"
+           + JSON.stringify(inventory.data.types));
+    if (has_xclip) {
+      print("STEP independent xclip confirms text/uri-list is absent after owner-loss");
+      ensure(
+        xclip_targets === null || xclip_targets.indexOf(URI_LIST_TYPE) < 0,
+        "cu_linux_clipboard_write_file_xclip_targets_still_list_uri:" + JSON.stringify(xclip_targets)
+      );
+      ensure(
+        xclip_uri === null || xclip_uri !== expected_uri,
+        "cu_linux_clipboard_write_file_xclip_still_holds_uri:" + JSON.stringify(xclip_uri)
+      );
+    } else {
+      print("STEP typed-gap: no xclip on PATH; independent clipboard-read is the owner-loss evidence");
+    }
+    if (owner_xid !== null) {
+      if (owner_xid === "0") {
+        print("STEP independent X11 GetSelectionOwner is NONE after clipboard-write-file writer exit");
+      } else {
+        print("STEP independent X11 GetSelectionOwner is " + owner_xid
+          + " after writer exit but CLIPBOARD has no text/uri-list");
+      }
+    } else {
+      print("STEP typed-gap: no libX11 GetSelectionOwner probe; independent clipboard-read is the owner-loss evidence");
+    }
+    print(
+      "STEP product-gap: clipboard-write-file claimed verified="
+      + write_claimed_verified
+      + " but independent clipboard-read --type text/uri-list did not survive writer exit"
+    );
   }
 
   succeeded = 1;
@@ -410,7 +531,13 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-clipboard-write-file-roundtrip");
   harness.remove_run(context);
-  if (atspi_available) {
+  if (owner_loss) {
+    if (atspi_available) {
+      print("PASS: Linux clipboard-write-file uri-list owner-loss honesty with independent clipboard-read evidence and clipboard/get-extents usage honesty (AT-SPI --name, no --coords)");
+    } else {
+      print("PASS: Linux clipboard-write-file uri-list owner-loss honesty with independent clipboard-read evidence and clipboard/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    }
+  } else if (atspi_available) {
     print("PASS: Linux clipboard-write-file file-reference roundtrip with independent typed read-back and clipboard/get-extents usage honesty (AT-SPI --name, no --coords)");
   } else {
     print("PASS: Linux clipboard-write-file file-reference roundtrip with independent typed read-back and clipboard/get-extents host-limit honesty (AT-SPI --name, no --coords)");
