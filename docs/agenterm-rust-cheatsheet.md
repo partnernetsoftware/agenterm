@@ -172,6 +172,17 @@ mistyped cdhash must never be serialized as a present `none` value. Keep every
 Create/Copy-rule CoreFoundation object under one RAII owner and type-check all
 borrowed dictionary values before decoding them.
 
+FSEvents file-level streams are coalesced hints, not one record per filesystem
+syscall. Keep a single-directory contract by filtering raw callback paths
+lexically against a canonical root; never canonicalize a removed or rename-old
+path. Disambiguate cumulative Created/Removed/Renamed flags with delivery-time
+existence plus invocation-local seen state, and fail typed on dropped-event or
+must-rescan flags. Without `UseCFTypes`, callback paths are `char **`, while
+CoreFoundation `Boolean` remains `u8`. Catch callback unwind, keep the context
+alive through Stop, and clean up in Start/Stop/Invalidate/Release order. Do not
+use `FSEventStreamFlushSync` in a duration-bounded observer: it has no timeout
+and can silently defeat the public deadline.
+
 When a binary format has both converter inspection and runtime loading, keep
 one structural validator and split capability *description* from capability
 *availability*. Static inspection may parse manifests, imports and export
