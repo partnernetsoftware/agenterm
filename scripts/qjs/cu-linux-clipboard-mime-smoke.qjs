@@ -1,6 +1,6 @@
-// CEO: Linux clipboard text/html and image/png honesty on X11.
-// Acceptance is independent clipboard-read after clipboard-write with digest,
-// type inventory and empty restore; shell court owns the read-back contract.
+// CEO: Linux clipboard text/plain, text/html and image/png honesty on X11.
+// Acceptance is independent clipboard-read --type after clipboard-write with digest,
+// type inventory, denied/host-limit paths and empty restore; shell court owns read-back.
 // No --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -66,4 +66,4 @@ ensure(
 const context = harness.new_context(repo, "cu-linux-clipboard-mime");
 harness.emit_evidence(context, declared_evidence, "cu.linux-clipboard-mime-roundtrip");
 harness.remove_run(context);
-print("PASS: CEO Linux clipboard text/html and image/png roundtrip with independent read-back");
+print("PASS: CEO Linux clipboard text/plain, text/html and image/png roundtrip with independent typed read-back and host-limit paths");
