@@ -6777,7 +6777,7 @@
     },
     {
       "id": "cu-linux-tab-list-honesty-smoke",
-      "description": "Linux CU tab-list on box-chrome-a11y matches an independent pyatspi AT-SPI tab-strip walk (page-tab-list/page-tab or Chromium application-frame fallback) for count, title, and selected; typed tab-list usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the tab-list actuate/read-back court; AT-SPI/--name court only, no --coords.",
+      "description": "Linux CU tab-list on box-chrome-a11y matches an independent pyatspi AT-SPI tab-strip walk (page-tab-list/page-tab or Chromium application-frame fallback) for count, title, and selected; typed tab-list usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the tab-list actuate/read-back court; AT-SPI/--name court only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tab-list-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -4,10 +4,9 @@
 // fallback and term-read/term-send/term-wait typed-fail terminal_buffer_not_found
 // on the same handle. terminal-list must typed-fail control_unavailable with
 // AgenTerm sock host-limit and independent absent-socket proof before any shallow
-// terminal fixture exists; terminal-list/term-read/term-send/term-wait/tree/query
-// usage must reject AT-SPI --name and other unexpected arguments; typed
-// get-extents --name usage/host-limit paths must hold before the native read-back
-// court. query --role terminal must honestly return zero matches; get-text
+// terminal fixture exists; terminal-list/term-read/term-send/term-wait/tree/query usage must reject AT-SPI --name,
+// --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND
+// host-limit paths must hold before the native read-back court. query --role terminal must honestly return zero matches; get-text
 // --name on the frame title must typed-fail a11y_text_unavailable. Capabilities
 // and doctor must document the shallow frame plus pty-* / terminal-* alternatives.
 // Independent pyatspi must find zero application roots for the terminal pid;
@@ -286,9 +285,13 @@ function probe_atspi_available(executable, context) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function usage_rejects_atspi_name(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("unexpected") >= 0
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function term_send_usage_rejects(message, token) {
+  return usage_rejects_unexpected(message, token)
     || message.indexOf("exactly one text argument") >= 0;
 }
 
@@ -305,6 +308,62 @@ function assert_get_extents_usage_limit(run_directory, executable, context) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_terminal_shallow_tree_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, context, false, [
+    "get-extents", "--window", "1",
+  ]);
+  ensure(!output_success(missing_name),
+    "cu_linux_terminal_shallow_tree_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_terminal_shallow_tree_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, context, false, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(extents_coords),
+    "cu_linux_terminal_shallow_tree_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_terminal_shallow_tree_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, context, false, [
+    "get-extents", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_terminal_shallow_tree_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_terminal_shallow_tree_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -327,44 +386,69 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
 }
 
 function assert_tree_usage_limit(run_directory, executable, context) {
-  const reply = run_cu_reply(run_directory, executable, context, false, [
-    "tree", "--window", "1",
-    "--depth", "8",
-    "--max-nodes", "300",
-    "--flat",
-    "--name", AT_SPI_PROBE_NAME,
-  ]);
-  ensure(
-    !output_success(reply) && text_at(reply, "error.code") === "usage",
-    "cu_linux_terminal_shallow_tree_tree_usage:" + JSON.stringify(reply)
-  );
-  ensure(
-    text_at(reply, "command") === "usage",
-    "cu_linux_terminal_shallow_tree_tree_usage_command:" + JSON.stringify(reply)
-  );
-  ensure(
-    usage_rejects_atspi_name(text_at(reply, "error.message")),
-    "cu_linux_terminal_shallow_tree_tree_usage_message:" + JSON.stringify(reply.error)
-  );
+  for (const arguments of [
+    [
+      "tree", "--window", "1",
+      "--depth", "8",
+      "--max-nodes", "300",
+      "--flat",
+      "--name", AT_SPI_PROBE_NAME,
+    ],
+    [
+      "tree", "--window", "1",
+      "--depth", "8",
+      "--max-nodes", "300",
+      "--flat",
+      "--coords", "10,10",
+    ],
+    [
+      "tree", "--window", "1",
+      "--depth", "8",
+      "--max-nodes", "300",
+      "--flat",
+      "--bogus",
+    ],
+  ]) {
+    const reply = run_cu_reply(run_directory, executable, context, false, arguments);
+    ensure(
+      !output_success(reply) && text_at(reply, "error.code") === "usage",
+      "cu_linux_terminal_shallow_tree_tree_usage:" + JSON.stringify(reply)
+    );
+    ensure(
+      text_at(reply, "command") === "usage",
+      "cu_linux_terminal_shallow_tree_tree_usage_command:" + JSON.stringify(reply)
+    );
+    const token = arguments.indexOf("--name") >= 0 ? "--name"
+      : arguments.indexOf("--coords") >= 0 ? "--coords" : "--bogus";
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_terminal_shallow_tree_tree_usage_message:" + JSON.stringify(reply.error)
+    );
+  }
 }
 
 function assert_query_usage_limit(run_directory, executable, context) {
-  const reply = run_cu_reply(run_directory, executable, context, false, [
-    "query", "--window", "1", "--role", "terminal",
-    "--name", AT_SPI_PROBE_NAME,
-  ]);
-  ensure(
-    !output_success(reply) && text_at(reply, "error.code") === "usage",
-    "cu_linux_terminal_shallow_tree_query_usage:" + JSON.stringify(reply)
-  );
-  ensure(
-    text_at(reply, "command") === "usage",
-    "cu_linux_terminal_shallow_tree_query_usage_command:" + JSON.stringify(reply)
-  );
-  ensure(
-    usage_rejects_atspi_name(text_at(reply, "error.message")),
-    "cu_linux_terminal_shallow_tree_query_usage_message:" + JSON.stringify(reply.error)
-  );
+  for (const arguments of [
+    ["query", "--window", "1", "--role", "terminal", "--name", AT_SPI_PROBE_NAME],
+    ["query", "--window", "1", "--role", "terminal", "--coords", "10,10"],
+    ["query", "--window", "1", "--role", "terminal", "--bogus"],
+  ]) {
+    const reply = run_cu_reply(run_directory, executable, context, false, arguments);
+    ensure(
+      !output_success(reply) && text_at(reply, "error.code") === "usage",
+      "cu_linux_terminal_shallow_tree_query_usage:" + JSON.stringify(reply)
+    );
+    ensure(
+      text_at(reply, "command") === "usage",
+      "cu_linux_terminal_shallow_tree_query_usage_command:" + JSON.stringify(reply)
+    );
+    const token = arguments.indexOf("--name") >= 0 ? "--name"
+      : arguments.indexOf("--coords") >= 0 ? "--coords" : "--bogus";
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_terminal_shallow_tree_query_usage_message:" + JSON.stringify(reply.error)
+    );
+  }
 }
 
 function assert_term_send_usage_limit(run_directory, executable, context) {
@@ -382,8 +466,26 @@ function assert_term_send_usage_limit(run_directory, executable, context) {
     "cu_linux_terminal_shallow_tree_term_send_flat_name_command:" + JSON.stringify(flat_with_name)
   );
   ensure(
-    usage_rejects_atspi_name(text_at(flat_with_name, "error.message")),
+    term_send_usage_rejects(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_terminal_shallow_tree_term_send_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const flat_with_coords = run_cu_reply(run_directory, executable, context, false, [
+    "term-send", "1", "--foreground", "--coords", "10,10", "--", "hello",
+  ], "observe,actuate");
+  ensure(!output_success(flat_with_coords),
+    "cu_linux_terminal_shallow_tree_term_send_flat_coords_ok:" + JSON.stringify(flat_with_coords));
+  ensure(
+    text_at(flat_with_coords, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_send_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
+  );
+  ensure(
+    text_at(flat_with_coords, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_term_send_flat_coords_command:" + JSON.stringify(flat_with_coords)
+  );
+  ensure(
+    term_send_usage_rejects(text_at(flat_with_coords, "error.message"), "--coords"),
+    "cu_linux_terminal_shallow_tree_term_send_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
   );
 
   const grouped_with_name = run_cu_reply(run_directory, executable, context, false, [
@@ -396,8 +498,22 @@ function assert_term_send_usage_limit(run_directory, executable, context) {
     "cu_linux_terminal_shallow_tree_term_send_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
   ensure(
-    usage_rejects_atspi_name(text_at(grouped_with_name, "error.message")),
+    term_send_usage_rejects(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_terminal_shallow_tree_term_send_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const grouped_with_coords = run_cu_reply(run_directory, executable, context, false, [
+    "term", "send", "1", "--foreground", "--coords", "10,10", "--", "hello",
+  ], "observe,actuate");
+  ensure(!output_success(grouped_with_coords),
+    "cu_linux_terminal_shallow_tree_term_send_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
+  ensure(
+    text_at(grouped_with_coords, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_send_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
+  );
+  ensure(
+    term_send_usage_rejects(text_at(grouped_with_coords, "error.message"), "--coords"),
+    "cu_linux_terminal_shallow_tree_term_send_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
 
   const with_bogus = run_cu_reply(run_directory, executable, context, false, [
@@ -410,9 +526,7 @@ function assert_term_send_usage_limit(run_directory, executable, context) {
     "cu_linux_terminal_shallow_tree_term_send_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0
-      || usage_rejects_atspi_name(text_at(with_bogus, "error.message")),
+    term_send_usage_rejects(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_terminal_shallow_tree_term_send_bogus_message:" + JSON.stringify(with_bogus.error)
   );
 }
@@ -433,8 +547,27 @@ function assert_term_wait_usage_limit(run_directory, executable, context) {
     "cu_linux_terminal_shallow_tree_term_wait_flat_name_command:" + JSON.stringify(flat_with_name)
   );
   ensure(
-    usage_rejects_atspi_name(text_at(flat_with_name, "error.message")),
+    usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_terminal_shallow_tree_term_wait_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const flat_with_coords = run_cu_reply(run_directory, executable, context, false, [
+    "term-wait", "1", "decoy", "--timeout-ms", "1000",
+    "--coords", "10,10",
+  ]);
+  ensure(!output_success(flat_with_coords),
+    "cu_linux_terminal_shallow_tree_term_wait_flat_coords_ok:" + JSON.stringify(flat_with_coords));
+  ensure(
+    text_at(flat_with_coords, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_wait_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
+  );
+  ensure(
+    text_at(flat_with_coords, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_term_wait_flat_coords_command:" + JSON.stringify(flat_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
+    "cu_linux_terminal_shallow_tree_term_wait_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
   );
 
   const grouped_with_name = run_cu_reply(run_directory, executable, context, false, [
@@ -448,8 +581,27 @@ function assert_term_wait_usage_limit(run_directory, executable, context) {
     "cu_linux_terminal_shallow_tree_term_wait_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
   ensure(
-    usage_rejects_atspi_name(text_at(grouped_with_name, "error.message")),
+    usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_terminal_shallow_tree_term_wait_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const grouped_with_coords = run_cu_reply(run_directory, executable, context, false, [
+    "term", "wait", "1", "decoy", "--timeout-ms", "1000",
+    "--coords", "10,10",
+  ]);
+  ensure(!output_success(grouped_with_coords),
+    "cu_linux_terminal_shallow_tree_term_wait_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
+  ensure(
+    text_at(grouped_with_coords, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_wait_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
+  );
+  ensure(
+    text_at(grouped_with_coords, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_term_wait_grouped_coords_command:" + JSON.stringify(grouped_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
+    "cu_linux_terminal_shallow_tree_term_wait_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
 
   const with_bogus = run_cu_reply(run_directory, executable, context, false, [
@@ -462,9 +614,7 @@ function assert_term_wait_usage_limit(run_directory, executable, context) {
     "cu_linux_terminal_shallow_tree_term_wait_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0
-      || usage_rejects_atspi_name(text_at(with_bogus, "error.message")),
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_terminal_shallow_tree_term_wait_bogus_message:" + JSON.stringify(with_bogus.error)
   );
 }
@@ -482,7 +632,7 @@ function assert_term_read_usage_limit_early(run_directory, executable, context) 
     "cu_linux_terminal_shallow_tree_term_read_flat_name_command:" + JSON.stringify(flat_with_name)
   );
   ensure(
-    usage_rejects_atspi_name(text_at(flat_with_name, "error.message")),
+    usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_terminal_shallow_tree_term_read_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
 
@@ -494,8 +644,60 @@ function assert_term_read_usage_limit_early(run_directory, executable, context) 
     "cu_linux_terminal_shallow_tree_term_read_grouped_name:" + JSON.stringify(grouped_with_name)
   );
   ensure(
-    usage_rejects_atspi_name(text_at(grouped_with_name, "error.message")),
+    usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_terminal_shallow_tree_term_read_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const flat_with_coords = run_cu_reply(run_directory, executable, context, false, [
+    "term-read", "1", "--coords", "10,10",
+  ]);
+  ensure(
+    !output_success(flat_with_coords) && text_at(flat_with_coords, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_flat_coords:" + JSON.stringify(flat_with_coords)
+  );
+  ensure(
+    text_at(flat_with_coords, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_flat_coords_command:" + JSON.stringify(flat_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
+    "cu_linux_terminal_shallow_tree_term_read_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
+  );
+
+  const grouped_with_coords = run_cu_reply(run_directory, executable, context, false, [
+    "term", "read", "1", "--coords", "10,10",
+  ]);
+  ensure(
+    !output_success(grouped_with_coords) && text_at(grouped_with_coords, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_grouped_coords:" + JSON.stringify(grouped_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
+    "cu_linux_terminal_shallow_tree_term_read_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
+  );
+
+  const flat_with_bogus = run_cu_reply(run_directory, executable, context, false, [
+    "term-read", "1", "--bogus",
+  ]);
+  ensure(
+    !output_success(flat_with_bogus) && text_at(flat_with_bogus, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_flat_bogus:" + JSON.stringify(flat_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_terminal_shallow_tree_term_read_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
+  );
+
+  const grouped_with_bogus = run_cu_reply(run_directory, executable, context, false, [
+    "term", "read", "1", "--bogus",
+  ]);
+  ensure(
+    !output_success(grouped_with_bogus) && text_at(grouped_with_bogus, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_grouped_bogus:" + JSON.stringify(grouped_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_terminal_shallow_tree_term_read_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
 }
 
@@ -503,6 +705,7 @@ function assert_terminal_list_usage_limit(run_directory, executable, context) {
   for (const arguments of [
     ["terminal-list", "--bogus"],
     ["terminal-list", "--name", "decoy"],
+    ["terminal-list", "--coords", "10,10"],
   ]) {
     const reply = run_cu_reply(run_directory, executable, context, false, arguments);
     ensure(
@@ -513,10 +716,11 @@ function assert_terminal_list_usage_limit(run_directory, executable, context) {
       text_at(reply, "command") === "usage",
       "cu_linux_terminal_shallow_tree_terminal_list_usage_command:" + JSON.stringify(reply)
     );
-    const message = text_at(reply, "error.message");
+    const token = arguments.indexOf("--name") >= 0 ? "--name"
+      : arguments.indexOf("--coords") >= 0 ? "--coords" : "--bogus";
     ensure(
-      message.indexOf("unexpected") >= 0,
-      "cu_linux_terminal_shallow_tree_terminal_list_usage_message:" + message
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_terminal_shallow_tree_terminal_list_usage_message:" + text_at(reply, "error.message")
     );
   }
 }
@@ -531,7 +735,7 @@ function assert_term_read_usage_limit(run_directory, executable, context, shallo
   );
   ensure(
     text_at(reply, "error.message").indexOf("--name") >= 0
-      || text_at(reply, "error.message").indexOf("unexpected") >= 0,
+      || usage_rejects_unexpected(text_at(reply, "error.message"), "--name"),
     "cu_linux_terminal_shallow_tree_term_read_usage_message:" + JSON.stringify(reply.error)
   );
 }
@@ -667,7 +871,7 @@ try {
   print("STEP terminal-list typed-fails usage on unexpected arguments before shallow terminal fixture");
   assert_terminal_list_usage_limit(context.run_directory, executable, context);
 
-  print("STEP term-read/term-send/term-wait/tree/query typed-fail usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP term-read/term-send/term-wait/tree/query typed-fail usage when AT-SPI --name, --coords, --bogus, or other unexpected arguments are present");
   assert_term_read_usage_limit_early(context.run_directory, executable, context);
   assert_term_send_usage_limit(context.run_directory, executable, context);
   assert_term_wait_usage_limit(context.run_directory, executable, context);
@@ -675,7 +879,7 @@ try {
   assert_query_usage_limit(context.run_directory, executable, context);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before native read-back court");
+    print("STEP get-extents typed-fail --name usage and invalid_input when --window is zero before native read-back court");
     assert_get_extents_usage_limit(context.run_directory, executable, context);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
