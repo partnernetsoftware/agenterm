@@ -139,19 +139,34 @@ function assert_process_state_usage_limit(run_directory, executable, env) {
     "cu_linux_process_state_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
 
-  const with_bogus = invoke_observe_reply(run_directory, executable, [
+  const flat_with_bogus = invoke_observe_reply(run_directory, executable, [
     "process-state", "--pid", "1", "--bogus",
   ], env);
-  ensure(!output_success(with_bogus),
-    "cu_linux_process_state_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(!output_success(flat_with_bogus),
+    "cu_linux_process_state_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
   ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_process_state_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+    text_at(flat_with_bogus, "error.code") === "usage",
+    "cu_linux_process_state_usage_flat_bogus_code:" + JSON.stringify(flat_with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
-    "cu_linux_process_state_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+    text_at(flat_with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(flat_with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_process_state_usage_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
+  );
+
+  const grouped_with_bogus = invoke_observe_reply(run_directory, executable, [
+    "process", "state", "--pid", "1", "--bogus",
+  ], env);
+  ensure(!output_success(grouped_with_bogus),
+    "cu_linux_process_state_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
+  ensure(
+    text_at(grouped_with_bogus, "error.code") === "usage",
+    "cu_linux_process_state_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
+  );
+  ensure(
+    text_at(grouped_with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(grouped_with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_process_state_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
 }
 
@@ -211,17 +226,25 @@ function verify_readback(run_directory, executable, pid, env) {
     "    start_ticks = fields[19]",
     "    status_pid = None",
     "    status_ppid = None",
+    "    status_state = None",
     "    with open(f'/proc/{pid}/status') as handle:",
     "        for line in handle:",
     "            if line.startswith('Pid:'):",
     "                status_pid = int(line.split()[1])",
     "            elif line.startswith('PPid:'):",
     "                status_ppid = int(line.split()[1])",
+    "            elif line.startswith('State:'):",
+    "                rest = line.split(':', 1)[1].strip()",
+    "                status_state = rest[0] if rest else None",
     "    if status_pid != pid:",
     "        raise SystemExit('cu_linux_process_state_status_pid')",
     "    if status_ppid != stat_ppid:",
     "        raise SystemExit('cu_linux_process_state_stat_status_ppid')",
-    "    if proc_state in ('Z', 'X', 'x'):",
+    "    if status_state is None:",
+    "        raise SystemExit('cu_linux_process_state_status_state_missing')",
+    "    if proc_state != status_state:",
+    "        raise SystemExit(f'cu_linux_process_state_stat_status_state:{proc_state}:{status_state}')",
+    "    if status_state in ('Z', 'X', 'x'):",
     "        expected_state = 'dead'",
     "    else:",
     "        expected_state = 'live'",
@@ -303,7 +326,7 @@ try {
     assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
   }
 
-  print("STEP process-state observe matches independent /proc stat and status read-back for self");
+  print("STEP process-state observe matches independent /proc stat and status State letter read-back for self");
   verify_pid(context.run_directory, executable, rh.pid(), env);
 
   print("STEP spawn disposable child and verify --pid read-back");
@@ -329,9 +352,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-process-state-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux process-state matches independent /proc/<pid>/stat and status read-back with typed process-state/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux process-state matches independent /proc/<pid>/stat and status State letter read-back with typed process-state/get-extents usage honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux process-state matches independent /proc/<pid>/stat and status read-back with typed process-state/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux process-state matches independent /proc/<pid>/stat and status State letter read-back with typed process-state/get-extents host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

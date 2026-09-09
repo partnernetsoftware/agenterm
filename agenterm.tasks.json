@@ -7566,7 +7566,7 @@
     },
     {
       "id": "cu-linux-process-state-smoke",
-      "description": "Linux process-state pid, live/dead classification and start identity match independent /proc/<pid>/stat and status read-back for current and chosen PID; typed process-state usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc status/stat read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux process-state pid, live/dead classification and start identity match independent /proc/<pid>/stat and status State letter read-back for current and chosen PID; typed process-state usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc status/stat read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-state-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
