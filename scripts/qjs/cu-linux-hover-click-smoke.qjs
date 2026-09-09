@@ -1,6 +1,7 @@
 // CEO#1: hover then click the same GTK button by --name on Linux AT-SPI.
-// Acceptance is smoke read-back only: the fixture count label must advance.
-// No --coords, no screenshot, no coordinate degradation.
+// Acceptance is independent pyatspi read-back only: hover must not advance the
+// count label, click must. CU tree is not used for effect proof. No --coords,
+// screenshot, or coordinate degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -10,6 +11,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-atspi-hover-click",
 ];
+
+const BUTTON_NAME = "Fixture Press";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -37,12 +40,38 @@ function int_at(value, dotted) {
   return rh.parse_int("" + value_at);
 }
 
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
 function run_cu(run_directory, executable, grant, arguments) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: cu_env(executable),
     timeout_ms: 45000,
   });
   ensure(output.success === true, "cu_linux_hover_click_cli:" + output.stdout + output.stderr);
@@ -53,27 +82,61 @@ function run_cu(run_directory, executable, grant, arguments) {
   return document;
 }
 
-function tree_nodes(run_directory, executable, handle_text, depth) {
-  const reply = run_cu(run_directory, executable, "observe", [
-    "tree", "--window", handle_text, "--depth", depth,
-  ]);
-  return reply.data.nodes;
+function independent_atspi_probe(title, mode, expected) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "mode = sys.argv[2]",
+    "expected = sys.argv[3] if len(sys.argv) > 3 else ''",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and w.name == title:",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    name = node.name or ''",
+    "    if mode == 'press_label' and name.startswith('pressed '):",
+    "        return name",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_hover_click_atspi_no_frame')",
+    "value = walk(frame)",
+    "if value is None:",
+    "    raise SystemExit('cu_linux_hover_click_atspi_probe_miss:' + mode)",
+    "if expected and value != expected:",
+    "    raise SystemExit('cu_linux_hover_click_atspi_mismatch:' + mode + ':' + value + ':' + expected)",
+    "print(json.dumps({'mode': mode, 'value': value}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title, mode, expected], {
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_hover_click_atspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
 }
 
-function label_text(run_directory, executable, handle_text, prefix) {
-  const nodes = tree_nodes(run_directory, executable, handle_text, "8");
-  for (const node of nodes) {
-    if (("" + node.role) !== "label") { continue; }
-    const name = "" + node.name;
-    if (name.startsWith(prefix)) { return name; }
+function wait_press_label(fixture_title, expected) {
+  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
+    const probe = independent_atspi_probe(fixture_title, "press_label", "");
+    if (probe.value === expected) { return probe; }
+    harness.sleep_ms(100);
   }
-  return "";
-}
-
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
+  const last = independent_atspi_probe(fixture_title, "press_label", "");
+  ensure(last.value === expected, "cu_linux_hover_click_readback:" + last.value + ":" + expected);
+  return last;
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -95,6 +158,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+const context = harness.new_context(repo, "cu-linux-hover-click");
 const run_directory = rh.join(repo, "target/cu-linux-hover-click-smoke-run");
 rh.create_dir_all(run_directory);
 
@@ -103,7 +167,11 @@ ensure(direct_file(fixture_source), "cu_linux_hover_click_fixture_missing:" + fi
 
 let fixture = -1;
 let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
 try {
+  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
   fixture = harness.start({
     program: "python3",
     args: [fixture_source],
@@ -124,47 +192,55 @@ try {
   const handle_text = "" + int_at(row, "handle");
   ensure(int_at(row, "handle") > 0, "cu_linux_hover_click_handle:" + JSON.stringify(row));
 
-  print("STEP baseline count label reads pressed 0");
-  const before = label_text(run_directory, executable, handle_text, "pressed ");
-  ensure(before === "pressed 0", "cu_linux_hover_click_before:" + before);
+  print("STEP independent AT-SPI read-back reports press label baseline pressed 0");
+  const before = independent_atspi_probe(fixture_title, "press_label", "pressed 0");
+  ensure(before.value === "pressed 0", "cu_linux_hover_click_before:" + JSON.stringify(before));
 
-  print("STEP hover --name Fixture Press moves the pointer through AT-SPI GenerateMouseEvent(abs)");
+  print("STEP hover --name " + BUTTON_NAME + " moves the pointer through AT-SPI GenerateMouseEvent(abs)");
   const hovered = run_cu(run_directory, executable, "observe,actuate", [
-    "hover", "--window", handle_text, "--name", "Fixture Press",
+    "hover", "--window", handle_text, "--name", BUTTON_NAME,
   ]);
   ensure(
     flag_at(hovered, "data.performed")
       && text_at(hovered, "data.addressing") === "accessibility-tree",
     "cu_linux_hover_click_hover:" + JSON.stringify(hovered.data)
   );
-  const after_hover = label_text(run_directory, executable, handle_text, "pressed ");
+
+  print("STEP independent pyatspi read-back proves hover alone did not click the button");
+  const after_hover = independent_atspi_probe(fixture_title, "press_label", "pressed 0");
   ensure(
-    after_hover === "pressed 0",
-    "cu_linux_hover_click_after_hover:" + after_hover
+    after_hover.value === "pressed 0",
+    "cu_linux_hover_click_after_hover:" + JSON.stringify(after_hover)
   );
 
-  print("STEP click --name Fixture Press on the same node, verified by the count label");
+  print("STEP click --name " + BUTTON_NAME + " on the same node, verified by independent read-back");
   const clicked = run_cu(run_directory, executable, "observe,actuate", [
-    "click", "--window", handle_text, "--name", "Fixture Press",
+    "click", "--window", handle_text, "--name", BUTTON_NAME,
   ]);
   ensure(
     flag_at(clicked, "data.performed")
       && text_at(clicked, "data.addressing") === "accessibility-tree",
     "cu_linux_hover_click_click:" + JSON.stringify(clicked.data)
   );
-  const after = label_text(run_directory, executable, handle_text, "pressed ");
-  ensure(after === "pressed 1", "cu_linux_hover_click_after:" + after);
-} finally {
-  if (fixture_pid !== 0) {
-    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
-  }
-  if (fixture >= 0) {
-    try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
-  }
+
+  print("STEP independent pyatspi read-back proves the named click advanced the counter");
+  const after = wait_press_label(fixture_title, "pressed 1");
+  ensure(after.value === "pressed 1", "cu_linux_hover_click_after:" + JSON.stringify(after));
+
+  harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-hover-click");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
 }
 
-const context = harness.new_context(repo, "cu-linux-hover-click");
-harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-hover-click");
+if (fixture_pid > 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { cwd: run_directory, timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  harness.wait(fixture, 5000);
+}
+
+ensure(succeeded === 1, failure || "cu_linux_hover_click_failed");
 harness.remove_run(context);
-print("PASS: CEO#1 Linux AT-SPI hover then click by --name (count label read-back)");
+print("PASS: CEO#1 Linux AT-SPI hover then click by --name (independent pyatspi read-back, no --coords)");
 return;

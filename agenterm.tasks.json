@@ -6412,7 +6412,7 @@
     },
     {
       "id": "cu-linux-hover-click-smoke",
-      "description": "Linux GTK hover then click the same button by --name; AT-SPI GenerateMouseEvent(abs) hover leaves count unchanged, click advances pressed label; no --coords.",
+      "description": "Linux GTK hover then click the same button by --name; AT-SPI GenerateMouseEvent(abs) hover leaves count unchanged, click advances pressed label; independent pyatspi read-back only; no --coords.",
       "entry": "scripts/qjs/cu-linux-hover-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

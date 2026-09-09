@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CEO#1: hover then click the same GTK button by --name. Read-back only.
+# CEO#1: hover then click the same GTK button by --name. Independent pyatspi read-back only.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,32 +49,61 @@ for row in rows:
 ' "$TITLE")"
 [[ -n "$HANDLE" ]] || { echo "FAIL: window handle missing for $TITLE" >&2; exit 1; }
 
-label_text() {
-  "$CU" --target current --grant observe tree --window "$HANDLE" --depth 8 | python3 -c '
+press_label() {
+  python3 -c '
 import json, sys
-nodes = json.load(sys.stdin)["data"]["nodes"]
-for node in nodes:
-    if node.get("role") == "label" and str(node.get("name", "")).startswith(sys.argv[1]):
-        print(node["name"])
-        break
-' "$1"
+import pyatspi
+title = sys.argv[1]
+expected = sys.argv[2] if len(sys.argv) > 2 else ""
+desktop = pyatspi.Registry.getDesktop(0)
+def find_frame():
+    for i in range(desktop.childCount):
+        app = desktop.getChildAtIndex(i)
+        if app is None:
+            continue
+        for j in range(app.childCount):
+            w = app.getChildAtIndex(j)
+            if w is not None and w.name == title:
+                return w
+    return None
+def walk(node):
+    if node is None:
+        return None
+    name = node.name or ""
+    if name.startswith("pressed "):
+        return name
+    for k in range(node.childCount):
+        hit = walk(node.getChildAtIndex(k))
+        if hit is not None:
+            return hit
+    return None
+frame = find_frame()
+if frame is None:
+    raise SystemExit("cu_linux_hover_click_atspi_no_frame")
+value = walk(frame)
+if value is None:
+    raise SystemExit("cu_linux_hover_click_atspi_probe_miss")
+if expected and value != expected:
+    raise SystemExit("cu_linux_hover_click_atspi_mismatch:" + value + ":" + expected)
+print(value)
+' "$TITLE" "${1:-}"
 }
 
-BEFORE="$(label_text "pressed ")"
+BEFORE="$(press_label "pressed 0")"
 [[ "$BEFORE" == "pressed 0" ]] || { echo "FAIL: baseline $BEFORE" >&2; exit 1; }
 
 echo "STEP hover --name Fixture Press"
 HOVER="$("$CU" --target current --grant observe,actuate hover --window "$HANDLE" --name "Fixture Press")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["performed"] and d["data"]["addressing"]=="accessibility-tree"' <<<"$HOVER"
 
-MID="$(label_text "pressed ")"
+MID="$(press_label "pressed 0")"
 [[ "$MID" == "pressed 0" ]] || { echo "FAIL: after hover only $MID" >&2; exit 1; }
 
 echo "STEP click --name Fixture Press"
 CLICK="$("$CU" --target current --grant observe,actuate click --window "$HANDLE" --name "Fixture Press")"
 python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["data"]["performed"] and d["data"]["addressing"]=="accessibility-tree"' <<<"$CLICK"
 
-AFTER="$(label_text "pressed ")"
+AFTER="$(press_label "pressed 1")"
 [[ "$AFTER" == "pressed 1" ]] || { echo "FAIL: after hover+click label is $AFTER" >&2; exit 1; }
 
-echo "PASS: CEO#1 Linux AT-SPI hover then click by --name (count label read-back)"
+echo "PASS: CEO#1 Linux AT-SPI hover then click by --name (independent pyatspi read-back)"
