@@ -7553,7 +7553,7 @@
     },
     {
       "id": "cu-linux-process-sockets-smoke",
-      "description": "Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; typed process-sockets usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc fd/net read-back court; permission-denied host-limit when independent /proc/<pid>/fd probe is denied; AT-SPI/--name only, no --coords.",
+      "description": "Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; typed process-sockets usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the /proc fd/net read-back court; permission-denied host-limit when independent /proc/<pid>/fd probe is denied; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-sockets-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
