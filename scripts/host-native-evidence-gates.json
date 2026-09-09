@@ -346,6 +346,13 @@
       ]
     },
     {
+      "id": "cu-linux-processor-affinity-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-processor-affinity-readback"
+      ]
+    },
+    {
       "id": "cu-linux-ps-smoke",
       "platform": "linux",
       "evidence": [
