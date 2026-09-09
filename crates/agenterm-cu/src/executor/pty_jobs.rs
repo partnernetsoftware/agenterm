@@ -595,12 +595,10 @@ fn unreachable_job_error(name: &str, error: CuError) -> CuError {
             "pty_job_not_found",
             format!("PTY job {name:?} is not running"),
         )
-        .with_detail(json!({
-            "authority": "unreachable",
-            "control": "unavailable",
-            "instance": instance_name(name),
-            "transport": error.message,
-        }))
+        .with_detail(crate::host_limit::pty_control_unavailable_detail(
+            &instance_name(name),
+            error.message,
+        ))
     } else {
         error
     }

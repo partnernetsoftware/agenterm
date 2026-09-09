@@ -128,6 +128,12 @@ import json, sys
 detail = (json.loads(sys.argv[1]).get("error") or {}).get("detail") or {}
 if detail.get("control") != "unavailable" or detail.get("authority") != "unreachable":
     raise SystemExit(f"missing control-unavailable detail: {detail}")
+if detail.get("limit") != "host" or detail.get("group") != "pty":
+    raise SystemExit(f"missing host-limit detail: {detail}")
+if detail.get("mechanism") != "agenterm-unix-control-socket":
+    raise SystemExit(f"missing mechanism detail: {detail}")
+if not isinstance(detail.get("alternatives"), list) or not detail["alternatives"]:
+    raise SystemExit(f"missing alternatives detail: {detail}")
 PY
 
 echo "STEP pty-start spawns one headless authority; independent socket read-back matches server_scope_id"

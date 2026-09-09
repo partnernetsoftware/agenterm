@@ -218,6 +218,27 @@ pub(crate) fn simulator_unsupported(verb: &str) -> CuError {
     )
 }
 
+pub(crate) fn pty_control_unavailable_detail(
+    instance: &str,
+    transport: impl Into<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "os": crate::mcu_surface::host_os(),
+        "limit": "host",
+        "group": "pty",
+        "mechanism": "agenterm-unix-control-socket",
+        "authority": "unreachable",
+        "control": "unavailable",
+        "instance": instance,
+        "transport": transport.into(),
+        "alternatives": [
+            "pty-start NAME (spawn headless AgenTerm authority when the deterministic Unix socket is absent)",
+            "session-list (running AgenTerm server instances when agenterm server is already listening)",
+            "process-state / ps (host process facts only; not PTY session control)",
+        ],
+    })
+}
+
 pub(crate) fn application_hide_unsupported(reason: impl Into<String>) -> CuError {
     host_limit_error(
         "unsupported",
@@ -273,5 +294,25 @@ mod tests {
         let error = login_session_unsupported();
         assert_eq!(error.code, "login_session_unsupported");
         assert!(!error.message.contains("Unsupported:"));
+    }
+
+    #[test]
+    fn pty_control_unavailable_detail_is_host_limit_typed() {
+        let detail = pty_control_unavailable_detail(
+            "ephemeral:acu-pty-demo",
+            "IPC transport Io for unix:/tmp/agenterm.sock: No such file or directory (os error 2)",
+        );
+        assert_eq!(detail["os"], crate::mcu_surface::host_os());
+        assert_eq!(detail["limit"], "host");
+        assert_eq!(detail["group"], "pty");
+        assert_eq!(detail["mechanism"], "agenterm-unix-control-socket");
+        assert_eq!(detail["authority"], "unreachable");
+        assert_eq!(detail["control"], "unavailable");
+        assert_eq!(detail["instance"], "ephemeral:acu-pty-demo");
+        assert!(
+            detail["alternatives"]
+                .as_array()
+                .is_some_and(|rows| rows.len() >= 2)
+        );
     }
 }
