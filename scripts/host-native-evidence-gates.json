@@ -951,6 +951,13 @@
       ]
     },
     {
+      "id": "cu-linux-observe-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-observe-readback"
+      ]
+    },
+    {
       "id": "cu-linux-raise-activate-smoke",
       "platform": "linux",
       "evidence": [
