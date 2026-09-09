@@ -470,6 +470,12 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                 serde_json::json!({
                     "mode": "poll-diff",
                     "group": "discover",
+                    "filters": ["pid", "app", "title", "space", "focused", "minimized", "onscreen", "occluded", "all"],
+                    "event_types": ["appeared", "disappeared", "changed"],
+                    "max_duration_ms": 300000,
+                    "max_events": 10000,
+                    "max_windows": 10000,
+                    "all_inventory": "abi-1.36",
                     "space_filter": if cfg!(target_os = "macos") {
                         "skylight-private-read"
                     } else {

@@ -1765,8 +1765,9 @@ frontmost_app_has_no_inventory_window / no_frontmost_app), so a
 ### `windows-watch`
 
 ```text
-windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [--duration-ms N] [--interval-ms N]
-              [--max-events N]
+windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [state filters] [--all]
+              [--type appeared,disappeared,changed] [--duration-ms N] [--interval-ms N]
+              [--max-events N] [--max-windows N]
 ```
 
 ```text
@@ -1774,23 +1775,34 @@ agenterm-cu windows-watch
   scope: observe    family: Windows & apps
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [--duration-ms N] [--interval-ms N]
-                [--max-events N]
+  windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [state filters] [--all]
+                [--type appeared,disappeared,changed] [--duration-ms N] [--interval-ms N]
+                [--max-events N] [--max-windows N]
 
 arguments:
   --pid N                       owning process id
   --app SUB                     application name substring
   --title SUB                   window title substring
   --space ID                    macOS managed Space id; evaluated inside every poll
-  --duration-ms N               watch window; 0 (default) takes one extra sample
-  --interval-ms N               poll interval
-  --max-events N                stop after N events
+  --focused [BOOL]              focused or unfocused windows
+  --minimized [BOOL]            minimized or non-minimized windows
+  --onscreen [BOOL]             on-screen or off-screen windows
+  --occluded [BOOL]             geometrically covered or uncovered windows
+  --all                         include the host's off-screen top-level inventory
+  --type KINDS                  comma-separated appeared,disappeared,changed
+  --duration-ms N               watch window, 0..300000; 0 takes one extra sample
+  --interval-ms N               poll interval, 20 ms through the duration
+  --max-events N                retain at most N events, 1..10000
+  --max-windows N               complete filtered snapshot ceiling, 1..10000 (default 2000)
 
-poll-diff over the windows inventory (appeared / disappeared / changed +
-field list). Not AXObserver. --duration-ms 0 (default) takes one extra
-sample. A Space filter is evaluated while each sample is acquired, so a
-window crossing the selected Space boundary is reported as appeared or
-disappeared; Linux and Windows refuse that macOS-only provider by name.
+Poll-diff filters are evaluated inside every complete snapshot, before diffing,
+so crossing a state or Space boundary becomes appeared/disappeared. Event-type
+filtering happens before the event ceiling. Reaching exactly max-events is not
+called truncation; observing one more retained event sets truncated=true and
+completed=false. Snapshot overflow and unavailable occlusion truth fail typed.
+--all uses the additive all-top-level ABI; older native libraries fail typed.
+A Space filter is macOS-only. Legacy windows watch seconds/defaults map exactly
+(10 s, 0.5 s, 500 events, 2000 windows; maxima 300 s/10000/5000).
 ```
 
 ### `apps`

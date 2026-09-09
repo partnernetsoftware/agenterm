@@ -922,6 +922,42 @@ pub enum ProcessSignalKind {
     User2,
 }
 
+/// Event classes retained by `windows-watch --type`. An empty vector means
+/// all three classes, matching the legacy watcher when `--type` is absent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowWatchEventKind {
+    Appeared,
+    Disappeared,
+    Changed,
+}
+
+impl WindowWatchEventKind {
+    pub fn parse_list(raw: &str) -> Option<Vec<Self>> {
+        let mut kinds = Vec::new();
+        for value in raw.split(',').map(str::trim) {
+            let kind = match value {
+                "appeared" => Self::Appeared,
+                "disappeared" => Self::Disappeared,
+                "changed" => Self::Changed,
+                _ => return None,
+            };
+            if !kinds.contains(&kind) {
+                kinds.push(kind);
+            }
+        }
+        (!kinds.is_empty()).then_some(kinds)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Appeared => "appeared",
+            Self::Disappeared => "disappeared",
+            Self::Changed => "changed",
+        }
+    }
+}
+
 const fn default_process_tree_max_descendants() -> usize {
     500
 }
@@ -1723,12 +1759,26 @@ pub enum Command {
         /// appeared / disappeared event rather than a lossy post-filter.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focused: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        minimized: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        onscreen: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        occluded: Option<bool>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        all: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        event_types: Vec<WindowWatchEventKind>,
         #[serde(default, skip_serializing_if = "is_zero_u64")]
         duration_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         interval_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_events: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_windows: Option<usize>,
     },
     /// Running apps derived from top-level windows. Installed-but-not-running
     /// is not mapped (`running_only` in the reply).
@@ -7763,6 +7813,15 @@ mod tests {
 
     #[test]
     fn windows_inventory_filters_default_to_the_bare_verb() {
+        assert_eq!(
+            WindowWatchEventKind::parse_list("appeared,changed,appeared"),
+            Some(vec![
+                WindowWatchEventKind::Appeared,
+                WindowWatchEventKind::Changed,
+            ])
+        );
+        assert!(WindowWatchEventKind::parse_list("").is_none());
+        assert!(WindowWatchEventKind::parse_list("appeared,bogus").is_none());
         let bare: Command =
             serde_json::from_value(serde_json::json!({ "verb": "windows", "target": "current" }))
                 .expect("deserialize");

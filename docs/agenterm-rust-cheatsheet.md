@@ -2562,6 +2562,14 @@ default. Platform adapters also cannot read `AGENTERM_*` environment names
 Use `PLATFORM_*` (already used for IME). Product launchers and LD_PRELOAD
 helpers must read and export that same `PLATFORM_*` name, not `AGENTERM_*`.
 
+Do not make a narrower cross-platform action depend on an unrelated state a
+host cannot observe. For example, an operation whose public contract is
+"un-minimize" may read a separate maximize/zoom bit on hosts that expose it,
+but an unsupported zoom read must not prevent a host with exact minimized
+read/write from proving the documented effect. Keep any stronger host-specific
+postcondition additive; never turn missing orthogonal truth into a false
+precondition for the common action.
+
 ## File existence is not writer completion
 
 For a synchronous writer running on a test driver thread, another thread must

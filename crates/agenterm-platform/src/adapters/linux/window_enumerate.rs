@@ -445,6 +445,13 @@ pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateEr
     Ok(out)
 }
 
+/// EWMH's client list is already the complete managed top-level inventory:
+/// unlike a map-tree walk it retains iconified clients and marks them with
+/// `_NET_WM_STATE_HIDDEN`.
+pub(crate) fn enumerate_all_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
+    enumerate_top_level()
+}
+
 pub(crate) fn list_screens()
 -> Result<Vec<crate::contract::window_enumerate::ScreenInfo>, WindowEnumerateError> {
     // Screen geometry and EWMH client-window enumeration are different

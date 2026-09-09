@@ -47,6 +47,15 @@ pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateEr
     Ok(out)
 }
 
+/// The legacy MCU `all` path used the same visible `EnumWindows` inventory
+/// as its default path on Windows. Preserve that observable contract here:
+/// this provider does not claim that invisible top-level HWNDs are complete
+/// or actionable, while minimized visible HWNDs remain included by
+/// `enumerate_top_level` and carry `minimized = true`.
+pub(crate) fn enumerate_all_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
+    enumerate_top_level()
+}
+
 unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
     // SAFETY: the callback body performs only user32 reads; the output
     // vector was passed as an owned pointer by `enumerate_top_level`.

@@ -319,6 +319,9 @@ pub const WINDOW_OPACITY_ABI_MINOR: u16 = 33;
 pub const WINDOW_FULLSCREEN_ABI_MINOR: u16 = 34;
 /// ABI 1.35: `agt_native_window_above` (the per-window EWMH above read).
 pub const WINDOW_ABOVE_ABI_MINOR: u16 = 35;
+/// ABI 1.36: `agt_window_enumerate_all`, the complete native top-level
+/// inventory used by `windows-watch --all`.
+pub const WINDOW_ENUMERATE_ALL_ABI_MINOR: u16 = 36;
 /// ABI 1.31: caller-sized physical display facts.
 pub const DISPLAY_PHYSICAL_ABI_MINOR: u16 = 31;
 /// ABI 1.26: `agt_native_window_activate`, the explicit desktop-foreground
@@ -414,6 +417,7 @@ const REQUIRED_RUNTIME_SYMBOLS: &[&[u8]] = &[
     b"agt_last_error",
     b"agt_capability_query",
     b"agt_window_enumerate",
+    b"agt_window_enumerate_all",
     b"agt_window_stacking_list",
     b"agt_screen_list",
     b"agt_screen_physical",
@@ -714,6 +718,15 @@ mod tests {
         assert!(
             err.contains("major 1"),
             "message carries expected major: {err}"
+        );
+    }
+
+    #[test]
+    fn all_window_enumeration_symbol_tracks_abi_1_36() {
+        assert_eq!(WINDOW_ENUMERATE_ALL_ABI_MINOR, 36);
+        assert!(
+            REQUIRED_RUNTIME_SYMBOLS.contains(&b"agt_window_enumerate_all".as_slice()),
+            "ABI 1.36 export must remain in the readiness symbol inventory"
         );
     }
 

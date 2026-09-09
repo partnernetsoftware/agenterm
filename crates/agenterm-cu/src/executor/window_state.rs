@@ -524,7 +524,19 @@ pub(super) fn window_state_payload(
     // must be a verified no-op, not a second minimize.
     let was_minimized = read_minimized(window).map_err(not_performed)?;
     let was_maximized = if matches!(state, WindowState::Restored) {
-        read_maximized(window).map_err(not_performed)?
+        // macOS `restore` is the documented un-minimize operation. The
+        // platform can read and write AXMinimized but does not expose AppKit's
+        // separate zoom state, so that unrelated absence must not block a
+        // proven deminiaturize. Windows and Linux retain the stronger
+        // unmaximize-plus-unminimize behavior backed by their native state.
+        #[cfg(target_os = "macos")]
+        {
+            false
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            read_maximized(window).map_err(not_performed)?
+        }
     } else {
         false
     };

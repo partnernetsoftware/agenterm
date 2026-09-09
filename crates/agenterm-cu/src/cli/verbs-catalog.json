@@ -870,7 +870,7 @@
       "grant": "observe",
       "family": "windows",
       "summary": "poll-diff over the window inventory",
-      "usage": "windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [--duration-ms N] [--interval-ms N]\n              [--max-events N]",
+      "usage": "windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [state filters] [--all]\n              [--type appeared,disappeared,changed] [--duration-ms N] [--interval-ms N]\n              [--max-events N] [--max-windows N]",
       "args": [
         {
           "flag": "--pid",
@@ -893,6 +893,36 @@
           "help": "macOS managed Space id; evaluated inside every poll"
         },
         {
+          "flag": "--focused",
+          "value": "BOOL",
+          "help": "focused or unfocused windows; evaluated inside every poll"
+        },
+        {
+          "flag": "--minimized",
+          "value": "BOOL",
+          "help": "minimized or non-minimized windows; evaluated inside every poll"
+        },
+        {
+          "flag": "--onscreen",
+          "value": "BOOL",
+          "help": "on-screen or off-screen windows; evaluated inside every poll"
+        },
+        {
+          "flag": "--occluded",
+          "value": "BOOL",
+          "help": "geometrically covered or uncovered windows; evaluated inside every poll"
+        },
+        {
+          "flag": "--all",
+          "value": null,
+          "help": "include the host's off-screen top-level inventory"
+        },
+        {
+          "flag": "--type",
+          "value": "KINDS",
+          "help": "comma-separated appeared,disappeared,changed"
+        },
+        {
           "flag": "--duration-ms",
           "value": "N",
           "help": "watch window; 0 (default) takes one extra sample"
@@ -905,7 +935,12 @@
         {
           "flag": "--max-events",
           "value": "N",
-          "help": "stop after N events"
+          "help": "retain at most N events; max 10000"
+        },
+        {
+          "flag": "--max-windows",
+          "value": "N",
+          "help": "complete filtered snapshot ceiling; max 10000"
         }
       ]
     },
@@ -7358,7 +7393,7 @@
     },
     {
       "name": "windows-watch",
-      "text": "agenterm-cu windows-watch\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [--duration-ms N] [--interval-ms N]\n                [--max-events N]\n\narguments:\n  --pid N                       owning process id\n  --app SUB                     application name substring\n  --title SUB                   window title substring\n  --space ID                    macOS managed Space id; evaluated inside every poll\n  --duration-ms N               watch window; 0 (default) takes one extra sample\n  --interval-ms N               poll interval\n  --max-events N                stop after N events\n\npoll-diff over the windows inventory (appeared / disappeared / changed +\nfield list). Not AXObserver. --duration-ms 0 (default) takes one extra\nsample. A Space filter is evaluated while each sample is acquired, so a\nwindow crossing the selected Space boundary is reported as appeared or\ndisappeared; Linux and Windows refuse that macOS-only provider by name.\n"
+      "text": "agenterm-cu windows-watch\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  windows-watch [--pid N] [--app SUB] [--title SUB] [--space ID] [state filters] [--all]\n                [--type appeared,disappeared,changed] [--duration-ms N] [--interval-ms N]\n                [--max-events N] [--max-windows N]\n\narguments:\n  --pid N                       owning process id\n  --app SUB                     application name substring\n  --title SUB                   window title substring\n  --space ID                    macOS managed Space id; evaluated inside every poll\n  --focused [BOOL]              focused or unfocused windows\n  --minimized [BOOL]            minimized or non-minimized windows\n  --onscreen [BOOL]             on-screen or off-screen windows\n  --occluded [BOOL]             geometrically covered or uncovered windows\n  --all                         include the host's off-screen top-level inventory\n  --type KINDS                  comma-separated appeared,disappeared,changed\n  --duration-ms N               watch window, 0..300000; 0 takes one extra sample\n  --interval-ms N               poll interval, 20 ms through the duration\n  --max-events N                retain at most N events, 1..10000\n  --max-windows N               complete filtered snapshot ceiling, 1..10000 (default 2000)\n\nPoll-diff filters are evaluated inside every complete snapshot, before diffing,\nso crossing a state or Space boundary becomes appeared/disappeared. Event-type\nfiltering happens before the event ceiling. Reaching exactly max-events is not\ncalled truncation; observing one more retained event sets truncated=true and\ncompleted=false. Snapshot overflow and unavailable occlusion truth fail typed.\n--all uses the additive all-top-level ABI; older native libraries fail typed.\nA Space filter is macOS-only. Legacy windows watch seconds/defaults map exactly\n(10 s, 0.5 s, 500 events, 2000 windows; maxima 300 s/10000/5000).\n"
     },
     {
       "name": "apps",

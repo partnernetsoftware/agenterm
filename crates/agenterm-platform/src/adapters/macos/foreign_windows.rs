@@ -239,11 +239,20 @@ pub(crate) fn capability_status() -> CapabilityStatus {
 }
 
 pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
+    enumerate_top_level_with_option(
+        K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY | K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS,
+    )
+}
+
+pub(crate) fn enumerate_all_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
+    enumerate_top_level_with_option(
+        K_CG_WINDOW_LIST_OPTION_ALL | K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS,
+    )
+}
+
+fn enumerate_top_level_with_option(option: u32) -> Result<Vec<WindowInfo>, WindowEnumerateError> {
     unsafe {
-        let array = CGWindowListCopyWindowInfo(
-            K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY | K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS,
-            0,
-        );
+        let array = CGWindowListCopyWindowInfo(option, 0);
         if array.is_null() {
             return Err(WindowEnumerateError::failed(
                 "cg_window_list_failed",

@@ -15,6 +15,12 @@ pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateEr
     })
 }
 
+pub(crate) fn enumerate_all_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
+    Err(WindowEnumerateError::Unsupported {
+        reason: "all-top-level window enumeration is not wired on this unix target".into(),
+    })
+}
+
 pub(crate) fn list_screens()
 -> Result<Vec<crate::contract::window_enumerate::ScreenInfo>, WindowEnumerateError> {
     Err(WindowEnumerateError::Unsupported {

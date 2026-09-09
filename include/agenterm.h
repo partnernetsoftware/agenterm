@@ -44,7 +44,7 @@ extern "C" {
  * agt_abi_version() returns (major << 16) | minor. Compare against the
  * AGT_ABI_* macros below instead of hard-coded literals. */
 #define AGT_ABI_MAJOR 1
-#define AGT_ABI_MINOR 35
+#define AGT_ABI_MINOR 36
 #define AGT_ABI_VERSION ((AGT_ABI_MAJOR << 16) | AGT_ABI_MINOR)
 uint32_t    agt_abi_version(void);
 
@@ -849,6 +849,11 @@ typedef struct {
  * absent on this host -> AGT_UNSUPPORTED; platform failure ->
  * AGT_FAILED{code="window_failed"}. */
 agt_status agt_window_enumerate(agt_window_info* buf, size_t cap, size_t* out_count);
+
+/* ABI 1.36: enumerate the provider's complete native top-level inventory,
+ * including minimized/off-screen windows where the host distinguishes them.
+ * Uses the same two-stage caller-sized contract as agt_window_enumerate. */
+agt_status agt_window_enumerate_all(agt_window_info* buf, size_t cap, size_t* out_count);
 
 /* One window's place in the desktop's front-to-back order (ABI 1.17).
  * z_index 0 is frontmost; occluded_percent (0..=100) is how much of the

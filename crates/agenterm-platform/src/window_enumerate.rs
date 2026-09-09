@@ -16,6 +16,13 @@ pub fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
     crate::selected::window_enumerate::enumerate_top_level()
 }
 
+/// Enumerate all top-level windows the native desktop inventory can retain,
+/// including minimized/off-screen windows where the provider distinguishes
+/// them from the visible inventory.
+pub fn enumerate_all_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
+    crate::selected::window_enumerate::enumerate_all_top_level()
+}
+
 pub fn list_screens() -> Result<Vec<ScreenInfo>, WindowEnumerateError> {
     crate::selected::window_enumerate::list_screens()
 }

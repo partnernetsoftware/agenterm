@@ -117,7 +117,8 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
           "browser-tabs"], row.gap_id);
       } else if (row.gap_id === "acu.dynamic.084") {
         same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
-          "windows-watch", "--space", "1"], row.gap_id);
+          "windows-watch", "--space", "1", "--duration-ms", "10000",
+          "--interval-ms", "500", "--max-events", "500", "--max-windows", "2000"], row.gap_id);
       } else if (row.gap_id === "acu.dynamic.086") {
         same_argv(mapped.argv, ["--target", "current", "--grant", "observe,actuate",
           "app-menu-inspect", "--app", "Editor"], row.gap_id);
@@ -268,9 +269,36 @@ require(JSON.stringify(tree_value_bound.argv)
 const space_with_unmapped_filter = compat.canonicalize([
   "windows", "watch", "--space", "1", "--type", "appeared"
 ]);
-require(space_with_unmapped_filter.kind === "todo", "unmapped watch filter remains TODO");
-require(space_with_unmapped_filter.gap_id === "acu.dynamic.084",
-  "unmapped watch filter keeps stable dynamic id");
+require(space_with_unmapped_filter.kind === "exec", "window watch type filter executes");
+same_argv(space_with_unmapped_filter.argv,
+  ["--target", "current", "--grant", "observe,actuate", "windows-watch",
+    "--space", "1", "--type", "appeared", "--duration-ms", "10000",
+    "--interval-ms", "500", "--max-events", "500", "--max-windows", "2000"],
+  "window watch archived defaults");
+
+const bounded_window_watch = compat.canonicalize([
+  "windows", "watch", "--focused", "false", "--onscreen", "true",
+  "--occluded", "false", "--all", "--duration", "300", "--interval", "0.05",
+  "--max-events", "10000", "--max", "5000"
+]);
+require(bounded_window_watch.kind === "exec", "bounded window watch executes");
+same_argv(bounded_window_watch.argv,
+  ["--target", "current", "--grant", "observe,actuate", "windows-watch",
+    "--focused", "false", "--onscreen", "true", "--occluded", "false", "--all",
+    "--duration-ms", "300000", "--interval-ms", "50", "--max-events", "10000",
+    "--max-windows", "5000"], "bounded window watch");
+
+const invalid_window_watch_type = compat.canonicalize([
+  "windows", "watch", "--type", "appeared,bogus"
+]);
+require(invalid_window_watch_type.kind === "exec",
+  "native parser owns invalid window watch type");
+
+const invalid_window_watch_offset = compat.canonicalize([
+  "windows", "watch", "--offset", "1"
+]);
+require(invalid_window_watch_offset.kind === "usage",
+  "legacy window watch offset remains local usage");
 
 function todo_case(argv, gap_id, label) {
   const mapped = compat.canonicalize(argv);

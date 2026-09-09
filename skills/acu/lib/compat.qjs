@@ -442,20 +442,34 @@ function known_dynamic_boundary(argv) {
     return { kind: "usage", command: "tree",
       message: "tree --page was never a valid MCU tree shape; use bounded tree selectors" };
   }
-  if (verb === "windows" && sub === "watch" && (has_arg(argv, "--focused")
-      || has_arg(argv, "--minimized") || has_arg(argv, "--onscreen")
-      || has_arg(argv, "--occluded") || has_arg(argv, "--all")
-      || has_arg(argv, "--offset") || has_arg(argv, "--max")
-      || has_arg(argv, "--meta") || has_arg(argv, "--duration")
-      || has_arg(argv, "--interval") || has_arg(argv, "--ax-meta")
-      || has_arg(argv, "--ax-role")
-      || has_arg(argv, "--ax-subrole") || has_arg(argv, "--ax-identifier")
-      || has_arg(argv, "--ax-scan-max") || has_arg(argv, "--type"))) {
-    return todo("acu.dynamic.084", "windows", "window-watch filters must run inside its poll");
-  }
   if (verb === "windows" && sub === "watch") {
+    if (has_any_arg(argv, ["--offset", "--meta", "--ax-meta", "--ax-role",
+        "--ax-subrole", "--ax-identifier", "--ax-scan-max"])) {
+      return { kind: "usage", command: "windows",
+        message: "windows watch never accepted offset, metadata, or AX-root flags" };
+    }
+    const parsed = without_value_flags(argv, ["duration", "interval", "max-events", "max"]);
+    if (!parsed.ok) { return { kind: "usage", command: "windows", message: parsed.message }; }
+    if (parsed.argv.length < 2 || parsed.argv[0] !== "windows" || parsed.argv[1] !== "watch") {
+      return { kind: "usage", command: "windows", message: "windows watch arguments are malformed" };
+    }
+    const duration_ms = parsed.values.duration === null ? 10000
+      : legacy_seconds_ms(parsed.values.duration, 100, 300000);
+    const interval_ms = parsed.values.interval === null ? 500
+      : legacy_seconds_ms(parsed.values.interval, 50, 10000);
+    const event_ceiling = parsed.values["max-events"] === null ? 500
+      : legacy_bounded_integer(parsed.values["max-events"], 1, 10000);
+    const window_ceiling = parsed.values.max === null ? 2000
+      : legacy_bounded_integer(parsed.values.max, 1, 5000);
+    if (duration_ms === null || interval_ms === null || event_ceiling === null
+        || window_ceiling === null || interval_ms > duration_ms) {
+      return { kind: "usage", command: "windows",
+        message: "windows watch requires duration 0.1..300 s, interval 0.05..10 s not above duration, max-events 1..10000 and max 1..5000" };
+    }
     const native = ["windows-watch"];
-    append(native, copy_from(argv, 2));
+    append(native, copy_from(parsed.argv, 2));
+    append(native, ["--duration-ms", "" + duration_ms, "--interval-ms", "" + interval_ms,
+      "--max-events", "" + event_ceiling, "--max-windows", "" + window_ceiling]);
     return { kind: "exec", argv: native };
   }
   if (verb === "windows" && sub !== "watch" && has_arg(argv, "--space")) {

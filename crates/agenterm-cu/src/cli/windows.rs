@@ -1,7 +1,7 @@
 //! Windows & apps: inventory, watch, application steps, the destructive
 //! `close`, receipts, spaces and displays.
 
-use agenterm_cu::{Command, TargetRef};
+use agenterm_cu::{Command, TargetRef, command::WindowWatchEventKind};
 
 use super::verbs::VerbSpec;
 use super::{flag_parsed, flag_text, flag_tristate, flag_window, take_switch};
@@ -193,13 +193,28 @@ fn windows_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, S
     if space == Some(0) {
         return Err("windows-watch --space must be a positive managed Space id".into());
     }
+    let focused = flag_tristate(args, "--focused");
+    let minimized = flag_tristate(args, "--minimized");
+    let onscreen = flag_tristate(args, "--onscreen");
+    let occluded = flag_tristate(args, "--occluded");
+    let all = take_switch(args, "--all");
+    let event_types = match flag_text(args, "--type")? {
+        Some(raw) => WindowWatchEventKind::parse_list(&raw).ok_or_else(|| {
+            "windows-watch --type must be a comma-separated subset of appeared,disappeared,changed"
+                .to_owned()
+        })?,
+        None => Vec::new(),
+    };
     let duration_ms = flag_parsed::<u64>(args, "--duration-ms")?.unwrap_or(0);
     let interval_ms = flag_parsed::<u64>(args, "--interval-ms")?;
     let max_events = flag_parsed::<usize>(args, "--max-events")?;
+    let max_windows = flag_parsed::<usize>(args, "--max-windows")?;
     if !args.is_empty() {
         return Err(format!(
-            "windows-watch accepts only --pid N --app SUB --title SUB --space ID \
-             --duration-ms N --interval-ms N --max-events N; unexpected {:?}",
+            "windows-watch accepts --pid N --app SUB --title SUB --space ID \
+             --focused [BOOL] --minimized [BOOL] --onscreen [BOOL] --occluded [BOOL] \
+             --all --type KINDS --duration-ms N --interval-ms N --max-events N \
+             --max-windows N; unexpected {:?}",
             args[0]
         ));
     }
@@ -209,9 +224,16 @@ fn windows_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, S
         app,
         title,
         space,
+        focused,
+        minimized,
+        onscreen,
+        occluded,
+        all,
+        event_types,
         duration_ms,
         interval_ms,
         max_events,
+        max_windows,
     })
 }
 
@@ -516,5 +538,41 @@ mod app_inspect_tests {
             too_many.extend(["--app".into(), format!("App {index}")]);
         }
         assert!(app_watch(TargetRef::Current, &mut too_many).is_err());
+    }
+
+    #[test]
+    fn windows_watch_parses_state_type_and_complete_inventory_bounds() {
+        let mut args = vec![
+            "--focused".into(),
+            "false".into(),
+            "--onscreen".into(),
+            "true".into(),
+            "--occluded".into(),
+            "false".into(),
+            "--all".into(),
+            "--type".into(),
+            "appeared,changed".into(),
+            "--max-windows".into(),
+            "5000".into(),
+        ];
+        assert!(matches!(
+            windows_watch(TargetRef::Current, &mut args).unwrap(),
+            Command::WindowsWatch {
+                focused: Some(false),
+                onscreen: Some(true),
+                occluded: Some(false),
+                all: true,
+                event_types,
+                max_windows: Some(5000),
+                ..
+            } if event_types == [WindowWatchEventKind::Appeared, WindowWatchEventKind::Changed]
+        ));
+        assert!(
+            windows_watch(
+                TargetRef::Current,
+                &mut vec!["--type".into(), "appeared,bogus".into()]
+            )
+            .is_err()
+        );
     }
 }

@@ -132,7 +132,8 @@ use agenterm_platform::screenshot::{
 };
 use agenterm_platform::threading::spawn_named_detached;
 use agenterm_platform::window_enumerate::{
-    ScreenInfo, WindowInfo, enumerate_top_level, list_screens, stacking,
+    ScreenInfo, WindowEnumerateError, WindowInfo, enumerate_all_top_level, enumerate_top_level,
+    list_screens, stacking,
 };
 use agenterm_platform::window_host::{
     LogicalPoint, LogicalSize, PixelFrameWrite, PixelWindow, PixelWindowApplication,
@@ -302,7 +303,7 @@ macro_rules! abi_version {
         );
     };
 }
-abi_version!(1, 35);
+abi_version!(1, 36);
 
 /// ABI version: `(major << 16) | minor`. `minor` grows with every additive
 /// export; `major` only moves on breaking changes (consumers must reject a
@@ -6460,8 +6461,8 @@ pub extern "C" fn agt_window_stacking_list(
     }
 }
 
-/// Enumerate visible top-level windows into a caller-allocated array
-/// (two-stage, §3.4, identical semantics to `agt_process_list`):
+/// Shared window-enumeration body for both exported inventories (two-stage,
+/// §3.4, identical semantics to `agt_process_list`):
 /// - `cap` sufficient → `AGT_OK`, `*out_count` = records actually written.
 /// - `cap` insufficient (including `cap == 0` with `buf == NULL`, the legal
 ///   "how big?" probe) → `AGT_FAILED { code = "buffer_too_small" }`,
@@ -6470,6 +6471,50 @@ pub extern "C" fn agt_window_stacking_list(
 ///   `AGT_FAILED { code = "bad_pointer" }`.
 /// - mechanism absent on this host → `AGT_UNSUPPORTED`.
 /// - platform failure → `AGT_FAILED { code = "window_failed" }`.
+fn enumerate_window_records(
+    operation: &'static CStr,
+    enumerate: fn() -> Result<Vec<WindowInfo>, WindowEnumerateError>,
+    buf: *mut agt_window_info,
+    cap: usize,
+    out_count: *mut usize,
+) -> agt_status {
+    if out_count.is_null() {
+        record_error(operation, c"bad_pointer", "out_count is null");
+        return agt_status::AGT_FAILED;
+    }
+    if cap > 0 && buf.is_null() {
+        record_error(operation, c"bad_pointer", "buf is null");
+        return agt_status::AGT_FAILED;
+    }
+    if !window_enumerate_available() {
+        return agt_status::AGT_UNSUPPORTED;
+    }
+    let windows = match enumerate() {
+        Ok(v) => v,
+        Err(e) => {
+            record_error(operation, c"window_failed", format!("{e:?}"));
+            return agt_status::AGT_FAILED;
+        }
+    };
+    let required = windows.len();
+    if cap < required {
+        unsafe { *out_count = required };
+        record_error(
+            operation,
+            c"buffer_too_small",
+            "cap is smaller than the window count; allocate the required count and call again",
+        );
+        return agt_status::AGT_FAILED;
+    }
+    unsafe { *out_count = required };
+    for (i, w) in windows.iter().enumerate() {
+        unsafe { *buf.add(i) = window_info_to_record(w) };
+    }
+    agt_status::AGT_OK
+}
+
+/// Enumerate visible top-level windows into a caller-allocated array. Uses
+/// the shared two-stage contract documented by [`enumerate_window_records`].
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn agt_window_enumerate(
@@ -6477,52 +6522,57 @@ pub extern "C" fn agt_window_enumerate(
     cap: usize,
     out_count: *mut usize,
 ) -> agt_status {
-    fn inner(buf: *mut agt_window_info, cap: usize, out_count: *mut usize) -> agt_status {
-        if out_count.is_null() {
-            record_error(c"agt_window_enumerate", c"bad_pointer", "out_count is null");
-            return agt_status::AGT_FAILED;
-        }
-        if cap > 0 && buf.is_null() {
-            record_error(c"agt_window_enumerate", c"bad_pointer", "buf is null");
-            return agt_status::AGT_FAILED;
-        }
-        if !window_enumerate_available() {
-            return agt_status::AGT_UNSUPPORTED;
-        }
-        let windows = match enumerate_top_level() {
-            Ok(v) => v,
-            Err(e) => {
-                // `WindowEnumerateError` has no `Display` impl in
-                // `agenterm-platform`; the facade convention is to forward
-                // the message verbatim, so `Debug` stands in (no variant
-                // matching, no type annotation — the crate is not modified).
-                record_error(c"agt_window_enumerate", c"window_failed", format!("{e:?}"));
-                return agt_status::AGT_FAILED;
-            }
-        };
-        let required = windows.len();
-        if cap < required {
-            unsafe { *out_count = required };
-            record_error(
-                c"agt_window_enumerate",
-                c"buffer_too_small",
-                "cap is smaller than the window count; allocate the required count and call again",
-            );
-            return agt_status::AGT_FAILED;
-        }
-        unsafe { *out_count = required };
-        for (i, w) in windows.iter().enumerate() {
-            unsafe { *buf.add(i) = window_info_to_record(w) };
-        }
-        agt_status::AGT_OK
-    }
-    match catch_unwind(AssertUnwindSafe(|| inner(buf, cap, out_count))) {
+    match catch_unwind(AssertUnwindSafe(|| {
+        enumerate_window_records(
+            c"agt_window_enumerate",
+            enumerate_top_level,
+            buf,
+            cap,
+            out_count,
+        )
+    })) {
         Ok(s) => s,
         Err(_) => {
             record_error(
                 c"agt_window_enumerate",
                 c"panic",
                 "panic in agt_window_enumerate",
+            );
+            agt_status::AGT_FAILED
+        }
+    }
+}
+
+/// Enumerate the native provider's complete top-level inventory. On macOS
+/// this uses `kCGWindowListOptionAll`, retaining minimized/off-screen windows;
+/// Linux's EWMH client list already has that membership. The Windows provider
+/// intentionally preserves the legacy MCU contract where `all` uses the same
+/// visible `EnumWindows` inventory as the default enumeration.
+///
+/// Buffer sizing, pointer validation, failure mapping, and fixed-record layout
+/// are identical to [`agt_window_enumerate`].
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn agt_window_enumerate_all(
+    buf: *mut agt_window_info,
+    cap: usize,
+    out_count: *mut usize,
+) -> agt_status {
+    match catch_unwind(AssertUnwindSafe(|| {
+        enumerate_window_records(
+            c"agt_window_enumerate_all",
+            enumerate_all_top_level,
+            buf,
+            cap,
+            out_count,
+        )
+    })) {
+        Ok(s) => s,
+        Err(_) => {
+            record_error(
+                c"agt_window_enumerate_all",
+                c"panic",
+                "panic in agt_window_enumerate_all",
             );
             agt_status::AGT_FAILED
         }
@@ -7948,12 +7998,31 @@ mod tests {
 
     #[test]
     fn current_abi_maps_show_menu_without_a_value() {
-        assert_eq!(ABI_MINOR, 35);
+        assert_eq!(ABI_MINOR, 36);
         assert_eq!(
             a11y_action_from_abi(AGT_A11Y_ACTION_SHOW_MENU, None),
             Ok(AccessibilityNodeAction::ShowMenu)
         );
         assert_eq!(a11y_action_from_abi(13, None).unwrap_err().0, c"bad_action");
+    }
+
+    #[test]
+    fn enumerate_all_rejects_null_count_before_platform_access() {
+        assert_eq!(
+            agt_window_enumerate_all(std::ptr::null_mut(), 0, std::ptr::null_mut()),
+            agt_status::AGT_FAILED
+        );
+        let mut error = agt_error {
+            operation: std::ptr::null(),
+            code: std::ptr::null(),
+            message: std::ptr::null(),
+        };
+        assert_eq!(agt_last_error(&mut error), agt_status::AGT_OK);
+        assert_eq!(
+            unsafe { CStr::from_ptr(error.operation) },
+            c"agt_window_enumerate_all"
+        );
+        assert_eq!(unsafe { CStr::from_ptr(error.code) }, c"bad_pointer");
     }
 
     #[test]

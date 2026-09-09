@@ -18,6 +18,10 @@ pub(crate) fn enumerate_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateEr
     foreign_windows::enumerate_top_level()
 }
 
+pub(crate) fn enumerate_all_top_level() -> Result<Vec<WindowInfo>, WindowEnumerateError> {
+    foreign_windows::enumerate_all_top_level()
+}
+
 pub(crate) fn list_screens() -> Result<Vec<ScreenInfo>, WindowEnumerateError> {
     foreign_windows::list_screens()
 }

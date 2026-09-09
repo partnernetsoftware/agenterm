@@ -531,7 +531,43 @@ pub mod window_enumerate {
 
     /// `agt_window_enumerate`: two-stage (probe, allocate, fetch).
     pub fn enumerate_top_level() -> Result<Vec<WindowInfo>, MechanismError> {
-        let f = call_sym::<super::WindowEnumerate>(b"agt_window_enumerate")?;
+        enumerate_with_symbol(
+            b"agt_window_enumerate",
+            "agt_window_enumerate",
+            "window enumeration is unavailable on this host",
+        )
+    }
+
+    /// `agt_window_enumerate_all` (ABI 1.36): complete native top-level
+    /// inventory, including minimized/off-screen windows where supported.
+    pub fn enumerate_top_level_all() -> Result<Vec<WindowInfo>, MechanismError> {
+        let (major, minor) = super::loaded_abi_version()?;
+        require_enumerate_all_abi(major, minor)?;
+        enumerate_with_symbol(
+            b"agt_window_enumerate_all",
+            "agt_window_enumerate_all",
+            "all-top-level window enumeration is unavailable on this host",
+        )
+    }
+
+    pub(super) fn require_enumerate_all_abi(major: u16, minor: u16) -> Result<(), MechanismError> {
+        if major == 1 && minor >= dynlib::WINDOW_ENUMERATE_ALL_ABI_MINOR {
+            return Ok(());
+        }
+        Err(MechanismError::Unsupported {
+            reason: format!(
+                "all-top-level window enumeration requires ABI 1.{}, loaded library reports {major}.{minor}",
+                dynlib::WINDOW_ENUMERATE_ALL_ABI_MINOR
+            ),
+        })
+    }
+
+    fn enumerate_with_symbol(
+        symbol: &[u8],
+        operation: &'static str,
+        unsupported_reason: &'static str,
+    ) -> Result<Vec<WindowInfo>, MechanismError> {
+        let f = call_sym::<super::WindowEnumerate>(symbol)?;
         let mut needed = 0usize;
         let status = unsafe { f(std::ptr::null_mut(), 0, &mut needed) };
         match status {
@@ -543,7 +579,7 @@ pub mod window_enumerate {
             // reading it as an empty list hid the failure instead.
             dynlib::AGT_OK => Ok(Vec::new()),
             dynlib::AGT_UNSUPPORTED => Err(MechanismError::Unsupported {
-                reason: "window enumeration is unavailable on this host".to_owned(),
+                reason: unsupported_reason.to_owned(),
             }),
             dynlib::AGT_FAILED => {
                 let mut capacity = needed;
@@ -561,7 +597,7 @@ pub mod window_enumerate {
                         capacity = grown;
                         continue;
                     }
-                    map_status("agt_window_enumerate fetch", status)?;
+                    map_status(&format!("{operation} fetch"), status)?;
                 }
                 Err(MechanismError::Failed {
                     code: "window_churn".to_owned(),
@@ -571,7 +607,7 @@ pub mod window_enumerate {
             other => Err(MechanismError::Failed {
                 code: "unexpected_status".to_owned(),
                 message: format!(
-                    "agt_window_enumerate probe: expected AGT_FAILED (buffer_too_small), got {other}"
+                    "{operation} probe: expected AGT_FAILED (buffer_too_small), got {other}"
                 ),
             }),
         }
@@ -3031,6 +3067,17 @@ mod tests {
         let error = window_placement::require_placement_abi((1 << 16) | 9).unwrap_err();
         assert!(matches!(error, MechanismError::Unsupported { .. }));
         assert!(window_placement::require_placement_abi((1 << 16) | 10).is_ok());
+    }
+
+    #[test]
+    fn all_window_enumeration_old_minor_is_typed_unsupported() {
+        let error = window_enumerate::require_enumerate_all_abi(1, 35).unwrap_err();
+        assert!(matches!(error, MechanismError::Unsupported { .. }));
+        assert!(window_enumerate::require_enumerate_all_abi(1, 36).is_ok());
+        assert!(matches!(
+            window_enumerate::require_enumerate_all_abi(2, 36),
+            Err(MechanismError::Unsupported { .. })
+        ));
     }
 
     #[test]

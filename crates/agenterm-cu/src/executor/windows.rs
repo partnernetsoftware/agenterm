@@ -4,7 +4,15 @@
 
 use super::*;
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::command::WindowWatchEventKind;
 use crate::observe::FrontmostApp;
+
+const WINDOWS_WATCH_MAX_DURATION_MS: u64 = 300_000;
+const WINDOWS_WATCH_MAX_EVENTS: usize = 10_000;
+const WINDOWS_WATCH_MAX_WINDOWS: usize = 10_000;
+const WINDOWS_WATCH_DEFAULT_MAX_WINDOWS: usize = 2_000;
 
 /// Window inventory. The bare verb keeps its array reply; any filter or page
 /// field switches to the inventory object with counts. `browser_profile`
@@ -177,19 +185,6 @@ pub(super) fn ax_root_browser_profile(window: &WindowInfo) -> Option<String> {
         .find(|node| node.id == tree.root_id)
         .or(tree.nodes.first())?;
     observe::browser_profile_from_identity(&window.app_name, &root.name)
-}
-
-pub(super) fn filtered_windows(filter: &observe::WindowFilter) -> Result<Vec<WindowInfo>, CuError> {
-    let mut windows =
-        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
-    if filter.focused.is_some() {
-        let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
-        resolve_inventory_focus(&mut windows, &stacking);
-    }
-    Ok(windows
-        .into_iter()
-        .filter(|window| filter.matches(window))
-        .collect())
 }
 
 /// `apps`: the applications with a window, and with `--all` the ones that
@@ -508,20 +503,28 @@ pub(super) fn app_inspect_payload(
 pub(super) fn windows_watch_payload(
     filter: observe::WindowFilter,
     space: Option<u64>,
+    onscreen: Option<bool>,
+    occluded: Option<bool>,
+    all: bool,
+    event_types: &[WindowWatchEventKind],
     duration_ms: u64,
     interval_ms: Option<u64>,
     max_events: Option<usize>,
+    max_windows: Option<usize>,
 ) -> Result<serde_json::Value, CuError> {
-    observe::validate_windows_watch(duration_ms, max_events, interval_ms).map_err(invalid_input)?;
+    validate_windows_watch_bounds(duration_ms, max_events, interval_ms, max_windows)?;
     validate_windows_watch_space_provider(space)?;
     let max_events = max_events.unwrap_or(observe::DEFAULT_OBSERVE_EVENTS);
+    let max_windows = max_windows.unwrap_or(WINDOWS_WATCH_DEFAULT_MAX_WINDOWS);
     let interval =
         Duration::from_millis(observe::windows_watch_interval_ms(duration_ms, interval_ms));
     let started = Instant::now();
-    let mut previous = windows_watch_sample(&filter, space)?;
+    let mut previous = windows_watch_sample(&filter, space, onscreen, occluded, all, max_windows)?;
     let mut events = Vec::new();
     let mut seq = 0u64;
     let mut polls = 1usize;
+    let mut inventory_count = previous.len();
+    let mut max_inventory_count = previous.len();
     let mut truncated = false;
     let extra_once = duration_ms == 0;
     let deadline = started + Duration::from_millis(duration_ms);
@@ -537,39 +540,163 @@ pub(super) fn windows_watch_payload(
             thread::sleep(interval.min(deadline.saturating_duration_since(Instant::now())));
         }
         polls += 1;
-        let current = windows_watch_sample(&filter, space)?;
-        let batch = observe::diff_window_inventory(&previous, &current);
+        let current = windows_watch_sample(&filter, space, onscreen, occluded, all, max_windows)?;
+        inventory_count = current.len();
+        max_inventory_count = max_inventory_count.max(inventory_count);
+        let batch = diff_windows_watch_samples(&previous, &current);
         let t_ms = started.elapsed().as_millis() as u64;
         for event in batch {
-            seq += 1;
-            events.push(observe::window_watch_event_json(seq, t_ms, &event));
-            if events.len() >= max_events {
+            if !event_types.is_empty()
+                && !event_types
+                    .iter()
+                    .any(|wanted| wanted.as_str() == event.kind)
+            {
+                continue;
+            }
+            // A full buffer is not proof of loss. Keep polling until one
+            // more retained event exists; only that max+1 observation makes
+            // truncation true.
+            if events.len() == max_events {
                 truncated = true;
                 break;
             }
+            seq += 1;
+            events.push(window_watch_sample_event_json(seq, t_ms, &event));
         }
         previous = current;
         if truncated || extra_once {
             break;
         }
     }
-    let mut payload = serde_json::json!({
+    let payload = serde_json::json!({
         "mechanism": "libagenterm",
         "mode": "poll-diff",
         "polls": polls,
         "emitted": events.len(),
         "truncated": truncated,
+        "completed": !truncated,
         "duration_ms": duration_ms,
         "interval_ms": interval.as_millis() as u64,
+        "max_events": max_events,
+        "max_windows": max_windows,
+        "inventory_count": inventory_count,
+        "max_inventory_count": max_inventory_count,
         "events": events,
-        "windows": previous.iter().map(observe::window_row_json).collect::<Vec<_>>(),
+        "windows": previous.iter().map(window_watch_sample_row_json).collect::<Vec<_>>(),
+        "filter": {
+            "pid": filter.pid,
+            "app": filter.app,
+            "title": filter.title,
+            "space": space,
+            "focused": filter.focused,
+            "minimized": filter.minimized,
+            "onscreen": onscreen,
+            "occluded": occluded,
+            "all": all,
+            "types": event_types.iter().map(|kind| kind.as_str()).collect::<Vec<_>>(),
+        },
     });
-    if let Some(space) = space
-        && let Some(object) = payload.as_object_mut()
-    {
-        object.insert("filter".into(), serde_json::json!({ "space": space }));
-    }
     Ok(payload)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WindowWatchSample {
+    window: mechanism::window_enumerate::WindowInfo,
+    onscreen: bool,
+    occluded_percent: Option<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WindowWatchSampleEvent<'a> {
+    kind: &'static str,
+    row: &'a WindowWatchSample,
+    fields: Vec<&'static str>,
+}
+
+fn window_watch_sample_row_json(row: &WindowWatchSample) -> serde_json::Value {
+    let mut value = observe::window_row_json(&row.window);
+    if let Some(object) = value.as_object_mut() {
+        object.insert("onscreen".into(), serde_json::json!(row.onscreen));
+        if let Some(percent) = row.occluded_percent {
+            object.insert("occluded_percent".into(), serde_json::json!(percent));
+        }
+    }
+    value
+}
+
+fn window_watch_sample_event_json(
+    seq: u64,
+    t_ms: u64,
+    event: &WindowWatchSampleEvent<'_>,
+) -> serde_json::Value {
+    let mut value = window_watch_sample_row_json(event.row);
+    let row = value.as_object_mut().expect("window row is an object");
+    row.insert("seq".into(), serde_json::json!(seq));
+    row.insert("t_ms".into(), serde_json::json!(t_ms));
+    row.insert("kind".into(), serde_json::json!(event.kind));
+    row.insert("fields".into(), serde_json::json!(event.fields));
+    serde_json::Value::Object(std::mem::take(row))
+}
+
+fn diff_windows_watch_samples<'a>(
+    before: &'a [WindowWatchSample],
+    after: &'a [WindowWatchSample],
+) -> Vec<WindowWatchSampleEvent<'a>> {
+    let previous: BTreeMap<_, _> = before.iter().map(|row| (row.window.handle, row)).collect();
+    let current: BTreeMap<_, _> = after.iter().map(|row| (row.window.handle, row)).collect();
+    let mut events = Vec::new();
+    for (handle, row) in &previous {
+        if !current.contains_key(handle) {
+            events.push(WindowWatchSampleEvent {
+                kind: "disappeared",
+                row,
+                fields: Vec::new(),
+            });
+        }
+    }
+    for (handle, row) in &current {
+        let Some(was) = previous.get(handle) else {
+            events.push(WindowWatchSampleEvent {
+                kind: "appeared",
+                row,
+                fields: Vec::new(),
+            });
+            continue;
+        };
+        let mut fields = Vec::new();
+        if was.window.title != row.window.title {
+            fields.push("title");
+        }
+        if was.window.app_name != row.window.app_name {
+            fields.push("app_name");
+        }
+        if was.window.process_id != row.window.process_id {
+            fields.push("process_id");
+        }
+        if was.window.bounds != row.window.bounds {
+            fields.push("bounds");
+        }
+        if was.window.focused != row.window.focused {
+            fields.push("focused");
+        }
+        if was.window.minimized != row.window.minimized {
+            fields.push("minimized");
+        }
+        if was.onscreen != row.onscreen {
+            fields.push("onscreen");
+        }
+        if was.occluded_percent != row.occluded_percent {
+            fields.push("occluded_percent");
+        }
+        if !fields.is_empty() {
+            events.push(WindowWatchSampleEvent {
+                kind: "changed",
+                row,
+                fields,
+            });
+        }
+    }
+    events
 }
 
 /// Apply watch filters at the sample boundary. In particular, a managed
@@ -578,58 +705,192 @@ pub(super) fn windows_watch_payload(
 fn windows_watch_sample(
     filter: &observe::WindowFilter,
     space: Option<u64>,
-) -> Result<Vec<mechanism::window_enumerate::WindowInfo>, CuError> {
-    let windows = filtered_windows(filter)?;
-    let Some(wanted) = space else {
-        return Ok(windows);
+    onscreen: Option<bool>,
+    occluded: Option<bool>,
+    all: bool,
+    max_windows: usize,
+) -> Result<Vec<WindowWatchSample>, CuError> {
+    let visible = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let visible_handles: BTreeSet<_> = visible.iter().map(|window| window.handle).collect();
+    let mut windows = if all {
+        mechanism::window_enumerate::enumerate_top_level_all().map_err(map_mechanism_err)?
+    } else {
+        visible
     };
+    if filter.focused.is_some() {
+        let stacking = mechanism::window_enumerate::stacking().unwrap_or_default();
+        resolve_inventory_focus(&mut windows, &stacking);
+    }
+    // Narrow by fields already present in the native inventory before any
+    // per-window read. An unrelated all-inventory row must not make an exact
+    // pid/title watch fail merely because that row's accessibility state is
+    // unreadable.
+    let cheap_filter = observe::WindowFilter {
+        focused: None,
+        minimized: None,
+        ..filter.clone()
+    };
+    windows.retain(|window| cheap_filter.matches(window));
     #[cfg(target_os = "macos")]
-    {
-        let mut selected = Vec::new();
-        for window in windows {
-            let memberships =
-                crate::macos_spaces::spaces_for_window(window.handle).map_err(|error| {
-                    CuError::new("unsupported", error.reason).with_detail(serde_json::json!({
-                        "group": "geometry",
-                        "os": "macos",
-                        "provider": "skylight-private-read",
-                        "window": window.handle,
-                        "filter": { "space": wanted },
-                    }))
-                })?;
-            let Some(memberships) = memberships else {
-                return Err(CuError::new(
-                    "unsupported",
-                    "managed Space membership provider is unavailable",
+    if all {
+        for window in &mut windows {
+            window.minimized = mechanism::window_op::minimized(window.handle).map_err(|error| {
+                CuError::new(
+                    "windows_watch_filter_unavailable",
+                    "windows-watch --all could not read one all-inventory window",
                 )
                 .with_detail(serde_json::json!({
-                    "group": "geometry",
-                    "os": "macos",
-                    "provider": "none",
+                    "filter": "all",
                     "window": window.handle,
-                    "filter": { "space": wanted },
+                    "reason": map_mechanism_err(error).message,
+                }))
+            })?;
+        }
+    }
+    windows.retain(|window| filter.matches(window));
+    if let Some(wanted) = space {
+        #[cfg(target_os = "macos")]
+        {
+            let mut selected = Vec::new();
+            for window in windows {
+                let memberships =
+                    crate::macos_spaces::spaces_for_window(window.handle).map_err(|error| {
+                        CuError::new("unsupported", error.reason).with_detail(serde_json::json!({
+                            "group": "geometry",
+                            "os": "macos",
+                            "provider": "skylight-private-read",
+                            "window": window.handle,
+                            "filter": { "space": wanted },
+                        }))
+                    })?;
+                let Some(memberships) = memberships else {
+                    return Err(CuError::new(
+                        "unsupported",
+                        "managed Space membership provider is unavailable",
+                    )
+                    .with_detail(serde_json::json!({
+                        "group": "geometry",
+                        "os": "macos",
+                        "provider": "none",
+                        "window": window.handle,
+                        "filter": { "space": wanted },
+                    })));
+                };
+                if memberships.contains(&wanted) {
+                    selected.push(window);
+                }
+            }
+            windows = selected;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = windows;
+            return Err(CuError::new(
+                "unsupported",
+                "managed Space filtering is macOS SkyLight only",
+            )
+            .with_detail(serde_json::json!({
+                "group": "geometry",
+                "os": crate::mcu_surface::host_os(),
+                "provider": "none",
+                "filter": { "space": wanted },
+            })));
+        }
+    }
+    let stacking = if occluded.is_some() {
+        mechanism::window_enumerate::stacking().map_err(|error| {
+            CuError::new(
+                "windows_watch_filter_unavailable",
+                "windows-watch --occluded requires a native stacking inventory",
+            )
+            .with_detail(serde_json::json!({
+                "filter": "occluded",
+                "reason": map_mechanism_err(error).message,
+            }))
+        })?
+    } else {
+        Vec::new()
+    };
+    let mut selected = Vec::new();
+    for window in windows {
+        let is_onscreen = visible_handles.contains(&window.handle) && !window.minimized;
+        if onscreen.is_some_and(|wanted| wanted != is_onscreen) {
+            continue;
+        }
+        let occluded_percent = stacking
+            .iter()
+            .find(|row| row.handle == window.handle)
+            .map(|row| row.occluded_percent);
+        if let Some(wanted) = occluded {
+            let Some(percent) = occluded_percent else {
+                return Err(CuError::new(
+                    "windows_watch_filter_unavailable",
+                    "the stacking provider did not describe a filtered window",
+                )
+                .with_detail(serde_json::json!({
+                    "filter": "occluded",
+                    "window": window.handle,
                 })));
             };
-            if memberships.contains(&wanted) {
-                selected.push(window);
+            if (percent > 0) != wanted {
+                continue;
             }
         }
-        Ok(selected)
+        selected.push(WindowWatchSample {
+            window,
+            onscreen: is_onscreen,
+            occluded_percent,
+        });
+        if selected.len() > max_windows {
+            return Err(CuError::new(
+                "windows_watch_inventory_truncated",
+                "filtered window inventory exceeds --max-windows",
+            )
+            .with_detail(serde_json::json!({
+                "max_windows": max_windows,
+                "observed_at_least": selected.len(),
+            })));
+        }
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = windows;
-        Err(CuError::new(
-            "unsupported",
-            "managed Space filtering is macOS SkyLight only",
-        )
-        .with_detail(serde_json::json!({
-            "group": "geometry",
-            "os": crate::mcu_surface::host_os(),
-            "provider": "none",
-            "filter": { "space": wanted },
-        })))
+    Ok(selected)
+}
+
+fn validate_windows_watch_bounds(
+    duration_ms: u64,
+    max_events: Option<usize>,
+    interval_ms: Option<u64>,
+    max_windows: Option<usize>,
+) -> Result<(), CuError> {
+    if duration_ms > WINDOWS_WATCH_MAX_DURATION_MS {
+        return Err(invalid_input(format!(
+            "--duration-ms must be 0..={WINDOWS_WATCH_MAX_DURATION_MS}, got {duration_ms}"
+        )));
     }
+    if max_events.is_some_and(|value| value == 0 || value > WINDOWS_WATCH_MAX_EVENTS) {
+        return Err(invalid_input(format!(
+            "--max-events must be 1..={WINDOWS_WATCH_MAX_EVENTS}"
+        )));
+    }
+    if max_windows.is_some_and(|value| value == 0 || value > WINDOWS_WATCH_MAX_WINDOWS) {
+        return Err(invalid_input(format!(
+            "--max-windows must be 1..={WINDOWS_WATCH_MAX_WINDOWS}"
+        )));
+    }
+    if let Some(interval_ms) = interval_ms {
+        if duration_ms == 0 {
+            if interval_ms > WINDOWS_WATCH_MAX_DURATION_MS {
+                return Err(invalid_input(format!(
+                    "--interval-ms must be 0..={WINDOWS_WATCH_MAX_DURATION_MS}"
+                )));
+            }
+        } else if interval_ms < observe::MIN_OBSERVE_INTERVAL_MS || interval_ms > duration_ms {
+            return Err(invalid_input(format!(
+                "--interval-ms must be {}..=duration",
+                observe::MIN_OBSERVE_INTERVAL_MS
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate_windows_watch_space_provider(space: Option<u64>) -> Result<(), CuError> {
@@ -1069,9 +1330,16 @@ mod tests {
             app: None,
             title: None,
             space: Some(0),
+            focused: None,
+            minimized: None,
+            onscreen: None,
+            occluded: None,
+            all: false,
+            event_types: Vec::new(),
             duration_ms: 0,
             interval_ms: Some(0),
             max_events: Some(10),
+            max_windows: None,
         });
         assert_eq!(
             zero_space.error.as_ref().expect("typed space id").code,
@@ -1085,9 +1353,16 @@ mod tests {
                 app: None,
                 title: None,
                 space: Some(1),
+                focused: None,
+                minimized: None,
+                onscreen: None,
+                occluded: None,
+                all: false,
+                event_types: Vec::new(),
                 duration_ms: 0,
                 interval_ms: Some(0),
                 max_events: Some(10),
+                max_windows: None,
             });
             assert_eq!(
                 unavailable
@@ -1104,9 +1379,16 @@ mod tests {
             app: None,
             title: None,
             space: None,
+            focused: None,
+            minimized: None,
+            onscreen: None,
+            occluded: None,
+            all: false,
+            event_types: Vec::new(),
             duration_ms: 0,
             interval_ms: Some(0),
             max_events: Some(10),
+            max_windows: None,
         });
         if watch.ok {
             let data = watch.data.as_ref().expect("watch data");
@@ -1147,5 +1429,46 @@ mod tests {
             relative: 2,
         });
         assert_eq!(order_zero.error.as_ref().unwrap().code, "invalid_input");
+    }
+
+    #[test]
+    fn windows_watch_bounds_and_enriched_diff_are_loss_visible() {
+        assert!(
+            validate_windows_watch_bounds(300_000, Some(10_000), Some(50), Some(10_000)).is_ok()
+        );
+        assert!(validate_windows_watch_bounds(300_001, None, None, None).is_err());
+        assert!(validate_windows_watch_bounds(1_000, Some(10_001), None, None).is_err());
+        assert!(validate_windows_watch_bounds(1_000, None, None, Some(10_001)).is_err());
+
+        let before = WindowWatchSample {
+            window: WindowInfo {
+                handle: 7,
+                title: "before".into(),
+                process_id: 42,
+                app_name: "Fixture".into(),
+                bounds: mechanism::window_enumerate::WindowBounds {
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 100,
+                },
+                focused: false,
+                minimized: false,
+                maximized: false,
+                fullscreen: false,
+                above: false,
+            },
+            onscreen: true,
+            occluded_percent: Some(0),
+        };
+        let mut after = before.clone();
+        after.onscreen = false;
+        after.occluded_percent = Some(100);
+        let previous = [before];
+        let current = [after];
+        let events = diff_windows_watch_samples(&previous, &current);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "changed");
+        assert_eq!(events[0].fields, ["onscreen", "occluded_percent"]);
     }
 }
