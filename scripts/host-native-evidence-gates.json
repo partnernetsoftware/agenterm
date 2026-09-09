@@ -766,6 +766,13 @@
       ]
     },
     {
+      "id": "cu-linux-device-inventory-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-device-inventory-readback"
+      ]
+    },
+    {
       "id": "cu-linux-pointer-smoke",
       "platform": "linux",
       "evidence": [
@@ -814,6 +821,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-host-memory-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-cache-hierarchy-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-cache-hierarchy-readback"
       ]
     },
     {
