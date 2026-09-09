@@ -126,13 +126,26 @@ if token not in (data.get("utf8") or ""):
 PY
 }
 
-echo "STEP missing authority typed-fails pty_job_not_found before any state exists"
-[[ ! -e "$STATE_DIR" ]] || { echo "FAIL: state dir pre-exists: $STATE_DIR" >&2; exit 1; }
-MISSING_STATUS="$(cu_json --target current --grant observe pty-status "$JOB" 2>&1 || true)"
-assert_code "$MISSING_STATUS" "pty_job_not_found"
-MISSING_READ="$(cu_json --target current --grant observe pty-read "$JOB" 2>&1 || true)"
-assert_code "$MISSING_READ" "pty_job_not_found"
-python3 - "$MISSING_READ" <<'PY'
+socket_path_from_transport() {
+  python3 - "$1" <<'PY'
+import json, sys
+detail = (json.loads(sys.argv[1]).get("error") or {}).get("detail") or {}
+transport = detail.get("transport") or ""
+prefix = "IPC transport Io for unix:"
+if not transport.startswith(prefix):
+    raise SystemExit(f"missing unix transport detail: {transport}")
+rest = transport[len(prefix):]
+if ": " not in rest:
+    raise SystemExit(f"transport omitted socket path suffix: {transport}")
+sock = rest.rsplit(": ", 1)[0]
+if not sock.endswith(".sock"):
+    raise SystemExit(f"unexpected socket path in transport: {sock}")
+print(sock)
+PY
+}
+
+assert_pty_host_limit_detail() {
+  python3 - "$1" <<'PY'
 import json, sys
 detail = (json.loads(sys.argv[1]).get("error") or {}).get("detail") or {}
 if detail.get("control") != "unavailable" or detail.get("authority") != "unreachable":
@@ -141,15 +154,49 @@ if detail.get("limit") != "host" or detail.get("group") != "pty":
     raise SystemExit(f"missing host-limit detail: {detail}")
 if detail.get("mechanism") != "agenterm-unix-control-socket":
     raise SystemExit(f"missing mechanism detail: {detail}")
+if detail.get("os") != "linux":
+    raise SystemExit(f"missing os detail: {detail}")
 if not isinstance(detail.get("alternatives"), list) or not detail["alternatives"]:
     raise SystemExit(f"missing alternatives detail: {detail}")
+transport = detail.get("transport") or ""
+prefix = "IPC transport Io for unix:"
+if not transport.startswith(prefix) or ": " not in transport[len(prefix):]:
+    raise SystemExit(f"missing unix transport detail: {transport}")
 PY
+}
+
+independent_runtime_socket_matches() {
+  local scope="$1"
+  local expected="$2"
+  python3 - "$scope" "$expected" <<'PY'
+import glob, os, sys
+scope, expected = sys.argv[1], sys.argv[2]
+runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+pattern = os.path.join(runtime, "agenterm", f"{scope}.sock")
+matches = [path for path in glob.glob(pattern) if os.path.exists(path)]
+if len(matches) != 1:
+    raise SystemExit(f"independent runtime socket count for {scope}: {matches}")
+if matches[0] != expected:
+    raise SystemExit(f"independent runtime socket path mismatch: {matches[0]} != {expected}")
+PY
+}
+
+echo "STEP missing authority typed-fails pty_job_not_found before any state exists"
+[[ ! -e "$STATE_DIR" ]] || { echo "FAIL: state dir pre-exists: $STATE_DIR" >&2; exit 1; }
+MISSING_STATUS="$(cu_json --target current --grant observe pty-status "$JOB" 2>&1 || true)"
+assert_code "$MISSING_STATUS" "pty_job_not_found"
+MISSING_READ="$(cu_json --target current --grant observe pty-read "$JOB" 2>&1 || true)"
+assert_code "$MISSING_READ" "pty_job_not_found"
+assert_pty_host_limit_detail "$MISSING_READ"
+MISSING_SOCK="$(socket_path_from_transport "$MISSING_READ")"
+independent_socket_absent "$MISSING_SOCK"
 
 echo "STEP pty-start spawns one headless authority; independent socket read-back matches server_scope_id"
 START="$(cu_json --target current --grant actuate pty-start "$JOB")"
 assert_ok_command "$START" "pty-start"
 SCOPE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["status"]["server_scope_id"])' <<<"$START")"
 SOCK="$(socket_path_for_scope "$SCOPE")"
+independent_runtime_socket_matches "$SCOPE" "$SOCK"
 independent_socket_live "$SOCK"
 
 echo "STEP pty-send / pty-wait / pty-read agree on one literal token with independent base64 decode"
@@ -176,13 +223,13 @@ if len(match) != 1 or match[0].get("state") != "stale":
 PY
 STALE_READ="$(cu_json --target current --grant observe pty-read "$JOB" 2>&1 || true)"
 assert_code "$STALE_READ" "pty_job_not_found"
-python3 - "$STALE_READ" <<'PY'
-import json, sys
-detail = (json.loads(sys.argv[1]).get("error") or {}).get("detail") or {}
-if detail.get("control") != "unavailable":
-    raise SystemExit(f"expected control unavailable detail after server death: {detail}")
-PY
-independent_socket_absent "$SOCK"
+assert_pty_host_limit_detail "$STALE_READ"
+STALE_SOCK="$(socket_path_from_transport "$STALE_READ")"
+[[ "$STALE_SOCK" == "$SOCK" ]] || {
+  echo "FAIL: stale transport socket disagrees with scoped path: $STALE_SOCK != $SOCK" >&2
+  exit 1
+}
+independent_socket_absent "$STALE_SOCK"
 
 echo "STEP pty-stop + pty-prune reclaim stale state"
 cu_json --target current --grant actuate pty-stop "$JOB" --expect stopped >/dev/null 2>&1 || true

@@ -1,7 +1,8 @@
 // CEO: Linux headless PTY + AgenTerm Unix-socket honesty with independent read-back.
 // Proves pty-start / pty-send / pty-wait / pty-read on a live authority and typed
 // pty_job_not_found when the deterministic Unix socket authority is absent. Present
-// authority uses independent fuser + connect read-back on the scoped Unix socket.
+// authority uses independent runtime path, fuser, and connect read-back on the scoped
+// Unix socket; absent authority also cross-checks the transport socket path.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
