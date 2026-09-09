@@ -7645,7 +7645,7 @@
     },
     {
       "id": "cu-linux-file-attributes-smoke",
-      "description": "Linux file-attributes xattr inventory for one regular file matches independent os.listxattr/getxattr read-back (and getfattr when installed); typed file-attributes/get-extents AT-SPI --name usage and host-limit honesty before xattr court; digest-only default, explicit value disclosure, and final-symlink refusal; no --coords.",
+      "description": "Linux file-attributes xattr inventory for one regular file matches independent os.listxattr/getxattr read-back (and getfattr when installed); typed file-attributes usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the xattr read-back court; digest-only default, explicit value disclosure, and final-symlink refusal; no --coords.",
       "entry": "scripts/qjs/cu-linux-file-attributes-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
