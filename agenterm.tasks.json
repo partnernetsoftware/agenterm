@@ -5733,7 +5733,7 @@
     },
     {
       "id": "cu-linux-a11y-status-smoke",
-      "description": "Linux screen-reader observe reads org.a11y.Status IsEnabled and ScreenReaderEnabled with independent dbus-send read-back; typed usage rejects AT-SPI --name and other unexpected arguments; invalid AT_SPI_BUS_ADDRESS reports disconnected a11y_bus while dbus flags still agree; headless-display typed host-limit; no --coords.",
+      "description": "Linux screen-reader observe reads org.a11y.Status IsEnabled and ScreenReaderEnabled with independent dbus-send read-back; typed screen-reader usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths hold before dbus-send read-back; invalid AT_SPI_BUS_ADDRESS reports disconnected a11y_bus while dbus flags still agree; headless-display typed host-limit; no --coords.",
       "entry": "scripts/qjs/cu-linux-a11y-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5788,7 +5788,7 @@
     },
     {
       "id": "cu-linux-ime-status-smoke",
-      "description": "Linux ime-status observe returns ok JSON with independent ibus/fcitx read-back or typed unsupported with session-bus and framework probe facts; no --coords.",
+      "description": "Linux ime-status observe returns ok JSON with independent ibus/fcitx read-back or typed unsupported with session-bus and framework probe facts; typed ime-status usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the ibus/fcitx read-back court; headless-display typed host-limit; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-ime-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
