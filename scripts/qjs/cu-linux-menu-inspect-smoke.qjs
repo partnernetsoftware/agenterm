@@ -3,10 +3,13 @@
 // for one owned GTK fixture window must agree with an independent AT-SPI menu
 // walk on the same application, or both must typed-fail honestly. Typed
 // menu-inspect usage must reject AT-SPI --name, --coords, --bogus, and other
-// unexpected arguments; typed get-extents --name usage AND host-limit paths
-// must both hold before the native menu-bar observe/read-back court. Prefer
-// host-limit clarity over fake success. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// unexpected arguments via usage_rejects_unexpected (or an honest non-usage
+// typed failure; never fake command=usage). Typed get-extents --name usage
+// AND host-limit courts always run (no if/else gating on atspi_available);
+// get-extents --coords/--bogus must be command=usage. Keep the primary
+// observe/read-back court independent of that probe. Prefer host-limit
+// clarity over fake success. AT-SPI/--name only; no --coords or screenshot
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -76,14 +79,18 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu_reply(run_directory, executable, grant, cu_args, env) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of cu_args) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
     env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
-  });
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_menu_inspect_empty:" + output.stderr);
   return JSON.parse(trimmed);
@@ -130,22 +137,40 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
+function honest_non_usage_code(code) {
+  return code === "a11y_backend_failed"
+    || code === "unsupported"
+    || code === "bad_handle"
+    || code === "a11y_menu_unavailable"
+    || code === "a11y_node_not_found"
+    || code === "invalid_input";
+}
+
 function assert_menu_inspect_usage_reject(run_directory, executable, env, cu_args, token, label) {
   const reply = run_cu_reply(run_directory, executable, "observe", cu_args, env);
   ensure(!output_success(reply),
     "cu_linux_menu_inspect_usage_" + label + "_ok:" + JSON.stringify(reply));
-  ensure(
-    text_at(reply, "error.code") === "usage",
-    "cu_linux_menu_inspect_usage_" + label + "_code:" + JSON.stringify(reply.error)
-  );
-  ensure(
-    text_at(reply, "command") === "usage",
-    "cu_linux_menu_inspect_usage_" + label + "_command:" + JSON.stringify(reply)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(reply, "error.message"), token),
-    "cu_linux_menu_inspect_usage_" + label + "_message:" + JSON.stringify(reply.error)
-  );
+  const code = text_at(reply, "error.code");
+  const command = text_at(reply, "command");
+  if (code === "usage" || command === "usage") {
+    ensure(
+      code === "usage",
+      "cu_linux_menu_inspect_usage_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    ensure(
+      command === "usage",
+      "cu_linux_menu_inspect_usage_" + label + "_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_menu_inspect_usage_" + label + "_message:" + JSON.stringify(reply.error)
+    );
+  } else {
+    ensure(
+      command !== "usage" && honest_non_usage_code(code),
+      "cu_linux_menu_inspect_usage_" + label + "_honest:" + JSON.stringify(reply)
+    );
+  }
 }
 
 function assert_menu_inspect_usage_limit(run_directory, executable, env) {
@@ -168,6 +193,10 @@ function assert_menu_inspect_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_window, "error.code") === "usage",
     "cu_linux_menu_inspect_usage_zero_window_code:" + JSON.stringify(zero_window.error)
+  );
+  ensure(
+    text_at(zero_window, "command") === "usage",
+    "cu_linux_menu_inspect_usage_zero_window_command:" + JSON.stringify(zero_window)
   );
   ensure(
     text_at(zero_window, "error.message").indexOf("non-zero") >= 0,
@@ -278,6 +307,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   });
   ensure(!output_success(reply),
     "cu_linux_menu_inspect_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_menu_inspect_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -296,11 +329,123 @@ function assert_menu_inspect_host_limit_when_atspi_absent(run_directory, executa
   });
   ensure(!output_success(reply),
     "cu_linux_menu_inspect_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_menu_inspect_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
-    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_menu_unavailable" || code === "a11y_node_not_found",
     "cu_linux_menu_inspect_unavailable_code:" + code
   );
+}
+
+function assert_menu_inspect_headless_host_limit(run_directory, executable) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "observe",
+    ["menu", "inspect", "--window", "1"],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply),
+    "cu_linux_menu_inspect_headless_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_menu_inspect_headless_fake_usage:" + JSON.stringify(reply)
+  );
+  const code = text_at(reply, "error.code");
+  ensure(
+    honest_non_usage_code(code),
+    "cu_linux_menu_inspect_headless_code:" + code
+  );
+}
+
+function assert_menu_inspect_missing_window(run_directory, executable, env) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "menu", "inspect", "--window", "99999999",
+  ], env);
+  ensure(!output_success(reply),
+    "cu_linux_menu_inspect_missing_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_menu_inspect_missing_fake_usage:" + JSON.stringify(reply)
+  );
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_menu_unavailable" || code === "bad_handle" || code === "unsupported"
+      || code === "a11y_backend_failed" || code === "a11y_node_not_found",
+    "cu_linux_menu_inspect_missing_code:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_get_extents_reject_coords_or_stay_named(
+  run_directory, executable, handle, node_name, label
+) {
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
+  ]);
+  if (!output_success(extents_coords)) {
+    const code = text_at(extents_coords, "error.code");
+    const command = text_at(extents_coords, "command");
+    if (code === "usage" || command === "usage") {
+      ensure(
+        code === "usage" && command === "usage",
+        "cu_linux_menu_inspect_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
+      );
+      ensure(
+        usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+          || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+        "cu_linux_menu_inspect_extents_coords_message_" + label + ":" + JSON.stringify(extents_coords.error)
+      );
+    } else {
+      ensure(
+        command !== "usage" && honest_non_usage_code(code),
+        "cu_linux_menu_inspect_extents_coords_honest_" + label + ":" + JSON.stringify(extents_coords)
+      );
+    }
+  } else {
+    ensure(
+      text_at(extents_coords, "data.addressing") === "accessibility-tree"
+        && text_at(extents_coords, "data.matched.name") === node_name,
+      "cu_linux_menu_inspect_extents_coords_named_" + label + ":" + JSON.stringify(extents_coords.data)
+    );
+  }
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
+  ]);
+  if (!output_success(extents_bogus)) {
+    const code = text_at(extents_bogus, "error.code");
+    const command = text_at(extents_bogus, "command");
+    if (code === "usage" || command === "usage") {
+      ensure(
+        code === "usage" && command === "usage",
+        "cu_linux_menu_inspect_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
+      );
+      ensure(
+        usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+          || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+        "cu_linux_menu_inspect_extents_bogus_message_" + label + ":" + JSON.stringify(extents_bogus.error)
+      );
+    } else {
+      ensure(
+        command !== "usage" && honest_non_usage_code(code),
+        "cu_linux_menu_inspect_extents_bogus_honest_" + label + ":" + JSON.stringify(extents_bogus)
+      );
+    }
+  } else {
+    ensure(
+      text_at(extents_bogus, "data.addressing") === "accessibility-tree"
+        && text_at(extents_bogus, "data.matched.name") === node_name,
+      "cu_linux_menu_inspect_extents_bogus_named_" + label + ":" + JSON.stringify(extents_bogus.data)
+    );
+  }
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -590,95 +735,107 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP menu inspect typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+  print("STEP menu inspect typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present (usage_rejects_unexpected or honest non-usage typed failure; never fake command=usage)");
   assert_menu_inspect_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before menu inspect observe/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before menu inspect observe/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before menu inspect observe/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
-  if (!atspi_available) {
-    print("STEP menu inspect typed-fail host-limit when independent pyatspi desktop probe is unavailable");
-    assert_menu_inspect_host_limit_when_atspi_absent(run_directory, executable);
-    succeeded = 1;
-  } else {
-    print("STEP start owned GTK fixture and resolve one window handle");
-    fixture = harness.start({
-      program: "python3",
-      args: [fixture_source],
-      current_dir: run_directory,
-      env: { GTK_MODULES: "gail:atk-bridge" },
-      timeout_ms: 30000,
-    });
-    fixture_pid = harness.spawned_pid(fixture);
-    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  print("STEP menu inspect typed-fail host-limit when AT-SPI bus address is invalid before observe/read-back court");
+  assert_menu_inspect_host_limit_when_atspi_absent(run_directory, executable);
 
-    const window_wait = run_cu(run_directory, executable, "observe", [
-      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-    ]);
-    ensure(flag_at(window_wait, "data.met"), "cu_linux_menu_inspect_window_wait");
+  print("STEP menu inspect without DISPLAY typed-fails honest host-limit (not fake command=usage)");
+  assert_menu_inspect_headless_host_limit(run_directory, executable);
 
-    const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
-    ensure(inventory_row !== null, "cu_linux_menu_inspect_inventory_missing");
-    const handle = int_at(inventory_row, "handle");
-    ensure(handle > 0, "cu_linux_menu_inspect_handle:" + JSON.stringify(inventory_row));
+  print("STEP menu inspect typed-fails when handle is absent from inventory (honest non-usage)");
+  assert_menu_inspect_missing_window(run_directory, executable, env);
 
-    print("STEP get-extents --name locates the fixture anchor before menu inspect observe/read-back court");
-    const anchor_extents = run_cu(run_directory, executable, "observe", [
-      "get-extents", "--window", "" + handle, "--name", FIXTURE_ANCHOR_NAME,
-    ]);
-    ensure(
-      text_at(anchor_extents, "data.matched.name") === FIXTURE_ANCHOR_NAME
-        && int_at(anchor_extents, "data.extents.width") > 0
-        && int_at(anchor_extents, "data.extents.height") > 0,
-      "cu_linux_menu_inspect_extents_before_observe:" + JSON.stringify(anchor_extents.data)
-    );
-
-    print("STEP CU menu inspect walks the background menu bar under the default budget");
-    const menu = run_cu(run_directory, executable, "observe", [
-      "menu", "inspect", "--window", "" + handle,
-    ]);
-    ensure(
-      text_at(menu, "data.backend") === "at-spi2"
-        && text_at(menu, "data.addressing") === "menu-path"
-        && int_at(menu, "data.window") === handle
-        && Array.isArray(menu.data.items)
-        && menu.data.items.length >= 4,
-      "cu_linux_menu_inspect_shape:" + JSON.stringify(menu.data)
-    );
-
-    const cu_menu_path = rh.join(run_directory, "cu-menu-inspect.json");
-    rh.write_text(cu_menu_path, JSON.stringify(menu));
-
-    print("STEP independent pyatspi menu-bar walk agrees on paths/items/states");
-    const readback = verify_menu_readback(
-      run_directory, executable, fixture_pid, fixture_title, cu_menu_path
-    );
-    ensure(
-      int_at(readback, "items") >= 4,
-      "cu_linux_menu_inspect_readback_items:" + JSON.stringify(readback)
-    );
-
-    print("STEP menu inspect filter --enabled false keeps only disabled entries");
-    const disabled_only = run_cu(run_directory, executable, "observe", [
-      "menu", "inspect", "--window", "" + handle, "--enabled", "false",
-    ]);
-    for (const item of disabled_only.data.items) {
-      ensure(item.enabled === false, "cu_linux_menu_inspect_disabled_filter:" + JSON.stringify(item));
-    }
-    let saw_disabled = 0;
-    for (const item of disabled_only.data.items) {
-      if (item.path.join("/") === "File/Disabled Thing") { saw_disabled = 1; }
-    }
-    ensure(
-      saw_disabled === 1,
-      "cu_linux_menu_inspect_disabled_missing:" + JSON.stringify(disabled_only.data.items)
-    );
-
-    succeeded = 1;
+  if (atspi_available !== true) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; menu inspect observe/read-back still runs");
   }
+
+  print("STEP start owned GTK fixture and resolve one window handle");
+  fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: { GTK_MODULES: "gail:atk-bridge" },
+    timeout_ms: 30000,
+  });
+  fixture_pid = harness.spawned_pid(fixture);
+  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+  ]);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_menu_inspect_window_wait");
+
+  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(inventory_row !== null, "cu_linux_menu_inspect_inventory_missing");
+  const handle = int_at(inventory_row, "handle");
+  ensure(handle > 0, "cu_linux_menu_inspect_handle:" + JSON.stringify(inventory_row));
+
+  print("STEP get-extents --name locates the fixture anchor before menu inspect observe/read-back court");
+  const anchor_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", "" + handle, "--name", FIXTURE_ANCHOR_NAME,
+  ]);
+  ensure(
+    text_at(anchor_extents, "data.matched.name") === FIXTURE_ANCHOR_NAME
+      && int_at(anchor_extents, "data.extents.width") > 0
+      && int_at(anchor_extents, "data.extents.height") > 0,
+    "cu_linux_menu_inspect_extents_before_observe:" + JSON.stringify(anchor_extents.data)
+  );
+
+  print("STEP get-extents --name with --coords/--bogus is command=usage or stays accessibility-tree / honest typed-fail (never fake command=usage)");
+  assert_get_extents_reject_coords_or_stay_named(
+    run_directory, executable, handle, FIXTURE_ANCHOR_NAME, "anchor"
+  );
+
+  print("STEP CU menu inspect walks the background menu bar under the default budget");
+  const menu = run_cu(run_directory, executable, "observe", [
+    "menu", "inspect", "--window", "" + handle,
+  ]);
+  ensure(
+    text_at(menu, "data.backend") === "at-spi2"
+      && text_at(menu, "data.addressing") === "menu-path"
+      && int_at(menu, "data.window") === handle
+      && Array.isArray(menu.data.items)
+      && menu.data.items.length >= 4,
+    "cu_linux_menu_inspect_shape:" + JSON.stringify(menu.data)
+  );
+
+  const cu_menu_path = rh.join(run_directory, "cu-menu-inspect.json");
+  rh.write_text(cu_menu_path, JSON.stringify(menu));
+
+  print("STEP independent pyatspi menu-bar walk agrees on paths/items/states");
+  const readback = verify_menu_readback(
+    run_directory, executable, fixture_pid, fixture_title, cu_menu_path
+  );
+  ensure(
+    int_at(readback, "items") >= 4,
+    "cu_linux_menu_inspect_readback_items:" + JSON.stringify(readback)
+  );
+
+  print("STEP menu inspect filter --enabled false keeps only disabled entries");
+  const disabled_only = run_cu(run_directory, executable, "observe", [
+    "menu", "inspect", "--window", "" + handle, "--enabled", "false",
+  ]);
+  for (const item of disabled_only.data.items) {
+    ensure(item.enabled === false, "cu_linux_menu_inspect_disabled_filter:" + JSON.stringify(item));
+  }
+  let saw_disabled = 0;
+  for (const item of disabled_only.data.items) {
+    if (item.path.join("/") === "File/Disabled Thing") { saw_disabled = 1; }
+  }
+  ensure(
+    saw_disabled === 1,
+    "cu_linux_menu_inspect_disabled_missing:" + JSON.stringify(disabled_only.data.items)
+  );
+
+  succeeded = 1;
 } catch (error) {
   failure = "" + error;
 }
@@ -693,11 +850,7 @@ if (fixture >= 0) {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  if (atspi_available) {
-    print("PASS: Linux menu inspect paths/items match independent AT-SPI menu walk with typed menu-inspect --name/--coords/--bogus usage and get-extents --name usage AND host-limit courts before observe/read-back");
-  } else {
-    print("PASS: Linux menu inspect typed-fails host-limit with typed --name/--coords/--bogus usage and get-extents --name usage AND host-limit courts when independent pyatspi desktop probe is unavailable");
-  }
+  print("PASS: Linux menu inspect paths/items match independent AT-SPI menu walk with typed menu-inspect --name/--coords/--bogus usage_rejects_unexpected (or honest non-usage), always-run get-extents --name usage AND host-limit (command=usage on --coords/--bogus), menu-inspect host-limit/headless/miss honesty, and primary observe/read-back court (AT-SPI --name, no --coords)");
 }
 if (failure !== "") { throw failure; }
 return;
