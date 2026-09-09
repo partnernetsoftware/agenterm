@@ -1,7 +1,8 @@
 // CEO: Linux orderwin above/below with independent xprop _NET_CLIENT_LIST_STACKING
 // and windows inventory z_index read-back. Two disposable GTK fixture windows; every
-// actuation verified from stacking sources outside the verb reply. AT-SPI/--name only;
-// no --coords or screenshot.
+// actuation verified from stacking sources outside the verb reply. Typed usage,
+// missing-window and headless host-limit paths must hold before any owned fixture
+// window exists. AT-SPI inventory handles only; no --name, no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -11,6 +12,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-atspi-orderwin",
 ];
+
+const MISSING_HANDLE = "99999999";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -46,6 +49,7 @@ function direct_file(path) {
 
 function cu_env(executable) {
   const env = {
+    AGENTERM_NO_ACTIVATE: "1",
     AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
   };
   for (const key of [
@@ -63,33 +67,150 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, arguments, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: cu_env(executable),
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
-  });
-  ensure(output.success === true, "cu_linux_orderwin_cli:" + output.stdout + output.stderr);
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_orderwin_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_orderwin_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_orderwin_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_orderwin_reply:" + JSON.stringify(document));
   return document;
 }
 
-function run_cu_reply(run_directory, executable, grant, arguments) {
-  const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: cu_env(executable),
-    timeout_ms: 45000,
-  });
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_orderwin_empty:" + output.stderr);
-  return JSON.parse(trimmed);
+function assert_orderwin_usage_limit(run_directory, executable) {
+  const missing_window = run_cu_reply(run_directory, executable, "actuate", [
+    "orderwin", "--relation", "above", "--relative", "1",
+  ]);
+  ensure(!output_success(missing_window), "cu_linux_orderwin_usage_window_ok:" + JSON.stringify(missing_window));
+  ensure(
+    text_at(missing_window, "error.code") === "usage",
+    "cu_linux_orderwin_usage_window_code:" + JSON.stringify(missing_window.error)
+  );
+  ensure(
+    text_at(missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_orderwin_usage_window_message:" + JSON.stringify(missing_window.error)
+  );
+
+  const missing_relative = run_cu_reply(run_directory, executable, "actuate", [
+    "orderwin", "--window", "1", "--relation", "above",
+  ]);
+  ensure(!output_success(missing_relative), "cu_linux_orderwin_usage_relative_ok:" + JSON.stringify(missing_relative));
+  ensure(
+    text_at(missing_relative, "error.code") === "usage",
+    "cu_linux_orderwin_usage_relative_code:" + JSON.stringify(missing_relative.error)
+  );
+  ensure(
+    text_at(missing_relative, "error.message").indexOf("--relative") >= 0,
+    "cu_linux_orderwin_usage_relative_message:" + JSON.stringify(missing_relative.error)
+  );
+
+  const missing_relation = run_cu_reply(run_directory, executable, "actuate", [
+    "orderwin", "--window", "1", "--relative", "2",
+  ]);
+  ensure(!output_success(missing_relation), "cu_linux_orderwin_usage_relation_ok:" + JSON.stringify(missing_relation));
+  ensure(
+    text_at(missing_relation, "error.code") === "usage",
+    "cu_linux_orderwin_usage_relation_code:" + JSON.stringify(missing_relation.error)
+  );
+  ensure(
+    text_at(missing_relation, "error.message").indexOf("--relation") >= 0,
+    "cu_linux_orderwin_usage_relation_message:" + JSON.stringify(missing_relation.error)
+  );
+
+  const bad_relation = run_cu_reply(run_directory, executable, "actuate", [
+    "orderwin", "--window", "1", "--relation", "sideways", "--relative", "2",
+  ]);
+  ensure(!output_success(bad_relation), "cu_linux_orderwin_usage_bad_relation_ok:" + JSON.stringify(bad_relation));
+  ensure(
+    text_at(bad_relation, "error.code") === "usage",
+    "cu_linux_orderwin_usage_bad_relation_code:" + JSON.stringify(bad_relation.error)
+  );
+  ensure(
+    text_at(bad_relation, "error.message").indexOf("above or below") >= 0,
+    "cu_linux_orderwin_usage_bad_relation_message:" + JSON.stringify(bad_relation.error)
+  );
+
+  const zero_window = run_cu_reply(run_directory, executable, "actuate", [
+    "orderwin", "--window", "0", "--relation", "above", "--relative", "1",
+  ]);
+  ensure(!output_success(zero_window), "cu_linux_orderwin_zero_window_ok:" + JSON.stringify(zero_window));
+  ensure(
+    text_at(zero_window, "error.code") === "usage",
+    "cu_linux_orderwin_zero_window_code:" + JSON.stringify(zero_window.error)
+  );
+  ensure(
+    text_at(zero_window, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_orderwin_zero_window_message:" + JSON.stringify(zero_window.error)
+  );
+
+  const zero_relative = run_cu_reply(run_directory, executable, "actuate", [
+    "orderwin", "--window", "1", "--relation", "above", "--relative", "0",
+  ]);
+  ensure(!output_success(zero_relative), "cu_linux_orderwin_zero_relative_ok:" + JSON.stringify(zero_relative));
+  ensure(
+    text_at(zero_relative, "error.code") === "usage",
+    "cu_linux_orderwin_zero_relative_code:" + JSON.stringify(zero_relative.error)
+  );
+  ensure(
+    text_at(zero_relative, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_orderwin_zero_relative_message:" + JSON.stringify(zero_relative.error)
+  );
+}
+
+function assert_orderwin_missing_window(run_directory, executable) {
+  const missing_window = run_cu_reply(run_directory, executable, "actuate", [
+    "orderwin", "--window", MISSING_HANDLE, "--relation", "above", "--relative", "1",
+  ]);
+  ensure(!output_success(missing_window), "cu_linux_orderwin_missing_window_ok:" + JSON.stringify(missing_window));
+  ensure(
+    text_at(missing_window, "error.code") === "a11y_window_gone",
+    "cu_linux_orderwin_missing_window_code:" + JSON.stringify(missing_window.error)
+  );
+  ensure(
+    text_at(missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_orderwin_missing_window_message:" + JSON.stringify(missing_window.error)
+  );
+}
+
+function assert_headless_host_limit(run_directory, executable) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "actuate",
+    ["orderwin", "--window", "1", "--relation", "above", "--relative", "2"],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply), "cu_linux_orderwin_headless_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_orderwin_headless_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("window enumeration") >= 0
+      || message.indexOf("mechanism unavailable") >= 0
+      || message.indexOf("agt_native_window_show") >= 0,
+    "cu_linux_orderwin_headless_message:" + JSON.stringify(reply.error)
+  );
 }
 
 function window_rows(run_directory, executable, pid) {
@@ -166,6 +287,14 @@ function ensure_stacking_above(run_directory, executable, above_handle, below_ha
   );
 }
 
+function ensure_inventory_z_above(second_row, main_row) {
+  ensure(
+    int_at(second_row, "z_index") < int_at(main_row, "z_index"),
+    "cu_linux_orderwin_inventory_z:second=" + int_at(second_row, "z_index")
+      + ":main=" + int_at(main_row, "z_index")
+  );
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -179,6 +308,15 @@ rh.create_dir_all(run_directory);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_orderwin_fixture_missing:" + fixture_source);
+
+print("STEP orderwin typed-fails usage when --window, --relative, or --relation is missing or invalid");
+assert_orderwin_usage_limit(run_directory, executable);
+
+print("STEP orderwin typed-fails a11y_window_gone when handle is absent from inventory");
+assert_orderwin_missing_window(run_directory, executable);
+
+print("STEP orderwin without DISPLAY typed-fails unsupported host-limit");
+assert_headless_host_limit(run_directory, executable);
 
 let fixture = -1;
 let fixture_pid = 0;
@@ -204,15 +342,41 @@ try {
   const second_row = inventory[second_title];
   ensure(main_row !== undefined && second_row !== undefined,
     "cu_linux_orderwin_window_inventory:" + JSON.stringify(inventory));
-  const main_handle = "" + int_at(main_row, "handle");
-  const second_handle = "" + int_at(second_row, "handle");
+  const main_handle = int_at(main_row, "handle");
+  const second_handle = int_at(second_row, "handle");
+  const main_handle_text = "" + main_handle;
+  const second_handle_text = "" + second_handle;
+  ensure(main_handle > 0 && second_handle > 0,
+    "cu_linux_orderwin_handles:" + main_handle_text + "," + second_handle_text);
   const main_z = int_at(main_row, "z_index");
   const second_z = int_at(second_row, "z_index");
-  print("STEP initial inventory: main z=" + main_z + " second z=" + second_z);
+  ensure(main_z > 0 && second_z > 0, "cu_linux_orderwin_baseline_z:" + main_z + "," + second_z);
+  print("STEP baseline windows inventory z_index: main z=" + main_z + " second z=" + second_z);
+  const baseline_indices = stacking_indices(run_directory, executable, [main_handle, second_handle]);
+  ensure(
+    baseline_indices["" + main_handle] >= 0 && baseline_indices["" + second_handle] >= 0,
+    "cu_linux_orderwin_baseline_xprop_stacking:" + JSON.stringify(baseline_indices)
+  );
+  print("STEP baseline independent xprop _NET_CLIENT_LIST_STACKING indices: main="
+    + baseline_indices["" + main_handle] + " second=" + baseline_indices["" + second_handle]);
+
+  print("STEP orderwin typed-fails a11y_window_gone when --relative handle is absent from inventory");
+  const missing_relative = run_cu_reply(run_directory, executable, "actuate", [
+    "orderwin", "--window", main_handle_text, "--relation", "above", "--relative", MISSING_HANDLE,
+  ]);
+  ensure(!output_success(missing_relative), "cu_linux_orderwin_missing_relative_ok:" + JSON.stringify(missing_relative));
+  ensure(
+    text_at(missing_relative, "error.code") === "a11y_window_gone",
+    "cu_linux_orderwin_missing_relative_code:" + JSON.stringify(missing_relative.error)
+  );
+  ensure(
+    text_at(missing_relative, "error.message").indexOf("--relative") >= 0,
+    "cu_linux_orderwin_missing_relative_message:" + JSON.stringify(missing_relative.error)
+  );
 
   print("STEP orderwin above: second above main");
   const raised = run_cu(run_directory, executable, "observe,actuate", [
-    "orderwin", "--window", second_handle, "--relation", "above", "--relative", main_handle,
+    "orderwin", "--window", second_handle_text, "--relation", "above", "--relative", main_handle_text,
   ]);
   ensure(
     flag_at(raised, "data.verified")
@@ -220,11 +384,8 @@ try {
     "cu_linux_orderwin_above_reply:" + JSON.stringify(raised.data)
   );
   const after_above = window_rows(run_directory, executable, fixture_pid);
-  ensure(
-    int_at(after_above[second_title], "z_index") < int_at(after_above[fixture_title], "z_index"),
-    "cu_linux_orderwin_above_inventory:" + JSON.stringify(after_above)
-  );
-  print("STEP orderwin above inventory: second z="
+  ensure_inventory_z_above(after_above[second_title], after_above[fixture_title]);
+  print("STEP orderwin above inventory z_index read-back: second z="
     + int_at(after_above[second_title], "z_index")
     + " main z=" + int_at(after_above[fixture_title], "z_index"));
   print("STEP independent xprop _NET_CLIENT_LIST_STACKING read-back: second above main");
@@ -237,7 +398,7 @@ try {
 
   print("STEP orderwin below: main below second");
   const lowered = run_cu(run_directory, executable, "observe,actuate", [
-    "orderwin", "--window", main_handle, "--relation", "below", "--relative", second_handle,
+    "orderwin", "--window", main_handle_text, "--relation", "below", "--relative", second_handle_text,
   ]);
   ensure(
     flag_at(lowered, "data.verified")
@@ -245,11 +406,8 @@ try {
     "cu_linux_orderwin_below_reply:" + JSON.stringify(lowered.data)
   );
   const after_below = window_rows(run_directory, executable, fixture_pid);
-  ensure(
-    int_at(after_below[fixture_title], "z_index") > int_at(after_below[second_title], "z_index"),
-    "cu_linux_orderwin_below_inventory:" + JSON.stringify(after_below)
-  );
-  print("STEP orderwin below inventory: main z="
+  ensure_inventory_z_above(after_below[second_title], after_below[fixture_title]);
+  print("STEP orderwin below inventory z_index read-back: main z="
     + int_at(after_below[fixture_title], "z_index")
     + " second z=" + int_at(after_below[second_title], "z_index"));
   print("STEP independent xprop _NET_CLIENT_LIST_STACKING read-back: second above main");
@@ -260,13 +418,27 @@ try {
     int_at(after_below[fixture_title], "handle")
   );
 
-  print("STEP orderwin same handle must refuse invalid_input");
+  print("STEP orderwin same handle must refuse invalid_input without changing stacking read-back");
+  const before_refusal = window_rows(run_directory, executable, fixture_pid);
+  const before_indices = stacking_indices(run_directory, executable, [main_handle, second_handle]);
   const same_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
-    "orderwin", "--window", main_handle, "--relation", "above", "--relative", main_handle,
+    "orderwin", "--window", main_handle_text, "--relation", "above", "--relative", main_handle_text,
   ]);
   ensure(
-    !flag_at(same_handle, "ok") && text_at(same_handle, "error.code") === "invalid_input",
+    !output_success(same_handle) && text_at(same_handle, "error.code") === "invalid_input",
     "cu_linux_orderwin_same:" + JSON.stringify(same_handle)
+  );
+  const after_refusal = window_rows(run_directory, executable, fixture_pid);
+  ensure(
+    int_at(after_refusal[second_title], "z_index") === int_at(before_refusal[second_title], "z_index")
+      && int_at(after_refusal[fixture_title], "z_index") === int_at(before_refusal[fixture_title], "z_index"),
+    "cu_linux_orderwin_same_inventory_changed:" + JSON.stringify({ before: before_refusal, after: after_refusal })
+  );
+  const after_indices = stacking_indices(run_directory, executable, [main_handle, second_handle]);
+  ensure(
+    after_indices["" + main_handle] === before_indices["" + main_handle]
+      && after_indices["" + second_handle] === before_indices["" + second_handle],
+    "cu_linux_orderwin_same_xprop_changed:" + JSON.stringify({ before: before_indices, after: after_indices })
   );
 } finally {
   if (fixture_pid !== 0) {
@@ -280,5 +452,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-orderwin");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-orderwin");
 harness.remove_run(context);
-print("PASS: CEO Linux orderwin above/below with independent xprop stacking and windows inventory read-back");
+print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back (no --coords)");
 return;
