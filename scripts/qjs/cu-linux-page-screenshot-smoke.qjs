@@ -1,8 +1,10 @@
 // CEO: Linux page-screenshot honesty — CU CDP capture writes a real PNG file.
 // Acceptance is smoke read-back only: page-screenshot --port must leave a
 // nonempty file whose magic bytes and decoded dimensions are verified by
-// independent host tools, not by the CU JSON alone. Disposable Chrome+CDP;
-// no --coords or screenshot-window degradation.
+// independent host tools, not by the CU JSON alone. Typed page-screenshot
+// usage/miss/no-CDP host-limit paths and independent pyatspi get-extents --name
+// agreement must hold before the PNG read-back court. Disposable Chrome+CDP;
+// AT-SPI/--name only; no --coords or screenshot-window degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -14,6 +16,8 @@ const declared_evidence = [
 ];
 
 const PNG_MAGIC_HEX = "89504e470d0a1a0a";
+const MARKER_NAME = "ScreenshotMarker";
+const MISSING_NODE = "No Such Marker";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -34,6 +38,14 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -75,21 +87,204 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(flag_at(document, "ok"), "cu_linux_page_screenshot_reply:" + JSON.stringify(document));
+  ensure(output_success(document), "cu_linux_page_screenshot_reply:" + JSON.stringify(document));
   return document;
 }
 
-function assert_no_cdp_listener(run_directory, executable, env, port) {
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_page_screenshot_usage(run_directory, executable, env, port, out_path) {
+  const missing_out = run_cu_reply(run_directory, executable, "observe", [
+    "page-screenshot", "--port", "" + port, "--target-id", "unused",
+  ], env);
+  ensure(!output_success(missing_out), "cu_linux_page_screenshot_usage_ok:" + JSON.stringify(missing_out));
+  ensure(
+    text_at(missing_out, "error.code") === "usage",
+    "cu_linux_page_screenshot_usage_code:" + JSON.stringify(missing_out.error)
+  );
+  ensure(
+    text_at(missing_out, "error.message").indexOf("--out") >= 0,
+    "cu_linux_page_screenshot_usage_message:" + JSON.stringify(missing_out.error)
+  );
+
+  const dual_target = run_cu_reply(run_directory, executable, "observe", [
+    "page-screenshot", "--port", "" + port, "--target-id", "unused",
+    "--target-title", "CEO", "--out", out_path,
+  ], env);
+  ensure(!output_success(dual_target), "cu_linux_page_screenshot_dual_ok:" + JSON.stringify(dual_target));
+  ensure(
+    text_at(dual_target, "error.code") === "usage",
+    "cu_linux_page_screenshot_dual_code:" + JSON.stringify(dual_target.error)
+  );
+  ensure(
+    text_at(dual_target, "error.message").indexOf("at most one") >= 0,
+    "cu_linux_page_screenshot_dual_message:" + JSON.stringify(dual_target.error)
+  );
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port, out_path) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
-    "page-targets", "--port", "" + port,
+    "page-screenshot", "--port", "" + port, "--target-id", "unused", "--out", out_path,
   ], env);
   ensure(reply.ok !== true, "cu_linux_page_screenshot_false_success:" + JSON.stringify(reply));
-  ensure(text_at(reply, "error.code") === "unsupported",
-    "cu_linux_page_screenshot_host_limit_code:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_screenshot_host_limit_code:" + JSON.stringify(reply)
+  );
   const message = text_at(reply, "error.message");
   ensure(
     message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
     "cu_linux_page_screenshot_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_screenshot_miss(run_directory, executable, env, port, out_path) {
+  const bad_target = run_cu_reply(run_directory, executable, "observe", [
+    "page-screenshot", "--port", "" + port, "--target-id", "deadbeef", "--out", out_path,
+  ], env);
+  ensure(!output_success(bad_target), "cu_linux_page_screenshot_miss_ok:" + JSON.stringify(bad_target));
+  ensure(
+    text_at(bad_target, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_screenshot_miss_code:" + JSON.stringify(bad_target.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", MARKER_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_page_screenshot_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_screenshot_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_screenshot_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", MARKER_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_page_screenshot_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_page_screenshot_extents_unavailable_code:" + code
+  );
+}
+
+function assert_get_extents_missing_node(run_directory, executable, env, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", MISSING_NODE,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_screenshot_extents_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_page_screenshot_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function window_row_for_title(run_directory, executable, env, title_needle) {
+  const reply = run_cu(run_directory, executable, "observe", ["windows"], env);
+  const data = at(reply, "data");
+  const rows = data.windows === undefined ? data : data.windows;
+  for (const row of rows) {
+    const title = text_at(row, "title");
+    if (title.indexOf(title_needle) < 0) { continue; }
+    const handle = int_at(row, "handle");
+    if (handle > 0) { return row; }
+  }
+  return null;
+}
+
+function independent_pyatspi_extents(run_directory, executable, env, fixture_title, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "want = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and title in (w.name or ''):",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == want:",
+    "        return node",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_page_screenshot_atspi_no_frame')",
+    "node = walk(frame)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_page_screenshot_atspi_miss:' + want)",
+    "component = node.queryComponent()",
+    "ext = component.getExtents(pyatspi.DESKTOP_COORDS)",
+    "x, y, w, h = int(ext.x), int(ext.y), int(ext.width), int(ext.height)",
+    "print(json.dumps({",
+    "    'name': want,",
+    "    'x': x, 'y': y, 'width': w, 'height': h,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, fixture_title, node_name], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_page_screenshot_pyatspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_get_extents_agreement(run_directory, executable, env, handle, fixture_title, node_name) {
+  const pyatspi_marker = independent_pyatspi_extents(
+    run_directory, executable, env, fixture_title, node_name
+  );
+  const marker_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", node_name,
+  ], env);
+  ensure(
+    int_at(marker_extents, "data.extents.x") === pyatspi_marker.x
+      && int_at(marker_extents, "data.extents.y") === pyatspi_marker.y
+      && int_at(marker_extents, "data.extents.width") === pyatspi_marker.width
+      && int_at(marker_extents, "data.extents.height") === pyatspi_marker.height,
+    "cu_linux_page_screenshot_extents_agree:" + JSON.stringify({
+      cu: marker_extents.data.extents,
+      pyatspi_marker: pyatspi_marker,
+    })
   );
 }
 
@@ -185,7 +380,7 @@ const fixture_title = "CEO Page Screenshot " + context.run_id;
 const fixture = rh.join(run_directory, "page-screenshot.html");
 rh.write_text(fixture, "<!DOCTYPE html><html><head><title>"
   + fixture_title + "</title></head><body style='background:#3366cc;color:#fff;font:48px sans-serif'>"
-  + "SHOT " + context.run_id + "</body></html>");
+  + "<div aria-label=\"" + MARKER_NAME + "\">SHOT " + context.run_id + "</div></body></html>");
 
 const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
 const port = 9600 + (rh.pid() % 500);
@@ -194,10 +389,22 @@ const screenshot_path = rh.join(run_directory, "page-shot-" + context.run_id + "
 let chrome_child = -1;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
   print("STEP verify the configured X11 display is usable before owning Chrome");
   assert_x11_display_usable(run_directory, env);
+
+  print("STEP get-extents typed-fail invalid_input when --window handle is zero");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
+  print("STEP page-screenshot typed usage rejects missing --out and dual target selectors before Chrome starts");
+  assert_page_screenshot_usage(run_directory, executable, env, port, screenshot_path);
 
   print("STEP clear stale box-chrome singletons on this display before owned CDP launch");
   rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
@@ -210,8 +417,8 @@ try {
   ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_screenshot_port_in_use:" + port);
 
-  print("STEP page-targets --port typed-fails no CDP listener on the owned free port before Chrome starts");
-  assert_no_cdp_listener(run_directory, executable, env, port);
+  print("STEP page-screenshot typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port, screenshot_path);
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
@@ -220,6 +427,7 @@ try {
       "--user-data-dir=" + profile,
       "--remote-debugging-port=" + port,
       "--remote-debugging-address=127.0.0.1",
+      "--remote-allow-origins=*",
       "--new-window",
       "file://" + fixture,
     ],
@@ -246,6 +454,41 @@ try {
     harness.sleep_ms(250);
   }
   ensure(target_id !== "", "cu_linux_page_screenshot_target_missing");
+
+  print("STEP page-screenshot typed miss paths reject bad targets before capture");
+  assert_page_screenshot_miss(run_directory, executable, env, port, screenshot_path);
+
+  if (atspi_available) {
+    print("STEP resolve owned Chrome window and unlock the renderer accessibility tree");
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+    ], env);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_screenshot_window_wait");
+
+    let window_row = null;
+    for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
+      window_row = window_row_for_title(run_directory, executable, env, fixture_title);
+      if (window_row === null) { harness.sleep_ms(250); }
+    }
+    ensure(window_row !== null, "cu_linux_page_screenshot_window_missing:" + fixture_title);
+    const window_handle = "" + int_at(window_row, "handle");
+    const window_title = text_at(window_row, "title");
+    ensure(window_handle !== "" && window_handle !== "0",
+      "cu_linux_page_screenshot_window_handle:" + JSON.stringify(window_row));
+
+    const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+      "unlock", "--window", window_handle,
+    ], env);
+    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_screenshot_unlock:" + JSON.stringify(unlocked.data));
+
+    print("STEP get-extents typed-fail a11y_node_not_found when the named marker is missing");
+    assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_capture");
+
+    print("STEP independent pyatspi extents and CU get-extents --name agree before page-screenshot");
+    assert_get_extents_agreement(
+      run_directory, executable, env, window_handle, window_title, MARKER_NAME
+    );
+  }
 
   print("STEP page-screenshot --port captures the owned page to --out");
   const shot = run_cu(run_directory, executable, "observe", [
@@ -289,5 +532,9 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_screenshot_failed");
 harness.remove_run(context);
-print("PASS: Linux page-screenshot CDP capture verified by independent PNG file read-back");
+if (atspi_available) {
+  print("PASS: Linux page-screenshot CDP capture verified by independent PNG read-back with get-extents --name pyatspi agreement and typed usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux page-screenshot CDP capture verified by independent PNG read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
 return;
