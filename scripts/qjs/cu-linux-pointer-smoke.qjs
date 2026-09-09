@@ -1,11 +1,13 @@
 // CEO: Linux pointer-position observe plus pointer-grab/ungrab with
 // independent xdotool position and X11 grab-probe read-back on DISPLAY=:2,
-// plus hover --name AT-SPI pointer delivery with typed usage/miss/host-limit
-// paths and independent pyatspi extents plus xdotool read-back on the session
-// display. Acceptance is smoke read-back only: CU coords must match xdotool and
-// grab status fields must match an independent XGrabPointer probe bracketing
-// each verb; hover must land pointer-position on the pyatspi extents center.
-// AT-SPI/--name only; no --coords or screenshot degradation.
+// plus hover --name AT-SPI pointer delivery with typed usage (zero-handle),
+// miss, and host-limit paths and independent pyatspi extents plus xdotool
+// read-back on the session display. Typed get-extents --name usage/host-limit
+// paths must hold before the hover actuate/read-back court. Acceptance is
+// smoke read-back only: CU coords must match xdotool and grab status fields
+// must match an independent XGrabPointer probe bracketing each verb; hover
+// must land pointer-position on the pyatspi extents center. AT-SPI/--name only;
+// no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -181,10 +183,23 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_hover_usage_limit(run_directory, executable) {
+function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(cu_args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env_atspi(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_pointer_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function assert_hover_usage_limit(run_directory, executable, env) {
   const hover_missing_name = run_cu_reply_atspi(run_directory, executable, "observe,actuate", [
     "hover", "--window", "1",
-  ]);
+  ], env);
   ensure(!output_success(hover_missing_name), "cu_linux_pointer_hover_usage_ok:" + JSON.stringify(hover_missing_name));
   ensure(
     text_at(hover_missing_name, "error.code") === "usage",
@@ -195,17 +210,62 @@ function assert_hover_usage_limit(run_directory, executable) {
     "cu_linux_pointer_hover_usage_message:" + JSON.stringify(hover_missing_name.error)
   );
 
+  const hover_missing_window = run_cu_reply_atspi(run_directory, executable, "observe,actuate", [
+    "hover", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(hover_missing_window), "cu_linux_pointer_hover_usage_window_ok:" + JSON.stringify(hover_missing_window));
+  ensure(
+    text_at(hover_missing_window, "error.code") === "invalid_input",
+    "cu_linux_pointer_hover_usage_window_code:" + JSON.stringify(hover_missing_window.error)
+  );
+  ensure(
+    text_at(hover_missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_pointer_hover_usage_window_message:" + JSON.stringify(hover_missing_window.error)
+  );
+
   const zero_handle = run_cu_reply_atspi(run_directory, executable, "observe,actuate", [
     "hover", "--window", "0", "--name", BUTTON_NAME,
-  ]);
+  ], env);
   ensure(!output_success(zero_handle), "cu_linux_pointer_hover_zero_handle_ok:" + JSON.stringify(zero_handle));
   ensure(
-    text_at(zero_handle, "error.code") === "usage",
+    text_at(zero_handle, "error.code") === "invalid_input",
     "cu_linux_pointer_hover_zero_handle_code:" + JSON.stringify(zero_handle.error)
   );
   ensure(
-    text_at(zero_handle, "error.message").indexOf("non-zero") >= 0,
+    text_at(zero_handle, "error.message").indexOf("--window") >= 0,
     "cu_linux_pointer_hover_zero_handle_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_pointer_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_pointer_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_pointer_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", BUTTON_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_pointer_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_pointer_extents_unavailable_code:" + code
   );
 }
 
@@ -404,11 +464,20 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env_atspi(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP hover typed-fail usage when --name or --window is missing");
-  assert_hover_usage_limit(run_directory, executable);
+  print("STEP hover typed-fail usage when --window or --name is missing");
+  assert_hover_usage_limit(run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before hover actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   print("STEP independent xdotool read-back agrees with pointer-position on :2");
   const before = assert_pointer_matches_independent_x11(run_directory, executable, "baseline");
@@ -584,7 +653,7 @@ harness.remove_run(context);
 ensure(failure === "", failure);
 ensure(succeeded === declared_evidence.length, "cu_linux_pointer_incomplete:" + succeeded);
 if (atspi_available) {
-  print("PASS: cu-linux-pointer-smoke with xdotool/X11 grab-probe read-back and hover --name pyatspi pointer read-back (" + succeeded + " evidence ids)");
+  print("PASS: cu-linux-pointer-smoke with typed hover/get-extents usage honesty, xdotool/X11 grab-probe read-back, and hover --name pyatspi pointer read-back (AT-SPI --name, no --coords; " + succeeded + " evidence ids)");
 } else {
-  print("PASS: cu-linux-pointer-smoke with xdotool/X11 grab-probe read-back and hover typed host-limit (" + succeeded + " evidence ids)");
+  print("PASS: cu-linux-pointer-smoke with typed hover/get-extents usage/host-limit honesty and xdotool/X11 grab-probe read-back (AT-SPI --name, no --coords; " + succeeded + " evidence ids)");
 }
