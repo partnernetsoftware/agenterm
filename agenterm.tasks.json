@@ -9485,7 +9485,7 @@
     },
     {
       "id": "cu-linux-network-dns-smoke",
-      "description": "Linux network-dns observe matches independent /etc/resolv.conf or resolvectl read-back for resolvers, search domains and coverage; typed network-dns usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the DNS/resolv read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux network-dns observe matches independent /etc/resolv.conf or resolvectl read-back for resolvers, search domains and coverage; typed network-dns usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the DNS/resolv read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-network-dns-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
