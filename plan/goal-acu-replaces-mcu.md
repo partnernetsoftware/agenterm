@@ -491,10 +491,13 @@ shapes fail typed instead of being ignored.
   MCU-shaped `drag` remains a gap because it promises background-local input
   while the current ACU path requires explicit degraded global-pointer
   admission. The measured window-local wheel route is not evidence for a
-  held-button sequence: a separate research-only Chromium court now freezes
-  exact down/held-move/up ordering, peer isolation, no-click behavior,
-  intermediate pointer/foreground preservation and the rule that every down
-  attempt owns exactly one same-target release attempt. MCU-shaped `zoom` is
+  held-button sequence: the separate research-only Chromium drag court froze
+  exact down/held-move/up ordering, peer isolation, trajectory-specific click
+  behavior, intermediate pointer/foreground/focus preservation and release
+  closure. Its first PRIVATE down changed Chromium's AX main/focused window
+  while the pointer and foreground guard stayed fixed, so the precommitted
+  `FAIL_PRIVATE` branch rejects that route and keeps the gap open. MCU-shaped
+  `zoom` is
   now losslessly projected through native
   `--local-region`: bounded pure arithmetic applies the archived 20 percent
   padding, native clipping uses one observed window bound, and the caller must

@@ -501,3 +501,37 @@ DOM-verified delivery, host-state preservation and release cleanup; an
 uncertain release is outcome-unknown and non-retryable.
 Windows and Linux remain separate gaps until their own exact-window mechanisms
 and public courts satisfy the same sequence and release invariants.
+
+### 10.5 Measured current-host verdict · 2026-09-10
+
+Attempt 1 at source `bc13ef1c2604909b21bc1439048a3e33427718f4`
+observed the same first-down focus drift described below, but was invalidated as
+`INCONCLUSIVE_REPORT_CONTRACT`: two unexercised paths did not yet give uncertain
+native up posting and page-observed release cardinality the precommitted
+`FAIL_RELEASE` precedence. The correction changed reporting enforcement, not
+the criteria.
+
+The corrected committed discriminator at source
+`69eabd558a6535a652b2ad58fce2220cea19c741` and probe digest
+`7837190688d4db3e6e0adee37fcd3a3fc45aa81cbd69468b8a1a36b854e05c3e`
+returned `FAIL_PRIVATE` on macOS build 25F80 arm64. On the first PRIVATE
+button-down, the physical pointer and foreground guard remained unchanged, but
+Chromium changed its AX main and focused window from peer A to target B. The
+injector stopped before any dragged move, attempted exactly one same-route
+button-up, reported `outcome_unknown=false`, and cleanup was verified.
+Seed `20260910` produced the recorded PRIVATE-first arm order; PRIVATE is not a
+fixed first arm in the discriminator.
+
+This is a G6 host-preservation failure and takes the precommitted
+`FAIL_PRIVATE` kill branch. The private route is rejected for product use on
+this host; another qualifying current-host run, G9 repeat and G10 host matrix
+must not run. The result remains research only and leaves the provider absent,
+the ledger pending, public evidence unregistered and `acu.dynamic.004` open.
+
+Application-local key/main-window handling on mouse-down is the likely
+mechanism, not a further measured fact. The archived MCU helper did not sample
+that state. The next product decision is therefore explicit: either permanently
+retire the legacy window-handle drag, or precommit a different mechanism or a
+changed contract. Accepting application-local focus movement would revise G6
+and the background-local promise, so it resets these results and cannot
+retroactively turn this run green.

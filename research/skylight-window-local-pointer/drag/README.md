@@ -4,13 +4,17 @@ This directory contains the owned Chromium page oracle precommitted by
 section 10 of `plan/design-skylight-window-local-pointer-experiment.md` for
 `acu.dynamic.004`.
 
-It is **research only**. The runner, injector and parent court are wired for
-the frozen G1-G8 current-host discriminator, but no result has been measured.
-They must not be registered as public evidence or used to change the capability
-ledger. The parent court owns the disposable Chromium profile, peer windows,
+It is **research only**. The runner, injector and parent court implement the
+frozen G1-G8 current-host discriminator. The corrected run recorded in
+`../RESULTS.md` returned `FAIL_PRIVATE` on its first PRIVATE down because the
+target application's AX main/focused window changed. The result must not be
+registered as public evidence or used to change the capability ledger. The
+parent court owns the disposable Chromium profile, peer windows,
 foreground guard, exact native identities, injection process and cleanup.
+Section 10.5 forbids rerunning this measured protocol without a new explicit
+precommitment.
 
-`page.html` has no external resources. A future court may load it twice as:
+`page.html` has no external resources. The parent court loads it twice as:
 
 ```text
 file://.../page.html?label=A&nonce=<fixture-nonce>

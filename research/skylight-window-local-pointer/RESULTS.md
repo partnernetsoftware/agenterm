@@ -206,3 +206,59 @@ foreground ownership. This satisfies the precommitted current-host Chromium
 repeat gate. It does not qualify a product provider or close
 `acu.dynamic.074`; it only permits spending a previous-generation arm64 host
 on the unchanged C9 run.
+
+## Chromium exact-window drag attempt 1 · 2026-09-10
+
+- Repository source SHA: `bc13ef1c2604909b21bc1439048a3e33427718f4`.
+- Drag source digest:
+  `25c01e88cf2b695ae509e9d486d60de3106d89c804263d0d80d95378b826500e`.
+- Runner output: `FAIL_PRIVATE` after the first PRIVATE down; one down attempt,
+  zero move attempts, one up attempt, no outcome uncertainty, and verified
+  cleanup.
+- Protocol adjudication: `INCONCLUSIVE_REPORT_CONTRACT`.
+
+The observed focus drift was behavioral, but a post-run read-only audit found
+two unexercised release-reporting defects: an up-post error could still be
+reported as a proved release, and a page-observed down without exactly one up
+did not take the highest-priority `FAIL_RELEASE` branch. The protocol was
+corrected without changing its precommitted criteria. This attempt is retained
+as an invalidated report-contract run and is not the final behavioral verdict.
+
+## Chromium exact-window drag attempt 2 · 2026-09-10
+
+- Repository source SHA: `69eabd558a6535a652b2ad58fce2220cea19c741`.
+- Drag source digest:
+  `7837190688d4db3e6e0adee37fcd3a3fc45aa81cbd69468b8a1a36b854e05c3e`.
+- Host: macOS build 25F80, arm64; Google Chrome 152.0.7977.83.
+- Verdict: `FAIL_PRIVATE` on the first PRIVATE down of the inside trajectory.
+- Seed: `20260910`; the recorded PRIVATE-first order came from the seeded arm
+  shuffle rather than a fixed first-arm rule.
+- Counts: zero completed triplets; one down attempt, zero move attempts and one
+  same-route up attempt; `outcome_unknown=false`.
+- Cleanup: required, completed and verified.
+
+The zero-injection calibration uniquely bound the owned background target B,
+peer A and foreground guard. The first PRIVATE button-down left the physical
+pointer, foreground PID and foreground native window unchanged, but changed
+Chromium's AX main and focused window from peer A to target B. The injector
+therefore stopped before posting any dragged move, still posted the prebuilt
+same-target button-up, and the parent completed cleanup. No target or peer DOM
+sequence was accepted as an exact gesture.
+
+The likely mechanism is application-local key/main-window handling when
+AppKit delivers a mouse-down to B. This is an interpretation, not an additional
+measured fact. The archived MCU helper checked the physical pointer and
+frontmost process but did not sample this application-local AX state, so the
+new court exposes a side effect the legacy success check could not see.
+
+This is the precommitted host-preservation failure in G6 and the
+`FAIL_PRIVATE` kill branch in section 10. The measured private route is rejected
+as a product basis on this host. A second qualifying 20-triplet run, the
+1,000-gesture G9 repeat and G10 host-matrix spending are forbidden after this
+behavioral failure. The result remains research only: it registers no public
+evidence, changes no capability-ledger state, qualifies no provider and does
+not close or remove `acu.dynamic.004`.
+
+A future decision to accept application-local key/main-window change would
+alter G6 and the background-local contract; it requires a new precommitment and
+resets these drag results rather than reclassifying this run.

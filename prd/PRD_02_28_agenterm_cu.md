@@ -601,8 +601,9 @@ ACU-only cutover
 │  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
 │  ├─ [~] acu.dynamic.004 · legacy drag requires exact-window down/held-move/up delivery;
 │  │  └─ wheel delivery cannot prove held-button routing or release cleanup, so the
-│  │     research-only Chromium drag court must pass its own target, peer, host-state,
-│  │     no-click and every-down-has-one-up criteria before any provider is designed
+│  │     research-only Chromium drag court returned `FAIL_PRIVATE`: its first private
+│  │     down changed Chromium's AX main/focused window despite preserving the physical
+│  │     pointer and foreground guard; release and cleanup closed, but this route cannot ship
 │  ├─ [x] acu.dynamic.005 · legacy window-local zoom corners map to native `--local-region`;
 │  │  └─ bounded pure arithmetic preserves the archived 20 percent padding while native
 │  │     clipping uses one observed window bound; explicit output replaces the hidden path
