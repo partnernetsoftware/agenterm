@@ -394,6 +394,10 @@ bounded descendants, parent edges, scheduler state, signal, timeout and
 expiry, and its public qjswasm court proves zero mutation. The leaf remains a
 gap until the fixed-identity provider owns consent, provider-side reservation,
 retained-object effect and postcondition read-back.
+The Bun-free compatibility entry now forwards the exact legacy
+`privilege plan process.signal PID SIGNAL` argv into that same typed planner;
+it no longer reports `acu.dynamic.058` for a read-only capability that ACU
+already owns.
 
 The latest removed fallbacks are `session`, `lock` and `audit`; all their MCU
 public shapes now rewrite onto the native ACU runtime spine. `audit compact`

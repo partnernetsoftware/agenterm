@@ -20,7 +20,7 @@ const corpus_gap_ids = [];
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
 }
-require(compat.LEGACY_TODO_GAP_IDS.length === 10,
+require(compat.LEGACY_TODO_GAP_IDS.length === 9,
   "legacy TODO catalog count drifted from the reviewed archive");
 for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
   const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
@@ -290,8 +290,6 @@ todo_case(["job", "resources", "job-1", "--generation", "7", "--max", "5"],
   "acu.dynamic.018", "legacy job resource acquisition ceiling");
 todo_case(["device", "claim", "legacy-device-path"], "acu.dynamic.054", "legacy device claim");
 todo_case(["storage", "mount", "disk-1"], "acu.dynamic.057", "legacy storage mount");
-todo_case(["privilege", "plan", "process.signal", "42", "TERM"],
-  "acu.dynamic.058", "legacy privilege plan");
 todo_case(["browser", "bridge", "status"], "acu.dynamic.075", "legacy browser bridge");
 todo_case(["elements", "Window#1", "--actionable", "true"],
   "acu.dynamic.078", "legacy elements projection");
@@ -299,6 +297,18 @@ todo_case(["observe", "Window#1", "--action", "press"],
   "acu.dynamic.081", "legacy observe filter");
 todo_case(["windows", "--space", "7", "--occluded", "true"],
   "acu.dynamic.085", "legacy windows Space filter");
+
+const signal_plan = compat.canonicalize([
+  "--target", "current", "--grant", "observe", "privilege", "plan",
+  "process.signal", "42", "TERM", "--tree", "--max", "8",
+  "--timeout-ms", "5000", "--ttl-seconds", "60"
+]);
+require(signal_plan.kind === "exec", "legacy privilege signal plan maps to native execution");
+require(JSON.stringify(signal_plan.argv) === JSON.stringify([
+  "--target", "current", "--grant", "observe", "privilege", "plan",
+  "process.signal", "42", "TERM", "--tree", "--max", "8",
+  "--timeout-ms", "5000", "--ttl-seconds", "60"
+]), "legacy privilege signal plan preserves exact argv and global prefix");
 
 const resource_pressure = compat.canonicalize(["resource", "pressure"]);
 require(resource_pressure.kind === "exec", "resource pressure must use the native typed provider");

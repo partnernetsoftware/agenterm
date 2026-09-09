@@ -600,6 +600,8 @@ ACU-only cutover
 │  ├─ [x] acu.dynamic.051 · the frozen `resource top` witness remains native and the related
 │  │  `resource pressure` spelling now maps losslessly to `resource-pressure`; the public
 │  │  qjswasm court executes both pressure spellings and preserves host-native semantics
+│  ├─ [x] acu.dynamic.058 · legacy `privilege plan process.signal` reaches the native
+│  │  identity- and tree-bound read-only planner; consented apply qualification remains separate
 │  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
 │  ├─ [x] acu.dynamic.067 · `literal.*` reduces exactly to native loss-aware substring wait;
 │  │  └─ general regex is native and linear-time over a complete retained scan window with
@@ -1798,7 +1800,9 @@ flowchart LR
   pre-stopped members remain stopped on failed TERM. Fixture courts prove the
   one-attempt gate and recoverable tree core without claiming elevation. This
   fixed Linux broker now reaches that effect core, so this is no longer an API
-  capability gap. Its platform qualification remains open until the public
+  capability gap. The Bun-free legacy entry forwards this exact plan shape to
+  the same parser and Executor instead of retaining the stale
+  `acu.dynamic.058` TODO. Its platform qualification remains open until the public
   apply court, remaining caller-death/failure cases, both Linux ISAs and the
   release-size court are green. macOS already has a launchd + Authorization
   Services protected transport, but still lacks broker-owned metrics and a

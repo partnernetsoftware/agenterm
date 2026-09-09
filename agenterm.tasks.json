@@ -4875,7 +4875,7 @@
     },
     "acu-compat-todo-smoke": {
       "inputs": [
-        "built-agenterm",
+        "built-agenterm-with-acu-provider",
         "acu-compatibility-corpus"
       ],
       "outputs": [
@@ -10336,7 +10336,7 @@
     },
     {
       "id": "acu-compat-todo-smoke",
-      "description": "Prove archived legacy gaps and retirements return stable typed identities before dispatch while unknown spellings remain ordinary native usage errors.",
+      "description": "Prove archived legacy gaps and retirements keep stable typed identities before dispatch, the repaired privilege signal plan reaches the shared read-only provider, and unknown spellings remain ordinary native usage errors.",
       "entry": "scripts/qjs/acu-compat-todo-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
