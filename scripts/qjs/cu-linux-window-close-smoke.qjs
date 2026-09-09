@@ -134,13 +134,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function usage_message_mentions_unexpected(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("--coords") >= 0
-    || message.indexOf("unexpected") >= 0
-    || message.indexOf("--bogus") >= 0;
-}
-
 function close_refused(run_directory, executable, grant, arguments, code) {
   const reply = run_cu_reply(run_directory, executable, grant, ["close"].concat(arguments));
   ensure(
@@ -284,7 +277,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_window_close_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(extents_coords, "error.message")),
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_window_close_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_window_close_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -297,7 +295,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_window_close_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(extents_bogus, "error.message")),
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_window_close_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_window_close_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
