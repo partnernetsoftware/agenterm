@@ -3,8 +3,10 @@
 // fixture must write a real PNG whose magic, IHDR dimensions and size agree
 // with inventory bounds; optional full-display screenshot is secondary.
 // Typed screenshot usage must reject AT-SPI --name, --coords, --bogus, and
-// other unexpected arguments; typed get-extents --name usage AND host-limit
-// paths must both hold before the screenshot actuate/read-back court. Missing
+// other unexpected arguments (usage_rejects_unexpected + command=usage, never
+// fake command=usage); typed get-extents --name usage AND host-limit paths must
+// both always run before the screenshot actuate/read-back court, including
+// get-extents --coords/--bogus command=usage honesty. Missing
 // DISPLAY host-limit paths must hold; stale handles typed-fail
 // screenshot_window_unavailable. Prefer host-limit clarity over fake success.
 // AT-SPI/--name only; no --coords.
@@ -385,6 +387,44 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_screenshot_window_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_screenshot_window_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_screenshot_window_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_screenshot_window_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_screenshot_window_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_screenshot_window_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_screenshot_window_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_screenshot_window_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_screenshot_window_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
+  );
 }
 
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
@@ -474,13 +514,11 @@ try {
   print("STEP screenshot typed-fails usage when AT-SPI --name, --coords, or --bogus is present");
   assert_screenshot_atspi_name_usage_limit(run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail --name usage (zero --window invalid_input; missing --name usage) before screenshot actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before screenshot actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before screenshot actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   print("STEP screenshot without DISPLAY typed-fails unsupported x11-display host-limit");
   assert_headless_display_host_limit(
@@ -574,11 +612,11 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-screenshot-window-readback");
   harness.remove_run(context);
   if (window_enum.available !== true) {
-    print("PASS: Linux screenshot --window typed screenshot --name/--coords/--bogus and get-extents --name usage honesty with x11 window-enum host-limit when CU inventory is unavailable (AT-SPI --name, no --coords)");
+    print("PASS: Linux screenshot --window typed screenshot --name/--coords/--bogus usage_rejects_unexpected plus get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty with x11 window-enum host-limit when CU inventory is unavailable (AT-SPI --name, no --coords)");
   } else if (atspi_available) {
-    print("PASS: Linux screenshot --window with typed screenshot --name/--coords/--bogus and get-extents --name usage honesty, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
+    print("PASS: Linux screenshot --window with typed screenshot --name/--coords/--bogus usage_rejects_unexpected, get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux screenshot --window with typed screenshot --name/--coords/--bogus usage and get-extents --name host-limit honesty, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
+    print("PASS: Linux screenshot --window with typed screenshot --name/--coords/--bogus usage_rejects_unexpected, get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
