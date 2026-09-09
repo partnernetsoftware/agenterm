@@ -296,6 +296,16 @@
       ]
     },
     {
+      "id": "cu-windows-app-facts-smoke",
+      "evidence": [
+        "cu.app-facts.windows-executable-identity",
+        "cu.app-facts.windows-unsigned-honesty",
+        "cu.app-facts.windows-running-readback",
+        "cu.app-facts.windows-signature-honesty",
+        "cu.app-facts.windows-typed-failures"
+      ]
+    },
+    {
       "id": "cu-pty-smoke",
       "evidence": [
         "cu.pty-background-interactive",

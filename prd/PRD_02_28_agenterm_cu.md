@@ -607,7 +607,8 @@ ACU-only cutover
 │  │  ├─ [~] acu.native.app.facts-signature · Linux `app-facts` resolves exact bounded XDG
 │  │  │  entry/executable facts; macOS resolves exact bundles and returns native signing,
 │  │  │  verification and entitlement facts through a public court; the frozen `apps inspect`
-│  │  │  witness maps to this verb, while Windows native facts and its court remain
+│  │  │  witness maps to this verb; the Windows provider has landed and its public
+│  │  │  court is registered but has not run on a Windows guest, so that cell remains pending
 │  │  ├─ acu.native.app.lifecycle-watch · bounded application process lifecycle
 │  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
 │  ├─ [~] acu.dynamic.074 · window-local scroll without physical-pointer movement

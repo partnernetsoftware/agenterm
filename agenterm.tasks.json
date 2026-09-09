@@ -2067,6 +2067,23 @@
         "task.cu-windows-file-watch-smoke"
       ]
     },
+    "cu-windows-app-facts-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-windows-app-facts-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-windows-app-facts-smoke"
+      ]
+    },
     "cu-linux-ps-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -7255,6 +7272,25 @@
       "id": "cu-windows-file-watch-smoke",
       "description": "Prove bounded single-directory Windows ReadDirectoryChangesW file-watch: direct-entry create, modify, rename and remove events have independent filesystem read-back; nested and outside changes do not leak; max-events 1 truncates and returns early; invalid paths and zero bounds fail typed. No GUI; unavailable providers fail non-zero without evidence.",
       "entry": "scripts/qjs/cu-windows-file-watch-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-windows-app-facts-smoke",
+      "description": "Prove bounded Windows app facts: path, HKCU Uninstall id and unique DisplayName resolve one executable; a court-built unsigned PE preserves absent signing facts; an owned --sleep copy proves running true then false; a self-signed embedded Authenticode signature is present while verification is false; missing, non-executable, unknown-key and duplicate-name selectors fail typed. No GUI, admin or network; keys and certificate are removed; unavailable providers report BLOCKED.",
+      "entry": "scripts/qjs/cu-windows-app-facts-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

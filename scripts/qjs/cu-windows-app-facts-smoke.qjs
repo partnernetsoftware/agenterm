@@ -1,0 +1,417 @@
+// Windows public black-box court for exact bounded application facts.
+//
+// Light-weight and one-shot. Every fixture lives in the run directory or in
+// the current user's own registry hive and certificate store:
+//   - facts-fixture.exe: a tiny court-owned C# executable with no Authenticode
+//     signature, registered under one HKCU Uninstall key so path,
+//     key id and unique Name selectors resolve the same executable;
+//   - ambiguous-one/two.exe: two registrations sharing one DisplayName;
+//   - running-fixture.exe: a copy of that same fixture whose --sleep mode can
+//     flip running true -> false under kill;
+//   - signed-fixture.exe: another copy signed with a self-signed code-signing
+//     certificate created in Cert:\CurrentUser\My for the duration of the
+//     court, so signature is present while verification is an honest false.
+// No GUI, no administrator rights, no network. The registry keys and the
+// certificate are removed after the verdict on every path, and evidence is
+// emitted only after a fully green run with successful cleanup.
+//
+// Until the native Windows provider is merged the first lookup returns the
+// typed app_facts_platform_unsupported error; the court then reports BLOCKED,
+// exits non-zero and emits no evidence. A host without the PowerShell PKI
+// cmdlets is also BLOCKED rather than partially passed.
+//
+// Args: REPO AGENTERM_CU_EXE (target/debug/agenterm-cu.exe)
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.app-facts.windows-executable-identity",
+  "cu.app-facts.windows-unsigned-honesty",
+  "cu.app-facts.windows-running-readback",
+  "cu.app-facts.windows-signature-honesty",
+  "cu.app-facts.windows-typed-failures"
+];
+
+const UNINSTALL_ROOT = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
+const FIXTURE_KEY = "org.example.FactsFixture";
+const FIXTURE_NAME = "Facts Fixture";
+const FIXTURE_VERSION = "1.2.3";
+const AMBIGUOUS_NAME = "Ambiguous Fixture";
+const AMBIGUOUS_KEYS = ["org.example.AmbiguousOne", "org.example.AmbiguousTwo"];
+const SIGNER_SUBJECT = "AgenTerm Court";
+const UNSIGNED_NEEDLE = "authenticode";
+const RUNNING_ARGS = ["--sleep"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function backslashes(value) {
+  return ("" + value).replaceAll("/", "\\");
+}
+
+function lowercase_hex(value) {
+  let lowered = "" + value;
+  for (const pair of [["A", "a"], ["B", "b"], ["C", "c"], ["D", "d"], ["E", "e"], ["F", "f"]]) {
+    lowered = lowered.replaceAll(pair[0], pair[1]);
+  }
+  return lowered;
+}
+
+function invoke(run_directory, executable, environment, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe"
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: environment,
+    timeout_ms: 60000
+  });
+  ensure(output.stdout.trim() !== "", "cu_windows_app_facts_empty_reply:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  if (reply.ok !== true && text_at(reply, "error.code") === "app_facts_platform_unsupported") {
+    throw "BLOCKED:native-windows-app-facts-provider-not-merged:" + text_at(reply, "error.message");
+  }
+  ensure(output.success === expect_success, "cu_windows_app_facts_exit:" + output.exit_code + ":" + output.stdout);
+  ensure(reply.ok === expect_success, "cu_windows_app_facts_reply_state");
+  ensure(reply.command === "app-facts", "cu_windows_app_facts_command");
+  return reply;
+}
+
+function assert_present(fact, message) {
+  ensure(text_at(fact, "status") === "present", message + ":status:" + text_at(fact, "status"));
+  ensure(fact.value !== undefined && fact.value !== null, message + ":value");
+  ensure(fact.reason === undefined, message + ":reason");
+}
+
+function assert_reasoned(fact, status, message) {
+  ensure(text_at(fact, "status") === status, message + ":status:" + text_at(fact, "status"));
+  ensure(text_at(fact, "reason").length > 0, message + ":reason");
+  ensure(fact.value === undefined, message + ":value");
+}
+
+function assert_reasoned_with(fact, status, needle, message) {
+  assert_reasoned(fact, status, message);
+  ensure(text_at(fact, "reason").indexOf(needle) >= 0, message + ":reason-text:" + text_at(fact, "reason"));
+}
+
+// System tools are invoked directly by absolute path; nothing goes through a
+// shell and nothing leaves the current user's own hive, store and run dir.
+function inbox(name) {
+  const candidate = rh.join(rh.env_or("WINDIR", "C:/Windows"), "System32/" + name);
+  ensure(direct_file(candidate), "cu_windows_app_facts_inbox_missing:" + name);
+  return candidate;
+}
+
+function find_csc(windows) {
+  const candidates = [
+    rh.join(windows, "Microsoft.NET/Framework64/v4.0.30319/csc.exe"),
+    rh.join(windows, "Microsoft.NET/Framework/v4.0.30319/csc.exe")
+  ];
+  for (const candidate of candidates) {
+    if (direct_file(candidate)) { return candidate; }
+  }
+  throw "BLOCKED:windows-csc-unavailable";
+}
+
+function run_tool(program, arguments, label) {
+  const output = rh.command(program, arguments, { timeout_ms: 60000 });
+  ensure(output.success === true, "cu_windows_app_facts_tool:" + label + ":" + output.exit_code
+    + ":" + output.stdout + output.stderr);
+  return output.stdout;
+}
+
+function try_tool(program, arguments) {
+  const output = rh.command(program, arguments, { timeout_ms: 60000 });
+  return output.success === true;
+}
+
+function reg_add(reg, key, name, value) {
+  run_tool(reg, ["add", UNINSTALL_ROOT + "\\" + key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"],
+    "reg-add:" + key + ":" + name);
+}
+
+function register_fixture(reg, key, display_name, version, executable) {
+  reg_add(reg, key, "DisplayName", display_name);
+  reg_add(reg, key, "DisplayVersion", version);
+  reg_add(reg, key, "DisplayIcon", backslashes(executable) + ",0");
+}
+
+function copy_executable(source, target) {
+  rh.copy(source, target);
+  ensure(direct_file(target), "cu_windows_app_facts_fixture_copy_missing:" + target);
+  return target;
+}
+
+// One PowerShell invocation creates the throw-away code-signing certificate in
+// the current user's store and signs the fixture with it. It prints the
+// certificate thumbprint on its own line so the court can remove exactly that
+// certificate afterwards. A host without these cmdlets is BLOCKED.
+function self_sign(powershell, target) {
+  const script = "$ErrorActionPreference = 'Stop'; "
+    + "if (-not (Get-Command New-SelfSignedCertificate -ErrorAction SilentlyContinue)) { Write-Output 'MISSING-PKI'; exit 3 }; "
+    + "$c = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=" + SIGNER_SUBJECT + "' -CertStoreLocation Cert:\\CurrentUser\\My; "
+    + "Write-Output ('THUMBPRINT=' + $c.Thumbprint); "
+    + "$s = Set-AuthenticodeSignature -FilePath '" + backslashes(target) + "' -Certificate $c; "
+    + "Write-Output ('STATUS=' + $s.Status)";
+  const output = rh.command(powershell, ["-NoProfile", "-NonInteractive", "-Command", script],
+    { timeout_ms: 120000 });
+  const text = output.stdout + output.stderr;
+  if (text.indexOf("MISSING-PKI") >= 0) {
+    throw "BLOCKED:self-signing-cmdlets-unavailable:New-SelfSignedCertificate";
+  }
+  let thumbprint = "";
+  for (const line of output.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("THUMBPRINT=")) { thumbprint = trimmed.substring("THUMBPRINT=".length); }
+  }
+  ensure(thumbprint !== "", "cu_windows_app_facts_self_sign_thumbprint:" + text);
+  ensure(output.success === true, "cu_windows_app_facts_self_sign:" + output.exit_code + ":" + text);
+  return thumbprint;
+}
+
+function remove_certificate(powershell, thumbprint) {
+  if (thumbprint === "") { return true; }
+  return try_tool(powershell, ["-NoProfile", "-NonInteractive", "-Command",
+    "Remove-Item -Path 'Cert:\\CurrentUser\\My\\" + thumbprint + "' -DeleteKey -Force -ErrorAction Stop"]);
+}
+
+function assert_common_identity(data, selector, fixture_path) {
+  ensure(text_at(data, "schema_version") === "1", "cu_windows_app_facts_schema");
+  ensure(text_at(data, "platform") === "windows", "cu_windows_app_facts_platform");
+  ensure(text_at(data, "selector") === selector, "cu_windows_app_facts_selector_echo");
+  assert_reasoned(data.desktop_entry_id, "not-applicable", "cu_windows_app_facts_desktop_entry");
+  assert_present(data.name, "cu_windows_app_facts_name");
+  assert_present(data.path, "cu_windows_app_facts_path");
+  const path = text_at(data, "path.value");
+  ensure(!path.startsWith("\\\\?\\"), "cu_windows_app_facts_path_verbatim_prefix:" + path);
+  ensure(path.endsWith("facts-fixture.exe"), "cu_windows_app_facts_path_target:" + path);
+  assert_present(data.executable, "cu_windows_app_facts_executable");
+  ensure(text_at(data, "executable.value") === path, "cu_windows_app_facts_executable_is_path");
+  assert_present(data.running, "cu_windows_app_facts_running");
+  ensure(rh.field(data, "running.value") === false, "cu_windows_app_facts_idle_running");
+  const version_status = text_at(data, "version.status");
+  ensure(version_status === "present" || version_status === "absent",
+    "cu_windows_app_facts_version_status:" + version_status);
+  if (version_status === "absent") { assert_reasoned(data.version, "absent", "cu_windows_app_facts_version_absent"); }
+  ensure(fixture_path !== "", "cu_windows_app_facts_fixture_path");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_windows_app_facts_executable_missing:" + executable);
+const reg = inbox("reg.exe");
+const powershell = inbox("WindowsPowerShell/v1.0/powershell.exe");
+const csc = find_csc(rh.env_or("WINDIR", "C:/Windows"));
+
+const context = harness.new_context(repo, "cu-windows-app-facts");
+const run_directory = context.run_directory;
+const apps = rh.join(run_directory, "apps");
+rh.create_dir_all(apps);
+const fixture = rh.join(apps, "facts-fixture.exe");
+const ambiguous_one = rh.join(apps, "ambiguous-one.exe");
+const ambiguous_two = rh.join(apps, "ambiguous-two.exe");
+const running_fixture = rh.join(apps, "running-fixture.exe");
+const signed_fixture = rh.join(apps, "signed-fixture.exe");
+const fixture_source = rh.join(apps, "facts-fixture.cs");
+
+const environment = {
+  AGENTERM_NO_ACTIVATE: "1",
+  AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+  AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl")
+};
+
+const children = [];
+const registered_keys = [];
+let thumbprint = "";
+let succeeded = 0;
+let failure = "";
+let blocked = "";
+try {
+  print("STEP the native provider answers one real lookup before any fixture is registered");
+  rh.write_text(fixture_source,
+    "using System; using System.Threading; public static class FactsFixture { "
+    + "public static int Main(string[] args) { if (args.Length == 1 && args[0] == \"--sleep\") "
+    + "{ Thread.Sleep(120000); } return 0; } }");
+  run_tool(csc, ["/nologo", "/target:exe", "/platform:anycpu", "/out:" + backslashes(fixture),
+    backslashes(fixture_source)], "compile-fixture");
+  ensure(direct_file(fixture), "cu_windows_app_facts_compiled_fixture_missing");
+  const probe = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", fixture], true);
+  assert_common_identity(probe.data, fixture, fixture);
+  const path_version = text_at(probe.data, "version.status") === "present"
+    ? text_at(probe.data, "version.value") : "";
+  assert_reasoned(probe.data.bundle, "absent", "cu_windows_app_facts_path_bundle_absent");
+  assert_reasoned(probe.data.signature, "not-requested", "cu_windows_app_facts_signing_default");
+  assert_reasoned(probe.data.signature_verified, "not-requested", "cu_windows_app_facts_verify_default");
+  assert_reasoned(probe.data.entitlements, "not-requested", "cu_windows_app_facts_entitlements_default");
+
+  print("STEP path, uninstall key id and unique DisplayName resolve the same registered executable");
+  register_fixture(reg, FIXTURE_KEY, FIXTURE_NAME, FIXTURE_VERSION, fixture);
+  registered_keys.push(FIXTURE_KEY);
+  copy_executable(executable, ambiguous_one);
+  copy_executable(executable, ambiguous_two);
+  register_fixture(reg, AMBIGUOUS_KEYS[0], AMBIGUOUS_NAME, "0.1", ambiguous_one);
+  registered_keys.push(AMBIGUOUS_KEYS[0]);
+  register_fixture(reg, AMBIGUOUS_KEYS[1], AMBIGUOUS_NAME, "0.2", ambiguous_two);
+  registered_keys.push(AMBIGUOUS_KEYS[1]);
+  const canonical = text_at(probe.data, "path.value");
+  for (const selector of [FIXTURE_KEY, FIXTURE_NAME]) {
+    const data = invoke(run_directory, executable, environment,
+      ["app-facts", "--selector", selector], true).data;
+    assert_common_identity(data, selector, fixture);
+    ensure(text_at(data, "path.value") === canonical, "cu_windows_app_facts_registry_path_agrees:" + selector);
+    assert_present(data.bundle, "cu_windows_app_facts_registry_bundle:" + selector);
+    ensure(text_at(data, "bundle.value") === FIXTURE_KEY, "cu_windows_app_facts_registry_bundle_value:" + selector);
+    assert_present(data.version, "cu_windows_app_facts_registry_version:" + selector);
+    // The executable's own version resource wins; the registry DisplayVersion
+    // is only the fallback for an executable without one.
+    const expected_version = path_version === "" ? FIXTURE_VERSION : path_version;
+    ensure(text_at(data, "version.value") === expected_version,
+      "cu_windows_app_facts_registry_version_value:" + selector + ":" + text_at(data, "version.value"));
+  }
+
+  print("STEP requested signing facts on an unsigned executable are absent; entitlements are not applicable");
+  const unsigned = invoke(run_directory, executable, environment, [
+    "app-facts", "--selector", fixture, "--signing", "--verify", "--entitlements"
+  ], true).data;
+  assert_common_identity(unsigned, fixture, fixture);
+  assert_reasoned_with(unsigned.signature, "absent", UNSIGNED_NEEDLE, "cu_windows_app_facts_unsigned_signature");
+  assert_reasoned_with(unsigned.signature_verified, "absent", UNSIGNED_NEEDLE, "cu_windows_app_facts_unsigned_verified");
+  assert_reasoned(unsigned.entitlements, "not-applicable", "cu_windows_app_facts_entitlements");
+  const signing_only = invoke(run_directory, executable, environment, [
+    "app-facts", "--selector", fixture, "--signing"
+  ], true).data;
+  assert_reasoned_with(signing_only.signature, "absent", UNSIGNED_NEEDLE, "cu_windows_app_facts_signing_only");
+  assert_reasoned(signing_only.signature_verified, "not-requested", "cu_windows_app_facts_signing_only_verify");
+  assert_reasoned(signing_only.entitlements, "not-requested", "cu_windows_app_facts_signing_only_entitlements");
+
+  print("STEP running follows an owned instance of a copied court executable: true while alive, false after kill");
+  copy_executable(fixture, running_fixture);
+  const child = harness.start_child(context, {
+    program: running_fixture,
+    args: RUNNING_ARGS,
+    current_dir: run_directory,
+    env: {},
+    timeout_ms: 180000
+  }, "running-fixture");
+  children.push(child);
+  ensure(harness.child_state(child) === "running", "cu_windows_app_facts_child_not_running");
+  const alive = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", running_fixture], true).data;
+  ensure(text_at(alive, "platform") === "windows", "cu_windows_app_facts_running_platform");
+  assert_present(alive.executable, "cu_windows_app_facts_running_executable");
+  ensure(text_at(alive, "executable.value").endsWith("running-fixture.exe"),
+    "cu_windows_app_facts_running_executable_target:" + text_at(alive, "executable.value"));
+  ensure(text_at(alive, "version.status") === text_at(probe.data, "version.status"),
+    "cu_windows_app_facts_running_version_status");
+  assert_present(alive.running, "cu_windows_app_facts_running_status");
+  ensure(rh.field(alive, "running.value") === true, "cu_windows_app_facts_running_true");
+  harness.child_kill(child);
+  const exit = harness.child_wait(child, 10000);
+  ensure(exit.timed_out !== true, "cu_windows_app_facts_child_kill_timeout");
+  const gone = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", running_fixture], true).data;
+  assert_present(gone.running, "cu_windows_app_facts_gone_status");
+  ensure(rh.field(gone, "running.value") === false, "cu_windows_app_facts_running_false");
+
+  print("STEP a self-signed embedded Authenticode signature is present while verification is an honest false");
+  copy_executable(fixture, signed_fixture);
+  thumbprint = self_sign(powershell, signed_fixture);
+  const signed = invoke(run_directory, executable, environment, [
+    "app-facts", "--selector", signed_fixture, "--signing", "--verify", "--entitlements"
+  ], true).data;
+  ensure(text_at(signed, "platform") === "windows", "cu_windows_app_facts_signed_platform");
+  assert_present(signed.signature, "cu_windows_app_facts_signed_signature");
+  ensure(text_at(signed, "signature.value").startsWith("subject=" + SIGNER_SUBJECT + ";"),
+    "cu_windows_app_facts_signed_subject:" + text_at(signed, "signature.value"));
+  const thumbprint_marker = ";thumbprint=";
+  const signature_value = text_at(signed, "signature.value");
+  const thumbprint_index = signature_value.indexOf(thumbprint_marker);
+  ensure(thumbprint_index > 0, "cu_windows_app_facts_signed_thumbprint_marker");
+  const observed_thumbprint = signature_value.substring(thumbprint_index + thumbprint_marker.length);
+  ensure(observed_thumbprint !== "" && observed_thumbprint === lowercase_hex(thumbprint),
+    "cu_windows_app_facts_signed_thumbprint_value:" + observed_thumbprint);
+  assert_present(signed.signature_verified, "cu_windows_app_facts_signed_verified");
+  ensure(rh.field(signed, "signature_verified.value") === false, "cu_windows_app_facts_signed_untrusted_false");
+  assert_reasoned(signed.entitlements, "not-applicable", "cu_windows_app_facts_signed_entitlements");
+
+  print("STEP missing path, non-executable file, unknown key and duplicated DisplayName fail typed");
+  const missing_path = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", rh.join(apps, "missing.exe")], false);
+  ensure(text_at(missing_path, "error.code") === "app_facts_not_found", "cu_windows_app_facts_missing_path_code");
+  const not_executable = rh.join(apps, "not-an-application.txt");
+  rh.write_text(not_executable, "text");
+  const wrong_kind = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", not_executable], false);
+  ensure(text_at(wrong_kind, "error.code") === "app_facts_not_found", "cu_windows_app_facts_not_executable_code");
+  const fake_executable = rh.join(apps, "not-an-image.exe");
+  rh.write_text(fake_executable, "not a portable executable");
+  const wrong_image = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", fake_executable], false);
+  ensure(text_at(wrong_image, "error.code") === "app_facts_not_found", "cu_windows_app_facts_not_image_code");
+  const missing_key = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", "org.example.NoSuchApplication"], false);
+  ensure(text_at(missing_key, "error.code") === "app_facts_not_found", "cu_windows_app_facts_missing_key_code");
+  const ambiguous = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", AMBIGUOUS_NAME], false);
+  ensure(text_at(ambiguous, "error.code") === "app_facts_ambiguous", "cu_windows_app_facts_ambiguous_code");
+  succeeded = 1;
+} catch (error) {
+  const text = "" + error;
+  if (text.startsWith("BLOCKED:")) { blocked = text; } else { failure = text; }
+}
+
+// Cleanup runs on every path: owned children, the three HKCU Uninstall keys
+// and the throw-away certificate. A cleanup failure is a failure of the court.
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure + blocked); }
+catch (error) { completion_failure = "" + error; }
+const cleanup_failures = [];
+for (const key of registered_keys) {
+  if (!try_tool(reg, ["delete", UNINSTALL_ROOT + "\\" + key, "/f"])) {
+    cleanup_failures.push("registry:" + key);
+  }
+}
+if (!remove_certificate(powershell, thumbprint)) {
+  cleanup_failures.push("certificate:" + thumbprint);
+}
+if (cleanup_failures.length > 0) {
+  completion_failure = completion_failure + " cu_windows_app_facts_cleanup:" + cleanup_failures.join(",");
+}
+
+if (succeeded !== 0 && completion_failure === "") {
+  for (const id of declared_evidence) {
+    harness.emit_evidence(context, declared_evidence, id);
+  }
+  harness.remove_run(context);
+  print("PASS: Windows application facts are exact, registry-identified, signature-honest and typed on failure");
+}
+if (blocked !== "") {
+  print(blocked);
+  throw "cu_windows_app_facts_blocked";
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure.trim(); }
+return;

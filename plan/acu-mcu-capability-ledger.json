@@ -597,7 +597,7 @@
           "platforms": {
             "linux": "native-public-qjswasm",
             "macos": "native-public-qjswasm",
-            "windows": "gap"
+            "windows": "native-provider-landed-court-pending"
           },
           "qualification": {
             "schema": 2,
@@ -620,7 +620,7 @@
               },
               "windows": {
                 "result": "pending",
-                "blocker_code": "native-app-facts-provider-not-implemented"
+                "blocker_code": "native-public-court-not-run"
               }
             }
           },
@@ -630,10 +630,15 @@
             "cu.app-facts.macos-unsigned-honesty",
             "cu.app-facts.macos-running-readback",
             "cu.app-facts.macos-system-signature",
-            "cu.app-facts.macos-typed-failures"
+            "cu.app-facts.macos-typed-failures",
+            "cu.app-facts.windows-executable-identity",
+            "cu.app-facts.windows-unsigned-honesty",
+            "cu.app-facts.windows-running-readback",
+            "cu.app-facts.windows-signature-honesty",
+            "cu.app-facts.windows-typed-failures"
           ],
-          "next": "add Windows installed-application, version and signature facts, then qualify its native court",
-          "note": "Linux resolves one canonical XDG desktop entry by path, desktop id or unique Name under a bounded precedence scan, brackets desktop/executable identity and never borrows window evidence. macOS resolves one canonical bundle by path, bundle identifier or unique Name, reads CFBundle and Security.framework facts in-process, and brackets bundle and executable identity; signature validation is shallow, all-architecture and network-free. macOS running is scoped to the caller's effective user. Desktop-entry Version remains file-format metadata rather than an application version, and every unsupported or unavailable fact remains individually reasoned. The exact legacy apps inspect witness now maps through this public verb, while watch and provisioning keep acu.dynamic.072 until their own providers exist."
+          "next": "run the registered Windows court on real x86_64 and aarch64 guests before promoting the pending Windows cell; catalog signatures and .lnk selectors remain a later cut",
+          "note": "Linux resolves one canonical XDG desktop entry by path, desktop id or unique Name under a bounded precedence scan, brackets desktop/executable identity and never borrows window evidence. macOS resolves one canonical bundle by path, bundle identifier or unique Name, reads CFBundle and Security.framework facts in-process, and brackets bundle and executable identity; signature validation is shallow, all-architecture and network-free. macOS running is scoped to the caller's effective user. Windows resolves one executable by path, HKCU/HKLM Uninstall key id or unique DisplayName across both registry views, reads version-resource facts with registry fallback, scopes running to processes the caller may query, and reports only embedded Authenticode signatures with network-free WinVerifyTrust verification; its public court is registered but has not yet run on a Windows guest. Desktop-entry Version remains file-format metadata rather than an application version, and every unsupported or unavailable fact remains individually reasoned. The exact legacy apps inspect witness now maps through this public verb, while watch and provisioning keep acu.dynamic.072 until their own providers exist."
         },
         {
           "id": "desktop.app.inspect-multi-window",

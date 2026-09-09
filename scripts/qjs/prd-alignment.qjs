@@ -361,6 +361,7 @@ const evidence_suites = {
   "cu-macos-app-facts-smoke": true,
   "cu-macos-file-watch-smoke": true,
   "cu-windows-file-watch-smoke": true,
+  "cu-windows-app-facts-smoke": true,
   "cu-pty-smoke": true,
   "cu-login-session-smoke": true,
   "cu-audio-smoke": true,
