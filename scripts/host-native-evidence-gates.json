@@ -212,6 +212,13 @@
       ]
     },
     {
+      "id": "cu-linux-process-fds-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-fds-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-sockets-smoke",
       "platform": "linux",
       "evidence": [
@@ -418,6 +425,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-cdp-page-hover-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-scroll-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-scroll-to"
       ]
     },
     {
