@@ -6160,7 +6160,7 @@
     },
     {
       "id": "cu-linux-chrome-text-smoke",
-      "description": "Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; no --coords.",
+      "description": "Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; typed focus/send-text/get-text usage and typed get-extents --name usage/host-limit paths hold before the actuate/read-back court; miss paths must not mutate the field; no --coords.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6200,7 +6200,7 @@
     },
     {
       "id": "cu-linux-cdp-page-fill-smoke",
-      "description": "Linux CDP page-nav to a disposable file:// input fixture, page-fill usage/miss/no-CDP host-limit honesty, page-fill --clear writes SEED, and independent page-js input.value read-back equals SEED; --port/--target-id only, no --coords.",
+      "description": "Linux CDP page-nav to a disposable file:// input fixture, page-fill usage/miss/no-CDP host-limit honesty, page-fill --clear writes SEED, and independent page-js input.value read-back equals SEED; typed page-fill/get-extents AT-SPI/--name court before actuate; no --coords.",
       "entry": "scripts/qjs/cu-linux-cdp-page-fill-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

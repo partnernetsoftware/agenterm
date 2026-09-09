@@ -1,6 +1,9 @@
 // CEO: Linux CDP page-nav → page-fill → independent page-js DOM value read-back.
-// Typed usage, miss, and no-CDP host-limit paths must hold; acceptance is
-// page-js input.value == SEED only. No --coords or screenshot.
+// Typed page-fill usage must reject AT-SPI --name and other unexpected
+// arguments; typed get-extents --name usage/host-limit paths must hold before
+// the page-fill actuate/read-back court. Typed usage, miss, and no-CDP
+// host-limit paths must hold; acceptance is page-js input.value == SEED only.
+// No --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,6 +15,8 @@ const declared_evidence = [
   "cu.linux-cdp-page-fill",
   "cu.linux-cdp-page-fill-readback",
 ];
+
+const AT_SPI_PROBE_NAME = "Page Fill Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -78,6 +83,114 @@ function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
   ensure(output_success(document), "cu_linux_cdp_page_fill_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_page_fill_usage_rejects_name(run_directory, executable, env, port) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-fill", "--port", "" + port, "--target-id", "unused",
+    "--node", "1", "--text", "seed", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_cdp_page_fill_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_cdp_page_fill_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_cdp_page_fill_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_cdp_page_fill_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page", "fill", "--port", "" + port, "--target-id", "unused",
+    "--node", "1", "--text", "seed", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_cdp_page_fill_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_cdp_page_fill_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_cdp_page_fill_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-fill", "--port", "" + port, "--target-id", "unused",
+    "--node", "1", "--text", "seed", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_cdp_page_fill_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_cdp_page_fill_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_cdp_page_fill_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_cdp_page_fill_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_cdp_page_fill_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_cdp_page_fill_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_cdp_page_fill_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_cdp_page_fill_extents_unavailable_code:" + code
+  );
 }
 
 function assert_page_fill_usage(run_directory, executable, env, port) {
@@ -219,6 +332,7 @@ ensure(direct_file(abi_library), "cu_linux_cdp_page_fill_library_missing:" + abi
 const context = harness.new_context(repo, "cu-linux-cdp-page-fill");
 const run_directory = context.run_directory;
 const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 const fixture_title = "CEO CDP Fill " + context.run_id;
 const fixture = rh.join(run_directory, "cdp-fill.html");
@@ -248,8 +362,19 @@ try {
   print("STEP page-fill typed-fails usage when --text or --selector/--node are missing");
   assert_page_fill_usage(run_directory, executable, env, port);
 
+  print("STEP page-fill typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_fill_usage_rejects_name(run_directory, executable, env, port);
+
   print("STEP page-fill typed-fails no CDP listener on the owned free port before Chrome starts");
   assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-fill actuate court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
@@ -350,5 +475,9 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_cdp_page_fill_failed");
 harness.remove_run(context);
-print("PASS: Linux CDP page-nav → page-fill usage/miss/host-limit honesty + independent page-js DOM read-back (no --coords)");
+if (atspi_available) {
+  print("PASS: Linux CDP page-nav → page-fill usage/miss/host-limit honesty + independent page-js DOM read-back with typed page-fill/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux CDP page-nav → page-fill usage/miss/host-limit honesty + independent page-js DOM read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
 return;
