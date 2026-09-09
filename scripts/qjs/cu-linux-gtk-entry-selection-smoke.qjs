@@ -1,8 +1,11 @@
-// CEO#7: GTK entry selection by --name, proved by independent get-selection.
-// P0: plant SEED with send-text, select one interior region via select --start/--end
-// (AT-SPI Text.SetSelection), then get-selection must return that scalar slice.
-// Also proves semantic ctrl+a select-all via send-keys. AT-SPI --name only.
-// No --coords, screenshot, or clipboard proof.
+// CEO#7: GTK entry selection by --name, proved by independent get-selection
+// and get-text read-back. Plant SEED with send-text, select one interior
+// region via select --start/--end (AT-SPI Text.SetSelection), then
+// get-selection must return that scalar slice. Also proves semantic ctrl+a
+// select-all via send-keys. Typed usage and host-limit paths must hold
+// when --window/--name are missing or the AT-SPI bus is unavailable; miss
+// paths must not mutate the entry (independent get-text read-back).
+// AT-SPI --name only; no --coords, screenshot, or clipboard proof.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -14,6 +17,11 @@ const declared_evidence = [
   "cu.linux-gtk-entry-select-all",
   "cu.linux-gtk-entry-get-selection",
 ];
+
+const ENTRY_NAME = "Fixture Entry";
+const MISSING_NODE = "No Such Entry";
+const UNAVAILABLE_NODE = "Fixture Check";
+const FIXTURE_SEED = "seed";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -47,20 +55,225 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_gtk_entry_selection_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_gtk_entry_selection_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_gtk_entry_selection_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_gtk_entry_selection_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_gtk_entry_selection_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_entry_text(run_directory, executable, handle, expected, label) {
+  const got = run_cu(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--name", ENTRY_NAME,
+  ]);
+  const readback = text_at(got, "data.text");
+  ensure(
+    readback === expected && text_at(got, "data.via") === "gettext",
+    "cu_linux_gtk_entry_selection_get_text_" + label + ":" + JSON.stringify({
+      expected: expected,
+      readback: readback,
+    })
+  );
+  return got;
+}
+
+function assert_selection_usage_limit(run_directory, executable) {
+  const missing_window = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--name", ENTRY_NAME,
+  ]);
+  ensure(!output_success(missing_window), "cu_linux_gtk_entry_selection_usage_ok:" + JSON.stringify(missing_window));
+  ensure(
+    text_at(missing_window, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_selection_usage_code:" + JSON.stringify(missing_window.error)
+  );
+  ensure(
+    text_at(missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_entry_selection_usage_message:" + JSON.stringify(missing_window.error)
+  );
+
+  const missing_name = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", "1",
+  ]);
+  ensure(!output_success(missing_name), "cu_linux_gtk_entry_selection_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_gtk_entry_selection_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_selection_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", "0", "--name", ENTRY_NAME,
+  ]);
+  ensure(!output_success(zero_handle), "cu_linux_gtk_entry_selection_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_selection_zero_handle_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_entry_selection_zero_handle_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const select_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", "1", "--start", "0", "--end", "1",
+  ]);
+  ensure(!output_success(select_missing), "cu_linux_gtk_entry_selection_select_usage_ok:" + JSON.stringify(select_missing));
+  ensure(
+    text_at(select_missing, "error.code") === "usage",
+    "cu_linux_gtk_entry_selection_select_usage_code:" + JSON.stringify(select_missing.error)
+  );
+  ensure(
+    text_at(select_missing, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_selection_select_usage_message:" + JSON.stringify(select_missing.error)
+  );
+
+  const bad_range = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", "1", "--name", ENTRY_NAME, "--start", "2", "--end", "1",
+  ]);
+  ensure(!output_success(bad_range), "cu_linux_gtk_entry_selection_bad_range_ok:" + JSON.stringify(bad_range));
+  ensure(
+    text_at(bad_range, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_selection_bad_range_code:" + JSON.stringify(bad_range.error)
+  );
+  ensure(
+    text_at(bad_range, "error.message").indexOf("--start") >= 0,
+    "cu_linux_gtk_entry_selection_bad_range_message:" + JSON.stringify(bad_range.error)
+  );
+}
+
+function assert_selection_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const get_reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", "1", "--name", ENTRY_NAME,
+  ], env);
+  ensure(!output_success(get_reply), "cu_linux_gtk_entry_selection_unavailable_ok:" + JSON.stringify(get_reply));
+  const get_code = text_at(get_reply, "error.code");
+  ensure(
+    get_code === "a11y_backend_failed" || get_code === "unsupported" || get_code === "bad_handle",
+    "cu_linux_gtk_entry_selection_unavailable_code:" + get_code
+  );
+
+  const select_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", "1", "--name", ENTRY_NAME, "--start", "0", "--end", "1",
+  ], env);
+  ensure(!output_success(select_reply), "cu_linux_gtk_entry_selection_select_unavailable_ok:" + JSON.stringify(select_reply));
+  const select_code = text_at(select_reply, "error.code");
+  ensure(
+    select_code === "a11y_backend_failed" || select_code === "unsupported" || select_code === "bad_handle",
+    "cu_linux_gtk_entry_selection_select_unavailable_code:" + select_code
+  );
+}
+
+function assert_selection_missing_node(run_directory, executable, handle, label) {
+  const get_reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", handle, "--name", MISSING_NODE,
+  ]);
+  ensure(!output_success(get_reply), "cu_linux_gtk_entry_selection_missing_ok_" + label);
+  ensure(
+    text_at(get_reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_gtk_entry_selection_missing_code_" + label + ":" + JSON.stringify(get_reply.error)
+  );
+
+  const select_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", handle, "--name", MISSING_NODE, "--start", "0", "--end", "1",
+  ]);
+  ensure(!output_success(select_reply), "cu_linux_gtk_entry_selection_select_missing_ok_" + label);
+  ensure(
+    text_at(select_reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_gtk_entry_selection_select_missing_code_" + label + ":" + JSON.stringify(select_reply.error)
+  );
+}
+
+function selection_unavailable_code_ok(code) {
+  return code === "a11y_selection_unavailable" || code === "a11y_backend_failed";
+}
+
+function assert_selection_unavailable(run_directory, executable, handle, node_name, label) {
+  const get_reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", handle, "--name", node_name,
+  ]);
+  ensure(!output_success(get_reply), "cu_linux_gtk_entry_selection_unavailable_ok_" + label);
+  const get_code = text_at(get_reply, "error.code");
+  ensure(
+    selection_unavailable_code_ok(get_code),
+    "cu_linux_gtk_entry_selection_unavailable_code_" + label + ":" + JSON.stringify(get_reply.error)
+  );
+  if (get_code === "a11y_backend_failed") {
+    const message = text_at(get_reply, "error.message").toLowerCase();
+    ensure(
+      message.indexOf("selection") >= 0 || message.indexOf("gettext") >= 0
+        || message.indexOf("text") >= 0,
+      "cu_linux_gtk_entry_selection_unavailable_message_" + label + ":" + JSON.stringify(get_reply.error)
+    );
+  }
+
+  const select_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", handle, "--name", node_name, "--start", "0", "--end", "1",
+  ]);
+  ensure(!output_success(select_reply), "cu_linux_gtk_entry_selection_select_unavailable_ok_" + label);
+  const select_code = text_at(select_reply, "error.code");
+  ensure(
+    selection_unavailable_code_ok(select_code),
+    "cu_linux_gtk_entry_selection_select_unavailable_code_" + label + ":" + JSON.stringify(select_reply.error)
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -82,6 +295,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_gtk_entry_selection_executable_missing");
 const context = harness.new_context(repo, "cu-linux-gtk-entry-selection");
 const run_directory = rh.join(repo, "target/cu-linux-gtk-entry-selection-smoke-run");
 rh.create_dir_all(run_directory);
@@ -93,128 +307,154 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_entry_selection_window_wait");
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_gtk_entry_selection_window_identity");
-  const handle = "" + at(row, "handle");
+  print("STEP get-selection / select typed-fail usage when --window or --name is missing");
+  assert_selection_usage_limit(run_directory, executable);
 
-  print("STEP focus moves AT-SPI focus to the named GTK entry");
-  run_cu(run_directory, executable, "observe,actuate", [
-    "focus", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  const focused = run_cu(run_directory, executable, "observe", [
-    "focused", "--window", handle,
-  ]);
-  ensure(
-    text_at(focused, "data.node.name") === "Fixture Entry",
-    "cu_linux_gtk_entry_selection_focused:" + JSON.stringify(focused.data)
-  );
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_selection_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_entry_selection_window_wait");
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_gtk_entry_selection_window_identity");
+    const handle = "" + at(row, "handle");
 
-  const region = "REGION";
-  const prefix = "pre-";
-  const suffix = "-post-" + context.run_id;
-  const seed = prefix + region + suffix;
-  const region_start = prefix.length;
-  const region_end = region_start + region.length;
-  print("STEP send-text --name plants SEED through AT-SPI EditableText/Text");
-  const sent = run_cu(run_directory, executable, "observe,actuate", [
-    "send-text", "--window", handle, "--name", "Fixture Entry", "--", seed,
-  ]);
-  ensure(
-    text_at(sent, "data.typed") === seed
-      && text_at(sent, "data.addressing") === "accessibility-tree",
-    "cu_linux_gtk_entry_selection_send:" + JSON.stringify(sent.data)
-  );
+    print("STEP get-selection / select typed-fail a11y_node_not_found when the named entry is missing");
+    assert_selection_missing_node(run_directory, executable, handle, "before_focus");
+    print("STEP independent get-text proves the entry stayed at the fixture seed after the miss");
+    assert_entry_text(run_directory, executable, handle, FIXTURE_SEED, "after_missing");
 
-  print("STEP independent get-selection before select is empty or not the REGION slice");
-  const before = run_cu(run_directory, executable, "observe", [
-    "get-selection", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(before, "data.via") === "get-selection",
-    "cu_linux_gtk_entry_selection_before_via:" + JSON.stringify(before.data)
-  );
-  const before_text = text_at(before, "data.text");
-  ensure(
-    before_text !== region,
-    "cu_linux_gtk_entry_selection_before_not_region:" + JSON.stringify(before.data)
-  );
+    print("STEP get-selection / select typed-fail a11y_selection_unavailable when the target has no Text selection interface");
+    assert_selection_unavailable(run_directory, executable, handle, UNAVAILABLE_NODE, "check_without_text");
+    print("STEP independent get-text proves the unavailable select did not mutate the entry");
+    assert_entry_text(run_directory, executable, handle, FIXTURE_SEED, "after_unavailable");
 
-  print("STEP select --start --end --name performs one-shot AT-SPI Text.SetSelection on the interior slice");
-  const selected = run_cu(run_directory, executable, "observe,actuate", [
-    "select", "--window", handle, "--name", "Fixture Entry",
-    "--start", "" + region_start, "--end", "" + region_end,
-  ]);
-  ensure(
-    text_at(selected, "data.addressing") === "accessibility-tree"
-      && text_at(selected, "data.via") === "set-selection"
-      && int_at(selected, "data.start") === region_start
-      && int_at(selected, "data.end") === region_end,
-    "cu_linux_gtk_entry_selection_select_region:" + JSON.stringify(selected.data)
-  );
+    print("STEP focus moves AT-SPI focus to the named GTK entry");
+    run_cu(run_directory, executable, "observe,actuate", [
+      "focus", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    const focused = run_cu(run_directory, executable, "observe", [
+      "focused", "--window", handle,
+    ]);
+    ensure(
+      text_at(focused, "data.node.name") === ENTRY_NAME,
+      "cu_linux_gtk_entry_selection_focused:" + JSON.stringify(focused.data)
+    );
 
-  print("STEP independent get-selection --name must return the REGION scalar slice");
-  const region_selection = run_cu(run_directory, executable, "observe", [
-    "get-selection", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(region_selection, "data.via") === "get-selection"
-      && int_at(region_selection, "data.n") === 1
-      && int_at(region_selection, "data.start") === region_start
-      && int_at(region_selection, "data.end") === region_end
-      && text_at(region_selection, "data.text") === region,
-    "cu_linux_gtk_entry_selection_region_readback:" + JSON.stringify({
-      region: region,
-      selection: region_selection.data,
-    })
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-select-region");
+    const region = "REGION";
+    const prefix = "pre-";
+    const suffix = "-post-" + context.run_id;
+    const seed = prefix + region + suffix;
+    const region_start = prefix.length;
+    const region_end = region_start + region.length;
+    print("STEP send-text --name plants SEED through AT-SPI EditableText/Text");
+    const sent = run_cu(run_directory, executable, "observe,actuate", [
+      "send-text", "--window", handle, "--name", ENTRY_NAME, "--", seed,
+    ]);
+    ensure(
+      text_at(sent, "data.typed") === seed
+        && text_at(sent, "data.addressing") === "accessibility-tree",
+      "cu_linux_gtk_entry_selection_send:" + JSON.stringify(sent.data)
+    );
+    print("STEP independent get-text --name reads SEED back through AT-SPI Text.GetText");
+    assert_entry_text(run_directory, executable, handle, seed, "after_send");
 
-  print("STEP send-keys ctrl+a --name performs semantic select-all through AT-SPI Text.SetSelection");
-  const keyed = run_cu(run_directory, executable, "observe,actuate", [
-    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "ctrl+a",
-  ]);
-  ensure(
-    text_at(keyed, "data.addressing") === "accessibility-tree"
-      && text_at(keyed, "data.via") === "set-selection",
-    "cu_linux_gtk_entry_selection_ctrl_a:" + JSON.stringify(keyed.data)
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-select-all");
+    print("STEP independent get-selection before select is empty or not the REGION slice");
+    const before = run_cu(run_directory, executable, "observe", [
+      "get-selection", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(before, "data.via") === "get-selection",
+      "cu_linux_gtk_entry_selection_before_via:" + JSON.stringify(before.data)
+    );
+    const before_text = text_at(before, "data.text");
+    ensure(
+      before_text !== region,
+      "cu_linux_gtk_entry_selection_before_not_region:" + JSON.stringify(before.data)
+    );
 
-  print("STEP independent get-selection --name must return the full SEED slice");
-  const selection = run_cu(run_directory, executable, "observe", [
-    "get-selection", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  const seed_len = seed.length;
-  ensure(
-    text_at(selection, "data.via") === "get-selection"
-      && int_at(selection, "data.n") === 1
-      && int_at(selection, "data.start") === 0
-      && int_at(selection, "data.end") === seed_len
-      && text_at(selection, "data.text") === seed,
-    "cu_linux_gtk_entry_selection_readback:" + JSON.stringify({
-      seed: seed,
-      selection: selection.data,
-    })
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-get-selection");
+    print("STEP select --start --end --name performs one-shot AT-SPI Text.SetSelection on the interior slice");
+    const selected = run_cu(run_directory, executable, "observe,actuate", [
+      "select", "--window", handle, "--name", ENTRY_NAME,
+      "--start", "" + region_start, "--end", "" + region_end,
+    ]);
+    ensure(
+      text_at(selected, "data.addressing") === "accessibility-tree"
+        && text_at(selected, "data.via") === "set-selection"
+        && int_at(selected, "data.start") === region_start
+        && int_at(selected, "data.end") === region_end,
+      "cu_linux_gtk_entry_selection_select_region:" + JSON.stringify(selected.data)
+    );
 
-  succeeded = 1;
+    print("STEP independent get-selection --name must return the REGION scalar slice");
+    const region_selection = run_cu(run_directory, executable, "observe", [
+      "get-selection", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(region_selection, "data.via") === "get-selection"
+        && int_at(region_selection, "data.n") === 1
+        && int_at(region_selection, "data.start") === region_start
+        && int_at(region_selection, "data.end") === region_end
+        && text_at(region_selection, "data.text") === region,
+      "cu_linux_gtk_entry_selection_region_readback:" + JSON.stringify({
+        region: region,
+        selection: region_selection.data,
+      })
+    );
+    print("STEP independent get-text --name still reads the full SEED after interior select");
+    assert_entry_text(run_directory, executable, handle, seed, "after_region_select");
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-select-region");
+
+    print("STEP send-keys ctrl+a --name performs semantic select-all through AT-SPI Text.SetSelection");
+    const keyed = run_cu(run_directory, executable, "observe,actuate", [
+      "send-keys", "--window", handle, "--name", ENTRY_NAME, "--", "ctrl+a",
+    ]);
+    ensure(
+      text_at(keyed, "data.addressing") === "accessibility-tree"
+        && text_at(keyed, "data.via") === "set-selection",
+      "cu_linux_gtk_entry_selection_ctrl_a:" + JSON.stringify(keyed.data)
+    );
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-select-all");
+
+    print("STEP independent get-selection --name must return the full SEED slice");
+    const selection = run_cu(run_directory, executable, "observe", [
+      "get-selection", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    const seed_len = seed.length;
+    ensure(
+      text_at(selection, "data.via") === "get-selection"
+        && int_at(selection, "data.n") === 1
+        && int_at(selection, "data.start") === 0
+        && int_at(selection, "data.end") === seed_len
+        && text_at(selection, "data.text") === seed,
+      "cu_linux_gtk_entry_selection_readback:" + JSON.stringify({
+        seed: seed,
+        selection: selection.data,
+      })
+    );
+    print("STEP independent get-text --name still reads the full SEED after select-all");
+    assert_entry_text(run_directory, executable, handle, seed, "after_select_all");
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-get-selection");
+
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -227,4 +467,8 @@ if (fixture >= 0) {
 }
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_selection_failed");
-print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection read-back");
+if (atspi_available) {
+  print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection/get-text read-back and usage/miss/host-limit honesty");
+} else {
+  print("PASS: CEO#7 GTK entry selection typed-fails when independent pyatspi desktop probe is unavailable");
+}
