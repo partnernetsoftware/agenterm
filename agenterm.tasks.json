@@ -7415,7 +7415,7 @@
     },
     {
       "id": "cu-linux-process-signal-smoke",
-      "description": "Linux process-signal STOP/CONT/TERM/USR1 delivery matches independent /proc scheduler state, wait outcome or handler-marker read-back; ignored USR1 remains verified=false with live-process agreement; no --coords.",
+      "description": "Linux process-signal STOP/CONT/TERM/USR1 delivery matches independent /proc scheduler state, wait outcome or handler-marker read-back; ignored USR1 remains verified=false with live-process agreement; typed process-signal/get-extents AT-SPI --name usage or host-limit honesty before signal court; no --coords.",
       "entry": "scripts/qjs/cu-linux-process-signal-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
