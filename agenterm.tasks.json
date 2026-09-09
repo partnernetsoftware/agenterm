@@ -8010,7 +8010,7 @@
     },
     {
       "id": "cu-linux-fontconfig-monospace-smoke",
-      "description": "Linux font-discovery reports fontconfig monospace primary family and file that match independent fc-match and fc-list :spacing=mono read-back, or a typed hardcoded fallback with alternatives verified against fc-list; typed font-discovery usage rejects AT-SPI --name and other unexpected arguments on flat and grouped forms; typed get-extents --name usage/miss/host-limit paths before the fontconfig read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux font-discovery reports fontconfig monospace primary family and file that match independent fc-match and fc-list :spacing=mono read-back, or a typed hardcoded fallback with alternatives verified against fc-list; typed font-discovery usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments on flat and grouped forms; typed get-extents --name usage AND host-limit paths before the fontconfig read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-fontconfig-monospace-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
