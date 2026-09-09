@@ -8158,7 +8158,7 @@
     },
     {
       "id": "cu-linux-shell-exec-smoke",
-      "description": "Linux shell-exec bounded command stdout, stderr and exit match independent identical /bin/sh read-back for disposable seeds; typed shell-exec/get-extents AT-SPI --name usage or host-limit honesty before read-back; no --coords.",
+      "description": "Linux shell-exec bounded command stdout, stderr and exit match independent identical /bin/sh read-back for disposable seeds; typed shell-exec usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the /bin/sh read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-shell-exec-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
