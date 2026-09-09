@@ -2,9 +2,12 @@
 // When xfce4-terminal is available, launch it without AT-SPI registration
 // (GTK_A11Y=none, NO_AT_BRIDGE=1) so tree --window reports visited=1 frame
 // fallback and term-read typed-fails terminal_buffer_not_found on the same handle.
+// terminal-list must typed-fail control_unavailable with AgenTerm sock host-limit
+// and independent absent-socket proof before any shallow terminal fixture exists.
 // Capabilities and doctor must document the shallow frame plus pty-* / terminal-*
 // alternatives. Independent pyatspi must find zero application roots for the
-// terminal pid. Window identity is bound via --pid read-back. AT-SPI/--name only;
+// terminal pid; independent xprop _NET_WM_NAME and xwininfo Map State must agree
+// with the frame-only tree name on the same handle. AT-SPI/--name only;
 // no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -30,6 +33,48 @@ const SHALLOW_PROBE_SCRIPT = [
   "        pass",
   "alive = os.path.exists(f'/proc/{pid}')",
   "print(json.dumps({'registered_apps': registered, 'proc_alive': alive}))",
+].join("\n");
+
+const FRAME_READBACK_SCRIPT = [
+  "import json, subprocess, sys",
+  "handle = sys.argv[1]",
+  "title = sys.argv[2]",
+  "xprop = subprocess.run(['xprop', '-id', handle, '_NET_WM_NAME'], capture_output=True, text=True)",
+  "name = ''",
+  "if xprop.returncode == 0:",
+  "    marker = ' = \"'",
+  "    idx = xprop.stdout.find(marker)",
+  "    if idx >= 0:",
+  "        start = idx + len(marker)",
+  "        end = xprop.stdout.find('\"', start)",
+  "        if end >= 0:",
+  "            name = xprop.stdout[start:end]",
+  "xwin = subprocess.run(['xwininfo', '-id', handle], capture_output=True, text=True)",
+  "viewable = False",
+  "if xwin.returncode == 0:",
+  "    for line in xwin.stdout.splitlines():",
+  "        if 'Map State:' in line and 'IsViewable' in line:",
+  "            viewable = True",
+  "if name != title:",
+  "    raise SystemExit(f'cu_linux_terminal_shallow_tree_frame_name:{name}:{title}')",
+  "if not viewable:",
+  "    raise SystemExit('cu_linux_terminal_shallow_tree_frame_viewable')",
+  "print(json.dumps({'name': name, 'viewable': viewable}))",
+].join("\n");
+
+const SOCKET_ABSENT_SCRIPT = [
+  "import os, socket, sys",
+  "path = sys.argv[1]",
+  "if os.path.exists(path):",
+  "    try:",
+  "        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)",
+  "        conn.settimeout(0.2)",
+  "        conn.connect(path)",
+  "    except OSError:",
+  "        raise SystemExit(0)",
+  "    raise SystemExit(f'independent socket still accepts connections: {path}')",
+  "if os.path.exists(path):",
+  "    raise SystemExit(f'independent socket path still present: {path}')",
 ].join("\n");
 
 function ensure(condition, message) {
@@ -64,13 +109,19 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function shallow_terminal_env(executable) {
+function cu_env(executable, context, shallow) {
   const env = {
     AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
     AGENTERM_NO_ACTIVATE: "1",
-    GTK_A11Y: "none",
-    NO_AT_BRIDGE: "1",
+    AGENTERM_INSTANCE_DIR: context.instance_directory,
+    AGENTERM_WORKSPACE_PATH: context.workspace_path,
+    AGENTERM_SETTINGS_PATH: context.settings_path,
+    AGENTERM_INSTANCE: "ephemeral:cu-linux-terminal-shallow-" + context.run_id,
   };
+  if (shallow === true) {
+    env.GTK_A11Y = "none";
+    env.NO_AT_BRIDGE = "1";
+  }
   for (const key of [
     "DISPLAY",
     "XDG_RUNTIME_DIR",
@@ -86,36 +137,30 @@ function shallow_terminal_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, arguments) {
+function run_cu_reply(run_directory, executable, context, shallow, arguments) {
   const argv = ["--target", "current", "--grant", "observe"];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: shallow_terminal_env(executable),
+    env: cu_env(executable, context, shallow),
     timeout_ms: 120000,
   });
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_terminal_shallow_tree_empty:" + output.stderr);
-  const document = JSON.parse(trimmed);
-  ensure(output.success === true && flag_at(document, "ok"),
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, context, shallow, arguments) {
+  const document = run_cu_reply(run_directory, executable, context, shallow, arguments);
+  ensure(flag_at(document, "ok"),
     "cu_linux_terminal_shallow_tree_reply:" + JSON.stringify(document));
   return document;
 }
 
-function run_cu_expect_error(run_directory, executable, arguments, expected_code) {
-  const argv = ["--target", "current", "--grant", "observe"];
-  for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: shallow_terminal_env(executable),
-    timeout_ms: 120000,
-  });
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_terminal_shallow_tree_error_empty:" + output.stderr);
-  const document = JSON.parse(trimmed);
+function run_cu_expect_error(run_directory, executable, context, shallow, arguments, expected_code) {
+  const document = run_cu_reply(run_directory, executable, context, shallow, arguments);
   ensure(
-    output.success !== true
-      && flag_at(document, "ok") !== true
+    flag_at(document, "ok") !== true
       && text_at(document, "error.code") === expected_code,
     "cu_linux_terminal_shallow_tree_error_reply:" + JSON.stringify(document)
   );
@@ -127,8 +172,10 @@ function windows_rows(reply) {
   return data.windows === undefined ? data : data.windows;
 }
 
-function window_row_for_pid(run_directory, executable, pid, title) {
-  const reply = run_cu(run_directory, executable, ["windows", "--pid", "" + pid]);
+function window_row_for_pid(run_directory, executable, context, pid, title) {
+  const reply = run_cu(run_directory, executable, context, true, [
+    "windows", "--pid", "" + pid,
+  ]);
   const rows = windows_rows(reply);
   ensure(Array.isArray(rows) && rows.length >= 1,
     "cu_linux_terminal_shallow_tree_pid_rows:" + JSON.stringify(rows));
@@ -138,17 +185,8 @@ function window_row_for_pid(run_directory, executable, pid, title) {
   throw "cu_linux_terminal_shallow_tree_pid_title:" + JSON.stringify(rows);
 }
 
-function run_cu_or_doctor(run_directory, executable, arguments) {
-  const argv = ["--target", "current", "--grant", "observe"];
-  for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: shallow_terminal_env(executable),
-    timeout_ms: 120000,
-  });
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_terminal_shallow_tree_empty:" + output.stderr);
-  const document = JSON.parse(trimmed);
+function run_cu_or_doctor(run_directory, executable, context, arguments) {
+  const document = run_cu_reply(run_directory, executable, context, false, arguments);
   ensure(
     document.ok === true
       || (document.error !== undefined && document.error.code === "doctor_not_ready"),
@@ -156,9 +194,9 @@ function run_cu_or_doctor(run_directory, executable, arguments) {
   );
   const report = doctor_report(document);
   ensure(
-    output.success === (text_at(report, "status") === "ready"),
+    (text_at(report, "status") === "ready") === (flag_at(document, "ok") === true),
     "cu_linux_terminal_shallow_tree_doctor_exit:" + text_at(report, "status")
-      + ":" + output.exit_code
+      + ":" + JSON.stringify(document)
   );
   return document;
 }
@@ -182,9 +220,79 @@ function assert_hint(hint, label) {
     label + "_pty_terminal:" + joined);
 }
 
-function independent_shallow_probe(pid) {
+function assert_terminal_sock_host_limit(reply) {
+  ensure(
+    flag_at(reply, "ok") !== true && text_at(reply, "error.code") === "control_unavailable",
+    "cu_linux_terminal_shallow_tree_sock_code:" + JSON.stringify(reply)
+  );
+  const detail = at(reply, "error.detail");
+  ensure(
+    text_at(detail, "control") === "unavailable"
+      && text_at(detail, "authority") === "unreachable"
+      && text_at(detail, "limit") === "host"
+      && text_at(detail, "group") === "terminal"
+      && text_at(detail, "mechanism") === "agenterm-unix-control-socket",
+    "cu_linux_terminal_shallow_tree_sock_detail:" + JSON.stringify(detail)
+  );
+  const alternatives = at(detail, "alternatives");
+  ensure(
+    Array.isArray(alternatives) && alternatives.length >= 2,
+    "cu_linux_terminal_shallow_tree_sock_alternatives:" + JSON.stringify(detail)
+  );
+  const joined = alternatives.join(" ");
+  ensure(
+    joined.indexOf("agenterm server") >= 0 && joined.indexOf("pty-start") >= 0,
+    "cu_linux_terminal_shallow_tree_sock_alternative_text:" + joined
+  );
+  const transport = text_at(detail, "transport");
+  ensure(
+    transport.indexOf("IPC transport Io for unix:") === 0
+      && transport.indexOf(".sock") >= 0,
+    "cu_linux_terminal_shallow_tree_sock_transport:" + transport
+  );
+}
+
+function socket_path_from_transport(reply) {
+  const transport = text_at(at(reply, "error.detail"), "transport");
+  const prefix = "IPC transport Io for unix:";
+  ensure(transport.indexOf(prefix) === 0,
+    "cu_linux_terminal_shallow_tree_sock_transport_prefix:" + transport);
+  const rest = transport.slice(prefix.length);
+  const sock_end = rest.indexOf(".sock:");
+  ensure(sock_end >= 0,
+    "cu_linux_terminal_shallow_tree_sock_transport_suffix:" + transport);
+  return rest.slice(0, sock_end + 5);
+}
+
+function independent_socket_absent(run_directory, executable, context, socket_path) {
+  const output = rh.command("python3", ["-c", SOCKET_ABSENT_SCRIPT, socket_path], {
+    cwd: run_directory,
+    env: cu_env(executable, context, false),
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+    "cu_linux_terminal_shallow_tree_sock_absent:" + output.stderr + output.stdout);
+}
+
+function independent_frame_readback(run_directory, executable, context, handle, title) {
+  const output = rh.command("python3", [
+    "-c", FRAME_READBACK_SCRIPT, "" + handle, title,
+  ], {
+    cwd: run_directory,
+    env: cu_env(executable, context, true),
+    timeout_ms: 15000,
+  });
+  ensure(output.success === true,
+    "cu_linux_terminal_shallow_tree_frame_readback:" + output.stderr + output.stdout);
+  const document = JSON.parse(output.stdout.trim());
+  ensure(document.name === title && document.viewable === true,
+    "cu_linux_terminal_shallow_tree_frame_readback_shape:" + JSON.stringify(document));
+  return document;
+}
+
+function independent_shallow_probe(executable, context, pid) {
   const output = rh.command("python3", ["-c", SHALLOW_PROBE_SCRIPT, "" + pid], {
-    env: shallow_terminal_env("."),
+    env: cu_env(executable, context, true),
     timeout_ms: 30000,
   });
   ensure(output.success === true,
@@ -218,8 +326,16 @@ let terminal = -1;
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP terminal-list typed-fails control_unavailable with AgenTerm sock host-limit before shallow terminal fixture");
+  const missing_terminal = run_cu_reply(
+    context.run_directory, executable, context, false, ["terminal-list"]
+  );
+  assert_terminal_sock_host_limit(missing_terminal);
+  const absent_socket = socket_path_from_transport(missing_terminal);
+  independent_socket_absent(context.run_directory, executable, context, absent_socket);
+
   print("STEP capabilities and doctor document terminal_a11y_shallow_tree host limit and alternatives");
-  const capabilities = run_cu(context.run_directory, executable, ["capabilities"]);
+  const capabilities = run_cu(context.run_directory, executable, context, false, ["capabilities"]);
   const gap = text_at(capabilities, "data.gaps.terminal_a11y_shallow_tree");
   ensure(gap.indexOf("visited=1") >= 0 && gap.indexOf("pty-") >= 0 && gap.indexOf("terminal-") >= 0,
     "cu_linux_terminal_shallow_tree_gap:" + gap);
@@ -228,7 +344,7 @@ try {
   assert_hint(at(capabilities, "data.verbs.term-read.host_shallow_terminal_tree"),
     "cu_linux_terminal_shallow_tree_term_read_hint");
 
-  const doctor_reply = run_cu_or_doctor(context.run_directory, executable, ["doctor"]);
+  const doctor_reply = run_cu_or_doctor(context.run_directory, executable, context, ["doctor"]);
   const doctor = doctor_report(doctor_reply);
   ensure(doctor !== undefined && doctor !== null, "cu_linux_terminal_shallow_tree_doctor");
   assert_hint(at(doctor, "capabilities.verbs.tree.host_shallow_terminal_tree"),
@@ -246,16 +362,16 @@ try {
     program: "xfce4-terminal",
     args: ["--title", title, "--disable-server", "-e", "sleep 180"],
     current_dir: context.run_directory,
-    env: shallow_terminal_env(executable),
+    env: cu_env(executable, context, true),
     timeout_ms: 30000,
   });
 
-  const window_wait = run_cu(context.run_directory, executable, [
+  const window_wait = run_cu(context.run_directory, executable, context, true, [
     "wait", "--timeout-ms", "15000", "--window-title-contains", title,
   ]);
   ensure(flag_at(window_wait, "data.met"), "cu_linux_terminal_shallow_tree_window_wait");
 
-  const windows = run_cu(context.run_directory, executable, [
+  const windows = run_cu(context.run_directory, executable, context, true, [
     "windows", "--title", title,
   ]);
   const rows = windows_rows(windows);
@@ -267,11 +383,11 @@ try {
     "cu_linux_terminal_shallow_tree_window_identity:" + JSON.stringify(rows[0]));
 
   print("STEP windows --pid resolves the shallow terminal and agrees with --title read-back");
-  const pid_row = window_row_for_pid(context.run_directory, executable, terminal_pid, title);
+  const pid_row = window_row_for_pid(context.run_directory, executable, context, terminal_pid, title);
   ensure(int_at(pid_row, "handle") === handle,
     "cu_linux_terminal_shallow_tree_pid_handle:" + JSON.stringify(pid_row));
 
-  const tree = run_cu(context.run_directory, executable, [
+  const tree = run_cu(context.run_directory, executable, context, true, [
     "tree", "--window", "" + handle,
     "--depth", "8",
     "--max-nodes", "300",
@@ -288,10 +404,15 @@ try {
     "cu_linux_terminal_shallow_tree_shape:" + JSON.stringify(tree.data)
   );
 
+  print("STEP independent xprop _NET_WM_NAME and xwininfo Map State agree with frame-only tree name");
+  independent_frame_readback(context.run_directory, executable, context, handle, title);
+
   print("STEP term-read typed-fails terminal_buffer_not_found with host-limit detail on the shallow frame handle");
-  const term_read_error = run_cu_expect_error(context.run_directory, executable, [
-    "term-read", "" + handle,
-  ], "terminal_buffer_not_found");
+  const term_read_error = run_cu_expect_error(
+    context.run_directory, executable, context, true,
+    ["term-read", "" + handle],
+    "terminal_buffer_not_found"
+  );
   const term_read_detail = at(term_read_error, "error.detail");
   ensure(text_at(term_read_detail, "limit") === "host",
     "cu_linux_terminal_shallow_tree_term_read_limit:" + JSON.stringify(term_read_detail));
@@ -313,7 +434,7 @@ try {
     "cu_linux_terminal_shallow_tree_term_read_pty_terminal:" + term_read_joined);
 
   print("STEP independent pyatspi finds zero registered application roots for the terminal pid");
-  const probe = independent_shallow_probe(terminal_pid);
+  const probe = independent_shallow_probe(executable, context, terminal_pid);
   ensure(probe.registered_apps === 0 && probe.proc_alive === true,
     "cu_linux_terminal_shallow_tree_independent:" + JSON.stringify(probe));
 
