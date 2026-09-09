@@ -8012,7 +8012,7 @@
     },
     {
       "id": "cu-linux-clipboard-mime-smoke",
-      "description": "Linux clipboard text/plain, text/html and image/png roundtrip through independent clipboard-read --type with digest, type inventory, denied/host-limit paths and empty restore; typed clipboard-write/read/clear usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the actuate/read-back court; AT-SPI --name; no --coords.",
+      "description": "Linux clipboard text/plain, text/html and image/png roundtrip through independent clipboard-read --type with digest, type inventory, denied/host-limit paths and empty restore; independent xclip TARGETS/payload or X11 GetSelectionOwner when present; typed clipboard-write/read/clear usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the actuate/read-back court; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-clipboard-mime-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
