@@ -1717,8 +1717,9 @@ The receipt operation (file.copy or file.move) selects the owner. status returns
 ### `windows`
 
 ```text
-windows [--pid N] [--app SUB] [--title SUB] [--focused [BOOL]] [--minimized [BOOL]]
-        [--browser-profile SUB] [--offset N] [--max N]
+windows [--pid N] [--app SUB] [--title SUB] [--space ID] [state filters] [--all]
+        [--browser-profile SUB] [--meta] [--ax-meta] [AX root filters]
+        [--ax-scan-max N] [--offset N] [--max N]
 focused-window                                      (= windows --focused true)
 ```
 
@@ -1727,22 +1728,36 @@ agenterm-cu windows    (also: focused-window)
   scope: observe    family: Windows & apps
 
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
-  windows [--pid N] [--app SUB] [--title SUB] [--focused [BOOL]] [--minimized [BOOL]]
-          [--browser-profile SUB] [--offset N] [--max N]
+  windows [--pid N] [--app SUB] [--title SUB] [--space ID] [state filters] [--all]
+          [--browser-profile SUB] [--meta] [--ax-meta] [AX root filters]
+          [--ax-scan-max N] [--offset N] [--max N]
   focused-window                                      (= windows --focused true)
 
 arguments:
   --pid N                       owning process id
   --app SUB                     application name substring
   --title SUB                   window title substring
+  --space ID                    exact macOS managed Space id
   --focused [BOOL]              only the focused window (true, default; reply adds focused_app + window) or unfocused windows
   --minimized [BOOL]            only minimized (true, default) or shown windows
+  --onscreen [BOOL]             on-screen or off-screen windows
+  --occluded [BOOL]             geometrically covered or uncovered windows
+  --all                         include the host's off-screen top-level inventory
   --browser-profile SUB         case-insensitive substring of the window's browser_profile (Chromium profile name)
+  --meta                        force the counted object envelope
+  --ax-meta                     include bounded accessibility-root metadata
+  --ax-role ROLE                exact accessibility root role
+  --ax-subrole SUBROLE          exact accessibility root subrole
+  --ax-identifier ID            exact accessibility root identifier
+  --ax-scan-max N               AX candidate scan ceiling, 1..1000 (default 200)
   --offset N                    page start
   --max N                       page size
 
-Bare: the window array. With any filter or page flag the reply is
-{windows, visited, matched, returned, offset, truncated}. Browser rows
+Bare: the window array. With any filter, metadata or page flag the reply is
+{windows, visited, matched, returned, offset, truncated}. All filters run on
+the complete candidate inventory before paging. --all adds off-screen rows;
+Space/occlusion without native truth fail typed. AX root scans are bounded,
+report unavailable roots, and set truncated when the scan ceiling hides candidates. Browser rows
 carry browser_profile (the Chromium profile name from the window's
 " - <App> - <profile>" identity suffix, read from the AX root when the
 inventory title lacks it; the <App> segment is matched loosely against

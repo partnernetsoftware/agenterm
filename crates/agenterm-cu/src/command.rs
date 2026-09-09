@@ -1734,11 +1734,31 @@ pub enum Command {
         focused: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         minimized: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        onscreen: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        occluded: Option<bool>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        all: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        meta: bool,
         /// Case-insensitive substring of the row's `browser_profile` (the
         /// Chromium profile name a browser window's identity carries);
         /// windows without one never match.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         browser_profile: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        ax_meta: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ax_role: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ax_subrole: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ax_identifier: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ax_scan_max: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         offset: Option<usize>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5216,6 +5236,33 @@ impl Command {
                 }
                 Ok(())
             }
+            Self::Windows {
+                space,
+                ax_meta,
+                ax_role,
+                ax_subrole,
+                ax_identifier,
+                ax_scan_max,
+                ..
+            } => {
+                let wants_ax = *ax_meta
+                    || ax_role.is_some()
+                    || ax_subrole.is_some()
+                    || ax_identifier.is_some();
+                if space == &Some(0)
+                    || [ax_role, ax_subrole, ax_identifier]
+                        .into_iter()
+                        .flatten()
+                        .any(|value| value.is_empty() || value.len() > 512)
+                    || ax_scan_max.is_some_and(|value| !(1..=1_000).contains(&value))
+                    || (ax_scan_max.is_some() && !wants_ax)
+                {
+                    return Err(
+                        "windows Space and AX root selectors must be positive, bounded and complete",
+                    );
+                }
+                Ok(())
+            }
             Self::PrivilegeApply {
                 target,
                 plan,
@@ -7889,7 +7936,17 @@ mod tests {
             title: None,
             focused: Some(true),
             minimized: Some(false),
+            space: None,
+            onscreen: None,
+            occluded: None,
+            all: false,
+            meta: false,
             browser_profile: None,
+            ax_meta: false,
+            ax_role: None,
+            ax_subrole: None,
+            ax_identifier: None,
+            ax_scan_max: None,
             offset: None,
             max: Some(1),
         };
@@ -8377,7 +8434,17 @@ mod tests {
             title: None,
             focused: None,
             minimized: None,
+            space: None,
+            onscreen: None,
+            occluded: None,
+            all: false,
+            meta: false,
             browser_profile: Some("work".into()),
+            ax_meta: false,
+            ax_role: None,
+            ax_subrole: None,
+            ax_identifier: None,
+            ax_scan_max: None,
             offset: None,
             max: None,
         };

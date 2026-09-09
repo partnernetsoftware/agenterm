@@ -13,6 +13,9 @@ const WINDOWS_WATCH_MAX_DURATION_MS: u64 = 300_000;
 const WINDOWS_WATCH_MAX_EVENTS: usize = 10_000;
 const WINDOWS_WATCH_MAX_WINDOWS: usize = 10_000;
 const WINDOWS_WATCH_DEFAULT_MAX_WINDOWS: usize = 2_000;
+const WINDOWS_INVENTORY_DEFAULT_MAX: usize = 1_000;
+const WINDOWS_AX_SCAN_DEFAULT: usize = 200;
+const WINDOWS_AX_SCAN_MAX: usize = 1_000;
 
 /// Window inventory. The bare verb keeps its array reply; any filter or page
 /// field switches to the inventory object with counts. `browser_profile`
@@ -22,13 +25,37 @@ const WINDOWS_WATCH_DEFAULT_MAX_WINDOWS: usize = 2_000;
 /// the row filter and before paging.
 pub(super) fn windows_payload(
     filter: observe::WindowFilter,
+    space: Option<u64>,
+    onscreen: Option<bool>,
+    occluded: Option<bool>,
+    all: bool,
+    meta: bool,
     browser_profile: Option<String>,
+    ax_meta: bool,
+    ax_role: Option<String>,
+    ax_subrole: Option<String>,
+    ax_identifier: Option<String>,
+    ax_scan_max: Option<usize>,
     offset: Option<usize>,
     max: Option<usize>,
 ) -> Result<serde_json::Value, CuError> {
-    let page = observe::Page::new(offset, max).map_err(invalid_input)?;
-    let mut windows =
-        mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let page = observe::Page::new(offset, Some(max.unwrap_or(WINDOWS_INVENTORY_DEFAULT_MAX)))
+        .map_err(invalid_input)?;
+    let wants_ax = ax_meta || ax_role.is_some() || ax_subrole.is_some() || ax_identifier.is_some();
+    let ax_scan_max = ax_scan_max.unwrap_or(WINDOWS_AX_SCAN_DEFAULT);
+    if !(1..=WINDOWS_AX_SCAN_MAX).contains(&ax_scan_max) {
+        return Err(invalid_input(format!(
+            "windows --ax-scan-max must be in 1..={WINDOWS_AX_SCAN_MAX}"
+        )));
+    }
+    let visible = mechanism::window_enumerate::enumerate_top_level().map_err(map_mechanism_err)?;
+    let visible_handles: BTreeSet<_> = visible.iter().map(|window| window.handle).collect();
+    let mut windows = if all {
+        mechanism::window_enumerate::enumerate_top_level_all().map_err(map_mechanism_err)?
+    } else {
+        visible
+    };
+    let visited = windows.len();
     // Stacking is an additional read, and a host without one is not an
     // error: the rows simply carry no z_index / occluded_percent, and the
     // envelope says why.
@@ -41,38 +68,191 @@ pub(super) fn windows_payload(
         }
     };
     let focus = resolve_inventory_focus(&mut windows, &stacking);
-    let row_json = |window: &WindowInfo| {
-        let mut row = observe::window_row_json_with_stacking(window, &stacking);
-        if row
-            .get("browser_profile")
-            .and_then(|value| value.as_str())
-            .is_none()
-            && observe::looks_like_browser_app(&window.app_name)
-            && let Some(profile) = ax_root_browser_profile(window)
-            && let Some(object) = row.as_object_mut()
-        {
-            object.insert("browser_profile".into(), serde_json::json!(profile));
-        }
-        row
-    };
-    if filter.is_empty() && browser_profile.is_none() && offset.is_none() && max.is_none() {
+    if filter.is_empty()
+        && space.is_none()
+        && onscreen.is_none()
+        && occluded.is_none()
+        && !all
+        && !meta
+        && browser_profile.is_none()
+        && !wants_ax
+        && offset.is_none()
+        && max.is_none()
+    {
         return Ok(serde_json::Value::Array(
-            windows.iter().map(row_json).collect(),
+            windows
+                .iter()
+                .map(|window| {
+                    static_window_row_json(window, &stacking, !window.minimized, None, None)
+                })
+                .collect(),
         ));
     }
     let wanted_profile = browser_profile.as_deref().map(str::to_lowercase);
-    let matched: Vec<&WindowInfo> = windows
-        .iter()
-        .filter(|window| filter.matches(window))
-        .filter(|window| {
-            wanted_profile.as_deref().is_none_or(|wanted| {
-                window_browser_profile(window)
-                    .is_some_and(|profile| profile.to_lowercase().contains(wanted))
-            })
+    let cheap_filter = observe::WindowFilter {
+        focused: None,
+        minimized: None,
+        ..filter.clone()
+    };
+    windows.retain(|window| cheap_filter.matches(window));
+    windows.retain(|window| {
+        wanted_profile.as_deref().is_none_or(|wanted| {
+            window_browser_profile(window)
+                .is_some_and(|profile| profile.to_lowercase().contains(wanted))
         })
-        .collect();
-    let (hits, page_truncated) = page.apply(&matched);
-    let rows = serde_json::Value::Array(hits.iter().copied().map(row_json).collect());
+    });
+    #[cfg(target_os = "macos")]
+    if all {
+        for window in &mut windows {
+            window.minimized = mechanism::window_op::minimized(window.handle).map_err(|error| {
+                CuError::new(
+                    "windows_filter_unavailable",
+                    "windows --all could not read one all-inventory window",
+                )
+                .with_detail(serde_json::json!({
+                    "filter": "all",
+                    "window": window.handle,
+                    "reason": map_mechanism_err(error).message,
+                }))
+            })?;
+        }
+    }
+    windows.retain(|window| filter.matches(window));
+    if let Some(wanted) = space {
+        #[cfg(target_os = "macos")]
+        {
+            let mut selected = Vec::new();
+            for window in windows {
+                let memberships =
+                    crate::macos_spaces::spaces_for_window(window.handle).map_err(|error| {
+                        CuError::new("windows_filter_unavailable", error.reason).with_detail(
+                            serde_json::json!({
+                                "filter": "space",
+                                "window": window.handle,
+                                "space": wanted,
+                            }),
+                        )
+                    })?;
+                let Some(memberships) = memberships else {
+                    return Err(CuError::new(
+                        "windows_filter_unavailable",
+                        "managed Space membership provider is unavailable",
+                    )
+                    .with_detail(serde_json::json!({ "filter": "space", "space": wanted })));
+                };
+                if memberships.contains(&wanted) {
+                    selected.push(window);
+                }
+            }
+            windows = selected;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = windows;
+            return Err(CuError::new(
+                "windows_filter_unavailable",
+                "managed Space filtering is macOS only",
+            )
+            .with_detail(serde_json::json!({ "filter": "space", "space": wanted })));
+        }
+    }
+    if occluded.is_some() && stacking_reason.is_some() {
+        return Err(CuError::new(
+            "windows_filter_unavailable",
+            "windows --occluded requires a native stacking inventory",
+        )
+        .with_detail(serde_json::json!({
+            "filter": "occluded",
+            "reason": stacking_reason,
+        })));
+    }
+    let mut selected = Vec::new();
+    for window in windows {
+        let is_onscreen = visible_handles.contains(&window.handle) && !window.minimized;
+        if onscreen.is_some_and(|wanted| wanted != is_onscreen) {
+            continue;
+        }
+        let occluded_percent = stacking
+            .iter()
+            .find(|row| row.handle == window.handle)
+            .map(|row| row.occluded_percent);
+        if let Some(wanted) = occluded {
+            let Some(percent) = occluded_percent else {
+                return Err(CuError::new(
+                    "windows_filter_unavailable",
+                    "the stacking provider did not describe a filtered window",
+                )
+                .with_detail(serde_json::json!({
+                    "filter": "occluded",
+                    "window": window.handle,
+                })));
+            };
+            if (percent > 0) != wanted {
+                continue;
+            }
+        }
+        selected.push(WindowWatchSample {
+            window,
+            onscreen: is_onscreen,
+            occluded_percent,
+        });
+    }
+
+    let candidate_count = selected.len();
+    let mut scanned = Vec::new();
+    let mut unavailable_count = 0usize;
+    for row in selected
+        .into_iter()
+        .take(if wants_ax { ax_scan_max } else { usize::MAX })
+    {
+        let ax_root = wants_ax.then(|| window_ax_root_metadata(&row.window));
+        if ax_root
+            .as_ref()
+            .is_some_and(|value| value["status"] == "unavailable")
+        {
+            unavailable_count += 1;
+        }
+        if ax_root.as_ref().is_none_or(|value| {
+            ax_root_matches(
+                value,
+                ax_role.as_deref(),
+                ax_subrole.as_deref(),
+                ax_identifier.as_deref(),
+            )
+        }) {
+            scanned.push((row, ax_root));
+        }
+    }
+    let matched = scanned.len();
+    let ax_truncated = wants_ax && candidate_count > ax_scan_max;
+    let focused_window = focus.handle.and_then(|handle| {
+        scanned
+            .iter()
+            .find(|(row, _)| row.window.handle == handle)
+            .map(|(row, ax_root)| {
+                static_window_row_json(
+                    &row.window,
+                    &stacking,
+                    row.onscreen,
+                    row.occluded_percent,
+                    ax_root.as_ref(),
+                )
+            })
+    });
+    let (hits, page_truncated) = page.apply(&scanned);
+    let rows = serde_json::Value::Array(
+        hits.iter()
+            .map(|(row, ax_root)| {
+                static_window_row_json(
+                    &row.window,
+                    &stacking,
+                    row.onscreen,
+                    row.occluded_percent,
+                    ax_root.as_ref(),
+                )
+            })
+            .collect(),
+    );
     let mut payload = serde_json::json!({
         "mechanism": "libagenterm",
         "focus": focus.json(),
@@ -86,25 +266,41 @@ pub(super) fn windows_payload(
             "title": filter.title,
             "focused": filter.focused,
             "minimized": filter.minimized,
+            "space": space,
+            "onscreen": onscreen,
+            "occluded": occluded,
+            "all": all,
             "browser_profile": browser_profile,
+            "ax_role": ax_role,
+            "ax_subrole": ax_subrole,
+            "ax_identifier": ax_identifier,
         },
-        "visited": windows.len(),
-        "matched": matched.len(),
+        "visited": visited,
+        "matched": matched,
         "returned": hits.len(),
         "offset": page.offset,
-        "truncated": page_truncated,
+        "truncated": page_truncated || ax_truncated,
         "windows": rows,
     });
+    if wants_ax && let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "ax_scan".into(),
+            serde_json::json!({
+                "scanned": candidate_count.min(ax_scan_max),
+                "candidates": candidate_count,
+                "matched": matched,
+                "unavailable": unavailable_count,
+                "max": ax_scan_max,
+                "truncated": ax_truncated,
+            }),
+        );
+    }
     // `--focused true` is a question with one answer: the focused window,
     // or an explicit "the frontmost app has no window here" -- never a
     // bare empty list that reads as "nothing is focused".
     if filter.focused == Some(true)
         && let Some(object) = payload.as_object_mut()
     {
-        let window = focus
-            .handle
-            .and_then(|handle| windows.iter().find(|window| window.handle == handle))
-            .map(row_json);
         object.insert(
             "focused_app".into(),
             focus
@@ -113,9 +309,100 @@ pub(super) fn windows_payload(
                 .map(FrontmostApp::json)
                 .unwrap_or(serde_json::Value::Null),
         );
-        object.insert("window".into(), window.unwrap_or(serde_json::Value::Null));
+        object.insert(
+            "window".into(),
+            focused_window.unwrap_or(serde_json::Value::Null),
+        );
     }
     Ok(payload)
+}
+
+fn static_window_row_json(
+    window: &WindowInfo,
+    stacking: &[mechanism::window_enumerate::WindowStacking],
+    onscreen: bool,
+    occluded_percent: Option<u32>,
+    ax_root: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let mut row = observe::window_row_json_with_stacking(window, stacking);
+    let missing_browser_profile = row
+        .get("browser_profile")
+        .and_then(|value| value.as_str())
+        .is_none();
+    if let Some(object) = row.as_object_mut() {
+        object.insert("onscreen".into(), serde_json::json!(onscreen));
+        if let Some(percent) = occluded_percent {
+            object.insert("occluded_percent".into(), serde_json::json!(percent));
+        }
+        if missing_browser_profile
+            && observe::looks_like_browser_app(&window.app_name)
+            && let Some(profile) = ax_root_browser_profile(window)
+        {
+            object.insert("browser_profile".into(), serde_json::json!(profile));
+        }
+        if let Some(ax_root) = ax_root {
+            object.insert("ax_root".into(), ax_root.clone());
+        }
+    }
+    row
+}
+
+fn bounded_ax_text(value: &str) -> String {
+    value.chars().take(512).collect()
+}
+
+fn window_ax_root_metadata(window: &WindowInfo) -> serde_json::Value {
+    let budget = mechanism::TreeBudget {
+        max_depth: Some(0),
+        max_nodes: Some(1),
+    };
+    match mechanism::tree_for_window_bounded(Some(window.handle), budget) {
+        Ok(tree) => {
+            let root = tree
+                .nodes
+                .iter()
+                .find(|node| node.id == tree.root_id)
+                .or_else(|| tree.nodes.first());
+            let Some(root) = root else {
+                return serde_json::json!({
+                    "status": "unavailable",
+                    "error": "accessibility root returned no node",
+                });
+            };
+            serde_json::json!({
+                "status": "ok",
+                "role": bounded_ax_text(&root.role),
+                "subrole": root.subrole.as_deref().map(bounded_ax_text),
+                "identifier": root.identifier.as_deref().map(bounded_ax_text),
+                "title": bounded_ax_text(&root.name),
+                "actions": root.actions.iter().take(64).map(|value| bounded_ax_text(value)).collect::<Vec<_>>(),
+            })
+        }
+        Err(error) => serde_json::json!({
+            "status": "unavailable",
+            "error": bounded_ax_text(&map_mechanism_err(error).message),
+        }),
+    }
+}
+
+fn ax_root_matches(
+    metadata: &serde_json::Value,
+    role: Option<&str>,
+    subrole: Option<&str>,
+    identifier: Option<&str>,
+) -> bool {
+    metadata["status"] == "ok"
+        && role.is_none_or(|wanted| {
+            metadata["role"].as_str().is_some_and(|have| {
+                observe::normalize_role(have) == observe::normalize_role(wanted)
+            })
+        })
+        && subrole.is_none_or(|wanted| {
+            metadata["subrole"].as_str().is_some_and(|have| {
+                observe::normalize_role(have) == observe::normalize_role(wanted)
+            })
+        })
+        && identifier.is_none_or(|wanted| metadata["identifier"].as_str() == Some(wanted))
 }
 
 /// Decide the inventory's focused window and write it into the rows.
@@ -1470,5 +1757,34 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, "changed");
         assert_eq!(events[0].fields, ["onscreen", "occluded_percent"]);
+    }
+
+    #[test]
+    fn ax_root_filters_are_exact_and_unavailable_never_matches() {
+        let root = serde_json::json!({
+            "status": "ok",
+            "role": "AXWindow",
+            "subrole": "AXDialog",
+            "identifier": "fixture-dialog",
+        });
+        assert!(ax_root_matches(
+            &root,
+            Some("AXWindow"),
+            Some("AXDialog"),
+            Some("fixture-dialog")
+        ));
+        assert!(!ax_root_matches(
+            &root,
+            Some("AXButton"),
+            Some("AXDialog"),
+            Some("fixture-dialog")
+        ));
+        assert!(!ax_root_matches(
+            &serde_json::json!({ "status": "unavailable" }),
+            None,
+            None,
+            None
+        ));
+        assert_eq!(bounded_ax_text(&"x".repeat(600)).chars().count(), 512);
     }
 }

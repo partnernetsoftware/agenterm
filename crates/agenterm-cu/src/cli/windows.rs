@@ -156,6 +156,14 @@ fn windows(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<C
         focused = Some(true);
     }
     let minimized = flag_tristate(args, "--minimized");
+    let space = flag_parsed::<u64>(args, "--space")?;
+    if space == Some(0) {
+        return Err("windows --space must be a positive managed Space id".into());
+    }
+    let onscreen = flag_tristate(args, "--onscreen");
+    let occluded = flag_tristate(args, "--occluded");
+    let all = take_switch(args, "--all");
+    let meta = take_switch(args, "--meta");
     let browser_profile = flag_text(args, "--browser-profile")?;
     if browser_profile
         .as_deref()
@@ -163,12 +171,30 @@ fn windows(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<C
     {
         return Err("windows --browser-profile must not be empty".into());
     }
+    let ax_meta = take_switch(args, "--ax-meta");
+    let ax_role = flag_text(args, "--ax-role")?;
+    let ax_subrole = flag_text(args, "--ax-subrole")?;
+    let ax_identifier = flag_text(args, "--ax-identifier")?;
+    if [&ax_role, &ax_subrole, &ax_identifier]
+        .into_iter()
+        .flatten()
+        .any(|value| value.is_empty())
+    {
+        return Err("windows AX root filters require non-empty exact values".into());
+    }
+    let ax_scan_max = flag_parsed::<usize>(args, "--ax-scan-max")?;
+    let wants_ax = ax_meta || ax_role.is_some() || ax_subrole.is_some() || ax_identifier.is_some();
+    if ax_scan_max.is_some() && !wants_ax {
+        return Err("windows --ax-scan-max requires --ax-meta or an AX root filter".into());
+    }
     let offset = flag_parsed::<usize>(args, "--offset")?;
     let max = flag_parsed::<usize>(args, "--max")?;
     if !args.is_empty() {
         return Err(format!(
-            "windows accepts only --pid N --app SUB --title SUB --focused [BOOL] \
-             --minimized [BOOL] --browser-profile SUB --offset N --max N; unexpected {:?}",
+            "windows accepts only --pid N --app SUB --title SUB --space ID --focused [BOOL] \
+             --minimized [BOOL] --onscreen [BOOL] --occluded [BOOL] --all \
+             --meta --browser-profile SUB --ax-meta --ax-role ROLE --ax-subrole SUBROLE \
+             --ax-identifier ID --ax-scan-max N --offset N --max N; unexpected {:?}",
             args[0]
         ));
     }
@@ -179,7 +205,17 @@ fn windows(spelled: &str, target: TargetRef, args: &mut Vec<String>) -> Result<C
         title,
         focused,
         minimized,
+        space,
+        onscreen,
+        occluded,
+        all,
+        meta,
         browser_profile,
+        ax_meta,
+        ax_role,
+        ax_subrole,
+        ax_identifier,
+        ax_scan_max,
         offset,
         max,
     })
@@ -571,6 +607,51 @@ mod app_inspect_tests {
             windows_watch(
                 TargetRef::Current,
                 &mut vec!["--type".into(), "appeared,bogus".into()]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn windows_inventory_parses_space_state_all_and_ax_root_filters() {
+        let mut args = vec![
+            "--space".into(),
+            "7".into(),
+            "--onscreen".into(),
+            "false".into(),
+            "--occluded".into(),
+            "true".into(),
+            "--all".into(),
+            "--meta".into(),
+            "--ax-role".into(),
+            "AXWindow".into(),
+            "--ax-subrole".into(),
+            "AXDialog".into(),
+            "--ax-identifier".into(),
+            "fixture".into(),
+            "--ax-scan-max".into(),
+            "50".into(),
+        ];
+        assert!(matches!(
+            windows("windows", TargetRef::Current, &mut args).unwrap(),
+            Command::Windows {
+                space: Some(7),
+                onscreen: Some(false),
+                occluded: Some(true),
+                all: true,
+                meta: true,
+                ax_role: Some(role),
+                ax_subrole: Some(subrole),
+                ax_identifier: Some(identifier),
+                ax_scan_max: Some(50),
+                ..
+            } if role == "AXWindow" && subrole == "AXDialog" && identifier == "fixture"
+        ));
+        assert!(
+            windows(
+                "windows",
+                TargetRef::Current,
+                &mut vec!["--ax-scan-max".into(), "20".into()]
             )
             .is_err()
         );

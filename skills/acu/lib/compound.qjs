@@ -151,59 +151,6 @@ export function apps_page(reply, match, offset, max) {
   return success(out);
 }
 
-function space_equal(value, wanted) {
-  if ((typeof value !== "string" && typeof value !== "number")
-      || (typeof value === "number" && (!positive_integer(value)))) {
-    return false;
-  }
-  return "" + value === wanted;
-}
-
-export function windows_space_page(reply, space, offset, max) {
-  const unpacked = reply_data(reply, "windows reply");
-  if (!unpacked.ok) { return unpacked; }
-  if ((typeof space !== "string" && typeof space !== "number") || "" + space === "") {
-    return failure("acu_compound_space_invalid", "space must be a non-empty id");
-  }
-  const wanted = "" + space;
-  const bounds = page_bounds(offset, max);
-  if (!bounds.ok) { return bounds; }
-  const data = unpacked.value;
-  const rows = Array.isArray(data) ? data
-    : object_value(data) && Array.isArray(data.windows) ? data.windows : null;
-  if (rows === null) {
-    return failure("acu_compound_windows_invalid",
-      "windows reply data must be an array or contain a windows array");
-  }
-  const matched = [];
-  for (let i = 0; i < rows.length; i = i + 1) {
-    const row = rows[i];
-    if (!object_value(row)) {
-      return failure("acu_compound_windows_invalid", "every window row must be an object");
-    }
-    if (row.spaces === undefined) { continue; }
-    if (!Array.isArray(row.spaces)) {
-      return failure("acu_compound_windows_invalid", "window spaces must be an array");
-    }
-    let found = false;
-    for (let j = 0; j < row.spaces.length; j = j + 1) {
-      if (space_equal(row.spaces[j], wanted)) { found = true; }
-    }
-    if (found) { matched.push(row); }
-  }
-  const selected = page(matched, bounds.value);
-  const out = Array.isArray(data) ? {} : clone(data);
-  out.windows = clone(selected);
-  out.filter = object_value(out.filter) ? out.filter : {};
-  out.filter.space = wanted;
-  out.visited = rows.length;
-  out.matched = matched.length;
-  out.returned = selected.length;
-  out.offset = bounds.value.offset;
-  out.truncated = bounds.value.offset + selected.length < matched.length;
-  return success(out);
-}
-
 export function normalize_role(raw) {
   if (typeof raw !== "string") { return ""; }
   let text = raw.trim();
