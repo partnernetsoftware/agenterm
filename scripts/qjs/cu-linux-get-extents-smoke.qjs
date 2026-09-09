@@ -3,8 +3,12 @@
 // owned GTK fixture nodes must agree with a separate pyatspi Component
 // query on the same named node, both must typed-fail for unreadable rects,
 // and typed usage/miss/host-limit paths must hold when addressing is invalid
-// or the independent pyatspi desktop probe is unavailable.
-// AT-SPI/--name only; no --coords or screenshot degradation.
+// or the independent pyatspi desktop probe is unavailable. Typed get-extents
+// usage must reject zero --window, missing --name, and --coords/--bogus misuse;
+// get-extents --name usage/host-limit courts must run before actuate/read-back.
+// Named get-extents with --coords/--bogus must reject or stay accessibility-tree.
+// Prefer host-limit clarity over fake success. AT-SPI/--name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -23,6 +27,7 @@ const READABLE_NODES = [
   "Fixture Wheel Target",
 ];
 
+const COURT_PROBE_NAME = "Fixture Press";
 const UNAVAILABLE_NODE = "Do Thing";
 const MISS_NODE = "agenterm-no-such-node-xyz";
 
@@ -45,6 +50,24 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function misuse_code_ok(code) {
+  return code === "usage" || code === "invalid_input";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("--coords") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("--bogus") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -105,7 +128,7 @@ function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   return JSON.parse(trimmed);
 }
 
-function probe_atspi_available() {
+function probe_atspi_available(executable) {
   const script = [
     "import sys",
     "try:",
@@ -116,39 +139,121 @@ function probe_atspi_available() {
     "    print('0')",
   ].join("\n");
   const output = rh.command("python3", ["-c", script], {
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_extents_usage_limit(run_directory, executable) {
-  const reply = run_cu_reply(run_directory, executable, "observe", [
-    "get-extents", "--window", "0", "--name", "Fixture Press",
+function assert_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", COURT_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_get_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_get_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_get_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_get_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_get_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_get_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_get_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords), "cu_linux_get_extents_usage_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_get_extents_usage_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(extents_coords, "error.message")),
+    "cu_linux_get_extents_usage_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus), "cu_linux_get_extents_usage_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_get_extents_usage_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(extents_bogus, "error.message")),
+    "cu_linux_get_extents_usage_bogus_message:" + JSON.stringify(extents_bogus.error)
+  );
+}
+
+function assert_get_extents_reject_coords_or_stay_named(
+  run_directory, executable, handle, node_name, label
+) {
+  const extents_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
   ]);
-  ensure(!flag_at(reply, "ok"), "cu_linux_get_extents_usage_ok:" + JSON.stringify(reply));
-  ensure(
-    text_at(reply, "error.code") === "invalid_input",
-    "cu_linux_get_extents_usage_code:" + JSON.stringify(reply.error)
-  );
-  ensure(
-    text_at(reply, "error.message").indexOf("window") >= 0,
-    "cu_linux_get_extents_usage_message:" + JSON.stringify(reply.error)
-  );
+  if (!output_success(extents_coords)) {
+    ensure(
+      misuse_code_ok(text_at(extents_coords, "error.code"))
+        || text_at(extents_coords, "error.code") === "a11y_extents_unavailable",
+      "cu_linux_get_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_coords, "data.addressing") === "accessibility-tree"
+        && text_at(extents_coords, "data.matched.name") === node_name,
+      "cu_linux_get_extents_coords_named_" + label + ":" + JSON.stringify(extents_coords.data)
+    );
+  }
+
+  const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
+  ]);
+  if (!output_success(extents_bogus)) {
+    ensure(
+      misuse_code_ok(text_at(extents_bogus, "error.code"))
+        || text_at(extents_bogus, "error.code") === "a11y_extents_unavailable",
+      "cu_linux_get_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_bogus, "data.addressing") === "accessibility-tree"
+        && text_at(extents_bogus, "data.matched.name") === node_name,
+      "cu_linux_get_extents_bogus_named_" + label + ":" + JSON.stringify(extents_bogus.data)
+    );
+  }
 }
 
 function assert_extents_host_limit_when_atspi_absent(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
-    "get-extents", "--window", "1", "--name", "Fixture Press",
+    "get-extents", "--window", "1", "--name", COURT_PROBE_NAME,
   ], {
     AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
   });
-  ensure(!flag_at(reply, "ok"), "cu_linux_get_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(!output_success(reply), "cu_linux_get_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
-    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
     "cu_linux_get_extents_unavailable_code:" + code
   );
   if (code === "a11y_backend_failed") {
@@ -370,10 +475,14 @@ const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
 if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
 harness.require(rh.exists(executable), "agenterm-cu executable missing");
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_get_extents_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_get_extents_library_missing:" + abi_library);
 
 const context = harness.new_context(repo, "cu-linux-get-extents");
 const run_directory = rh.join(repo, "target/cu-linux-get-extents-smoke-run");
 rh.create_dir_all(run_directory);
+const env = cu_env(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_get_extents_fixture_missing:" + fixture_source);
@@ -382,18 +491,22 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
-const atspi_available = probe_atspi_available();
+const atspi_available = probe_atspi_available(executable);
 
 try {
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+  assert_extents_usage_limit(run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");
+    assert_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
-    assert_extents_usage_limit(run_directory, executable);
+    print("STEP get-extents typed-fail host-limit when independent pyatspi desktop probe is unavailable");
     assert_extents_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
-    print("STEP get-extents typed-fails invalid_input when --window handle is zero");
-    assert_extents_usage_limit(run_directory, executable);
-
     print("STEP start owned GTK fixture and resolve window by pid and exact title");
     fixture = harness.start({
       program: "python3",
@@ -414,6 +527,11 @@ try {
     ensure(inventory_row !== null, "cu_linux_get_extents_window_identity");
     const handle = int_at(inventory_row, "handle");
     ensure(handle > 0, "cu_linux_get_extents_handle:" + JSON.stringify(inventory_row));
+
+    print("STEP get-extents --name with --coords/--bogus rejects or stays accessibility-tree before actuate/read-back court");
+    assert_get_extents_reject_coords_or_stay_named(
+      run_directory, executable, handle, COURT_PROBE_NAME, "fixture_press"
+    );
 
     for (let index = 0; index < READABLE_NODES.length; index = index + 1) {
       const node_name = READABLE_NODES[index];
@@ -453,9 +571,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-get-extents-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux get-extents matches independent AT-SPI Component.GetExtents(Screen) read-back with usage/miss/unavailable honesty");
+    print("PASS: Linux get-extents matches independent AT-SPI Component.GetExtents(Screen) read-back with typed get-extents --coords/--bogus usage honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux get-extents typed-fails when independent pyatspi desktop probe is unavailable");
+    print("PASS: Linux get-extents typed-fails with get-extents --coords/--bogus usage and host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
