@@ -1,11 +1,12 @@
 // CEO: Linux GTK double-click by --name via click --count 2 (AT-SPI).
-// Acceptance is independent pyatspi read-back only: the fixture count label
-// must advance by two after each named multi-click actuation. Typed click/dclick
-// usage and host-limit paths must hold when --name/--window is missing or the
-// independent pyatspi desktop probe is unavailable; typed get-extents --name
-// usage/host-limit paths must hold before the native actuate/read-back court;
-// missing named nodes must typed-fail a11y_node_not_found. CU tree is not used
-// for effect proof. No --coords, screenshot, or coordinate degradation.
+// Acceptance is independent pyatspi state read-back only: the fixture count
+// label must advance by two after each named multi-click actuation. Typed
+// click/dclick usage must hold when --name/--window is missing, --coords is
+// present, or leftover --bogus is supplied; host-limit paths must hold when
+// the independent pyatspi desktop probe is unavailable; typed get-extents
+// --name usage/host-limit paths must hold before the native actuate/read-back
+// court; missing named nodes must typed-fail a11y_node_not_found. CU tree is
+// not used for effect proof. No --coords, screenshot, or coordinate degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -161,6 +162,112 @@ function assert_double_click_usage_limit(run_directory, executable) {
     text_at(zero_handle, "error.message").indexOf("--window") >= 0,
     "cu_linux_double_click_zero_handle_message:" + JSON.stringify(zero_handle.error)
   );
+
+  assert_double_click_coords_bogus_usage(run_directory, executable);
+}
+
+function coords_misuse_message_ok(message) {
+  return message.indexOf("--coords") >= 0
+    || message.indexOf("--degraded") >= 0
+    || message.indexOf("coordinate") >= 0;
+}
+
+function leftover_bogus_ok(reply) {
+  if (output_success(reply)) {
+    return text_at(reply, "data.addressing") === "accessibility-tree";
+  }
+  const code = text_at(reply, "error.code");
+  const message = text_at(reply, "error.message");
+  if (code === "usage" || code === "invalid_input") {
+    return message.indexOf("--name") >= 0
+      || message.indexOf("--bogus") >= 0
+      || message.indexOf("unexpected") >= 0
+      || message.indexOf("--window") >= 0
+      || message.indexOf("--node") >= 0
+      || message.indexOf("--coords") >= 0
+      || message.indexOf("--degraded") >= 0;
+  }
+  return code === "a11y_node_not_found"
+    || code === "bad_handle"
+    || code === "a11y_backend_failed"
+    || code === "unsupported";
+}
+
+function assert_click_coords_rejected(run_directory, executable, args, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", args);
+  ensure(!output_success(reply), "cu_linux_double_click_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "invalid_input" || text_at(reply, "error.code") === "usage",
+    "cu_linux_double_click_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    coords_misuse_message_ok(text_at(reply, "error.message")),
+    "cu_linux_double_click_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_double_click_coords_bogus_usage(run_directory, executable) {
+  assert_click_coords_rejected(run_directory, executable, [
+    "click", "--window", "1", "--count", "2", "--coords", "10,10",
+  ], "click_coords");
+  assert_click_coords_rejected(run_directory, executable, [
+    "dclick", "--window", "1", "--coords", "10,10",
+  ], "dclick_coords");
+  assert_click_coords_rejected(run_directory, executable, [
+    "click", "--window", "1", "--name", BUTTON_NAME, "--count", "2", "--coords", "10,10",
+  ], "click_name_coords");
+  assert_click_coords_rejected(run_directory, executable, [
+    "dclick", "--window", "1", "--name", BUTTON_NAME, "--coords", "10,10",
+  ], "dclick_name_coords");
+
+  const click_bogus_missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1", "--count", "2", "--bogus",
+  ]);
+  ensure(
+    leftover_bogus_ok(click_bogus_missing_name)
+      && !output_success(click_bogus_missing_name)
+      && text_at(click_bogus_missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_double_click_click_bogus_missing_name:" + JSON.stringify(click_bogus_missing_name)
+  );
+
+  const dclick_bogus_missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "dclick", "--window", "1", "--bogus",
+  ]);
+  ensure(
+    leftover_bogus_ok(dclick_bogus_missing_name)
+      && !output_success(dclick_bogus_missing_name)
+      && text_at(dclick_bogus_missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_double_click_dclick_bogus_missing_name:" + JSON.stringify(dclick_bogus_missing_name)
+  );
+
+  const click_bogus_named = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1", "--name", BUTTON_NAME, "--count", "2", "--bogus",
+  ]);
+  ensure(
+    leftover_bogus_ok(click_bogus_named),
+    "cu_linux_double_click_click_bogus_named:" + JSON.stringify(click_bogus_named)
+  );
+  if (output_success(click_bogus_named)) {
+    ensure(
+      int_at(click_bogus_named, "data.clicks") === 2,
+      "cu_linux_double_click_click_bogus_named_clicks:" + JSON.stringify(click_bogus_named.data)
+    );
+  }
+
+  const dclick_bogus_named = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "dclick", "--window", "1", "--name", BUTTON_NAME, "--bogus",
+  ]);
+  ensure(
+    leftover_bogus_ok(dclick_bogus_named),
+    "cu_linux_double_click_dclick_bogus_named:" + JSON.stringify(dclick_bogus_named)
+  );
+  if (output_success(dclick_bogus_named)) {
+    ensure(
+      int_at(dclick_bogus_named, "data.clicks") === 2
+        && text_at(dclick_bogus_named, "data.addressing") === "accessibility-tree",
+      "cu_linux_double_click_dclick_bogus_named_stay:" + JSON.stringify(dclick_bogus_named.data)
+    );
+  }
 }
 
 function assert_double_click_missing_node(run_directory, executable, handle, label) {
@@ -195,6 +302,19 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_double_click_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_double_click_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_double_click_extents_missing_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_double_click_extents_missing_name_message:" + JSON.stringify(missing_name.error)
   );
 }
 
@@ -350,14 +470,14 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP click --count 2 / dclick typed-fail usage when --name or --window is missing");
+  print("STEP click --count 2 / dclick typed-fail usage when --name or --window is missing, or --coords/--bogus is present");
   assert_double_click_usage_limit(run_directory, executable);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    print("STEP get-extents --name typed-fail usage when --window is zero or --name is missing before actuate/read-back court");
     assert_get_extents_usage_limit(run_directory, executable, env);
   } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    print("STEP get-extents --name typed-fail host-limit when pyatspi desktop probe is unavailable before actuate/read-back court");
     assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
   }
 
@@ -427,8 +547,8 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_double_click_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux GTK double-click by --name via click --count 2 and dclick alias with independent pyatspi read-back and typed click/dclick/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux GTK double-click by --name via click --count 2 and dclick alias with independent pyatspi state read-back and typed click/dclick --coords/--bogus plus get-extents --name usage honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux GTK double-click typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+  print("PASS: Linux GTK double-click typed-fails with typed click/dclick --coords/--bogus usage and get-extents --name host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
 return;
