@@ -47,6 +47,11 @@ function int_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function misuse_code_ok(code) {
   return code === "invalid_input" || code === "usage";
 }
@@ -207,9 +212,23 @@ function assert_button_focus_usage_limit(run_directory, executable) {
     "cu_linux_gtk_button_focus_click_coords_code:" + JSON.stringify(click_coords.error)
   );
   ensure(
-    text_at(click_coords, "error.message").indexOf("--degraded") >= 0
-      || text_at(click_coords, "error.message").indexOf("--coords") >= 0,
+    usage_rejects_unexpected(text_at(click_coords, "error.message"), "--coords")
+      || text_at(click_coords, "error.message").indexOf("--degraded") >= 0,
     "cu_linux_gtk_button_focus_click_coords_message:" + JSON.stringify(click_coords.error)
+  );
+
+  const click_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(click_bogus), "cu_linux_gtk_button_focus_click_bogus_ok:" + JSON.stringify(click_bogus));
+  ensure(
+    text_at(click_bogus, "error.code") === "invalid_input",
+    "cu_linux_gtk_button_focus_click_bogus_code:" + JSON.stringify(click_bogus.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(click_bogus, "error.message"), "--bogus")
+      || text_at(click_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_button_focus_click_bogus_message:" + JSON.stringify(click_bogus.error)
   );
 
   const click_name_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
@@ -224,7 +243,7 @@ function assert_button_focus_usage_limit(run_directory, executable) {
     "cu_linux_gtk_button_focus_click_name_coords_code:" + JSON.stringify(click_name_coords.error)
   );
   ensure(
-    text_at(click_name_coords, "error.message").indexOf("--coords") >= 0,
+    usage_rejects_unexpected(text_at(click_name_coords, "error.message"), "--coords"),
     "cu_linux_gtk_button_focus_click_name_coords_message:" + JSON.stringify(click_name_coords.error)
   );
 
@@ -263,8 +282,7 @@ function assert_button_focus_usage_limit(run_directory, executable) {
     "cu_linux_gtk_button_focus_focused_name_code:" + JSON.stringify(focused_name.error)
   );
   ensure(
-    text_at(focused_name, "error.message").indexOf("--name") >= 0
-      || text_at(focused_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(focused_name, "error.message"), "--name"),
     "cu_linux_gtk_button_focus_focused_name_message:" + JSON.stringify(focused_name.error)
   );
 
@@ -277,8 +295,7 @@ function assert_button_focus_usage_limit(run_directory, executable) {
     "cu_linux_gtk_button_focus_focused_bogus_code:" + JSON.stringify(focused_bogus.error)
   );
   ensure(
-    text_at(focused_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(focused_bogus, "error.message").indexOf("--bogus") >= 0,
+    usage_rejects_unexpected(text_at(focused_bogus, "error.message"), "--bogus"),
     "cu_linux_gtk_button_focus_focused_bogus_message:" + JSON.stringify(focused_bogus.error)
   );
 
@@ -299,6 +316,19 @@ function assert_button_focus_usage_limit(run_directory, executable) {
     "get-text", "--window", "1", "--coords", "10,10",
   ]);
   ensure(!output_success(get_text_coords), "cu_linux_gtk_button_focus_get_text_coords_ok:" + JSON.stringify(get_text_coords));
+  ensure(
+    text_at(get_text_coords, "error.code") === "a11y_focus_unavailable",
+    "cu_linux_gtk_button_focus_get_text_coords_code:" + JSON.stringify(get_text_coords.error)
+  );
+
+  const get_text_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(get_text_bogus), "cu_linux_gtk_button_focus_get_text_bogus_ok:" + JSON.stringify(get_text_bogus));
+  ensure(
+    text_at(get_text_bogus, "error.code") === "a11y_focus_unavailable",
+    "cu_linux_gtk_button_focus_get_text_bogus_code:" + JSON.stringify(get_text_bogus.error)
+  );
 }
 
 function assert_focus_usage_limit(run_directory, executable) {
@@ -441,6 +471,48 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_gtk_button_focus_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(
+    !output_success(extents_coords),
+    "cu_linux_gtk_button_focus_extents_coords_ok:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_gtk_button_focus_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_gtk_button_focus_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_button_focus_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(
+    !output_success(extents_bogus),
+    "cu_linux_gtk_button_focus_extents_bogus_ok:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_gtk_button_focus_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_gtk_button_focus_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_button_focus_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -640,7 +712,7 @@ try {
   assert_button_focus_usage_limit(run_directory, executable);
   assert_focus_usage_limit(run_directory, executable);
 
-  print("STEP get-extents typed-fail usage when --window is zero or --name is missing before actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP click/focused/get-text/get-extents typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");

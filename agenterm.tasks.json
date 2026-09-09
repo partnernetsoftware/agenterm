@@ -6834,7 +6834,7 @@
     },
     {
       "id": "cu-linux-gtk-button-focus-smoke",
-      "description": "Linux GTK3 button click --name then CU focused + get-text name the button; independent STATE_FOCUSED after click recorded honestly and focus --name establishes it when click did not; three consecutive focused + get-text read-backs match pyatspi STATE_FOCUSED with stable label; typed click/focus/focused/get-text reject --name/--coords/--bogus misuse; get-extents --name locates button and usage/host-limit court before click/focus; AT-SPI --name; no --coords.",
+      "description": "Linux GTK3 button click --name then CU focused + get-text name the button; independent STATE_FOCUSED after click recorded honestly and focus --name establishes it when click did not; three consecutive focused + get-text read-backs match pyatspi STATE_FOCUSED with stable label; typed click/focus/focused/get-text/get-extents reject --name/--coords/--bogus misuse (usage_rejects_unexpected) with get-extents --name usage AND host-limit court before click/focus actuate/read-back; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-button-focus-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7072,7 +7072,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-send-keys-smoke",
-      "description": "Linux GTK entry N\u22652 send-keys --name \u2192 get-text roundtrips plus semantic modifier chords with independent get-caret/get-selection/clipboard-read/get-text read-back; typed send-keys/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus or stay accessibility-tree --name; host-limit when AT-SPI absent; get-extents --name usage/host-limit court before actuate; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry N\u22652 send-keys --name \u2192 get-text roundtrips plus semantic modifier chords with independent get-caret/get-selection/clipboard-read/get-text read-back; typed send-keys/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus or stay accessibility-tree --name; host-limit when AT-SPI absent; get-extents --name usage/host-limit court (including --coords/--bogus honesty) before actuate; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
