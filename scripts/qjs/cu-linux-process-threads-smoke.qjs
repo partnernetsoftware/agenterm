@@ -1,11 +1,12 @@
 // CEO: Linux process-threads honesty with independent /proc/<pid>/task read-back.
 // Acceptance is smoke read-back only: CU process-threads must agree with thread
 // ids, counts and stat-derived fields outside agenterm-cu for the same live PID.
-// Typed get-extents --name usage/host-limit paths must hold before any
-// /proc/<pid>/task count or field court. Typed process-threads usage rejects
-// AT-SPI-shaped --name (with --window/--role) and --bogus; native --name remains
-// a thread-name filter proven against /proc/<pid>/task/*/comm. An independent
-// /proc/<pid>/task directory count must match API visited/returned/tid set.
+// Typed process-threads usage must reject AT-SPI-shaped --name (with --window/--role),
+// --coords, --bogus, and other unexpected arguments; native --name remains a
+// thread-name filter proven against /proc/<pid>/task/*/comm. Typed get-extents
+// --name usage AND host-limit paths must both hold before any /proc/<pid>/task
+// count or field court. An independent /proc/<pid>/task directory count must
+// match API visited/returned/tid set. Prefer host-limit clarity over fake success.
 // AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -39,6 +40,11 @@ function text_at(value, dotted) {
 }
 
 function output_success(document) { return at(document, "ok") === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function cu_env(executable) {
   const env = {
@@ -125,8 +131,8 @@ function assert_process_threads_usage_honesty(run_directory, executable, env) {
     "cu_linux_process_threads_usage_flat_atspi_name_command:" + JSON.stringify(flat_atspi_name)
   );
   ensure(
-    text_at(flat_atspi_name, "error.message").indexOf("--window") >= 0
-      || text_at(flat_atspi_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(flat_atspi_name, "error.message"), "--window")
+      || usage_rejects_unexpected(text_at(flat_atspi_name, "error.message"), "--name"),
     "cu_linux_process_threads_usage_flat_atspi_name_message:" + JSON.stringify(flat_atspi_name.error)
   );
 
@@ -140,9 +146,41 @@ function assert_process_threads_usage_honesty(run_directory, executable, env) {
     "cu_linux_process_threads_usage_grouped_atspi_name_code:" + JSON.stringify(grouped_atspi_name.error)
   );
   ensure(
-    text_at(grouped_atspi_name, "error.message").indexOf("--role") >= 0
-      || text_at(grouped_atspi_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(grouped_atspi_name, "error.message"), "--role")
+      || usage_rejects_unexpected(text_at(grouped_atspi_name, "error.message"), "--name"),
     "cu_linux_process_threads_usage_grouped_atspi_name_message:" + JSON.stringify(grouped_atspi_name.error)
+  );
+
+  const flat_coords = invoke_observe_reply(run_directory, executable, [
+    "process-threads", "--pid", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(flat_coords),
+    "cu_linux_process_threads_usage_flat_coords_ok:" + JSON.stringify(flat_coords));
+  ensure(
+    text_at(flat_coords, "error.code") === "usage",
+    "cu_linux_process_threads_usage_flat_coords_code:" + JSON.stringify(flat_coords.error)
+  );
+  ensure(
+    text_at(flat_coords, "command") === "usage",
+    "cu_linux_process_threads_usage_flat_coords_command:" + JSON.stringify(flat_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_coords, "error.message"), "--coords"),
+    "cu_linux_process_threads_usage_flat_coords_message:" + JSON.stringify(flat_coords.error)
+  );
+
+  const grouped_coords = invoke_observe_reply(run_directory, executable, [
+    "process", "threads", "--pid", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(grouped_coords),
+    "cu_linux_process_threads_usage_grouped_coords_ok:" + JSON.stringify(grouped_coords));
+  ensure(
+    text_at(grouped_coords, "error.code") === "usage",
+    "cu_linux_process_threads_usage_grouped_coords_code:" + JSON.stringify(grouped_coords.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_coords, "error.message"), "--coords"),
+    "cu_linux_process_threads_usage_grouped_coords_message:" + JSON.stringify(grouped_coords.error)
   );
 
   const flat_bogus = invoke_observe_reply(run_directory, executable, [
@@ -155,8 +193,7 @@ function assert_process_threads_usage_honesty(run_directory, executable, env) {
     "cu_linux_process_threads_usage_flat_bogus_code:" + JSON.stringify(flat_bogus.error)
   );
   ensure(
-    text_at(flat_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(flat_bogus, "error.message").indexOf("--bogus") >= 0,
+    usage_rejects_unexpected(text_at(flat_bogus, "error.message"), "--bogus"),
     "cu_linux_process_threads_usage_flat_bogus_message:" + JSON.stringify(flat_bogus.error)
   );
 
@@ -170,8 +207,7 @@ function assert_process_threads_usage_honesty(run_directory, executable, env) {
     "cu_linux_process_threads_usage_grouped_bogus_code:" + JSON.stringify(grouped_bogus.error)
   );
   ensure(
-    text_at(grouped_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(grouped_bogus, "error.message").indexOf("--bogus") >= 0,
+    usage_rejects_unexpected(text_at(grouped_bogus, "error.message"), "--bogus"),
     "cu_linux_process_threads_usage_grouped_bogus_message:" + JSON.stringify(grouped_bogus.error)
   );
 }
@@ -189,6 +225,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_process_threads_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_process_threads_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_process_threads_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_process_threads_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_threads_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_process_threads_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_process_threads_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_process_threads_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_threads_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_process_threads_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_process_threads_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_process_threads_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_threads_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -681,14 +773,14 @@ let succeeded = 0;
 let failure = "";
 try {
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before /proc/<pid>/task read-back");
+    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before /proc/<pid>/task read-back court");
     assert_get_extents_usage_limit(context.run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
     assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
   }
 
-  print("STEP process-threads typed usage rejects AT-SPI --name/--bogus (native --name is a thread-name filter, not AT-SPI)");
+  print("STEP process-threads typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present (native --name is a thread-name filter, not AT-SPI)");
   assert_process_threads_usage_honesty(context.run_directory, executable, env);
 
   if (!self_probe.readable) {
@@ -737,12 +829,12 @@ if (succeeded !== 0 && completion_failure === "") {
     print("PASS: Linux process-threads typed-fails when independent /proc/<pid>/task is unreadable or denied");
   } else if (atspi_available) {
     print("PASS: Linux process-threads matches independent /proc/<pid>/task count and field read-back"
-      + " with typed process-threads AT-SPI --name/--bogus usage honesty, native --name filter,"
-      + " get-extents --name usage (no --coords), and permission-denied host-limit honesty");
+      + " with typed process-threads --name/--coords/--bogus and get-extents --name usage/host-limit honesty"
+      + " (AT-SPI --name, no --coords), native --name filter, and permission-denied host-limit honesty");
   } else {
     print("PASS: Linux process-threads matches independent /proc/<pid>/task count and field read-back"
-      + " with typed process-threads AT-SPI --name/--bogus usage honesty, native --name filter,"
-      + " get-extents --name host-limit (no --coords), and permission-denied host-limit honesty");
+      + " with typed process-threads --name/--coords/--bogus usage and get-extents --name host-limit honesty"
+      + " (AT-SPI --name, no --coords), native --name filter, and permission-denied host-limit honesty");
   }
 }
 if (failure !== "") { throw failure; }
