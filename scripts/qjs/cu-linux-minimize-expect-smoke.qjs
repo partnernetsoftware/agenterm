@@ -1,7 +1,9 @@
 // CEO: minimize/restore --expect minimized|restored on Linux.
 // Acceptance is smoke read-back only: independent xprop _NET_WM_STATE,
 // xwininfo Map State, and windows inventory minimized field must match
-// --expect after each verb. No --coords or screenshot.
+// --expect after each verb. Typed usage, destructive-gate refusals,
+// missing-window and headless host-limit paths must hold before any owned
+// fixture window exists. No --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -11,6 +13,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-minimize-expect-state",
 ];
+
+const MISSING_HANDLE = "99999999";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -30,6 +34,11 @@ function text_at(value, dotted) {
   return "" + value_at;
 }
 
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function int_at(value, dotted) {
@@ -45,7 +54,10 @@ function direct_file(path) {
 }
 
 function cu_env(executable) {
-  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
   for (const key of [
     "DISPLAY",
     "XDG_RUNTIME_DIR",
@@ -61,20 +73,171 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, arguments, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: cu_env(executable),
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
-  });
-  ensure(output.success === true, "cu_linux_minimize_expect_cli:" + output.stdout + output.stderr);
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_minimize_expect_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_minimize_expect_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_minimize_expect_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_minimize_expect_reply:" + JSON.stringify(document));
   return document;
+}
+
+function minimize_refused(run_directory, executable, arguments, code) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", ["minimize"].concat(arguments));
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === code,
+    "cu_linux_minimize_expect_refused:" + code + ":" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function restore_refused(run_directory, executable, arguments, code) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", ["restore"].concat(arguments));
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === code,
+    "cu_linux_minimize_expect_restore_refused:" + code + ":" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function assert_minimize_usage_limit(run_directory, executable) {
+  const minimize_zero = run_cu_reply(run_directory, executable, "actuate", [
+    "minimize", "--window", "0", "--expect", "minimized",
+  ]);
+  ensure(!output_success(minimize_zero), "cu_linux_minimize_expect_usage_ok:" + JSON.stringify(minimize_zero));
+  ensure(
+    text_at(minimize_zero, "error.code") === "usage",
+    "cu_linux_minimize_expect_usage_code:" + JSON.stringify(minimize_zero.error)
+  );
+  ensure(
+    text_at(minimize_zero, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_minimize_expect_usage_message:" + JSON.stringify(minimize_zero.error)
+  );
+
+  const restore_zero = run_cu_reply(run_directory, executable, "actuate", [
+    "restore", "--window", "0", "--expect", "restored",
+  ]);
+  ensure(!output_success(restore_zero), "cu_linux_minimize_expect_restore_usage_ok:" + JSON.stringify(restore_zero));
+  ensure(
+    text_at(restore_zero, "error.code") === "usage",
+    "cu_linux_minimize_expect_restore_usage_code:" + JSON.stringify(restore_zero.error)
+  );
+}
+
+function assert_minimize_destructive_gate(run_directory, executable) {
+  const missing_target = minimize_refused(
+    run_directory, executable, ["--expect", "minimized"], "refused"
+  );
+  ensure(
+    text_at(missing_target, "error.detail.reason") === "destructive_gate"
+      && text_at(missing_target, "error.detail.effect") === "not_performed"
+      && missing_target.error.detail.missing.length === 1
+      && text_of(missing_target.error.detail.missing[0]) === "target",
+    "cu_linux_minimize_expect_missing_target:" + JSON.stringify(missing_target)
+  );
+
+  const missing_postcondition = restore_refused(
+    run_directory, executable, ["--window", "1"], "refused"
+  );
+  ensure(
+    text_at(missing_postcondition, "error.detail.reason") === "destructive_gate"
+      && missing_postcondition.error.detail.missing.length === 1
+      && text_of(missing_postcondition.error.detail.missing[0]) === "postcondition",
+    "cu_linux_minimize_expect_missing_postcondition:" + JSON.stringify(missing_postcondition)
+  );
+
+  const wrong_postcondition = minimize_refused(
+    run_directory, executable, ["--window", "1", "--expect", "restored"], "refused"
+  );
+  ensure(
+    text_at(wrong_postcondition, "error.detail.reason") === "destructive_gate"
+      && wrong_postcondition.error.detail.missing.length === 1
+      && text_of(wrong_postcondition.error.detail.missing[0]) === "postcondition",
+    "cu_linux_minimize_expect_wrong_postcondition:" + JSON.stringify(wrong_postcondition)
+  );
+
+  const restore_missing = restore_refused(
+    run_directory, executable, ["--expect", "restored"], "refused"
+  );
+  ensure(
+    text_at(restore_missing, "error.detail.reason") === "destructive_gate"
+      && restore_missing.error.detail.missing.length === 1
+      && text_of(restore_missing.error.detail.missing[0]) === "target",
+    "cu_linux_minimize_expect_restore_missing_target:" + JSON.stringify(restore_missing)
+  );
+}
+
+function assert_minimize_missing_window(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", [
+    "minimize", "--window", MISSING_HANDLE, "--expect", "minimized",
+  ]);
+  ensure(!output_success(reply), "cu_linux_minimize_expect_missing_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "window_op_failed",
+    "cu_linux_minimize_expect_missing_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.effect") === "not_performed",
+    "cu_linux_minimize_expect_missing_effect:" + JSON.stringify(reply.error)
+  );
+
+  const restore_reply = run_cu_reply(run_directory, executable, "actuate", [
+    "restore", "--window", MISSING_HANDLE, "--expect", "restored",
+  ]);
+  ensure(!output_success(restore_reply), "cu_linux_minimize_expect_restore_missing_ok:" + JSON.stringify(restore_reply));
+  ensure(
+    text_at(restore_reply, "error.code") === "window_op_failed",
+    "cu_linux_minimize_expect_restore_missing_code:" + JSON.stringify(restore_reply.error)
+  );
+  ensure(
+    text_at(restore_reply, "error.detail.effect") === "not_performed",
+    "cu_linux_minimize_expect_restore_missing_effect:" + JSON.stringify(restore_reply.error)
+  );
+}
+
+function assert_headless_host_limit(run_directory, executable, verb, label) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "actuate",
+    [verb, "--window", "1", "--expect", verb === "minimize" ? "minimized" : "restored"],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply), "cu_linux_minimize_expect_headless_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_minimize_expect_headless_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("mechanism unavailable") >= 0
+      || message.indexOf("agt_native_window_minimized") >= 0,
+    "cu_linux_minimize_expect_headless_message_" + label + ":" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.effect") === "not_performed",
+    "cu_linux_minimize_expect_headless_effect_" + label + ":" + JSON.stringify(reply.error)
+  );
 }
 
 function window_rows(reply) {
@@ -93,20 +256,20 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
-function independent_net_wm_hidden(run_directory, handle) {
+function independent_net_wm_hidden(run_directory, executable, handle) {
   const xprop = rh.command("xprop", ["-id", "" + handle, "_NET_WM_STATE"], {
     cwd: run_directory,
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   if (!xprop.success) { return false; }
   return xprop.stdout.indexOf("_NET_WM_STATE_HIDDEN") >= 0;
 }
 
-function independent_map_viewable(run_directory, handle) {
+function independent_map_viewable(run_directory, executable, handle) {
   const xwininfo = rh.command("xwininfo", ["-id", "" + handle], {
     cwd: run_directory,
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   if (!xwininfo.success) { return false; }
@@ -132,6 +295,19 @@ rh.create_dir_all(run_directory);
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_minimize_expect_fixture_missing:" + fixture_source);
 
+print("STEP minimize/restore typed-fails usage when --window handle is zero");
+assert_minimize_usage_limit(run_directory, executable);
+
+print("STEP minimize/restore typed-fails refused destructive_gate when target or postcondition is missing");
+assert_minimize_destructive_gate(run_directory, executable);
+
+print("STEP minimize/restore typed-fails window_op_failed when handle is absent from inventory");
+assert_minimize_missing_window(run_directory, executable);
+
+print("STEP minimize/restore without DISPLAY typed-fails unsupported host-limit");
+assert_headless_host_limit(run_directory, executable, "minimize", "minimize");
+assert_headless_host_limit(run_directory, executable, "restore", "restore");
+
 let fixture = -1;
 let fixture_pid = 0;
 try {
@@ -152,19 +328,42 @@ try {
 
   const row = window_row(run_directory, executable, fixture_pid, fixture_title);
   ensure(row !== null, "cu_linux_minimize_expect_window_missing");
-  const handle_text = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_minimize_expect_handle:" + JSON.stringify(row));
+  const handle = int_at(row, "handle");
+  const handle_text = "" + handle;
+  ensure(handle > 0, "cu_linux_minimize_expect_handle:" + JSON.stringify(row));
   ensure(
     flag_at(row, "minimized") === false,
     "cu_linux_minimize_expect_baseline_not_minimized:" + JSON.stringify(row)
   );
   ensure(
-    independent_net_wm_hidden(run_directory, int_at(row, "handle")) === false,
+    independent_net_wm_hidden(run_directory, executable, handle) === false,
     "cu_linux_minimize_expect_baseline_xprop_not_hidden"
   );
   ensure(
-    independent_map_viewable(run_directory, int_at(row, "handle")) === true,
+    independent_map_viewable(run_directory, executable, handle) === true,
     "cu_linux_minimize_expect_baseline_map_viewable"
+  );
+
+  print("STEP destructive_gate refusals on a live handle must not change xprop, map state, or inventory");
+  minimize_refused(
+    run_directory, executable, ["--window", handle_text, "--expect", "restored"], "refused"
+  );
+  restore_refused(
+    run_directory, executable, ["--window", handle_text, "--expect", "minimized"], "refused"
+  );
+  ensure(
+    independent_net_wm_hidden(run_directory, executable, handle) === false,
+    "cu_linux_minimize_expect_refusal_xprop_changed"
+  );
+  ensure(
+    independent_map_viewable(run_directory, executable, handle) === true,
+    "cu_linux_minimize_expect_refusal_map_changed"
+  );
+  const refusal_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(refusal_row !== null, "cu_linux_minimize_expect_refusal_row_missing");
+  ensure(
+    flag_at(refusal_row, "minimized") === false,
+    "cu_linux_minimize_expect_refusal_inventory_changed:" + JSON.stringify(refusal_row)
   );
 
   print("STEP minimize --window " + handle_text + " --expect minimized");
@@ -179,13 +378,13 @@ try {
 
   print("STEP independent xprop _NET_WM_STATE read-back: minimized must be true");
   ensure(
-    independent_net_wm_hidden(run_directory, int_at(row, "handle")) === true,
+    independent_net_wm_hidden(run_directory, executable, handle) === true,
     "cu_linux_minimize_expect_xprop_minimized"
   );
 
   print("STEP independent xwininfo Map State read-back: minimized must be unmapped");
   ensure(
-    independent_map_viewable(run_directory, int_at(row, "handle")) === false,
+    independent_map_viewable(run_directory, executable, handle) === false,
     "cu_linux_minimize_expect_map_unmapped"
   );
 
@@ -209,13 +408,13 @@ try {
 
   print("STEP independent xprop _NET_WM_STATE read-back: minimized must be false");
   ensure(
-    independent_net_wm_hidden(run_directory, int_at(row, "handle")) === false,
+    independent_net_wm_hidden(run_directory, executable, handle) === false,
     "cu_linux_minimize_expect_xprop_restored"
   );
 
   print("STEP independent xwininfo Map State read-back: restored must be viewable");
   ensure(
-    independent_map_viewable(run_directory, int_at(row, "handle")) === true,
+    independent_map_viewable(run_directory, executable, handle) === true,
     "cu_linux_minimize_expect_map_viewable"
   );
 
@@ -238,5 +437,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-minimize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-minimize-expect-state");
 harness.remove_run(context);
-print("PASS: CEO Linux minimize/restore --expect with independent xprop, xwininfo Map State, and windows inventory minimized read-back");
+print("PASS: Linux minimize/restore usage/host-limit/miss honesty + independent xprop, xwininfo Map State, and windows inventory minimized read-back (no --coords)");
 return;
