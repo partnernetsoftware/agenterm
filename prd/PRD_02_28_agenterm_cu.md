@@ -601,8 +601,9 @@ ACU-only cutover
 │  │  `resource pressure` spelling now maps losslessly to `resource-pressure`; the public
 │  │  qjswasm court executes both pressure spellings and preserves host-native semantics
 │  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
-│  ├─ [~] acu.dynamic.067 · `literal.*` reduces exactly to native loss-aware substring wait;
-│  │  └─ general bounded linear-time regex remains typed TODO
+│  ├─ [x] acu.dynamic.067 · `literal.*` reduces exactly to native loss-aware substring wait;
+│  │  └─ general regex is native and linear-time over a complete retained scan window with
+│  │     explicit pattern/match/scan ceilings; lookaround and backreferences fail typed
 │  ├─ [~] acu.dynamic.072 · application facts umbrella; never borrow `.076` window evidence
 │  │  ├─ [~] acu.native.app.facts-signature · Linux `app-facts` resolves exact bounded XDG
 │  │  │  entry/executable facts; macOS resolves exact bundles and returns native signing,

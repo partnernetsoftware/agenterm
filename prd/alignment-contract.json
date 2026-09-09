@@ -372,6 +372,7 @@
         "cu.windows-external-terminal-send",
         "cu.pty-background-interactive",
         "cu.pty-default-shell",
+        "cu.pty-wait-regex",
         "cu.login-session-plan",
         "cu.audio-plan",
         "cu.service-plan",

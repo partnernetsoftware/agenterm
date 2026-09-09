@@ -176,9 +176,10 @@ same_argv(simulator_shutdown.argv, ["--target", "current", "--grant", "observe,a
 const irreducible_wait = compat.canonicalize([
   "pty", "wait", "job-1", "text[0-9]+", "--provider", "native"
 ]);
-require(irreducible_wait.kind === "todo", "general regex wait remains TODO");
-require(irreducible_wait.gap_id === "acu.dynamic.067",
-  "general regex wait keeps stable dynamic id");
+require(irreducible_wait.kind === "exec", "general regex wait executes natively");
+same_argv(irreducible_wait.argv, ["--target", "current", "--grant", "observe,actuate",
+  "pty-wait", "job-1", "--regex", "text[0-9]+", "--cursor", "earliest",
+  "--timeout-ms", "30000"], "general regex wait");
 
 const native_pty_list = compat.canonicalize(["pty", "list", "--provider", "native"]);
 require(native_pty_list.kind === "exec", "native PTY inventory executes");

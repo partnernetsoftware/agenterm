@@ -2131,8 +2131,8 @@
       ],
       "grant": "observe",
       "family": "terminal",
-      "summary": "wait for exact bytes in retained PTY output",
-      "usage": "pty-wait NAME --contains TEXT [--cursor earliest|current|N] [--timeout-ms N]\npty wait NAME ...",
+      "summary": "wait for exact bytes or a bounded byte regex in retained PTY output",
+      "usage": "pty-wait NAME (--contains TEXT | --regex PATTERN) [--cursor earliest|current|N] [--timeout-ms N] [--max-match-bytes N] [--max-scan-bytes N]\npty wait NAME ...",
       "args": [
         {
           "flag": "NAME",
@@ -2145,6 +2145,11 @@
           "help": "exact UTF-8 bytes, 1..=65536 bytes"
         },
         {
+          "flag": "--regex",
+          "value": "PATTERN",
+          "help": "Rust byte-regex, 1..=4096 bytes; mutually exclusive with --contains"
+        },
+        {
           "flag": "--cursor",
           "value": "CURSOR",
           "help": "loss-aware starting cursor (default earliest)"
@@ -2153,6 +2158,16 @@
           "flag": "--timeout-ms",
           "value": "N",
           "help": "monotonic deadline, 1..=86400000 (default 30000)"
+        },
+        {
+          "flag": "--max-match-bytes",
+          "value": "N",
+          "help": "regex match ceiling, 1..=65536 (default 4096)"
+        },
+        {
+          "flag": "--max-scan-bytes",
+          "value": "N",
+          "help": "retained regex scan ceiling, 1..=67108864 (default 16777216)"
         }
       ]
     },
@@ -7401,7 +7416,7 @@
     },
     {
       "name": "pty-wait",
-      "text": "agenterm-cu pty-wait    (also: pty wait)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-wait NAME --contains TEXT [--cursor earliest|current|N] [--timeout-ms N]\n  pty wait NAME ...\n\nWaits for exact UTF-8 bytes in the loss-aware retained raw-output stream, including a match split across output pages. The reply reports its byte cursor and scan count. Overwritten/future cursors, timeout, and finalized-without-match are distinct typed failures; output is never reduced to a screen snapshot.\n"
+      "text": "agenterm-cu pty-wait    (also: pty wait)\n  scope: observe    family: Headless PTY jobs\n\nusage:\n  pty-wait NAME (--contains TEXT | --regex PATTERN) [--cursor earliest|current|N] [--timeout-ms N] [--max-match-bytes N] [--max-scan-bytes N]\n  pty wait NAME ...\n\nWaits for either exact UTF-8 bytes or one Rust byte-regex in the loss-aware retained raw-output stream. The two conditions are mutually exclusive. Regex patterns are 1..=4096 bytes and use a bounded linear-time matcher over the complete retained scan window; unbounded quantifiers are accepted, while lookaround and backreferences fail typed. The regex window is bounded by --max-scan-bytes (1..=67108864, default 16777216), and a found match is bounded by --max-match-bytes (1..=65536, default 4096). A match beyond that bound and an exhausted scan window fail with distinct typed errors. ^ and $ use multiline line semantics; \\A and \\z refer to the window from the selected cursor through the current visible tail, not the complete lifetime stream. The reply reports byte cursors, match length and scan count but never the matched output or regex text; errors disclose only bounded metadata and a pattern SHA-256. Exact byte matching still detects a needle split across output pages. Overwritten/future cursors, timeout, and finalized-without-match remain distinct typed failures; output is never reduced to a screen snapshot.\n"
     },
     {
       "name": "pty-wait-exit",

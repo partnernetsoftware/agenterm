@@ -11,7 +11,8 @@ import * as harness from "lib/test_harness";
 
 const declared_evidence = [
   "cu.pty-background-interactive",
-  "cu.pty-default-shell"
+  "cu.pty-default-shell",
+  "cu.pty-wait-regex"
 ];
 
 function ensure(condition, message) {
@@ -239,6 +240,51 @@ try {
       && wait.matched_at_cursor >= 0 && wait.next_cursor > wait.matched_at_cursor
       && wait.scanned_bytes > 0,
     "cu_pty_wait_contract:" + JSON.stringify(wait)
+  );
+
+  print("STEP match a bounded byte regex without disclosing its pattern or retained output");
+  const regex_pattern = "QJS_PTY_REA[D]Y";
+  const regex_wait_reply = invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-wait", job,
+    "--regex", regex_pattern, "--cursor", "earliest", "--timeout-ms", "10000",
+    "--max-match-bytes", "64", "--max-scan-bytes", "1048576"
+  ]);
+  const regex_wait_json = JSON.stringify(regex_wait_reply);
+  const regex_wait = require_ok(regex_wait_reply, "pty-wait");
+  ensure(
+    regex_wait.name === job && regex_wait.completed === true
+      && regex_wait.state === "matched" && regex_wait.condition.kind === "regex"
+      && regex_wait.condition.bytes === regex_pattern.length
+      && regex_wait.match_bytes === 13
+      && regex_wait.matched_end_cursor === regex_wait.matched_at_cursor + 13
+      && regex_wait.next_cursor > regex_wait.matched_at_cursor
+      && regex_wait.scanned_bytes > 0
+      && regex_wait_json.indexOf("QJS_PTY_READY") < 0
+      && regex_wait_json.indexOf(regex_pattern) < 0,
+    "cu_pty_regex_wait_contract:" + regex_wait_json
+  );
+  const invalid_pattern = "(unclosed";
+  const invalid_regex = invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-wait", job,
+    "--regex", invalid_pattern, "--cursor", "earliest", "--timeout-ms", "1000"
+  ]);
+  const invalid_regex_json = JSON.stringify(invalid_regex);
+  ensure(
+    invalid_regex.ok === false
+      && invalid_regex.error.code === "pty_job_wait_pattern_invalid"
+      && invalid_regex.error.detail.pattern_bytes === invalid_pattern.length
+      && invalid_regex.error.detail.pattern_sha256.length === 64
+      && invalid_regex_json.indexOf(invalid_pattern) < 0
+      && invalid_regex_json.indexOf("QJS_PTY_READY") < 0,
+    "cu_pty_regex_invalid_contract:" + invalid_regex_json
+  );
+  const ambiguous_wait = invoke_cu(run_directory, product, executable, [
+    "--target", "current", "--grant", "observe", "pty-wait", job,
+    "--contains", "QJS", "--regex", "QJS", "--cursor", "earliest"
+  ]);
+  ensure(
+    ambiguous_wait.ok === false && ambiguous_wait.error.code === "usage",
+    "cu_pty_regex_exclusive_contract:" + JSON.stringify(ambiguous_wait)
   );
   const output_diff = require_ok(invoke_cu(run_directory, product, executable, [
     "--target", "current", "--grant", "observe", "pty-diff", job,
@@ -607,8 +653,9 @@ try {
 if (succeeded !== 0 && stopped !== 0 && tree_stopped !== 0 && signal_stopped !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.pty-background-interactive");
   harness.emit_evidence(context, declared_evidence, "cu.pty-default-shell");
+  harness.emit_evidence(context, declared_evidence, "cu.pty-wait-regex");
   harness.remove_run(context);
-  print("PASS: qjswasm orchestrated ACU PTY inventory, foreground signals, structured snapshot/diff/events, verified resize, input, loss-aware wait, exact exit, restart refusal and cleanup");
+  print("PASS: qjswasm orchestrated ACU PTY inventory, foreground signals, structured snapshot/diff/events, verified resize, input, loss-aware byte/regex wait without content disclosure, exact exit, restart refusal and cleanup");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

@@ -554,6 +554,15 @@ cursor. Share the bounded page collector beneath both facades, keep each
 stream's absolute cursor and truncation state independent, and prove identical
 bytes for the same stream/cursor at the public black-box boundary.
 
+Regex search over paged retained bytes must not treat a transport page edge as
+an input boundary: `$`, `\z`, word boundaries, and matches longer than a carry
+window can otherwise become page-alignment dependent. Either preserve the
+matcher state and its required context or retain one explicitly bounded logical
+scan window and search only after catching up to its current cursor. Bound
+pattern compilation, total retained scan bytes, match bytes, and elapsed time
+separately; a linear-time matcher does not make repeated whole-window searches
+strictly linear across the complete wait.
+
 A bounded command buffer does not necessarily bound the native work it
 schedules. For duration-bearing media or timer protocols, validate record
 count and aggregate scheduled duration before dispatch, in addition to byte

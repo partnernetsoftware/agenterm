@@ -274,10 +274,24 @@ pub fn parse(
         }
         "pty-wait" => {
             let name = required_name(args, "pty-wait")?;
-            let contains = flag_text(args, "--contains")?
-                .ok_or_else(|| "pty-wait requires --contains TEXT".to_owned())?;
-            if contains.is_empty() || contains.len() > 65_536 {
+            let contains = flag_text(args, "--contains")?;
+            let regex = flag_text(args, "--regex")?;
+            if contains.is_some() == regex.is_some() {
+                return Err(
+                    "pty-wait requires exactly one of --contains TEXT or --regex PATTERN".into(),
+                );
+            }
+            if contains
+                .as_ref()
+                .is_some_and(|value| value.is_empty() || value.len() > 65_536)
+            {
                 return Err("pty-wait --contains must be 1..=65536 bytes".into());
+            }
+            if regex
+                .as_ref()
+                .is_some_and(|value| value.is_empty() || value.len() > 4_096)
+            {
+                return Err("pty-wait --regex must be 1..=4096 bytes".into());
             }
             let cursor = flag_text(args, "--cursor")?.unwrap_or_else(|| "earliest".to_owned());
             if cursor != "earliest" && cursor != "current" && cursor.parse::<u64>().is_err() {
@@ -289,13 +303,30 @@ pub fn parse(
             if !(1..=86_400_000).contains(&timeout_ms) {
                 return Err("pty-wait --timeout-ms must be in 1..=86400000".into());
             }
+            let max_match_override = flag_parsed::<usize>(args, "--max-match-bytes")?;
+            let max_scan_override = flag_parsed::<u64>(args, "--max-scan-bytes")?;
+            if regex.is_none() && (max_match_override.is_some() || max_scan_override.is_some()) {
+                return Err("pty-wait regex byte ceilings require --regex PATTERN".into());
+            }
+            let max_match_bytes = max_match_override.unwrap_or(4_096);
+            if !(1..=65_536).contains(&max_match_bytes) {
+                return Err("pty-wait --max-match-bytes must be in 1..=65536".into());
+            }
+            let max_scan_bytes = max_scan_override.unwrap_or(16_777_216);
+            if !(1..=67_108_864).contains(&max_scan_bytes) {
+                return Err("pty-wait --max-scan-bytes must be in 1..=67108864".into());
+            }
+            let regex_limits = regex.is_some();
             empty(args, "pty-wait")?;
             Ok(Command::PtyWait {
                 target,
                 name,
                 contains,
+                regex,
                 cursor,
                 timeout_ms,
+                max_match_bytes: regex_limits.then_some(max_match_bytes),
+                max_scan_bytes: regex_limits.then_some(max_scan_bytes),
             })
         }
         "pty-wait-exit" => {
@@ -747,8 +778,17 @@ mod tests {
                 &["build", "--contains", "ready", "--cursor", "current", "--timeout-ms", "9"]
             )
             .unwrap(),
-            Command::PtyWait { name, contains, cursor, timeout_ms: 9, .. }
+            Command::PtyWait { name, contains: Some(contains), regex: None, cursor, timeout_ms: 9, .. }
                 if name == "build" && contains == "ready" && cursor == "current"
+        ));
+        assert!(matches!(
+            parse(
+                "pty-wait",
+                &["build", "--regex", "ready-[0-9]+", "--max-match-bytes", "32", "--max-scan-bytes", "1048576"]
+            )
+            .unwrap(),
+            Command::PtyWait { name, contains: None, regex: Some(regex), max_match_bytes: Some(32), max_scan_bytes: Some(1_048_576), .. }
+                if name == "build" && regex == "ready-[0-9]+"
         ));
         assert!(matches!(
             parse("pty-wait-exit", &["build", "--timeout-ms", "9", "--expect-status", "0"]).unwrap(),
@@ -775,6 +815,14 @@ mod tests {
         assert!(parse("pty-start", &["bad/name", "--", "true"]).is_err());
         assert!(parse("pty-send", &["build", ""]).is_err());
         assert!(parse("pty-wait", &["build"]).is_err());
+        assert!(parse("pty-wait", &["build", "--contains", "x", "--regex", "x"]).is_err());
+        assert!(
+            parse(
+                "pty-wait",
+                &["build", "--contains", "x", "--max-scan-bytes", "8"]
+            )
+            .is_err()
+        );
         assert!(parse("pty-events", &["build", "--epoch", "e"]).is_err());
         assert!(parse("pty-signal", &["build", "--signal", "stop"]).is_err());
         assert!(

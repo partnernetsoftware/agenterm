@@ -1018,7 +1018,11 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             ("pty-events", "observe", "loss-aware-job-event-continuation"),
             ("pty-resize", "actuate", "verified-job-terminal-grid-resize"),
             ("pty-send", "actuate", "literal-headless-pty-input"),
-            ("pty-wait", "observe", "loss-aware-retained-byte-wait"),
+            (
+                "pty-wait",
+                "observe",
+                "loss-aware-retained-byte-or-regex-wait",
+            ),
             ("pty-wait-exit", "observe", "drained-exit-status-wait"),
             ("pty-stop", "actuate", "verified-authority-disappearance"),
             ("terminal-list", "observe", "structured-ui-bootstrap"),

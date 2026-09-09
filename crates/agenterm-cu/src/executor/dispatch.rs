@@ -995,10 +995,21 @@ impl Executor {
             Command::PtyWait {
                 name,
                 contains,
+                regex,
                 cursor,
                 timeout_ms,
+                max_match_bytes,
+                max_scan_bytes,
                 ..
-            } => pty_wait_payload(name, contains, cursor, *timeout_ms),
+            } => pty_wait_payload(
+                name,
+                contains.as_deref(),
+                regex.as_deref(),
+                cursor,
+                *timeout_ms,
+                *max_match_bytes,
+                *max_scan_bytes,
+            ),
             Command::PtyWaitExit {
                 name,
                 timeout_ms,

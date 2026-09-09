@@ -268,19 +268,20 @@ function known_dynamic_boundary(argv) {
     if (sub === "wait") {
       const parsed = without_value_flags(argv, ["provider", "timeout"]);
       if (!parsed.ok) { return { kind: "usage", command: "pty", message: parsed.message }; }
-      if (parsed.argv.length === 4) {
-        const literal = reducible_wait_literal(parsed.argv[3]);
-        const timeout = parsed.values.timeout === null ? 30 : Number(parsed.values.timeout);
-        if (timeout !== timeout || timeout < 0.05 || timeout > 300) {
-          return { kind: "usage", command: "pty",
-            message: "pty wait --timeout must be in [0.05, 300] seconds" };
-        }
-        if (literal !== null) {
-          return { kind: "exec", argv: ["pty-wait", parsed.argv[2], "--contains", literal,
-            "--cursor", "earliest", "--timeout-ms", "" + Math.round(timeout * 1000)] };
-        }
+      if (parsed.argv.length !== 4) {
+        return { kind: "usage", command: "pty",
+          message: "pty wait requires JOB and PATTERN" };
       }
-      return todo("acu.dynamic.067", "pty", "legacy regex wait needs a bounded linear-time matcher");
+      const pattern = parsed.argv[3];
+      const literal = reducible_wait_literal(pattern);
+      const timeout = parsed.values.timeout === null ? 30 : Number(parsed.values.timeout);
+      if (timeout !== timeout || timeout < 0.05 || timeout > 300) {
+        return { kind: "usage", command: "pty",
+          message: "pty wait --timeout must be in [0.05, 300] seconds" };
+      }
+      const condition = literal === null ? ["--regex", pattern] : ["--contains", literal];
+      return { kind: "exec", argv: ["pty-wait", parsed.argv[2], condition[0], condition[1],
+        "--cursor", "earliest", "--timeout-ms", "" + Math.round(timeout * 1000)] };
     }
     if (sub === "start") {
       return todo("acu.dynamic.066", "pty", "legacy default-shell start needs a typed native shape");

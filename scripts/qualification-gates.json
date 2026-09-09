@@ -309,7 +309,8 @@
       "id": "cu-pty-smoke",
       "evidence": [
         "cu.pty-background-interactive",
-        "cu.pty-default-shell"
+        "cu.pty-default-shell",
+        "cu.pty-wait-regex"
       ]
     },
     {

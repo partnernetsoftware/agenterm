@@ -2249,13 +2249,20 @@ pub enum Command {
         name: String,
         text: String,
     },
-    /// Wait for exact UTF-8 bytes in one job's loss-aware retained output.
+    /// Wait for exact bytes or one bounded byte regex in a job's retained output.
     PtyWait {
         target: TargetRef,
         name: String,
-        contains: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contains: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        regex: Option<String>,
         cursor: String,
         timeout_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_match_bytes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_scan_bytes: Option<u64>,
     },
     /// Wait for one named job's terminal reader to finalize and optionally
     /// require an exact process exit status.

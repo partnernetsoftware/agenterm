@@ -18,6 +18,7 @@ use agenterm_platform::{
     locking::{LockErrorKind, PathLock},
     process_spawn::spawn_detached_child,
 };
+use regex::bytes::{Regex, RegexBuilder};
 use serde_json::{Value, json};
 
 use crate::cdp::page::base64_decode;
@@ -36,6 +37,122 @@ use super::{
 
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_JOB_INVENTORY: usize = 4_096;
+const PTY_OUTPUT_PAGE_BYTES: u64 = 1_048_576;
+const MAX_PTY_WAIT_PATTERN_BYTES: usize = 4_096;
+const MAX_PTY_WAIT_MATCH_BYTES: usize = 65_536;
+const MAX_PTY_WAIT_SCAN_BYTES: u64 = 67_108_864;
+
+enum PtyWaitMatcher<'a> {
+    Contains(&'a [u8]),
+    Regex {
+        pattern_bytes: usize,
+        pattern_sha256: String,
+        regex: Regex,
+        buffer: Vec<u8>,
+        buffer_start_cursor: Option<u64>,
+    },
+}
+
+struct PtyWaitMatch {
+    start_cursor: u64,
+    bytes: usize,
+}
+
+fn scan_regex_buffer(regex: &Regex, buffer: &[u8], origin: u64) -> Option<PtyWaitMatch> {
+    regex.find(buffer).map(|matched| PtyWaitMatch {
+        start_cursor: origin.saturating_add(matched.start() as u64),
+        bytes: matched.len(),
+    })
+}
+
+fn scan_regex_at_logical_tail(
+    regex: &Regex,
+    buffer: &[u8],
+    origin: u64,
+    caught_up: bool,
+) -> Option<PtyWaitMatch> {
+    caught_up
+        .then(|| scan_regex_buffer(regex, buffer, origin))
+        .flatten()
+}
+
+impl PtyWaitMatcher<'_> {
+    fn condition(&self) -> Value {
+        match self {
+            Self::Contains(needle) => json!({"kind": "contains", "bytes": needle.len()}),
+            Self::Regex { pattern_bytes, .. } => {
+                json!({"kind": "regex", "bytes": pattern_bytes})
+            }
+        }
+    }
+
+    fn pattern_sha256(&self) -> Option<&str> {
+        match self {
+            Self::Contains(_) => None,
+            Self::Regex { pattern_sha256, .. } => Some(pattern_sha256),
+        }
+    }
+}
+
+fn regex_scan_limit_error(
+    name: &str,
+    tab_id: &str,
+    max_scan_bytes: u64,
+    next_cursor: impl Into<Value>,
+    scanned_bytes: u64,
+    matcher: &PtyWaitMatcher<'_>,
+) -> CuError {
+    let mut detail = json!({
+        "name": name,
+        "tab_id": tab_id,
+        "max_scan_bytes": max_scan_bytes,
+        "next_cursor": next_cursor.into(),
+        "scanned_bytes": scanned_bytes,
+        "condition": matcher.condition(),
+    });
+    if let Some(digest) = matcher.pattern_sha256() {
+        detail["pattern_sha256"] = json!(digest);
+    }
+    CuError::new(
+        "pty_job_wait_scan_limit",
+        "PTY wait reached its scan byte ceiling before a match",
+    )
+    .with_detail(detail)
+}
+
+fn compile_wait_regex(pattern: &str, max_scan_bytes: u64) -> Result<PtyWaitMatcher<'_>, CuError> {
+    if pattern.is_empty() || pattern.len() > MAX_PTY_WAIT_PATTERN_BYTES {
+        return Err(CuError::new(
+            "pty_job_wait_condition_invalid",
+            "pty-wait --regex must be 1..=4096 bytes",
+        ));
+    }
+    let pattern_sha256 = super::clipboard::clipboard_sha256_hex(pattern.as_bytes());
+    let regex = RegexBuilder::new(pattern)
+        .multi_line(true)
+        .dot_matches_new_line(false)
+        .size_limit(1_048_576)
+        .dfa_size_limit(65_536)
+        .nest_limit(64)
+        .build()
+        .map_err(|_| {
+            CuError::new(
+                "pty_job_wait_pattern_invalid",
+                "PTY wait regex is invalid or exceeds its compile limits",
+            )
+            .with_detail(json!({
+                "pattern_bytes": pattern.len(),
+                "pattern_sha256": pattern_sha256,
+            }))
+        })?;
+    Ok(PtyWaitMatcher::Regex {
+        pattern_bytes: pattern.len(),
+        pattern_sha256,
+        regex,
+        buffer: Vec::with_capacity(max_scan_bytes.min(PTY_OUTPUT_PAGE_BYTES) as usize),
+        buffer_start_cursor: None,
+    })
+}
 
 fn scan_exact_page(
     overlap: &mut Vec<u8>,
@@ -1159,15 +1276,44 @@ pub(super) fn pty_send_payload(
 
 pub(super) fn pty_wait_payload(
     name: &str,
-    contains: &str,
+    contains: Option<&str>,
+    regex: Option<&str>,
     cursor: &str,
     timeout_ms: u64,
+    max_match_bytes: Option<usize>,
+    max_scan_bytes: Option<u64>,
 ) -> Result<Value, CuError> {
     validate_name(name)?;
-    if contains.is_empty() || contains.len() > 65_536 {
+    if contains.is_some() == regex.is_some() {
+        return Err(CuError::new(
+            "pty_job_wait_condition_invalid",
+            "pty-wait requires exactly one of --contains or --regex",
+        ));
+    }
+    if contains.is_some_and(|value| value.is_empty() || value.len() > 65_536) {
         return Err(CuError::new(
             "pty_job_wait_condition_invalid",
             "pty-wait --contains must be 1..=65536 bytes",
+        ));
+    }
+    if regex.is_none() && (max_match_bytes.is_some() || max_scan_bytes.is_some()) {
+        return Err(CuError::new(
+            "pty_job_wait_condition_invalid",
+            "PTY regex byte ceilings require a regex condition",
+        ));
+    }
+    let max_match_bytes = max_match_bytes.unwrap_or(4_096);
+    let max_scan_bytes = max_scan_bytes.unwrap_or(16_777_216);
+    if !(1..=MAX_PTY_WAIT_MATCH_BYTES).contains(&max_match_bytes) {
+        return Err(CuError::new(
+            "pty_job_wait_limit_invalid",
+            "pty-wait --max-match-bytes must be in 1..=65536",
+        ));
+    }
+    if !(1..=MAX_PTY_WAIT_SCAN_BYTES).contains(&max_scan_bytes) {
+        return Err(CuError::new(
+            "pty_job_wait_limit_invalid",
+            "pty-wait --max-scan-bytes must be in 1..=67108864",
         ));
     }
     if cursor != "earliest" && cursor != "current" && cursor.parse::<u64>().is_err() {
@@ -1182,19 +1328,44 @@ pub(super) fn pty_wait_payload(
             "pty-wait --timeout-ms must be in 1..=86400000",
         ));
     }
+    let mut matcher = if let Some(pattern) = regex {
+        compile_wait_regex(pattern, max_scan_bytes)?
+    } else {
+        PtyWaitMatcher::Contains(contains.expect("condition was validated").as_bytes())
+    };
     let client = client_for(name)?;
     let (inventory, tab) = sole_job(&client, name)?;
     let tab_id = tab["id"].as_str().ok_or_else(|| {
         CuError::new("pty_job_state_invalid", "PTY job tab omitted its stable id")
     })?;
-    let needle = contains.as_bytes();
     let started = Instant::now();
     let deadline = started + Duration::from_millis(timeout_ms);
     let mut next = cursor.to_owned();
     let mut overlap = Vec::new();
     let mut scanned_bytes = 0_u64;
     loop {
-        let page = terminal_output_with_client(&client, tab_id, &next, 1_048_576)?;
+        let regex_scan = matches!(&matcher, PtyWaitMatcher::Regex { .. });
+        let remaining_scan = max_scan_bytes.saturating_sub(scanned_bytes);
+        if regex_scan && remaining_scan == 0 {
+            return Err(regex_scan_limit_error(
+                name,
+                tab_id,
+                max_scan_bytes,
+                next,
+                scanned_bytes,
+                &matcher,
+            ));
+        }
+        let page = terminal_output_with_client(
+            &client,
+            tab_id,
+            &next,
+            if regex_scan {
+                remaining_scan.min(PTY_OUTPUT_PAGE_BYTES) as usize
+            } else {
+                PTY_OUTPUT_PAGE_BYTES as usize
+            },
+        )?;
         let start_cursor = page["start_cursor"].as_u64().ok_or_else(|| {
             CuError::new(
                 "pty_job_wait_output_invalid",
@@ -1226,16 +1397,54 @@ pub(super) fn pty_wait_payload(
             )
         })?;
         scanned_bytes = scanned_bytes.saturating_add(bytes.len() as u64);
-        if let Some(matched_at_cursor) = scan_exact_page(&mut overlap, &bytes, needle, start_cursor)
-        {
+        let found = match &mut matcher {
+            PtyWaitMatcher::Contains(needle) => {
+                scan_exact_page(&mut overlap, &bytes, needle, start_cursor).map(|start_cursor| {
+                    PtyWaitMatch {
+                        start_cursor,
+                        bytes: needle.len(),
+                    }
+                })
+            }
+            PtyWaitMatcher::Regex {
+                regex,
+                buffer,
+                buffer_start_cursor,
+                ..
+            } => {
+                let origin = *buffer_start_cursor.get_or_insert(start_cursor);
+                buffer.extend_from_slice(&bytes);
+                // A physical output page boundary is not a regex input boundary.
+                // In particular, evaluating `$` or `\z` before catching up would
+                // create a false match at the end of an intermediate page.
+                scan_regex_at_logical_tail(regex, buffer, origin, next_cursor >= current_cursor)
+            }
+        };
+        if let Some(found) = found {
+            if matches!(&matcher, PtyWaitMatcher::Regex { .. }) && found.bytes > max_match_bytes {
+                return Err(CuError::new(
+                    "pty_job_wait_match_exceeds_bound",
+                    "PTY regex matched more bytes than --max-match-bytes permits",
+                )
+                .with_detail(json!({
+                    "pattern_sha256": matcher.pattern_sha256(),
+                    "pattern_bytes": matcher.condition()["bytes"],
+                    "matched_at_cursor": found.start_cursor,
+                    "match_bytes": found.bytes,
+                    "max_match_bytes": max_match_bytes,
+                })));
+            }
+            let matched_end_cursor = found.start_cursor.saturating_add(found.bytes as u64);
             return Ok(json!({
                 "name": name,
                 "server_epoch": inventory["server_epoch"],
                 "tab_id": tab_id,
-                "condition": { "kind": "contains", "bytes": needle.len() },
+                "condition": matcher.condition(),
                 "state": "matched",
                 "completed": true,
-                "matched_at_cursor": matched_at_cursor,
+                "matched_at_cursor": found.start_cursor,
+                "matched_end_cursor": matched_end_cursor,
+                "match_bytes": found.bytes,
                 "next_cursor": next_cursor,
                 "scanned_bytes": scanned_bytes,
                 "elapsed_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
@@ -1243,35 +1452,55 @@ pub(super) fn pty_wait_payload(
             }));
         }
         next = next_cursor.to_string();
+        if regex_scan && scanned_bytes >= max_scan_bytes {
+            return Err(regex_scan_limit_error(
+                name,
+                tab_id,
+                max_scan_bytes,
+                next_cursor,
+                scanned_bytes,
+                &matcher,
+            ));
+        }
         if next_cursor < current_cursor {
             continue;
         }
         if Instant::now() >= deadline {
-            return Err(CuError::new(
-                "pty_job_wait_timeout",
-                "PTY output did not contain the requested bytes before the deadline",
-            )
-            .with_detail(json!({
+            let mut detail = json!({
                 "name": name,
                 "tab_id": tab_id,
                 "timeout_ms": timeout_ms,
                 "next_cursor": next_cursor,
                 "scanned_bytes": scanned_bytes,
-            })));
+                "condition": matcher.condition(),
+            });
+            if let Some(digest) = matcher.pattern_sha256() {
+                detail["pattern_sha256"] = json!(digest);
+            }
+            return Err(CuError::new(
+                "pty_job_wait_timeout",
+                "PTY output did not match the requested condition before the deadline",
+            )
+            .with_detail(detail));
         }
         let status = status_with_client(&client, name)?;
         if status["finalized"].as_bool() == Some(true) {
-            return Err(CuError::new(
-                "pty_job_wait_unmatched_after_exit",
-                "PTY job finalized before its output contained the requested bytes",
-            )
-            .with_detail(json!({
+            let mut detail = json!({
                 "name": name,
                 "tab_id": tab_id,
                 "exit_code": status["exit_code"],
                 "next_cursor": next_cursor,
                 "scanned_bytes": scanned_bytes,
-            })));
+                "condition": matcher.condition(),
+            });
+            if let Some(digest) = matcher.pattern_sha256() {
+                detail["pattern_sha256"] = json!(digest);
+            }
+            return Err(CuError::new(
+                "pty_job_wait_unmatched_after_exit",
+                "PTY job finalized before its output matched the requested condition",
+            )
+            .with_detail(detail));
         }
         thread::sleep(
             deadline
@@ -1526,6 +1755,47 @@ mod tests {
             scan_exact_page(&mut overlap, b"EDyy", b"NEED", 14),
             Some(12)
         );
+    }
+
+    #[test]
+    fn regex_wait_accepts_unbounded_quantifiers_across_chunks() {
+        let matcher = RegexBuilder::new(r"text[0-9]+$")
+            .multi_line(true)
+            .build()
+            .unwrap();
+        let mut buffer = b"prefix text12".to_vec();
+        buffer.extend_from_slice(b"345");
+        let found = scan_regex_buffer(&matcher, &buffer, 40).unwrap();
+        assert_eq!(found.start_cursor, 47);
+        assert_eq!(found.bytes, 9);
+    }
+
+    #[test]
+    fn regex_wait_reports_the_engine_selected_match_length() {
+        let matcher = Regex::new(r"BEGIN(?s:.)+END").unwrap();
+        let found = scan_regex_buffer(&matcher, b"xxBEGIN0123456789ENDyy", 0).unwrap();
+        assert_eq!(found.start_cursor, 2);
+        assert_eq!(found.bytes, 18);
+    }
+
+    #[test]
+    fn regex_wait_does_not_treat_a_transport_page_end_as_dollar() {
+        let matcher = Regex::new(r"line$").unwrap();
+        assert!(scan_regex_at_logical_tail(&matcher, b"line", 0, false).is_none());
+        assert!(scan_regex_at_logical_tail(&matcher, b"line-tail", 0, true).is_none());
+    }
+
+    #[test]
+    fn invalid_regex_error_discloses_only_length_and_digest() {
+        let error = match compile_wait_regex("(secret-unclosed", 1_024) {
+            Ok(_) => panic!("invalid regex unexpectedly compiled"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "pty_job_wait_pattern_invalid");
+        let detail = error.detail.unwrap();
+        assert_eq!(detail["pattern_bytes"], 16);
+        assert_eq!(detail["pattern_sha256"].as_str().map(str::len), Some(64));
+        assert!(!detail.to_string().contains("secret"));
     }
 
     #[test]
