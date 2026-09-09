@@ -486,12 +486,14 @@ try {
   print("STEP windows-watch typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
   assert_windows_watch_usage_limit(context.run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before windows-watch read-back court");
-    assert_get_extents_usage_limit(context.run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable before windows-watch read-back court");
-    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before windows-watch read-back court");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before windows-watch read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+
+  if (atspi_available !== true) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; windows-watch read-back still uses independent windows inventory diff");
   }
 
   print("STEP windows-watch appeared/disappeared/title diffs match independent windows inventory read-back");
