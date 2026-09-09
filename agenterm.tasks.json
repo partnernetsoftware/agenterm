@@ -7461,7 +7461,7 @@
     },
     {
       "id": "cu-linux-process-threads-smoke",
-      "description": "Linux process-threads thread ids, counts and stat-derived fields match independent /proc/<pid>/task read-back for current and chosen PID; typed process-threads usage treats --name as native thread-name filter and rejects AT-SPI --window and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc/<pid>/task read-back court; permission-denied directories typed-fail with host-limit detail; AT-SPI/--name only, no --coords.",
+      "description": "Linux process-threads tids/counts/stat fields match independent /proc/<pid>/task read-back; independent task-dir count vs API visited/returned/tid set; typed usage rejects AT-SPI --name (with --window/--role) and --bogus (native --name is a thread-name filter vs /proc comm); get-extents --name usage/host-limit before /proc court; permission-denied host-limit; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-threads-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
