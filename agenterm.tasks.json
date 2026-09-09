@@ -7482,7 +7482,7 @@
     },
     {
       "id": "cu-linux-process-fds-smoke",
-      "description": "Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; typed process-fds usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc/<pid>/fd read-back court; permission-denied directories typed-fail with host-limit detail; AT-SPI/--name only, no --coords.",
+      "description": "Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; typed process-fds usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage/host-limit paths before the /proc/<pid>/fd inventory/read-back court; permission-denied directories typed-fail with host-limit detail; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-fds-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
