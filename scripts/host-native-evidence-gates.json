@@ -809,6 +809,15 @@
       ]
     },
     {
+      "id": "cu-linux-gtk-entry-text-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-gtk-entry-focus",
+        "cu.linux-gtk-entry-send-text",
+        "cu.linux-gtk-entry-get-text"
+      ]
+    },
+    {
       "id": "cu-linux-gtk-entry-focused-send-text-smoke",
       "platform": "linux",
       "evidence": [
