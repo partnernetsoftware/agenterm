@@ -2,8 +2,10 @@
 // independent AT-SPI / on-disk marker read-back. Acceptance is smoke
 // read-back only: CU wait met and returned node/marker must agree with
 // pyatspi named-node probes or a direct JSON read of the ready-path file,
-// never worker self-report alone. Typed usage, timeout exit-code honesty,
-// and AT-SPI host-limit paths must hold when conditions miss or the
+// never worker self-report alone. Typed wait usage must reject AT-SPI --name
+// and other unexpected arguments; typed get-extents --name usage/host-limit
+// paths must hold before the wait-ready read-back court. Timeout exit-code
+// honesty and AT-SPI host-limit paths must hold when conditions miss or the
 // independent pyatspi desktop probe is unavailable. AT-SPI/--name only;
 // no --coords or screenshot degradation.
 //
@@ -21,6 +23,7 @@ const declared_evidence = [
 const PRESS_BUTTON = "Fixture Press";
 const ENTRY_NAME = "Fixture Entry";
 const CHROME_FIELD = "GetTextField";
+const AT_SPI_PROBE_NAME = "Wait Ready Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -94,7 +97,20 @@ function run_cu(run_directory, executable, grant, arguments) {
   return document;
 }
 
-function probe_atspi_available() {
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_wait_ready_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
   const script = [
     "import sys",
     "try:",
@@ -105,7 +121,7 @@ function probe_atspi_available() {
     "    print('0')",
   ].join("\n");
   const output = rh.command("python3", ["-c", script], {
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   return output.success === true && output.stdout.trim() === "1";
@@ -123,6 +139,94 @@ function assert_wait_usage_limit(run_directory, executable) {
   ensure(
     text_at(reply, "error.message").indexOf("requires one of") >= 0,
     "cu_linux_wait_ready_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_wait_atspi_name_usage_limit(run_directory, executable) {
+  const bare_name = run_cu_reply(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "1000",
+    "--window", "1",
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(bare_name), "cu_linux_wait_ready_usage_name_ok:" + JSON.stringify(bare_name));
+  ensure(
+    text_at(bare_name, "error.code") === "usage",
+    "cu_linux_wait_ready_usage_name_code:" + JSON.stringify(bare_name.error)
+  );
+  ensure(
+    text_at(bare_name, "command") === "usage",
+    "cu_linux_wait_ready_usage_name_command:" + JSON.stringify(bare_name)
+  );
+  ensure(
+    text_at(bare_name, "error.message").indexOf("--name") >= 0
+      || text_at(bare_name, "error.message").indexOf("requires one of") >= 0,
+    "cu_linux_wait_ready_usage_name_message:" + JSON.stringify(bare_name.error)
+  );
+
+  const ready_path_with_name = run_cu_reply(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "1000",
+    "--ready-path", rh.join(run_directory, "usage-probe-ready.json"),
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(
+    !output_success(ready_path_with_name),
+    "cu_linux_wait_ready_usage_ready_name_ok:" + JSON.stringify(ready_path_with_name)
+  );
+  ensure(
+    text_at(ready_path_with_name, "error.code") === "usage",
+    "cu_linux_wait_ready_usage_ready_name_code:" + JSON.stringify(ready_path_with_name.error)
+  );
+  ensure(
+    text_at(ready_path_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(ready_path_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_wait_ready_usage_ready_name_message:" + JSON.stringify(ready_path_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "1000", "--bogus",
+  ]);
+  ensure(!output_success(with_bogus), "cu_linux_wait_ready_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_wait_ready_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("requires one of") >= 0
+      || text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_wait_ready_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_wait_ready_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_wait_ready_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_wait_ready_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_wait_ready_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_wait_ready_extents_unavailable_code:" + code
   );
 }
 
@@ -413,15 +517,27 @@ let fixture_pid = 0;
 let chrome_child = -1;
 let succeeded = 0;
 let failure = "";
-const atspi_available = probe_atspi_available();
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 try {
   print("STEP wait typed-fails usage when no condition flag is present");
   assert_wait_usage_limit(run_directory, executable);
 
+  print("STEP wait typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_wait_atspi_name_usage_limit(run_directory, executable);
+
   print("STEP wait --ready-path timeout exits non-zero with honest timeout code when marker never appears");
   const absent_ready_path = rh.join(run_directory, "absent-ready-marker.json");
   assert_wait_ready_path_timeout_honesty(run_directory, executable, absent_ready_path);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before wait-ready read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   if (!atspi_available) {
     print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
@@ -591,4 +707,8 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_wait_ready_failed");
 harness.remove_run(context);
-print("PASS: Linux wait node-name + ready-path honesty with timeout exit-code honesty, AT-SPI host-limit paths, and independent read-back (no --coords)");
+if (atspi_available) {
+  print("PASS: Linux wait node-name + ready-path honesty with typed wait/get-extents usage honesty, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux wait node-name + ready-path honesty with typed wait/get-extents host-limit honesty, timeout exit-code honesty, and independent read-back (AT-SPI --name, no --coords)");
+}
