@@ -84,6 +84,11 @@ function flag_at(value, dotted) {
   return at(value, dotted) === true;
 }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
@@ -201,13 +206,19 @@ function hover_misuse_code_ok(code) {
   return code === "usage" || code === "invalid_input";
 }
 
-function hover_misuse_message_ok(message) {
-  return message.indexOf("--name") >= 0
+function hover_coords_misuse_message_ok(message) {
+  return usage_rejects_unexpected(message, "--coords")
+    || message.indexOf("--name") >= 0
+    || message.indexOf("--degraded") >= 0
+    || message.indexOf("coordinate") >= 0;
+}
+
+function hover_bogus_misuse_message_ok(message) {
+  return usage_rejects_unexpected(message, "--bogus")
+    || message.indexOf("--name") >= 0
     || message.indexOf("--window") >= 0
     || message.indexOf("--coords") >= 0
-    || message.indexOf("--degraded") >= 0
-    || message.indexOf("--bogus") >= 0
-    || message.indexOf("unexpected") >= 0;
+    || message.indexOf("--degraded") >= 0;
 }
 
 function assert_hover_usage_limit(run_directory, executable, env) {
@@ -218,6 +229,10 @@ function assert_hover_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(hover_missing_name, "error.code") === "usage",
     "cu_linux_pointer_hover_usage_code:" + JSON.stringify(hover_missing_name.error)
+  );
+  ensure(
+    text_at(hover_missing_name, "command") === "usage",
+    "cu_linux_pointer_hover_usage_command:" + JSON.stringify(hover_missing_name)
   );
   ensure(
     text_at(hover_missing_name, "error.message").indexOf("--name") >= 0,
@@ -255,11 +270,15 @@ function assert_hover_usage_limit(run_directory, executable, env) {
   ], env);
   ensure(!output_success(hover_coords), "cu_linux_pointer_hover_coords_ok:" + JSON.stringify(hover_coords));
   ensure(
-    hover_misuse_code_ok(text_at(hover_coords, "error.code")),
+    text_at(hover_coords, "error.code") === "usage",
     "cu_linux_pointer_hover_coords_code:" + JSON.stringify(hover_coords.error)
   );
   ensure(
-    hover_misuse_message_ok(text_at(hover_coords, "error.message")),
+    text_at(hover_coords, "command") === "usage",
+    "cu_linux_pointer_hover_coords_command:" + JSON.stringify(hover_coords)
+  );
+  ensure(
+    hover_coords_misuse_message_ok(text_at(hover_coords, "error.message")),
     "cu_linux_pointer_hover_coords_message:" + JSON.stringify(hover_coords.error)
   );
 
@@ -268,11 +287,15 @@ function assert_hover_usage_limit(run_directory, executable, env) {
   ], env);
   ensure(!output_success(hover_bogus), "cu_linux_pointer_hover_bogus_ok:" + JSON.stringify(hover_bogus));
   ensure(
-    hover_misuse_code_ok(text_at(hover_bogus, "error.code")),
+    text_at(hover_bogus, "error.code") === "usage",
     "cu_linux_pointer_hover_bogus_code:" + JSON.stringify(hover_bogus.error)
   );
   ensure(
-    hover_misuse_message_ok(text_at(hover_bogus, "error.message")),
+    text_at(hover_bogus, "command") === "usage",
+    "cu_linux_pointer_hover_bogus_command:" + JSON.stringify(hover_bogus)
+  );
+  ensure(
+    hover_bogus_misuse_message_ok(text_at(hover_bogus, "error.message")),
     "cu_linux_pointer_hover_bogus_message:" + JSON.stringify(hover_bogus.error)
   );
 }
@@ -285,6 +308,11 @@ function assert_hover_reject_coords_or_stay_named(run_directory, executable, han
     ensure(
       hover_misuse_code_ok(text_at(coords, "error.code")),
       "cu_linux_pointer_hover_coords_code_" + label + ":" + JSON.stringify(coords.error)
+    );
+    ensure(
+      hover_coords_misuse_message_ok(text_at(coords, "error.message"))
+        || text_at(coords, "error.code") === "a11y_node_not_found",
+      "cu_linux_pointer_hover_coords_message_" + label + ":" + JSON.stringify(coords.error)
     );
   } else {
     ensure(
@@ -301,6 +329,11 @@ function assert_hover_reject_coords_or_stay_named(run_directory, executable, han
     ensure(
       hover_misuse_code_ok(text_at(bogus, "error.code")),
       "cu_linux_pointer_hover_bogus_code_" + label + ":" + JSON.stringify(bogus.error)
+    );
+    ensure(
+      hover_bogus_misuse_message_ok(text_at(bogus, "error.message"))
+        || text_at(bogus, "error.code") === "a11y_node_not_found",
+      "cu_linux_pointer_hover_bogus_message_" + label + ":" + JSON.stringify(bogus.error)
     );
   } else {
     ensure(
@@ -334,8 +367,50 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_pointer_extents_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_pointer_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_pointer_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_pointer_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_pointer_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_pointer_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_pointer_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_pointer_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_pointer_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_pointer_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_pointer_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -558,7 +633,7 @@ try {
   print("STEP hover typed-fail usage when --window/--name is missing and when --coords/--bogus is present");
   assert_hover_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero or --name is missing before hover actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before hover actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit on invalid AT-SPI bus before hover actuate/read-back court");
