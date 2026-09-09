@@ -6872,7 +6872,7 @@
     },
     {
       "id": "cu-linux-gtk-button-focus-smoke",
-      "description": "Linux GTK3 button click --name then 3 CU focused + get-text read-backs match pyatspi STATE_FOCUSED; honest click/focus STATE_FOCUSED; usage_rejects_unexpected typed-fails for click/focus/focused/get-text/get-extents with get-extents usage+host-limit (command=usage on --coords/--bogus) before actuate/read-back; named --coords/--bogus reject or stay a11y-tree; AT-SPI --name only.",
+      "description": "Linux GTK3 button click --name then 3 CU focused + get-text read-backs match pyatspi STATE_FOCUSED; honest click/focus STATE_FOCUSED; click/focus/focused/get-text --coords/--bogus usage_rejects_unexpected or honest non-usage (never fake command=usage); get-extents usage AND host-limit with command=usage on --coords/--bogus (no atspi gating) plus process-state/desktop-state binding before actuate/read-back; named --coords/--bogus reject or stay a11y-tree; AT-SPI --name only.",
       "entry": "scripts/qjs/cu-linux-gtk-button-focus-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
