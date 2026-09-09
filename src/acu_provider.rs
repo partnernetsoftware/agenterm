@@ -24,6 +24,49 @@ const EXPECTED_ABI_VERSION: u32 = 1;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_REPLY_BYTES: usize = 4 * 1024 * 1024;
 
+#[derive(Default)]
+enum Presence<T> {
+    #[default]
+    Missing,
+    Present(T),
+}
+
+impl<'de, T> serde::Deserialize<'de> for Presence<T>
+where
+    T: serde::Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        T::deserialize(deserializer).map(Self::Present)
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProviderErrorWire {
+    code: String,
+    message: String,
+    #[serde(default, rename = "count")]
+    _count: Option<usize>,
+    #[serde(default, rename = "detail")]
+    _detail: Option<serde_json::Value>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProviderReplyWire {
+    ok: bool,
+    #[serde(rename = "target")]
+    _target: String,
+    command: String,
+    #[serde(default)]
+    data: Presence<serde_json::Value>,
+    #[serde(default)]
+    error: Presence<ProviderErrorWire>,
+}
+
 type AbiVersionFn = unsafe extern "C" fn() -> u32;
 type CallFn = unsafe extern "C" fn(*const u8, usize, *mut u8, usize, *mut usize) -> i32;
 type IsCancelledFn = unsafe extern "C" fn(*const c_void) -> u8;
@@ -182,9 +225,54 @@ unsafe extern "C" fn read_cancelled(context: *const c_void) -> u8 {
 
 fn decode_reply(reply: &[u8]) -> Result<String, String> {
     let text = std::str::from_utf8(reply).map_err(|_| "acu_provider_reply_not_utf8".to_owned())?;
-    serde_json::from_str::<serde_json::Value>(text)
-        .map_err(|_| "acu_provider_reply_not_json".to_owned())?;
+    validate_reply(text)?;
     Ok(text.to_owned())
+}
+
+pub(crate) fn parse_reply(encoded: &str) -> Result<serde_json::Value, String> {
+    validate_reply(encoded)?;
+    serde_json::from_str(encoded).map_err(|_| "acu_provider_reply_not_json".to_owned())
+}
+
+pub(crate) fn parse_reply_for(
+    encoded: &str,
+    expected_target: &str,
+    expected_command: &str,
+) -> Result<serde_json::Value, String> {
+    let reply = parse_reply(encoded)?;
+    if reply.get("target").and_then(serde_json::Value::as_str) != Some(expected_target)
+        || reply.get("command").and_then(serde_json::Value::as_str) != Some(expected_command)
+    {
+        return Err("acu_provider_reply_identity_mismatch".to_owned());
+    }
+    Ok(reply)
+}
+
+fn validate_reply(encoded: &str) -> Result<(), String> {
+    if encoded.len() > MAX_REPLY_BYTES {
+        return Err("acu_provider_reply_too_large".to_owned());
+    }
+    let reply: ProviderReplyWire = serde_json::from_str(encoded).map_err(|error| {
+        if error.is_data() {
+            "acu_provider_reply_invalid_shape".to_owned()
+        } else {
+            "acu_provider_reply_not_json".to_owned()
+        }
+    })?;
+    // Usage/help and malformed-request replies intentionally have no resolved
+    // target yet, but every CuReply still owns a non-empty command identity.
+    if reply.command.is_empty() {
+        return Err("acu_provider_reply_invalid_shape".to_owned());
+    }
+    match (reply.ok, reply.data, reply.error) {
+        (true, Presence::Present(_), Presence::Missing) => Ok(()),
+        (false, Presence::Missing, Presence::Present(ProviderErrorWire { code, message, .. }))
+            if !code.is_empty() && !message.is_empty() =>
+        {
+            Ok(())
+        }
+        _ => Err("acu_provider_reply_invalid_shape".to_owned()),
+    }
 }
 
 #[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
@@ -284,18 +372,18 @@ mod tests {
     #[cfg(all(feature = "script-qjswasm", not(feature = "script-acu-embedder")))]
     fn only_pre_effect_typed_cancellation_is_acknowledged() {
         assert!(reply_is_cooperative_cancel(
-            r#"{"ok":false,"error":{"code":"cancelled","detail":{"effect":"not_performed"}}}"#
+            r#"{"ok":false,"target":"current","command":"wait","error":{"code":"cancelled","message":"cancelled","detail":{"effect":"not_performed"}}}"#
         ));
         assert!(!reply_is_cooperative_cancel(
-            r#"{"ok":false,"error":{"code":"cancelled","detail":{"effect":"unknown"}}}"#
+            r#"{"ok":false,"target":"current","command":"wait","error":{"code":"cancelled","message":"cancelled","detail":{"effect":"unknown"}}}"#
         ));
         assert!(!reply_is_cooperative_cancel(
-            r#"{"ok":true,"data":{"effect":"committed"}}"#
+            r#"{"ok":true,"target":"current","command":"wait","data":{"effect":"committed"}}"#
         ));
     }
 
     #[test]
-    fn provider_reply_must_be_json_but_preserves_exact_valid_bytes() {
+    fn provider_reply_is_one_closed_cu_reply_and_preserves_exact_valid_bytes() {
         assert_eq!(
             decode_reply(b"not-json").expect_err("invalid JSON refused"),
             "acu_provider_reply_not_json"
@@ -304,9 +392,41 @@ mod tests {
             decode_reply(&[0xff]).expect_err("invalid UTF-8 refused"),
             "acu_provider_reply_not_utf8"
         );
+        let valid =
+            b" {\"ok\":true,\"target\":\"current\",\"command\":\"capabilities\",\"data\":null} \n";
+        assert_eq!(decode_reply(valid).unwrap().as_bytes(), valid);
+
+        for invalid in [
+            r#"{}"#,
+            r#"{"ok":true,"target":"current","command":"capabilities"}"#,
+            r#"{"ok":true,"target":"current","command":"capabilities","data":{},"error":{"code":"bad","message":"bad"}}"#,
+            r#"{"ok":false,"target":"current","command":"capabilities"}"#,
+            r#"{"ok":false,"target":"current","command":"capabilities","data":{},"error":{"code":"bad","message":"bad"}}"#,
+            r#"{"ok":false,"target":"current","command":"capabilities","error":{"code":"","message":"bad"}}"#,
+            r#"{"ok":false,"target":"current","command":"capabilities","error":{"code":"bad","message":""}}"#,
+            r#"{"ok":true,"target":"current","command":"capabilities","data":{},"extra":true}"#,
+            r#"{"ok":true,"ok":false,"target":"current","command":"capabilities","data":{}}"#,
+        ] {
+            assert_eq!(
+                decode_reply(invalid.as_bytes()).expect_err("invalid shape refused"),
+                "acu_provider_reply_invalid_shape",
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_reply_identity_is_bound_without_inspecting_payload_data() {
+        let encoded =
+            r#"{"ok":true,"target":"current","command":"capabilities","data":{"dynamic":true}}"#;
+        assert!(parse_reply_for(encoded, "current", "capabilities").is_ok());
         assert_eq!(
-            decode_reply(b" {\"ok\":false} \n").unwrap(),
-            " {\"ok\":false} \n"
+            parse_reply_for(encoded, "current", "runtime-status").unwrap_err(),
+            "acu_provider_reply_identity_mismatch"
+        );
+        assert_eq!(
+            parse_reply_for(encoded, "ssh", "capabilities").unwrap_err(),
+            "acu_provider_reply_identity_mismatch"
         );
     }
 }

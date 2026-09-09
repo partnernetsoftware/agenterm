@@ -6,7 +6,15 @@
 const MAX_JSON_RPC_ID_BYTES: usize = 128;
 const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
 const MAX_SESSION_ID_BYTES: usize = 128;
-const MAX_SESSION_LEASE_BYTES: usize = 512;
+const MAX_SESSION_LEASE_BYTES: usize = 128;
+
+fn is_identity_token(bytes: &[u8], maximum: usize) -> bool {
+    !bytes.is_empty()
+        && bytes.len() <= maximum
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum JsonRpcRequestId {
@@ -31,12 +39,7 @@ pub(crate) struct IdempotencyKey(String);
 impl IdempotencyKey {
     pub(crate) fn new(value: impl Into<String>) -> Result<Self, IdentityError> {
         let value = value.into();
-        if value.is_empty()
-            || value.len() > MAX_IDEMPOTENCY_KEY_BYTES
-            || !value.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
-            })
-        {
+        if !is_identity_token(value.as_bytes(), MAX_IDEMPOTENCY_KEY_BYTES) {
             return Err(IdentityError::IdempotencyKey);
         }
         Ok(Self(value))
@@ -88,7 +91,7 @@ struct PrivateSessionLease(Vec<u8>);
 
 impl PrivateSessionLease {
     fn new(bytes: Vec<u8>) -> Result<Self, IdentityError> {
-        if bytes.is_empty() || bytes.len() > MAX_SESSION_LEASE_BYTES {
+        if !is_identity_token(&bytes, MAX_SESSION_LEASE_BYTES) {
             return Err(IdentityError::SessionLease);
         }
         Ok(Self(bytes))
@@ -111,7 +114,7 @@ struct SessionIdentity(String);
 
 impl SessionIdentity {
     fn new(value: String) -> Result<Self, IdentityError> {
-        if value.is_empty() || value.len() > MAX_SESSION_ID_BYTES {
+        if !is_identity_token(value.as_bytes(), MAX_SESSION_ID_BYTES) {
             return Err(IdentityError::SessionId);
         }
         Ok(Self(value))
@@ -840,6 +843,18 @@ mod tests {
                 b"lease".to_vec()
             ),
             Err(IdentityError::SessionId)
+        ));
+        assert!(matches!(
+            ConnectionMutationState::<()>::new("session has space", b"lease".to_vec()),
+            Err(IdentityError::SessionId)
+        ));
+        assert!(matches!(
+            ConnectionMutationState::<()>::new("session", b"lease has space".to_vec()),
+            Err(IdentityError::SessionLease)
+        ));
+        assert!(matches!(
+            ConnectionMutationState::<()>::new("session", vec![b'x'; MAX_SESSION_LEASE_BYTES + 1]),
+            Err(IdentityError::SessionLease)
         ));
     }
 }

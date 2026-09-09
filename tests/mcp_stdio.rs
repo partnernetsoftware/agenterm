@@ -85,6 +85,8 @@ struct FakeProviderState {
     gate_first: AtomicBool,
     gate_read: AtomicBool,
     invalid_start_identity: AtomicBool,
+    wrong_read_identity: AtomicBool,
+    wrong_shell_identity: AtomicBool,
     provider_cancel_seen: AtomicBool,
     release_start: AtomicBool,
     release_first: AtomicBool,
@@ -450,6 +452,26 @@ fn eof_does_not_join_a_blocked_provider_call() {
 
     provider.release_read.store(true, Ordering::Release);
     provider.changed.notify_all();
+}
+
+#[test]
+fn eof_drains_a_fast_read_reply_before_the_bounded_teardown_grace() {
+    let provider = Arc::new(FakeProviderState::default());
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_fake_capabilities(&input, "read-before-eof");
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio after EOF");
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses[1]["id"], "read-before-eof");
+    assert_eq!(
+        responses[1]["result"]["structuredContent"]["command"],
+        "capabilities"
+    );
 }
 
 #[test]
@@ -832,6 +854,59 @@ fn public_stdio_refuses_false_positive_session_start_without_private_identity() 
         .expect("serve stdio");
 }
 
+#[test]
+fn public_stdio_rejects_a_structurally_valid_read_reply_for_another_command() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.wrong_read_identity.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_fake_capabilities(&input, "wrong-read");
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses[1]["id"], "wrong-read");
+    assert_eq!(responses[1]["error"]["code"], -32006);
+    assert_eq!(
+        responses[1]["error"]["data"]["code"],
+        "acu_provider_reply_identity_mismatch"
+    );
+    assert!(responses[1].get("result").is_none());
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+}
+
+#[test]
+fn public_stdio_never_treats_a_crossed_mutation_reply_as_authoritative() {
+    let provider = Arc::new(FakeProviderState::default());
+    provider.wrong_shell_identity.store(true, Ordering::Release);
+    let (input, output, worker) = start_fake_stdio(Arc::clone(&provider));
+    send_fake_initialize(&input);
+    assert_eq!(wait_fake_responses(&output, 1)[0]["id"], 1);
+    send_shell_exec(&input, "crossed", "crossed:request", "must-not-authorize");
+    let responses = wait_fake_responses(&output, 2);
+    assert_eq!(responses[1]["id"], "crossed");
+    assert_eq!(
+        responses[1]["result"]["structuredContent"]["error"]["code"],
+        "outcome_unknown"
+    );
+    assert_eq!(
+        responses[1]["result"]["structuredContent"]["error"]["detail"]["provider_code"],
+        "acu_provider_boundary_lost_after_dispatch"
+    );
+    assert!(
+        responses[1]["result"]["structuredContent"]
+            .get("data")
+            .is_none()
+    );
+    drop(input);
+    worker
+        .join()
+        .expect("join MCP worker")
+        .expect("serve stdio");
+}
+
 impl FakeProviderState {
     fn call(&self, encoded: &str) -> Result<String, String> {
         self.call_controlled(encoded, None)
@@ -864,10 +939,11 @@ impl FakeProviderState {
             }
             drop(calls);
             if call_cancelled {
+                let (target, command) = mcp_reply_identity(&request);
                 return Ok(json!({
                     "ok": false,
-                    "target": "current",
-                    "command": request["name"],
+                    "target": target,
+                    "command": command,
                     "error": {
                         "code": "cancelled",
                         "message": "fixture observed cancellation",
@@ -876,10 +952,15 @@ impl FakeProviderState {
                 })
                 .to_string());
             }
+            let (mut target, mut command) = mcp_reply_identity(&request);
+            if self.wrong_read_identity.load(Ordering::Acquire) {
+                target = "current";
+                command = "shell-exec";
+            }
             return Ok(json!({
                 "ok": true,
-                "target": "current",
-                "command": request["name"],
+                "target": target,
+                "command": command,
                 "data": {"provider_call_index": call_index}
             })
             .to_string());
@@ -933,7 +1014,11 @@ impl FakeProviderState {
             "shell-exec" => json!({
                 "ok": true,
                 "target": "current",
-                "command": "shell-exec",
+                "command": if self.wrong_shell_identity.load(Ordering::Acquire) {
+                    "capabilities"
+                } else {
+                    "shell-exec"
+                },
                 "data": {"stdout": command, "authoritative": true}
             }),
             "session-end" => json!({
@@ -971,6 +1056,23 @@ impl FakeProviderState {
             assert!(!timeout.timed_out() || calls.len() >= count);
         }
         calls.clone()
+    }
+}
+
+fn mcp_reply_identity(request: &Value) -> (&str, &str) {
+    match request["name"].as_str() {
+        Some("agenterm_acu_capabilities") if request["arguments"] == json!({}) => {
+            ("current", "capabilities")
+        }
+        Some("agenterm_acu_observe") => (
+            request["arguments"]["command"]["target"]
+                .as_str()
+                .unwrap_or(""),
+            request["arguments"]["command"]["verb"]
+                .as_str()
+                .unwrap_or("acu.request"),
+        ),
+        _ => ("", "acu.request"),
     }
 }
 

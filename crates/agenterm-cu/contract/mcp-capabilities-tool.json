@@ -15,20 +15,33 @@
     "properties": {
       "ok": { "type": "boolean" },
       "target": { "type": "string" },
-      "command": { "type": "string" },
+      "command": { "type": "string", "minLength": 1 },
       "data": {},
       "error": {
         "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "code": { "type": "string" },
-          "message": { "type": "string" },
+          "code": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
           "count": { "type": "integer", "minimum": 0 },
           "detail": {}
         },
         "required": ["code", "message"]
       }
     },
-    "required": ["ok", "target", "command"]
+    "required": ["ok", "target", "command"],
+    "oneOf": [
+      {
+        "properties": { "ok": { "const": true } },
+        "required": ["data"],
+        "not": { "required": ["error"] }
+      },
+      {
+        "properties": { "ok": { "const": false } },
+        "required": ["error"],
+        "not": { "required": ["data"] }
+      }
+    ]
   },
   "annotations": {
     "readOnlyHint": true,
