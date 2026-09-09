@@ -1,32 +1,154 @@
-// Linux public black-box court for bounded directory file-watch via inotify.
-// Args: REPO AGENTERM_CU_EXE | --list-evidence
+// Linux public black-box court for bounded single-directory file-watch via inotify.
+//
+// Light-weight, not a stress test. Each watcher is an owned agenterm-cu child
+// observing one temp directory under the run directory; the court makes a
+// handful of direct-entry changes, then checks the final JSON against an
+// independent filesystem read-back. inotify may coalesce neighbouring changes
+// on one entry, so the court asserts at-least-once delivery per kind it can
+// separate, never exact counts.
+//
+// Readiness: after spawning a watcher the court confirms the child is running
+// through the harness, then allows one bounded 250 ms start buffer before the
+// first change. There is no production readiness seam.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = ["cu.linux-file-watch"];
 
+const PROVIDER = "linux-inotify";
+const MODE = "native-events";
+const START_BUFFER_MS = 250;
+const COALESCE_GUARD_MS = 200;
+const READBACK_TIMEOUT_MS = 2000;
+const READBACK_STEP_MS = 20;
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function direct_file(path) {
-  if (!rh.exists(path)) { return false; }
-  const metadata = rh.symlink_metadata(path);
-  return metadata.is_file === true && metadata.is_symlink !== true;
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
 }
 
-function run_cu_json(run_directory, executable, arguments) {
-  const output = rh.command(executable, arguments, {
+function cu_env(run_directory, label) {
+  return {
+    HOME: run_directory,
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, label + "-audit.jsonl"),
+  };
+}
+
+function cu_args(arguments) {
+  return ["--target", "current", "--grant", "observe"].concat(arguments);
+}
+
+function parse_reply(stdout, label) {
+  const text = ("" + stdout).trim();
+  ensure(text !== "", "cu_linux_file_watch_empty_reply:" + label);
+  return JSON.parse(text);
+}
+
+function invoke(run_directory, executable, label, arguments, expect_success) {
+  const output = rh.command(executable, cu_args(arguments), {
     cwd: run_directory,
-    env: {
-      AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
-    },
-    timeout_ms: 60000,
+    env: cu_env(run_directory, label),
+    timeout_ms: 60000
   });
-  ensure(output.success === true, "cu_file_watch_cli:" + output.stdout + output.stderr);
-  const reply = JSON.parse(output.stdout.trim());
-  ensure(reply.ok === true, "cu_file_watch_reply:" + JSON.stringify(reply));
+  const reply = parse_reply(output.stdout, label);
+  ensure(output.success === expect_success,
+    "cu_linux_file_watch_exit:" + label + ":" + output.exit_code + ":" + output.stdout);
+  ensure(reply.ok === expect_success, "cu_linux_file_watch_reply_state:" + label);
   return reply;
+}
+
+function start_watcher(context, executable, label, directory, duration_ms, max_events) {
+  const child = harness.start_child(context, {
+    program: executable,
+    args: cu_args([
+      "file-watch", directory,
+      "--duration-ms", "" + duration_ms,
+      "--max-events", "" + max_events
+    ]),
+    current_dir: context.run_directory,
+    env: cu_env(context.run_directory, label),
+    timeout_ms: duration_ms + 30000
+  }, label);
+  const started_ms = rh.now_ms();
+  ensure(harness.child_state(child) === "running",
+    "cu_linux_file_watch_watcher_not_running:" + label);
+  rh.sleep_ms(START_BUFFER_MS);
+  ensure(harness.child_state(child) === "running",
+    "cu_linux_file_watch_watcher_exited_early:" + label);
+  return { child: child, started_ms: started_ms, label: label };
+}
+
+function finish_watcher(watcher, duration_ms, expect_success) {
+  const output = harness.child_wait(watcher.child, duration_ms + 10000);
+  ensure(output.timed_out !== true, "cu_linux_file_watch_watcher_timeout:" + watcher.label);
+  const reply = parse_reply(output.stdout, watcher.label);
+  ensure(output.success === expect_success && reply.ok === expect_success,
+    "cu_linux_file_watch_watcher_reply:" + watcher.label + ":" + JSON.stringify(reply));
+  ensure(reply.command === "file-watch", "cu_linux_file_watch_watcher_command:" + watcher.label);
+  return { data: reply.data, elapsed_ms: rh.now_ms() - watcher.started_ms };
+}
+
+function wait_until(predicate, label) {
+  const deadline = rh.now_ms() + READBACK_TIMEOUT_MS;
+  while (!predicate()) {
+    ensure(rh.now_ms() < deadline, "cu_linux_file_watch_readback_timeout:" + label);
+    rh.sleep_ms(READBACK_STEP_MS);
+  }
+}
+
+function file_len(path) {
+  if (!rh.exists(path)) { return -1; }
+  return rh.metadata(path).len;
+}
+
+function entry_names(directory) {
+  const names = [];
+  for (const entry of rh.read_dir(directory)) { names.push("" + entry.name); }
+  return rh.sort_strings(names);
+}
+
+function assert_watch_shape(data, directory, duration_ms, max_events, label) {
+  ensure(text_at(data, "provider") === PROVIDER, label + ":provider:" + text_at(data, "provider"));
+  ensure(text_at(data, "mode") === MODE, label + ":mode:" + text_at(data, "mode"));
+  ensure(text_at(data, "path") === directory, label + ":path:" + text_at(data, "path"));
+  ensure(text_at(data, "duration_ms") === "" + duration_ms, label + ":duration_ms");
+  ensure(text_at(data, "max_events") === "" + max_events, label + ":max_events");
+  ensure(rh.is_array(data.events), label + ":events-array");
+  ensure(text_at(data, "emitted") === "" + data.events.length, label + ":emitted-count");
+  ensure(data.verified === true, label + ":verified");
+  let previous_t = 0;
+  for (const event of data.events) {
+    const kind = text_at(event, "kind");
+    ensure(kind === "created" || kind === "modified" || kind === "removed" || kind === "other",
+      label + ":kind:" + kind);
+    ensure(text_at(event, "name").indexOf("/") < 0, label + ":name-is-entry:" + text_at(event, "name"));
+    ensure(rh.is_array(event.mask) && event.mask.length > 0, label + ":mask:" + JSON.stringify(event));
+    const t = event.t_ms;
+    ensure(t >= previous_t, label + ":t_ms-monotonic");
+    ensure(t <= duration_ms + 1000, label + ":t_ms-bounded:" + t);
+    previous_t = t;
+  }
+}
+
+function has_event(data, name, kind) {
+  for (const event of data.events) {
+    if (text_at(event, "name") === name && (kind === "" || text_at(event, "kind") === kind)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 const args = rh.args();
@@ -37,100 +159,154 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
-ensure(direct_file(executable), "cu_file_watch_executable_missing");
+ensure(rh.exists(executable), "cu_linux_file_watch_executable_missing:" + executable);
 
 const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
 ensure(uname.success === true && uname.stdout.trim() === "Linux",
-  "cu_file_watch_requires_linux");
+  "cu_linux_file_watch_requires_linux");
 
 const context = harness.new_context(repo, "cu-linux-file-watch");
 const run_directory = context.run_directory;
 const watch_dir = rh.join(run_directory, "watch-root");
-const fixture = rh.join(watch_dir, "fixture.txt");
+const outside_file = rh.join(run_directory, "outside.txt");
+rh.create_dir_all(watch_dir);
+
+const children = [];
 let succeeded = 0;
 let failure = "";
-
 try {
-  rh.create_dir_all(watch_dir);
+  print("STEP the native provider answers one short watch, then capabilities declare it honestly");
+  const probe = invoke(run_directory, executable, "probe",
+    ["file-watch", watch_dir, "--duration-ms", "100", "--max-events", "1"], true);
+  ensure(text_at(probe, "data.provider") === PROVIDER,
+    "cu_linux_file_watch_probe_provider:" + text_at(probe, "data.provider"));
+  const capabilities = invoke(run_directory, executable, "capabilities", ["capabilities"], true);
+  const verb = rh.field(rh.field(rh.field(capabilities, "data"), "verbs"), "file-watch");
+  ensure(text_at(verb, "status") === "available",
+    "cu_linux_file_watch_capabilities_status:" + JSON.stringify(verb));
+  ensure(text_at(verb, "provider") === PROVIDER,
+    "cu_linux_file_watch_capabilities_provider:" + JSON.stringify(verb));
 
-  print("STEP capabilities declare file-watch available on Linux");
-  const capabilities = run_cu_json(run_directory, executable, [
-    "--target", "current", "--grant", "observe", "capabilities"
-  ]);
-  ensure(
-    capabilities.data.verbs["file-watch"].status === "available"
-      && capabilities.data.verbs["file-watch"].provider === "linux-inotify",
-    "cu_file_watch_capabilities:" + JSON.stringify(capabilities.data.verbs["file-watch"])
-  );
-
-  print("STEP background watch observes create and modify on one temp directory");
-  const watcher = harness.start({
-    program: executable,
-    args: [
-      "--target", "current", "--grant", "observe",
-      "file", "observe", watch_dir,
-      "--duration-ms", "1000", "--max-events", "8"
-    ],
-    current_dir: run_directory,
-    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "watch-audit.jsonl") },
-    timeout_ms: 60000
-  });
-  harness.sleep_ms(150);
-  rh.write_text(fixture, "created");
-  harness.sleep_ms(100);
-  rh.write_text(fixture, "modified");
-
-  const output = harness.wait(watcher, 2000);
-  ensure(output.success === true, "cu_file_watch_process:" + JSON.stringify(output));
-  const watched = JSON.parse(output.stdout.trim());
-  ensure(watched.command === "file-watch" && watched.ok === true,
-    "cu_file_watch_shape:" + JSON.stringify(watched));
-  const data = watched.data;
-  ensure(
-    data.provider === "linux-inotify"
-      && data.mode === "native-events"
-      && data.path === watch_dir
-      && data.emitted >= 2
-      && Array.isArray(data.events),
-    "cu_file_watch_data:" + JSON.stringify(data)
-  );
-  let saw_created = 0;
-  let saw_modified = 0;
-  for (const event of data.events) {
-    if (event.name !== "fixture.txt") { continue; }
-    if (event.kind === "created") { saw_created = 1; }
-    if (event.kind === "modified") { saw_modified = 1; }
-    ensure(Array.isArray(event.mask) && event.mask.length > 0,
-      "cu_file_watch_mask:" + JSON.stringify(event));
+  print("STEP events: create, modify, rename and remove one direct entry are delivered at least once");
+  const events_duration = 3000;
+  const fixture = rh.join(watch_dir, "fixture.txt");
+  const renamed = rh.join(watch_dir, "renamed.txt");
+  const watcher_a = start_watcher(context, executable, "watch-events", watch_dir, events_duration, 32);
+  children.push(watcher_a.child);
+  rh.write_text(fixture, "v1");
+  wait_until(() => file_len(fixture) === 2, "create");
+  rh.sleep_ms(COALESCE_GUARD_MS);
+  rh.write_text(fixture, "v1-modified");
+  wait_until(() => file_len(fixture) === 11, "modify");
+  rh.sleep_ms(COALESCE_GUARD_MS);
+  rh.rename(fixture, renamed);
+  wait_until(() => !rh.exists(fixture) && rh.exists(renamed), "rename");
+  rh.sleep_ms(COALESCE_GUARD_MS);
+  rh.remove_file(renamed);
+  wait_until(() => !rh.exists(renamed), "remove");
+  const events_result = finish_watcher(watcher_a, events_duration, true);
+  const events = events_result.data;
+  assert_watch_shape(events, watch_dir, events_duration, 32, "cu_linux_file_watch_events");
+  ensure(events.completed === true && events.truncated === false,
+    "cu_linux_file_watch_events_completed:" + JSON.stringify(events));
+  ensure(events.events.length >= 1, "cu_linux_file_watch_events_empty");
+  ensure(has_event(events, "fixture.txt", "created"), "cu_linux_file_watch_events_created:" + JSON.stringify(events.events));
+  ensure(has_event(events, "fixture.txt", "modified"), "cu_linux_file_watch_events_modified:" + JSON.stringify(events.events));
+  ensure(has_event(events, "fixture.txt", "removed"), "cu_linux_file_watch_events_rename_old_removed:" + JSON.stringify(events.events));
+  ensure(has_event(events, "renamed.txt", "created"), "cu_linux_file_watch_events_rename_new_created:" + JSON.stringify(events.events));
+  ensure(has_event(events, "renamed.txt", "removed"), "cu_linux_file_watch_events_removed:" + JSON.stringify(events.events));
+  for (const event of events.events) {
+    const name = text_at(event, "name");
+    ensure(name === "fixture.txt" || name === "renamed.txt" || name === "",
+      "cu_linux_file_watch_events_foreign_name:" + name);
   }
-  ensure(saw_created === 1 && saw_modified === 1,
-    "cu_file_watch_events:" + JSON.stringify(data.events));
+  ensure(entry_names(watch_dir).length === 0, "cu_linux_file_watch_events_final_readback");
 
-  print("STEP non-directory path is a typed failure");
-  const refused = rh.command(executable, [
-    "--target", "current", "--grant", "observe",
-    "file-watch", fixture, "--duration-ms", "100", "--max-events", "1"
-  ], {
-    cwd: run_directory,
-    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "refusal-audit.jsonl") },
-    timeout_ms: 30000
-  });
-  const refusal = JSON.parse(refused.stdout.trim());
-  ensure(
-    refusal.ok !== true && refusal.error.code === "file_watch_not_directory",
-    "cu_file_watch_refusal:" + JSON.stringify(refusal)
-  );
+  print("STEP scope: a direct child directory is visible; files inside it and outside the watched directory are not");
+  const scope_duration = 2500;
+  const nested = rh.join(watch_dir, "nested");
+  const inner = rh.join(nested, "inner.txt");
+  const watcher_b = start_watcher(context, executable, "watch-scope", watch_dir, scope_duration, 32);
+  children.push(watcher_b.child);
+  rh.create_dir_all(nested);
+  wait_until(() => rh.exists(nested), "nested-create");
+  rh.sleep_ms(COALESCE_GUARD_MS);
+  rh.write_text(inner, "inner");
+  wait_until(() => rh.exists(inner), "inner-create");
+  rh.sleep_ms(COALESCE_GUARD_MS);
+  rh.write_text(outside_file, "outside");
+  wait_until(() => rh.exists(outside_file), "outside-create");
+  const scope_result = finish_watcher(watcher_b, scope_duration, true);
+  const scope = scope_result.data;
+  assert_watch_shape(scope, watch_dir, scope_duration, 32, "cu_linux_file_watch_scope");
+  ensure(scope.completed === true && scope.truncated === false,
+    "cu_linux_file_watch_scope_completed:" + JSON.stringify(scope));
+  ensure(has_event(scope, "nested", "created"), "cu_linux_file_watch_scope_nested_created:" + JSON.stringify(scope.events));
+  for (const event of scope.events) {
+    const name = text_at(event, "name");
+    ensure(name === "nested" || name === "", "cu_linux_file_watch_scope_leak:" + name);
+  }
+  const scope_entries = entry_names(watch_dir);
+  ensure(scope_entries.length === 1 && scope_entries[0] === "nested", "cu_linux_file_watch_scope_readback");
+  rh.remove_dir_all(nested);
+  rh.remove_file(outside_file);
+  wait_until(() => !rh.exists(nested) && !rh.exists(outside_file), "scope-cleanup");
 
+  print("STEP bounds: max-events 1 truncates after the first change and returns before the deadline");
+  const bounds_duration = 3000;
+  const first = rh.join(watch_dir, "a.txt");
+  const second = rh.join(watch_dir, "b.txt");
+  const watcher_c = start_watcher(context, executable, "watch-bounds", watch_dir, bounds_duration, 1);
+  children.push(watcher_c.child);
+  rh.write_text(first, "a");
+  wait_until(() => rh.exists(first), "bounds-first");
+  rh.sleep_ms(COALESCE_GUARD_MS);
+  rh.write_text(second, "b");
+  wait_until(() => rh.exists(second), "bounds-second");
+  const bounds_result = finish_watcher(watcher_c, bounds_duration, true);
+  const bounds = bounds_result.data;
+  assert_watch_shape(bounds, watch_dir, bounds_duration, 1, "cu_linux_file_watch_bounds");
+  ensure(bounds.emitted === 1 && bounds.truncated === true && bounds.completed === false,
+    "cu_linux_file_watch_bounds_truncation:" + JSON.stringify(bounds));
+  ensure(bounds_result.elapsed_ms < bounds_duration,
+    "cu_linux_file_watch_bounds_early_return:" + bounds_result.elapsed_ms);
+  rh.remove_file(first);
+  rh.remove_file(second);
+  wait_until(() => entry_names(watch_dir).length === 0, "bounds-cleanup");
+
+  print("STEP typed: a file path is not a directory and zero bounds are usage errors");
+  const probe_file = rh.join(run_directory, "not-a-directory.txt");
+  rh.write_text(probe_file, "probe");
+  const not_directory = invoke(run_directory, executable, "typed-not-directory",
+    ["file-watch", probe_file, "--duration-ms", "100", "--max-events", "1"], false);
+  ensure(text_at(not_directory, "error.code") === "file_watch_not_directory",
+    "cu_linux_file_watch_not_directory:" + JSON.stringify(not_directory));
+  const zero_duration = invoke(run_directory, executable, "typed-zero-duration",
+    ["file-watch", watch_dir, "--duration-ms", "0", "--max-events", "1"], false);
+  ensure(text_at(zero_duration, "error.code") === "usage",
+    "cu_linux_file_watch_zero_duration:" + JSON.stringify(zero_duration));
+  const zero_max = invoke(run_directory, executable, "typed-zero-max",
+    ["file-watch", watch_dir, "--duration-ms", "100", "--max-events", "0"], false);
+  ensure(text_at(zero_max, "error.code") === "usage",
+    "cu_linux_file_watch_zero_max:" + JSON.stringify(zero_max));
+  const missing_path = invoke(run_directory, executable, "typed-missing-path",
+    ["file-watch", rh.join(run_directory, "missing-directory"), "--duration-ms", "100", "--max-events", "1"], false);
+  ensure(text_at(missing_path, "error.code") === "file_watch_failed",
+    "cu_linux_file_watch_missing_path:" + JSON.stringify(missing_path));
+  ensure(entry_names(watch_dir).length === 0, "cu_linux_file_watch_typed_no_side_effect");
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
 }
 
-if (succeeded !== 0) {
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: agenterm-cu Linux file-watch inotify create/modify");
-  return;
+  print("PASS: Linux file-watch delivers bounded single-directory inotify events with independent filesystem read-back");
 }
-harness.remove_run(context);
-throw failure;
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

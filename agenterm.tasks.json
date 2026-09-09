@@ -7176,7 +7176,7 @@
     },
     {
       "id": "cu-linux-file-watch-smoke",
-      "description": "Linux inotify create/modify on temp dir; non-directory refusal; no --coords.",
+      "description": "Prove bounded single-directory Linux inotify file-watch: direct-entry create, modify, rename and remove events have independent filesystem read-back; nested and outside changes do not leak; max-events 1 truncates and returns early; invalid paths and zero bounds fail typed. No GUI.",
       "entry": "scripts/qjs/cu-linux-file-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
