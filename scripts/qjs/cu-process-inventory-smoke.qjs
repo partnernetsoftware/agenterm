@@ -1,13 +1,37 @@
 // Public black-box journey for bounded rich process inventory.
+// On Linux, typed ps list/inventory usage must reject AT-SPI --window/--name and
+// other unexpected arguments; typed get-extents --name usage/host-limit paths
+// must hold before the /proc pid/name read-back court. Independent /proc facts
+// for a disposable fixture process must agree with CU inventory on pid and
+// executable_name. AT-SPI/--name only; no --coords.
+//
 // Args: REPO AGENTERM_CU_EXE | --list-evidence
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = ["cu.process-inventory-rich"];
 
+const AT_SPI_PROBE_NAME = "Process Inventory Court Anchor";
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function output_success(document) { return at(document, "ok") === true; }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -15,12 +39,35 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function invoke(run_directory, executable, args, expected_error) {
+function cu_env(executable, run_directory) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke(run_directory, executable, args, expected_error, env) {
   const argv = ["--target", "current", "--grant", "observe"];
   for (let index = 0; index < args.length; index = index + 1) { argv.push(args[index]); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") },
+    env: env === undefined
+      ? { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl") }
+      : env,
     timeout_ms: 30000
   });
   const reply = JSON.parse(output.stdout.trim());
@@ -31,6 +78,169 @@ function invoke(run_directory, executable, args, expected_error) {
   }
   ensure(output.success === true && reply.ok === true, "cu_process_inventory_failed:" + JSON.stringify(reply));
   return reply.data;
+}
+
+function invoke_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_process_inventory_observe_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "ps" || text_at(reply, "command") === "usage"
+      || text_at(reply, "command") === "get-extents",
+    "cu_process_inventory_observe_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function probe_atspi_available(executable, run_directory) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable, run_directory),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_ps_usage_limit(run_directory, executable, env) {
+  const atspi_window_name = invoke_reply(run_directory, executable, [
+    "ps", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(atspi_window_name),
+    "cu_process_inventory_usage_window_name_ok:" + JSON.stringify(atspi_window_name));
+  ensure(
+    text_at(atspi_window_name, "error.code") === "usage",
+    "cu_process_inventory_usage_window_name_code:" + JSON.stringify(atspi_window_name.error)
+  );
+  ensure(
+    text_at(atspi_window_name, "command") === "usage",
+    "cu_process_inventory_usage_window_name_command:" + JSON.stringify(atspi_window_name)
+  );
+  ensure(
+    text_at(atspi_window_name, "error.message").indexOf("--window") >= 0
+      || text_at(atspi_window_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_process_inventory_usage_window_name_message:" + JSON.stringify(atspi_window_name.error)
+  );
+
+  const with_bogus = invoke_reply(run_directory, executable, [
+    "ps", "--pid", "1", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_process_inventory_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_process_inventory_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_process_inventory_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_process_inventory_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_process_inventory_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_process_inventory_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_process_inventory_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_process_inventory_extents_unavailable_code:" + code
+  );
+}
+
+function verify_disposable_fixture_readback(run_directory, executable, pid, env) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "pid = int(sys.argv[3])",
+    "exe = os.path.basename(os.readlink(f'/proc/{pid}/exe'))",
+    "stat = open(f'/proc/{pid}/stat').read()",
+    "close = stat.rfind(')')",
+    "fields = stat[close + 1:].split()",
+    "expected = {'pid': pid, 'parent_pid': int(fields[1]), 'executable_name': exe}",
+    "proc = subprocess.run(",
+    "    [cu, '--target', 'current', '--grant', 'observe', 'ps', '--pid', str(pid)],",
+    "    cwd=run_dir, capture_output=True, text=True,",
+    "    env={**os.environ, 'AGENTERM_NO_ACTIVATE': '1'}, timeout=60)",
+    "if proc.returncode != 0:",
+    "    raise SystemExit('cu_process_inventory_fixture_cli:' + proc.stderr)",
+    "reply = json.loads(proc.stdout)",
+    "if not reply.get('ok') or reply.get('command') != 'ps':",
+    "    raise SystemExit('cu_process_inventory_fixture_reply')",
+    "data = reply['data']",
+    "rows = data.get('processes') or []",
+    "if data.get('returned') != 1 or len(rows) != 1:",
+    "    raise SystemExit('cu_process_inventory_fixture_shape')",
+    "row = rows[0]",
+    "if int(row['pid']) != pid:",
+    "    raise SystemExit('cu_process_inventory_fixture_pid')",
+    "if int(row['parent_pid']) != expected['parent_pid']:",
+    "    raise SystemExit('cu_process_inventory_fixture_parent_pid')",
+    "if row['executable_name'] != expected['executable_name']:",
+    "    raise SystemExit('cu_process_inventory_fixture_executable_name')",
+    "name_proc = subprocess.run(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'ps', '--pid', str(pid), '--name', expected['executable_name']],",
+    "    cwd=run_dir, capture_output=True, text=True,",
+    "    env={**os.environ, 'AGENTERM_NO_ACTIVATE': '1'}, timeout=60)",
+    "if name_proc.returncode != 0:",
+    "    raise SystemExit('cu_process_inventory_fixture_name_cli:' + name_proc.stderr)",
+    "name_reply = json.loads(name_proc.stdout)",
+    "if not name_reply.get('ok') or name_reply.get('command') != 'ps':",
+    "    raise SystemExit('cu_process_inventory_fixture_name_reply')",
+    "name_rows = name_reply['data'].get('processes') or []",
+    "if name_reply['data'].get('returned') != 1 or len(name_rows) != 1:",
+    "    raise SystemExit('cu_process_inventory_fixture_name_shape')",
+    "name_row = name_rows[0]",
+    "if int(name_row['pid']) != pid or name_row['executable_name'] != expected['executable_name']:",
+    "    raise SystemExit('cu_process_inventory_fixture_name_match')",
+    "print('fixture', pid, expected['executable_name'])",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable, run_directory, "" + pid], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  ensure(output.success === true, "cu_process_inventory_fixture_readback:" + output.stderr + output.stdout);
 }
 
 const args = rh.args();
@@ -45,9 +255,26 @@ if (!direct_file(executable) && harness.host_is_windows()) { executable = execut
 ensure(direct_file(executable), "cu_process_inventory_executable_missing");
 
 const context = harness.new_context(repo, "cu-process-inventory");
+const linux = !harness.host_is_windows();
+const env = linux ? cu_env(executable, context.run_directory) : undefined;
+const atspi_available = linux ? probe_atspi_available(executable, context.run_directory) : false;
+let child = null;
 let succeeded = 0;
 let failure = "";
 try {
+  if (linux) {
+    print("STEP ps typed-fails usage when AT-SPI --window/--name or other unexpected arguments are present");
+    assert_ps_usage_limit(context.run_directory, executable, env);
+
+    if (atspi_available) {
+      print("STEP get-extents typed-fail invalid_input when --window is zero before inventory read-back court");
+      assert_get_extents_usage_limit(context.run_directory, executable, env);
+    } else {
+      print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+      assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+    }
+  }
+
   const pid = rh.pid();
   print("STEP exact pid inventory remains a stable bounded page");
   const exact = invoke(context.run_directory, executable, ["ps", "--pid", "" + pid, "--max", "4"]);
@@ -81,21 +308,52 @@ try {
   ensure(tree.mode === "tree-detail" && tree.root.pid === pid && tree.max_depth === 1, "cu_process_inventory_tree");
   ensure(tree.files.status === "available" || tree.files.status === "unavailable", "cu_process_inventory_files_typed");
   ensure(tree.ports.status === "available" || tree.ports.status === "unavailable", "cu_process_inventory_ports_typed");
-  if (!harness.host_is_windows()) {
+  if (linux) {
     ensure(tree.files.status === "available" && tree.ports.status === "available", "cu_process_inventory_unix_inspection");
   }
 
   print("STEP list and detail modes cannot be mixed silently");
   invoke(context.run_directory, executable, ["ps", "--pid", "" + pid, "--depth", "1", "--name", "agenterm"], "usage");
+
+  if (linux) {
+    print("STEP spawned disposable child --pid/--name filter agrees with independent /proc read-back");
+    child = harness.start({
+      program: "sleep",
+      args: ["300"],
+      current_dir: context.run_directory,
+      env: { AGENTERM_NO_ACTIVATE: "1" },
+      timeout_ms: 60000,
+    });
+    verify_disposable_fixture_readback(
+      context.run_directory, executable, harness.spawned_pid(child), env);
+  }
+
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
 }
 
-if (succeeded !== 0) {
+let completion_failure = "";
+try {
+  if (child !== null) { harness.kill(child); }
+  harness.complete_children(context, [], succeeded !== 0, failure);
+} catch (error) {
+  completion_failure = "" + error;
+}
+
+if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.process-inventory-rich");
   harness.remove_run(context);
-  print("PASS: rich process inventory is bounded, composable and plaintext-safe");
+  if (linux) {
+    if (atspi_available) {
+      print("PASS: rich process inventory with independent /proc pid/name read-back and typed ps/get-extents usage honesty (AT-SPI --name, no --coords)");
+    } else {
+      print("PASS: rich process inventory with independent /proc pid/name read-back and typed ps/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    }
+  } else {
+    print("PASS: rich process inventory is bounded, composable and plaintext-safe");
+  }
 }
 if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
 return;
