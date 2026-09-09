@@ -1,0 +1,577 @@
+// CEO: Linux CDP page-type honesty — insert text at the page's current
+// editable focus; prove with independent page-js DOM value read-back (not
+// page-type performed/verified). Typed page-type usage must reject AT-SPI
+// --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the page-type actuate/read-back
+// court. Typed usage, miss (no focus / non-editable / bad target), and
+// no-CDP host-limit paths must hold. Distinct from page-fill (which focuses
+// a node). Disposable Chrome+CDP; --port/--target-id/--text only; no --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-type",
+  "cu.linux-cdp-page-type-readback",
+];
+
+const AT_SPI_PROBE_NAME = "Page Type Court Anchor";
+const MISSING_NODE = "agenterm-no-such-page-type-node";
+const FOCUS_EXPR = "(function(){var el=document.getElementById('q');if(!el)return'missing';el.focus();return document.activeElement&&document.activeElement.id?document.activeElement.id:'';})()";
+const IDLE_FOCUS_EXPR = "(function(){var el=document.getElementById('idle');if(!el)return'missing';el.tabIndex=0;el.focus();return document.activeElement&&document.activeElement.id?document.activeElement.id:'';})()";
+const ACTIVE_ID_EXPR = "(document.activeElement&&document.activeElement.id)||''";
+const VALUE_EXPR = "document.getElementById('q').value";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_type_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_page_type_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_page_type_usage(run_directory, executable, env, port) {
+  const missing_text = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", "unused",
+  ], env);
+  ensure(!output_success(missing_text),
+    "cu_linux_page_type_usage_ok_text:" + JSON.stringify(missing_text));
+  ensure(
+    text_at(missing_text, "error.code") === "usage",
+    "cu_linux_page_type_usage_code_text:" + JSON.stringify(missing_text.error)
+  );
+  ensure(
+    text_at(missing_text, "error.message").indexOf("--text") >= 0
+      || text_at(missing_text, "error.message").indexOf("TEXT") >= 0,
+    "cu_linux_page_type_usage_message_text:" + JSON.stringify(missing_text.error)
+  );
+
+  const empty_text = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", "unused", "--text", "",
+  ], env);
+  ensure(!output_success(empty_text),
+    "cu_linux_page_type_usage_ok_empty:" + JSON.stringify(empty_text));
+  ensure(
+    text_at(empty_text, "error.code") === "usage",
+    "cu_linux_page_type_usage_code_empty:" + JSON.stringify(empty_text.error)
+  );
+  ensure(
+    text_at(empty_text, "error.message").indexOf("empty") >= 0,
+    "cu_linux_page_type_usage_message_empty:" + JSON.stringify(empty_text.error)
+  );
+}
+
+function assert_page_type_usage_rejects_name(run_directory, executable, env, port) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", "unused",
+    "--text", "seed", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_page_type_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_page_type_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_page_type_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_page_type_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page", "type", "--port", "" + port, "--target-id", "unused",
+    "--text", "seed", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_page_type_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_page_type_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_page_type_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", "unused",
+    "--text", "seed", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_page_type_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_page_type_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_page_type_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_page_type_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_type_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_type_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_page_type_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_page_type_extents_unavailable_code:" + code
+  );
+}
+
+function assert_get_extents_missing_node(run_directory, executable, env, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", MISSING_NODE,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_type_extents_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_page_type_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function windows_rows(reply) {
+  const data = at(reply, "data");
+  if (data.windows !== undefined) { return data.windows; }
+  return data;
+}
+
+function window_row_for_title(run_directory, executable, env, title_needle) {
+  const reply = run_cu(run_directory, executable, "observe", ["windows"], env);
+  for (const row of windows_rows(reply)) {
+    const title = text_at(row, "title");
+    if (title.indexOf(title_needle) < 0) { continue; }
+    const handle = int_at(row, "handle");
+    if (handle > 0) { return row; }
+  }
+  return null;
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", "unused", "--text", "seed",
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_type_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_type_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_type_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_type_miss_bad_target(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", "deadbeef", "--text", "seed",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_type_miss_target_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_type_miss_target_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--target-id") >= 0,
+    "cu_linux_page_type_miss_target_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function page_js_text(run_directory, executable, env, port, target_id, expression) {
+  const read = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", expression,
+  ], env);
+  return text_at(read, "data.value");
+}
+
+function input_value(run_directory, executable, env, port, target_id) {
+  return page_js_text(run_directory, executable, env, port, target_id, VALUE_EXPR);
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (text_at(row, "type") === "page") { return row; }
+  }
+  return null;
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
+}
+
+function establish_input_focus(run_directory, executable, env, port, target_id) {
+  page_js_text(run_directory, executable, env, port, target_id, FOCUS_EXPR);
+  let active = page_js_text(run_directory, executable, env, port, target_id, ACTIVE_ID_EXPR);
+  if (active === "q") { return; }
+  const clicked = run_cu(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", target_id, "--selector", "#q",
+  ], env);
+  ensure(
+    clicked.command === "page-click",
+    "cu_linux_page_type_focus_click:" + JSON.stringify(clicked)
+  );
+  for (let attempt = 0; attempt < 20 && active !== "q"; attempt = attempt + 1) {
+    page_js_text(run_directory, executable, env, port, target_id, FOCUS_EXPR);
+    active = page_js_text(run_directory, executable, env, port, target_id, ACTIVE_ID_EXPR);
+    if (active !== "q") { harness.sleep_ms(250); }
+  }
+  ensure(
+    active === "q",
+    "cu_linux_page_type_host_limit:focus_not_established:" + JSON.stringify({ active: active })
+  );
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_type_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_type_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-type");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+
+const fixture_title = "CEO CDP Type " + context.run_id;
+const fixture = rh.join(run_directory, "cdp-type.html");
+const fixture_html = "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title></head><body>"
+  + "<p id='idle'>idle</p>"
+  + "<label for='q'>Field</label>"
+  + "<input id='q' name='q' value='' aria-label='" + AT_SPI_PROBE_NAME + "'>"
+  + "</body></html>";
+rh.write_text(fixture, fixture_html);
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9700 + (rh.pid() % 400);
+const seed = "ceo-type-" + context.run_id;
+const suffix = "-more";
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_type_port_in_use:" + port);
+
+  print("STEP page-type typed-fails usage when --text is missing or empty");
+  assert_page_type_usage(run_directory, executable, env, port);
+
+  print("STEP page-type typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_type_usage_rejects_name(run_directory, executable, env, port);
+
+  print("STEP page-type typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-type actuate court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
+  print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "about:blank",
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
+    harness.sleep_ms(250);
+  }
+  ensure(cdp_ready(run_directory, port), "cu_linux_page_type_cdp_not_ready:" + port);
+
+  print("STEP page-type typed-fails cdp_target_not_found for a bogus --target-id");
+  assert_page_type_miss_bad_target(run_directory, executable, env, port);
+
+  const targets = run_cu(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  const target = page_target(targets.data.targets);
+  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_type_target_missing");
+  const target_id = text_at(target, "id");
+
+  print("STEP page-nav loads the disposable HTML fixture in this owned tab");
+  const nav_url = "file://" + fixture;
+  const nav = run_cu(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", target_id,
+    "--url", nav_url, "--wait-ms", "10000",
+  ], env);
+  ensure(
+    flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
+    "cu_linux_page_type_nav:" + JSON.stringify(nav.data)
+  );
+
+  if (atspi_available) {
+    print("STEP wait for owned Chrome window before named get-extents court");
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+    ], env);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_type_window_wait");
+
+    let window_row = null;
+    for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
+      window_row = window_row_for_title(run_directory, executable, env, fixture_title);
+      if (window_row === null) { harness.sleep_ms(250); }
+    }
+    ensure(window_row !== null, "cu_linux_page_type_window_missing:" + fixture_title);
+    const window_handle = "" + int_at(window_row, "handle");
+    ensure(window_handle !== "" && window_handle !== "0",
+      "cu_linux_page_type_window_handle:" + JSON.stringify(window_row));
+
+    const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+      "unlock", "--window", window_handle,
+    ], env);
+    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_type_unlock:" + JSON.stringify(unlocked.data));
+
+    print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
+    assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_type");
+  }
+
+  print("STEP page-type typed-fails cdp_focus_not_found when the page has no editable focus");
+  const no_focus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", target_id, "--text", seed,
+  ], env);
+  ensure(!output_success(no_focus), "cu_linux_page_type_no_focus_ok:" + JSON.stringify(no_focus));
+  ensure(
+    text_at(no_focus, "error.code") === "cdp_focus_not_found",
+    "cu_linux_page_type_no_focus_code:" + JSON.stringify(no_focus.error)
+  );
+  ensure(
+    JSON.stringify(no_focus).indexOf(seed) < 0,
+    "cu_linux_page_type_no_focus_leaked:" + JSON.stringify(no_focus)
+  );
+
+  print("STEP page-type typed-fails cdp_focus_not_editable when focus is a non-editable node");
+  const idle_id = page_js_text(run_directory, executable, env, port, target_id, IDLE_FOCUS_EXPR);
+  ensure(idle_id === "idle", "cu_linux_page_type_idle_focus:" + JSON.stringify({ idle_id: idle_id }));
+  const not_editable = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", target_id, "--text", seed,
+  ], env);
+  ensure(!output_success(not_editable),
+    "cu_linux_page_type_not_editable_ok:" + JSON.stringify(not_editable));
+  ensure(
+    text_at(not_editable, "error.code") === "cdp_focus_not_editable",
+    "cu_linux_page_type_not_editable_code:" + JSON.stringify(not_editable.error)
+  );
+  ensure(
+    input_value(run_directory, executable, env, port, target_id) === "",
+    "cu_linux_page_type_not_editable_mutated"
+  );
+
+  print("STEP independent page-js baseline proves #q starts empty before type");
+  establish_input_focus(run_directory, executable, env, port, target_id);
+  const before_value = input_value(run_directory, executable, env, port, target_id);
+  ensure(
+    before_value === "",
+    "cu_linux_page_type_before:" + JSON.stringify({ value: before_value })
+  );
+
+  print("STEP page-type --text inserts SEED at the existing editable focus");
+  const typed = run_cu(run_directory, executable, "observe,actuate", [
+    "page-type", "--port", "" + port, "--target-id", target_id, "--text", seed,
+  ], env);
+  ensure(
+    typed.command === "page-type" && flag_at(typed, "data.performed"),
+    "cu_linux_page_type_actuate:" + JSON.stringify(typed.data)
+  );
+  ensure(
+    JSON.stringify(typed).indexOf(seed) < 0,
+    "cu_linux_page_type_leaked:" + JSON.stringify(typed)
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-type");
+
+  print("STEP independent page-js read-back proves the field value grew to SEED");
+  let readback_value = "";
+  for (let attempt = 0; attempt < 40 && readback_value !== seed; attempt = attempt + 1) {
+    readback_value = input_value(run_directory, executable, env, port, target_id);
+    if (readback_value !== seed) { harness.sleep_ms(250); }
+  }
+  ensure(
+    readback_value === seed,
+    "cu_linux_page_type_readback:" + JSON.stringify({ seed: seed, value: readback_value })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-type-readback");
+
+  print("STEP page-type at the same focus appends a suffix; independent page-js proves growth");
+  const grown = run_cu(run_directory, executable, "observe,actuate", [
+    "page", "type", "--port", "" + port, "--target-id", target_id, suffix,
+  ], env);
+  ensure(
+    grown.command === "page-type" && flag_at(grown, "data.performed"),
+    "cu_linux_page_type_append:" + JSON.stringify(grown.data)
+  );
+  const expected_grown = seed + suffix;
+  let grown_value = "";
+  for (let attempt = 0; attempt < 40 && grown_value !== expected_grown; attempt = attempt + 1) {
+    grown_value = input_value(run_directory, executable, env, port, target_id);
+    if (grown_value !== expected_grown) { harness.sleep_ms(250); }
+  }
+  ensure(
+    grown_value === expected_grown,
+    "cu_linux_page_type_append_readback:" + JSON.stringify({
+      expected: expected_grown,
+      value: grown_value,
+    })
+  );
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_type_failed");
+harness.remove_run(context);
+if (atspi_available) {
+  print("PASS: Linux CDP page-type usage/miss/host-limit honesty + independent page-js DOM read-back with typed page-type/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux CDP page-type usage/miss/host-limit honesty + independent page-js DOM read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
+return;
