@@ -14,10 +14,6 @@ import * as rh from "lib/rh_compat";
 
 const WHEEL_DX = 0;
 const WHEEL_DY = 3;
-const POLL_INTERVAL_MS = 25;
-const POLL_BOUND_MS = 500;
-const QUIET_WINDOW_MS = 150;
-
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
@@ -65,6 +61,9 @@ const target_id = text_at(identity, "target.target_id");
 const peer_id = text_at(identity, "peer.target_id");
 const target_point = at(identity, "target_point");
 const off_point = at(identity, "off_point");
+const poll_interval_ms = number_at(identity, "timing.poll_interval_ms");
+const poll_bound_ms = number_at(identity, "timing.poll_bound_ms");
+const quiet_ms = number_at(identity, "timing.quiet_ms");
 const cu_env = {
   AGENTERM_CU_AUDIT_PATH: text_at(identity, "cu_env.AGENTERM_CU_AUDIT_PATH"),
   AGENTERM_CU_RUNTIME_PATH: text_at(identity, "cu_env.AGENTERM_CU_RUNTIME_PATH"),
@@ -110,7 +109,7 @@ function snapshot_counts(target, label) {
 
 function focused_native_window() {
   const reply = invoke("observe", ["windows", "--focused", "true", "--max", "2"]);
-  ensure(reply.data.returned === 1, "acu074_block_focused_window_ambiguous");
+  if (reply.data.returned !== 1) { return { process_id: -1 }; }
   return reply.data.windows[0];
 }
 
@@ -138,10 +137,10 @@ function run_injector() {
 }
 
 function poll_target_until_delivered() {
-  const deadline = rh.now_ms() + POLL_BOUND_MS;
+  const deadline = rh.now_ms() + poll_bound_ms;
   let snapshot = snapshot_counts(target_id, "B");
   while (snapshot.count < 1 && rh.now_ms() < deadline) {
-    rh.sleep_ms(POLL_INTERVAL_MS);
+    rh.sleep_ms(poll_interval_ms);
     snapshot = snapshot_counts(target_id, "B");
   }
   return snapshot;
@@ -179,6 +178,8 @@ try {
   ensure(nonce !== "" && browser_pid > 1 && port >= 1 && port <= 65535
     && guard_pid > 1 && target_window > 0 && target_id !== "" && peer_id !== "",
     "acu074_block_identity_invalid");
+  ensure(poll_interval_ms >= 1 && poll_bound_ms >= poll_interval_ms && quiet_ms >= 1,
+    "acu074_block_timing_invalid");
   ensure(text_at(identity, "source_sha") !== "" && text_at(identity, "probe_digest") !== "",
     "acu074_block_result_identity_missing");
 
@@ -199,7 +200,7 @@ try {
     if (before_ok) {
       injected = run_injector();
       poll_target_until_delivered();
-      rh.sleep_ms(QUIET_WINDOW_MS);
+      rh.sleep_ms(quiet_ms);
       target = snapshot_counts(target_id, "B");
       peer = snapshot_counts(peer_id, "A");
       after_front = focused_native_window();
@@ -243,6 +244,11 @@ const report = {
   actions_run: actions_run,
   exact_count: exact_count,
   behavioral_failure: behavioral_failure,
+  timing: {
+    poll_interval_ms: poll_interval_ms,
+    poll_bound_ms: poll_bound_ms,
+    quiet_ms: quiet_ms
+  },
   elapsed_ms: rh.now_ms() - started_ms,
   stage: stage,
   failure: failure

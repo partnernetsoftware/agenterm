@@ -46,6 +46,9 @@ const FRAME_A = { x: 40, y: 80, width: 520, height: 400 };
 const FRAME_B = { x: 700, y: 80, width: 520, height: 400 };
 const BLOCK_ACTIONS = 50;
 const BLOCK_TIMEOUT_MAX_MS = 120000;
+const POLL_INTERVAL_MS = 25;
+const POLL_BOUND_MS = 500;
+const QUIET_WINDOW_MS = 150;
 const TIMEBOX_MS = 1500000;
 
 function ensure(condition, message) {
@@ -79,6 +82,12 @@ function number_at(value, dotted) {
   const raw = text_at(value, dotted);
   if (raw === "") { return 0; }
   return rh.parse_int(raw);
+}
+
+function stable_error_code(error) {
+  const text = "" + error;
+  const parts = text.split(":");
+  return parts.length === 0 || parts[0] === "" ? "acu074_unknown_failure" : parts[0];
 }
 
 function parsed_port_or_zero(text) {
@@ -306,6 +315,10 @@ function run_block(start_index, action_count, timeout_ms) {
     && number_at(reply, "end_index") === start_index + action_count - 1
     && number_at(reply, "actions_requested") === action_count,
     "acu074_repeat_block_range:" + start_index);
+  ensure(number_at(reply, "timing.poll_interval_ms") === POLL_INTERVAL_MS
+    && number_at(reply, "timing.poll_bound_ms") === POLL_BOUND_MS
+    && number_at(reply, "timing.quiet_ms") === QUIET_WINDOW_MS,
+    "acu074_repeat_block_timing:" + start_index);
   const ran = number_at(reply, "actions_run");
   const exact = number_at(reply, "exact_count");
   const category = reply.behavioral_failure === null
@@ -316,7 +329,9 @@ function run_block(start_index, action_count, timeout_ms) {
     ensure(ran === action_count && exact === action_count,
       "acu074_repeat_block_incomplete:" + start_index);
   } else {
+    const failure_action = number_at(reply, "behavioral_failure.action");
     ensure(ran === exact + 1
+      && failure_action === start_index + exact
       && (category === "HOST_DRIFT" || category === "MISDELIVERY"
         || category === "DUP" || category === "LOSS"),
       "acu074_repeat_block_failure_shape:" + start_index);
@@ -484,6 +499,11 @@ try {
     run_directory: run_directory,
     guard_state: guard_state,
     cu_env: cu_env,
+    timing: {
+      poll_interval_ms: POLL_INTERVAL_MS,
+      poll_bound_ms: POLL_BOUND_MS,
+      quiet_ms: QUIET_WINDOW_MS
+    },
     browser_pid: browser_pid,
     cdp_port: port,
     target: { label: "B", cg_window: target_window,
@@ -540,7 +560,9 @@ try {
   }
   stage = "done";
 } catch (error) {
-  failure = "" + error;
+  const detail = "" + error;
+  failure = stable_error_code(detail);
+  rh.write_text(rh.join(run_directory, "failure.txt"), detail + "\n");
 }
 
 // Cleanup always runs; its outcome is part of the verdict.
@@ -558,13 +580,16 @@ try {
   }
   cleanup_verified = true;
 } catch (error) {
-  cleanup_failure = "" + error;
+  const detail = "" + error;
+  cleanup_failure = stable_error_code(detail);
+  cleanup_verified = false;
+  rh.write_text(rh.join(run_directory, "cleanup-failure.txt"), detail + "\n");
 }
 
 let verdict = "INCONCLUSIVE";
 if (failure === "" && cleanup_failure === "" && (actions_run === actions || aborted_reason !== "")) {
   if (failure_count === 0 && actions_run === actions) {
-    verdict = "PASS";
+    verdict = detector_mode ? "DETECTOR_PASS" : "PASS";
   } else if (counts.HOST_DRIFT > 0) {
     verdict = "FAIL_HOST_DRIFT";
   } else if (counts.MISDELIVERY > 0) {
@@ -573,6 +598,16 @@ if (failure === "" && cleanup_failure === "" && (actions_run === actions || abor
     verdict = "FAIL_DUP";
   } else {
     verdict = "FAIL_LOSS";
+  }
+}
+
+if (verdict === "PASS" || verdict === "DETECTOR_PASS") {
+  try {
+    harness.remove_run(context);
+  } catch (error) {
+    cleanup_failure = stable_error_code(error);
+    cleanup_verified = false;
+    verdict = "INCONCLUSIVE";
   }
 }
 
@@ -595,9 +630,9 @@ const report = {
     block_actions: BLOCK_ACTIONS,
     block_timeout_max_ms: BLOCK_TIMEOUT_MAX_MS,
     blocks_run: summaries.length,
-    poll_interval_ms: 25,
-    poll_bound_ms: 500,
-    quiet_ms: 150
+    poll_interval_ms: POLL_INTERVAL_MS,
+    poll_bound_ms: POLL_BOUND_MS,
+    quiet_ms: QUIET_WINDOW_MS
   },
   identity: report_identity,
   summaries: summaries,
@@ -613,5 +648,4 @@ if (verdict === "INCONCLUSIVE" || cleanup_failure !== "") {
   throw "acu074_repeat_" + verdict + (failure !== "" ? ":" + failure : "")
     + (cleanup_failure !== "" ? ":" + cleanup_failure : "");
 }
-if (verdict === "PASS") { harness.remove_run(context); }
 return;

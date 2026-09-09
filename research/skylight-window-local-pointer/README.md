@@ -66,7 +66,8 @@ oracles. Each worker prints one bounded JSON object; the parent rejects a
 nonzero, timed-out, truncated, malformed, duplicated or noncontiguous reply and
 persists only validated block replies inside its owned run directory. The
 parent requires contiguous coverage of all 1,000 indices, zero failures and
-verified cleanup.
+verified cleanup. A shorter detector run reports `DETECTOR_PASS`, never
+`PASS`; it cannot count toward the precommitted repeat.
 
 `probe_digest` is path-independent: it hashes a canonical stream of fixed
 repo-relative source labels followed by each file's SHA-256. Moving an

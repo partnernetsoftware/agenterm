@@ -47,6 +47,10 @@ if [ -n "$ACTIONS" ]; then
       exit 2
       ;;
   esac
+  if [ "$ACTIONS" -lt 1 ] || [ "$ACTIONS" -gt 1000 ]; then
+    printf '%s\n' "ACU074_REPEAT_ACTIONS must be an integer from 1 to 1000" >&2
+    exit 2
+  fi
 fi
 
 mkdir -p "$BUILD"
