@@ -1,9 +1,10 @@
 // Linux public black-box journey for host-open --app via desktop entry and PATH.
 // Acceptance is independent /proc/cmdline plus windows/ps/get-text read-back,
-// never host-open self-report. Typed host-open usage must reject AT-SPI --name
-// and other unexpected arguments; typed get-extents --name usage/miss/host-limit
-// paths must hold before the open actuate and windows/ps/get-text read-back
-// court. AT-SPI --name only; no --coords or screenshot degradation.
+// never host-open self-report. Typed host-open usage must reject AT-SPI --name,
+// --coords, --bogus, and other unexpected arguments; typed get-extents --name
+// usage AND host-limit paths must both hold before the open actuate and
+// windows/ps/get-text read-back court. Prefer host-limit clarity over fake
+// success. AT-SPI --name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE | --list-evidence
 import * as rh from "lib/rh_compat";
@@ -39,6 +40,11 @@ function text_at(value, dotted) {
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function output_success(document) { return at(document, "ok") === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -149,8 +155,7 @@ function assert_host_open_usage_limit(run_directory, executable, env) {
     "cu_linux_host_open_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
   ensure(
-    text_at(flat_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(flat_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_host_open_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
 
@@ -164,24 +169,84 @@ function assert_host_open_usage_limit(run_directory, executable, env) {
     "cu_linux_host_open_usage_alias_name_code:" + JSON.stringify(alias_with_name.error)
   );
   ensure(
-    text_at(alias_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(alias_with_name, "error.message").indexOf("unexpected") >= 0,
+    text_at(alias_with_name, "command") === "usage",
+    "cu_linux_host_open_usage_alias_name_command:" + JSON.stringify(alias_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(alias_with_name, "error.message"), "--name"),
     "cu_linux_host_open_usage_alias_name_message:" + JSON.stringify(alias_with_name.error)
   );
 
-  const with_bogus = invoke_actuate_reply(run_directory, executable, [
+  const flat_with_bogus = invoke_actuate_reply(run_directory, executable, [
     "host-open", "/dev/null", "--bogus",
   ], env);
-  ensure(!output_success(with_bogus),
-    "cu_linux_host_open_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(!output_success(flat_with_bogus),
+    "cu_linux_host_open_usage_flat_bogus_ok:" + JSON.stringify(flat_with_bogus));
   ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_host_open_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+    text_at(flat_with_bogus, "error.code") === "usage",
+    "cu_linux_host_open_usage_flat_bogus_code:" + JSON.stringify(flat_with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
-    "cu_linux_host_open_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+    text_at(flat_with_bogus, "command") === "usage",
+    "cu_linux_host_open_usage_flat_bogus_command:" + JSON.stringify(flat_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_host_open_usage_flat_bogus_message:" + JSON.stringify(flat_with_bogus.error)
+  );
+
+  const alias_with_bogus = invoke_actuate_reply(run_directory, executable, [
+    "open", "/dev/null", "--bogus",
+  ], env);
+  ensure(!output_success(alias_with_bogus),
+    "cu_linux_host_open_usage_alias_bogus_ok:" + JSON.stringify(alias_with_bogus));
+  ensure(
+    text_at(alias_with_bogus, "error.code") === "usage",
+    "cu_linux_host_open_usage_alias_bogus_code:" + JSON.stringify(alias_with_bogus.error)
+  );
+  ensure(
+    text_at(alias_with_bogus, "command") === "usage",
+    "cu_linux_host_open_usage_alias_bogus_command:" + JSON.stringify(alias_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(alias_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_host_open_usage_alias_bogus_message:" + JSON.stringify(alias_with_bogus.error)
+  );
+
+  const flat_with_coords = invoke_actuate_reply(run_directory, executable, [
+    "host-open", "/dev/null", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(flat_with_coords),
+    "cu_linux_host_open_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
+  ensure(
+    text_at(flat_with_coords, "error.code") === "usage",
+    "cu_linux_host_open_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
+  );
+  ensure(
+    text_at(flat_with_coords, "command") === "usage",
+    "cu_linux_host_open_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
+    "cu_linux_host_open_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
+  );
+
+  const alias_with_coords = invoke_actuate_reply(run_directory, executable, [
+    "open", "/dev/null", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(alias_with_coords),
+    "cu_linux_host_open_usage_alias_coords_ok:" + JSON.stringify(alias_with_coords));
+  ensure(
+    text_at(alias_with_coords, "error.code") === "usage",
+    "cu_linux_host_open_usage_alias_coords_code:" + JSON.stringify(alias_with_coords.error)
+  );
+  ensure(
+    text_at(alias_with_coords, "command") === "usage",
+    "cu_linux_host_open_usage_alias_coords_command:" + JSON.stringify(alias_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(alias_with_coords, "error.message"), "--coords"),
+    "cu_linux_host_open_usage_alias_coords_message:" + JSON.stringify(alias_with_coords.error)
   );
 }
 
@@ -210,8 +275,50 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_host_open_extents_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_host_open_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_host_open_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_host_open_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_host_open_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_host_open_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_host_open_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_host_open_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_host_open_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_host_open_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_host_open_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -418,17 +525,20 @@ let failure = "";
 let launched_pid = 0;
 
 try {
-  print("STEP host-open typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP host-open typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
   assert_host_open_usage_limit(run_directory, executable, env);
 
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before open actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before open actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero or --name is missing before open actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
     print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is absent before open actuate/read-back court");
     assert_get_extents_name_miss(run_directory, executable, env);
   } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; host-open read-back still uses /proc/cmdline + windows/ps/get-text");
   }
 
   print("STEP host-open --app desktop entry dispatches the fixture without shell involvement");
@@ -494,9 +604,9 @@ stop_launched(launched_pid);
 if (succeeded !== 0 && failure === "") {
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux host-open --app and app launch --path with independent /proc/cmdline + windows/ps/get-text read-back and typed host-open/get-extents usage/miss honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux host-open --app and app launch --path with independent /proc/cmdline + windows/ps/get-text read-back and typed host-open --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux host-open --app and app launch --path with independent /proc/cmdline + windows/ps/get-text read-back and typed host-open/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux host-open --app and app launch --path with independent /proc/cmdline + windows/ps/get-text read-back and typed host-open --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
