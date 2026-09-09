@@ -2,8 +2,10 @@
 // Acceptance is smoke read-back only: --selector/--text/--role node text/count must
 // agree with a separate CDP DOM or AX-tree probe on the same disposable target.
 // Typed page-find usage must reject AT-SPI --name outside --role narrowing,
-// --coords, --bogus, and other unexpected arguments; typed get-extents --name
-// usage AND host-limit paths must both hold before the page-find read-back court.
+// --coords, --bogus, and other unexpected arguments (usage_rejects_unexpected);
+// typed get-extents --name usage AND host-limit paths, including get-extents
+// --coords/--bogus command=usage honesty, must both hold before the page-find
+// read-back court.
 // Typed usage, miss, and no-CDP host-limit paths must hold before Chrome starts.
 // Prefer honesty/host-limit clarity over fake success. Disposable Chrome profile;
 // --port/--target-id only; no --coords or screenshot.
@@ -118,11 +120,6 @@ function usage_rejects_unexpected(message, token) {
     || (token === "--name" && message.indexOf("only narrows") >= 0);
 }
 
-function get_extents_misuse_message_ok(message, token) {
-  return usage_rejects_unexpected(message, token)
-    || message.indexOf("--name") >= 0;
-}
-
 function assert_page_find_unexpected_usage(run_directory, executable, env, port) {
   const selector_with_name = run_cu_reply(run_directory, executable, "observe", [
     "page-find", "--port", "" + port, "--target-id", "unused",
@@ -133,6 +130,10 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
   ensure(
     text_at(selector_with_name, "error.code") === "usage",
     "cu_linux_page_find_usage_selector_name_code:" + JSON.stringify(selector_with_name.error)
+  );
+  ensure(
+    text_at(selector_with_name, "command") === "usage",
+    "cu_linux_page_find_usage_selector_name_command:" + JSON.stringify(selector_with_name)
   );
   ensure(
     usage_rejects_unexpected(text_at(selector_with_name, "error.message"), "--name"),
@@ -150,6 +151,10 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "cu_linux_page_find_usage_text_name_code:" + JSON.stringify(text_with_name.error)
   );
   ensure(
+    text_at(text_with_name, "command") === "usage",
+    "cu_linux_page_find_usage_text_name_command:" + JSON.stringify(text_with_name)
+  );
+  ensure(
     usage_rejects_unexpected(text_at(text_with_name, "error.message"), "--name"),
     "cu_linux_page_find_usage_text_name_message:" + JSON.stringify(text_with_name.error)
   );
@@ -163,6 +168,10 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
   ensure(
     text_at(grouped_with_name, "error.code") === "usage",
     "cu_linux_page_find_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    text_at(grouped_with_name, "command") === "usage",
+    "cu_linux_page_find_usage_grouped_name_command:" + JSON.stringify(grouped_with_name)
   );
   ensure(
     usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
@@ -180,6 +189,10 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "cu_linux_page_find_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_page_find_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
     usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_page_find_usage_bogus_message:" + JSON.stringify(with_bogus.error)
   );
@@ -195,6 +208,10 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
     "cu_linux_page_find_usage_coords_code:" + JSON.stringify(with_coords.error)
   );
   ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_page_find_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
     usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
     "cu_linux_page_find_usage_coords_message:" + JSON.stringify(with_coords.error)
   );
@@ -208,6 +225,10 @@ function assert_page_find_unexpected_usage(run_directory, executable, env, port)
   ensure(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_page_find_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
+  );
+  ensure(
+    text_at(grouped_with_coords, "command") === "usage",
+    "cu_linux_page_find_usage_grouped_coords_command:" + JSON.stringify(grouped_with_coords)
   );
   ensure(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
@@ -240,6 +261,10 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_page_find_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_page_find_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_find_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -254,7 +279,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_page_find_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_page_find_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_find_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -268,7 +298,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_page_find_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_page_find_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_page_find_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -817,13 +852,13 @@ try {
   print("STEP page-find typed usage rejects missing or conflicting node queries before Chrome starts");
   assert_page_find_usage(run_directory, executable, env, port);
 
-  print("STEP page-find typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+  print("STEP page-find typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present (usage_rejects_unexpected + command=usage)");
   assert_page_find_unexpected_usage(run_directory, executable, env, port);
 
   print("STEP page-find typed-fails no CDP listener on the owned free port before Chrome starts");
   assert_no_cdp_listener(run_directory, executable, env, port);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before page-find read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before page-find read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before page-find read-back court");
@@ -944,8 +979,8 @@ if (chrome_child >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_page_find_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux page-find usage/miss/host-limit honesty + independent CDP DOM/AX probe read-back with typed page-find --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux page-find usage/miss/host-limit honesty + independent CDP DOM/AX probe read-back with typed page-find --name/--coords/--bogus and get-extents --name usage/host-limit command=usage honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux page-find usage/miss/host-limit honesty + independent CDP DOM/AX probe read-back with typed page-find --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux page-find usage/miss/host-limit honesty + independent CDP DOM/AX probe read-back with typed page-find --name/--coords/--bogus usage and get-extents --name host-limit command=usage honesty (AT-SPI --name, no --coords)");
 }
 return;
