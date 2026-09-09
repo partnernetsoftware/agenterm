@@ -2,8 +2,10 @@
 // independent AT-SPI / on-disk marker read-back. Acceptance is smoke
 // read-back only: CU wait met and returned node/marker must agree with
 // pyatspi named-node probes or a direct JSON read of the ready-path file,
-// never worker self-report alone. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// never worker self-report alone. Typed usage, timeout exit-code honesty,
+// and AT-SPI host-limit paths must hold when conditions miss or the
+// independent pyatspi desktop probe is unavailable. AT-SPI/--name only;
+// no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -72,20 +74,132 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  ensure(output.stdout.trim() !== "", "cu_linux_wait_ready_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_wait_ready_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function probe_atspi_available() {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_wait_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "1000",
+  ]);
+  ensure(!output_success(reply), "cu_linux_wait_ready_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_wait_ready_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("requires one of") >= 0,
+    "cu_linux_wait_ready_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_wait_node_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "1000",
+    "--node-name-contains", PRESS_BUTTON,
+    "--window", "1",
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_wait_ready_node_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "timeout" || code === "unsupported"
+      || code === "bad_handle",
+    "cu_linux_wait_ready_node_unavailable_code:" + code
+  );
+  if (code === "a11y_backend_failed") {
+    const message = text_at(reply, "error.message").toLowerCase();
+    ensure(
+      message.indexOf("accessibility") >= 0
+        || message.indexOf("address") >= 0
+        || message.indexOf("bus") >= 0,
+      "cu_linux_wait_ready_node_unavailable_message:" + JSON.stringify(reply.error)
+    );
+  }
+}
+
+function assert_wait_ready_path_timeout_honesty(run_directory, executable, ready_path) {
+  rh.try_remove_file(ready_path);
+  const argv = ["--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "200", "--ready-path", ready_path];
   const output = rh.command(executable, argv, {
     cwd: run_directory,
     env: cu_env(executable),
-    timeout_ms: 45000,
+    timeout_ms: 30000,
   });
-  ensure(output.success === true, "cu_linux_wait_ready_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_wait_ready_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_wait_ready_reply:" + JSON.stringify(document));
-  return document;
+  ensure(
+    output.success === false,
+    "cu_linux_wait_ready_path_timeout_exit:" + output.stdout + output.stderr
+  );
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === "timeout",
+    "cu_linux_wait_ready_path_timeout:" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("ready") >= 0,
+    "cu_linux_wait_ready_path_timeout_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_wait_node_timeout_honesty(run_directory, executable, handle_text) {
+  const argv = ["--target", "current", "--grant", "observe", "wait",
+    "--timeout-ms", "200", "--window", handle_text,
+    "--node-name-contains", "agenterm-no-such-node-xyz"];
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(
+    output.success === false,
+    "cu_linux_wait_ready_node_timeout_exit:" + output.stdout + output.stderr
+  );
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === "timeout",
+    "cu_linux_wait_ready_node_timeout:" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("agenterm-no-such-node-xyz") >= 0,
+    "cu_linux_wait_ready_node_timeout_message:" + JSON.stringify(reply.error)
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -283,6 +397,10 @@ const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
 ensure(direct_file(executable), "cu_linux_wait_ready_executable_missing:" + executable);
 ensure(direct_file(abi_library), "cu_linux_wait_ready_library_missing:" + abi_library);
 
+const uname = rh.command("/usr/bin/uname", ["-s"], { timeout_ms: 10000 });
+ensure(uname.success === true && uname.stdout.trim() === "Linux",
+  "cu_linux_wait_ready_requires_linux");
+
 const context = harness.new_context(repo, "cu-linux-wait-ready");
 const run_directory = rh.join(repo, "target/cu-linux-wait-ready-honesty-smoke-run");
 rh.create_dir_all(run_directory);
@@ -295,8 +413,21 @@ let fixture_pid = 0;
 let chrome_child = -1;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available();
 
 try {
+  print("STEP wait typed-fails usage when no condition flag is present");
+  assert_wait_usage_limit(run_directory, executable);
+
+  print("STEP wait --ready-path timeout exits non-zero with honest timeout code when marker never appears");
+  const absent_ready_path = rh.join(run_directory, "absent-ready-marker.json");
+  assert_wait_ready_path_timeout_honesty(run_directory, executable, absent_ready_path);
+
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_wait_node_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
   print("STEP GTK: start owned fixture and resolve window by pid and exact title");
   fixture = harness.start({
     program: "python3",
@@ -315,6 +446,9 @@ try {
   ensure(row !== null, "cu_linux_wait_ready_gtk_window_identity");
   const handle_text = "" + int_at(row, "handle");
   ensure(int_at(row, "handle") > 0, "cu_linux_wait_ready_gtk_handle:" + JSON.stringify(row));
+
+  print("STEP wait --node-name-contains timeout exits non-zero with honest timeout code when node never appears");
+  assert_wait_node_timeout_honesty(run_directory, executable, handle_text);
 
   print("STEP GTK: wait --node-name-contains must met with accessibility-tree node");
   const node_wait = run_cu(run_directory, executable, "observe", [
@@ -439,6 +573,7 @@ try {
   harness.emit_evidence(context, declared_evidence, "cu.linux-wait-chrome-node-name-readback");
 
   succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -456,4 +591,4 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_wait_ready_failed");
 harness.remove_run(context);
-print("PASS: Linux wait node-name + ready-path honesty with independent AT-SPI/marker read-back (no --coords)");
+print("PASS: Linux wait node-name + ready-path honesty with timeout exit-code honesty, AT-SPI host-limit paths, and independent read-back (no --coords)");
