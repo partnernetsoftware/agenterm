@@ -1,7 +1,8 @@
 // CEO: Linux external-terminal visible send + AgenTerm terminal-control host-limit
 // honesty with independent read-back. Typed terminal-send/term-send/terminal-list
 // usage must reject AT-SPI --name, --coords, and other unexpected arguments;
-// typed get-extents --name usage AND host-limit paths must both hold before the
+// typed get-extents --name usage AND host-limit paths, including --coords/--bogus
+// usage (command==="usage"), must both hold before the
 // AgenTerm sock and external term-read read-back courts. Missing Unix socket
 // authority returns typed control_unavailable with
 // detail.limit=host/group=terminal/mechanism=agenterm-unix-control-socket plus
@@ -365,6 +366,44 @@ function assert_get_extents_usage_limit(run_directory, executable, terminal_env)
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_external_terminal_send_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, terminal_env, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(extents_coords),
+    "cu_linux_external_terminal_send_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_external_terminal_send_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_external_terminal_send_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_external_terminal_send_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, terminal_env, [
+    "get-extents", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_external_terminal_send_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_external_terminal_send_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_external_terminal_send_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_external_terminal_send_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
+  );
 }
 
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable, terminal_env) {
@@ -607,7 +646,7 @@ try {
   assert_term_send_usage_limit(run_directory, executable, terminal_env);
   assert_terminal_list_usage_limit(run_directory, executable, terminal_env);
 
-  print("STEP get-extents typed-fail usage when --window is zero or --name is missing before sock/term-read courts");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before sock/term-read courts");
   assert_get_extents_usage_limit(run_directory, executable, terminal_env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before sock/term-read courts");
@@ -790,7 +829,7 @@ if (terminal_server >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_external_terminal_send_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/terminal-list/get-extents usage honesty, missing-sock host-limit, independent socket-absent proof, and independent term-read (AT-SPI --name, no --coords)");
+  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/terminal-list/get-extents --name/--coords/--bogus usage honesty, missing-sock host-limit, independent socket-absent proof, and independent term-read (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/terminal-list/get-extents usage/host-limit honesty, missing-sock host-limit, independent socket-absent proof, and independent term-read (AT-SPI --name, no --coords)");
+  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/terminal-list/get-extents --name/--coords/--bogus usage/host-limit honesty, missing-sock host-limit, independent socket-absent proof, and independent term-read (AT-SPI --name, no --coords)");
 }
