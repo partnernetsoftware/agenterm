@@ -6754,7 +6754,7 @@
     },
     {
       "id": "cu-linux-browser-tabs-smoke",
-      "description": "Linux browser-open with profile/URL then independent Chrome/CDP or AT-SPI tabs read-back lists the tab with stable title/URL evidence; typed browser-tabs/browser-open usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the browser-open/browser-tabs actuate/read-back court; AT-SPI/--name court only, no --coords.",
+      "description": "Linux browser-open with profile/URL then independent Chrome/CDP or AT-SPI tabs read-back lists the tab with stable title/URL evidence; typed browser-tabs/browser-open usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments (usage_rejects_unexpected); typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage before the browser-open/browser-tabs actuate/read-back court; AT-SPI/--name court only, no --coords.",
       "entry": "scripts/qjs/cu-linux-browser-tabs-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

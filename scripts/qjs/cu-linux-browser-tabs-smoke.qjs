@@ -1,11 +1,12 @@
 // CEO: Linux browser-open then independent Chrome/CDP tabs inventory read-back.
 // Typed browser-tabs/browser-open usage must reject AT-SPI --name, --coords,
-// --bogus, and other unexpected arguments; typed get-extents --name usage AND
-// host-limit paths must both hold before the browser-open/browser-tabs
-// actuate/read-back court. Independent curl /json (and AT-SPI tab names when
-// the desktop probe is live) must agree with CU browser-tabs. Prefer
-// host-limit clarity over fake success. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// --bogus, and other unexpected arguments via usage_rejects_unexpected;
+// typed get-extents --name usage AND host-limit paths must both hold before
+// the browser-open/browser-tabs actuate/read-back court, including
+// get-extents --coords/--bogus command=usage honesty. Independent curl /json
+// (and AT-SPI tab names when the desktop probe is live) must agree with CU
+// browser-tabs. Prefer host-limit clarity over fake success. AT-SPI/--name
+// only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -49,11 +50,6 @@ function output_success(document) { return flag_at(document, "ok"); }
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
-}
-
-function get_extents_misuse_message_ok(message, token) {
-  return usage_rejects_unexpected(message, token)
-    || message.indexOf("--name") >= 0;
 }
 
 function direct_file(path) {
@@ -258,7 +254,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_browser_tabs_extents_coords_command:" + JSON.stringify(extents_coords)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_browser_tabs_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -276,7 +273,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_browser_tabs_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_browser_tabs_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -469,10 +467,10 @@ let succeeded = 0;
 let failure = "";
 
 try {
-  print("STEP browser-tabs/browser-open typed-fail usage when AT-SPI --name/--coords/--bogus is present");
+  print("STEP browser-tabs/browser-open typed-fail usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected)");
   assert_browser_tabs_unexpected_usage(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before browser-open/browser-tabs court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before browser-open/browser-tabs court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before browser-open/browser-tabs court");
