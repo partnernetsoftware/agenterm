@@ -184,6 +184,13 @@
       ]
     },
     {
+      "id": "cu-linux-file-inspect-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-file-inspect-readback"
+      ]
+    },
+    {
       "id": "cu-linux-external-terminal-send-smoke",
       "platform": "linux",
       "evidence": [
@@ -266,6 +273,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-process-state-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-process-usage-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-usage-readback"
       ]
     },
     {
