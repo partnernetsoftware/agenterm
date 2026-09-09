@@ -7560,7 +7560,7 @@
     },
     {
       "id": "cu-linux-local-clock-smoke",
-      "description": "Linux capabilities host_clock utc_offset and local civil time match independent date +%z read-back and stay stable across repeated observations; no --coords.",
+      "description": "Linux capabilities host_clock utc_offset and local civil time match independent date +%z read-back and stay stable across repeated observations; typed capabilities usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the clock/tz read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-local-clock-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
