@@ -2329,6 +2329,25 @@
         "task.cu-linux-hover-click-smoke"
       ]
     },
+    "cu-linux-atspi-drag-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-atspi-drag-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-atspi-drag-smoke"
+      ]
+    },
     "cu-linux-gtk-rclick-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6414,6 +6433,26 @@
       "id": "cu-linux-hover-click-smoke",
       "description": "Linux GTK hover then click the same button by --name; AT-SPI GenerateMouseEvent(abs) hover leaves count unchanged, click advances pressed label; independent pyatspi read-back only; no --coords.",
       "entry": "scripts/qjs/cu-linux-hover-click-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-atspi-drag-smoke",
+      "description": "Linux named drag --from-name/--to-name via AT-SPI GenerateMouseEvent; independent pyatspi extents before drag with CU get-extents agreement, drag receipt names both nodes without worker verified, independent xdotool pointer lands on pyatspi target center and CU pointer-position agrees; no --coords.",
+      "entry": "scripts/qjs/cu-linux-atspi-drag-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
