@@ -247,6 +247,13 @@
       ]
     },
     {
+      "id": "cu-linux-tab-close-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-browser-tab-close"
+      ]
+    },
+    {
       "id": "cu-linux-process-argv-cwd-smoke",
       "platform": "linux",
       "evidence": [
@@ -574,6 +581,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-cdp-page-hover-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-browser-tabs-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-browser-tabs-inventory"
       ]
     },
     {
