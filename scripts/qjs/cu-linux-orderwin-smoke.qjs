@@ -1,6 +1,7 @@
-// CEO: Linux orderwin above/below with independent windows inventory z_index read-back.
-// Two disposable GTK fixture windows; every actuation verified from stacking inventory,
-// not only the verb's own after snapshot. AT-SPI/--name only; no --coords or screenshot.
+// CEO: Linux orderwin above/below with independent xprop _NET_CLIENT_LIST_STACKING
+// and windows inventory z_index read-back. Two disposable GTK fixture windows; every
+// actuation verified from stacking sources outside the verb reply. AT-SPI/--name only;
+// no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -101,6 +102,70 @@ function window_rows(run_directory, executable, pid) {
   return by_title;
 }
 
+function parse_x11_id(token) {
+  let start = 0;
+  if (token.length >= 2 && token.charAt(0) === "0"
+      && (token.charAt(1) === "x" || token.charAt(1) === "X")) {
+    start = 2;
+  }
+  let result = 0;
+  for (let index = start; index < token.length; index = index + 1) {
+    const code = token.charCodeAt(index);
+    let digit = -1;
+    if (code >= 48 && code <= 57) { digit = code - 48; }
+    else if (code >= 97 && code <= 102) { digit = code - 87; }
+    else if (code >= 65 && code <= 70) { digit = code - 55; }
+    else { throw "cu_linux_orderwin_xprop_id:" + token; }
+    result = result * 16 + digit;
+  }
+  return result;
+}
+
+function parse_stacking_list(stdout) {
+  const marker = "_NET_CLIENT_LIST_STACKING(WINDOW): window id # ";
+  const start = stdout.indexOf(marker);
+  if (start < 0) { return null; }
+  const rest = stdout.substring(start + marker.length).trim();
+  if (rest === "") { return []; }
+  const ids = [];
+  for (const token of rest.split(",")) {
+    const trimmed = token.trim();
+    if (trimmed !== "") { ids.push(parse_x11_id(trimmed)); }
+  }
+  return ids;
+}
+
+function stacking_indices(run_directory, executable, handles) {
+  const xprop = rh.command("xprop", ["-root", "_NET_CLIENT_LIST_STACKING"], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  ensure(xprop.success === true, "cu_linux_orderwin_xprop_stacking_failed:" + xprop.stderr);
+  const ids = parse_stacking_list(xprop.stdout);
+  ensure(ids !== null, "cu_linux_orderwin_xprop_stacking_parse:" + xprop.stdout);
+  const out = {};
+  for (const handle of handles) {
+    let index = -1;
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i] === handle) { index = i; break; }
+    }
+    out["" + handle] = index;
+  }
+  return out;
+}
+
+function ensure_stacking_above(run_directory, executable, above_handle, below_handle) {
+  const indices = stacking_indices(run_directory, executable, [above_handle, below_handle]);
+  const above_index = indices["" + above_handle];
+  const below_index = indices["" + below_handle];
+  ensure(
+    above_index >= 0 && below_index >= 0 && above_index > below_index,
+    "cu_linux_orderwin_xprop_stacking:above=" + above_index + ":below=" + below_index
+      + ":handles=" + above_handle + "," + below_handle
+  );
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -162,6 +227,13 @@ try {
   print("STEP orderwin above inventory: second z="
     + int_at(after_above[second_title], "z_index")
     + " main z=" + int_at(after_above[fixture_title], "z_index"));
+  print("STEP independent xprop _NET_CLIENT_LIST_STACKING read-back: second above main");
+  ensure_stacking_above(
+    run_directory,
+    executable,
+    int_at(after_above[second_title], "handle"),
+    int_at(after_above[fixture_title], "handle")
+  );
 
   print("STEP orderwin below: main below second");
   const lowered = run_cu(run_directory, executable, "observe,actuate", [
@@ -180,6 +252,13 @@ try {
   print("STEP orderwin below inventory: main z="
     + int_at(after_below[fixture_title], "z_index")
     + " second z=" + int_at(after_below[second_title], "z_index"));
+  print("STEP independent xprop _NET_CLIENT_LIST_STACKING read-back: second above main");
+  ensure_stacking_above(
+    run_directory,
+    executable,
+    int_at(after_below[second_title], "handle"),
+    int_at(after_below[fixture_title], "handle")
+  );
 
   print("STEP orderwin same handle must refuse invalid_input");
   const same_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
@@ -201,5 +280,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-orderwin");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-orderwin");
 harness.remove_run(context);
-print("PASS: CEO Linux orderwin above/below with independent windows inventory stacking read-back");
+print("PASS: CEO Linux orderwin above/below with independent xprop stacking and windows inventory read-back");
 return;
