@@ -135,6 +135,11 @@ function verify_readback(run_directory, executable, pid) {
     "    raise SystemExit('cu_linux_process_maps_region_count')",
     "for index, probe in enumerate(before['regions']):",
     "    compare_row(f'cu_linux_process_maps_row_{index}', probe, cu_rows[index])",
+    "state = json.loads(subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe', 'process-state', '--pid', str(pid)],",
+    "    text=True))",
+    "if not state.get('ok') or state['data'].get('start_identity') != data.get('start_identity'):",
+    "    raise SystemExit('cu_linux_process_maps_start_identity')",
     "if after['visited_count'] != before['visited_count']:",
     "    raise SystemExit('cu_linux_process_maps_inventory_changed')",
     "print('pid', pid)",
@@ -151,6 +156,150 @@ function verify_pid(run_directory, executable, pid) {
   verify_readback(run_directory, executable, pid);
 }
 
+function probe_maps_file(pid) {
+  const script = [
+    "import json, os, sys",
+    "pid = int(sys.argv[1])",
+    "proc_path = f'/proc/{pid}'",
+    "maps_path = f'{proc_path}/maps'",
+    "exists = os.path.exists(proc_path)",
+    "readable = False",
+    "error_kind = None",
+    "if exists:",
+    "    try:",
+    "        with open(maps_path, 'rb') as handle:",
+    "            handle.read(1)",
+    "        readable = True",
+    "    except OSError as error:",
+    "        if error.errno == 13:",
+    "            error_kind = 'PermissionDenied'",
+    "        elif error.errno == 2:",
+    "            error_kind = 'NotFound'",
+    "        else:",
+    "            error_kind = error.__class__.__name__",
+    "print(json.dumps({",
+    "    'pid': pid,",
+    "    'exists': exists,",
+    "    'readable': readable,",
+    "    'error_kind': error_kind,",
+    "    'maps_path': maps_path,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid], {
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_process_maps_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function find_denied_probe_pid() {
+  const script = [
+    "import json, os",
+    "for candidate in (1,):",
+    "    maps_path = f'/proc/{candidate}/maps'",
+    "    if not os.path.exists(f'/proc/{candidate}'):",
+    "        continue",
+    "    try:",
+    "        with open(maps_path, 'rb') as handle:",
+    "            handle.read(1)",
+    "    except OSError as error:",
+    "        if error.errno == 13:",
+    "            print(json.dumps({'pid': candidate, 'denied': True}))",
+    "            raise SystemExit",
+    "print(json.dumps({'denied': False}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+         "cu_linux_process_maps_denied_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_permission_denied_host_limit(run_directory, executable, pid) {
+  const script = [
+    "import json, os, subprocess, sys",
+    "pid = int(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "maps_path = f'/proc/{pid}/maps'",
+    "try:",
+    "    with open(maps_path, 'rb') as handle:",
+    "        handle.read(1)",
+    "    raise SystemExit('cu_linux_process_maps_denied_probe_readable')",
+    "except OSError as probe_error:",
+    "    if probe_error.errno != 13:",
+    "        raise SystemExit(f'cu_linux_process_maps_denied_probe_errno:{probe_error.errno}')",
+    "proc = subprocess.run(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-maps', '--pid', str(pid), '--limit', '16', '--max-visited', '256'],",
+    "    capture_output=True, text=True, timeout=30)",
+    "if proc.returncode == 0:",
+    "    raise SystemExit('cu_linux_process_maps_denied_ok:' + proc.stdout)",
+    "reply = json.loads(proc.stdout)",
+    "if reply.get('ok') is not False:",
+    "    raise SystemExit('cu_linux_process_maps_denied_ok_state:' + proc.stdout)",
+    "error = reply.get('error') or {}",
+    "code = error.get('code') or ''",
+    "if code != 'process_inspection_permission_denied':",
+    "    raise SystemExit('cu_linux_process_maps_denied_code:' + code)",
+    "detail = error.get('detail') or {}",
+    "if detail.get('kind') != 'PermissionDenied':",
+    "    raise SystemExit('cu_linux_process_maps_denied_kind:' + json.dumps(detail))",
+    "if detail.get('subject') != 'memory regions':",
+    "    raise SystemExit('cu_linux_process_maps_denied_subject:' + json.dumps(detail))",
+    "message = error.get('message') or ''",
+    "if 'Permission denied' not in message and '/proc/' not in message:",
+    "    raise SystemExit('cu_linux_process_maps_denied_message:' + message)",
+    "print(json.dumps({'code': code, 'pid': pid, 'maps_path': maps_path}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + pid, executable], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true,
+         "cu_linux_process_maps_permission_denied:" + output.stderr + output.stdout);
+}
+
+function verify_unavailable_when_probe_denied(run_directory, executable, probe) {
+  const script = [
+    "import json, subprocess, sys",
+    "pid = int(sys.argv[1])",
+    "cu = sys.argv[2]",
+    "proc = subprocess.run(",
+    "    [cu, '--target', 'current', '--grant', 'observe',",
+    "     'process-maps', '--pid', str(pid), '--limit', '16', '--max-visited', '256'],",
+    "    capture_output=True, text=True, timeout=30)",
+    "if proc.returncode == 0:",
+    "    raise SystemExit('cu_linux_process_maps_unavailable_ok:' + proc.stdout)",
+    "reply = json.loads(proc.stdout)",
+    "if reply.get('ok') is not False:",
+    "    raise SystemExit('cu_linux_process_maps_unavailable_ok_state:' + proc.stdout)",
+    "error = reply.get('error') or {}",
+    "code = error.get('code') or ''",
+    "if code != 'process_inspection_permission_denied':",
+    "    raise SystemExit('cu_linux_process_maps_unavailable_code:' + code)",
+    "detail = error.get('detail') or {}",
+    "if detail.get('kind') != 'PermissionDenied':",
+    "    raise SystemExit('cu_linux_process_maps_unavailable_kind:' + json.dumps(detail))",
+    "message = error.get('message') or ''",
+    "if 'Permission denied' not in message and '/proc/' not in message:",
+    "    raise SystemExit('cu_linux_process_maps_unavailable_message:' + message)",
+    "print(json.dumps({'code': code, 'pid': pid}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + probe.pid, executable], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true,
+         "cu_linux_process_maps_unavailable:" + output.stderr + output.stdout);
+  ensure(probe.error_kind === "PermissionDenied",
+         "cu_linux_process_maps_probe_not_denied:" + JSON.stringify(probe));
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -163,24 +312,43 @@ if (!rh.exists(executable) && harness.host_is_windows()) { executable = executab
 harness.require(rh.exists(executable), "agenterm-cu executable missing");
 
 const context = harness.new_context(repo, "cu-linux-process-maps");
+const self_probe = probe_maps_file(rh.pid());
+const denied_probe = find_denied_probe_pid();
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP process-maps observe matches independent /proc/<pid>/maps read-back for self");
-  verify_pid(context.run_directory, executable, rh.pid());
+  if (!self_probe.readable) {
+    print("STEP typed host-limit when independent /proc/<pid>/maps probe is unreadable or denied"
+      + " (readable=" + self_probe.readable
+      + " error_kind=" + self_probe.error_kind + ")");
+    verify_unavailable_when_probe_denied(context.run_directory, executable, self_probe);
+    succeeded = 1;
+  } else {
+    print("STEP process-maps observe matches independent /proc/<pid>/maps read-back for self");
+    verify_pid(context.run_directory, executable, rh.pid());
 
-  print("STEP spawn disposable child and verify --pid read-back");
-  const child = harness.start({
-    program: "sleep",
-    args: ["300"],
-    current_dir: context.run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
-    timeout_ms: 60000,
-  });
-  verify_pid(context.run_directory, executable, harness.spawned_pid(child));
-  harness.kill(child);
+    print("STEP spawn disposable child and verify --pid read-back");
+    const child = harness.start({
+      program: "sleep",
+      args: ["300"],
+      current_dir: context.run_directory,
+      env: { AGENTERM_NO_ACTIVATE: "1" },
+      timeout_ms: 60000,
+    });
+    verify_pid(context.run_directory, executable, harness.spawned_pid(child));
+    harness.kill(child);
 
-  succeeded = 1;
+    if (denied_probe.denied === true) {
+      print("STEP process-maps typed-fails permission-denied host-limit when independent"
+        + " /proc/" + denied_probe.pid + "/maps probe is denied");
+      assert_permission_denied_host_limit(
+        context.run_directory, executable, denied_probe.pid);
+    } else {
+      print("STEP skip permission-denied host-limit: no independent denied /proc/<pid>/maps probe on this host");
+    }
+
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -191,7 +359,12 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-process-maps-readback");
   harness.remove_run(context);
-  print("PASS: Linux process-maps matches independent /proc/<pid>/maps read-back");
+  if (self_probe.readable) {
+    print("PASS: Linux process-maps matches independent /proc/<pid>/maps read-back"
+      + " with permission-denied host-limit honesty");
+  } else {
+    print("PASS: Linux process-maps typed-fails when independent /proc/<pid>/maps is unreadable or denied");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
