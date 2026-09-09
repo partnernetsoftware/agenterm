@@ -7230,7 +7230,7 @@
     },
     {
       "id": "cu-linux-file-copy-smoke",
-      "description": "Linux file-copy dry plan and actuate apply agree with independent src/dst byte+mode read-back on disposable temp files; no --coords.",
+      "description": "Linux file-copy dry plan and actuate apply agree with independent src/dst byte+mode read-back on disposable temp files; typed file-copy/get-extents AT-SPI --name usage and host-limit honesty before copy/read-back court; permission-denied open host-limit when independent os.open probe is denied; no --coords.",
       "entry": "scripts/qjs/cu-linux-file-copy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
