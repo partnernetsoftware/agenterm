@@ -1,6 +1,8 @@
 // CEO#6: resize --expect WxH on a named window target.
 // Acceptance is smoke read-back only: independent windows inventory
 // bounds and xwininfo Width/Height must match --expect after resize.
+// Typed usage, destructive-gate refusals, missing-window and headless
+// host-limit paths must hold before any owned fixture window exists.
 // No --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -12,6 +14,7 @@ const declared_evidence = [
   "cu.linux-resize-expect-geometry",
 ];
 
+const MISSING_HANDLE = "99999999";
 const TARGET_WIDTH = 400;
 // GTK fixture enforces ~430px minimum client height; 360 clamps and breaks --expect.
 const TARGET_HEIGHT = 430;
@@ -32,6 +35,11 @@ function text_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return ""; }
   return "" + value_at;
+}
+
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
@@ -100,20 +108,146 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, arguments, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: cu_env(executable),
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
-  });
-  ensure(output.success === true, "cu_linux_resize_expect_cli:" + output.stdout + output.stderr);
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_resize_expect_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_resize_expect_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_resize_expect_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_resize_expect_reply:" + JSON.stringify(document));
   return document;
+}
+
+function resize_refused(run_directory, executable, arguments, code) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", ["resize"].concat(arguments));
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === code,
+    "cu_linux_resize_expect_refused:" + code + ":" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function assert_resize_usage_limit(run_directory, executable) {
+  const zero_window = run_cu_reply(run_directory, executable, "actuate", [
+    "resize", "--window", "0",
+    "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
+    "--expect", "" + TARGET_WIDTH + "x" + TARGET_HEIGHT,
+  ]);
+  ensure(!output_success(zero_window), "cu_linux_resize_expect_usage_ok:" + JSON.stringify(zero_window));
+  ensure(
+    text_at(zero_window, "error.code") === "usage",
+    "cu_linux_resize_expect_usage_code:" + JSON.stringify(zero_window.error)
+  );
+  ensure(
+    text_at(zero_window, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_resize_expect_usage_message:" + JSON.stringify(zero_window.error)
+  );
+
+  const missing_height = run_cu_reply(run_directory, executable, "actuate", [
+    "resize", "--window", "1",
+    "--width", "" + TARGET_WIDTH,
+    "--expect", "" + TARGET_WIDTH + "x" + TARGET_HEIGHT,
+  ]);
+  ensure(!output_success(missing_height), "cu_linux_resize_expect_missing_height_ok:" + JSON.stringify(missing_height));
+  ensure(
+    text_at(missing_height, "error.code") === "usage",
+    "cu_linux_resize_expect_missing_height_code:" + JSON.stringify(missing_height.error)
+  );
+  ensure(
+    text_at(missing_height, "error.message").indexOf("--width") >= 0
+      && text_at(missing_height, "error.message").indexOf("--height") >= 0,
+    "cu_linux_resize_expect_missing_height_message:" + JSON.stringify(missing_height.error)
+  );
+
+  const mismatched_expect = run_cu_reply(run_directory, executable, "actuate", [
+    "resize", "--window", "1",
+    "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
+    "--expect", "500x430",
+  ]);
+  ensure(!output_success(mismatched_expect), "cu_linux_resize_expect_mismatch_ok:" + JSON.stringify(mismatched_expect));
+  ensure(
+    text_at(mismatched_expect, "error.code") === "invalid_input",
+    "cu_linux_resize_expect_mismatch_code:" + JSON.stringify(mismatched_expect.error)
+  );
+  ensure(
+    text_at(mismatched_expect, "error.message").indexOf("must match") >= 0,
+    "cu_linux_resize_expect_mismatch_message:" + JSON.stringify(mismatched_expect.error)
+  );
+}
+
+function assert_resize_destructive_gate(run_directory, executable) {
+  const missing_target = resize_refused(run_directory, executable, [
+    "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
+    "--expect", "" + TARGET_WIDTH + "x" + TARGET_HEIGHT,
+  ], "refused");
+  ensure(
+    text_at(missing_target, "error.detail.reason") === "destructive_gate"
+      && text_at(missing_target, "error.detail.effect") === "not_performed"
+      && missing_target.error.detail.missing.length >= 1
+      && text_of(missing_target.error.detail.missing[0]) === "target",
+    "cu_linux_resize_expect_missing_target:" + JSON.stringify(missing_target)
+  );
+}
+
+function assert_resize_missing_window(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", [
+    "resize", "--window", MISSING_HANDLE,
+    "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
+    "--expect", "" + TARGET_WIDTH + "x" + TARGET_HEIGHT,
+  ]);
+  ensure(!output_success(reply), "cu_linux_resize_expect_missing_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "failed",
+    "cu_linux_resize_expect_missing_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("not found") >= 0,
+    "cu_linux_resize_expect_missing_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_headless_host_limit(run_directory, executable) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "actuate",
+    [
+      "resize", "--window", "1",
+      "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
+      "--expect", "" + TARGET_WIDTH + "x" + TARGET_HEIGHT,
+    ],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply), "cu_linux_resize_expect_headless_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_resize_expect_headless_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("window enumeration") >= 0
+      || message.indexOf("mechanism unavailable") >= 0,
+    "cu_linux_resize_expect_headless_message:" + JSON.stringify(reply.error)
+  );
 }
 
 function window_rows(reply) {
@@ -146,6 +280,18 @@ rh.create_dir_all(run_directory);
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_resize_expect_fixture_missing:" + fixture_source);
 
+print("STEP resize typed-fails usage when --window handle is zero or geometry args are incomplete");
+assert_resize_usage_limit(run_directory, executable);
+
+print("STEP resize typed-fails refused destructive_gate when --window target is missing");
+assert_resize_destructive_gate(run_directory, executable);
+
+print("STEP resize typed-fails failed when handle is absent from inventory");
+assert_resize_missing_window(run_directory, executable);
+
+print("STEP resize without DISPLAY typed-fails unsupported host-limit");
+assert_headless_host_limit(run_directory, executable);
+
 let fixture = -1;
 let fixture_pid = 0;
 try {
@@ -172,6 +318,26 @@ try {
   const before_width = int_at(row, "bounds.width");
   const before_height = int_at(row, "bounds.height");
   ensure(before_width > 0 && before_height > 0, "cu_linux_resize_expect_baseline:" + before_width + "x" + before_height);
+
+  print("STEP invalid_input refusals on a live handle must not change inventory or xwininfo bounds");
+  resize_refused(run_directory, executable, [
+    "--window", handle_text,
+    "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
+    "--expect", "500x430",
+  ], "invalid_input");
+  const refusal_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(refusal_row !== null, "cu_linux_resize_expect_refusal_row_missing");
+  ensure(
+    int_at(refusal_row, "bounds.width") === before_width
+      && int_at(refusal_row, "bounds.height") === before_height,
+    "cu_linux_resize_expect_refusal_inventory_changed:" + JSON.stringify(refusal_row)
+  );
+  const refusal_xwininfo = independent_xwininfo_size(
+    run_directory, executable, int_at(refusal_row, "handle"));
+  ensure(
+    refusal_xwininfo.width === before_width && refusal_xwininfo.height === before_height,
+    "cu_linux_resize_expect_refusal_xwininfo_changed:" + refusal_xwininfo.width + "x" + refusal_xwininfo.height
+  );
 
   const expect_text = "" + TARGET_WIDTH + "x" + TARGET_HEIGHT;
   print("STEP resize --window " + handle_text + " --width " + TARGET_WIDTH + " --height " + TARGET_HEIGHT + " --expect " + expect_text);
@@ -222,6 +388,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-resize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-resize-expect-geometry");
 harness.remove_run(context);
-print("PASS: CEO#6 resize --expect " + TARGET_WIDTH + "x" + TARGET_HEIGHT
-  + " with independent windows inventory and xwininfo bounds read-back");
+print("PASS: Linux resize --expect usage/miss/host-limit honesty + independent windows inventory and xwininfo bounds read-back (no --coords)");
 return;
