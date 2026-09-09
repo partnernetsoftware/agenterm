@@ -1,8 +1,11 @@
 // CEO: Linux ime-status observe with independent session-bus read-back.
 // Acceptance is smoke read-back only: ok JSON must match ibus/fcitx CLI or
 // dbus facts; unsupported must carry typed alternatives and match bus probes;
-// headless-display must carry typed x11-display host-limit detail. Env snapshot
-// fields must match GTK_IM_MODULE, QT_IM_MODULE and XMODIFIERS. No --coords.
+// headless-display must carry typed x11-display host-limit detail. Typed
+// ime-status usage must reject AT-SPI --name and other unexpected arguments;
+// typed get-extents --name usage/host-limit paths must hold before the
+// ibus/fcitx/session-bus read-back court. Env snapshot fields must match
+// GTK_IM_MODULE, QT_IM_MODULE and XMODIFIERS. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,6 +15,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-ime-status",
 ];
+
+const AT_SPI_PROBE_NAME = "IME Status Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -33,36 +38,49 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function cu_env() {
-  const env = { AGENTERM_NO_ACTIVATE: "1" };
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
   for (const key of [
     "DISPLAY",
     "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
     "GTK_IM_MODULE",
     "QT_IM_MODULE",
     "XMODIFIERS",
   ]) {
     if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
   }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
   return env;
 }
 
-function headless_cu_env() {
-  const env = { AGENTERM_NO_ACTIVATE: "1" };
+function headless_cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
   for (const key of ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
     if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
   }
   return env;
 }
 
-function run_cu_with_env(run_directory, executable, arguments, env) {
+function run_cu_reply(run_directory, executable, arguments, env) {
   const argv = ["--target", "current", "--grant", "observe"];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
@@ -70,34 +88,152 @@ function run_cu_with_env(run_directory, executable, arguments, env) {
     env: env,
     timeout_ms: 120000,
   });
-  ensure(output.success === true || output.exit_code === 1, "cu_linux_ime_status_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_ime_status_empty");
-  const document = JSON.parse(trimmed);
-  ensure(text_at(document, "command") === "ime-status", "cu_linux_ime_status_command:" + JSON.stringify(document));
+  ensure(
+    output.stdout.trim() !== "",
+    "cu_linux_ime_status_cli:" + output.stdout + output.stderr
+  );
+  const document = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(document, "command") === "ime-status" || text_at(document, "command") === "usage",
+    "cu_linux_ime_status_command:" + JSON.stringify(document)
+  );
   return document;
 }
 
-function run_cu(run_directory, executable, arguments) {
-  return run_cu_with_env(run_directory, executable, arguments, cu_env());
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_ime_status_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
 }
 
-function expected_env_snapshot() {
+function probe_atspi_available(executable, env) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: env,
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_ime_status_usage_limit(run_directory, executable, env) {
+  const flat_with_name = run_cu_reply(run_directory, executable, [
+    "ime-status", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_ime_status_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_ime_status_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_ime_status_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    text_at(flat_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(flat_with_name, "error.message").indexOf("no arguments") >= 0
+      || text_at(flat_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_ime_status_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, [
+    "ime", "status", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_ime_status_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_ime_status_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    text_at(grouped_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(grouped_with_name, "error.message").indexOf("no arguments") >= 0
+      || text_at(grouped_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_ime_status_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, [
+    "ime-status", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_ime_status_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_ime_status_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("no arguments") >= 0
+      || text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_ime_status_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_ime_status_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_ime_status_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_ime_status_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_ime_status_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_ime_status_extents_unavailable_code:" + code
+  );
+}
+
+function expected_env_snapshot(env) {
   const snapshot = {};
-  if (rh.has_env("GTK_IM_MODULE") && rh.env_or("GTK_IM_MODULE", "").trim() !== "") {
-    snapshot.gtk_im_module = rh.env_or("GTK_IM_MODULE", "").trim();
+  if (env.GTK_IM_MODULE !== undefined && ("" + env.GTK_IM_MODULE).trim() !== "") {
+    snapshot.gtk_im_module = ("" + env.GTK_IM_MODULE).trim();
   }
-  if (rh.has_env("QT_IM_MODULE") && rh.env_or("QT_IM_MODULE", "").trim() !== "") {
-    snapshot.qt_im_module = rh.env_or("QT_IM_MODULE", "").trim();
+  if (env.QT_IM_MODULE !== undefined && ("" + env.QT_IM_MODULE).trim() !== "") {
+    snapshot.qt_im_module = ("" + env.QT_IM_MODULE).trim();
   }
-  if (rh.has_env("XMODIFIERS") && rh.env_or("XMODIFIERS", "").trim() !== "") {
-    snapshot.xmodifiers = rh.env_or("XMODIFIERS", "").trim();
+  if (env.XMODIFIERS !== undefined && ("" + env.XMODIFIERS).trim() !== "") {
+    snapshot.xmodifiers = ("" + env.XMODIFIERS).trim();
   }
   return snapshot;
 }
 
-function assert_env_readback(env_object) {
-  const expected = expected_env_snapshot();
+function assert_env_readback(env_object, env) {
+  const expected = expected_env_snapshot(env);
   for (const key of ["gtk_im_module", "qt_im_module", "xmodifiers"]) {
     const actual = text_at(env_object, key);
     const expected_value = text_at(expected, key);
@@ -113,7 +249,7 @@ function safe_command(program, args, options) {
   }
 }
 
-function session_bus_connected() {
+function session_bus_connected(env) {
   const output = safe_command("dbus-send", [
     "--session",
     "--dest=org.freedesktop.DBus",
@@ -122,13 +258,13 @@ function session_bus_connected() {
     "/org/freedesktop/DBus",
     "org.freedesktop.DBus.GetId",
   ], {
-    env: cu_env(),
+    env: env,
     timeout_ms: 10000,
   });
   return output !== null && output.success === true;
 }
 
-function dbus_name_has_owner(service) {
+function dbus_name_has_owner(service, env) {
   const output = safe_command("dbus-send", [
     "--session",
     "--dest=org.freedesktop.DBus",
@@ -138,19 +274,19 @@ function dbus_name_has_owner(service) {
     "org.freedesktop.DBus.NameHasOwner",
     "string:" + service,
   ], {
-    env: cu_env(),
+    env: env,
     timeout_ms: 10000,
   });
   return output !== null && output.success === true && output.stdout.indexOf("boolean true") >= 0;
 }
 
-function independent_ibus_engine() {
-  const cli = safe_command("ibus", ["engine"], { env: cu_env(), timeout_ms: 10000 });
+function independent_ibus_engine(env) {
+  const cli = safe_command("ibus", ["engine"], { env: env, timeout_ms: 10000 });
   if (cli !== null && cli.success === true) {
     const engine = cli.stdout.trim();
     if (engine !== "") { return engine; }
   }
-  if (!dbus_name_has_owner("org.freedesktop.IBus")) { return ""; }
+  if (!dbus_name_has_owner("org.freedesktop.IBus", env)) { return ""; }
   const dbus = safe_command("dbus-send", [
     "--session",
     "--dest=org.freedesktop.IBus",
@@ -159,7 +295,7 @@ function independent_ibus_engine() {
     "/org/freedesktop/IBus",
     "org.freedesktop.IBus.GetGlobalEngine",
   ], {
-    env: cu_env(),
+    env: env,
     timeout_ms: 10000,
   });
   if (dbus === null || !dbus.success) { return ""; }
@@ -181,19 +317,19 @@ function independent_ibus_engine() {
   return "";
 }
 
-function independent_fcitx_name_open(framework) {
+function independent_fcitx_name_open(framework, env) {
   const remote = framework === "fcitx5" ? "fcitx5-remote" : "fcitx-remote";
-  const name = safe_command(remote, ["-n"], { env: cu_env(), timeout_ms: 10000 });
-  const open = safe_command(remote, ["-o"], { env: cu_env(), timeout_ms: 10000 });
+  const name = safe_command(remote, ["-n"], { env: env, timeout_ms: 10000 });
+  const open = safe_command(remote, ["-o"], { env: env, timeout_ms: 10000 });
   if (name === null || open === null || !name.success || !open.success) { return null; }
   const trimmed = name.stdout.trim();
   if (trimmed === "") { return null; }
   return { name: trimmed, open: open.stdout.trim() === "1" };
 }
 
-function independent_framework_facts(framework) {
+function independent_framework_facts(framework, env) {
   if (framework === "ibus") {
-    const engine = independent_ibus_engine();
+    const engine = independent_ibus_engine(env);
     if (engine === "") { return null; }
     const plain_keyboard = engine.indexOf("xkb:") === 0;
     return {
@@ -203,15 +339,15 @@ function independent_framework_facts(framework) {
     };
   }
   if (framework === "fcitx5") {
-    return independent_fcitx_name_open("fcitx5");
+    return independent_fcitx_name_open("fcitx5", env);
   }
   if (framework === "fcitx") {
-    return independent_fcitx_name_open("fcitx");
+    return independent_fcitx_name_open("fcitx", env);
   }
   return null;
 }
 
-function assert_ok_readback(reply) {
+function assert_ok_readback(reply, env) {
   ensure(flag_at(reply, "ok"), "cu_linux_ime_status_ok:" + JSON.stringify(reply));
   const data = at(reply, "data");
   const framework = text_at(data, "framework");
@@ -225,13 +361,13 @@ function assert_ok_readback(reply) {
   ensure(typeof at(data, "full_shape") === "boolean", "cu_linux_ime_status_full_shape:" + JSON.stringify(data));
   ensure(typeof at(data, "session_bus_available") === "boolean", "cu_linux_ime_status_session_bus:" + JSON.stringify(data));
   ensure(at(data, "env") !== undefined && at(data, "env") !== null, "cu_linux_ime_status_env:" + JSON.stringify(data));
-  assert_env_readback(at(data, "env"));
+  assert_env_readback(at(data, "env"), env);
   ensure(
-    flag_at(data, "session_bus_available") === session_bus_connected(),
+    flag_at(data, "session_bus_available") === session_bus_connected(env),
     "cu_linux_ime_status_session_bus_mismatch:" + JSON.stringify(data)
   );
 
-  const independent = independent_framework_facts(framework);
+  const independent = independent_framework_facts(framework, env);
   ensure(independent !== null, "cu_linux_ime_status_independent_missing:" + framework);
   ensure(text_at(independent, "name") === name, "cu_linux_ime_status_name_mismatch:" + name + "!=" + text_at(independent, "name"));
   ensure(flag_at(independent, "available") === flag_at(data, "available"), "cu_linux_ime_status_available_mismatch:" + JSON.stringify(data));
@@ -248,7 +384,7 @@ function assert_headless_readback(reply) {
   ensure(at(detail, "alternatives").length > 0, "cu_linux_ime_status_headless_alternatives:" + JSON.stringify(detail));
 }
 
-function assert_unsupported_readback(reply) {
+function assert_unsupported_readback(reply, env) {
   ensure(!flag_at(reply, "ok"), "cu_linux_ime_status_unexpected_ok:" + JSON.stringify(reply));
   ensure(text_at(reply, "error.code") === "ime_unsupported", "cu_linux_ime_status_code:" + JSON.stringify(reply.error));
   ensure(text_at(reply, "error.message") !== "", "cu_linux_ime_status_message:" + JSON.stringify(reply.error));
@@ -259,14 +395,34 @@ function assert_unsupported_readback(reply) {
   ensure(at(detail, "probed_frameworks").length > 0, "cu_linux_ime_status_probed:" + JSON.stringify(detail));
   ensure(typeof at(detail, "session_bus_available") === "boolean", "cu_linux_ime_status_detail_bus:" + JSON.stringify(detail));
   ensure(at(detail, "env") !== undefined && at(detail, "env") !== null, "cu_linux_ime_status_detail_env:" + JSON.stringify(detail));
-  assert_env_readback(at(detail, "env"));
+  assert_env_readback(at(detail, "env"), env);
 
-  const bus_connected = session_bus_connected();
+  const bus_connected = session_bus_connected(env);
   ensure(flag_at(detail, "session_bus_available") === bus_connected, "cu_linux_ime_status_bus_mismatch:" + bus_connected + ":" + JSON.stringify(detail));
   for (const framework of at(detail, "probed_frameworks")) {
-    const facts = independent_framework_facts("" + framework);
+    const facts = independent_framework_facts("" + framework, env);
     ensure(facts === null, "cu_linux_ime_status_framework_should_be_absent:" + framework + ":" + JSON.stringify(facts));
   }
+}
+
+function run_cu_headless(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.run_spec({
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: headless_cu_env(executable),
+    env_remove: ["DISPLAY"],
+    timeout_ms: 120000,
+  });
+  ensure(
+    output.stdout.trim() !== "",
+    "cu_linux_ime_status_headless_cli:" + output.stdout + output.stderr
+  );
+  const document = JSON.parse(output.stdout.trim());
+  ensure(text_at(document, "command") === "ime-status", "cu_linux_ime_status_headless_command:" + JSON.stringify(document));
+  return document;
 }
 
 const args = rh.args();
@@ -279,34 +435,49 @@ const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 ensure(direct_file(executable), "missing_agenterm_cu:" + executable);
 
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable, env);
+
+print("STEP ime-status typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+assert_ime_status_usage_limit(repo, executable, env);
+
+if (atspi_available) {
+  print("STEP get-extents typed-fail invalid_input when --window is zero before ibus/fcitx read-back court");
+  assert_get_extents_usage_limit(repo, executable, env);
+} else {
+  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+  assert_get_extents_host_limit_when_atspi_absent(repo, executable);
+}
+
 print("STEP ime-status observe returns ok JSON or typed unsupported with session-bus read-back");
-const reply = run_cu(repo, executable, ["ime-status"]);
+const reply = run_cu_reply(repo, executable, ["ime-status"], env);
 if (flag_at(reply, "ok")) {
-  assert_ok_readback(reply);
+  assert_ok_readback(reply, env);
   print("PASS ime-status ok with independent framework read-back");
 } else {
-  assert_unsupported_readback(reply);
+  assert_unsupported_readback(reply, env);
   print("PASS ime-status typed unsupported with independent bus/framework read-back");
 }
 
-function run_cu_headless(run_directory, executable, arguments) {
-  const argv = ["--target", "current", "--grant", "observe"];
-  for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.run_spec({
-    program: executable,
-    args: argv,
-    current_dir: run_directory,
-    env: headless_cu_env(),
-    env_remove: ["DISPLAY"],
-    timeout_ms: 120000,
-  });
-  ensure(output.success === true || output.exit_code === 1, "cu_linux_ime_status_headless_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_ime_status_headless_empty");
-  const document = JSON.parse(trimmed);
-  ensure(text_at(document, "command") === "ime-status", "cu_linux_ime_status_headless_command:" + JSON.stringify(document));
-  return document;
+print("STEP ime status alias agrees with bare ime-status observe");
+const alias_reply = run_cu_reply(repo, executable, ["ime", "status"], env);
+if (flag_at(reply, "ok")) {
+  ensure(flag_at(alias_reply, "ok"), "cu_linux_ime_status_alias_ok:" + JSON.stringify(alias_reply));
+  ensure(
+    text_at(alias_reply, "data.framework") === text_at(reply, "data.framework"),
+    "cu_linux_ime_status_alias_framework:" + JSON.stringify(alias_reply.data)
+  );
+  ensure(
+    text_at(alias_reply, "data.name") === text_at(reply, "data.name"),
+    "cu_linux_ime_status_alias_name:" + JSON.stringify(alias_reply.data)
+  );
+} else {
+  ensure(
+    text_at(alias_reply, "error.code") === text_at(reply, "error.code"),
+    "cu_linux_ime_status_alias_code:" + JSON.stringify(alias_reply.error)
+  );
 }
+print("PASS ime-status status alias read-back");
 
 print("STEP ime-status without DISPLAY returns typed headless-display host-limit detail");
 const headless_reply = run_cu_headless(repo, executable, ["ime-status"]);
@@ -315,3 +486,8 @@ print("PASS ime-status headless-display with typed x11-display host-limit detail
 
 const context = harness.new_context(repo, "cu-linux-ime-status");
 harness.emit_evidence(context, declared_evidence, "cu.linux-ime-status");
+if (atspi_available) {
+  print("PASS: Linux ime-status matches independent ibus/fcitx read-back with typed ime-status/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux ime-status matches independent ibus/fcitx read-back with typed ime-status/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
