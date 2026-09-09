@@ -184,6 +184,13 @@
       ]
     },
     {
+      "id": "cu-linux-file-attributes-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-file-attributes-readback"
+      ]
+    },
+    {
       "id": "cu-linux-file-inspect-smoke",
       "platform": "linux",
       "evidence": [
@@ -807,6 +814,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-network-routes-ip-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-network-probe-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-network-probe-readback"
       ]
     },
     {
