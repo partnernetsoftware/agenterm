@@ -7939,7 +7939,7 @@
     },
     {
       "id": "cu-linux-device-inventory-smoke",
-      "description": "Linux device-list kind/count/provider status and identity continuity match independent sysfs read-back from the same class roots; typed device-list usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the sysfs read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux device-list kind/count/provider status and identity continuity match independent sysfs read-back from the same class roots; typed device-list usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the sysfs read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-device-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
