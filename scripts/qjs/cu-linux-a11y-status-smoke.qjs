@@ -1,11 +1,12 @@
 // CEO: Linux screen-reader observe with independent org.a11y.Status read-back.
 // Acceptance is smoke read-back only: ok JSON must match dbus-send flag facts;
 // unsupported must carry typed alternatives and match bus probes; headless-display
-// must carry typed x11-display host-limit detail. Typed usage must reject AT-SPI
-// --name and other unexpected arguments; invalid AT_SPI_BUS_ADDRESS must report
-// disconnected a11y_bus while org.a11y.Status flags still agree with independent
-// dbus-send read-back when the session bus is present. No --coords or screenshot
-// degradation.
+// must carry typed x11-display host-limit detail. Typed screen-reader usage must
+// reject AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the dbus-send read-back court. Invalid
+// AT_SPI_BUS_ADDRESS must report disconnected a11y_bus while org.a11y.Status flags
+// still agree with independent dbus-send read-back when the session bus is present.
+// No --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -15,6 +16,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-screen-reader-status",
 ];
+
+const AT_SPI_PROBE_NAME = "Screen Reader Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -82,6 +85,19 @@ function headless_cu_env(executable) {
     if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
   }
   return env;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_screen_reader_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
 }
 
 function run_cu_reply(run_directory, executable, arguments, env) {
@@ -190,6 +206,40 @@ function independent_a11y_status_flags(env) {
     flags[flag] = value;
   }
   return flags;
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_screen_reader_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_screen_reader_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_screen_reader_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_screen_reader_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_screen_reader_extents_unavailable_code:" + code
+  );
 }
 
 function assert_screen_reader_usage_limit(run_directory, executable) {
@@ -367,6 +417,14 @@ const atspi_available = probe_atspi_available(executable, env);
 print("STEP screen-reader typed-fails usage when AT-SPI --name or other unexpected arguments are present");
 assert_screen_reader_usage_limit(repo, executable);
 
+if (atspi_available) {
+  print("STEP get-extents typed-fail invalid_input when --window is zero before dbus-send read-back court");
+  assert_get_extents_usage_limit(repo, executable, env);
+} else {
+  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+  assert_get_extents_host_limit_when_atspi_absent(repo, executable);
+}
+
 print("STEP screen-reader observe returns ok JSON or typed unsupported with session-bus read-back");
 const reply = run_cu_reply(repo, executable, ["screen-reader"]);
 if (flag_at(reply, "ok")) {
@@ -420,7 +478,7 @@ print("PASS screen-reader headless-display with typed x11-display host-limit det
 const context = harness.new_context(repo, "cu-linux-a11y-status");
 harness.emit_evidence(context, declared_evidence, "cu.linux-screen-reader-status");
 if (atspi_available) {
-  print("PASS: cu-linux-a11y-status-smoke with dbus-send read-back, usage/AT-SPI host-limit, and pyatspi-connected honesty");
+  print("PASS: cu-linux-a11y-status-smoke with dbus-send read-back and typed screen-reader/get-extents usage honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: cu-linux-a11y-status-smoke with dbus-send read-back, usage rejection, and typed host-limit paths");
+  print("PASS: cu-linux-a11y-status-smoke with dbus-send read-back and typed screen-reader/get-extents host-limit honesty (AT-SPI --name, no --coords)");
 }
