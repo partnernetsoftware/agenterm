@@ -6211,7 +6211,7 @@
     },
     {
       "id": "cu-linux-hide-show-smoke",
-      "description": "Linux app hide/show with typed app hide/show --name/--coords/--bogus usage_rejects_unexpected + command=usage (or honest non-usage typed failure, never fake command=usage); typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage always before actuate/read-back (no if/else gating on atspi_available); miss/headless host-limit; independent windows inventory plus xprop map-state/AT-SPI read-back; AT-SPI --name only; no --coords.",
+      "description": "Linux app hide/show with typed app hide/show --name/--coords/--bogus usage_rejects_unexpected + command=usage (or honest non-usage typed failure, never fake command=usage); typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage always before process-state/desktop-state and actuate/read-back (no if/else gating on atspi_available); process-state/desktop-state fixture binding courts; miss/headless host-limit; independent windows inventory plus xprop map-state/AT-SPI read-back; AT-SPI --name only; no --coords.",
       "entry": "scripts/qjs/cu-linux-hide-show-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -5,8 +5,9 @@
 // reject AT-SPI --name, --coords, --bogus, and other unexpected arguments
 // via usage_rejects_unexpected + command=usage, or an honest non-usage
 // typed failure (never fake command=usage). Typed get-extents --name usage
-// AND host-limit paths must both hold before the native actuate/read-back
-// court (no if/else gating those courts on atspi_available); get-extents
+// AND host-limit paths must both hold before process-state, desktop-state,
+// and the native actuate/read-back court (no if/else gating those courts on
+// atspi_available); get-extents
 // --coords/--bogus must reject as command=usage. Missing-window and
 // headless host-limit paths must also hold before any owned fixture window
 // exists. GTK fixture ok; no --coords or screenshot degradation.
@@ -23,6 +24,8 @@ const declared_evidence = [
 const MISSING_HANDLE = "99999999";
 const MISSING_PID = "99999999";
 const AT_SPI_PROBE_NAME = "Hide Show Court Anchor";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -279,6 +282,52 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_hide_show_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
+  );
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_hide_show_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_hide_show_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_hide_show_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_hide_show_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_hide_show_desktop_state_tree:" + JSON.stringify(state.data.tree)
   );
 }
 
@@ -593,10 +642,10 @@ assert_headless_host_limit(run_directory, executable, "show", "show");
 print("STEP app hide/show typed-fail usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure)");
 assert_hide_show_unexpected_usage(run_directory, executable, env);
 
-print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before hide/show actuate/read-back court");
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before process-state/desktop-state and hide/show actuate/read-back court");
 assert_get_extents_usage_limit(run_directory, executable, env);
 
-print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before hide/show actuate/read-back court");
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and hide/show actuate/read-back court");
 assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 if (!atspi_available) {
@@ -638,6 +687,14 @@ try {
     const baseline_probe = independent_visibility_probe(fixture_title, int_at(row, "handle"));
     ensure_shown_probe(baseline_probe);
   }
+
+  print("STEP process-state binds the owned fixture pid before hide/show actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+  print("STEP desktop-state window row agrees with inventory before hide/show actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, fixture_pid, fixture_title, handle_text, row
+  );
 
   print("STEP app hide --window " + handle_text + " puts every owned window away");
   const hidden = run_cu(run_directory, executable, "observe,actuate", [
@@ -714,5 +771,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-hide-show");
 harness.emit_evidence(context, declared_evidence, "cu.linux-app-hide-show-state");
 harness.remove_run(context);
-print("PASS: Linux app hide/show matches independent windows inventory and xprop map-state read-back with typed app hide/show --name/--coords/--bogus (usage_rejects_unexpected + command=usage) and get-extents --name usage AND host-limit honesty including --coords/--bogus command=usage (AT-SPI --name, no --coords)");
+print("PASS: Linux app hide/show matches independent windows inventory and xprop map-state read-back with typed app hide/show --name/--coords/--bogus (usage_rejects_unexpected + command=usage, or honest non-usage typed failure), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state courts before actuate (AT-SPI --name, no --coords)");
 return;
