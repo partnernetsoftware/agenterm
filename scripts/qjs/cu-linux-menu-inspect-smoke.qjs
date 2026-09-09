@@ -20,6 +20,7 @@ const declared_evidence = [
 const MENU_DEPTH = 1;
 const MAX_NODES = 1000;
 const AT_SPI_PROBE_NAME = "Menu Inspect Court Anchor";
+const FIXTURE_ANCHOR_NAME = "Fixture Press";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -623,6 +624,17 @@ try {
     ensure(inventory_row !== null, "cu_linux_menu_inspect_inventory_missing");
     const handle = int_at(inventory_row, "handle");
     ensure(handle > 0, "cu_linux_menu_inspect_handle:" + JSON.stringify(inventory_row));
+
+    print("STEP get-extents --name locates the fixture anchor before menu inspect observe/read-back court");
+    const anchor_extents = run_cu(run_directory, executable, "observe", [
+      "get-extents", "--window", "" + handle, "--name", FIXTURE_ANCHOR_NAME,
+    ]);
+    ensure(
+      text_at(anchor_extents, "data.matched.name") === FIXTURE_ANCHOR_NAME
+        && int_at(anchor_extents, "data.extents.width") > 0
+        && int_at(anchor_extents, "data.extents.height") > 0,
+      "cu_linux_menu_inspect_extents_before_observe:" + JSON.stringify(anchor_extents.data)
+    );
 
     print("STEP CU menu inspect walks the background menu bar under the default budget");
     const menu = run_cu(run_directory, executable, "observe", [
