@@ -1,8 +1,11 @@
 // CEO: Linux verify --expect honesty with independent pyatspi read-back.
 // Acceptance is smoke read-back only: CU verify against named node expect
 // items must agree with an independent AT-SPI read-back of the same value and
-// checked facts on those nodes. AT-SPI/--name only; no --coords or screenshot
-// degradation.
+// checked facts on those nodes; wrong expects and missing names must typed-fail
+// with observation facts that disagree with the same probe; tampered CU verify
+// JSON must be rejected by the read-back gate; host-limit paths must hold when
+// the independent pyatspi desktop probe is unavailable. AT-SPI/--name only; no
+// --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -15,6 +18,7 @@ const declared_evidence = [
 
 const ENTRY_NAME = "Fixture Entry";
 const CHECK_NAME = "Fixture Check";
+const ABSENT_NODE_NAME = "No Such Node";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -84,10 +88,12 @@ function run_cu(run_directory, executable, grant, arguments) {
   return document;
 }
 
-function run_cu_reply(run_directory, executable, arguments) {
-  const output = rh.command(executable, arguments, {
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of cu_args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
   const trimmed = output.stdout.trim();
@@ -95,10 +101,11 @@ function run_cu_reply(run_directory, executable, arguments) {
   return JSON.parse(trimmed);
 }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function verify_reply(run_directory, executable, handle_text, expect) {
-  return run_cu_reply(run_directory, executable, [
-    "--target", "current", "--grant", "observe", "verify",
-    "--window", handle_text, "--expect", JSON.stringify(expect),
+  return run_cu_reply(run_directory, executable, "observe", [
+    "verify", "--window", handle_text, "--expect", JSON.stringify(expect),
   ]);
 }
 
@@ -122,8 +129,65 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
-function independent_verify_readback(run_directory, executable, fixture_pid, cu_verify_path) {
+function probe_atspi_available() {
   const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_verify_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "verify", "--window", "0", "--expect", JSON.stringify([{ name: ENTRY_NAME, value: "seed" }]),
+  ]);
+  ensure(!output_success(reply), "cu_linux_verify_expect_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_verify_expect_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_verify_expect_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_verify_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "verify", "--window", "1", "--expect", JSON.stringify([{ name: ENTRY_NAME, value: "seed" }]),
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_verify_expect_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_verify_expect_unavailable_code:" + code
+  );
+  if (code === "a11y_backend_failed") {
+    const message = text_at(reply, "error.message").toLowerCase();
+    ensure(
+      message.indexOf("accessibility") >= 0
+        || message.indexOf("address") >= 0
+        || message.indexOf("bus") >= 0,
+      "cu_linux_verify_expect_unavailable_message:" + JSON.stringify(reply.error)
+    );
+  }
+}
+
+function independent_verify_readback_script() {
+  return [
     "import json, sys",
     "import pyatspi",
     "",
@@ -240,8 +304,126 @@ function independent_verify_readback(run_directory, executable, fixture_pid, cu_
     "",
     "print('verified', len(results), 'items')",
   ].join("\n");
+}
+
+function independent_named_probe_script() {
+  return [
+    "import json, sys",
+    "import pyatspi",
+    "",
+    "config = json.loads(sys.argv[1])",
+    "pid = int(config['pid'])",
+    "name = config['name']",
+    "mode = config['mode']",
+    "",
+    "ROLE_CHECKABLE = {'check box', 'radio button', 'check menu item', 'radio menu item', 'toggle button'}",
+    "",
+    "def role_is_checkable(role): return role in ROLE_CHECKABLE",
+    "",
+    "def complete_two_way(labels, role):",
+    "    has = lambda w: w in labels",
+    "    if (has('checkable') or role_is_checkable(role)) and not has('mixed'):",
+    "        if has('indeterminate'):",
+    "            labels.append('mixed')",
+    "        elif not has('checked'):",
+    "            labels.append('unchecked')",
+    "    return labels",
+    "",
+    "def normalize_state(word):",
+    "    if word == 'multi_line': return 'multiline'",
+    "    if word == 'single_line': return 'singleline'",
+    "    return word",
+    "",
+    "def state_labels(obj, role):",
+    "    labels = []",
+    "    st = obj.getState()",
+    "    for attr in dir(pyatspi):",
+    "        if not attr.startswith('STATE_') or attr in ('STATE_LAST_DEFINED', 'STATE_VALUE_TO_NAME'):",
+    "            continue",
+    "        if st.contains(getattr(pyatspi, attr)):",
+    "            labels.append(normalize_state(attr[6:].lower()))",
+    "    return complete_two_way(labels, role)",
+    "",
+    "def node_role(obj):",
+    "    try:",
+    "        rn = obj.getRoleName()",
+    "        if rn and rn.strip(): return rn",
+    "    except Exception: pass",
+    "    return pyatspi.role.getName(obj.getRole()).lower()",
+    "",
+    "def node_name(obj):",
+    "    try: return obj.name or ''",
+    "    except Exception: return ''",
+    "",
+    "def node_text(obj):",
+    "    try:",
+    "        ti = obj.queryText()",
+    "        return ti.getText(0, ti.characterCount)",
+    "    except Exception:",
+    "        return None",
+    "",
+    "def node_checked(obj, role):",
+    "    labels = state_labels(obj, role)",
+    "    if 'checked' in labels: return True",
+    "    if 'unchecked' in labels: return False",
+    "    if 'mixed' in labels: return None",
+    "    return None",
+    "",
+    "def find_named(root, target):",
+    "    if node_name(root) == target:",
+    "        return root",
+    "    for i in range(root.childCount):",
+    "        try:",
+    "            hit = find_named(root.getChildAtIndex(i), target)",
+    "            if hit is not None: return hit",
+    "        except Exception: pass",
+    "    return None",
+    "",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "app = None",
+    "for i in range(desktop.childCount):",
+    "    child = desktop.getChildAtIndex(i)",
+    "    try:",
+    "        if child.get_process_id() == pid:",
+    "            app = child",
+    "            break",
+    "    except Exception: pass",
+    "if app is None:",
+    "    raise SystemExit('cu_linux_verify_expect_probe_no_app')",
+    "",
+    "native = find_named(app, name)",
+    "if mode == 'exists':",
+    "    print(json.dumps({'exists': native is not None}))",
+    "elif native is None:",
+    "    raise SystemExit('cu_linux_verify_expect_probe_missing:' + name)",
+    "else:",
+    "    role = node_role(native)",
+    "    if mode == 'value':",
+    "        print(json.dumps({'value': node_text(native)}))",
+    "    elif mode == 'checked':",
+    "        print(json.dumps({'checked': node_checked(native, role)}))",
+    "    else:",
+    "        raise SystemExit('cu_linux_verify_expect_probe_mode:' + mode)",
+  ].join("\n");
+}
+
+function independent_named_probe(run_directory, executable, fixture_pid, name, mode) {
   const output = rh.command("/usr/bin/python3", [
-    "-c", script,
+    "-c", independent_named_probe_script(),
+    JSON.stringify({ pid: fixture_pid, name: name, mode: mode }),
+  ], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true,
+    "cu_linux_verify_expect_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function independent_verify_readback(run_directory, executable, fixture_pid, cu_verify_path) {
+  const output = rh.command("/usr/bin/python3", [
+    "-c", independent_verify_readback_script(),
     "" + fixture_pid,
     cu_verify_path,
   ], {
@@ -251,6 +433,105 @@ function independent_verify_readback(run_directory, executable, fixture_pid, cu_
   });
   ensure(output.success === true,
     "cu_linux_verify_expect_readback:" + output.stderr + output.stdout);
+}
+
+function assert_readback_rejects(run_directory, executable, fixture_pid, cu_verify_path, label) {
+  const output = rh.command("/usr/bin/python3", [
+    "-c", independent_verify_readback_script(),
+    "" + fixture_pid,
+    cu_verify_path,
+  ], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === false, "cu_linux_verify_expect_readback_should_fail_" + label);
+  const reason = output.stderr + output.stdout;
+  ensure(
+    reason.indexOf("cu_linux_verify_expect_mismatch") >= 0
+      || reason.indexOf("cu_linux_verify_expect_native_missing") >= 0
+      || reason.indexOf("cu_linux_verify_expect_cu_reply") >= 0,
+    "cu_linux_verify_expect_readback_fail_reason_" + label + ":" + reason
+  );
+}
+
+function assert_verify_mismatch(run_directory, executable, handle_text, fixture_pid, expect, label) {
+  const reply = verify_reply(run_directory, executable, handle_text, expect);
+  ensure(!output_success(reply), "cu_linux_verify_expect_mismatch_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unverified",
+    "cu_linux_verify_expect_mismatch_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+  const observation = at(reply, "error.detail.observation");
+  ensure(observation !== undefined && observation !== null,
+    "cu_linux_verify_expect_mismatch_observation_" + label + ":" + JSON.stringify(reply.error));
+  const results = observation.results === undefined ? [] : observation.results;
+  ensure(results.length > 0,
+    "cu_linux_verify_expect_mismatch_results_" + label + ":" + JSON.stringify(observation));
+  const item = results[0];
+  if (expect[0].value !== undefined) {
+    const checks = item.checks === undefined ? [] : item.checks;
+    const value_check = checks.length > 0 ? checks[0] : null;
+    ensure(
+      value_check !== null && text_at(value_check, "field") === "value" && flag_at(value_check, "met") === false,
+      "cu_linux_verify_expect_mismatch_value_check_" + label + ":" + JSON.stringify(item)
+    );
+    const probe = independent_named_probe(run_directory, executable, fixture_pid, expect[0].name, "value");
+    ensure(
+      probe.value === text_at(value_check, "observed")
+        && probe.value !== expect[0].value,
+      "cu_linux_verify_expect_mismatch_probe_value_" + label + ":" + JSON.stringify({
+        probe: probe.value,
+        observed: text_at(value_check, "observed"),
+        expected: expect[0].value,
+      })
+    );
+  }
+  if (expect[0].checked !== undefined) {
+    const checks = item.checks === undefined ? [] : item.checks;
+    let checked_check = null;
+    for (const check of checks) {
+      if (text_at(check, "field") === "checked") { checked_check = check; break; }
+    }
+    ensure(
+      checked_check !== null && flag_at(checked_check, "met") === false,
+      "cu_linux_verify_expect_mismatch_checked_check_" + label + ":" + JSON.stringify(item)
+    );
+    const probe = independent_named_probe(run_directory, executable, fixture_pid, expect[0].name, "checked");
+    ensure(
+      probe.checked === at(checked_check, "observed")
+        && probe.checked !== expect[0].checked,
+      "cu_linux_verify_expect_mismatch_probe_checked_" + label + ":" + JSON.stringify({
+        probe: probe.checked,
+        observed: at(checked_check, "observed"),
+        expected: expect[0].checked,
+      })
+    );
+  }
+}
+
+function assert_verify_missing_node(run_directory, executable, handle_text, fixture_pid) {
+  const reply = verify_reply(run_directory, executable, handle_text, [
+    { name: ABSENT_NODE_NAME, value: "x" },
+  ]);
+  ensure(!output_success(reply), "cu_linux_verify_expect_missing_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unverified",
+    "cu_linux_verify_expect_missing_code:" + JSON.stringify(reply.error)
+  );
+  const observation = at(reply, "error.detail.observation");
+  ensure(observation !== undefined && observation !== null,
+    "cu_linux_verify_expect_missing_observation:" + JSON.stringify(reply.error));
+  const results = observation.results === undefined ? [] : observation.results;
+  ensure(results.length > 0,
+    "cu_linux_verify_expect_missing_results:" + JSON.stringify(observation));
+  const item = results[0];
+  ensure(item !== undefined && item !== null && flag_at(item, "met") === false,
+    "cu_linux_verify_expect_missing_item:" + JSON.stringify(item));
+  ensure(at(item, "node") === null || at(item, "node") === undefined,
+    "cu_linux_verify_expect_missing_node_null:" + JSON.stringify(item));
+  const probe = independent_named_probe(run_directory, executable, fixture_pid, ABSENT_NODE_NAME, "exists");
+  ensure(probe.exists === false, "cu_linux_verify_expect_missing_probe:" + JSON.stringify(probe));
 }
 
 const args = rh.args();
@@ -278,70 +559,110 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available();
 
 try {
-  print("STEP start owned GTK fixture and resolve one window handle");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  print("STEP verify typed-fails usage when --window handle is zero");
+  assert_verify_usage_limit(run_directory, executable);
 
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_verify_expect_window_wait");
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_verify_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP start owned GTK fixture and resolve one window handle");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
 
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_verify_expect_inventory_missing");
-  const handle_text = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_verify_expect_handle:" + JSON.stringify(row));
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_verify_expect_window_wait");
 
-  print("STEP baseline verify --expect on named entry value and checkbox checked");
-  const baseline_expect = [
-    { name: ENTRY_NAME, value: "seed" },
-    { name: CHECK_NAME, checked: false },
-  ];
-  const baseline = verify_ok(run_directory, executable, handle_text, baseline_expect);
-  ensure(
-    text_at(baseline, "data.backend") === "at-spi2"
-      && text_at(baseline, "data.addressing") === "accessibility-tree"
-      && baseline.data.results.length === 2,
-    "cu_linux_verify_expect_baseline_shape:" + JSON.stringify(baseline.data)
-  );
-  const baseline_path = rh.join(run_directory, "verify-baseline.json");
-  rh.write_text(baseline_path, JSON.stringify(baseline));
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_verify_expect_inventory_missing");
+    const handle_text = "" + int_at(row, "handle");
+    ensure(int_at(row, "handle") > 0, "cu_linux_verify_expect_handle:" + JSON.stringify(row));
 
-  print("STEP independent pyatspi read-back agrees with baseline verify results");
-  independent_verify_readback(run_directory, executable, fixture_pid, baseline_path);
+    print("STEP baseline verify --expect on named entry value and checkbox checked");
+    const baseline_expect = [
+      { name: ENTRY_NAME, value: "seed" },
+      { name: CHECK_NAME, checked: false },
+    ];
+    const baseline = verify_ok(run_directory, executable, handle_text, baseline_expect);
+    ensure(
+      text_at(baseline, "data.backend") === "at-spi2"
+        && text_at(baseline, "data.addressing") === "accessibility-tree"
+        && baseline.data.results.length === 2,
+      "cu_linux_verify_expect_baseline_shape:" + JSON.stringify(baseline.data)
+    );
+    const baseline_path = rh.join(run_directory, "verify-baseline.json");
+    rh.write_text(baseline_path, JSON.stringify(baseline));
 
-  const token = "ceo-verify-" + context.run_id;
-  print("STEP invoke set-value writes disposable token on the named entry");
-  const set_value = run_cu(run_directory, executable, "observe,actuate", [
-    "invoke", "--window", handle_text, "--name", ENTRY_NAME, "set-value", token,
-  ]);
-  ensure(
-    text_at(set_value, "data.action") === "set-value"
-      && flag_at(set_value, "data.performed")
-      && flag_at(set_value, "data.verified")
-      && text_at(set_value, "data.after.text") === token,
-    "cu_linux_verify_expect_set_value:" + JSON.stringify(set_value.data)
-  );
+    print("STEP independent pyatspi read-back agrees with baseline verify results");
+    independent_verify_readback(run_directory, executable, fixture_pid, baseline_path);
 
-  print("STEP verify --expect reads the disposable token back on the named entry");
-  const after_expect = [{ name: ENTRY_NAME, value: token }];
-  const after = verify_ok(run_directory, executable, handle_text, after_expect);
-  const after_path = rh.join(run_directory, "verify-after.json");
-  rh.write_text(after_path, JSON.stringify(after));
+    print("STEP verify typed-fails unverified when --expect value disagrees with independent pyatspi probe");
+    assert_verify_mismatch(
+      run_directory, executable, handle_text, fixture_pid,
+      [{ name: ENTRY_NAME, value: "wrong-not-seed" }],
+      "value"
+    );
 
-  print("STEP independent pyatspi read-back agrees with post-actuation verify results");
-  independent_verify_readback(run_directory, executable, fixture_pid, after_path);
+    print("STEP verify typed-fails unverified when --expect checked disagrees with independent pyatspi probe");
+    assert_verify_mismatch(
+      run_directory, executable, handle_text, fixture_pid,
+      [{ name: CHECK_NAME, checked: true }],
+      "checked"
+    );
 
-  succeeded = 1;
+    print("STEP verify typed-fails unverified when named node is absent from independent pyatspi tree");
+    assert_verify_missing_node(run_directory, executable, handle_text, fixture_pid);
+
+    print("STEP independent pyatspi read-back rejects tampered CU verify observations");
+    const tampered_value = JSON.parse(JSON.stringify(baseline));
+    tampered_value.data.results[0].checks[0].observed = "tampered-not-seed";
+    const tampered_value_path = rh.join(run_directory, "verify-tampered-value.json");
+    rh.write_text(tampered_value_path, JSON.stringify(tampered_value));
+    assert_readback_rejects(run_directory, executable, fixture_pid, tampered_value_path, "tampered_value");
+
+    const tampered_missing = JSON.parse(JSON.stringify(baseline));
+    tampered_missing.data.results[0].node.name = ABSENT_NODE_NAME;
+    const tampered_missing_path = rh.join(run_directory, "verify-tampered-missing.json");
+    rh.write_text(tampered_missing_path, JSON.stringify(tampered_missing));
+    assert_readback_rejects(run_directory, executable, fixture_pid, tampered_missing_path, "tampered_missing");
+
+    const token = "ceo-verify-" + context.run_id;
+    print("STEP invoke set-value writes disposable token on the named entry");
+    const set_value = run_cu(run_directory, executable, "observe,actuate", [
+      "invoke", "--window", handle_text, "--name", ENTRY_NAME, "set-value", token,
+    ]);
+    ensure(
+      text_at(set_value, "data.action") === "set-value"
+        && flag_at(set_value, "data.performed")
+        && flag_at(set_value, "data.verified")
+        && text_at(set_value, "data.after.text") === token,
+      "cu_linux_verify_expect_set_value:" + JSON.stringify(set_value.data)
+    );
+
+    print("STEP verify --expect reads the disposable token back on the named entry");
+    const after_expect = [{ name: ENTRY_NAME, value: token }];
+    const after = verify_ok(run_directory, executable, handle_text, after_expect);
+    const after_path = rh.join(run_directory, "verify-after.json");
+    rh.write_text(after_path, JSON.stringify(after));
+
+    print("STEP independent pyatspi read-back agrees with post-actuation verify results");
+    independent_verify_readback(run_directory, executable, fixture_pid, after_path);
+
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -356,7 +677,11 @@ if (fixture >= 0) {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux verify --expect value/checked facts match independent AT-SPI read-back");
+  if (atspi_available) {
+    print("PASS: Linux verify --expect matches independent pyatspi read-back (match, mismatch, unavailable)");
+  } else {
+    print("PASS: Linux verify --expect typed-fails when independent pyatspi desktop probe is unavailable");
+  }
 }
 if (failure !== "") { throw failure; }
 return;
