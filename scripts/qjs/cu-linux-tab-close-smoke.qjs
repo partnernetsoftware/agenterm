@@ -1,4 +1,9 @@
 // CEO: Linux tab-close --expect gone on a disposable Chrome tab with independent read-back.
+// Typed usage and destructive_gate refusals must hold before Chrome starts; miss must
+// typed-fail a11y_tab_not_found with tab-list/browser-tabs read-back unchanged; a
+// free --port with no CDP listener must typed-fail before Chrome starts.
+// CDP closeTarget via the owned listener is the primary actuation path. AT-SPI/--name
+// court only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -11,7 +16,6 @@ const declared_evidence = [
 
 const TAB_KEEP_PREFIX = "CEO Tab Close Keep";
 const TAB_CLOSE_PREFIX = "CEO Tab Close Disposable";
-
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
@@ -58,19 +62,24 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments, env) {
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: env,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_tab_close_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_tab_close_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_tab_close_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_tab_close_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_tab_close_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -96,12 +105,148 @@ function count_contains(rows, field, wanted) {
   return count;
 }
 
+function assert_tab_close_usage_limits(run_directory, executable, env) {
+  const bare = run_cu_reply(run_directory, executable, "actuate", [
+    "tab-close", "--window", "1",
+  ], env);
+  ensure(!output_success(bare), "cu_linux_tab_close_usage_bare_ok:" + JSON.stringify(bare));
+  ensure(
+    text_at(bare, "error.code") === "refused",
+    "cu_linux_tab_close_usage_bare_code:" + JSON.stringify(bare.error)
+  );
+  ensure(
+    text_at(bare, "error.detail.reason") === "destructive_gate",
+    "cu_linux_tab_close_usage_bare_reason:" + JSON.stringify(bare.error)
+  );
+  ensure(
+    text_at(bare, "error.detail.effect") === "not_performed",
+    "cu_linux_tab_close_usage_bare_effect:" + JSON.stringify(bare.error)
+  );
+
+  const no_exact = run_cu_reply(run_directory, executable, "actuate", [
+    "tab-close", "--window", "1", "--title", "CEO Tab", "--expect", "gone",
+  ], env);
+  ensure(!output_success(no_exact), "cu_linux_tab_close_usage_no_exact_ok:" + JSON.stringify(no_exact));
+  ensure(
+    text_at(no_exact, "error.code") === "refused",
+    "cu_linux_tab_close_usage_no_exact_code:" + JSON.stringify(no_exact.error)
+  );
+  ensure(
+    text_at(no_exact, "error.detail.reason") === "destructive_gate",
+    "cu_linux_tab_close_usage_no_exact_reason:" + JSON.stringify(no_exact.error)
+  );
+
+  const both_selectors = run_cu_reply(run_directory, executable, "actuate", [
+    "tab-close", "--window", "1", "--title", "CEO Tab", "--exact",
+    "--index", "0", "--expect", "gone",
+  ], env);
+  ensure(!output_success(both_selectors),
+    "cu_linux_tab_close_usage_both_ok:" + JSON.stringify(both_selectors));
+  ensure(
+    text_at(both_selectors, "error.code") === "usage",
+    "cu_linux_tab_close_usage_both_code:" + JSON.stringify(both_selectors.error)
+  );
+  ensure(
+    text_at(both_selectors, "error.message").indexOf("not both") >= 0,
+    "cu_linux_tab_close_usage_both_message:" + JSON.stringify(both_selectors.error)
+  );
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_tab_close_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_tab_close_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_tab_close_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_tab_close_miss(
+  run_directory, executable, env, window_handle, miss_title, keep_title, close_title
+) {
+  const miss = run_cu_reply(run_directory, executable, "actuate", [
+    "tab-close", "--window", window_handle,
+    "--title", miss_title, "--exact", "--expect", "gone",
+  ], env);
+  ensure(!output_success(miss), "cu_linux_tab_close_miss_ok:" + JSON.stringify(miss));
+  ensure(
+    text_at(miss, "error.code") === "a11y_tab_not_found",
+    "cu_linux_tab_close_miss_code:" + JSON.stringify(miss.error)
+  );
+  ensure(
+    text_at(miss, "error.detail.effect") === "not_performed",
+    "cu_linux_tab_close_miss_effect:" + JSON.stringify(miss.error)
+  );
+
+  const tabs_after_miss = tab_rows(run_cu(run_directory, executable, "observe", [
+    "tab-list", "--window", window_handle,
+  ], env));
+  ensure(any_contains(tabs_after_miss, "title", keep_title),
+    "cu_linux_tab_close_miss_keep_tab:" + JSON.stringify(tabs_after_miss));
+  ensure(any_contains(tabs_after_miss, "title", close_title),
+    "cu_linux_tab_close_miss_close_tab:" + JSON.stringify(tabs_after_miss));
+
+  const keep_tabs = browser_tabs_with_retry(run_directory, executable, env, keep_title);
+  ensure(at(keep_tabs, "data.returned") >= 1,
+    "cu_linux_tab_close_miss_browser_tabs_keep:" + JSON.stringify(keep_tabs.data));
+  const close_tabs = browser_tabs_with_retry(run_directory, executable, env, close_title);
+  ensure(at(close_tabs, "data.returned") >= 1,
+    "cu_linux_tab_close_miss_browser_tabs_close:" + JSON.stringify(close_tabs.data));
+}
+
 function cdp_ready(run_directory, port) {
   const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
     cwd: run_directory,
     timeout_ms: 3000,
   });
   return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
+}
+
+function browser_tabs_with_retry(run_directory, executable, env, match_title) {
+  let last_reply = null;
+  for (let attempt = 0; attempt < 20; attempt = attempt + 1) {
+    const reply = run_cu_reply(run_directory, executable, "observe", [
+      "browser-tabs", "--match", match_title,
+    ], env);
+    last_reply = reply;
+    if (output_success(reply)) { return reply; }
+    if (text_at(reply, "error.code") !== "browser_bridge_presentation_changed") {
+      ensure(false, "cu_linux_tab_close_browser_tabs:" + JSON.stringify(reply));
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(false, "cu_linux_tab_close_browser_tabs_retry:" + JSON.stringify(last_reply));
+  return last_reply;
+}
+
+function assert_browser_tabs_gone(run_directory, executable, env, match_title) {
+  let gone = false;
+  for (let attempt = 0; attempt < 20 && !gone; attempt = attempt + 1) {
+    const reply = run_cu_reply(run_directory, executable, "observe", [
+      "browser-tabs", "--match", match_title,
+    ], env);
+    if (!output_success(reply)) {
+      if (text_at(reply, "error.code") === "browser_bridge_presentation_changed") {
+        harness.sleep_ms(250);
+        continue;
+      }
+      ensure(false, "cu_linux_tab_close_browser_tabs_gone:" + JSON.stringify(reply));
+    }
+    const returned = at(reply, "data.returned");
+    if (returned === 0 || returned === "0") {
+      gone = true;
+      break;
+    }
+    harness.sleep_ms(250);
+  }
+  ensure(gone, "cu_linux_tab_close_browser_tabs_still_listed:" + match_title);
 }
 
 const args = rh.args();
@@ -122,6 +267,7 @@ const context = harness.new_context(repo, "cu-linux-tab-close");
 const run_directory = context.run_directory;
 const TAB_KEEP = TAB_KEEP_PREFIX + " " + context.run_id;
 const TAB_CLOSE = TAB_CLOSE_PREFIX + " " + context.run_id;
+const TAB_MISS = "CEO Tab Close Missing " + context.run_id;
 const html_dir = rh.join(run_directory, "html");
 const fixture_keep = rh.join(html_dir, "tab-keep.html");
 const fixture_close = rh.join(html_dir, "tab-close.html");
@@ -129,16 +275,25 @@ const env = cu_env(executable);
 const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
 const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
 const port = 9400 + (rh.pid() % 500);
+const bad_port = port + 1;
 let chrome_child = -1;
 let succeeded = 0;
 let failure = "";
 
 try {
+  print("STEP typed usage limits reject incomplete destructive gate before Chrome starts");
+  assert_tab_close_usage_limits(run_directory, executable, env);
+
+  print("STEP tab-close court typed-fails no CDP listener on owned free port before Chrome starts");
+  ensure(!cdp_ready(run_directory, bad_port),
+    "cu_linux_tab_close_bad_port_in_use:" + bad_port);
+  assert_no_cdp_listener(run_directory, executable, env, bad_port);
+
   print("STEP clear stale box-chrome singletons on this display before browser-open");
   rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
   harness.sleep_ms(1000);
 
-  print("STEP write two fixture pages and reserve an owned CDP port " + port);
+  print("STEP write fixture pages and reserve an owned CDP port " + port);
   rh.create_dir_all(html_dir);
   rh.write_text(fixture_keep, "<!DOCTYPE html><html><head><title>"
     + TAB_KEEP + "</title></head><body>keep</body></html>");
@@ -199,21 +354,25 @@ try {
   }
   ensure(window_handle !== null, "cu_linux_tab_close_window_missing");
 
-  print("STEP open disposable second tab in the same owned profile");
-  const launch_shell = launcher
-    + " --user-data-dir=" + profile
-    + " --remote-debugging-port=" + port
-    + " --remote-debugging-address=127.0.0.1"
-    + " file://" + fixture_close
-    + " >/dev/null 2>&1 &";
-  rh.command_status("sh", ["-c", launch_shell], {
-    cwd: run_directory,
-    env: env,
-    timeout_ms: 5000,
-  });
-  harness.sleep_ms(5000);
+  function open_tab_in_profile(fixture_path) {
+    const launch_shell = launcher
+      + " --user-data-dir=" + profile
+      + " --remote-debugging-port=" + port
+      + " --remote-debugging-address=127.0.0.1"
+      + " file://" + fixture_path
+      + " >/dev/null 2>&1 &";
+    rh.command_status("sh", ["-c", launch_shell], {
+      cwd: run_directory,
+      env: env,
+      timeout_ms: 5000,
+    });
+    harness.sleep_ms(5000);
+  }
 
-  print("STEP tab-list shows both tabs before the destructive close");
+  print("STEP open disposable CDP-close tab in the same owned profile");
+  open_tab_in_profile(fixture_close);
+
+  print("STEP tab-list shows keeper plus disposable tab before any destructive close");
   let tabs_before = [];
   for (let attempt = 0; attempt < 80 && tabs_before.length < 2; attempt = attempt + 1) {
     const reply = run_cu(run_directory, executable, "observe", [
@@ -230,6 +389,11 @@ try {
   ensure(any_contains(tabs_before, "title", TAB_CLOSE),
     "cu_linux_tab_close_disposable_tab_missing:" + JSON.stringify(tabs_before));
 
+  print("STEP tab-close miss on a nonexistent title leaves all tabs via independent read-back");
+  assert_tab_close_miss(
+    run_directory, executable, env, window_handle, TAB_MISS, TAB_KEEP, TAB_CLOSE
+  );
+
   print("STEP tab-close disposable tab by exact title with --expect gone via CDP port " + port);
   const closed = run_cu(run_directory, executable, "actuate", [
     "tab-close", "--window", window_handle,
@@ -244,7 +408,7 @@ try {
   ensure(flag_at(closed, "data.focus_changed") === false,
     "cu_linux_tab_close_focus:" + JSON.stringify(closed.data));
 
-  print("STEP independent tab-list read-back shows disposable tab gone and keeper tab remains");
+  print("STEP independent tab-list/browser-tabs read-back shows disposable tab gone and keeper tab remains");
   const tabs_after = tab_rows(run_cu(run_directory, executable, "observe", [
     "tab-list", "--window", window_handle,
   ], env));
@@ -254,30 +418,13 @@ try {
     "cu_linux_tab_close_tab_list_keep_missing:" + JSON.stringify(tabs_after));
   ensure(count_contains(tabs_after, "title", TAB_KEEP) === 1,
     "cu_linux_tab_close_tab_list_keep_count:" + JSON.stringify(tabs_after));
+  assert_browser_tabs_gone(run_directory, executable, env, TAB_CLOSE);
 
-  print("STEP independent browser-tabs read-back confirms disposable tab is gone");
-  const keep_tabs = run_cu(run_directory, executable, "observe", [
-    "browser-tabs", "--match", TAB_KEEP,
-  ], env);
+  const keep_tabs = browser_tabs_with_retry(run_directory, executable, env, TAB_KEEP);
   ensure(keep_tabs.command === "browser-tabs",
     "cu_linux_tab_close_browser_tabs_keep_identity");
   ensure(at(keep_tabs, "data.returned") >= 1,
     "cu_linux_tab_close_browser_tabs_keep_missing:" + JSON.stringify(keep_tabs.data));
-
-  let disposable_gone = false;
-  for (let attempt = 0; attempt < 20 && !disposable_gone; attempt = attempt + 1) {
-    const reply = run_cu(run_directory, executable, "observe", [
-      "browser-tabs", "--match", TAB_CLOSE,
-    ], env);
-    const returned = at(reply, "data.returned");
-    if (returned === 0 || returned === "0") {
-      disposable_gone = true;
-      break;
-    }
-    harness.sleep_ms(250);
-  }
-  ensure(disposable_gone,
-    "cu_linux_tab_close_browser_tabs_disposable_still_listed");
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-browser-tab-close");
   succeeded = 1;
@@ -294,7 +441,7 @@ try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
-  print("PASS: Linux tab-close --expect gone with independent tab-list/browser-tabs read-back");
+  print("PASS: Linux tab-close usage/miss/no-CDP host-limit honesty + independent tab-list/browser-tabs read-back");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

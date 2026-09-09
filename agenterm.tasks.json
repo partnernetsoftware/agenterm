@@ -6368,7 +6368,7 @@
     },
     {
       "id": "cu-linux-tab-close-smoke",
-      "description": "Linux tab-close --expect gone on a disposable Chrome tab; independent tab-list and browser-tabs read-back show the tab gone while a keeper tab remains; CDP closeTarget via --port, AT-SPI/--name court only, no --coords.",
+      "description": "Linux tab-close --expect gone honesty: typed destructive_gate refusals, a11y_tab_not_found miss with unchanged tab-list/browser-tabs read-back, no-CDP listener host-limit before Chrome, and CDP closeTarget via the owned listener; AT-SPI/--name court only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tab-close-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
