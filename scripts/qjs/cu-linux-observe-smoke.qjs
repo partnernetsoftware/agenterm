@@ -1,9 +1,12 @@
 // CEO: Linux observe (poll-diff) honesty with independent AT-SPI read-back.
 // Acceptance is smoke read-back only: CU observe events for named node
 // changes must agree with independent pyatspi before/after probes taken at
-// mutation time. Typed observe usage must reject AT-SPI --name and other
-// unexpected arguments; typed get-extents --name usage/host-limit paths must
-// hold before the observe read-back court. AT-SPI/--name only; no --coords
+// mutation time. Typed observe usage must reject AT-SPI --name, --coords,
+// --bogus, and other unexpected arguments; typed get-extents --name usage
+// AND host-limit paths must both hold before the observe read-back court.
+// Independent windows inventory read-back on the owned fixture must agree
+// with handle/title identity before and after poll-diff capture. Prefer
+// host-limit clarity over fake success. AT-SPI/--name only; no --coords
 // or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -38,6 +41,11 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function output_success(document) { return flag_at(document, "ok"); }
 
@@ -141,8 +149,7 @@ function assert_observe_usage_limit(run_directory, executable) {
     "cu_linux_observe_usage_name_command:" + JSON.stringify(bare_name)
   );
   ensure(
-    text_at(bare_name, "error.message").indexOf("--name") >= 0
-      || text_at(bare_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(bare_name, "error.message"), "--name"),
     "cu_linux_observe_usage_name_message:" + JSON.stringify(bare_name.error)
   );
 
@@ -161,8 +168,7 @@ function assert_observe_usage_limit(run_directory, executable) {
     "cu_linux_observe_usage_ready_name_code:" + JSON.stringify(ready_path_with_name.error)
   );
   ensure(
-    text_at(ready_path_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(ready_path_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(ready_path_with_name, "error.message"), "--name"),
     "cu_linux_observe_usage_ready_name_message:" + JSON.stringify(ready_path_with_name.error)
   );
 
@@ -175,9 +181,51 @@ function assert_observe_usage_limit(run_directory, executable) {
     "cu_linux_observe_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_observe_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_observe_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = run_cu_reply(run_directory, executable, "observe", [
+    "observe", "--window", "1", "--duration", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(with_coords), "cu_linux_observe_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_observe_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_observe_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_observe_usage_coords_message:" + JSON.stringify(with_coords.error)
+  );
+
+  const ready_path_with_coords = run_cu_reply(run_directory, executable, "observe", [
+    "observe", "--window", "1", "--duration-ms", "1000",
+    "--ready-path", ready_path,
+    "--coords", "10,10",
+  ]);
+  ensure(
+    !output_success(ready_path_with_coords),
+    "cu_linux_observe_usage_ready_coords_ok:" + JSON.stringify(ready_path_with_coords)
+  );
+  ensure(
+    text_at(ready_path_with_coords, "error.code") === "usage",
+    "cu_linux_observe_usage_ready_coords_code:" + JSON.stringify(ready_path_with_coords.error)
+  );
+  ensure(
+    text_at(ready_path_with_coords, "command") === "usage",
+    "cu_linux_observe_usage_ready_coords_command:" + JSON.stringify(ready_path_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(ready_path_with_coords, "error.message"), "--coords"),
+    "cu_linux_observe_usage_ready_coords_message:" + JSON.stringify(ready_path_with_coords.error)
   );
 }
 
@@ -193,6 +241,59 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_observe_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_observe_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_observe_extents_missing_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_observe_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_observe_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords), "cu_linux_observe_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_observe_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_observe_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_observe_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus), "cu_linux_observe_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_observe_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_observe_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_observe_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -238,15 +339,86 @@ function assert_observe_host_limit_when_atspi_absent(run_directory, executable) 
   }
 }
 
-function window_row(run_directory, executable, pid, title) {
+function window_rows(reply) {
+  const data = reply.data;
+  if (data.windows !== undefined) { return data.windows; }
+  return data;
+}
+
+function windows_on_screen(run_directory, executable, pid) {
   const reply = run_cu(run_directory, executable, "observe", [
     "windows", "--pid", "" + pid,
   ]);
-  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  const rows = window_rows(reply);
+  let on_screen = 0;
   for (const row of rows) {
+    if (flag_at(row, "minimized") !== true) { on_screen = on_screen + 1; }
+  }
+  return { listed: rows.length, on_screen: on_screen, rows: rows };
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const inventory = windows_on_screen(run_directory, executable, pid);
+  for (const row of inventory.rows) {
     if (text_at(row, "title") === title) { return row; }
   }
   return null;
+}
+
+function independent_xwininfo_title(run_directory, executable, handle, title) {
+  const script = [
+    "import json, subprocess, sys",
+    "handle = sys.argv[1]",
+    "want = sys.argv[2]",
+    "result = subprocess.run(['xwininfo', '-id', handle], capture_output=True, text=True)",
+    "if result.returncode != 0:",
+    "    print(json.dumps({'title': None}))",
+    "    raise SystemExit(0)",
+    "found = None",
+    "for line in result.stdout.splitlines():",
+    "    if line.startswith('xwininfo:') and '\"' in line:",
+    "        start = line.index('\"')",
+    "        end = line.rindex('\"')",
+    "        if end > start:",
+    "            found = line[start + 1:end]",
+    "            break",
+    "print(json.dumps({'title': found, 'matches': found == want}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, "" + handle, title], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_observe_xwininfo:" + output.stderr + output.stdout);
+  const document = JSON.parse(output.stdout.trim());
+  return document.matches === true;
+}
+
+function assert_independent_inventory_readback(
+  run_directory, executable, pid, title, handle_text, label
+) {
+  const inventory = windows_on_screen(run_directory, executable, pid);
+  ensure(
+    inventory.on_screen >= 1,
+    "cu_linux_observe_inventory_on_screen_" + label + ":" + JSON.stringify(inventory)
+  );
+  const row = window_row(run_directory, executable, pid, title);
+  ensure(row !== null, "cu_linux_observe_inventory_row_" + label + ":" + title);
+  ensure(
+    "" + int_at(row, "handle") === handle_text,
+    "cu_linux_observe_inventory_handle_" + label + ":" + JSON.stringify(row)
+  );
+  ensure(
+    int_at(row, "process_id") === pid || text_at(row, "process_id") === "" + pid,
+    "cu_linux_observe_inventory_pid_" + label + ":" + JSON.stringify(row)
+  );
+  const xwininfo_matches = independent_xwininfo_title(
+    run_directory, executable, int_at(row, "handle"), title
+  );
+  ensure(
+    xwininfo_matches === true,
+    "cu_linux_observe_inventory_xwininfo_" + label + ":" + title
+  );
 }
 
 function independent_atspi_probe(title, mode) {
@@ -372,11 +544,11 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP observe typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP observe typed-fail usage when AT-SPI --name/--coords/--bogus is present");
   assert_observe_usage_limit(run_directory, executable);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before observe read-back court");
+    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before observe read-back court");
     assert_get_extents_usage_limit(run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
@@ -407,6 +579,11 @@ try {
     ensure(row !== null, "cu_linux_observe_window_identity");
     const handle_text = "" + int_at(row, "handle");
     ensure(int_at(row, "handle") > 0, "cu_linux_observe_handle:" + JSON.stringify(row));
+
+    print("STEP independent windows inventory read-back before observe: handle/title must match fixture identity");
+    assert_independent_inventory_readback(
+      run_directory, executable, fixture_pid, fixture_title, handle_text, "baseline"
+    );
 
     print("STEP independent AT-SPI probes report the fixture baseline before observe starts");
     const press_before = independent_atspi_probe(fixture_title, "press_label");
@@ -474,6 +651,11 @@ try {
       })
     );
 
+    print("STEP independent windows inventory read-back after observe: handle/title must still match fixture identity");
+    assert_independent_inventory_readback(
+      run_directory, executable, fixture_pid, fixture_title, handle_text, "after_observe"
+    );
+
     harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe-readback");
     succeeded = 1;
   }
@@ -491,8 +673,8 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_observe_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: CEO Linux observe poll-diff honesty (CU events agree with independent AT-SPI read-back with typed observe/get-extents usage honesty; AT-SPI --name, no --coords)");
+  print("PASS: CEO Linux observe poll-diff honesty (CU events agree with independent AT-SPI read-back and windows inventory handle/title read-back with typed observe/get-extents --name/--coords/--bogus usage/host-limit honesty; AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO Linux observe poll-diff typed-fails with typed observe/get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO Linux observe poll-diff typed-fails with typed observe/get-extents --name/--coords/--bogus host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
 return;
