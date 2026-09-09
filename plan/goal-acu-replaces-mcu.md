@@ -1004,11 +1004,11 @@ Q4 browser and platform depth
 └─ [ ] current/ssh/vnc/VM schema parity
 Q5 retirement
 ├─ [~] one qjswasm retirement court
-│  ├─ [x] report mode measures ledger gaps/evidence, host-task registration, Candidate wiring, Bun/MCU production dependencies and adapter truth
+│  ├─ [x] report mode measures ledger gaps/evidence, host-task registration, scoped Candidate wiring, Cargo-derived production owners, pinned corpus identity and adapter truth
 │  ├─ [x] adapter exposes a machine report that cannot mistake zero static STAY for complete dynamic parity
 │  ├─ [x] every frozen dynamic-stay witness is an explicit retirement blocker with its stable gap id
 │  ├─ [x] all platform-pending cells are listed without changing the capability-level blocker contract
-│  └─ [ ] public enforce-absent task green with zero blockers and all marker-derived live MCU paths absent from the archived source checkout
+│  └─ [ ] public enforce-absent task green with zero blockers, sealed archive ancestry/tree/blob identity verified and every live MCU path absent
 ├─ [~] six-cell baseline now requires architecture-matched `agenterm-cu`
 │  ├─ [x] local arm64 rehearsal executes public bounded storage inventory
 │  └─ [ ] same qjswasm ACU journey on all six native/emulated userland courts
@@ -1017,9 +1017,9 @@ Q5 retirement
 
 The current `acu-retirement-readiness` run remains a successful bounded audit
 with an intentionally red promotion decision: the integrated tree's
-140 ledger capabilities include zero `gap`, 63 `platform-limited` rows and 7
-reviewed retirements. The report preserves 65 capability-level blockers while
-also exposing all 124 pending platform cells, including 69 previously hidden
+147 ledger capabilities include 3 `gap`, 66 `platform-limited` rows and 8
+reviewed retirements. The report preserves 71 capability-level blockers while
+also exposing all 128 pending platform cells, including 70 previously hidden
 behind the first pending cell of the same capability. The
 compatibility adapter has zero static `STAY` spellings and its
 argument-sensitive corpus is complete and no longer requires MCU at runtime;
@@ -1029,12 +1029,16 @@ stable gap ids instead of being omitted from retirement accounting. The public
 inspection resolves its generation and that bounded watch/interval/max-samples
 execute through the native series while top/member ceilings remain projections
 over complete membership. The public
-`acu-retirement` task additionally refuses arbitrary missing paths: it resolves
-a configured archived Git checkout, verifies the checked-in marker set, and
-derives every live MCU path whose absence must be proved. The report still
+`acu-retirement` task additionally refuses arbitrary missing paths and
+marker-shaped impostors: it binds a configured historical checkout to sealed
+commit ancestry, protected tree OIDs, deterministic archive digests and the
+historical source blob identities shared with the corpus. It derives every live
+MCU path whose absence must be proved. The report still
 truthfully blocks physical source retirement while registered-evidence and
-native-qualification debt remains. The Candidate workflow now includes
-`cu-retirement-cell-smoke`. The obsolete Bun-only release-dispatch helper was
+native-qualification debt remains. The Candidate workflow's runtime and
+aggregate jobs are checked structurally: all six cells must execute
+`cu-retirement-cell-smoke`, upload exact-attempt receipts, and feed the
+validated six-cell summary into the sealed manifest. The obsolete Bun-only release-dispatch helper was
 removed; release authority and dispatch remain owned by the release skill and
 GitHub workflow rather than a second credential-bearing script.
 The public `acu-retirement` task owns `enforce-absent` and `cu.retirement`;

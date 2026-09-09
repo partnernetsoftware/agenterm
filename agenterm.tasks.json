@@ -3188,7 +3188,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 100000000,
+        "max_operations": 200000000,
         "max_output_bytes": 524288,
         "max_string_bytes": 1048576
       },
@@ -3208,7 +3208,7 @@
       ],
       "budget": {
         "timeout_ms": 120000,
-        "max_operations": 100000000,
+        "max_operations": 200000000,
         "max_output_bytes": 524288,
         "max_string_bytes": 1048576
       },
@@ -8729,7 +8729,7 @@
     },
     {
       "id": "acu-retirement-readiness",
-      "description": "Measure the one fail-closed ACU retirement contract: capability blockers plus every pending platform cell, dynamic-stay witnesses, registered evidence, compatibility corpus, host/six-cell wiring and production Bun/MCU absence. Remaining blockers are successful audit output, never hidden green retirement.",
+      "description": "Measure the fail-closed ACU retirement contract: ledger blockers, every pending platform cell, pinned corpus/source identity, Cargo-derived production scans, scoped six-cell Candidate wiring and Bun/MCU absence. Remaining blockers are successful audit output, never hidden green retirement.",
       "entry": "scripts/qjs/acu-retirement-court.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8751,7 +8751,7 @@
     },
     {
       "id": "acu-retirement",
-      "description": "Enforce final ACU retirement against the marker-matched archived MCU source checkout named by ACU_MCU_REPOSITORY; every ledger, evidence, dynamic-stay, delivery, production-dependency and derived live-runtime absence check must be green.",
+      "description": "Enforce final ACU retirement against the sealed historical MCU Git identity named by ACU_MCU_REPOSITORY; ancestry, protected trees/blobs, ledger, evidence, delivery, production-dependency and live-runtime absence checks must all be green.",
       "entry": "scripts/qjs/acu-retirement-court.qjs",
       "profile": "tool",
       "cwd": ".",

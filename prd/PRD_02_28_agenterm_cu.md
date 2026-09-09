@@ -300,18 +300,24 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   rejects every `gap`, requires public evidence for available or
   platform-limited claims, counts every frozen `dynamic-stay` witness as a
   blocker, verifies the three native host tasks and six-cell task registration,
-  checks Candidate execution wiring, scans production automation for Bun/MCU
-  dependencies, and consumes the frozen compatibility accounting report.
+  checks Candidate execution wiring by job and named-step scope, derives every
+  Rust owner from Cargo metadata, rejects any repo-local path dependency that
+  is not an equally covered workspace member, scans production automation for
+  Bun/MCU dependencies, and verifies the frozen compatibility corpus's
+  whole-file digest, fixed counts and historical source blobs.
   Report mode succeeds only as an audit and emits
   `cu.retirement-readiness`; live capability totals belong exclusively to
   `plan/acu-mcu-capability-ledger.json`, while the argument-sensitive corpus
   owns its own counts. Blockers never authorize MCU runtime fallback. The
   public `acu-retirement` task owns `enforce-absent` and `cu.retirement`; only
   that mode emits the evidence, after zero blockers and after
-  `ACU_MCU_REPOSITORY` resolves
-  to a Git checkout matching the checked-in archive markers while every
-  contract-derived live MCU runtime path is absent. An arbitrary missing path
-  is not retirement evidence.
+  `ACU_MCU_REPOSITORY` resolves to the sealed historical Git identity: required
+  commits must be ancestors, current and sealed archive tree OIDs are the
+  primary content identity, deterministic seal-commit archive SHA-256 values
+  supply independent format-level evidence, historical blobs must match, and
+  every contract-derived live MCU runtime path
+  must be absent. Marker files alone and comment-only Candidate strings are not
+  retirement evidence.
 - [~] Platform-limited leaves no longer pass because a free-text
   `qualification` happens to be nonempty. The retirement contract requires a
   schema-versioned macOS/Linux/Windows matrix. Every qualified cell binds one

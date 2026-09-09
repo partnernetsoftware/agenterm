@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "platform_qualification_schema": 2,
   "ledger": "plan/acu-mcu-capability-ledger.json",
   "compatibility_corpus": "skills/acu/tests/compat-corpus.json",
@@ -11,7 +11,182 @@
     {"id": "cu-windows-smoke", "platform": "windows"}
   ],
   "required_delivery_task": "six-cell-qualify",
-  "candidate_runtime_marker": "cu-retirement-cell-smoke",
+  "candidate_identity": {
+    "schema": 1,
+    "workflow": ".github/workflows/candidate.yml",
+    "runtime_job": "runtime",
+    "aggregate_job": "aggregate",
+    "platforms": [
+      "windows-x86_64",
+      "windows-aarch64",
+      "linux-x86_64",
+      "linux-aarch64",
+      "macos-aarch64",
+      "macos-x86_64"
+    ],
+    "cell_step": "cu-retirement-cell-smoke",
+    "control_artifact": "candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}",
+    "receipt_artifact": "candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}",
+    "aggregate_script": "scripts/qjs/cu-retirement-runtime-aggregate.qjs",
+    "summary_path": "candidate-output/evidence/cu-six-cell-runtime.json"
+  },
+  "production_identity": {
+    "schema": 1,
+    "required_rule_ids": [
+      "rust-runtime-invocation",
+      "script-runtime-invocation",
+      "delivery-runtime-invocation"
+    ],
+    "required_roots": [
+      "Cargo.toml",
+      "Cargo.lock",
+      ".cargo",
+      "build.rs",
+      "src",
+      "crates",
+      "examples",
+      "tests",
+      "third_party",
+      "skills/acu/acu.qjs",
+      "skills/acu/lib",
+      "scripts",
+      ".github",
+      "packaging",
+      "agenterm.tasks.json",
+      "build.sh",
+      "build.bat",
+      "check.sh",
+      "check.cmd",
+      "lint.sh",
+      "lint.cmd",
+      "release.sh",
+      "release.cmd"
+    ],
+    "forbidden_tracked_paths": [
+      "skills/mcu",
+      "skills/acu/acu.ts",
+      "skills/acu/acu.test.ts",
+      "skills/acu/shared/cli-args.ts",
+      "skills/acu/shared/cli-args.test.ts"
+    ],
+    "rules": [
+      {
+        "id": "rust-runtime-invocation",
+        "paths": [
+          "Cargo.toml", "Cargo.lock", ".cargo", "build.rs", "src", "crates",
+          "examples", "tests", "third_party"
+        ],
+        "patterns": [
+          "Command::new[[:space:]]*[(][[:space:]]*[\"']bun[\"']",
+          "include_(str|bytes)![[:space:]]*[(][^)]*(skills/mcu|skills/acu/acu[.]ts)",
+          "[\"'][^\"']*(skills/mcu|skills/acu/acu[.]ts|mcu[.]ts)[^\"']*[\"']"
+        ]
+      },
+      {
+        "id": "script-runtime-invocation",
+        "paths": [
+          "scripts", "skills/acu/acu.qjs", "skills/acu/lib",
+          ":(exclude)scripts/qjs/acu-retirement-court.qjs"
+        ],
+        "patterns": [
+          "#!/usr/bin/env bun",
+          "Bun[.](spawn|spawnSync|file|write|serve|connect)",
+          "process_(command|command_stdout|spawn)[[:space:]]*[(][[:space:]]*[\"']bun[\"']",
+          "[\"'][^\"']*(skills/mcu|skills/acu/acu[.]ts|mcu[.]ts)[^\"']*[\"']"
+        ]
+      },
+      {
+        "id": "delivery-runtime-invocation",
+        "paths": [
+          ".github", "packaging", "agenterm.tasks.json",
+          "build.sh", "build.bat", "check.sh", "check.cmd",
+          "lint.sh", "lint.cmd", "release.sh", "release.cmd"
+        ],
+        "patterns": [
+          "#!/usr/bin/env bun",
+          "[[:space:]\"'/]bun([[:space:]\"']|$)",
+          "[\"'][^\"']*(skills/mcu|skills/acu/acu[.]ts|mcu[.]ts)[^\"']*[\"']"
+        ]
+      }
+    ]
+  },
+  "compatibility_identity": {
+    "schema": 1,
+    "corpus_sha256": "c8134078468ab21be7260ca338fe4e97157fce5cdc6524401024e1efb2a65b38",
+    "dynamic_count": 95,
+    "positive_count": 42,
+    "classifications": [
+      "typed-rejection",
+      "resolved",
+      "dynamic-stay",
+      "permanent-scope-rejection"
+    ],
+    "sources": [
+      {
+        "corpus_blob": "moltbaby@fbfda6294:skills/acu/acu.ts",
+        "revision": "fbfda62945a03cc44d601a8d754d93302ba0446a",
+        "path": "skills/acu/acu.ts",
+        "git_blob_oid": "5aaf644e504e587d6de5901e01fc0af46e667199",
+        "sha256": "b1c32623bac746b88757e64dca9e91e428b33c32297eafaf25dac40d4b9a32de"
+      },
+      {
+        "corpus_blob": "moltbaby@fbfda6294:skills/acu/acu.test.ts",
+        "revision": "fbfda62945a03cc44d601a8d754d93302ba0446a",
+        "path": "skills/acu/acu.test.ts",
+        "git_blob_oid": "6b70f9e603c4c6a5a2e684efc88d933fedec18dc",
+        "sha256": "e9e19692f5c4388a4207b544e2c0f0872bc4252daba217cd07c19f3c423ae211"
+      }
+    ]
+  },
+  "legacy_repository_identity": {
+    "schema": 1,
+    "seal_commit": "15babbe625b722e562d29ebfca6177727d1a44a6",
+    "required_ancestor_commits": [
+      "fefdc2e76adeb978642a2bd4f211ec1139c67eb0",
+      "ac44be8cffa79b479ba13dc071b7b5965228387d",
+      "15babbe625b722e562d29ebfca6177727d1a44a6"
+    ],
+    "protected_trees": [
+      {
+        "path": "skills/archived/mcu-reference-20260907",
+        "git_tree_oid": "08e5d1f23128014408b0a5c664aa70b18e999dbb",
+        "git_archive_sha256": "863f6ad0d621e045c09820d8e362de21e59cc704dd3e299839d0040391021e38"
+      },
+      {
+        "path": "skills/archived/acu-adapter-reference-20260908",
+        "git_tree_oid": "131efaae538a542f7552faf0e998e6dff0a1a255",
+        "git_archive_sha256": "bdcf2e1b6057b35694fcc0944a1dc687b79b640f2ec783a11428ef2e2788eb33"
+      }
+    ],
+    "protected_blobs": [
+      {
+        "path": "skills/archived/mcu-reference-20260907/ARCHIVE.md",
+        "git_blob_oid": "49aa00a43aa30149cfc56a001c31c4f9d46702b8",
+        "sha256": "fe551b7ad0397f0db5a39b9d41d2fc61aa6629400afcebe7f38b19e5511d15ac"
+      },
+      {
+        "path": "skills/archived/acu-adapter-reference-20260908/ARCHIVE.md",
+        "git_blob_oid": "6f3c65c4eede07dd6be8e5354743d9107e003ddc",
+        "sha256": "10fe3f00793aa62455e06bca09ba17b104b333474fc99c77cceda60a82f9e97f"
+      }
+    ],
+    "historical_source_blobs": [
+      {
+        "revision": "fbfda62945a03cc44d601a8d754d93302ba0446a",
+        "path": "skills/acu/acu.ts",
+        "corpus_blob": "moltbaby@fbfda6294:skills/acu/acu.ts",
+        "git_blob_oid": "5aaf644e504e587d6de5901e01fc0af46e667199",
+        "sha256": "b1c32623bac746b88757e64dca9e91e428b33c32297eafaf25dac40d4b9a32de"
+      },
+      {
+        "revision": "fbfda62945a03cc44d601a8d754d93302ba0446a",
+        "path": "skills/acu/acu.test.ts",
+        "corpus_blob": "moltbaby@fbfda6294:skills/acu/acu.test.ts",
+        "git_blob_oid": "6b70f9e603c4c6a5a2e684efc88d933fedec18dc",
+        "sha256": "e9e19692f5c4388a4207b544e2c0f0872bc4252daba217cd07c19f3c423ae211"
+      }
+    ]
+  },
   "production_scan_paths": [
     ".github",
     "scripts",
@@ -47,6 +222,9 @@
   ],
   "retired_runtime_relative_paths": [
     "skills/mcu",
-    "skills/acu/acu.ts"
+    "skills/acu/acu.ts",
+    "skills/acu/acu.test.ts",
+    "skills/acu/shared/cli-args.ts",
+    "skills/acu/shared/cli-args.test.ts"
   ]
 }

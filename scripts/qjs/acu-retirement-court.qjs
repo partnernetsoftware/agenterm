@@ -7,13 +7,102 @@
 //
 // report validates the checked-in engine-neutral compatibility corpus and emits
 // a bounded blocker inventory without Bun or another repository. enforce-absent
-// additionally verifies ACU_MCU_REPOSITORY is a marker-matched archived source
-// checkout, then derives and rejects every retired live-runtime path from the
+// additionally verifies ACU_MCU_REPOSITORY is the sealed historical Git
+// identity, then derives and rejects every retired live-runtime path from the
 // checked-in contract. A caller-chosen absent path is never accepted as proof.
+// Run report/enforce through their named tasks so the manifest supplies the
+// file/string and operation budgets; direct invocation is reserved for
+// --self-test and --list-evidence.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = ["cu.retirement-readiness", "cu.retirement"];
+const minimum_production_rule_ids = [
+  "rust-runtime-invocation",
+  "script-runtime-invocation",
+  "delivery-runtime-invocation"
+];
+const minimum_production_roots = [
+  "Cargo.toml", "Cargo.lock", ".cargo", "build.rs", "src", "crates",
+  "examples", "tests", "third_party",
+  "skills/acu/acu.qjs", "skills/acu/lib", "scripts", ".github",
+  "packaging", "agenterm.tasks.json", "build.sh", "build.bat",
+  "check.sh", "check.cmd", "lint.sh", "lint.cmd", "release.sh", "release.cmd"
+];
+const frozen_production_rules = {
+  "rust-runtime-invocation": [
+    ["Cargo.toml", "Cargo.lock", ".cargo", "build.rs", "src", "crates",
+      "examples", "tests", "third_party"],
+    [
+      "Command::new[[:space:]]*[(][[:space:]]*[\"']bun[\"']",
+      "include_(str|bytes)![[:space:]]*[(][^)]*(skills/mcu|skills/acu/acu[.]ts)",
+      "[\"'][^\"']*(skills/mcu|skills/acu/acu[.]ts|mcu[.]ts)[^\"']*[\"']"
+    ]
+  ],
+  "script-runtime-invocation": [
+    ["scripts", "skills/acu/acu.qjs", "skills/acu/lib",
+      ":(exclude)scripts/qjs/acu-retirement-court.qjs"],
+    [
+      "#!/usr/bin/env bun",
+      "Bun[.](spawn|spawnSync|file|write|serve|connect)",
+      "process_(command|command_stdout|spawn)[[:space:]]*[(][[:space:]]*[\"']bun[\"']",
+      "[\"'][^\"']*(skills/mcu|skills/acu/acu[.]ts|mcu[.]ts)[^\"']*[\"']"
+    ]
+  ],
+  "delivery-runtime-invocation": [
+    [".github", "packaging", "agenterm.tasks.json", "build.sh", "build.bat",
+      "check.sh", "check.cmd", "lint.sh", "lint.cmd", "release.sh", "release.cmd"],
+    [
+      "#!/usr/bin/env bun",
+      "[[:space:]\"'/]bun([[:space:]\"']|$)",
+      "[\"'][^\"']*(skills/mcu|skills/acu/acu[.]ts|mcu[.]ts)[^\"']*[\"']"
+    ]
+  ]
+};
+const frozen_forbidden_tracked_paths = [
+  "skills/mcu",
+  "skills/acu/acu.ts",
+  "skills/acu/acu.test.ts",
+  "skills/acu/shared/cli-args.ts",
+  "skills/acu/shared/cli-args.test.ts"
+];
+const frozen_compatibility_corpus = {
+  sha256: "c8134078468ab21be7260ca338fe4e97157fce5cdc6524401024e1efb2a65b38",
+  dynamic_count: 95,
+  positive_count: 42
+};
+const frozen_legacy_repository = {
+  seal_commit: "15babbe625b722e562d29ebfca6177727d1a44a6",
+  required_ancestor_commits: [
+    "fefdc2e76adeb978642a2bd4f211ec1139c67eb0",
+    "ac44be8cffa79b479ba13dc071b7b5965228387d",
+    "15babbe625b722e562d29ebfca6177727d1a44a6"
+  ],
+  protected_trees: [
+    ["skills/archived/mcu-reference-20260907",
+      "08e5d1f23128014408b0a5c664aa70b18e999dbb",
+      "863f6ad0d621e045c09820d8e362de21e59cc704dd3e299839d0040391021e38"],
+    ["skills/archived/acu-adapter-reference-20260908",
+      "131efaae538a542f7552faf0e998e6dff0a1a255",
+      "bdcf2e1b6057b35694fcc0944a1dc687b79b640f2ec783a11428ef2e2788eb33"]
+  ],
+  protected_blobs: [
+    ["skills/archived/mcu-reference-20260907/ARCHIVE.md",
+      "49aa00a43aa30149cfc56a001c31c4f9d46702b8",
+      "fe551b7ad0397f0db5a39b9d41d2fc61aa6629400afcebe7f38b19e5511d15ac"],
+    ["skills/archived/acu-adapter-reference-20260908/ARCHIVE.md",
+      "6f3c65c4eede07dd6be8e5354743d9107e003ddc",
+      "10fe3f00793aa62455e06bca09ba17b104b333474fc99c77cceda60a82f9e97f"]
+  ],
+  historical_sources: [
+    ["fbfda62945a03cc44d601a8d754d93302ba0446a", "skills/acu/acu.ts",
+      "5aaf644e504e587d6de5901e01fc0af46e667199",
+      "b1c32623bac746b88757e64dca9e91e428b33c32297eafaf25dac40d4b9a32de"],
+    ["fbfda62945a03cc44d601a8d754d93302ba0446a", "skills/acu/acu.test.ts",
+      "6b70f9e603c4c6a5a2e684efc88d933fedec18dc",
+      "e9e19692f5c4388a4207b544e2c0f0872bc4252daba217cd07c19f3c423ae211"]
+  ]
+};
 
 function add(blockers, id, detail) {
   blockers.push({ id: id, detail: detail });
@@ -48,6 +137,736 @@ function array_has(rows, wanted) {
     if (row === wanted) { return true; }
   }
   return false;
+}
+
+function valid_hex(value, length) {
+  if (typeof value !== "string" || value.length !== length) { return false; }
+  for (let index = 0; index < value.length; index = index + 1) {
+    if ("0123456789abcdef".indexOf(value[index]) < 0) { return false; }
+  }
+  return true;
+}
+
+function unique_text_rows(rows) {
+  if (!Array.isArray(rows)) { return false; }
+  const seen = {};
+  for (const row of rows) {
+    if (!has_text(row) || seen[row] === true) { return false; }
+    seen[row] = true;
+  }
+  return true;
+}
+
+function git_command(repository, tail) {
+  const argv = ["-C", repository];
+  for (const item of tail) { argv.push(item); }
+  return rh.command("git", argv, { timeout_ms: 30000 });
+}
+
+function git_text(repository, tail) {
+  const result = git_command(repository, tail);
+  if (!result.success) { return null; }
+  return result.stdout.trim();
+}
+
+function occurrence_count(text, needle) {
+  if (!has_text(text) || !has_text(needle)) { return 0; }
+  return text.split(needle).length - 1;
+}
+
+function bounded_section(text, start, end) {
+  if (occurrence_count(text, start) !== 1) { return null; }
+  const tail = text.split(start)[1];
+  if (end === null) { return tail; }
+  if (occurrence_count(tail, end) !== 1) { return null; }
+  return tail.split(end)[0];
+}
+
+function named_step(job, name) {
+  const marker = "\n      - name: " + name + "\n";
+  if (occurrence_count(job, marker) !== 1) { return null; }
+  const tail = job.split(marker)[1];
+  const named = tail.indexOf("\n      - name: ");
+  const unnamed = tail.indexOf("\n      - uses: ");
+  let end = tail.length;
+  if (named >= 0 && named < end) { end = named; }
+  if (unnamed >= 0 && unnamed < end) { end = unnamed; }
+  return tail.slice(0, end);
+}
+
+function active_line(section, wanted) {
+  if (section === null) { return false; }
+  for (const raw of section.split("\n")) {
+    const line = raw.trim();
+    if (!line.startsWith("#") && line === wanted) { return true; }
+  }
+  return false;
+}
+
+function active_contains(section, wanted) {
+  if (section === null) { return false; }
+  for (const raw of section.split("\n")) {
+    const line = raw.trim();
+    if (!line.startsWith("#") && line.indexOf(wanted) >= 0) { return true; }
+  }
+  return false;
+}
+
+function candidate_problem(blockers, id, detail) {
+  add(blockers, "candidate_" + id, detail);
+}
+
+function production_rule_matches_frozen(rule) {
+  if (typeof rule !== "object" || rule === null || !has_text(rule.id)) { return false; }
+  const frozen = frozen_production_rules[rule.id];
+  return Array.isArray(frozen)
+    && JSON.stringify(rule.paths) === JSON.stringify(frozen[0])
+    && JSON.stringify(rule.patterns) === JSON.stringify(frozen[1]);
+}
+
+function compatibility_header_matches_frozen(identity) {
+  return typeof identity === "object" && identity !== null
+    && identity.corpus_sha256 === frozen_compatibility_corpus.sha256
+    && identity.dynamic_count === frozen_compatibility_corpus.dynamic_count
+    && identity.positive_count === frozen_compatibility_corpus.positive_count;
+}
+
+function legacy_tree_matches_frozen(tree, index) {
+  const expected = frozen_legacy_repository.protected_trees[index];
+  return Array.isArray(expected) && typeof tree === "object" && tree !== null
+    && tree.path === expected[0] && tree.git_tree_oid === expected[1]
+    && tree.git_archive_sha256 === expected[2];
+}
+
+function legacy_source_matches_frozen(source, index) {
+  const expected = frozen_legacy_repository.historical_sources[index];
+  return Array.isArray(expected) && typeof source === "object" && source !== null
+    && source.revision === expected[0] && source.path === expected[1]
+    && source.git_blob_oid === expected[2] && source.sha256 === expected[3];
+}
+
+function legacy_blob_matches_frozen(blob, index) {
+  const expected = frozen_legacy_repository.protected_blobs[index];
+  return Array.isArray(expected) && typeof blob === "object" && blob !== null
+    && blob.path === expected[0] && blob.git_blob_oid === expected[1]
+    && blob.sha256 === expected[2];
+}
+
+function verify_candidate_identity(repo, identity, blockers) {
+  const blocker_start = blockers.length;
+  if (typeof identity !== "object" || identity === null || identity.schema !== 1
+      || identity.workflow !== ".github/workflows/candidate.yml"
+      || identity.runtime_job !== "runtime" || identity.aggregate_job !== "aggregate"
+      || !unique_text_rows(identity.platforms) || identity.platforms.length !== 6
+      || identity.cell_step !== "cu-retirement-cell-smoke"
+      || identity.control_artifact
+        !== "candidate-runtime-control-${{ github.run_id }}-${{ github.run_attempt }}"
+      || identity.receipt_artifact
+        !== "candidate-cu-runtime-${{ matrix.platform_id }}-${{ github.run_id }}-${{ github.run_attempt }}"
+      || identity.aggregate_script !== "scripts/qjs/cu-retirement-runtime-aggregate.qjs"
+      || identity.summary_path !== "candidate-output/evidence/cu-six-cell-runtime.json") {
+    candidate_problem(blockers, "identity_invalid", "schema");
+    return { verified: false, platforms_checked: 0 };
+  }
+  const workflow_path = rh.join(repo, identity.workflow);
+  if (!rh.exists(workflow_path)) {
+    candidate_problem(blockers, "workflow_missing", identity.workflow);
+    return { verified: false, platforms_checked: 0 };
+  }
+  const workflow = rh.read_text(workflow_path).split("\r\n").join("\n");
+  const preflight = bounded_section(workflow, "\n  preflight:\n", "\n  build:\n");
+  const runtime = bounded_section(workflow, "\n  runtime:\n", "\n  aggregate:\n");
+  const aggregate = bounded_section(workflow, "\n  aggregate:\n", null);
+  if (preflight === null || runtime === null || aggregate === null) {
+    candidate_problem(blockers, "job_missing", "preflight/runtime/aggregate");
+    return { verified: false, platforms_checked: 0 };
+  }
+
+  let platforms_checked = 0;
+  const matrix = [
+    ["windows-x86_64", "windows-2025", "windows"],
+    ["windows-aarch64", "windows-11-arm", "windows"],
+    ["linux-x86_64", "ubuntu-24.04", "linux"],
+    ["linux-aarch64", "ubuntu-24.04-arm", "linux"],
+    ["macos-aarch64", "macos-15", "macos"],
+    ["macos-x86_64", "macos-15-intel", "macos"]
+  ];
+  for (let index = 0; index < matrix.length; index = index + 1) {
+    const platform = matrix[index][0];
+    const block = "\n          - platform_id: " + platform
+      + "\n            runner: " + matrix[index][1]
+      + "\n            family: " + matrix[index][2] + "\n";
+    if (identity.platforms[index] !== platform || occurrence_count(runtime, block) !== 1) {
+      candidate_problem(blockers, "runtime_matrix_invalid", platform);
+    } else {
+      platforms_checked = platforms_checked + 1;
+    }
+  }
+  if (!active_line(runtime, "needs: [preflight, build, windows_unsigned, windows_sign]")
+      || !active_line(runtime, "fail-fast: false")
+      || active_contains(runtime, "actions/checkout@")
+      || active_contains(runtime, "cargo ")) {
+    candidate_problem(blockers, "runtime_job_invalid", "dependency/matrix/source-build");
+  }
+
+  const control_upload = named_step(preflight, "Upload exact-source ACU runtime control");
+  const matching_part = named_step(runtime, "Download matching Candidate part");
+  const control_download = named_step(runtime, "Download exact-source ACU runtime control");
+  const cell = named_step(runtime, identity.cell_step);
+  const receipt_upload = named_step(runtime, "Upload ACU native runtime receipt");
+  const control_files = [
+    "scripts/qjs/cu-retirement-cell-smoke.qjs",
+    "scripts/qjs/acu-provider-smoke.qjs",
+    "scripts/qjs/acu-mcp-provider-smoke.qjs",
+    "scripts/qjs/acu-power-action-provider-smoke.qjs",
+    "scripts/qjs/cu-setup-cli-smoke.qjs",
+    "scripts/qjs/cu-setup-runtime-refresh-smoke.qjs",
+    "scripts/qjs/lib/rh_compat.qjs",
+    "scripts/qjs/lib/test_harness.qjs"
+  ];
+  let control_ok = control_upload !== null
+    && active_contains(control_upload,
+      "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02")
+    && active_line(control_upload, "name: " + identity.control_artifact)
+    && active_line(control_upload, "if-no-files-found: error");
+  for (const file of control_files) {
+    if (!active_line(control_upload, file)) { control_ok = false; }
+  }
+  if (!control_ok || matching_part === null
+      || !active_contains(matching_part,
+        "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16")
+      || !active_line(matching_part, "name: candidate-part-${{ matrix.platform_id }}")
+      || !active_line(matching_part, "path: part")
+      || control_download === null
+      || !active_contains(control_download,
+        "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16")
+      || !active_line(control_download, "name: " + identity.control_artifact)
+      || !active_line(control_download, "path: runtime-control")) {
+    candidate_problem(blockers, "runtime_control_missing", "exact-source artifact chain");
+  }
+  const setup_index = cell === null ? -1
+    : cell.indexOf("runtime-control/cu-setup-cli-smoke.qjs --");
+  const refresh_index = cell === null ? -1
+    : cell.indexOf("runtime-control/cu-setup-runtime-refresh-smoke.qjs --");
+  const cell_index = cell === null ? -1
+    : cell.indexOf("runtime-control/cu-retirement-cell-smoke.qjs --");
+  if (cell === null || active_contains(cell, "if:") || active_contains(cell, "continue-on-error:")
+      || !active_line(cell, "set -euo pipefail")
+      || setup_index < 0 || refresh_index <= setup_index || cell_index <= refresh_index
+      || !active_line(cell, "\"$launcher\" \"$consumer\" \"$cu\" \"$provider\" \"$abi\" \\")
+      || !active_line(cell, "\"$PLATFORM_ID\" \"$SOURCE_SHA\" \"$archive_sha256\" \\")
+      || !active_line(cell, "\"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \\")
+      || !active_contains(cell, "runtime-evidence/$PLATFORM_ID.json")) {
+    candidate_problem(blockers, "runtime_cell_step_invalid", identity.cell_step);
+  }
+  if (receipt_upload === null || active_contains(receipt_upload, "if:")
+      || active_contains(receipt_upload, "continue-on-error:")
+      || !active_contains(receipt_upload,
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02")
+      || !active_line(receipt_upload, "name: " + identity.receipt_artifact)
+      || !active_line(receipt_upload, "path: runtime-evidence/${{ matrix.platform_id }}.json")
+      || !active_line(receipt_upload, "if-no-files-found: error")
+      || runtime.indexOf("\n      - name: " + identity.cell_step + "\n")
+        >= runtime.indexOf("\n      - name: Upload ACU native runtime receipt\n")) {
+    candidate_problem(blockers, "runtime_receipt_upload_invalid", identity.receipt_artifact);
+  }
+
+  const receipt_download = named_step(aggregate, "Download exact-attempt ACU runtime receipts");
+  const seal = named_step(aggregate, "Seal exact candidate bundle");
+  const sealed_upload = named_step(aggregate, "Upload sealed candidate");
+  if (!active_line(aggregate,
+      "needs: [preflight, build, windows_unsigned, windows_sign, runtime]")
+      || !active_contains(aggregate, "needs.runtime.result == 'success'")
+      || receipt_download === null
+      || !active_contains(receipt_download,
+        "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16")
+      || !active_line(receipt_download,
+        "pattern: candidate-cu-runtime-*-${{ github.run_id }}-${{ github.run_attempt }}")
+      || !active_line(receipt_download, "merge-multiple: true")
+      || !active_line(receipt_download, "path: runtime-evidence")) {
+    candidate_problem(blockers, "runtime_aggregate_dependency_invalid", "receipt dependency");
+  }
+  const aggregate_index = seal === null ? -1 : seal.indexOf(identity.aggregate_script + " --");
+  const consumer_index = seal === null ? -1
+    : seal.indexOf("task run candidate-aggregate --manifest agenterm.tasks.json --");
+  if (seal === null || active_contains(seal, "if:") || active_contains(seal, "continue-on-error:")
+      || aggregate_index < 0 || consumer_index <= aggregate_index
+      || occurrence_count(seal, identity.summary_path) !== 2
+      || sealed_upload === null || !active_contains(sealed_upload,
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02")
+      || !active_line(sealed_upload, "path: candidate-output/")
+      || !active_line(sealed_upload, "if-no-files-found: error")) {
+    candidate_problem(blockers, "runtime_summary_consumer_invalid", identity.summary_path);
+  }
+  const aggregate_text = rh.read_text(rh.join(repo, identity.aggregate_script));
+  const candidate_aggregate_text = rh.read_text(
+    rh.join(repo, "scripts/qjs/candidate-aggregate.qjs"));
+  const aggregate_contract = typeof manifest.contracts === "object"
+    && manifest.contracts !== null ? manifest.contracts["candidate-aggregate"] : null;
+  if (typeof aggregate_contract !== "object" || aggregate_contract === null
+      || !array_has(aggregate_contract.inputs, "six-cell-acu-runtime-summary")
+      || aggregate_text.indexOf("validate_cu_runtime_summary") < 0
+      || candidate_aggregate_text.indexOf("validate_cu_runtime_summary") < 0
+      || candidate_aggregate_text.indexOf("cu_runtime: cu_runtime") < 0) {
+    candidate_problem(blockers, "runtime_summary_validator_missing", "aggregate/manifest");
+  }
+  return {
+    verified: blockers.length === blocker_start,
+    platforms_checked: platforms_checked
+  };
+}
+
+function repo_relative(repo, path) {
+  let normalized_repo = ("" + repo).split("\\").join("/");
+  let normalized_path = ("" + path).split("\\").join("/");
+  if (normalized_repo.endsWith("/")) {
+    normalized_repo = normalized_repo.slice(0, normalized_repo.length - 1);
+  }
+  if (normalized_repo.length >= 2 && normalized_repo.charAt(1) === ":") {
+    normalized_repo = normalized_repo.charAt(0).toLowerCase() + normalized_repo.slice(1);
+  }
+  if (normalized_path.length >= 2 && normalized_path.charAt(1) === ":") {
+    normalized_path = normalized_path.charAt(0).toLowerCase() + normalized_path.slice(1);
+  }
+  if (normalized_path === normalized_repo) { return "."; }
+  const prefix = normalized_repo + "/";
+  if (!normalized_path.startsWith(prefix)) { return null; }
+  return normalized_path.slice(prefix.length);
+}
+
+function path_covered(path, roots) {
+  for (const root of roots) {
+    if (root === "." || path === root || path.startsWith(root + "/")) { return true; }
+  }
+  return false;
+}
+
+function verify_cargo_metadata(repo, scan_roots, blockers) {
+  const result = rh.command("cargo", ["metadata", "--no-deps", "--format-version", "1"], {
+    cwd: repo,
+    timeout_ms: 30000
+  });
+  if (!result.success) {
+    add(blockers, "production_cargo_metadata_failed", "exit=" + result.exit_code);
+    return { packages_checked: 0, targets_checked: 0, path_dependencies_checked: 0 };
+  }
+  let metadata;
+  try {
+    metadata = JSON.parse(result.stdout);
+  } catch (error) {
+    add(blockers, "production_cargo_metadata_invalid", "json");
+    return { packages_checked: 0, targets_checked: 0, path_dependencies_checked: 0 };
+  }
+  if (repo_relative(repo, metadata.workspace_root) !== "."
+      || !Array.isArray(metadata.workspace_members) || !Array.isArray(metadata.packages)) {
+    add(blockers, "production_cargo_metadata_invalid", "workspace");
+    return { packages_checked: 0, targets_checked: 0, path_dependencies_checked: 0 };
+  }
+  const members = {};
+  for (const id of metadata.workspace_members) { members[id] = false; }
+  const member_manifests = {};
+  for (const pkg of metadata.packages) {
+    if (members[pkg.id] === false) {
+      const manifest = repo_relative(repo, pkg.manifest_path);
+      if (manifest !== null) { member_manifests[manifest] = true; }
+    }
+  }
+  let packages_checked = 0;
+  let targets_checked = 0;
+  let path_dependencies_checked = 0;
+  for (const pkg of metadata.packages) {
+    if (members[pkg.id] !== false) { continue; }
+    members[pkg.id] = true;
+    packages_checked = packages_checked + 1;
+    const manifest = repo_relative(repo, pkg.manifest_path);
+    if (manifest === null || !path_covered(manifest, scan_roots)) {
+      add(blockers, "production_cargo_owner_unscanned", "manifest:" + pkg.name);
+    }
+    if (!Array.isArray(pkg.targets) || pkg.targets.length === 0) {
+      add(blockers, "production_cargo_owner_unscanned", "targets:" + pkg.name);
+      continue;
+    }
+    for (const target of pkg.targets) {
+      const source = repo_relative(repo, target.src_path);
+      if (source === null || !path_covered(source, scan_roots)) {
+        add(blockers, "production_cargo_owner_unscanned",
+          "target:" + pkg.name + ":" + target.name);
+      } else {
+        targets_checked = targets_checked + 1;
+      }
+    }
+    if (!Array.isArray(pkg.dependencies)) {
+      add(blockers, "production_cargo_metadata_invalid", "dependencies:" + pkg.name);
+    } else {
+      for (const dependency of pkg.dependencies) {
+        if (dependency.path === null || dependency.path === undefined) { continue; }
+        const dependency_root = repo_relative(repo, dependency.path);
+        if (dependency_root === null) {
+          add(blockers, "production_cargo_owner_unscanned",
+            "external-path-dependency:" + dependency.name);
+          continue;
+        }
+        const dependency_manifest = dependency_root === "."
+          ? "Cargo.toml" : dependency_root + "/Cargo.toml";
+        if (member_manifests[dependency_manifest] !== true
+            || !path_covered(dependency_manifest, scan_roots)) {
+          add(blockers, "production_cargo_owner_unscanned",
+            "non-member-path-dependency:" + dependency.name);
+        } else {
+          path_dependencies_checked = path_dependencies_checked + 1;
+        }
+      }
+    }
+  }
+  for (const id of Object.keys(members)) {
+    if (members[id] !== true) {
+      add(blockers, "production_cargo_owner_unscanned", "workspace-member");
+    }
+  }
+  return {
+    packages_checked: packages_checked,
+    targets_checked: targets_checked,
+    path_dependencies_checked: path_dependencies_checked
+  };
+}
+
+function verify_production_identity(repo, identity, blockers) {
+  const blocker_start = blockers.length;
+  if (typeof identity !== "object" || identity === null || identity.schema !== 1
+      || !unique_text_rows(identity.required_rule_ids)
+      || !unique_text_rows(identity.required_roots)
+      || !unique_text_rows(identity.forbidden_tracked_paths)
+      || !Array.isArray(identity.rules)) {
+    add(blockers, "retirement_production_identity_invalid", "schema");
+    return {
+      verified: false, rules_checked: 0, roots_checked: 0,
+      packages_checked: 0, targets_checked: 0, path_dependencies_checked: 0
+    };
+  }
+  for (const required of minimum_production_rule_ids) {
+    if (!array_has(identity.required_rule_ids, required)) {
+      add(blockers, "production_scan_contract_incomplete", "rule:" + required);
+    }
+  }
+  for (const required of minimum_production_roots) {
+    if (!array_has(identity.required_roots, required)) {
+      add(blockers, "production_scan_contract_incomplete", "root:" + required);
+    }
+  }
+  if (JSON.stringify(identity.forbidden_tracked_paths)
+      !== JSON.stringify(frozen_forbidden_tracked_paths)) {
+    add(blockers, "production_scan_contract_redefined", "forbidden tracked paths");
+  }
+  let roots_checked = 0;
+  for (const root of identity.required_roots) {
+    const tracked = git_text(repo, ["ls-files", "--", root]);
+    if (tracked === null || tracked === "") {
+      add(blockers, "production_scan_root_untracked", root);
+    } else {
+      roots_checked = roots_checked + 1;
+    }
+  }
+  for (const forbidden of identity.forbidden_tracked_paths) {
+    const tracked = git_text(repo, ["ls-files", "--", forbidden]);
+    if (tracked === null) {
+      add(blockers, "production_tracked_path_scan_failed", forbidden);
+    } else if (tracked !== "") {
+      add(blockers, "production_retired_path_tracked", forbidden);
+    }
+    if (rh.exists(rh.join(repo, forbidden))) {
+      add(blockers, "production_retired_path_present", forbidden);
+    }
+  }
+  const seen_rules = {};
+  let rules_checked = 0;
+  for (const rule of identity.rules) {
+    if (typeof rule !== "object" || rule === null || !has_text(rule.id)
+        || seen_rules[rule.id] === true || !has_rows(rule.paths)
+        || !has_rows(rule.patterns)) {
+      add(blockers, "production_scan_rule_invalid", JSON.stringify(rule));
+      continue;
+    }
+    seen_rules[rule.id] = true;
+    rules_checked = rules_checked + 1;
+    if (!production_rule_matches_frozen(rule)) {
+      add(blockers, "production_scan_contract_redefined", rule.id);
+      continue;
+    }
+    for (const pattern of rule.patterns) {
+      if (!has_text(pattern)) {
+        add(blockers, "production_scan_rule_invalid", rule.id + ":pattern");
+        continue;
+      }
+      const grep_args = ["grep", "-n", "-I", "-E", pattern, "--"];
+      for (const path of rule.paths) { grep_args.push(path); }
+      const scan = rh.command("git", grep_args, { cwd: repo, timeout_ms: 30000 });
+      if (scan.exit_code === 0) {
+        add(blockers, "production_dependency_forbidden", rule.id + ":" + pattern);
+      } else if (scan.exit_code !== 1) {
+        add(blockers, "production_scan_failed", rule.id + ":" + pattern
+          + ":exit=" + scan.exit_code);
+      }
+    }
+  }
+  for (const required of identity.required_rule_ids) {
+    if (seen_rules[required] !== true) {
+      add(blockers, "production_scan_contract_incomplete", "missing-rule:" + required);
+    }
+  }
+  let rust_scan_roots = [];
+  for (const rule of identity.rules) {
+    if (rule.id === "rust-runtime-invocation" && Array.isArray(rule.paths)) {
+      rust_scan_roots = rule.paths;
+    }
+  }
+  const cargo = verify_cargo_metadata(repo, rust_scan_roots, blockers);
+  return {
+    verified: blockers.length === blocker_start,
+    rules_checked: rules_checked,
+    roots_checked: roots_checked,
+    packages_checked: cargo.packages_checked,
+    targets_checked: cargo.targets_checked,
+    path_dependencies_checked: cargo.path_dependencies_checked
+  };
+}
+
+function corpus_rows_unique(corpus) {
+  const gap_ids = {};
+  const dynamic_argv = {};
+  const positive_verbs = {};
+  const positive_argv = {};
+  for (const row of corpus.dynamic_rows) {
+    const argv = JSON.stringify(row.argv);
+    if (!has_text(row.gap_id) || !Array.isArray(row.argv)
+        || gap_ids[row.gap_id] === true || dynamic_argv[argv] === true) {
+      return false;
+    }
+    gap_ids[row.gap_id] = true;
+    dynamic_argv[argv] = true;
+  }
+  for (const row of corpus.positive_rows) {
+    const argv = JSON.stringify(row.argv);
+    if (!has_text(row.verb) || !Array.isArray(row.argv)
+        || positive_verbs[row.verb] === true || positive_argv[argv] === true) {
+      return false;
+    }
+    positive_verbs[row.verb] = true;
+    positive_argv[argv] = true;
+  }
+  return true;
+}
+
+function verify_compatibility_identity(corpus_path, corpus, identity, blockers) {
+  const blocker_start = blockers.length;
+  if (typeof identity !== "object" || identity === null || identity.schema !== 1
+      || !valid_hex(identity.corpus_sha256, 64)
+      || !Array.isArray(identity.classifications) || !Array.isArray(identity.sources)) {
+    add(blockers, "compatibility_identity_invalid", "schema");
+    return { verified: false, corpus_sha256: null };
+  }
+  const digest = rh.sha256_file(corpus_path);
+  if (!compatibility_header_matches_frozen(identity)) {
+    add(blockers, "compatibility_identity_redefined", "frozen corpus identity");
+  }
+  if (digest !== identity.corpus_sha256) {
+    add(blockers, "compatibility_corpus_digest_mismatch", digest);
+  }
+  if (!Array.isArray(corpus.dynamic_rows)
+      || corpus.dynamic_rows.length !== identity.dynamic_count
+      || !Array.isArray(corpus.positive_rows)
+      || corpus.positive_rows.length !== identity.positive_count) {
+    add(blockers, "compatibility_corpus_count_mismatch", "frozen-counts");
+  } else if (!corpus_rows_unique(corpus)) {
+    add(blockers, "compatibility_corpus_identity_duplicate", "gap/argv/verb");
+  }
+  if (typeof corpus.invariants !== "object" || corpus.invariants === null
+      || corpus.invariants.dynamic_count !== frozen_compatibility_corpus.dynamic_count
+      || corpus.invariants.positive_count !== frozen_compatibility_corpus.positive_count
+      || corpus.invariants.dynamic_gap_ids_unique !== true
+      || corpus.invariants.dynamic_argv_unique !== true
+      || corpus.invariants.positive_verbs_unique !== true
+      || corpus.invariants.positive_argv_unique !== true) {
+    add(blockers, "compatibility_corpus_invariant_mismatch", "frozen invariants");
+  }
+  if (!Array.isArray(corpus.sources) || corpus.sources.length !== identity.sources.length) {
+    add(blockers, "compatibility_corpus_source_mismatch", "count");
+  } else {
+    for (let index = 0; index < identity.sources.length; index = index + 1) {
+      const expected = identity.sources[index];
+      const actual = corpus.sources[index];
+      if (typeof expected !== "object" || expected === null
+          || typeof actual !== "object" || actual === null
+          || actual.blob !== expected.corpus_blob || actual.sha256 !== expected.sha256
+          || !valid_hex(expected.revision, 40) || !valid_hex(expected.git_blob_oid, 40)
+          || !valid_hex(expected.sha256, 64)) {
+        add(blockers, "compatibility_corpus_source_mismatch", "source:" + index);
+      }
+    }
+  }
+  if (Array.isArray(corpus.dynamic_rows)) {
+    for (const row of corpus.dynamic_rows) {
+      if (!array_has(identity.classifications, row.classification)) {
+        add(blockers, "compatibility_corpus_classification_invalid",
+          "" + row.gap_id + ":" + row.classification);
+      }
+    }
+  }
+  return {
+    verified: blockers.length === blocker_start,
+    corpus_sha256: digest
+  };
+}
+
+function source_identities_match(compatibility, repository) {
+  if (!Array.isArray(compatibility.sources)
+      || !Array.isArray(repository.historical_source_blobs)
+      || compatibility.sources.length !== repository.historical_source_blobs.length) {
+    return false;
+  }
+  for (let index = 0; index < compatibility.sources.length; index = index + 1) {
+    const left = compatibility.sources[index];
+    const right = repository.historical_source_blobs[index];
+    if (left.revision !== right.revision || left.path !== right.path
+        || left.git_blob_oid !== right.git_blob_oid || left.sha256 !== right.sha256) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function git_object_to_file(repository, object, output) {
+  return rh.command_stdout_file("git", ["-C", repository, "cat-file", "blob", object],
+    output, { timeout_ms: 30000 });
+}
+
+function verify_legacy_repository_identity(repository, identity, context, blockers) {
+  const blocker_start = blockers.length;
+  if (typeof identity !== "object" || identity === null || identity.schema !== 1
+      || !valid_hex(identity.seal_commit, 40)
+      || !unique_text_rows(identity.required_ancestor_commits)
+      || !Array.isArray(identity.protected_trees)
+      || !Array.isArray(identity.protected_blobs)
+      || !Array.isArray(identity.historical_source_blobs)) {
+    add(blockers, "mcu_repository_identity_invalid", "schema");
+    return { verified: false, head: null, historical_sources_verified: false };
+  }
+  if (identity.seal_commit !== frozen_legacy_repository.seal_commit
+      || JSON.stringify(identity.required_ancestor_commits)
+        !== JSON.stringify(frozen_legacy_repository.required_ancestor_commits)
+      || identity.protected_trees.length !== frozen_legacy_repository.protected_trees.length
+      || identity.protected_blobs.length !== frozen_legacy_repository.protected_blobs.length
+      || identity.historical_source_blobs.length
+        !== frozen_legacy_repository.historical_sources.length) {
+    add(blockers, "mcu_repository_identity_redefined", "sealed identity");
+  }
+  for (let index = 0; index < frozen_legacy_repository.protected_trees.length; index = index + 1) {
+    const actual = identity.protected_trees[index];
+    if (!legacy_tree_matches_frozen(actual, index)) {
+      add(blockers, "mcu_repository_identity_redefined", "tree:" + index);
+    }
+  }
+  for (let index = 0; index < frozen_legacy_repository.protected_blobs.length; index = index + 1) {
+    if (!legacy_blob_matches_frozen(identity.protected_blobs[index], index)) {
+      add(blockers, "mcu_repository_identity_redefined", "blob:" + index);
+    }
+  }
+  for (let index = 0; index < frozen_legacy_repository.historical_sources.length;
+      index = index + 1) {
+    const actual = identity.historical_source_blobs[index];
+    if (!legacy_source_matches_frozen(actual, index)) {
+      add(blockers, "mcu_repository_identity_redefined", "source:" + index);
+    }
+  }
+  const head = git_text(repository, ["rev-parse", "HEAD"]);
+  if (!valid_hex(head, 40)) {
+    add(blockers, "mcu_repository_identity_mismatch", "head");
+  }
+  for (const commit of identity.required_ancestor_commits) {
+    if (!valid_hex(commit, 40)) {
+      add(blockers, "mcu_repository_identity_invalid", "commit:" + commit);
+      continue;
+    }
+    const object = git_command(repository, ["cat-file", "-e", commit + "^{commit}"]);
+    const ancestor = git_command(repository, ["merge-base", "--is-ancestor", commit, "HEAD"]);
+    if (!object.success || !ancestor.success) {
+      add(blockers, "mcu_repository_identity_mismatch", "ancestor:" + commit);
+    }
+  }
+  if (!array_has(identity.required_ancestor_commits, identity.seal_commit)) {
+    add(blockers, "mcu_repository_identity_invalid", "seal-not-required");
+  }
+  for (let index = 0; index < identity.protected_trees.length; index = index + 1) {
+    const tree = identity.protected_trees[index];
+    if (typeof tree !== "object" || tree === null || !has_text(tree.path)
+        || !valid_hex(tree.git_tree_oid, 40)
+        || !valid_hex(tree.git_archive_sha256, 64)) {
+      add(blockers, "mcu_archive_tree_identity_invalid", "tree:" + index);
+      continue;
+    }
+    const observed = git_text(repository, ["rev-parse", "HEAD:" + tree.path]);
+    const sealed = git_text(repository,
+      ["rev-parse", identity.seal_commit + ":" + tree.path]);
+    if (observed !== tree.git_tree_oid || sealed !== tree.git_tree_oid) {
+      add(blockers, "mcu_archive_tree_identity_mismatch", tree.path);
+      continue;
+    }
+    const archive_path = rh.join(context.run_directory, "archive-tree-" + index + ".tar");
+    const archive_code = rh.command_stdout_file("git", [
+      "-C", repository, "archive", "--format=tar", identity.seal_commit, "--", tree.path
+    ], archive_path, { timeout_ms: 30000 });
+    if (archive_code !== 0 || rh.sha256_file(archive_path) !== tree.git_archive_sha256) {
+      add(blockers, "mcu_archive_tree_digest_mismatch", tree.path);
+    }
+    rh.try_remove_file(archive_path);
+    const dirty = git_command(repository, ["diff", "--quiet", "HEAD", "--", tree.path]);
+    const untracked = git_text(repository,
+      ["ls-files", "--others", "--exclude-standard", "--", tree.path]);
+    if (!dirty.success || untracked === null || untracked !== "") {
+      add(blockers, "mcu_archive_worktree_dirty", tree.path);
+    }
+  }
+  for (let index = 0; index < identity.protected_blobs.length; index = index + 1) {
+    const blob = identity.protected_blobs[index];
+    if (typeof blob !== "object" || blob === null || !has_text(blob.path)
+        || !valid_hex(blob.git_blob_oid, 40) || !valid_hex(blob.sha256, 64)) {
+      add(blockers, "mcu_archive_blob_identity_invalid", "blob:" + index);
+      continue;
+    }
+    const observed = git_text(repository, ["rev-parse", "HEAD:" + blob.path]);
+    const output = rh.join(context.run_directory, "archive-blob-" + index + ".bin");
+    const code = git_object_to_file(repository, "HEAD:" + blob.path, output);
+    if (observed !== blob.git_blob_oid || code !== 0
+        || rh.sha256_file(output) !== blob.sha256) {
+      add(blockers, "mcu_archive_blob_identity_mismatch", blob.path);
+    }
+    rh.try_remove_file(output);
+  }
+  let historical_sources_verified = true;
+  for (let index = 0; index < identity.historical_source_blobs.length; index = index + 1) {
+    const source = identity.historical_source_blobs[index];
+    if (typeof source !== "object" || source === null || !valid_hex(source.revision, 40)
+        || !has_text(source.path) || !valid_hex(source.git_blob_oid, 40)
+        || !valid_hex(source.sha256, 64)) {
+      add(blockers, "mcu_historical_source_identity_invalid", "source:" + index);
+      historical_sources_verified = false;
+      continue;
+    }
+    const object = source.revision + ":" + source.path;
+    const observed = git_text(repository, ["rev-parse", object]);
+    const output = rh.join(context.run_directory, "historical-source-" + index + ".bin");
+    const code = git_object_to_file(repository, object, output);
+    if (observed !== source.git_blob_oid || code !== 0
+        || rh.sha256_file(output) !== source.sha256) {
+      add(blockers, "mcu_historical_source_identity_mismatch", source.path);
+      historical_sources_verified = false;
+    }
+    rh.try_remove_file(output);
+  }
+  return {
+    verified: blockers.length === blocker_start,
+    head: head,
+    historical_sources_verified: historical_sources_verified
+  };
 }
 
 function gate_proves(gate_id, evidence_id, platform) {
@@ -199,7 +1018,63 @@ function run_pending_self_test() {
   ] });
   harness.require(stays.length === 2 && stays[0] === "acu.dynamic.test-b"
       && stays[1] === "acu.dynamic.test-c", "dynamic-stay self-test accounting");
-  print("PASS: retirement pending-cell accounting fixture");
+  harness.require(valid_hex("0123456789abcdef0123456789abcdef01234567", 40)
+      && !valid_hex("0123456789abcdef0123456789abcdef0123456g", 40),
+    "retirement identity hex self-test");
+  harness.require(corpus_rows_unique({
+    dynamic_rows: [{ gap_id: "a", argv: ["one"] }, { gap_id: "b", argv: ["two"] }],
+    positive_rows: [{ verb: "one", argv: ["one"] }, { verb: "two", argv: ["two"] }]
+  }) && !corpus_rows_unique({
+    dynamic_rows: [{ gap_id: "a", argv: ["one"] }, { gap_id: "a", argv: ["two"] }],
+    positive_rows: []
+  }), "retirement corpus uniqueness self-test");
+  const scoped = "jobs:\n  runtime:\n    steps:\n"
+    + "      - name: cu-retirement-cell-smoke\n        run: |\n          execute-cell\n"
+    + "  aggregate:\n    steps:\n      - name: Seal exact candidate bundle\n";
+  const runtime = bounded_section(scoped, "\n  runtime:\n", "\n  aggregate:\n");
+  harness.require(runtime !== null
+      && named_step(runtime, "cu-retirement-cell-smoke") !== null
+      && active_line(named_step(runtime, "cu-retirement-cell-smoke"), "execute-cell"),
+    "candidate scoped step self-test");
+  const comment_only = "jobs:\n  runtime:\n    steps:\n"
+    + "      # - name: cu-retirement-cell-smoke\n      # execute-cell\n"
+    + "  aggregate:\n";
+  const comment_runtime = bounded_section(
+    comment_only, "\n  runtime:\n", "\n  aggregate:\n");
+  harness.require(comment_runtime !== null
+      && named_step(comment_runtime, "cu-retirement-cell-smoke") === null
+      && !active_line(comment_runtime, "execute-cell"),
+    "candidate comment marker cannot satisfy self-test");
+  harness.require(production_rule_matches_frozen({
+    id: "rust-runtime-invocation",
+    paths: frozen_production_rules["rust-runtime-invocation"][0],
+    patterns: frozen_production_rules["rust-runtime-invocation"][1]
+  }) && !production_rule_matches_frozen({
+    id: "rust-runtime-invocation", paths: ["src"], patterns: []
+  }), "production scan contract cannot shrink self-test");
+  harness.require(compatibility_header_matches_frozen({
+    corpus_sha256: frozen_compatibility_corpus.sha256,
+    dynamic_count: 95,
+    positive_count: 42
+  }) && !compatibility_header_matches_frozen({
+    corpus_sha256: frozen_compatibility_corpus.sha256,
+    dynamic_count: 0,
+    positive_count: 0
+  }), "compatibility corpus cannot self-report empty self-test");
+  harness.require(legacy_tree_matches_frozen({
+    path: frozen_legacy_repository.protected_trees[0][0],
+    git_tree_oid: frozen_legacy_repository.protected_trees[0][1],
+    git_archive_sha256: frozen_legacy_repository.protected_trees[0][2]
+  }, 0) && !legacy_tree_matches_frozen({
+    path: "ARCHIVE.md",
+    git_tree_oid: frozen_legacy_repository.protected_trees[0][1],
+    git_archive_sha256: frozen_legacy_repository.protected_trees[0][2]
+  }, 0), "legacy marker repository cannot redefine archive tree self-test");
+  harness.require(repo_relative("C:\\repo", "C:\\repo\\crates\\a\\src\\lib.rs")
+      === "crates/a/src/lib.rs"
+      && repo_relative("C:\\repo", "D:\\other\\src\\lib.rs") === null,
+    "cargo metadata Windows path normalization self-test");
+  print("PASS: retirement accounting and identity fixtures");
 }
 
 function last_json_line(text) {
@@ -231,7 +1106,8 @@ const context = harness.new_context(repo, mode === "report" ? "acu-retirement-re
 
 const contract = rh.parse_file(rh.join(repo, "plan/acu-retirement-contract.json"));
 const ledger = rh.parse_file(rh.join(repo, contract.ledger));
-const compatibility_corpus = rh.parse_file(rh.join(repo, contract.compatibility_corpus));
+const compatibility_corpus_path = rh.join(repo, contract.compatibility_corpus);
+const compatibility_corpus = rh.parse_file(compatibility_corpus_path);
 const manifest = rh.parse_file(rh.join(repo, "agenterm.tasks.json"));
 const qualification_manifest = rh.parse_file(rh.join(repo, "scripts/qualification-gates.json"));
 const host_native_manifest = rh.parse_file(rh.join(repo, "scripts/host-native-evidence-gates.json"));
@@ -241,8 +1117,34 @@ const pending_cells_by_platform = { linux: 0, macos: 0, windows: 0 };
 let visible_pending_cell_count = 0;
 const counts = { total: 0, native: 0, delegated: 0, gap: 0, platform_limited: 0, retired: 0 };
 const registered_evidence = {};
+let production_identity = {
+  verified: false, rules_checked: 0, roots_checked: 0,
+  packages_checked: 0, targets_checked: 0, path_dependencies_checked: 0
+};
+let compatibility_identity = { verified: false, corpus_sha256: null };
+let candidate_identity = { verified: false, platforms_checked: 0 };
+let legacy_repository_identity = {
+  verified: false, head: null, historical_sources_verified: false
+};
 
-harness.require(contract.schema === 1 && ledger.schema === 1, "retirement_contract_schema");
+harness.require((contract.schema === 1 || contract.schema === 2) && ledger.schema === 1,
+  "retirement_contract_schema");
+if (contract.schema === 1) {
+  add(blockers, "retirement_contract_identity_unpinned",
+    "schema 1 may report blockers but cannot prove retirement");
+} else {
+  production_identity = verify_production_identity(repo, contract.production_identity, blockers);
+  compatibility_identity = verify_compatibility_identity(
+    compatibility_corpus_path, compatibility_corpus, contract.compatibility_identity, blockers);
+  candidate_identity = verify_candidate_identity(repo, contract.candidate_identity, blockers);
+  if (typeof contract.legacy_repository_identity !== "object"
+      || contract.legacy_repository_identity === null
+      || !source_identities_match(
+        contract.compatibility_identity, contract.legacy_repository_identity)) {
+    add(blockers, "retirement_source_identity_mismatch",
+      "compatibility corpus and legacy repository do not name the same blobs");
+  }
+}
 harness.require(contract.platform_qualification_schema === 2,
   "retirement_platform_qualification_schema");
 harness.require(has_rows(contract.production_scan_paths)
@@ -349,19 +1251,16 @@ if (!capabilities.success) {
   }
 }
 
-const candidate_text = rh.read_text(rh.join(repo, ".github/workflows/candidate.yml"));
-if (candidate_text.indexOf(contract.candidate_runtime_marker) < 0) {
-  add(blockers, "candidate_cu_runtime_missing", contract.candidate_runtime_marker);
-}
-
-for (const pattern of contract.forbidden_production_patterns) {
-  const grep_args = ["grep", "-n", "-I", "-E", pattern, "--"];
-  for (const path of contract.production_scan_paths) { grep_args.push(path); }
-  const scan = rh.command("git", grep_args, { cwd: repo, timeout_ms: 30000 });
-  if (scan.exit_code === 0) {
-    add(blockers, "production_dependency_forbidden", pattern);
-  } else if (scan.exit_code !== 1) {
-    add(blockers, "production_scan_failed", pattern + ":exit=" + scan.exit_code);
+if (contract.schema === 1) {
+  for (const pattern of contract.forbidden_production_patterns) {
+    const grep_args = ["grep", "-n", "-I", "-E", pattern, "--"];
+    for (const path of contract.production_scan_paths) { grep_args.push(path); }
+    const scan = rh.command("git", grep_args, { cwd: repo, timeout_ms: 30000 });
+    if (scan.exit_code === 0) {
+      add(blockers, "production_dependency_forbidden", pattern);
+    } else if (scan.exit_code !== 1) {
+      add(blockers, "production_scan_failed", pattern + ":exit=" + scan.exit_code);
+    }
   }
 }
 
@@ -386,7 +1285,8 @@ let compatibility_complete = compatibility_corpus.schema === "agenterm.acu.compa
   && typeof compatibility_corpus.invariants === "object"
   && compatibility_corpus.invariants !== null
   && compatibility_corpus.dynamic_rows.length === compatibility_corpus.invariants.dynamic_count
-  && compatibility_corpus.positive_rows.length === compatibility_corpus.invariants.positive_count;
+  && compatibility_corpus.positive_rows.length === compatibility_corpus.invariants.positive_count
+  && contract.schema === 2 && compatibility_identity.verified;
 if (!compatibility_complete) {
   add(blockers, "dynamic_parity_corpus_incomplete", "checked-in engine-neutral corpus is malformed or incomplete");
 }
@@ -424,9 +1324,22 @@ if (mode === "enforce-absent") {
           add(blockers, "mcu_repository_marker_missing", "" + marker);
         }
       }
+      if (contract.schema === 2) {
+        legacy_repository_identity = verify_legacy_repository_identity(
+          repository_root, contract.legacy_repository_identity, context, blockers);
+      } else {
+        add(blockers, "mcu_repository_identity_unpinned",
+          "schema 1 marker checks are diagnostic only");
+      }
       for (const relative of contract.retired_runtime_relative_paths) {
         if (rh.exists(rh.join(repository_root, relative))) {
           add(blockers, "mcu_still_present", "" + relative);
+        }
+        const tracked = git_text(repository_root, ["ls-tree", "-r", "HEAD", "--", relative]);
+        const untracked = git_text(repository_root,
+          ["ls-files", "--others", "--exclude-standard", "--", relative]);
+        if (tracked === null || tracked !== "" || untracked === null || untracked !== "") {
+          add(blockers, "mcu_still_present_in_git", "" + relative);
         }
       }
     }
@@ -434,11 +1347,15 @@ if (mode === "enforce-absent") {
 }
 
 const report = {
-  schema: 1,
+  schema: 2,
   mode: mode,
   ready: blockers.length === 0,
   counts: counts,
   compatibility: compatibility,
+  production_identity: production_identity,
+  compatibility_identity: compatibility_identity,
+  candidate_identity: candidate_identity,
+  legacy_repository_identity: legacy_repository_identity,
   registered_evidence_count: Object.keys(registered_evidence).length,
   pending_cell_count: pending_cells.length,
   pending_cells_by_platform: pending_cells_by_platform,

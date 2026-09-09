@@ -17,17 +17,23 @@ Product contract: [PRD 29](../../prd/PRD_02_29_cu_command_surface.md)
 Every call names a target and a grant. Below, `cu` stands for
 `agenterm-cu --target current --grant observe` (add `actuate` for writes).
 
-## Living skill source (`moltbaby/skills/mcu`)
+## Archived MCU reference
 
-The living desktop-bridge lab is sibling-repo `moltbaby/skills/mcu`
-(`bin/mcu`). This crate is the **product destination**: absorb that skill's
-command set and layering lessons onto AgenTerm's command / grant /
-`libagenterm` ABI; never transplant the TypeScript (clean-room:
+MCU is no longer a living runtime dependency. Its final reviewed source and
+adapter snapshots are sealed in the sibling historical repository, while this
+crate is the **product destination** for the command / grant / `libagenterm`
+ABI. Historical behavior may inform clean-room compatibility work, but the
+TypeScript is never executed or transplanted (clean-room:
 [PRD 14](../../prd/PRD_02_14_research_provenance.md)). Verb-level status is
 [`plan/capability-mcu-cu.md`](../../plan/capability-mcu-cu.md). MCU
 spellings that cu honours are aliases (`inspect` / `find` / `read` ->
 `query`, `elements` -> `tree --flat`, `shot`, `type`, `frame`, ...); the
 rest are typed `unsupported` by name, never silently missing.
+
+Run retirement accounting through the named `acu-retirement-readiness` and
+`acu-retirement` tasks; their manifest budgets cover the large checked-in task
+catalog and the pinned Git/Cargo identity checks. Direct script invocation is
+only the lightweight `--self-test` or `--list-evidence` path.
 
 ## The loop
 
