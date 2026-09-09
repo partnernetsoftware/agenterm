@@ -445,6 +445,32 @@ require(compat.canonicalize(["resource", "pressure", "extra"]).kind === "usage",
 require(compat.canonicalize(["resource", "unknown"]).kind === "usage",
   "unknown resource subcommands must not recreate a retired TODO id");
 
+const resource_volumes_default = compat.canonicalize(["resource", "volumes"]);
+require(resource_volumes_default.kind === "exec",
+  "legacy resource volumes must use the native mounted-volume provider");
+same_argv(resource_volumes_default.argv,
+  ["--target", "current", "--grant", "observe,actuate",
+    "storage-volumes", "--max", "500"],
+  "legacy resource volumes archived default");
+const resource_volumes_bounded = compat.canonicalize([
+  "resource", "volumes", "--max", "7"
+]);
+same_argv(resource_volumes_bounded.argv,
+  ["--target", "current", "--grant", "observe,actuate",
+    "storage-volumes", "--max", "7"],
+  "legacy resource volumes explicit bound");
+require(compat.canonicalize([
+  "resource", "volumes", "--max", "513"
+]).kind === "usage", "resource volumes must not clamp the native result ceiling");
+require(compat.canonicalize([
+  "resource", "volumes", "--max", "0"
+]).kind === "usage", "resource volumes keeps the archived positive lower bound");
+const resource_disk_gap = compat.canonicalize(["resource", "disk", "/"]);
+require(resource_disk_gap.kind === "todo"
+    && resource_disk_gap.gap_id === "acu.dynamic.057.resource-disk"
+    && resource_disk_gap.message.indexOf("path-bound") >= 0,
+  "resource disk must name the missing exact-path provider without guessing a mount prefix");
+
 require(compat.canonicalize(["unknown-verb"]).kind === "exec",
   "ordinary unknown spelling must reach native usage, not TODO");
 require(compat.canonicalize(["job", "resorces", "job-1"]).kind === "exec",

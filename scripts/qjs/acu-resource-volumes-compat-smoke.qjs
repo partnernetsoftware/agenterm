@@ -1,0 +1,73 @@
+// Pure public court for legacy resource-volume routing. The full-volume form
+// reaches the bounded privacy-minimized native inventory, while exact-path
+// lookup stays explicit until a path-bound provider exists.
+//
+// Args: REPO | --list-evidence
+import * as compat from "skills/acu/lib/compat";
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["acu.compat-resource-volumes"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function same_argv(actual, expected, label) {
+  ensure(actual.length === expected.length, label + ":length");
+  for (let i = 0; i < expected.length; i = i + 1) {
+    ensure(actual[i] === expected[i], label + ":argv[" + i + "]");
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 1, "expected: REPO");
+const context = harness.new_context(rh.absolute(args[0]), "acu-resource-volumes-compat");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const defaults = compat.canonicalize(["resource", "volumes"]);
+  ensure(defaults.kind === "exec", "acu_resource_volumes_default_kind");
+  same_argv(defaults.argv, ["--target", "current", "--grant", "observe,actuate",
+    "storage-volumes", "--max", "500"], "acu_resource_volumes_default");
+
+  const bounded = compat.canonicalize(["resource", "volumes", "--max", "7"]);
+  ensure(bounded.kind === "exec", "acu_resource_volumes_bounded_kind");
+  same_argv(bounded.argv, ["--target", "current", "--grant", "observe,actuate",
+    "storage-volumes", "--max", "7"], "acu_resource_volumes_bounded");
+
+  for (const invalid of ["0", "513", "5001", "1.5"]) {
+    ensure(compat.canonicalize([
+      "resource", "volumes", "--max", invalid
+    ]).kind === "usage", "acu_resource_volumes_invalid:" + invalid);
+  }
+
+  const disk = compat.canonicalize(["resource", "disk", "/"]);
+  ensure(disk.kind === "todo" && disk.command === "resource"
+      && disk.gap_id === "acu.dynamic.057.resource-disk"
+      && disk.message.indexOf("path-bound") >= 0
+      && disk.message.indexOf("storage-volumes") >= 0,
+    "acu_resource_disk_exact_path_gap");
+  ensure(compat.canonicalize(["resource", "disk", "/", "extra"]).kind === "usage",
+    "acu_resource_disk_extra_path");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "acu.compat-resource-volumes");
+  harness.remove_run(context);
+  print("PASS: legacy resource volumes preserve bounds and exact-path lookup stays a named gap");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

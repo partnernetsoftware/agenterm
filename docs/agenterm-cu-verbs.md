@@ -1061,6 +1061,13 @@ is read-only and reports partial scans instead of inventing complete coverage.
 Potentially blocking or automounting Unix filesystems are counted as skipped;
 Windows currently reports only fixed drive-letter and RAM-disk letters and marks
 that coverage incomplete rather than probing removable or remote media.
+
+The Bun-free legacy entry maps `resource volumes [--max N]` here, making its
+archived default of 500 explicit. A requested bound above the native 512-row
+ceiling fails locally rather than being clamped. The native reply intentionally
+does not restore legacy filesystem device names or derived used percentages.
+`resource disk [PATH]` still requires a native path-bound provider; it never
+guesses from a truncated, skipped, lossy or symlink-sensitive mount prefix.
 ```
 
 ### `device-list`

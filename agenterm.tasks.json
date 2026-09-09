@@ -5201,6 +5201,23 @@
         "task.acu-storage-legacy-boundary-smoke"
       ]
     },
+    "acu-resource-volumes-compat-smoke": {
+      "inputs": [
+        "acu-compatibility-corpus"
+      ],
+      "outputs": [
+        "acu-resource-volumes-compat-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-resource-volumes-compat-smoke"
+      ]
+    },
     "acu-compound-projection": {
       "inputs": [
         "acu-compound-fixtures"
@@ -10965,6 +10982,25 @@
       "id": "acu-storage-legacy-boundary-smoke",
       "description": "Prove bounded device and mounted-volume inventory aliases reach native ACU while invented storage mount, unmount and eject subcommands fail as local usage without fallback.",
       "entry": "scripts/qjs/acu-storage-legacy-boundary-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "acu-resource-volumes-compat-smoke",
+      "description": "Prove legacy resource volumes preserves its reviewed default and explicit result bounds through storage-volumes while exact-path resource disk remains a named provider gap.",
+      "entry": "scripts/qjs/acu-resource-volumes-compat-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

@@ -680,6 +680,12 @@
       ]
     },
     {
+      "id": "acu-resource-volumes-compat-smoke",
+      "evidence": [
+        "acu.compat-resource-volumes"
+      ]
+    },
+    {
       "id": "cu-process-inventory-smoke",
       "evidence": [
         "cu.process-inventory-rich"

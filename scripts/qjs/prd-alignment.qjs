@@ -377,6 +377,7 @@ const evidence_suites = {
   "acu-job-resources-projection-smoke": true,
   "acu-zoom-legacy-rect-smoke": true,
   "acu-storage-legacy-boundary-smoke": true,
+  "acu-resource-volumes-compat-smoke": true,
   "cu-process-inventory-smoke": true,
   "cu-process-inspection-smoke": true,
   "cu-process-sockets-smoke": true,
