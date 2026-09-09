@@ -7101,7 +7101,7 @@
     },
     {
       "id": "cu-linux-process-fds-smoke",
-      "description": "Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; permission-denied directories typed-fail with host-limit detail; no --coords.",
+      "description": "Linux process-fds descriptor count, paths and kinds match independent /proc/<pid>/fd read-back for current and chosen PID; typed process-fds usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc/<pid>/fd read-back court; permission-denied directories typed-fail with host-limit detail; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-fds-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7361,7 +7361,7 @@
     },
     {
       "id": "cu-linux-process-usage-smoke",
-      "description": "Linux process-usage CPU time, resident bytes, I/O counters and identity match independent /proc read-back; no --coords.",
+      "description": "Linux process-usage CPU time, resident bytes, page-fault counters and start identity match independent /proc/<pid>/stat and statm read-back for current and chosen PID; typed process-usage usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc stat and statm read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-usage-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
