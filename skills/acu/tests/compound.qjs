@@ -88,6 +88,62 @@ require(observed.roles.length === 2 && observed.roles[0] === "button"
 require(observed.emitted === 3 && observed.filtered === 3, "observe counters");
 require(observe_reply.data.events.length === 4, "observe projection mutated reply");
 
+const fact_reply = { ok: true, data: {
+  mode: "poll-diff", emitted: 3, filtered: 1, events: [
+    { seq: 0, before: null, after: { text: "ready" }, node: {
+      id: "a", role: "AXButton", name: "Save", identifier: "save-button",
+      facts_complete: true, actions: ["press"], states: ["enabled", "checked"],
+      depth: 2, bounds: { x: 10, y: 20, width: 20, height: 10 }, text: null
+    } },
+    { seq: 1, before: "old", after: "needle value", node: {
+      id: "b", role: "AXTextField", name: "Editor", identifier: "editor",
+      facts_complete: true, actions: [], states: [], depth: 3,
+      bounds: { x: 100, y: 100, width: 40, height: 20 }, text: "body"
+    } },
+    { seq: 2, before: null, after: null, node: {
+      id: "c", role: "AXLink", name: "More", identifier: null,
+      facts_complete: true, actions: [], states: ["disabled", "unchecked"],
+      depth: 4, bounds: { x: 200, y: 200, width: 10, height: 10 }, text: null
+    } }
+  ]
+} };
+const enabled = ok(compound.observe_filters(fact_reply, {
+  enabled: true, "min-depth": 0, "max-depth": 4, offset: 0, max: 10
+}), "observe enabled filter");
+require(enabled.events.length === 1 && enabled.events[0].node.id === "a",
+  "unknown boolean state must not match false or true");
+require(enabled.captured_event_count === 3 && enabled.matched_event_count === 1
+  && enabled.returned_event_count === 1, "observe filter counters");
+const checked_false = ok(compound.observe_filters(fact_reply, {
+  checked: false, "min-depth": 0, "max-depth": 4, offset: 0, max: 10
+}), "observe checked false filter");
+require(checked_false.events.length === 1 && checked_false.events[0].node.id === "c",
+  "unknown checked state must not become false");
+const text_page = ok(compound.observe_filters(fact_reply, {
+  text: "e", "min-depth": 0, "max-depth": 4, offset: 1, max: 1
+}), "observe text page");
+require(text_page.matched_event_count === 3 && text_page.returned_event_count === 1
+  && text_page.events[0].node.id === "b" && text_page.truncated_results === true,
+  "observe pagination must apply after matching");
+const action_within = ok(compound.observe_filters(fact_reply, {
+  action: "PRESS", within: [0, 0, 50, 50], actionable: true,
+  "min-depth": 2, "max-depth": 2, offset: 0, max: 10
+}), "observe projected facts");
+require(action_within.events.length === 1 && action_within.events[0].node.id === "a",
+  "observe action, actionable, bounds and depth facts");
+fails(compound.observe_filters(fact_reply, { required: false, offset: 0, max: 1 }),
+  "observe_filter_unavailable", "required state unavailable");
+fails(compound.observe_filters({ ok: true, data: {
+  mode: "notifications", events: [{ node: {
+    id: "n", role: "link", facts_complete: false, actions: null, states: null
+  } }]
+} }, { role: "button", action: "press", offset: 0, max: 1 }),
+  "observe_filter_unavailable", "notification facts unavailable");
+fails(compound.observe_filters({ ok: true, data: {
+  mode: "notifications", events: []
+} }, { enabled: false, offset: 0, max: 1 }),
+  "observe_filter_unavailable", "empty notification facts unavailable");
+
 fails(compound.observe_roles({ ok: true, data: { events: [{ node: {} }] } }, "button"),
   "acu_compound_observe_invalid", "observe malformed event");
 fails(compound.apps_page({ ok: false, error: {

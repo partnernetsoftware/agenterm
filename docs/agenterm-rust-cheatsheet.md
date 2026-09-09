@@ -193,6 +193,14 @@ cap, and keep `bWatchSubtree` false plus a separator check for a non-recursive
 single-directory contract. Rename-old and rename-new are independent removed and
 created facts; do not require them to arrive in one batch.
 
+When an event filter depends on mutable node facts, project those facts from the
+same before/after snapshots that produced the event. Do not issue a later tree
+query from a reply projector: the node may already have changed or disappeared,
+turning a post-capture filter into a different-time guess. Removed events read
+their facts from the previous snapshot; other events prefer the current one.
+Sparse native notifications must mark unavailable facts explicitly, and an
+unknown boolean fact must match neither `true` nor `false`.
+
 Windows application facts need three independent lifetime and honesty brackets.
 Enumerate both 32-bit and 64-bit Uninstall views under HKLM and HKCU, then
 canonicalize and deduplicate executable paths before deciding uniqueness. For a

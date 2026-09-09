@@ -651,6 +651,10 @@ ACU-only cutover
 │  │  ├─ valid `tree --max-value-bytes` maps to bounded previews and completeness truth;
 │  │  └─ [ ] acu.dynamic.078.page-index-space · browser debug-read elements stay typed
 │  │     until their separate page indices have a complete browser identity binding
+│  ├─ [x] acu.dynamic.081 · legacy `observe` filters are a Bun-free post-capture projection;
+│  │  ├─ poll-diff events carry same-walk actions/bounds/depth/states/text facts
+│  │  ├─ unknown boolean facts match neither true nor false; `required` fails typed
+│  │  └─ archived duration/tree/event defaults and matched-event paging are preserved
 │  ├─ [x] acu.dynamic.084 · archived `windows watch` timing, event/window ceilings and
 │  │  state/type/all filters map to bounded native per-sample semantics;
 │  │  ├─ event type selection precedes the ceiling and truncation requires a retained max+1 event

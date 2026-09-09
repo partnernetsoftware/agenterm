@@ -164,50 +164,202 @@ export function normalize_role(raw) {
   return out === "pushbutton" ? "button" : out;
 }
 
-function wanted_roles(roles) {
-  const raw = Array.isArray(roles) ? roles
-    : typeof roles === "string" ? roles.split(",") : null;
+function wanted_values(raw_value, label, normalizer) {
+  const raw = Array.isArray(raw_value) ? raw_value
+    : typeof raw_value === "string" ? raw_value.split(",") : null;
   if (raw === null) {
-    return failure("acu_compound_role_invalid", "roles must be a string or string array");
+    return failure("acu_compound_observe_filter_invalid",
+      label + " must be a string or string array");
   }
   const values = [];
   for (let i = 0; i < raw.length; i = i + 1) {
     if (typeof raw[i] !== "string") {
-      return failure("acu_compound_role_invalid", "every role must be a string");
+      return failure("acu_compound_observe_filter_invalid",
+        "every " + label + " value must be a string");
     }
-    const role = normalize_role(raw[i]);
-    if (role !== "" && values.indexOf(role) === -1) { values.push(role); }
+    const value = normalizer(raw[i]);
+    if (value !== "" && values.indexOf(value) === -1) { values.push(value); }
   }
   if (values.length === 0) {
-    return failure("acu_compound_role_invalid", "at least one non-empty role is required");
+    return failure("acu_compound_observe_filter_invalid",
+      "at least one non-empty " + label + " is required");
   }
   return success(values);
 }
 
-export function observe_roles(reply, roles) {
+function normalized_word(raw) {
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+}
+
+function state_value(states, positive, negative) {
+  if (!Array.isArray(states)) { return null; }
+  let saw_negative = false;
+  for (let i = 0; i < states.length; i = i + 1) {
+    if (typeof states[i] !== "string") { continue; }
+    const state = states[i].toLowerCase();
+    if (positive.indexOf(state) !== -1) { return true; }
+    if (negative.indexOf(state) !== -1) { saw_negative = true; }
+  }
+  return saw_negative ? false : null;
+}
+
+function event_text(event) {
+  const values = [];
+  function push(value) {
+    if (typeof value === "string" && value.length > 0) { values.push(value); }
+  }
+  push(event.node.name);
+  push(event.node.identifier);
+  push(event.node.text);
+  push(event.before);
+  push(event.after);
+  if (object_value(event.before)) {
+    push(event.before.name); push(event.before.identifier); push(event.before.text);
+  }
+  if (object_value(event.after)) {
+    push(event.after.name); push(event.after.identifier); push(event.after.text);
+  }
+  return values.join("\n").toLowerCase();
+}
+
+function legacy_observe_actionable(role, actions) {
+  if (Array.isArray(actions) && actions.length > 0) { return true; }
+  const suffixes = [
+    "button", "checkbox", "radiobutton", "textfield", "textarea", "combobox",
+    "popupbutton", "slider", "link", "menuitem"
+  ];
+  for (let i = 0; i < suffixes.length; i = i + 1) {
+    if (role.endsWith(suffixes[i])) { return true; }
+  }
+  return false;
+}
+
+function unavailable_filter(name, mode) {
+  return failure("observe_filter_unavailable",
+    "observe filter " + name + " is unavailable in " + mode + " event facts");
+}
+
+export function observe_filters(reply, filters) {
   const unpacked = reply_data(reply, "observe reply");
   if (!unpacked.ok) { return unpacked; }
-  const wanted = wanted_roles(roles);
-  if (!wanted.ok) { return wanted; }
   const data = unpacked.value;
-  if (!object_value(data) || !Array.isArray(data.events)) {
+  if (!object_value(data) || !Array.isArray(data.events) || !object_value(filters)) {
     return failure("acu_compound_observe_invalid",
-      "observe reply data must contain an events array");
+      "observe reply data must contain an events array and filter object");
   }
-  const kept = [];
+  if (filters.required !== undefined) {
+    return unavailable_filter("required", "all published");
+  }
+  const roles = filters.role === undefined ? null
+    : wanted_values(filters.role, "role", normalize_role);
+  if (roles !== null && !roles.ok) { return roles; }
+  const actions = filters.action === undefined ? null
+    : wanted_values(filters.action, "action", normalized_word);
+  if (actions !== null && !actions.ok) { return actions; }
+  const bounds = page_bounds(filters.offset, filters.max);
+  if (!bounds.ok) { return bounds; }
+  const needs_facts = actions !== null || filters.actionable === true
+    || filters.enabled !== undefined || filters.focused !== undefined
+    || filters.selected !== undefined || filters.checked !== undefined
+    || filters.expanded !== undefined || filters.within !== undefined
+    || filters["min-depth"] !== undefined || filters["max-depth"] !== undefined;
+  if (needs_facts && data.mode === "notifications") {
+    return unavailable_filter("event-facts", "notifications");
+  }
+  if (needs_facts) {
+    for (let i = 0; i < data.events.length; i = i + 1) {
+      if (!object_value(data.events[i]) || !object_value(data.events[i].node)
+          || data.events[i].node.facts_complete !== true) {
+        return unavailable_filter("event-facts",
+          typeof data.mode === "string" ? data.mode : "unknown");
+      }
+    }
+  }
+  const matched = [];
   for (let i = 0; i < data.events.length; i = i + 1) {
     const event = data.events[i];
     if (!object_value(event) || !object_value(event.node)
         || typeof event.node.role !== "string") {
       return failure("acu_compound_observe_invalid", "every observe event needs node.role");
     }
-    if (wanted.value.indexOf(normalize_role(event.node.role)) !== -1) { kept.push(event); }
+    const role = normalize_role(event.node.role);
+    if (roles !== null && roles.value.indexOf(role) === -1) { continue; }
+    if (filters.text !== undefined) {
+      if (typeof filters.text !== "string") {
+        return failure("acu_compound_observe_filter_invalid", "text must be a string");
+      }
+      if (event_text(event).indexOf(filters.text.toLowerCase()) === -1) { continue; }
+    }
+    if (actions !== null) {
+      if (!Array.isArray(event.node.actions)) { return unavailable_filter("action", data.mode); }
+      let action_match = false;
+      for (let j = 0; j < event.node.actions.length; j = j + 1) {
+        if (typeof event.node.actions[j] === "string"
+            && actions.value.indexOf(event.node.actions[j].toLowerCase()) !== -1) {
+          action_match = true;
+        }
+      }
+      if (!action_match) { continue; }
+    }
+    if (filters.actionable === true
+        && !legacy_observe_actionable(role, event.node.actions)) { continue; }
+    const state_filters = [
+      ["enabled", ["enabled"], ["disabled"]],
+      ["focused", ["focused"], ["focusable"]],
+      ["selected", ["selected"], ["unselected"]],
+      ["checked", ["checked"], ["unchecked"]],
+      ["expanded", ["expanded"], ["collapsed"]]
+    ];
+    let state_match = true;
+    for (let j = 0; j < state_filters.length; j = j + 1) {
+      const spec = state_filters[j];
+      if (filters[spec[0]] !== undefined
+          && state_value(event.node.states, spec[1], spec[2]) !== filters[spec[0]]) {
+        state_match = false;
+      }
+    }
+    if (!state_match) { continue; }
+    if (filters["min-depth"] !== undefined && event.node.depth < filters["min-depth"]) {
+      continue;
+    }
+    if (filters["max-depth"] !== undefined && event.node.depth > filters["max-depth"]) {
+      continue;
+    }
+    if (filters.within !== undefined) {
+      if (!Array.isArray(filters.within) || filters.within.length !== 4
+          || !object_value(event.node.bounds)) {
+        return unavailable_filter("within", data.mode);
+      }
+      const center_x = event.node.bounds.x + event.node.bounds.width / 2;
+      const center_y = event.node.bounds.y + event.node.bounds.height / 2;
+      if (center_x < filters.within[0] || center_x > filters.within[2]
+          || center_y < filters.within[1] || center_y > filters.within[3]) {
+        continue;
+      }
+    }
+    matched.push(event);
   }
+  const selected = page(matched, bounds.value);
   const out = clone(data);
-  const removed = data.events.length - kept.length;
-  out.events = clone(kept);
-  out.roles = clone(wanted.value);
-  out.emitted = kept.length;
+  const removed = data.events.length - matched.length;
+  out.events = clone(selected);
+  out.filters = clone(filters);
+  out.captured_event_count = data.events.length;
+  out.matched_event_count = matched.length;
+  out.returned_event_count = selected.length;
+  out.offset = bounds.value.offset;
+  out.max = bounds.value.max;
+  out.truncated_results = bounds.value.offset + selected.length < matched.length;
+  out.emitted = selected.length;
   out.filtered = (nonnegative_integer(data.filtered) ? data.filtered : 0) + removed;
   return success(out);
+}
+
+export function observe_roles(reply, roles) {
+  const wanted = wanted_values(roles, "role", normalize_role);
+  if (!wanted.ok) { return wanted; }
+  const projected = observe_filters(reply, { role: roles, offset: 0, max: null });
+  if (!projected.ok) { return projected; }
+  projected.value.roles = clone(wanted.value);
+  return projected;
 }

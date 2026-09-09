@@ -24,7 +24,6 @@ export const LEGACY_TODO_GAP_IDS = [
   "acu.dynamic.004", "acu.dynamic.005", "acu.dynamic.018",
   "acu.dynamic.054", "acu.dynamic.057",
   "acu.dynamic.075", "acu.dynamic.078.page-index-space",
-  "acu.dynamic.081"
 ];
 
 function contains(values, wanted) {
@@ -249,14 +248,6 @@ function known_dynamic_boundary(argv) {
       && has_any_arg(argv, ["--actionable", "--index", "--offset", "--max"])) {
     return { kind: "usage", command: "tree",
       message: "tree accepts only --depth, --max-nodes, --max-value-bytes and --selector" };
-  }
-  if (verb === "observe" && has_any_arg(argv, [
-      "--action", "--text", "--enabled", "--focused", "--selected", "--checked",
-      "--expanded", "--required", "--actionable", "--min-depth", "--max-depth",
-      "--within", "--offset", "--max"
-    ])) {
-    return todo("acu.dynamic.081", "observe",
-      "legacy observe filters need a lossless event-stream projection");
   }
   if (verb === "simulator" && sub === "status") {
     const parsed = without_value_flags(argv, ["device"]);
@@ -566,6 +557,7 @@ export function canonicalize(input) {
     };
   }
   if (mapped.kind === "focused-pid" || mapped.kind === "observe-roles"
+      || mapped.kind === "observe-filters"
       || mapped.kind === "selector-dclick") {
     mapped.globals = copy(extracted.prefix);
     return mapped;

@@ -151,6 +151,31 @@ function normalize_bool(flags, name) {
   return false;
 }
 
+function legacy_bool(value) {
+  if (value === true) { return true; }
+  if (typeof value !== "string") { return null; }
+  const lower = value.toLowerCase();
+  if (lower === "true" || lower === "1" || lower === "yes" || lower === "on") {
+    return true;
+  }
+  if (lower === "false" || lower === "0" || lower === "no" || lower === "off") {
+    return false;
+  }
+  return null;
+}
+
+function finite_number(raw) {
+  if (typeof raw !== "string" || raw.trim().length === 0) { return null; }
+  const text = raw.trim();
+  for (let i = 0; i < text.length; i = i + 1) {
+    const ch = text.charAt(i);
+    if ((ch < "0" || ch > "9") && ch !== "+" && ch !== "-" && ch !== "."
+        && ch !== "e" && ch !== "E") { return null; }
+  }
+  const value = Number(text);
+  return value === value && value >= -1e308 && value <= 1e308 ? value : null;
+}
+
 function utf8_length(text) {
   let bytes = 0;
   for (let i = 0; i < text.length; i = i + 1) {
@@ -354,8 +379,23 @@ function observe_window(verb, rest, flags) {
     if (normalized.ok !== true) { return usage(verb, normalized.message); }
     flags.expect = normalized.value;
   }
-  const roles = verb === "observe" && flags.role !== undefined ? "" + flags.role : null;
-  if (roles !== null) { flags.role = undefined; }
+  const filter_names = [
+    "role", "action", "text", "enabled", "focused", "selected", "checked",
+    "expanded", "required", "actionable", "min-depth", "max-depth", "within",
+    "offset", "max"
+  ];
+  const filters = {};
+  let has_filters = false;
+  if (verb === "observe") {
+    for (let i = 0; i < filter_names.length; i = i + 1) {
+      const name = filter_names[i];
+      if (flags[name] !== undefined) {
+        filters[name] = flags[name];
+        flags[name] = undefined;
+        has_filters = true;
+      }
+    }
+  }
   if (!seconds_to_ms(flags, "timeout", "timeout-ms")
       || !seconds_to_ms(flags, "duration", "duration-ms")
       || !seconds_to_ms(flags, "interval", "interval-ms")) {
@@ -364,8 +404,66 @@ function observe_window(verb, rest, flags) {
   const handle = flags.window !== undefined ? "" + flags.window : take_handle(rest);
   flags.window = undefined;
   if (handle === null) { return usage(verb, verb + " needs HANDLE or --window"); }
-  if (roles !== null) {
-    return { kind: "observe-roles", command: verb, roles: roles,
+  if (has_filters) {
+    if (flags["duration-ms"] === undefined) { flags["duration-ms"] = "5000"; }
+    if (flags.depth === undefined) { flags.depth = "4"; }
+    if (flags["max-nodes"] === undefined) { flags["max-nodes"] = "1000"; }
+    if (flags["max-events"] === undefined) { flags["max-events"] = "200"; }
+    if (!bounded_integer(flags, "duration-ms", 50, 30000)
+        || !bounded_integer(flags, "depth", 0, 64)
+        || !bounded_integer(flags, "max-nodes", 1, 20000)
+        || !bounded_integer(flags, "max-events", 1, 5000)) {
+      return usage(verb, "observe requires duration 0.05..30 seconds and positive bounded tree/event budgets");
+    }
+    const depth = Number(flags.depth);
+    const min_depth = filters["min-depth"] === undefined ? 0 : Number(filters["min-depth"]);
+    const max_depth = filters["max-depth"] === undefined ? depth : Number(filters["max-depth"]);
+    if (!Number.isInteger(min_depth) || !Number.isInteger(max_depth)
+        || min_depth < 0 || max_depth < min_depth || max_depth > depth) {
+      return usage(verb, "observe depth filters require 0 <= min-depth <= max-depth <= depth");
+    }
+    filters["min-depth"] = min_depth;
+    filters["max-depth"] = max_depth;
+    const offset = filters.offset === undefined ? 0 : Number(filters.offset);
+    const max = filters.max === undefined ? Number(flags["max-events"]) : Number(filters.max);
+    if (!Number.isInteger(offset) || offset < 0 || offset > 100000
+        || !Number.isInteger(max) || max < 1 || max > 1000) {
+      return usage(verb, "observe offset must be 0..100000 and max must be 1..1000");
+    }
+    filters.offset = offset;
+    filters.max = max;
+    const bool_names = ["enabled", "focused", "selected", "checked", "expanded", "required"];
+    for (let i = 0; i < bool_names.length; i = i + 1) {
+      const name = bool_names[i];
+      if (filters[name] !== undefined) {
+        const value = legacy_bool(filters[name]);
+        if (value === null) { return usage(verb, "observe --" + name + " requires true or false"); }
+        filters[name] = value;
+      }
+    }
+    if (filters.actionable !== undefined) {
+      const value = legacy_bool(filters.actionable);
+      if (value === null) { return usage(verb, "observe --actionable requires true or false"); }
+      filters.actionable = value;
+    }
+    if (filters.within !== undefined) {
+      if (typeof filters.within !== "string") {
+        return usage(verb, "observe --within requires x1,y1,x2,y2");
+      }
+      const parts = filters.within.split(",");
+      if (parts.length !== 4) { return usage(verb, "observe --within requires x1,y1,x2,y2"); }
+      const values = [];
+      for (let i = 0; i < parts.length; i = i + 1) {
+        const value = finite_number(parts[i]);
+        if (value === null) { return usage(verb, "observe --within requires finite coordinates"); }
+        values.push(value);
+      }
+      if (values[2] < values[0] || values[3] < values[1]) {
+        return usage(verb, "observe --within endpoints must not precede their origins");
+      }
+      filters.within = values;
+    }
+    return { kind: "observe-filters", command: verb, filters: filters,
       argv: joined([verb, "--window", handle], flags, rest) };
   }
   return exec(joined([verb, "--window", handle], flags, rest));

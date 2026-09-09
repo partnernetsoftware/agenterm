@@ -49,8 +49,7 @@ const cases = [
   [["device", "claim", "legacy-device-path"], "acu.dynamic.054"],
   [["storage", "mount", "disk-1"], "acu.dynamic.057"],
   [["browser", "bridge", "status"], "acu.dynamic.075"],
-  [["elements", "Window#1", "--page", "--tab-id", "4"], "acu.dynamic.078.page-index-space"],
-  [["observe", "Window#1", "--action", "press"], "acu.dynamic.081"]
+  [["elements", "Window#1", "--page", "--tab-id", "4"], "acu.dynamic.078.page-index-space"]
 ];
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);
@@ -61,6 +60,15 @@ require_ok(elements_projection.ok === false
     && elements_projection.command === "query"
     && elements_projection.error.code !== "usage",
   "legacy elements must reach the native query provider:" + JSON.stringify(elements_projection));
+
+const observe_projection = invoke(launcher, [
+  "observe", "Window#1", "--action", "press"
+], 1);
+require_ok(observe_projection.ok === false
+    && observe_projection.command === "observe"
+    && observe_projection.error.code !== "usage"
+    && observe_projection.error.code !== "acu_todo",
+  "legacy observe filters must reach the native observer:" + JSON.stringify(observe_projection));
 
 const signal_plan = invoke(launcher, [
   "privilege", "plan", "process.signal", "" + rh.pid(), "STOP",

@@ -10814,7 +10814,7 @@
     },
     {
       "id": "acu-compat-todo-smoke",
-      "description": "Prove archived legacy gaps and retirements keep stable typed identities before dispatch, legacy static elements reaches native query, the repaired privilege signal plan reaches its read-only provider, and unknown spellings remain native usage errors.",
+      "description": "Prove archived legacy gaps and retirements keep stable typed identities before dispatch, repaired elements and observe projections reach their native providers, the privilege signal plan stays read-only, and unknown spellings remain native usage errors.",
       "entry": "scripts/qjs/acu-compat-todo-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -10855,7 +10855,7 @@
     },
     {
       "id": "acu-compound-projection",
-      "description": "Prove Bun-free compound ACU projections preserve typed failures, exact identities, bounded paging and normalized role filtering without host effects.",
+      "description": "Prove Bun-free compound ACU projections preserve typed failures, exact identities, bounded matched-event paging, tri-state observe filters and unavailable facts without host effects.",
       "entry": "skills/acu/tests/compound.qjs",
       "profile": "tool",
       "cwd": ".",
