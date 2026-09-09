@@ -778,3 +778,38 @@ never changed the read-back tuple for a background application in 3 of 3
 fresh-fixture lease-only attempts, and no pointer event was posted. That record
 may not claim that background drag is impossible, that any release failed, or
 that the archived click lease was wrong.
+
+#### 10.6.8 Dry attempt 3 and terminal decision
+
+Source `242d9bda4e75e56827231af981eb5d4de07953c4`, probe digest
+`31f62a88b4504f5e04a6625a9d84cb44f8c151adcae2b689d3530e13529a3cd6`,
+ran dependency-state attempt 3, cumulative attempt 3, repair count 1 and run
+number 1. The pre-lease observation reported the application focused-window
+attribute and both window focused attributes as not settable. The injector
+kept `focus_lease_attribute_not_settable` as the first typed failure; its
+secondary one-shot set still read back A after 40 milliseconds. G6a,
+restoration and cleanup remained verified, with zero pointer events.
+
+The precommitted result is `INCONCLUSIVE_DEPENDENCY`, not the three-failed-set
+retirement branch: that branch required an available setter accepted across
+three attempts, while the terminal observation showed the controlling
+application attribute is not settable in this dependency state. The report's
+generic criteria list incorrectly included unrun triplet criteria; the complete
+dry receipt is retained, its measured criteria are adjudicated as G6a/G6b, and
+the court now applies that list to every dry-stage verdict. No rerun is
+authorized by this metadata-only correction.
+
+The only specification-preserving repair was the archived 40-millisecond
+settle, and it did not change the read-back. The terminal observation then
+showed the controlling attribute is not settable; any remaining attempt would
+require a different AX subset or the forbidden application activation path.
+The evidence-based timebox is therefore exhausted and selects macOS HANDLE
+typed retirement with reason
+`research-budget-exhausted-without-a-discriminating-result`.
+
+This branch must not be rewritten as `measured-safety-failure` or as proof that
+exact delivery is impossible. It did not test an active target application or
+a drag after acquiring the focus lease, and it changes neither the earlier
+click/wheel findings nor Linux/Windows status. The criteria label defect is
+fixed in the next frozen source; the complete terminal receipt remains valid
+and no fourth run is authorized.

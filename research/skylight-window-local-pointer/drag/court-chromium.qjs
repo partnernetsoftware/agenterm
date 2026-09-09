@@ -1475,7 +1475,7 @@ let criteria_remaining = ["G9", "G10"];
 if (verdict === "INCONCLUSIVE_REPORT_CONTRACT") {
   criteria_measured = [];
   criteria_remaining = ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8", "G9", "G10"];
-} else if (verdict === "INCONCLUSIVE_DRY_NOT_PROVEN") {
+} else if (stage === "focus-lease-dry") {
   criteria_measured = ["G6a", "G6b"];
   criteria_remaining = ["G1", "G2", "G3", "G4", "G5", "G7", "G8", "G9", "G10"];
 }

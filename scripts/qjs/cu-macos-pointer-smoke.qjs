@@ -19,8 +19,9 @@
 //   - mouse events posted to a pid DO arrive, but carry no window, so no
 //     view ever sees them and the control never fires.
 // There is therefore no window-local pointer route on this platform, and
-// `pointer-move --to <handle>` is refused rather than approximated. What is
-// left is the global HID tap, which this journey exercises.
+// `pointer-move --to <handle>` and exact-window drag without --degraded are
+// refused rather than approximated. What is left is the global HID tap, which
+// this journey exercises.
 //
 // The cursor is put back. The journey reads the real position first, moves
 // it by a small delta, reads it back independently, restores the original
@@ -234,6 +235,31 @@ try {
     "cu_macos_pointer_restored:" + JSON.stringify(restored) + " wanted " + origin_x + "," + origin_y
   );
   moved = 0;
+
+  print("STEP an exact-window drag is typed-refused before effect rather than moving the real pointer");
+  const focused = run_cu_json(run_directory, executable, [
+    "--target", "current", "--grant", "observe", "windows", "--focused", "true", "--max", "1"
+  ]);
+  ensure(Array.isArray(focused.data.windows) && focused.data.windows.length === 1,
+    "cu_macos_pointer_drag_window_missing");
+  const drag_window = focused.data.windows[0];
+  const drag_x = int_at(drag_window, "bounds.x") + 1;
+  const drag_y = int_at(drag_window, "bounds.y") + 1;
+  const drag_refusal = run_cu_reply(run_directory, executable, [
+    "--target", "current", "--grant", "observe,actuate", "drag",
+    "--window", "" + int_at(drag_window, "handle"),
+    "--from", "" + drag_x + "," + drag_y,
+    "--to", "" + (drag_x + 1) + "," + (drag_y + 1)
+  ]);
+  ensure(!flag_at(drag_refusal, "ok")
+      && text_at(drag_refusal, "error.code") === "invalid_input"
+      && text_at(drag_refusal, "error.detail.path") === "degraded-global-pointer"
+      && flag_at(drag_refusal, "error.detail.window_local_available") === false
+      && text_at(drag_refusal, "error.detail.effect") === "not_performed",
+    "cu_macos_pointer_drag_refusal:" + JSON.stringify(drag_refusal));
+  const after_drag_refusal = pointer_xy(run_directory, executable);
+  ensure(after_drag_refusal[0] === origin_x && after_drag_refusal[1] === origin_y,
+    "cu_macos_pointer_drag_refusal_moved_cursor");
 
   print("STEP a window-scoped pointer target is refused rather than approximated, and the verb refuses a missing --to");
   // macOS has no window-local pointer route: events posted to a pid arrive

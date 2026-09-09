@@ -341,3 +341,45 @@ three attempts in the current dependency state. It does not select retirement,
 register evidence, change PRD or ledger state, or close `acu.dynamic.004`.
 Attempt 3 is forbidden until this result and its unchanged decision boundary
 have been reviewed and frozen at a reachable source.
+
+## Chromium focus-lease drag dry attempt 3 · 2026-09-10
+
+- Repository source SHA: `242d9bda4e75e56827231af981eb5d4de07953c4`.
+- Drag source digest:
+  `31f62a88b4504f5e04a6625a9d84cb44f8c151adcae2b689d3530e13529a3cd6`.
+- Host: macOS build 25F80, arm64; Google Chrome 152.0.7977.83.
+- Counters: dependency-state attempt 3, cumulative attempt 3, repair count 1,
+  run number 1.
+- Pointer events: zero; completed triplets: zero; cleanup verified.
+- Adjudication: `INCONCLUSIVE_DEPENDENCY`; the dry receipt measured G6a and
+  G6b only.
+
+Before the lease, `AXUIElementIsAttributeSettable` reported false for the
+application focused-window attribute and both peer/target window focused
+attributes. The injector retained `focus_lease_attribute_not_settable` as its
+first typed error. As a secondary observation it still attempted the single
+application focused-window set; after the fixed 40-millisecond delay, read-back
+remained peer A. G6a stayed unchanged, restoration read back the original A
+tuple, `outcome_unknown` remained false and no pointer event was constructed
+or posted.
+
+The emitted report correctly selected the precommitted dependency branch, but
+its generic criteria list incorrectly named unrun G1--G5 and G7--G8 as measured.
+The complete structured dry receipt makes the dependency observation valid;
+the criteria metadata is adjudicated as G6a/G6b and the court is corrected so
+every dry-stage verdict reports only those criteria. This metadata correction
+does not authorize another terminal attempt.
+
+The section 10.6 decision trace is: attempt 1 did not prove acquisition; the
+only specification-preserving repair restored the archived 40-millisecond
+settle; attempt 2 reproduced the unverified read-back; attempt 3 established
+that the controlling AX attribute is not settable. No further repair can be
+spent without changing the frozen mechanism or using the forbidden application
+activation path. The macOS HANDLE shape is therefore typed-retired with reason
+`research-budget-exhausted-without-a-discriminating-result`.
+
+This is not evidence that exact delivery is impossible. The experiment did not
+measure an active target application, did not run a drag after the focus-lease
+precondition, and does not change the earlier click or wheel results. Linux and
+Windows remain pending. The result registers no capability evidence and does
+not remove the parent `acu.dynamic.004` TODO while those platforms remain open.

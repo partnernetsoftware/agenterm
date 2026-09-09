@@ -536,13 +536,19 @@
             "schema": 2,
             "platforms": {
               "linux": {"result": "pending", "blocker_code": "exact-window-delivery-not-implemented"},
-              "macos": {"result": "pending", "blocker_code": "exact-window-delivery-not-implemented"},
+              "macos": {
+                "result": "typed-intentional-retirement",
+                "gate": "cu-macos-pointer-smoke",
+                "evidence": ["cu.macos-pointer-refusals"],
+                "error_code": "invalid_input",
+                "rationale": "The final zero-pointer focus-lease dry reported the application focused-window attribute not settable after the only specification-preserving settle repair still read back peer A; the bounded research budget ended without a discriminating result, so ACU refuses exact-window drag before effect rather than guessing another private mechanism."
+              },
               "windows": {"result": "pending", "blocker_code": "exact-window-delivery-not-implemented"}
             }
           },
           "evidence": ["cu.macos-pointer-refusals"],
-          "next": "execute only the precommitted section 10.6 focus-lease discriminator: prove one dry A-to-B-to-A lease and two identical frozen 20-triplet runs while system focus and z-order stay unchanged, or permanently retire the macOS legacy window-handle drag; no further mechanism search is authorized",
-          "note": "No host currently supplies this exact-window pixel-delivery contract. The measured wheel route did not prove held-button routing. The research-only Chromium drag discriminator returned FAIL_PRIVATE on macOS build 25F80: the physical pointer and foreground guard stayed fixed, but the first private down changed Chromium AX main/focused-window identity from peer to target; the same-route up and cleanup completed without outcome uncertainty. The result registers no public evidence and keeps all platforms pending. The registered macOS court proves explicit refusal after the native experiment; a typed refusal is evidence of the gap, not capability parity."
+          "next": "keep Linux and Windows pending; section 10.6 authorizes no macOS replay, and any future exact-window mechanism requires a new explicit precommitment before implementation or measurement",
+          "note": "No host currently supplies this exact-window pixel-delivery contract. The measured wheel route did not prove held-button routing. The first research-only Chromium drag discriminator measured application-local focus drift after a private down while preserving the pointer and foreground guard. The final section 10.6 focus-lease discriminator ended INCONCLUSIVE_DEPENDENCY before pointer delivery: the controlling AX attribute reported not settable after the only specification-preserving settle repair still read back peer A. With no legal repair left, macOS HANDLE drag is typed-retired for research-budget-exhausted-without-a-discriminating-result; this is not proof that exact delivery is impossible. Linux and Windows remain pending, so acu.dynamic.004 stays in the compatibility queue. The registered macOS court proves the native invalid_input refusal before effect; that typed boundary is not capability parity."
         },
         {
           "id": "desktop.keyboard.text",

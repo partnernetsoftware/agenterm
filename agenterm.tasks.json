@@ -9814,7 +9814,7 @@
     },
     {
       "id": "cu-macos-pointer-smoke",
-      "description": "Prove agenterm-cu's macOS pointer verbs move the real cursor and put it back: pointer-position reads absolute screen coordinates without injecting an event, pointer-move moves to a requested point and is read back, the origin is restored exactly, and window-scoped --to, a missing --to and an observe-only grant are typed refusals that move nothing.",
+      "description": "Prove agenterm-cu's macOS pointer verbs move the real cursor and put it back: pointer-position reads absolute coordinates, pointer-move is independently read back, and the origin is restored exactly. Window-scoped move, exact-window drag without --degraded, missing --to and observe-only actuation are typed refusals that move nothing.",
       "entry": "scripts/qjs/cu-macos-pointer-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

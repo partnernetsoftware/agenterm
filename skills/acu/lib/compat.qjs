@@ -207,7 +207,7 @@ function known_dynamic_boundary(argv) {
   if (verb === "drag" && has_arg(argv, "--to")
       && !(has_arg(argv, "--window") && has_arg(argv, "--from"))) {
     return todo("acu.dynamic.004", "drag",
-      "legacy window-local drag coordinates need a lossless typed adapter");
+      "legacy window-local drag coordinates need a lossless typed adapter; macOS HANDLE delivery is retired, while Linux and Windows remain gaps");
   }
   if (verb === "zoom" && (argv.length > 1 && !argv[1].startsWith("--")
       || has_any_arg(argv, ["--x1", "--y1", "--x2", "--y2"]))) {

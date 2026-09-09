@@ -21,8 +21,13 @@ input and records the delay. Dry attempt 2 used that delay but still read back
 peer A, with zero pointer events and unchanged G6a, restoration and cleanup.
 It is the second counted `INCONCLUSIVE_DRY_NOT_PROVEN`, not retirement. The
 next frozen source records AX attribute settable states as observation only;
-this does not consume another repair or change the lease. Attempt 3 is the
-terminal attempt of this dependency state.
+this does not consume another repair or change the lease. Terminal attempt 3
+reported the application focused-window attribute as not settable and ended
+`INCONCLUSIVE_DEPENDENCY`, with zero pointer events and unchanged G6a,
+restoration and cleanup. With no specification-preserving repair left, section
+10.6 selects macOS HANDLE typed retirement for exhausted research without a
+discriminating result. This is not a claim that exact delivery is impossible;
+Linux and Windows remain pending. Section 10.6 authorizes no further run.
 
 `page.html` has no external resources. The parent court loads it twice as:
 
@@ -50,7 +55,8 @@ is the cumulative count across dependency states and repairs and never resets.
 records both counters; retirement by exhaustion requires three failed attempts
 in one dependency state or all six cumulative attempts.
 
-The next authorized attempt uses these explicit counters:
+The terminal attempt used these explicit counters; this is a historical
+reproduction record, not authorization to rerun it:
 
 ```sh
 ACU004_DRY_ATTEMPT=3 ACU004_DRY_STATE_ATTEMPT=3 \
