@@ -50,8 +50,7 @@ const cases = [
   [["storage", "mount", "disk-1"], "acu.dynamic.057"],
   [["browser", "bridge", "status"], "acu.dynamic.075"],
   [["elements", "Window#1", "--actionable", "true"], "acu.dynamic.078"],
-  [["observe", "Window#1", "--action", "press"], "acu.dynamic.081"],
-  [["windows", "--space", "7", "--occluded", "true"], "acu.dynamic.085"]
+  [["observe", "Window#1", "--action", "press"], "acu.dynamic.081"]
 ];
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);

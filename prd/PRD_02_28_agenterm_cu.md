@@ -184,7 +184,7 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   18 direct exec, 9 Bun-free compound projections, and 5 local usage refusals; no resolved
   row remains TODO. All 95 dynamic witnesses remain frozen, and the 2 remaining
   dynamic-stay witness rows keep their stable repair identities. A public black-box
-  compatibility court additionally proves 10 known argument-sensitive legacy shapes
+  compatibility court additionally proves 8 known argument-sensitive legacy shapes
   return `ACU_CAPABILITY_TODO` with their exact `gap_id` instead of falling through to
   naked native `usage`; unknown verbs and misspelled subcommands deliberately remain
   ordinary usage errors. The `.050` witness now
@@ -652,6 +652,10 @@ ACU-only cutover
 │  │  ├─ event type selection precedes the ceiling and truncation requires a retained max+1 event
 │  │  ├─ `--max` is a complete filtered snapshot bound, not legacy silent pre-watch pagination
 │  │  └─ macOS owned-window court proves state boundaries, occlusion honesty and ABI 1.36 `--all`
+│  ├─ [x] acu.dynamic.085 · static `windows` Space/state/all and exact AX-root filters are native;
+│  │  ├─ complete candidate filtering precedes offset/max paging
+│  │  ├─ AX root inspection has an explicit scan ceiling and reports incomplete coverage
+│  │  └─ macOS owned-window court proves state truth, exact roots and typed truncation
 │  ├─ [x] acu.dynamic.086 · native macOS `app-menu-inspect` resolves an exact app + unique process;
 │  │  ├─ process start identity, complete matching window set and foreground are bracketed
 │  │  ├─ public owned qjswasm menu court is green without activation
