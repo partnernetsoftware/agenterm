@@ -1,9 +1,12 @@
 // CEO#9: GTK entry set-caret / get-caret roundtrip by --name.
 // Plant SEED with send-text, set-caret to a known offset, independent
 // get-caret must return that offset and agree with a separate pyatspi
-// Text.CaretOffset probe. Typed usage and host-limit paths must hold when
-// the named entry is missing or the target has no Text caret interface.
-// AT-SPI --name only; no --coords or screenshot degradation.
+// Text.CaretOffset probe. Typed get-caret/set-caret usage and host-limit
+// paths must hold when --window/--name are missing, the named entry is
+// missing, the target has no Text caret interface, or the AT-SPI bus is
+// unavailable; typed get-extents --name usage/host-limit paths must hold
+// before the native actuate/read-back court. AT-SPI --name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -17,6 +20,7 @@ const declared_evidence = [
   "cu.linux-gtk-entry-get-caret-end",
 ];
 
+const ENTRY_NAME = "Fixture Entry";
 const UNAVAILABLE_NODE = "Fixture Check";
 const MISSING_NODE = "No Such Entry";
 
@@ -91,6 +95,19 @@ function run_cu(run_directory, executable, grant, arguments) {
   const document = run_cu_reply(run_directory, executable, grant, arguments);
   ensure(output_success(document), "cu_linux_gtk_entry_caret_reply:" + JSON.stringify(document));
   return document;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_gtk_entry_caret_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
 }
 
 function probe_atspi_available(executable) {
@@ -209,9 +226,41 @@ function independent_caret_probe(run_directory, executable, probe_config_json) {
   return document;
 }
 
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", ENTRY_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_gtk_entry_caret_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_caret_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_gtk_entry_caret_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", ENTRY_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_gtk_entry_caret_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_gtk_entry_caret_extents_unavailable_code:" + code
+  );
+}
+
 function assert_caret_agreement(run_directory, executable, handle, fixture_title, target_offset, label) {
   const caret = run_cu(run_directory, executable, "observe", [
-    "get-caret", "--window", handle, "--name", "Fixture Entry",
+    "get-caret", "--window", handle, "--name", ENTRY_NAME,
   ]);
   ensure(
     text_at(caret, "data.via") === "get-caret-offset"
@@ -223,7 +272,7 @@ function assert_caret_agreement(run_directory, executable, handle, fixture_title
   );
   const probe = independent_caret_probe(
     run_directory, executable,
-    JSON.stringify({ title: fixture_title, mode: "named", name_pattern: "Fixture Entry" })
+    JSON.stringify({ title: fixture_title, mode: "named", name_pattern: ENTRY_NAME })
   );
   ensure(
     probe.offset === target_offset,
@@ -251,7 +300,7 @@ function assert_caret_usage_limit(run_directory, executable) {
   );
 
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
-    "get-caret", "--window", "0", "--name", "Fixture Entry",
+    "get-caret", "--window", "0", "--name", ENTRY_NAME,
   ]);
   ensure(!output_success(zero_handle), "cu_linux_gtk_entry_caret_zero_handle_ok:" + JSON.stringify(zero_handle));
   ensure(
@@ -275,19 +324,31 @@ function assert_caret_usage_limit(run_directory, executable) {
 }
 
 function assert_caret_host_limit_when_atspi_absent(run_directory, executable) {
-  const reply = run_cu_reply(run_directory, executable, "observe", [
-    "get-caret", "--window", "1", "--name", "Fixture Entry",
-  ], {
+  const env = {
     AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
     AGENTERM_NO_ACTIVATE: "1",
     AT_SPI_BUS_ADDRESS: "invalid",
-  });
-  ensure(!output_success(reply), "cu_linux_gtk_entry_caret_unavailable_ok:" + JSON.stringify(reply));
-  const code = text_at(reply, "error.code");
+  };
+  const get_reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-caret", "--window", "1", "--name", ENTRY_NAME,
+  ], env);
+  ensure(!output_success(get_reply), "cu_linux_gtk_entry_caret_unavailable_ok:" + JSON.stringify(get_reply));
+  const get_code = text_at(get_reply, "error.code");
   ensure(
-    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
-      || code === "a11y_node_not_found" || code === "invalid_input",
-    "cu_linux_gtk_entry_caret_unavailable_code:" + code
+    get_code === "a11y_backend_failed" || get_code === "unsupported" || get_code === "bad_handle"
+      || get_code === "a11y_node_not_found" || get_code === "invalid_input",
+    "cu_linux_gtk_entry_caret_unavailable_code:" + get_code
+  );
+
+  const set_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "set-caret", "--window", "1", "--name", ENTRY_NAME, "--offset", "0",
+  ], env);
+  ensure(!output_success(set_reply), "cu_linux_gtk_entry_caret_set_unavailable_ok:" + JSON.stringify(set_reply));
+  const set_code = text_at(set_reply, "error.code");
+  ensure(
+    set_code === "a11y_backend_failed" || set_code === "unsupported" || set_code === "bad_handle"
+      || set_code === "a11y_node_not_found" || set_code === "invalid_input",
+    "cu_linux_gtk_entry_caret_set_unavailable_code:" + set_code
   );
 }
 
@@ -392,14 +453,23 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
   print("STEP get-caret / set-caret typed-fail usage when --name or --window is missing");
   assert_caret_usage_limit(run_directory, executable);
 
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    print("STEP get-caret / set-caret typed-fail host-limit when independent pyatspi desktop probe is unavailable");
     assert_caret_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
@@ -431,13 +501,13 @@ try {
 
     print("STEP focus moves AT-SPI focus to the named GTK entry");
     run_cu(run_directory, executable, "observe,actuate", [
-      "focus", "--window", handle, "--name", "Fixture Entry",
+      "focus", "--window", handle, "--name", ENTRY_NAME,
     ]);
     const focused = run_cu(run_directory, executable, "observe", [
       "focused", "--window", handle,
     ]);
     ensure(
-      text_at(focused, "data.node.name") === "Fixture Entry",
+      text_at(focused, "data.node.name") === ENTRY_NAME,
       "cu_linux_gtk_entry_caret_focused:" + JSON.stringify(focused.data)
     );
 
@@ -446,7 +516,7 @@ try {
     const end_offset = seed.length;
     print("STEP send-text --name plants SEED through AT-SPI EditableText/Text");
     const sent = run_cu(run_directory, executable, "observe,actuate", [
-      "send-text", "--window", handle, "--name", "Fixture Entry", "--", seed,
+      "send-text", "--window", handle, "--name", ENTRY_NAME, "--", seed,
     ]);
     ensure(
       text_at(sent, "data.typed") === seed
@@ -456,7 +526,7 @@ try {
 
     print("STEP independent get-caret baseline before set-caret (not proof of placement)");
     const before = run_cu(run_directory, executable, "observe", [
-      "get-caret", "--window", handle, "--name", "Fixture Entry",
+      "get-caret", "--window", handle, "--name", ENTRY_NAME,
     ]);
     ensure(
       text_at(before, "data.via") === "get-caret-offset",
@@ -465,7 +535,7 @@ try {
 
     print("STEP set-caret --name --offset N moves caret through AT-SPI Text.SetCaretOffset");
     const placed = run_cu(run_directory, executable, "observe,actuate", [
-      "set-caret", "--window", handle, "--name", "Fixture Entry",
+      "set-caret", "--window", handle, "--name", ENTRY_NAME,
       "--offset", "" + caret_offset,
     ]);
     ensure(
@@ -484,7 +554,7 @@ try {
 
     print("STEP set-caret --name --offset end-of-SEED then independent get-caret read-back");
     const placed_end = run_cu(run_directory, executable, "observe,actuate", [
-      "set-caret", "--window", handle, "--name", "Fixture Entry",
+      "set-caret", "--window", handle, "--name", ENTRY_NAME,
       "--offset", "" + end_offset,
     ]);
     ensure(
@@ -513,7 +583,7 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_caret_failed");
 if (atspi_available) {
-  print("PASS: CEO#9 GTK entry set-caret / get-caret roundtrip by --name with pyatspi CaretOffset read-back and typed host-limit paths");
+  print("PASS: CEO#9 GTK entry set-caret / get-caret roundtrip by --name with pyatspi CaretOffset read-back and typed get-caret/set-caret/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO#9 GTK entry caret typed-fails when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO#9 GTK entry get-caret/set-caret typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
