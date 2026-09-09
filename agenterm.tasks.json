@@ -7407,7 +7407,7 @@
     },
     {
       "id": "cu-linux-spaces-smoke",
-      "description": "Linux spaces typed unsupported (macOS SkyLight) even when wmctrl -d or EWMH _NET_CURRENT_DESKTOP/_NET_NUMBER_OF_DESKTOPS exist; same host-limit when those APIs are absent (no fake green); SkyLight absence probe; spaces usage rejects --name/--coords/--bogus; get-extents --name usage/host-limit before inventory; headless host-limit; observe-only, no --coords.",
+      "description": "Linux spaces typed unsupported (macOS SkyLight) even when wmctrl -d or EWMH _NET_CURRENT_DESKTOP/_NET_NUMBER_OF_DESKTOPS exist; same host-limit when those APIs are absent (no fake green); SkyLight absence probe; spaces usage rejects --name/--coords/--bogus; get-extents --name usage AND host-limit paths (including --coords/--bogus honesty) before inventory; headless host-limit; observe-only, no --coords.",
       "entry": "scripts/qjs/cu-linux-spaces-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
