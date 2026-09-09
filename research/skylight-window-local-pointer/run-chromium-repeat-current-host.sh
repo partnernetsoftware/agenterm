@@ -3,9 +3,10 @@
 #
 # Rebuilds the frozen discriminator sources (chromium/Inject.swift,
 # fixture/Fixture.swift) exactly like run-chromium-current-host.sh and reuses
-# fixture-chromium/page.html unchanged. The verdict JSON stays on stdout for
-# the caller, which decides where to record it. Optional ACTIONS (1..1000)
-# is the detector-test knob and is passed through as the eighth argument.
+# fixture-chromium/page.html unchanged. One parent qjs invocation owns the
+# fixture while fresh 50-action qjs workers reset the interpreter step budget.
+# The verdict JSON stays on stdout for the caller. Optional ACTIONS (1..1000)
+# is the detector-test knob and is passed through as the ninth argument.
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -16,6 +17,7 @@ AGENTERM_CU_EXE=${AGENTERM_CU_EXE:-"$REPO/target/debug/agenterm-cu"}
 CHROMIUM_EXE=${AGENTERM_CU_BROWSER_EXE:-}
 ACTIONS=${ACU074_REPEAT_ACTIONS:-}
 REPEAT="$ROOT/fixture-chromium/repeat-chromium.qjs"
+BLOCK="$ROOT/fixture-chromium/repeat-chromium-block.qjs"
 PAGE="$ROOT/fixture-chromium/page.html"
 INJECT_SOURCE="$ROOT/chromium/Inject.swift"
 GUARD_SOURCE="$ROOT/fixture/Fixture.swift"
@@ -33,6 +35,7 @@ require_file "$AGENTERM_EXE" AGENTERM_EXE
 require_file "$AGENTERM_CU_EXE" AGENTERM_CU_EXE
 require_file "$CHROMIUM_EXE" AGENTERM_CU_BROWSER_EXE
 require_file "$REPEAT" fixture-chromium/repeat-chromium.qjs
+require_file "$BLOCK" fixture-chromium/repeat-chromium-block.qjs
 require_file "$PAGE" fixture-chromium/page.html
 require_file "$INJECT_SOURCE" chromium/Inject.swift
 require_file "$GUARD_SOURCE" fixture/Fixture.swift
@@ -58,6 +61,7 @@ PROBE_DIGEST=$(
     for source in \
       fixture-chromium/page.html \
       fixture-chromium/repeat-chromium.qjs \
+      fixture-chromium/repeat-chromium-block.qjs \
       chromium/Inject.swift \
       fixture/Fixture.swift \
       run-chromium-repeat-current-host.sh
@@ -77,6 +81,7 @@ fi
 
 set -- \
   "$REPO" \
+  "$AGENTERM_EXE" \
   "$AGENTERM_CU_EXE" \
   "$CHROMIUM_EXE" \
   "$INJECTOR" \

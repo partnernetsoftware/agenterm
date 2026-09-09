@@ -4,14 +4,13 @@
 // passed on this host: the same invocation-owned Chromium profile, the same
 // B/A window identity (B opened first so it is never the key window), the
 // same caller-selected guard fixture in the foreground and the same one-shot
-// injector, but only the PRIVATE arm, repeated ACTIONS times. Every action is
-// independent: reset both oracles, prove the guard is frontmost, run one
-// injector process, bounded-poll the target oracle over CDP, wait a quiet
-// window, read both oracles back, prove the guard is still frontmost and
-// classify the action. The five frozen discriminator sources are reused
-// unchanged; this file and its runner are the only additions.
+// injector, but only the PRIVATE arm, repeated ACTIONS times. This parent owns
+// setup, the frozen identity and cleanup. It delegates contiguous blocks of at
+// most 50 actions to fresh qjswasm invocations solely to reset the interpreter
+// step budget; workers cannot recreate, rediscover, move or clean the fixture.
 //
-// Args: REPO AGENTERM_CU_EXE CHROMIUM_EXE INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST [ACTIONS]
+// Args: REPO AGENTERM_EXE AGENTERM_CU_EXE CHROMIUM_EXE INJECTOR_EXE
+//       GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST [ACTIONS]
 //   ACTIONS defaults to 1000. Any other value is a detector test (for example
 //   10 actions with a deliberately wrong injector target) and is flagged as
 //   detector_mode in the verdict; it never counts as the pre-committed repeat.
@@ -25,18 +24,18 @@
 //   stdout is one JSON object. ok !== true is an injector failure
 //   (INCONCLUSIVE); host_unchanged !== true is a HOST_DRIFT failure.
 //
-// Classification per action (first matching wins, all are counted):
+// Classification per action (first matching wins):
 //   HOST_DRIFT   injector reported host_unchanged === false, or the guard was
 //                not frontmost before/after the action (the run then stops)
 //   MISDELIVERY  peer A received any wheel event
 //   DUP          target B received more than one wheel event
 //   LOSS         target B received no wheel event, or the recorded last wheel
 //                is not on the requested axis
-// Verdict: PASS when every action is exact; otherwise FAIL_<first category by
-// precedence HOST_DRIFT > MISDELIVERY > DUP > LOSS>; behavioural verdicts
-// exit 0. Setup, oracle, injector, cleanup and timebox problems are
-// INCONCLUSIVE and exit non-zero. Output is bounded: at most 20 failure
-// records, one summary per 100 actions, and the final verdict JSON.
+// Verdict: PASS when every action is exact; the first behavioural failure ends
+// the run as FAIL_<category> and exits zero. Setup, worker, oracle, cleanup and
+// timebox problems are INCONCLUSIVE and exit non-zero. Stdout is exactly one
+// final JSON object; validated block replies are retained under the owned run
+// directory for diagnosis and are removed with it after a successful run.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -45,12 +44,8 @@ const WHEEL_DX = 0;
 const WHEEL_DY = 3;
 const FRAME_A = { x: 40, y: 80, width: 520, height: 400 };
 const FRAME_B = { x: 700, y: 80, width: 520, height: 400 };
-const POLL_INTERVAL_MS = 25;
-const POLL_BOUND_MS = 500;
-const QUIET_WINDOW_MS = 150;
-const SUMMARY_EVERY = 100;
-const FAILURE_RECORD_CAP = 20;
-const FAILURE_ABORT_AFTER = 20;
+const BLOCK_ACTIONS = 50;
+const BLOCK_TIMEOUT_MAX_MS = 120000;
 const TIMEBOX_MS = 1500000;
 
 function ensure(condition, message) {
@@ -98,18 +93,19 @@ const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   return;
 }
-harness.require(args.length === 7 || args.length === 8,
-  "expected: REPO AGENTERM_CU_EXE CHROMIUM_EXE INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST [ACTIONS]");
+harness.require(args.length === 8 || args.length === 9,
+  "expected: REPO AGENTERM_EXE AGENTERM_CU_EXE CHROMIUM_EXE INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST [ACTIONS]");
 const repo = rh.absolute(args[0]);
-const executable = rh.absolute(args[1]);
-const chromium = rh.absolute(args[2]);
-const injector = rh.absolute(args[3]);
-const guard_fixture = rh.absolute(args[4]);
-const source_sha = "" + args[5];
-const probe_digest = "" + args[6];
+const agenterm = rh.absolute(args[1]);
+const executable = rh.absolute(args[2]);
+const chromium = rh.absolute(args[3]);
+const injector = rh.absolute(args[4]);
+const guard_fixture = rh.absolute(args[5]);
+const source_sha = "" + args[6];
+const probe_digest = "" + args[7];
 let actions = DEFAULT_ACTIONS;
-if (args.length === 8) {
-  actions = rh.parse_int(args[7]);
+if (args.length === 9) {
+  actions = rh.parse_int(args[8]);
   harness.require(actions >= 1 && actions <= DEFAULT_ACTIONS,
     "ACTIONS must be an integer from 1 to " + DEFAULT_ACTIONS);
 }
@@ -119,6 +115,8 @@ const context = harness.new_context(repo, "acu-074-chromium-repeat");
 const run_directory = context.run_directory;
 const nonce = "" + context.run_id;
 const page_path = rh.join(repo, "research/skylight-window-local-pointer/fixture-chromium/page.html");
+const worker_path = rh.join(repo,
+  "research/skylight-window-local-pointer/fixture-chromium/repeat-chromium-block.qjs");
 const guard_state = rh.join(run_directory, "guard.json");
 const cu_env = {
   AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
@@ -255,32 +253,6 @@ function focused_native_window() {
   return reply.data.windows[0];
 }
 
-function run_injector(arm, browser_pid, target_window, target_point, off_point) {
-  const argv = [
-    "--arm", arm,
-    "--pid", "" + browser_pid,
-    "--window", "" + target_window,
-    "--x", "" + target_point.x, "--y", "" + target_point.y,
-    "--off-x", "" + off_point.x, "--off-y", "" + off_point.y,
-    "--dx", "" + WHEEL_DX, "--dy", "" + WHEEL_DY,
-    "--guard-state", guard_state
-  ];
-  const output = rh.command(injector, argv, {
-    cwd: run_directory,
-    env: cu_env,
-    timeout_ms: 30000
-  });
-  const text = output.stdout.trim();
-  ensure(output.success === true && text !== "",
-    "acu074_injector_failed:" + arm + ":" + output.stdout + output.stderr);
-  const reply = JSON.parse(text);
-  // ok === false is an injector/oracle failure (INCONCLUSIVE); host_unchanged
-  // is returned to the caller so the repeat can classify HOST_DRIFT as a
-  // behavioural failure instead of aborting the whole run.
-  ensure(reply.ok === true, "acu074_injector_not_ok:" + arm + ":" + text);
-  return reply;
-}
-
 let chrome_child = -1;
 let guard_child = -1;
 let stage = "setup";
@@ -288,6 +260,7 @@ let failure = "";
 let cleanup_required = false;
 let cleanup_verified = false;
 let identity = null;
+let report_identity = null;
 const started_ms = rh.now_ms();
 let actions_run = 0;
 let exact_count = 0;
@@ -297,54 +270,69 @@ const failures = [];
 const summaries = [];
 let aborted_reason = "";
 
-function classify(injected, before_front_ok, after_front_ok, snap_b, snap_a) {
-  if (injected.host_unchanged !== true || !before_front_ok || !after_front_ok) {
-    return "HOST_DRIFT";
+function run_block(start_index, action_count, timeout_ms) {
+  const arguments = [
+    "cli", "script", "run", "--profile", "tool",
+    "--timeout-ms", "" + timeout_ms,
+    "--max-operations", "1000000000",
+    "--max-host-operations", "1000000",
+    "--max-output-bytes", "1048576",
+    "--max-string-bytes", "1048576",
+    "--project-root", rh.join(repo, "scripts/qjs"),
+    worker_path, "--", repo, executable, injector, JSON.stringify(identity),
+    "" + start_index, "" + action_count, "" + timeout_ms
+  ];
+  const output = rh.command(agenterm, arguments, {
+    cwd: repo,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: timeout_ms + 5000
+  });
+  ensure(output.timed_out !== true, "acu074_repeat_block_timeout:" + start_index);
+  ensure(output.stdout_truncated !== true && output.stderr_truncated !== true,
+    "acu074_repeat_block_output_truncated:" + start_index);
+  ensure(output.success === true,
+    "acu074_repeat_block_failed:" + start_index + ":" + output.stderr);
+  const text = output.stdout.trim();
+  ensure(text !== "", "acu074_repeat_block_empty:" + start_index);
+  const reply = JSON.parse(text);
+  ensure(text_at(reply, "schema") === "acu074-chromium-repeat-block-v1"
+    && text_at(reply, "status") === "complete",
+    "acu074_repeat_block_schema:" + start_index);
+  ensure(text_at(reply, "source_sha") === source_sha
+    && text_at(reply, "probe_digest") === probe_digest
+    && text_at(reply, "run_id") === nonce,
+    "acu074_repeat_block_identity:" + start_index);
+  ensure(number_at(reply, "start_index") === start_index
+    && number_at(reply, "end_index") === start_index + action_count - 1
+    && number_at(reply, "actions_requested") === action_count,
+    "acu074_repeat_block_range:" + start_index);
+  const ran = number_at(reply, "actions_run");
+  const exact = number_at(reply, "exact_count");
+  const category = reply.behavioral_failure === null
+    ? "" : text_at(reply, "behavioral_failure.category");
+  ensure(ran >= 1 && ran <= action_count && exact >= 0 && exact <= ran,
+    "acu074_repeat_block_counts:" + start_index);
+  if (category === "") {
+    ensure(ran === action_count && exact === action_count,
+      "acu074_repeat_block_incomplete:" + start_index);
+  } else {
+    ensure(ran === exact + 1
+      && (category === "HOST_DRIFT" || category === "MISDELIVERY"
+        || category === "DUP" || category === "LOSS"),
+      "acu074_repeat_block_failure_shape:" + start_index);
   }
-  if (snap_a.count > 0) { return "MISDELIVERY"; }
-  if (snap_b.count > 1) { return "DUP"; }
-  if (snap_b.count === 0) { return "LOSS"; }
-  if (snap_b.last_wheel === null || snap_b.last_wheel.kind !== "wheel"
-    || snap_b.last_wheel.deltaX !== WHEEL_DX || snap_b.last_wheel.deltaY === 0) {
-    return "LOSS";
-  }
-  return "";
-}
-
-function record_failure(index, category, injected, snap_b, snap_a, before_front, after_front) {
-  failure_count = failure_count + 1;
-  counts[category] = counts[category] + 1;
-  if (failures.length < FAILURE_RECORD_CAP) {
-    failures.push({
-      action: index,
-      category: category,
-      target_count: snap_b === null ? null : snap_b.count,
-      peer_count: snap_a === null ? null : snap_a.count,
-      target_last_wheel: snap_b === null ? null : snap_b.last_wheel,
-      host_unchanged: injected === null ? null : injected.host_unchanged,
-      before_front_pid: before_front === null ? null : before_front.process_id,
-      after_front_pid: after_front === null ? null : after_front.process_id,
-      elapsed_ms: rh.now_ms() - started_ms
-    });
-  }
-}
-
-function poll_target_until_delivered(port, target_id) {
-  const deadline = rh.now_ms() + POLL_BOUND_MS;
-  let snapshot = snapshot_counts(port, target_id, "B");
-  while (snapshot.count < 1 && rh.now_ms() < deadline) {
-    rh.sleep_ms(POLL_INTERVAL_MS);
-    snapshot = snapshot_counts(port, target_id, "B");
-  }
-  return snapshot;
+  rh.atomic_write(rh.join(run_directory, "block-" + start_index + ".json"), text + "\n");
+  return reply;
 }
 
 try {
+  ensure(direct_file(agenterm), "acu074_agenterm_executable_missing:" + agenterm);
   ensure(direct_file(executable), "acu074_cu_executable_missing:" + executable);
   ensure(direct_file(chromium), "acu074_chromium_missing:" + chromium);
   ensure(direct_file(injector), "acu074_injector_missing:" + injector);
   ensure(direct_file(guard_fixture), "acu074_guard_fixture_missing:" + guard_fixture);
   ensure(direct_file(page_path), "acu074_page_missing:" + page_path);
+  ensure(direct_file(worker_path), "acu074_worker_missing:" + worker_path);
   ensure(source_sha !== "" && probe_digest !== "", "acu074_result_identity_missing");
 
   const profile = rh.join(run_directory, "chrome-profile");
@@ -489,6 +477,13 @@ try {
     "acu074_off_point_inside_target");
 
   identity = {
+    schema: "acu074-chromium-repeat-identity-v1",
+    source_sha: source_sha,
+    probe_digest: probe_digest,
+    run_id: nonce,
+    run_directory: run_directory,
+    guard_state: guard_state,
+    cu_env: cu_env,
     browser_pid: browser_pid,
     cdp_port: port,
     target: { label: "B", cg_window: target_window,
@@ -499,57 +494,49 @@ try {
     target_point: target_point,
     off_point: off_point
   };
+  report_identity = {
+    browser_pid: browser_pid,
+    cdp_port: port,
+    target: identity.target,
+    peer: identity.peer,
+    guard_pid: guard.pid,
+    target_point: target_point,
+    off_point: off_point
+  };
 
   stage = "repeat";
-  for (let index = 1; index <= actions; index = index + 1) {
-    if (rh.now_ms() - started_ms > TIMEBOX_MS) {
-      throw "acu074_repeat_timebox_exceeded:" + index;
+  while (actions_run < actions && failure_count === 0) {
+    const remaining_time = TIMEBOX_MS - (rh.now_ms() - started_ms);
+    ensure(remaining_time > 0, "acu074_repeat_timebox_exceeded:" + (actions_run + 1));
+    const remaining_actions = actions - actions_run;
+    const block_actions = remaining_actions < BLOCK_ACTIONS ? remaining_actions : BLOCK_ACTIONS;
+    const block_timeout = remaining_time < BLOCK_TIMEOUT_MAX_MS
+      ? remaining_time : BLOCK_TIMEOUT_MAX_MS;
+    const start_index = actions_run + 1;
+    const block = run_block(start_index, block_actions, block_timeout);
+    const block_ran = number_at(block, "actions_run");
+    const block_exact = number_at(block, "exact_count");
+    actions_run = actions_run + block_ran;
+    exact_count = exact_count + block_exact;
+    const behavioral = block.behavioral_failure;
+    if (behavioral !== null) {
+      const category = "" + behavioral.category;
+      failure_count = 1;
+      counts[category] = 1;
+      failures.push(behavioral);
+      aborted_reason = "first_behavioral_failure";
     }
-    reset_counts(port, target_a, "A");
-    reset_counts(port, target_b, "B");
-    const before_front = focused_native_window();
-    const before_ok = before_front.process_id === guard.pid;
-    let injected = null;
-    let snap_b = null;
-    let snap_a = null;
-    let after_front = null;
-    let after_ok = false;
-    if (before_ok) {
-      injected = run_injector("private", browser_pid, target_window, target_point, off_point);
-      poll_target_until_delivered(port, target_b);
-      rh.sleep_ms(QUIET_WINDOW_MS);
-      snap_b = snapshot_counts(port, target_b, "B");
-      snap_a = snapshot_counts(port, target_a, "A");
-      after_front = focused_native_window();
-      after_ok = after_front.process_id === guard.pid;
-    }
-    const category = before_ok
-      ? classify(injected, before_ok, after_ok, snap_b, snap_a)
-      : "HOST_DRIFT";
-    actions_run = index;
-    if (category === "") {
-      exact_count = exact_count + 1;
-    } else {
-      record_failure(index, category, injected, snap_b, snap_a, before_front, after_front);
-      if (!before_ok || !after_ok) {
-        aborted_reason = "guard_not_frontmost";
-        break;
-      }
-      if (failure_count >= FAILURE_ABORT_AFTER) {
-        aborted_reason = "failure_cap";
-        break;
-      }
-    }
-    if (index % SUMMARY_EVERY === 0) {
-      const elapsed = rh.now_ms() - started_ms;
-      summaries.push({
-        through: index,
-        exact: exact_count,
-        failures: failure_count,
-        elapsed_ms: elapsed,
-        avg_action_ms: (elapsed - (elapsed % index)) / index
-      });
-    }
+    const elapsed = rh.now_ms() - started_ms;
+    summaries.push({
+      start: start_index,
+      through: actions_run,
+      requested: block_actions,
+      exact: block_exact,
+      failures: behavioral === null ? 0 : 1,
+      worker_elapsed_ms: number_at(block, "elapsed_ms"),
+      elapsed_ms: elapsed,
+      avg_action_ms: (elapsed - (elapsed % actions_run)) / actions_run
+    });
   }
   stage = "done";
 } catch (error) {
@@ -604,8 +591,15 @@ const report = {
   cleanup_required: cleanup_required,
   cleanup_verified: cleanup_verified,
   wheel: { dx: WHEEL_DX, dy: WHEEL_DY },
-  poll: { interval_ms: POLL_INTERVAL_MS, bound_ms: POLL_BOUND_MS, quiet_ms: QUIET_WINDOW_MS },
-  identity: identity,
+  execution: {
+    block_actions: BLOCK_ACTIONS,
+    block_timeout_max_ms: BLOCK_TIMEOUT_MAX_MS,
+    blocks_run: summaries.length,
+    poll_interval_ms: 25,
+    poll_bound_ms: 500,
+    quiet_ms: 150
+  },
+  identity: report_identity,
   summaries: summaries,
   failures: failures,
   stage: stage,
@@ -619,5 +613,5 @@ if (verdict === "INCONCLUSIVE" || cleanup_failure !== "") {
   throw "acu074_repeat_" + verdict + (failure !== "" ? ":" + failure : "")
     + (cleanup_failure !== "" ? ":" + cleanup_failure : "");
 }
-harness.remove_run(context);
+if (verdict === "PASS") { harness.remove_run(context); }
 return;

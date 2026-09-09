@@ -62,8 +62,11 @@ window identities and one foreground guard for the whole run. Its parent court
 executes consecutive 50-action blocks in fresh qjswasm top-level calls because
 the engine's hard step ceiling is per call. Blocks cannot recreate or resolve
 the fixture; they receive its frozen identities and repeat the same per-action
-oracles. The parent requires contiguous coverage of all 1,000 indices, zero
-failures and verified cleanup.
+oracles. Each worker prints one bounded JSON object; the parent rejects a
+nonzero, timed-out, truncated, malformed, duplicated or noncontiguous reply and
+persists only validated block replies inside its owned run directory. The
+parent requires contiguous coverage of all 1,000 indices, zero failures and
+verified cleanup.
 
 `probe_digest` is path-independent: it hashes a canonical stream of fixed
 repo-relative source labels followed by each file's SHA-256. Moving an

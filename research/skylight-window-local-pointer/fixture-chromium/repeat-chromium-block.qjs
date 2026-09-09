@@ -1,0 +1,252 @@
+// One bounded acu.dynamic.074 Chromium PRIVATE repeat block.
+//
+// The parent owns the Chromium profile, both page/window identities, the
+// foreground guard and cleanup. This worker receives that frozen identity as
+// JSON and performs only a contiguous block of actions. It must not discover,
+// move, recreate or clean up the fixture. A behavioural failure ends the block
+// immediately and exits zero with a structured FAIL category. Any malformed
+// identity, command/oracle failure or local timebox failure is INCONCLUSIVE and
+// exits non-zero after printing one bounded JSON report.
+//
+// Args: REPO AGENTERM_CU_EXE INJECTOR_EXE FROZEN_IDENTITY_JSON
+//       START_INDEX ACTION_COUNT BLOCK_TIMEBOX_MS
+import * as rh from "lib/rh_compat";
+
+const WHEEL_DX = 0;
+const WHEEL_DY = 3;
+const POLL_INTERVAL_MS = 25;
+const POLL_BOUND_MS = 500;
+const QUIET_WINDOW_MS = 150;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const result = at(value, dotted);
+  return result === undefined || result === null ? "" : "" + result;
+}
+
+function number_at(value, dotted) {
+  const raw = text_at(value, dotted);
+  return raw === "" ? 0 : rh.parse_int(raw);
+}
+
+const args = rh.args();
+ensure(args.length === 7,
+  "expected: REPO AGENTERM_CU_EXE INJECTOR_EXE FROZEN_IDENTITY_JSON START_INDEX ACTION_COUNT BLOCK_TIMEBOX_MS");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const injector = rh.absolute(args[2]);
+const identity = JSON.parse("" + args[3]);
+const start_index = rh.parse_int(args[4]);
+const action_count = rh.parse_int(args[5]);
+const block_timebox_ms = rh.parse_int(args[6]);
+const end_index = start_index + action_count - 1;
+const run_directory = text_at(identity, "run_directory");
+const nonce = text_at(identity, "run_id");
+const browser_pid = number_at(identity, "browser_pid");
+const port = number_at(identity, "cdp_port");
+const guard_pid = number_at(identity, "guard_pid");
+const target_window = number_at(identity, "target.cg_window");
+const target_id = text_at(identity, "target.target_id");
+const peer_id = text_at(identity, "peer.target_id");
+const target_point = at(identity, "target_point");
+const off_point = at(identity, "off_point");
+const cu_env = {
+  AGENTERM_CU_AUDIT_PATH: text_at(identity, "cu_env.AGENTERM_CU_AUDIT_PATH"),
+  AGENTERM_CU_RUNTIME_PATH: text_at(identity, "cu_env.AGENTERM_CU_RUNTIME_PATH"),
+  AGENTERM_CU_IDEMPOTENCY_PATH: text_at(identity, "cu_env.AGENTERM_CU_IDEMPOTENCY_PATH"),
+  AGENTERM_NO_ACTIVATE: "1"
+};
+
+function invoke(grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env,
+    timeout_ms: 60000
+  });
+  const text = output.stdout.trim();
+  ensure(text !== "", "acu074_block_empty_reply:" + output.stderr);
+  const reply = JSON.parse(text);
+  ensure(output.success === true && reply.ok === true,
+    "acu074_block_command_failed:" + JSON.stringify(reply));
+  return reply;
+}
+
+function page_js(target, expression) {
+  return invoke("observe", [
+    "page-js", "--port", "" + port, "--target-id", target,
+    "--expression", expression
+  ]).data.value;
+}
+
+function reset_counts(target, label) {
+  const value = "" + page_js(target, "window.__agentermWheel.reset()");
+  ensure(value === "reset:" + label, "acu074_block_reset_readback:" + label + ":" + value);
+}
+
+function snapshot_counts(target, label) {
+  const raw = page_js(target, "window.__agentermWheel.snapshot()");
+  const snapshot = JSON.parse("" + raw);
+  ensure(snapshot.label === label && snapshot.nonce === nonce,
+    "acu074_block_snapshot_identity:" + label + ":" + raw);
+  return snapshot;
+}
+
+function focused_native_window() {
+  const reply = invoke("observe", ["windows", "--focused", "true", "--max", "2"]);
+  ensure(reply.data.returned === 1, "acu074_block_focused_window_ambiguous");
+  return reply.data.windows[0];
+}
+
+function run_injector() {
+  const argv = [
+    "--arm", "private",
+    "--pid", "" + browser_pid,
+    "--window", "" + target_window,
+    "--x", "" + target_point.x, "--y", "" + target_point.y,
+    "--off-x", "" + off_point.x, "--off-y", "" + off_point.y,
+    "--dx", "" + WHEEL_DX, "--dy", "" + WHEEL_DY,
+    "--guard-state", text_at(identity, "guard_state")
+  ];
+  const output = rh.command(injector, argv, {
+    cwd: run_directory,
+    env: cu_env,
+    timeout_ms: 30000
+  });
+  const text = output.stdout.trim();
+  ensure(output.success === true && text !== "",
+    "acu074_block_injector_failed:" + output.stdout + output.stderr);
+  const reply = JSON.parse(text);
+  ensure(reply.ok === true, "acu074_block_injector_not_ok:" + text);
+  return reply;
+}
+
+function poll_target_until_delivered() {
+  const deadline = rh.now_ms() + POLL_BOUND_MS;
+  let snapshot = snapshot_counts(target_id, "B");
+  while (snapshot.count < 1 && rh.now_ms() < deadline) {
+    rh.sleep_ms(POLL_INTERVAL_MS);
+    snapshot = snapshot_counts(target_id, "B");
+  }
+  return snapshot;
+}
+
+function classify(injected, before_ok, after_ok, target, peer) {
+  if (injected === null || injected.host_unchanged !== true || !before_ok || !after_ok) {
+    return "HOST_DRIFT";
+  }
+  if (peer.count > 0) { return "MISDELIVERY"; }
+  if (target.count > 1) { return "DUP"; }
+  if (target.count === 0) { return "LOSS"; }
+  if (target.last_wheel === null || target.last_wheel.kind !== "wheel"
+    || target.last_wheel.deltaX !== WHEEL_DX || target.last_wheel.deltaY === 0) {
+    return "LOSS";
+  }
+  return "";
+}
+
+let stage = "validate";
+let failure = "";
+let actions_run = 0;
+let exact_count = 0;
+let behavioral_failure = null;
+const started_ms = rh.now_ms();
+
+try {
+  ensure(direct_file(executable), "acu074_block_cu_missing:" + executable);
+  ensure(direct_file(injector), "acu074_block_injector_missing:" + injector);
+  ensure(rh.exists(run_directory), "acu074_block_run_directory_missing");
+  ensure(start_index >= 1 && action_count >= 1 && action_count <= 50,
+    "acu074_block_range_invalid");
+  ensure(block_timebox_ms >= 1 && block_timebox_ms <= 120000,
+    "acu074_block_timebox_invalid");
+  ensure(nonce !== "" && browser_pid > 1 && port >= 1 && port <= 65535
+    && guard_pid > 1 && target_window > 0 && target_id !== "" && peer_id !== "",
+    "acu074_block_identity_invalid");
+  ensure(text_at(identity, "source_sha") !== "" && text_at(identity, "probe_digest") !== "",
+    "acu074_block_result_identity_missing");
+
+  stage = "repeat";
+  for (let index = start_index; index <= end_index; index = index + 1) {
+    if (rh.now_ms() - started_ms > block_timebox_ms) {
+      throw "acu074_block_timebox_exceeded:" + index;
+    }
+    reset_counts(peer_id, "A");
+    reset_counts(target_id, "B");
+    const before_front = focused_native_window();
+    const before_ok = before_front.process_id === guard_pid;
+    let injected = null;
+    let target = null;
+    let peer = null;
+    let after_front = null;
+    let after_ok = false;
+    if (before_ok) {
+      injected = run_injector();
+      poll_target_until_delivered();
+      rh.sleep_ms(QUIET_WINDOW_MS);
+      target = snapshot_counts(target_id, "B");
+      peer = snapshot_counts(peer_id, "A");
+      after_front = focused_native_window();
+      after_ok = after_front.process_id === guard_pid;
+    }
+    const category = before_ok
+      ? classify(injected, before_ok, after_ok, target, peer)
+      : "HOST_DRIFT";
+    actions_run = actions_run + 1;
+    if (category === "") {
+      exact_count = exact_count + 1;
+    } else {
+      behavioral_failure = {
+        action: index,
+        category: category,
+        target_count: target === null ? null : target.count,
+        peer_count: peer === null ? null : peer.count,
+        target_last_wheel: target === null ? null : target.last_wheel,
+        host_unchanged: injected === null ? null : injected.host_unchanged,
+        before_front_pid: before_front.process_id,
+        after_front_pid: after_front === null ? null : after_front.process_id,
+        elapsed_ms: rh.now_ms() - started_ms
+      };
+      break;
+    }
+  }
+  stage = "done";
+} catch (error) {
+  failure = "" + error;
+}
+
+const report = {
+  schema: "acu074-chromium-repeat-block-v1",
+  status: failure === "" ? "complete" : "inconclusive",
+  source_sha: text_at(identity, "source_sha"),
+  probe_digest: text_at(identity, "probe_digest"),
+  run_id: nonce,
+  start_index: start_index,
+  end_index: end_index,
+  actions_requested: action_count,
+  actions_run: actions_run,
+  exact_count: exact_count,
+  behavioral_failure: behavioral_failure,
+  elapsed_ms: rh.now_ms() - started_ms,
+  stage: stage,
+  failure: failure
+};
+print(JSON.stringify(report));
+
+if (failure !== "") { throw "acu074_repeat_block_INCONCLUSIVE:" + failure; }
