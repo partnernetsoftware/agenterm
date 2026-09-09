@@ -7921,7 +7921,7 @@
     },
     {
       "id": "cu-linux-resource-status-smoke",
-      "description": "Linux resource-status load, uptime, memory and process count match independent /proc loadavg, uptime, meminfo and executable-backed process inventory read-back; typed resource-status usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux resource-status load, uptime, memory and process count match independent /proc loadavg, uptime, meminfo and executable-backed process inventory read-back; typed resource-status usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the /proc read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-resource-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

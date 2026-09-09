@@ -2,8 +2,9 @@
 // Acceptance is smoke read-back only: CU resource-status load, uptime, memory and
 // process count must agree with facts derived outside agenterm-cu, and unreadable
 // /proc sources must typed-fail instead of inventing facts. Typed resource-status
-// usage must reject AT-SPI --name and other unexpected arguments; typed get-extents
-// --name usage/host-limit paths must hold before the /proc read-back court.
+// usage must reject AT-SPI --name, --coords, --bogus, and other unexpected
+// arguments; typed get-extents --name usage AND host-limit paths must both hold
+// before the /proc read-back court. Prefer host-limit clarity over fake success.
 // AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -36,6 +37,11 @@ function text_at(value, dotted) {
 }
 
 function output_success(document) { return at(document, "ok") === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function cu_env(executable) {
   const env = {
@@ -120,7 +126,7 @@ function assert_resource_status_usage_limit(run_directory, executable, env) {
     "cu_linux_resource_status_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
   ensure(
-    text_at(flat_with_name, "error.message").indexOf("--name") >= 0
+    usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name")
       || text_at(flat_with_name, "error.message").indexOf("no arguments") >= 0,
     "cu_linux_resource_status_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
@@ -135,7 +141,11 @@ function assert_resource_status_usage_limit(run_directory, executable, env) {
     "cu_linux_resource_status_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
   ensure(
-    text_at(grouped_with_name, "error.message").indexOf("--name") >= 0
+    text_at(grouped_with_name, "command") === "usage",
+    "cu_linux_resource_status_usage_grouped_name_command:" + JSON.stringify(grouped_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name")
       || text_at(grouped_with_name, "error.message").indexOf("no arguments") >= 0,
     "cu_linux_resource_status_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
@@ -148,9 +158,62 @@ function assert_resource_status_usage_limit(run_directory, executable, env) {
     "cu_linux_resource_status_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("no arguments") >= 0
-      || text_at(with_bogus, "error.message").indexOf("unexpected") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_resource_status_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus")
+      || text_at(with_bogus, "error.message").indexOf("no arguments") >= 0,
     "cu_linux_resource_status_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const grouped_with_bogus = invoke_observe_reply(run_directory, executable, [
+    "resource", "status", "--bogus",
+  ], env);
+  ensure(!output_success(grouped_with_bogus),
+    "cu_linux_resource_status_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
+  ensure(
+    text_at(grouped_with_bogus, "error.code") === "usage",
+    "cu_linux_resource_status_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus")
+      || text_at(grouped_with_bogus, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_resource_status_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
+  );
+
+  const with_coords = invoke_observe_reply(run_directory, executable, [
+    "resource-status", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(with_coords),
+    "cu_linux_resource_status_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_resource_status_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_resource_status_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords")
+      || text_at(with_coords, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_resource_status_usage_coords_message:" + JSON.stringify(with_coords.error)
+  );
+
+  const grouped_with_coords = invoke_observe_reply(run_directory, executable, [
+    "resource", "status", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(grouped_with_coords),
+    "cu_linux_resource_status_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
+  ensure(
+    text_at(grouped_with_coords, "error.code") === "usage",
+    "cu_linux_resource_status_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords")
+      || text_at(grouped_with_coords, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_resource_status_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
 }
 
@@ -167,6 +230,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_resource_status_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_resource_status_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_resource_status_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_resource_status_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_resource_status_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_resource_status_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_resource_status_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_resource_status_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_resource_status_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_resource_status_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_resource_status_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_resource_status_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_resource_status_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -474,15 +593,17 @@ const sources_ok = host_sources.uptime_readable && host_sources.meminfo_readable
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP resource-status typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP resource-status typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
   assert_resource_status_usage_limit(context.run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before /proc read-back");
-    assert_get_extents_usage_limit(context.run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before /proc read-back court");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before /proc read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+
+  if (atspi_available !== true) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; resource-status read-back still uses /proc");
   }
 
   if (!sources_ok) {
@@ -530,14 +651,14 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (sources_ok) {
     if (atspi_available) {
-      print("PASS: Linux resource-status matches independent /proc loadavg, uptime, meminfo and process-count read-back with unreadable host-limit honesty and typed resource-status/get-extents usage honesty (AT-SPI --name, no --coords)");
+      print("PASS: Linux resource-status matches independent /proc loadavg, uptime, meminfo and process-count read-back with unreadable host-limit honesty and typed resource-status --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
     } else {
-      print("PASS: Linux resource-status matches independent /proc loadavg, uptime, meminfo and process-count read-back with unreadable host-limit honesty and typed resource-status/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+      print("PASS: Linux resource-status matches independent /proc loadavg, uptime, meminfo and process-count read-back with unreadable host-limit honesty and typed resource-status --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
     }
   } else if (atspi_available) {
-    print("PASS: Linux resource-status typed-fails when independent /proc sources are unreadable or incomplete with typed resource-status/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux resource-status typed-fails when independent /proc sources are unreadable or incomplete with typed resource-status --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux resource-status typed-fails when independent /proc sources are unreadable or incomplete with typed resource-status/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux resource-status typed-fails when independent /proc sources are unreadable or incomplete with typed resource-status --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
