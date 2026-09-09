@@ -494,12 +494,15 @@ print("STEP window-opacity typed-fails usage when AT-SPI --name/--coords/--bogus
 assert_window_opacity_unexpected_usage(run_directory, executable, env);
 
 const atspi_available = probe_atspi_available(executable);
-if (atspi_available) {
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before window-opacity actuate/read-back court");
-  assert_get_extents_usage_limit(run_directory, executable, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before window-opacity actuate/read-back court");
+assert_get_extents_usage_limit(run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before window-opacity actuate/read-back court");
+assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+if (!atspi_available) {
+  print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; window-opacity read-back still uses xprop/inventory");
 }
 
 print("STEP window-opacity typed-fails refused destructive_gate when target or postcondition is missing");
