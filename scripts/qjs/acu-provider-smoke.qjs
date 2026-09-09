@@ -8,12 +8,37 @@ import * as acu from "agenterm:acu";
 
 if (arg_count() !== 0) { throw "expected: no arguments"; }
 
+function exact_keys(value, expected) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  if (keys.length !== expected.length) { return false; }
+  for (const key of expected) {
+    if (!keys.includes(key)) { return false; }
+  }
+  return true;
+}
+
+function same_key_set(left, right) {
+  const left_keys = Object.keys(left);
+  const right_keys = Object.keys(right);
+  if (left_keys.length !== right_keys.length) { return false; }
+  for (const key of left_keys) {
+    if (!right_keys.includes(key)) { return false; }
+  }
+  return true;
+}
+
 const reply = acu.call({ verb: "capabilities", target: "current" });
 if (reply === null || typeof reply !== "object") {
   throw "acu_provider_reply_shape";
 }
-if (reply.ok !== true || reply.command !== "capabilities") {
-  throw "acu_provider_capabilities_failed:" + JSON.stringify(reply);
+if (!exact_keys(reply, ["ok", "target", "command", "data"])
+    || reply.ok !== true
+    || reply.target !== "current"
+    || reply.command !== "capabilities") {
+  throw "acu_provider_capabilities_envelope";
 }
 if (reply.data === null || typeof reply.data !== "object") {
   throw "acu_provider_capabilities_data";
@@ -25,8 +50,23 @@ const argv_reply = acu.argv([
 if (argv_reply === null || typeof argv_reply !== "object") {
   throw "acu_provider_argv_reply_shape";
 }
-if (argv_reply.ok !== true || argv_reply.command !== "capabilities") {
-  throw "acu_provider_argv_failed:" + JSON.stringify(argv_reply);
+if (!exact_keys(argv_reply, ["ok", "target", "command", "data"])
+    || argv_reply.ok !== true
+    || argv_reply.target !== "current"
+    || argv_reply.command !== "capabilities") {
+  throw "acu_provider_argv_envelope";
+}
+if (argv_reply.data === null || typeof argv_reply.data !== "object") {
+  throw "acu_provider_argv_data";
+}
+if (reply.data.schema !== argv_reply.data.schema
+    || reply.data.platform !== argv_reply.data.platform
+    || reply.data.verbs === null
+    || typeof reply.data.verbs !== "object"
+    || argv_reply.data.verbs === null
+    || typeof argv_reply.data.verbs !== "object"
+    || !same_key_set(reply.data.verbs, argv_reply.data.verbs)) {
+  throw "acu_provider_call_argv_stable_capabilities";
 }
 
 print("PASS: agenterm:acu fixed-sibling provider executed typed command and argv in-process");

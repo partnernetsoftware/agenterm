@@ -33,6 +33,7 @@ const ERROR_RESPONSE_TOO_LARGE: i64 = -32004;
 const ERROR_ACU_PROVIDER: i64 = -32006;
 const MCP_MUTATION_SESSION_TTL_SECONDS: u64 = 3_600;
 const MCP_PROVIDER_SHELL_GRACE: Duration = Duration::from_secs(2);
+const MCP_PROVIDER_EOF_READ_DRAIN_GRACE: Duration = Duration::from_millis(100);
 const WAIT_PENDING: u8 = 0;
 const WAIT_CANCELLED: u8 = 1;
 const WAIT_COMPLETED: u8 = 2;
@@ -62,12 +63,14 @@ enum ServerEvent {
     ProviderRecovered {
         generation: u64,
     },
+    ProviderEofDrainExpired,
 }
 
 enum ProviderCall {
     ReadOnly {
         response_id: Value,
         request: String,
+        expectation: ProviderReplyExpectation,
     },
     SessionStart,
     ShellExec {
@@ -95,6 +98,7 @@ enum ProviderComplete {
     ReadOnly {
         response_id: Value,
         result: Result<String, String>,
+        expectation: ProviderReplyExpectation,
     },
     SessionStart(Result<String, String>),
     ShellExec {
@@ -102,6 +106,23 @@ enum ProviderComplete {
         result: Result<String, String>,
     },
     SessionEnd(Result<String, String>),
+}
+
+#[derive(Clone)]
+struct ProviderReplyExpectation {
+    target: String,
+    command: String,
+    allow_malformed_request: bool,
+}
+
+impl ProviderReplyExpectation {
+    fn exact(target: impl Into<String>, command: impl Into<String>) -> Self {
+        Self {
+            target: target.into(),
+            command: command.into(),
+            allow_malformed_request: false,
+        }
+    }
 }
 
 struct ProviderCompletionEvent {
@@ -436,31 +457,40 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
     let mut active = HashMap::<String, ActiveWait>::new();
     let mut mutation = MutationLifecycle::Dormant;
     let mut input_error = None;
+    let mut input_closed = false;
     let mut output_disconnected = false;
     loop {
         match receiver.recv() {
             Ok(ServerEvent::Input(_)) | Ok(ServerEvent::InputError(_)) if output_disconnected => {}
             Ok(ServerEvent::Input(BoundedLine::Eof)) => {
+                input_closed = true;
                 cancel_and_join_waits(&mut active);
                 receive_eof_and_maybe_end(&mut mutation, &provider_client)
                     .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
-                if matches!(mutation, MutationLifecycle::Dormant)
+                if (matches!(mutation, MutationLifecycle::Dormant) && !provider_gate.is_busy())
                     || (mutation_exits_after_provider_timeout(&mutation)
                         && provider_gate.is_quarantined())
                 {
                     break;
                 }
+                if matches!(mutation, MutationLifecycle::Dormant) && provider_gate.is_busy() {
+                    schedule_provider_eof_drain(&sender);
+                }
             }
             Ok(ServerEvent::InputError(error)) => {
+                input_closed = true;
                 input_error = Some(error);
                 cancel_and_join_waits(&mut active);
                 receive_eof_and_maybe_end(&mut mutation, &provider_client)
                     .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
-                if matches!(mutation, MutationLifecycle::Dormant)
+                if (matches!(mutation, MutationLifecycle::Dormant) && !provider_gate.is_busy())
                     || (mutation_exits_after_provider_timeout(&mutation)
                         && provider_gate.is_quarantined())
                 {
                     break;
+                }
+                if matches!(mutation, MutationLifecycle::Dormant) && provider_gate.is_busy() {
+                    schedule_provider_eof_drain(&sender);
                 }
             }
             Ok(ServerEvent::Input(BoundedLine::Oversized)) => {
@@ -568,11 +598,31 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
                 {
                     break;
                 }
+                if input_closed
+                    && matches!(mutation, MutationLifecycle::Dormant)
+                    && !provider_gate.is_busy()
+                {
+                    break;
+                }
             }
             Ok(ServerEvent::ProviderRecovered { generation }) => {
                 provider_gate.release(generation);
                 resume_mutation_after_provider_recovery(&mut mutation, &provider_client)
                     .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
+                if input_closed
+                    && matches!(mutation, MutationLifecycle::Dormant)
+                    && !provider_gate.is_busy()
+                {
+                    break;
+                }
+            }
+            Ok(ServerEvent::ProviderEofDrainExpired) => {
+                if input_closed
+                    && matches!(mutation, MutationLifecycle::Dormant)
+                    && provider_gate.is_busy()
+                {
+                    break;
+                }
             }
             Err(_) => break,
         }
@@ -582,7 +632,8 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
             cancel_and_join_waits(&mut active);
             receive_eof_and_maybe_end(&mut mutation, &provider_client)
                 .map_err(|_| io::Error::other("agenterm-cu provider worker stopped"))?;
-            if matches!(mutation, MutationLifecycle::Dormant)
+            if (matches!(mutation, MutationLifecycle::Dormant)
+                && (output_disconnected || !provider_gate.is_busy()))
                 || (mutation_exits_after_provider_timeout(&mutation)
                     && provider_gate.is_quarantined())
             {
@@ -610,6 +661,14 @@ fn serve_stdio_core<R: BufRead + Send + 'static, W: Write, P: McpAcuProvider>(
     } else {
         Ok(())
     }
+}
+
+fn schedule_provider_eof_drain(sender: &mpsc::Sender<ServerEvent>) {
+    let sender = sender.clone();
+    thread::spawn(move || {
+        thread::sleep(MCP_PROVIDER_EOF_READ_DRAIN_GRACE);
+        let _ = sender.send(ServerEvent::ProviderEofDrainExpired);
+    });
 }
 
 fn read_input<R: BufRead>(
@@ -727,9 +786,11 @@ fn execute_provider_call<P: McpAcuProvider>(
         ProviderCall::ReadOnly {
             response_id,
             request,
+            expectation,
         } => ProviderComplete::ReadOnly {
             response_id,
             result: provider.call_controlled(&request, cancel),
+            expectation,
         },
         ProviderCall::SessionStart => ProviderComplete::SessionStart(
             provider.call_controlled(
@@ -760,9 +821,14 @@ fn execute_provider_call<P: McpAcuProvider>(
 fn failed_provider_call(call: &ProviderCall, code: &str) -> ProviderComplete {
     let error = Err(code.to_owned());
     match call {
-        ProviderCall::ReadOnly { response_id, .. } => ProviderComplete::ReadOnly {
+        ProviderCall::ReadOnly {
+            response_id,
+            expectation,
+            ..
+        } => ProviderComplete::ReadOnly {
             response_id: response_id.clone(),
             result: error,
+            expectation: expectation.clone(),
         },
         ProviderCall::SessionStart => ProviderComplete::SessionStart(error),
         ProviderCall::ShellExec { id, .. } => ProviderComplete::ShellExec {
@@ -1198,31 +1264,22 @@ fn handle_mutation_cancel<W: Write>(
     Ok(())
 }
 
-fn parse_provider_reply(result: Result<String, String>) -> Result<Value, String> {
+fn parse_provider_reply(
+    result: Result<String, String>,
+    expectation: &ProviderReplyExpectation,
+) -> Result<Value, String> {
     let encoded = result?;
-    let reply: Value =
-        serde_json::from_str(&encoded).map_err(|_| "acu_provider_reply_not_json".to_owned())?;
-    let Some(object) = reply.as_object() else {
-        return Err("acu_provider_reply_invalid_shape".to_owned());
-    };
-    if !object.get("ok").is_some_and(Value::is_boolean)
-        || !object.get("target").is_some_and(Value::is_string)
-        || !object.get("command").is_some_and(Value::is_string)
+    match crate::acu_provider::parse_reply_for(&encoded, &expectation.target, &expectation.command)
     {
-        return Err("acu_provider_reply_invalid_shape".to_owned());
+        Ok(reply) => Ok(reply),
+        Err(code)
+            if code == "acu_provider_reply_identity_mismatch"
+                && expectation.allow_malformed_request =>
+        {
+            crate::acu_provider::parse_reply_for(&encoded, "", "acu.request")
+        }
+        Err(code) => Err(code),
     }
-    if object.get("ok").and_then(Value::as_bool) == Some(false)
-        && !object
-            .get("error")
-            .and_then(Value::as_object)
-            .is_some_and(|error| {
-                error.get("code").is_some_and(Value::is_string)
-                    && error.get("message").is_some_and(Value::is_string)
-            })
-    {
-        return Err("acu_provider_reply_invalid_shape".to_owned());
-    }
-    Ok(reply)
 }
 
 fn provider_submit_error(id: Value, error: ProviderSubmitError) -> Value {
@@ -1277,8 +1334,12 @@ fn handle_provider_complete<W: Write>(
         ProviderComplete::ReadOnly {
             response_id,
             result,
+            expectation,
         } => {
-            write_message(output, &complete_acu_tool_call(response_id, result))?;
+            write_message(
+                output,
+                &complete_acu_tool_call(response_id, result, &expectation),
+            )?;
             if !provider.gate.is_busy()
                 && (!output.has_error() || mutation_exits_after_provider_timeout(lifecycle))
             {
@@ -1295,7 +1356,10 @@ fn handle_provider_complete<W: Write>(
             else {
                 return Ok(false);
             };
-            let parsed = parse_provider_reply(result);
+            let parsed = parse_provider_reply(
+                result,
+                &ProviderReplyExpectation::exact("current", "session-start"),
+            );
             let session = parsed.as_ref().ok().and_then(|reply| {
                 (reply["ok"] == true).then(|| {
                     (
@@ -1372,7 +1436,10 @@ fn handle_provider_complete<W: Write>(
             let MutationLifecycle::Active { state, .. } = lifecycle else {
                 return Ok(false);
             };
-            let completion = match parse_provider_reply(result) {
+            let completion = match parse_provider_reply(
+                result,
+                &ProviderReplyExpectation::exact("current", "shell-exec"),
+            ) {
                 Ok(reply) => ProviderCompletion::Authoritative {
                     reply,
                     reservation_created: true,
@@ -1421,7 +1488,10 @@ fn handle_provider_complete<W: Write>(
                 return Ok(false);
             };
             let should_exit = *exit_after_end;
-            let completion = match parse_provider_reply(result) {
+            let completion = match parse_provider_reply(
+                result,
+                &ProviderReplyExpectation::exact("current", "session-end"),
+            ) {
                 Ok(reply) if reply["ok"] == true => SessionEndCompletion::Authoritative,
                 _ => SessionEndCompletion::LostAfterDispatch,
             };
@@ -2039,25 +2109,72 @@ fn submit_acu_tool_call(
         "name": name,
         "arguments": arguments
     });
+    let expectation = provider_reply_expectation(name, arguments);
     let encoded = serde_json::to_string(&request).expect("ACU MCP request serializes");
     provider
         .submit(ProviderCall::ReadOnly {
             response_id: response_id.clone(),
             request: encoded,
+            expectation,
         })
         .map_err(|error| provider_submit_error(response_id, error))
 }
 
-fn complete_acu_tool_call(response_id: Value, result: Result<String, String>) -> Value {
+fn provider_reply_expectation(
+    name: &str,
+    arguments: &serde_json::Map<String, Value>,
+) -> ProviderReplyExpectation {
+    if name == "agenterm_acu_capabilities" && arguments.is_empty() {
+        return ProviderReplyExpectation::exact("current", "capabilities");
+    }
+    if name == "agenterm_acu_observe"
+        && arguments.len() == 1
+        && let Some(command) = arguments.get("command").and_then(Value::as_object)
+        && let (Some(target), Some(verb)) = (
+            command.get("target").and_then(Value::as_str),
+            command.get("verb").and_then(Value::as_str),
+        )
+    {
+        return ProviderReplyExpectation {
+            target: target.to_owned(),
+            command: observed_reply_command(verb).to_owned(),
+            allow_malformed_request: true,
+        };
+    }
+    ProviderReplyExpectation::exact("", "acu.request")
+}
+
+fn observed_reply_command(verb: &str) -> &str {
+    match verb {
+        "screen-reader-status" => "screen-reader",
+        "keyboard-layout-status" => "keyboard-layout",
+        "audio-status" | "audio-plan-volume" | "audio-plan-muted" | "audio-apply" => "audio",
+        "service-list" | "service-status" | "service-plan" | "service-apply"
+        | "service-transact" => "service",
+        "login-session-status" | "login-session-plan-lock" | "login-session-apply-lock" => {
+            "login-session"
+        }
+        "privilege-plan-process-priority"
+        | "privilege-plan-process-signal"
+        | "privilege-plan-power-action" => "privilege-plan",
+        _ => verb,
+    }
+}
+
+fn complete_acu_tool_call(
+    response_id: Value,
+    result: Result<String, String>,
+    expectation: &ProviderReplyExpectation,
+) -> Value {
     let reply = match result {
-        Ok(reply) => match serde_json::from_str::<Value>(&reply) {
+        Ok(reply) => match parse_provider_reply(Ok(reply), expectation) {
             Ok(reply) => reply,
-            Err(_) => {
+            Err(code) => {
                 return error_response(
                     response_id,
                     ERROR_ACU_PROVIDER,
                     "agenterm-cu provider returned an invalid reply",
-                    Some(json!({"code": "acu_provider_reply_not_json"})),
+                    Some(json!({"code": code})),
                 );
             }
         },
@@ -2776,6 +2893,7 @@ mod tests {
 
     #[test]
     fn provider_reply_requires_the_shared_cu_reply_shape() {
+        let expectation = ProviderReplyExpectation::exact("current", "shell-exec");
         for invalid in [
             "true",
             r#"{"ok":true}"#,
@@ -2783,17 +2901,55 @@ mod tests {
             r#"{"ok":false,"target":"current","command":"shell-exec","error":{"code":1,"message":"bad"}}"#,
         ] {
             assert_eq!(
-                parse_provider_reply(Ok(invalid.to_owned())).unwrap_err(),
+                parse_provider_reply(Ok(invalid.to_owned()), &expectation).unwrap_err(),
                 "acu_provider_reply_invalid_shape",
                 "{invalid}"
             );
         }
         assert!(
-            parse_provider_reply(Ok(
-                r#"{"ok":true,"target":"current","command":"shell-exec","data":{}}"#.to_owned()
-            ))
+            parse_provider_reply(
+                Ok(r#"{"ok":true,"target":"current","command":"shell-exec","data":{}}"#.to_owned()),
+                &expectation
+            )
             .is_ok()
         );
+        assert_eq!(
+            parse_provider_reply(
+                Ok(
+                    r#"{"ok":true,"target":"current","command":"capabilities","data":{}}"#
+                        .to_owned()
+                ),
+                &expectation,
+            )
+            .unwrap_err(),
+            "acu_provider_reply_identity_mismatch"
+        );
+    }
+
+    #[test]
+    fn observe_reply_identity_uses_the_public_command_family_names() {
+        for (request_verb, reply_command) in [
+            ("screen-reader-status", "screen-reader"),
+            ("keyboard-layout-status", "keyboard-layout"),
+            ("audio-status", "audio"),
+            ("audio-plan-volume", "audio"),
+            ("audio-plan-muted", "audio"),
+            ("audio-apply", "audio"),
+            ("service-list", "service"),
+            ("service-status", "service"),
+            ("service-plan", "service"),
+            ("service-apply", "service"),
+            ("service-transact", "service"),
+            ("login-session-status", "login-session"),
+            ("login-session-plan-lock", "login-session"),
+            ("login-session-apply-lock", "login-session"),
+            ("privilege-plan-process-priority", "privilege-plan"),
+            ("privilege-plan-process-signal", "privilege-plan"),
+            ("privilege-plan-power-action", "privilege-plan"),
+            ("runtime-status", "runtime-status"),
+        ] {
+            assert_eq!(observed_reply_command(request_verb), reply_command);
+        }
     }
 
     #[test]
