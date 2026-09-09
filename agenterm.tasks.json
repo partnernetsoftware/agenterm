@@ -9011,7 +9011,7 @@
     },
     {
       "id": "cu-linux-proxy-env-smoke",
-      "description": "Linux capabilities proxy_env matches independent printenv read-back for http_proxy, HTTPS_PROXY and no_proxy; no --coords.",
+      "description": "Linux capabilities proxy_env matches independent printenv read-back for http_proxy, HTTPS_PROXY and no_proxy; typed capabilities usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the proxy-env read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-proxy-env-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
