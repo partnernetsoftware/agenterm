@@ -10,6 +10,7 @@ import Foundation
 private let measuredHostBuild = "25F80"
 private let dragSteps = 20
 private let cadenceMicroseconds: useconds_t = 6_000
+private let focusReadbackDelayMicroseconds: useconds_t = 40_000
 
 private enum InjectorFailure: Error, CustomStringConvertible {
     case typed(String, String)
@@ -998,6 +999,7 @@ private func run() throws -> [String: Any] {
         acquireStartedNs = DispatchTime.now().uptimeNanoseconds - startedNs
         do {
             try ax.setFocusedWindow(pid: pid, id: window)
+            usleep(focusReadbackDelayMicroseconds)
             if let acquired = sample("after-acquire") {
                 acquireReadback = acquired.focus
                 if targetFocus == nil { targetFocus = acquired.focus }
@@ -1026,6 +1028,7 @@ private func run() throws -> [String: Any] {
         restoreStartedNs = DispatchTime.now().uptimeNanoseconds - startedNs
         do {
             try ax.setFocusedWindow(pid: pid, id: peerWindow)
+            usleep(focusReadbackDelayMicroseconds)
             if let restored = sample("after-restore") {
                 restoreReadback = restored.focus
                 if priorFocus == nil { priorFocus = restored.focus }
@@ -1223,6 +1226,7 @@ private func run() throws -> [String: Any] {
             "acquire": [
                 "attempted": acquireAttempted,
                 "verified": acquireVerified,
+                "readback_delay_ms": Int(focusReadbackDelayMicroseconds / 1_000),
                 "readback": acquireReadback?.json as Any? ?? NSNull(),
                 "started_ns": acquireStartedNs as Any? ?? NSNull(),
                 "verified_ns": acquireVerifiedNs as Any? ?? NSNull(),
@@ -1230,6 +1234,7 @@ private func run() throws -> [String: Any] {
             "restore": [
                 "attempted": restoreAttempted,
                 "verified": restoreVerified,
+                "readback_delay_ms": Int(focusReadbackDelayMicroseconds / 1_000),
                 "readback": restoreReadback?.json as Any? ?? NSNull(),
                 "started_ns": restoreStartedNs as Any? ?? NSNull(),
                 "verified_ns": restoreVerifiedNs as Any? ?? NSNull(),

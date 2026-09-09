@@ -263,7 +263,7 @@ A future decision to accept application-local key/main-window change would
 alter G6 and the background-local contract; it requires a new precommitment and
 resets these drag results rather than reclassifying this run.
 
-## Chromium focus-lease drag dry attempt 1 · 2026-09-10
+## Chromium focus-lease drag report-contract invocation · 2026-09-10
 
 - Repository source SHA: `41d405c1f3152dea3c1203f1f61c1dd0e1e6dffe`.
 - Drag source digest:
@@ -287,3 +287,32 @@ not alter section 10.6 criteria or the focus-lease mechanism. The invalid run
 does not consume a dry attempt, register evidence, change product state or
 select retirement; the first authorized dry attempt therefore retains counters
 1 / 0 / 1 after the corrected source is frozen and made reachable.
+
+## Chromium focus-lease drag dry attempt 1 · 2026-09-10
+
+- Repository source SHA: `7e533e33b4e00055601be683d92eff355623c043`.
+- Drag source digest:
+  `090f068dd98c8eab3c21bd1c45b8bc67fb792ab0f8112a467bf49e529153e77b`.
+- Host: macOS build 25F80, arm64; Google Chrome 152.0.7977.83.
+- Counters: dry attempt 1, repair count 0, run number 1.
+- Pointer events: zero; completed triplets: zero; cleanup verified.
+- Adjudication: `INCONCLUSIVE_DRY_NOT_PROVEN`, counted as dry attempt 1 of 3.
+
+The A and B focus tuples were readable and distinct. The injector called the
+allowed application focused-window setter for B, but its immediate read-back
+still showed peer A; the native receipt reported
+`focus_lease_acquire_unverified`. G6a stayed green across acquisition and
+restoration, and the original A tuple restored and read back exactly. Because
+acquisition never verified, the injector published no acquired-page phase and
+constructed or posted no pointer event.
+
+The runner printed a retirement verdict, but that string is not accepted as a
+product decision: its court prematurely mapped one unproved dry attempt to the
+three-attempt exhaustion branch. A read-only comparison then found that the
+archived focus lease waits a fixed 40 milliseconds after both set and restore
+before reading back, while this attempt sampled immediately. The implementation
+is corrected to use that same fixed delay, without polling, repeated setting,
+activation, raise or any criterion change. This valid but unproved attempt
+remains count 1 of 3; the next authorized run uses counters 2 / 1 / 1 after the
+corrected source is frozen and reachable. No evidence, PRD state, ledger state
+or compatibility TODO changes from this result.

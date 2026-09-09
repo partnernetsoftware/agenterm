@@ -702,7 +702,7 @@ provider. Its result must be appended to
 `research/skylight-window-local-pointer/RESULTS.md` with the decision-tree
 trace before either branch changes the PRD or ledger.
 
-#### 10.6.5 Report-contract trace · dry attempt 1
+#### 10.6.5 Report-contract trace · invalid invocation
 
 The first invocation of the section 10.6 runner at source
 `41d405c1f3152dea3c1203f1f61c1dd0e1e6dffe` reached no pointer event and formed
@@ -716,3 +716,32 @@ makes a dry-stage failure without a dry-cycle receipt a dedicated failing
 verdict before any dependency or retirement branch. The criteria and native
 mechanism are unchanged, so the invalid invocation consumes no dry-attempt
 budget. No evidence, PRD state, ledger state or compatibility TODO changes.
+
+#### 10.6.6 Dry attempt 1
+
+The corrected runner at source
+`7e533e33b4e00055601be683d92eff355623c043` and probe digest
+`090f068dd98c8eab3c21bd1c45b8bc67fb792ab0f8112a467bf49e529153e77b`
+formed a complete zero-pointer dry receipt with counters 1 / 0 / 1. The focus
+tuples were readable and G6a plus restoration stayed unchanged, but the target
+acquisition was not proved: the application focused-window setter returned and
+its immediate read-back still showed peer A.
+
+This is one counted `INCONCLUSIVE_DRY_NOT_PROVEN`, not the section 10.6.3
+retirement branch requiring exhaustion of the bounded dry attempts. Review also
+found an implementation-fidelity omission: the archived focus lease, one of
+this experiment's declared inputs, waits a fixed 40 milliseconds after set and
+restore before read-back. The injector now uses that exact one-shot delay and
+records it in both receipt phases; it does not poll, repeat the set, activate,
+raise or change any criterion. The next authorized execution is dry attempt 2,
+repair count 1, run number 1, from a frozen reachable source. No product state
+changes before that result.
+
+The runner records separate `dry_state_attempt` (1..3) and
+`cumulative_dry_attempts` (1..6) counters. Only the state counter resets after
+a recorded dependency repair; the cumulative counter never resets. Exhaustion
+requires three failed attempts in one dependency state or all six cumulative
+attempts. During a lease-only dry run, an unverified restore is
+another unproved A -> B -> A closure and consumes the attempt. Only a G6a change
+or an explicitly recorded forbidden action can take an immediate dry-stage
+retirement branch; the post-down release/restore kill rule remains unchanged.

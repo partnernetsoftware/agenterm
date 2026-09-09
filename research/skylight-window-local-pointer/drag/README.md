@@ -13,9 +13,13 @@ parent court owns the disposable Chromium profile, peer windows,
 foreground guard, exact native identities, injection process and cleanup.
 Section 10.5 forbids rerunning that measured protocol without a new explicit
 precommitment. Section 10.6 is that new precommitment. This directory now
-implements its lease-only dry cycle, G6a/G6b receipts and one-way decision tree,
-but it must not run until the integrated source has passed the section 10.6
-static review and been frozen at one reachable commit.
+implements its lease-only dry cycle, G6a/G6b receipts and one-way decision tree.
+Dry attempt 1 sent zero pointer events and did not prove acquisition because an
+immediate AX read-back still showed peer A. The archived lease uses a fixed
+40-millisecond set-to-read-back delay; the corrected injector now matches that
+input and records the delay. It must not run again until this correction has
+passed review and is frozen at one reachable commit. The next authorized
+execution uses dry attempt 2, repair count 1 and run number 1.
 
 `page.html` has no external resources. The parent court loads it twice as:
 
@@ -33,10 +37,24 @@ AGENTERM_CU_BROWSER_EXE=~/path/to/Chromium \
 ```
 
 The runner refuses dirty research sources. It records
-`ACU004_DRY_ATTEMPT` (1..6), `ACU004_REPAIR_COUNT` (0..2), and
-`ACU004_RUN_NUMBER` (1..2), whose defaults are 1, 0, and 1. A second run or a
+`ACU004_DRY_ATTEMPT` (cumulative 1..6), `ACU004_DRY_STATE_ATTEMPT` (1..3),
+`ACU004_REPAIR_COUNT` (0..2), and `ACU004_RUN_NUMBER` (1..2), whose defaults
+are 1, 1, 0, and 1. A second run or a
 dependency repair must set the corresponding values explicitly; these counters
-do not authorize another run beyond the section 10.6 time box.
+do not authorize another run beyond the section 10.6 time box. `DRY_ATTEMPT`
+is the cumulative count across dependency states and repairs and never resets.
+`DRY_STATE_ATTEMPT` resets only after a recorded dependency repair. The receipt
+records both counters; retirement by exhaustion requires three failed attempts
+in one dependency state or all six cumulative attempts.
+
+For the next authorized dry attempt, set the counters explicitly:
+
+```sh
+ACU004_DRY_ATTEMPT=2 ACU004_DRY_STATE_ATTEMPT=2 \
+  ACU004_REPAIR_COUNT=1 ACU004_RUN_NUMBER=1 \
+  AGENTERM_CU_BROWSER_EXE=~/path/to/Chromium \
+  ./research/skylight-window-local-pointer/run-drag-current-host.sh
+```
 
 The page exposes `window.__agentermDrag` for independent CDP read-back:
 

@@ -14,6 +14,7 @@ GUARD_SOURCE="$ROOT/fixture/Fixture.swift"
 INJECTOR="$BUILD/InjectDrag"
 GUARD="$BUILD/GuardFixture"
 DRY_ATTEMPT=${ACU004_DRY_ATTEMPT:-1}
+DRY_STATE_ATTEMPT=${ACU004_DRY_STATE_ATTEMPT:-$DRY_ATTEMPT}
 REPAIR_COUNT=${ACU004_REPAIR_COUNT:-0}
 RUN_NUMBER=${ACU004_RUN_NUMBER:-1}
 
@@ -32,13 +33,17 @@ require_file "$PAGE" drag/page.html
 require_file "$INJECT_SOURCE" drag/InjectDrag.swift
 require_file "$GUARD_SOURCE" fixture/Fixture.swift
 
-case "$DRY_ATTEMPT:$REPAIR_COUNT:$RUN_NUMBER" in
-  [1-6]:[0-2]:[1-2]) ;;
+case "$DRY_ATTEMPT:$DRY_STATE_ATTEMPT:$REPAIR_COUNT:$RUN_NUMBER" in
+  [1-6]:[1-3]:[0-2]:[1-2]) ;;
   *)
-    printf '%s\n' "ACU004_DRY_ATTEMPT must be 1..6, ACU004_REPAIR_COUNT 0..2, and ACU004_RUN_NUMBER 1..2" >&2
+    printf '%s\n' "ACU004_DRY_ATTEMPT must be cumulative 1..6, ACU004_DRY_STATE_ATTEMPT 1..3, ACU004_REPAIR_COUNT 0..2, and ACU004_RUN_NUMBER 1..2" >&2
     exit 2
     ;;
 esac
+[ "$DRY_STATE_ATTEMPT" -le "$DRY_ATTEMPT" ] || {
+  printf '%s\n' "ACU004_DRY_STATE_ATTEMPT cannot exceed cumulative ACU004_DRY_ATTEMPT" >&2
+  exit 2
+}
 
 DIRTY=$(git -C "$REPO" status --porcelain --untracked-files=all -- \
   research/skylight-window-local-pointer/drag \
@@ -93,6 +98,7 @@ exec "$AGENTERM_EXE" cli script run \
   "$GUARD" \
   "$SOURCE_SHA" \
   "$PROBE_DIGEST" \
+  "$DRY_STATE_ATTEMPT" \
   "$DRY_ATTEMPT" \
   "$REPAIR_COUNT" \
   "$RUN_NUMBER"

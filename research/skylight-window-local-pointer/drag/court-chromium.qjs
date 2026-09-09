@@ -14,7 +14,8 @@
 // inside-to-outside trajectories.
 //
 // Args: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE
-//       SOURCE_SHA PROBE_DIGEST DRY_ATTEMPT REPAIR_COUNT RUN_NUMBER
+//       SOURCE_SHA PROBE_DIGEST DRY_STATE_ATTEMPT CUMULATIVE_DRY_ATTEMPTS
+//       REPAIR_COUNT RUN_NUMBER
 // or:   --list-evidence   (prints nothing; research is not public evidence)
 //
 // Page contract (drag/page.html):
@@ -56,6 +57,40 @@ const FRAME_B = { x: 700, y: 80, width: 520, height: 400 };
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
+
+function dry_failure_decision(state_attempt, cumulative_attempts, has_cycle,
+    dependency, immediate_safety_failure) {
+  if (!has_cycle) {
+    return { verdict: "INCONCLUSIVE_REPORT_CONTRACT", rationale: null };
+  }
+  if (dependency) {
+    return { verdict: "INCONCLUSIVE_DEPENDENCY", rationale: null };
+  }
+  if (immediate_safety_failure || state_attempt >= 3 || cumulative_attempts >= 6) {
+    return {
+      verdict: "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE",
+      rationale: "measured-safety-failure"
+    };
+  }
+  return { verdict: "INCONCLUSIVE_DRY_NOT_PROVEN", rationale: null };
+}
+
+ensure(dry_failure_decision(1, 1, false, false, false).verdict
+    === "INCONCLUSIVE_REPORT_CONTRACT", "acu004_dry_decision_report_contract");
+ensure(dry_failure_decision(1, 1, true, true, false).verdict
+    === "INCONCLUSIVE_DEPENDENCY", "acu004_dry_decision_dependency");
+ensure(dry_failure_decision(1, 1, true, false, true).verdict
+    === "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE", "acu004_dry_decision_safety");
+ensure(dry_failure_decision(1, 1, true, false, false).verdict
+    === "INCONCLUSIVE_DRY_NOT_PROVEN", "acu004_dry_decision_attempt_one");
+ensure(dry_failure_decision(2, 2, true, false, false).verdict
+    === "INCONCLUSIVE_DRY_NOT_PROVEN", "acu004_dry_decision_attempt_two");
+ensure(dry_failure_decision(3, 3, true, false, false).verdict
+    === "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE", "acu004_dry_decision_exhausted");
+ensure(dry_failure_decision(1, 4, true, false, false).verdict
+    === "INCONCLUSIVE_DRY_NOT_PROVEN", "acu004_dry_decision_repaired_state");
+ensure(dry_failure_decision(2, 6, true, false, false).verdict
+    === "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE", "acu004_dry_decision_total_exhausted");
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -165,8 +200,8 @@ function arm_order_for_round() {
 
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") { return; }
-harness.require(args.length === 10,
-  "expected: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST DRY_ATTEMPT REPAIR_COUNT RUN_NUMBER");
+harness.require(args.length === 11,
+  "expected: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST DRY_STATE_ATTEMPT CUMULATIVE_DRY_ATTEMPTS REPAIR_COUNT RUN_NUMBER");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const chromium = rh.absolute(args[2]);
@@ -174,10 +209,13 @@ const injector = rh.absolute(args[3]);
 const guard_fixture = rh.absolute(args[4]);
 const source_sha = "" + args[5];
 const probe_digest = "" + args[6];
-const dry_attempt = rh.parse_int("" + args[7]);
-const repair_count = rh.parse_int("" + args[8]);
-const run_number = rh.parse_int("" + args[9]);
-harness.require(dry_attempt >= 1 && dry_attempt <= 6
+const dry_state_attempt = rh.parse_int("" + args[7]);
+const cumulative_dry_attempts = rh.parse_int("" + args[8]);
+const repair_count = rh.parse_int("" + args[9]);
+const run_number = rh.parse_int("" + args[10]);
+harness.require(dry_state_attempt >= 1 && dry_state_attempt <= 3
+    && cumulative_dry_attempts >= 1 && cumulative_dry_attempts <= 6
+    && dry_state_attempt <= cumulative_dry_attempts
     && repair_count >= 0 && repair_count <= 2
     && run_number >= 1 && run_number <= 2,
   "section 10.6 counters are out of bounds");
@@ -706,8 +744,10 @@ function validate_gesture_receipt(reply, arm, trajectory, browser_pid,
   ensure(typeof reply.focus_lease === "object" && reply.focus_lease !== null
       && reply.focus_lease.acquire.attempted === true
       && reply.focus_lease.acquire.verified === true
+      && reply.focus_lease.acquire.readback_delay_ms === 40
       && reply.focus_lease.restore.attempted === true
       && reply.focus_lease.restore.verified === true
+      && reply.focus_lease.restore.readback_delay_ms === 40
       && JSON.stringify(reply.focus_lease.prior)
         === JSON.stringify(reply.focus_lease.restore.readback)
       && JSON.stringify(reply.focus_lease.target)
@@ -1126,6 +1166,8 @@ try {
       && text_at(dry_reply.host_samples[2], "stage") === "after-restore"
       && dry_reply.focus_lease.prior.app_focused_window === peer_window
       && dry_reply.focus_lease.target.app_focused_window === target_window
+      && dry_reply.focus_lease.acquire.readback_delay_ms === 40
+      && dry_reply.focus_lease.restore.readback_delay_ms === 40
       && JSON.stringify(dry_reply.focus_lease.prior)
         !== JSON.stringify(dry_reply.focus_lease.target)
       && Array.isArray(dry_reply.focus_lease.unavailable_fields)
@@ -1374,6 +1416,10 @@ const dry_dependency = ["focus_tuple_unavailable", "focus_tuple_ambiguous",
   "provider_unavailable", "focus_lease_set_failed",
   "phase_handshake_publish_failed", "phase_handshake_timeout"].includes(dry_error_code)
   || dry_phase_error.startsWith("acu004_page_focus_phase_unavailable:");
+const dry_immediate_safety_failure = dry_cycle !== null
+  && dry_cycle.injector !== null
+  && (dry_cycle.injector.host_unchanged !== true
+    || dry_error_code === "g6a_host_state_changed");
 if (release_failed) {
   verdict = "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE";
   retirement_rationale = "measured-safety-failure";
@@ -1383,13 +1429,13 @@ if (release_failed) {
 } else if (unstable_failure !== "") {
   verdict = "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE";
   retirement_rationale = "measured-safety-failure";
-} else if (stage === "focus-lease-dry" && failure !== "" && dry_cycle === null) {
-  verdict = "INCONCLUSIVE_REPORT_CONTRACT";
-} else if (stage === "focus-lease-dry" && failure !== "" && dry_dependency) {
-  verdict = "INCONCLUSIVE_DEPENDENCY";
 } else if (stage === "focus-lease-dry" && failure !== "") {
-  verdict = "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE";
-  retirement_rationale = "measured-safety-failure";
+  const dry_decision = dry_failure_decision(
+    dry_state_attempt, cumulative_dry_attempts, dry_cycle !== null,
+    dry_dependency, dry_immediate_safety_failure
+  );
+  verdict = dry_decision.verdict;
+  retirement_rationale = dry_decision.rationale;
 } else if (dependency_failure !== "") {
   verdict = "INCONCLUSIVE_DEPENDENCY";
 } else if (failure === "" && dependency_failure === "" && cleanup_failure === ""
@@ -1409,23 +1455,33 @@ if (release_failed) {
   }
 }
 
+let criteria_measured = ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8"];
+let criteria_remaining = ["G9", "G10"];
+if (verdict === "INCONCLUSIVE_REPORT_CONTRACT") {
+  criteria_measured = [];
+  criteria_remaining = ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8", "G9", "G10"];
+} else if (verdict === "INCONCLUSIVE_DRY_NOT_PROVEN") {
+  criteria_measured = ["G6a", "G6b"];
+  criteria_remaining = ["G1", "G2", "G3", "G4", "G5", "G7", "G8", "G9", "G10"];
+}
+
 const report = {
   verdict: verdict,
   research_only: true,
   product_eligible: false,
   closes_gap: false,
   registers_evidence: false,
-  criteria_measured: verdict === "INCONCLUSIVE_REPORT_CONTRACT"
-    ? [] : ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8"],
-  criteria_remaining: verdict === "INCONCLUSIVE_REPORT_CONTRACT"
-    ? ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8", "G9", "G10"]
-    : ["G9", "G10"],
+  criteria_measured: criteria_measured,
+  criteria_remaining: criteria_remaining,
   source_sha: source_sha,
   probe_digest: probe_digest,
   precommitment: "section-10.6",
-  dry_attempt: dry_attempt,
+  dry_attempt: dry_state_attempt,
+  dry_state_attempt: dry_state_attempt,
+  cumulative_dry_attempts: cumulative_dry_attempts,
   repair_count: repair_count,
   run_number: run_number,
+  dry_attempt_counted: dry_cycle !== null && verdict !== "INCONCLUSIVE_REPORT_CONTRACT",
   seed: SEED,
   triplets_requested: TRIPLETS,
   triplets_run: triplets_run,
@@ -1466,6 +1522,7 @@ print(JSON.stringify(report));
 
 if (verdict === "INCONCLUSIVE" || verdict === "INCONCLUSIVE_DEPENDENCY"
     || verdict === "INCONCLUSIVE_REPORT_CONTRACT"
+    || verdict === "INCONCLUSIVE_DRY_NOT_PROVEN"
     || cleanup_failure !== "") {
   throw "acu004_" + verdict
     + (dependency_failure !== "" ? ":" + scrubbed_failure(dependency_failure) : "")
