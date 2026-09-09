@@ -7470,7 +7470,7 @@
     },
     {
       "id": "cu-linux-audio-status-smoke",
-      "description": "Linux audio status default-output volume and mute match independent pactl, wpctl or amixer read-back, or return typed audio_unsupported with linux-default-output alternatives; no --coords.",
+      "description": "Linux audio status default-output volume and mute match independent pactl, wpctl or amixer read-back, or return typed audio_unsupported with linux-default-output alternatives; typed audio usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the pactl/wpctl/amixer read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-audio-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
