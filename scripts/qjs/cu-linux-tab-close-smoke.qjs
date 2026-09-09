@@ -46,11 +46,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function get_extents_misuse_message_ok(message, token) {
-  return usage_rejects_unexpected(message, token)
-    || message.indexOf("--name") >= 0;
-}
-
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -237,7 +232,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_tab_close_extents_coords_command:" + JSON.stringify(extents_coords)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_tab_close_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -255,7 +251,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_tab_close_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_tab_close_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -480,12 +477,14 @@ try {
   print("STEP tab-close typed-fails usage when AT-SPI --name/--coords/--bogus is present");
   assert_tab_close_unexpected_usage(run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before tab-close actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before tab-close actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before tab-close actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; tab-close read-back still uses CDP tab-list/browser-tabs");
   }
 
   print("STEP typed usage limits reject incomplete destructive gate before Chrome starts");
@@ -649,9 +648,9 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux tab-close usage/miss/no-CDP host-limit honesty + independent tab-list/browser-tabs read-back with typed tab-close --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux tab-close usage/miss/no-CDP host-limit honesty + independent tab-list/browser-tabs read-back with typed tab-close --name/--coords/--bogus and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux tab-close usage/miss/no-CDP host-limit honesty + independent tab-list/browser-tabs read-back with typed tab-close --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux tab-close usage/miss/no-CDP host-limit honesty + independent tab-list/browser-tabs read-back with typed tab-close --name/--coords/--bogus usage and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
