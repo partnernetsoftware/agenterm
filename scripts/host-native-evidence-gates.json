@@ -760,6 +760,13 @@
       ]
     },
     {
+      "id": "cu-linux-windows-inventory-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-windows-inventory-readback"
+      ]
+    },
+    {
       "id": "cu-linux-app-facts-smoke",
       "platform": "linux",
       "evidence": [
