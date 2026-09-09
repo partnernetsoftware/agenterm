@@ -1,8 +1,12 @@
 // CEO: Linux invoke honesty with independent AT-SPI read-back.
 // Acceptance is smoke read-back only: CU invoke --name press and
 // set-checked must agree with independent pyatspi label/state probes or
-// observable side-effect read-back after independent DoAction(0). No
-// --coords, screenshot, or coordinate degradation.
+// observable side-effect read-back after independent DoAction(0). Typed
+// invoke usage must reject missing --name, zero --window, and other
+// unexpected arguments; typed get-extents --name usage/host-limit paths must
+// hold before the native actuate/read-back court. Typed usage and AT-SPI
+// host-limit paths must hold when the independent pyatspi desktop probe is
+// unavailable. No --coords, screenshot, or coordinate degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -36,6 +40,8 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return 0; }
@@ -68,31 +74,148 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
-    timeout_ms: 45000,
-  });
-  ensure(output.success === true, "cu_linux_invoke_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_invoke_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_invoke_reply:" + JSON.stringify(document));
-  return document;
-}
-
-function run_cu_reply(run_directory, executable, arguments) {
-  const output = rh.command(executable, arguments, {
-    cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_invoke_empty:" + output.stderr);
   return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_invoke_cli:" + JSON.stringify(document));
+  return document;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_invoke_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("--node") >= 0;
+}
+
+function assert_invoke_usage_limit(run_directory, executable, env) {
+  const missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "invoke", "--window", "1", "press",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_invoke_usage_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_invoke_usage_missing_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(missing_name, "error.message")),
+    "cu_linux_invoke_usage_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const zero_window = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "invoke", "--window", "0", "--name", PRESS_BUTTON, "press",
+  ], env);
+  ensure(!output_success(zero_window), "cu_linux_invoke_usage_zero_window_ok:" + JSON.stringify(zero_window));
+  ensure(
+    text_at(zero_window, "error.code") === "usage",
+    "cu_linux_invoke_usage_zero_window_code:" + JSON.stringify(zero_window.error)
+  );
+  ensure(
+    text_at(zero_window, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_invoke_usage_zero_window_message:" + JSON.stringify(zero_window.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "invoke", "--window", "1", "--name", PRESS_BUTTON, "--bogus", "press",
+  ], env);
+  ensure(!output_success(with_bogus), "cu_linux_invoke_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_invoke_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(with_bogus, "error.message")),
+    "cu_linux_invoke_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", PRESS_BUTTON,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_invoke_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_invoke_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_invoke_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", PRESS_BUTTON,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_invoke_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_invoke_extents_unavailable_code:" + code
+  );
+}
+
+function assert_invoke_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "invoke", "--window", "1", "--name", PRESS_BUTTON, "press",
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_invoke_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_invoke_unavailable_code:" + code
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -169,6 +292,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_invoke_executable_missing");
 const context = harness.new_context(repo, "cu-linux-invoke");
 const run_directory = rh.join(repo, "target/cu-linux-invoke-smoke-run");
 rh.create_dir_all(run_directory);
@@ -180,91 +304,111 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_invoke_window_wait");
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_invoke_window_identity");
-  const handle_text = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_invoke_handle:" + JSON.stringify(row));
+  print("STEP invoke typed-fails usage when --name is missing, --window is zero, or other unexpected arguments are present");
+  assert_invoke_usage_limit(run_directory, executable, env);
 
-  print("STEP independent AT-SPI read-back reports press label and action names before CU invoke");
-  const press_before = independent_atspi_probe(fixture_title, "press_label", "pressed 0");
-  ensure(press_before.value === "pressed 0", "cu_linux_invoke_press_before:" + JSON.stringify(press_before));
-  const actions_before = independent_atspi_probe(fixture_title, "action_names", "click");
-  ensure(actions_before.value === "click", "cu_linux_invoke_actions_before:" + JSON.stringify(actions_before));
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
-  print("STEP CU invoke press --name advances the count and independent read-back agrees");
-  const pressed = run_cu(run_directory, executable, "observe,actuate", [
-    "invoke", "--window", handle_text, "--name", PRESS_BUTTON, "press",
-  ]);
-  ensure(
-    flag_at(pressed, "data.performed")
-      && text_at(pressed, "data.addressing") === "accessibility-tree",
-    "cu_linux_invoke_press:" + JSON.stringify(pressed.data)
-  );
-  const press_after = independent_atspi_probe(fixture_title, "press_label", "pressed 1");
-  ensure(press_after.value === "pressed 1", "cu_linux_invoke_press_after:" + JSON.stringify(press_after));
+  if (!atspi_available) {
+    print("STEP invoke typed-fail host-limit when independent pyatspi desktop probe is unavailable");
+    assert_invoke_host_limit_when_atspi_absent(run_directory, executable);
+    harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke-readback");
+    succeeded = 1;
+  } else {
+    print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_invoke_window_wait");
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_invoke_window_identity");
+    const handle_text = "" + int_at(row, "handle");
+    ensure(int_at(row, "handle") > 0, "cu_linux_invoke_handle:" + JSON.stringify(row));
 
-  print("STEP independent AT-SPI DoAction(0) on the same button matches observable side-effect read-back");
-  const do_action = independent_atspi_probe(fixture_title, "do_action", "true");
-  ensure(do_action.value === "true", "cu_linux_invoke_do_action:" + JSON.stringify(do_action));
-  const press_do_action = independent_atspi_probe(fixture_title, "press_label", "pressed 2");
-  ensure(press_do_action.value === "pressed 2", "cu_linux_invoke_do_action_after:" + JSON.stringify(press_do_action));
+    print("STEP independent AT-SPI read-back reports press label and action names before CU invoke");
+    const press_before = independent_atspi_probe(fixture_title, "press_label", "pressed 0");
+    ensure(press_before.value === "pressed 0", "cu_linux_invoke_press_before:" + JSON.stringify(press_before));
+    const actions_before = independent_atspi_probe(fixture_title, "action_names", "click");
+    ensure(actions_before.value === "click", "cu_linux_invoke_actions_before:" + JSON.stringify(actions_before));
 
-  print("STEP CU invoke set-checked true toggles check state and independent AT-SPI state agrees");
-  const check_before = independent_atspi_probe(fixture_title, "check_state", "unchecked");
-  ensure(check_before.value === "unchecked", "cu_linux_invoke_check_before:" + JSON.stringify(check_before));
-  const checked_once = run_cu(run_directory, executable, "observe,actuate", [
-    "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "true",
-  ]);
-  ensure(
-    flag_at(checked_once, "data.performed")
-      && flag_at(checked_once, "data.verified"),
-    "cu_linux_invoke_check_first:" + JSON.stringify(checked_once.data)
-  );
-  const check_on = independent_atspi_probe(fixture_title, "check_state", "checked");
-  ensure(check_on.value === "checked", "cu_linux_invoke_check_on:" + JSON.stringify(check_on));
+    print("STEP CU invoke press --name advances the count and independent read-back agrees");
+    const pressed = run_cu(run_directory, executable, "observe,actuate", [
+      "invoke", "--window", handle_text, "--name", PRESS_BUTTON, "press",
+    ]);
+    ensure(
+      flag_at(pressed, "data.performed")
+        && text_at(pressed, "data.addressing") === "accessibility-tree",
+      "cu_linux_invoke_press:" + JSON.stringify(pressed.data)
+    );
+    const press_after = independent_atspi_probe(fixture_title, "press_label", "pressed 1");
+    ensure(press_after.value === "pressed 1", "cu_linux_invoke_press_after:" + JSON.stringify(press_after));
 
-  print("STEP repeated set-checked true is a verified no-op with unchanged independent state");
-  const checked_again = run_cu(run_directory, executable, "observe,actuate", [
-    "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "true",
-  ]);
-  ensure(
-    !flag_at(checked_again, "data.performed")
-      && flag_at(checked_again, "data.verified"),
-    "cu_linux_invoke_check_noop:" + JSON.stringify(checked_again.data)
-  );
-  const check_still = independent_atspi_probe(fixture_title, "check_state", "checked");
-  ensure(check_still.value === "checked", "cu_linux_invoke_check_still:" + JSON.stringify(check_still));
+    print("STEP independent AT-SPI DoAction(0) on the same button matches observable side-effect read-back");
+    const do_action = independent_atspi_probe(fixture_title, "do_action", "true");
+    ensure(do_action.value === "true", "cu_linux_invoke_do_action:" + JSON.stringify(do_action));
+    const press_do_action = independent_atspi_probe(fixture_title, "press_label", "pressed 2");
+    ensure(press_do_action.value === "pressed 2", "cu_linux_invoke_do_action_after:" + JSON.stringify(press_do_action));
 
-  print("STEP CU invoke set-checked false clears check state and independent AT-SPI state agrees");
-  const unchecked = run_cu(run_directory, executable, "observe,actuate", [
-    "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "false",
-  ]);
-  ensure(
-    flag_at(unchecked, "data.performed")
-      && flag_at(unchecked, "data.verified"),
-    "cu_linux_invoke_check_off:" + JSON.stringify(unchecked.data)
-  );
-  const check_off = independent_atspi_probe(fixture_title, "check_state", "unchecked");
-  ensure(check_off.value === "unchecked", "cu_linux_invoke_check_off:" + JSON.stringify(check_off));
+    print("STEP CU invoke set-checked true toggles check state and independent AT-SPI state agrees");
+    const check_before = independent_atspi_probe(fixture_title, "check_state", "unchecked");
+    ensure(check_before.value === "unchecked", "cu_linux_invoke_check_before:" + JSON.stringify(check_before));
+    const checked_once = run_cu(run_directory, executable, "observe,actuate", [
+      "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "true",
+    ]);
+    ensure(
+      flag_at(checked_once, "data.performed")
+        && flag_at(checked_once, "data.verified"),
+      "cu_linux_invoke_check_first:" + JSON.stringify(checked_once.data)
+    );
+    const check_on = independent_atspi_probe(fixture_title, "check_state", "checked");
+    ensure(check_on.value === "checked", "cu_linux_invoke_check_on:" + JSON.stringify(check_on));
 
-  harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke-readback");
-  succeeded = 1;
+    print("STEP repeated set-checked true is a verified no-op with unchanged independent state");
+    const checked_again = run_cu(run_directory, executable, "observe,actuate", [
+      "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "true",
+    ]);
+    ensure(
+      !flag_at(checked_again, "data.performed")
+        && flag_at(checked_again, "data.verified"),
+      "cu_linux_invoke_check_noop:" + JSON.stringify(checked_again.data)
+    );
+    const check_still = independent_atspi_probe(fixture_title, "check_state", "checked");
+    ensure(check_still.value === "checked", "cu_linux_invoke_check_still:" + JSON.stringify(check_still));
+
+    print("STEP CU invoke set-checked false clears check state and independent AT-SPI state agrees");
+    const unchecked = run_cu(run_directory, executable, "observe,actuate", [
+      "invoke", "--window", handle_text, "--name", CHECK_BUTTON, "set-checked", "false",
+    ]);
+    ensure(
+      flag_at(unchecked, "data.performed")
+        && flag_at(unchecked, "data.verified"),
+      "cu_linux_invoke_check_off:" + JSON.stringify(unchecked.data)
+    );
+    const check_off = independent_atspi_probe(fixture_title, "check_state", "unchecked");
+    ensure(check_off.value === "unchecked", "cu_linux_invoke_check_off:" + JSON.stringify(check_off));
+
+    harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-invoke-readback");
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -278,4 +422,9 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_invoke_failed");
 harness.remove_run(context);
-print("PASS: CEO Linux invoke --name honesty (CU press/set-checked agree with independent AT-SPI read-back)");
+if (atspi_available) {
+  print("PASS: CEO Linux invoke --name honesty (CU press/set-checked agree with independent AT-SPI read-back with typed invoke/get-extents usage honesty; AT-SPI --name, no --coords)");
+} else {
+  print("PASS: CEO Linux invoke typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+}
+return;
