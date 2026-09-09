@@ -1,9 +1,10 @@
 // CEO: Linux process-maps honesty with independent /proc/<pid>/maps read-back.
 // Acceptance is smoke read-back only: CU process-maps must agree with address ranges,
 // permissions and paths derived outside agenterm-cu for the same live PID.
-// Typed process-maps usage must reject AT-SPI --name and other unexpected arguments;
-// typed get-extents --name usage/host-limit paths must hold before the /proc/<pid>/maps
-// read-back court. AT-SPI/--name only; no --coords or screenshot degradation.
+// Typed process-maps usage must reject AT-SPI --name, --coords, --bogus, and other
+// unexpected arguments; typed get-extents --name usage AND host-limit paths must both
+// hold before the /proc/<pid>/maps read-back court. AT-SPI/--name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -36,6 +37,11 @@ function text_at(value, dotted) {
 }
 
 function output_success(document) { return at(document, "ok") === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function cu_env(executable) {
   const env = {
@@ -120,8 +126,7 @@ function assert_process_maps_usage_limit(run_directory, executable, env) {
     "cu_linux_process_maps_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
   ensure(
-    text_at(flat_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(flat_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_process_maps_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
 
@@ -135,9 +140,48 @@ function assert_process_maps_usage_limit(run_directory, executable, env) {
     "cu_linux_process_maps_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
   ensure(
-    text_at(grouped_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(grouped_with_name, "error.message").indexOf("unexpected") >= 0,
+    text_at(grouped_with_name, "command") === "usage",
+    "cu_linux_process_maps_usage_grouped_name_command:" + JSON.stringify(grouped_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_process_maps_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const flat_with_coords = invoke_observe_reply(run_directory, executable, [
+    "process-maps", "--pid", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(flat_with_coords),
+    "cu_linux_process_maps_usage_flat_coords_ok:" + JSON.stringify(flat_with_coords));
+  ensure(
+    text_at(flat_with_coords, "error.code") === "usage",
+    "cu_linux_process_maps_usage_flat_coords_code:" + JSON.stringify(flat_with_coords.error)
+  );
+  ensure(
+    text_at(flat_with_coords, "command") === "usage",
+    "cu_linux_process_maps_usage_flat_coords_command:" + JSON.stringify(flat_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_with_coords, "error.message"), "--coords"),
+    "cu_linux_process_maps_usage_flat_coords_message:" + JSON.stringify(flat_with_coords.error)
+  );
+
+  const grouped_with_coords = invoke_observe_reply(run_directory, executable, [
+    "process", "maps", "--pid", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(grouped_with_coords),
+    "cu_linux_process_maps_usage_grouped_coords_ok:" + JSON.stringify(grouped_with_coords));
+  ensure(
+    text_at(grouped_with_coords, "error.code") === "usage",
+    "cu_linux_process_maps_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
+  );
+  ensure(
+    text_at(grouped_with_coords, "command") === "usage",
+    "cu_linux_process_maps_usage_grouped_coords_command:" + JSON.stringify(grouped_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
+    "cu_linux_process_maps_usage_grouped_coords_message:" + JSON.stringify(grouped_with_coords.error)
   );
 
   const with_bogus = invoke_observe_reply(run_directory, executable, [
@@ -150,8 +194,11 @@ function assert_process_maps_usage_limit(run_directory, executable, env) {
     "cu_linux_process_maps_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_process_maps_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_process_maps_usage_bogus_message:" + JSON.stringify(with_bogus.error)
   );
 }
@@ -169,6 +216,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_process_maps_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_process_maps_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_process_maps_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_process_maps_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_maps_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_process_maps_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_process_maps_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_process_maps_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_maps_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_process_maps_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_process_maps_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_process_maps_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_process_maps_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -491,15 +594,17 @@ const denied_probe = find_denied_probe_pid();
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP process-maps typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP process-maps typed-fail usage when AT-SPI --name/--coords/--bogus is present");
   assert_process_maps_usage_limit(context.run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before /proc/<pid>/maps read-back");
-    assert_get_extents_usage_limit(context.run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before /proc/<pid>/maps read-back court");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before /proc/<pid>/maps read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; process-maps read-back still uses /proc/<pid>/maps");
   }
 
   if (!self_probe.readable) {
@@ -548,12 +653,12 @@ if (succeeded !== 0 && completion_failure === "") {
     print("PASS: Linux process-maps typed-fails when independent /proc/<pid>/maps is unreadable or denied");
   } else if (atspi_available) {
     print("PASS: Linux process-maps matches independent /proc/<pid>/maps read-back"
-      + " with typed process-maps/get-extents usage honesty (AT-SPI --name, no --coords)"
-      + " and permission-denied host-limit honesty");
+      + " with typed process-maps --name/--coords/--bogus and get-extents --name usage/host-limit honesty"
+      + " (AT-SPI --name, no --coords) and permission-denied host-limit honesty");
   } else {
     print("PASS: Linux process-maps matches independent /proc/<pid>/maps read-back"
-      + " with typed process-maps/get-extents host-limit honesty (AT-SPI --name, no --coords)"
-      + " and permission-denied host-limit honesty");
+      + " with typed process-maps --name/--coords/--bogus usage and get-extents --name host-limit honesty"
+      + " (AT-SPI --name, no --coords) and permission-denied host-limit honesty");
   }
 }
 if (failure !== "") { throw failure; }

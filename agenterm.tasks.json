@@ -7517,7 +7517,7 @@
     },
     {
       "id": "cu-linux-process-maps-smoke",
-      "description": "Linux process-maps region ranges, permissions and paths match independent /proc/<pid>/maps read-back for current and chosen PID; typed process-maps usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc/<pid>/maps read-back court; permission-denied maps typed-fail with host-limit detail; AT-SPI/--name only, no --coords.",
+      "description": "Linux process-maps region ranges, permissions and paths match independent /proc/<pid>/maps read-back for current and chosen PID; typed process-maps usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage and host-limit both hold before the /proc/<pid>/maps read-back court; permission-denied maps typed-fail with host-limit detail; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-maps-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
