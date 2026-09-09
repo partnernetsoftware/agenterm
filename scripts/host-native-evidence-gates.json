@@ -531,6 +531,13 @@
       ]
     },
     {
+      "id": "cu-linux-fontconfig-monospace-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-fontconfig-monospace"
+      ]
+    },
+    {
       "id": "cu-linux-menu-invoke-honesty-smoke",
       "platform": "linux",
       "evidence": [
