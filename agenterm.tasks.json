@@ -7534,7 +7534,7 @@
     },
     {
       "id": "cu-linux-windows-watch-smoke",
-      "description": "Linux windows-watch appeared/disappeared/title diffs match independent windows inventory handle/title/field diffs over the same poll window; typed windows-watch usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the windows-watch read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux windows-watch appeared/disappeared/title diffs match independent windows inventory handle/title/field diffs over the same poll window; typed windows-watch usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage/host-limit paths before the windows-watch read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-windows-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
