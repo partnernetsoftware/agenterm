@@ -321,8 +321,12 @@ observations have left the static set. `setup refresh` now reaches the same
 owner-preserving native setup, and obsolete `daemon start|restart|stop`
 spellings return typed retirements instead of falling back to MCU. The distinct
 `daemon service` login wrapper retires with that removed global daemon; arbitrary
-per-user service definition and lifecycle work remains owned by `service.user.lifecycle`. Other
-storage mutation/volume shapes still fall over dynamically.
+per-user service definition and lifecycle work remains owned by `service.user.lifecycle`.
+Native `storage volumes` now passes through as the public `storage-volumes`
+alias. Archived MCU exposed no storage-group `mount`, `unmount` or `eject`
+subcommand, so those invented spellings fail locally as usage instead of
+retaining the stale `acu.dynamic.057` TODO. Its real privileged-plan
+`storage.mount` and `storage.unmount` operations remain a separate mutation gap.
 The reviewed retirement of the no-authority `ghost` overlay and obsolete
 `desktop-helper` sidecar removed two more fallbacks without inventing replacement
 mechanisms. This is not the remaining capability count: group verbs contain
@@ -600,7 +604,10 @@ shapes fail typed instead of being ignored.
   matched. Exact source `00d22433` then passed the same journey on Windows
   aarch64 after a ten-file guest manifest match and disposable-court rollback.
   Linux x86_64 and Windows x86_64 remain; the exact inventory route has left
-  static STAY while other storage sub-shapes remain dynamic.
+  static STAY. Native `storage volumes` also reaches `storage-volumes` through
+  the compatibility entry. Invented storage-group mount, unmount and eject
+  aliases are local usage; the archived privileged-plan volume mutations remain
+  separate identity-bound work.
   Existing stable-entry, no-overwrite and per-volume primitives stay separate
   from physical devices. Unix modes/xattrs and Windows
   ACLs/attributes remain distinct platform vocabularies; parity must not be

@@ -45,13 +45,30 @@ require_ok(rh.exists(launcher) && rh.metadata(launcher).is_file,
 const cases = [
   [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
   [["device", "claim", "legacy-device-path"], "acu.dynamic.054"],
-  [["storage", "mount", "disk-1"], "acu.dynamic.057"],
   [["browser", "bridge", "status"], "acu.dynamic.075"],
   [["elements", "Window#1", "--page", "--tab-id", "4"], "acu.dynamic.078.page-index-space"]
 ];
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);
 }
+
+const storage_rejections = [
+  ["storage", "mount", "disk-1"],
+  ["storage", "unmount", "disk-1"],
+  ["storage", "eject", "disk-1"]
+];
+for (let i = 0; i < storage_rejections.length; i = i + 1) {
+  const reply = run(launcher, storage_rejections[i]);
+  require_ok(reply.ok === false && reply.alert === undefined
+      && reply.error.code === "usage"
+      && reply.error.message.indexOf("storage devices") >= 0
+      && reply.error.message.indexOf("storage-volumes") >= 0,
+    "legacy storage rejection must stay local:" + JSON.stringify(reply));
+}
+
+const storage_volumes = invoke(launcher, ["storage", "volumes", "--max", "5"], 0);
+require_ok(storage_volumes.ok === true && storage_volumes.command === "storage-volumes",
+  "native storage volumes alias must remain reachable:" + JSON.stringify(storage_volumes));
 
 const elements_projection = invoke(launcher, ["elements", "Window#1"], 1);
 require_ok(elements_projection.ok === false

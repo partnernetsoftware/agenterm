@@ -621,7 +621,7 @@
         "storage",
         "volumes"
       ],
-      "classification": "typed-rejection"
+      "classification": "resolved"
     },
     {
       "gap_id": "acu.dynamic.058",

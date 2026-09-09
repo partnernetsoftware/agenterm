@@ -1,0 +1,71 @@
+// Pure public court for the frozen storage compatibility boundary. Native
+// inventory aliases remain reachable; invented storage-group mutation
+// spellings fail locally instead of becoming false legacy capabilities.
+//
+// Args: REPO | --list-evidence
+import * as compat from "skills/acu/lib/compat";
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["acu.compat-storage-legacy-boundary"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function same_argv(actual, expected, label) {
+  ensure(actual.length === expected.length, label + ":length");
+  for (let i = 0; i < expected.length; i = i + 1) {
+    ensure(actual[i] === expected[i], label + ":argv[" + i + "]");
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 1, "expected: REPO");
+const context = harness.new_context(rh.absolute(args[0]), "acu-storage-legacy-boundary");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const devices = compat.canonicalize(["storage", "devices", "--max", "7"]);
+  ensure(devices.kind === "exec", "acu_storage_legacy_devices_must_execute");
+  same_argv(devices.argv, ["--target", "current", "--grant", "observe,actuate",
+    "storage", "devices", "--max", "7"], "acu_storage_legacy_devices");
+
+  const volumes = compat.canonicalize(["storage", "volumes", "--max", "5"]);
+  ensure(volumes.kind === "exec", "acu_storage_native_volumes_alias_must_execute");
+  same_argv(volumes.argv, ["--target", "current", "--grant", "observe,actuate",
+    "storage", "volumes", "--max", "5"], "acu_storage_native_volumes_alias");
+
+  const rejected = [
+    ["storage", "mount", "disk-1"],
+    ["storage", "unmount", "disk-1"],
+    ["storage", "eject", "disk-1"]
+  ];
+  for (let i = 0; i < rejected.length; i = i + 1) {
+    const result = compat.canonicalize(rejected[i]);
+    ensure(result.kind === "usage" && result.command === "storage"
+        && result.message.indexOf("storage devices") >= 0
+        && result.message.indexOf("storage-volumes") >= 0,
+      "acu_storage_legacy_non_command_must_be_usage:" + rejected[i][1]);
+  }
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "acu.compat-storage-legacy-boundary");
+  harness.remove_run(context);
+  print("PASS: storage inventory aliases execute and invented mutation subcommands fail locally");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
