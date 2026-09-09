@@ -2,12 +2,15 @@
 // Acceptance is smoke read-back only: after focus --name actuation, CU
 // focused --window, the actuation target, and an independent AT-SPI deepest
 // STATE_FOCUSED node (name + role) must agree. Typed focused and focus
-// usage plus typed get-extents --name usage/host-limit paths must hold
-// before the focused observe/read-back court; focus --coords/--bogus must
-// reject or stay accessibility-tree --name. Focused/focus/get-extents
-// host-limit paths must hold on an invalid AT-SPI bus (and when the
-// independent pyatspi desktop probe is unavailable). AT-SPI/--name only;
-// no --coords or screenshot degradation.
+// usage must reject AT-SPI --name, --coords, --bogus, and other unexpected
+// arguments (usage_rejects_unexpected); typed get-extents --name usage AND
+// host-limit paths must both hold before the focused observe/read-back
+// court, including get-extents --coords/--bogus command=usage honesty.
+// Focus --coords/--bogus must reject as command=usage or stay
+// accessibility-tree --name. Focused/focus/get-extents host-limit paths
+// must hold on an invalid AT-SPI bus (and when the independent pyatspi
+// desktop probe is unavailable). Prefer host-limit clarity over fake
+// success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -64,12 +67,6 @@ function normalize_role(role) {
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
-}
-
-function misuse_code_ok(code) {
-  return code === "usage"
-    || code === "invalid_input"
-    || code === "unsupported";
 }
 
 function cu_env(executable) {
@@ -335,6 +332,42 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_focused_honesty_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords), "cu_linux_focused_honesty_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_focused_honesty_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_focused_honesty_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_focused_honesty_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus), "cu_linux_focused_honesty_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_focused_honesty_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_focused_honesty_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_focused_honesty_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
+  );
 }
 
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
@@ -460,6 +493,60 @@ function independent_focus_probe(run_directory, executable, fixture_title) {
   return document;
 }
 
+function assert_get_extents_reject_coords_or_stay_named(
+  run_directory, executable, handle, node_name, label
+) {
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
+  ]);
+  if (!output_success(extents_coords)) {
+    ensure(
+      text_at(extents_coords, "error.code") === "usage",
+      "cu_linux_focused_honesty_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
+    );
+    ensure(
+      text_at(extents_coords, "command") === "usage",
+      "cu_linux_focused_honesty_extents_coords_command_" + label + ":" + JSON.stringify(extents_coords)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+        || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_focused_honesty_extents_coords_message_" + label + ":" + JSON.stringify(extents_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_coords, "data.addressing") === "accessibility-tree"
+        && text_at(extents_coords, "data.matched.name") === node_name,
+      "cu_linux_focused_honesty_extents_coords_named_" + label + ":" + JSON.stringify(extents_coords.data)
+    );
+  }
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
+  ]);
+  if (!output_success(extents_bogus)) {
+    ensure(
+      text_at(extents_bogus, "error.code") === "usage",
+      "cu_linux_focused_honesty_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
+    );
+    ensure(
+      text_at(extents_bogus, "command") === "usage",
+      "cu_linux_focused_honesty_extents_bogus_command_" + label + ":" + JSON.stringify(extents_bogus)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+        || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_focused_honesty_extents_bogus_message_" + label + ":" + JSON.stringify(extents_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_bogus, "data.addressing") === "accessibility-tree"
+        && text_at(extents_bogus, "data.matched.name") === node_name,
+      "cu_linux_focused_honesty_extents_bogus_named_" + label + ":" + JSON.stringify(extents_bogus.data)
+    );
+  }
+}
+
 function assert_focus_reject_coords_or_stay_named(
   run_directory, executable, handle, focus_name, label
 ) {
@@ -468,8 +555,16 @@ function assert_focus_reject_coords_or_stay_named(
   ]);
   if (!output_success(focus_coords)) {
     ensure(
-      misuse_code_ok(text_at(focus_coords, "error.code")),
+      text_at(focus_coords, "error.code") === "usage",
       "cu_linux_focused_honesty_focus_coords_code_" + label + ":" + JSON.stringify(focus_coords.error)
+    );
+    ensure(
+      text_at(focus_coords, "command") === "usage",
+      "cu_linux_focused_honesty_focus_coords_command_" + label + ":" + JSON.stringify(focus_coords)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(focus_coords, "error.message"), "--coords"),
+      "cu_linux_focused_honesty_focus_coords_message_" + label + ":" + JSON.stringify(focus_coords.error)
     );
   } else {
     ensure(
@@ -484,8 +579,16 @@ function assert_focus_reject_coords_or_stay_named(
   ]);
   if (!output_success(focus_bogus)) {
     ensure(
-      misuse_code_ok(text_at(focus_bogus, "error.code")),
+      text_at(focus_bogus, "error.code") === "usage",
       "cu_linux_focused_honesty_focus_bogus_code_" + label + ":" + JSON.stringify(focus_bogus.error)
+    );
+    ensure(
+      text_at(focus_bogus, "command") === "usage",
+      "cu_linux_focused_honesty_focus_bogus_command_" + label + ":" + JSON.stringify(focus_bogus)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(focus_bogus, "error.message"), "--bogus"),
+      "cu_linux_focused_honesty_focus_bogus_message_" + label + ":" + JSON.stringify(focus_bogus.error)
     );
   } else {
     ensure(
@@ -499,7 +602,10 @@ function assert_focus_reject_coords_or_stay_named(
 function assert_focused_agreement(
   run_directory, executable, handle, fixture_title, focus_name, label
 ) {
-  print("STEP focus --name " + focus_name + " with --coords/--bogus rejects or stays accessibility-tree before focused read-back");
+  print("STEP get-extents --name " + focus_name + " with --coords/--bogus rejects as command=usage or stays accessibility-tree before focused read-back");
+  assert_get_extents_reject_coords_or_stay_named(run_directory, executable, handle, focus_name, label);
+
+  print("STEP focus --name " + focus_name + " with --coords/--bogus rejects as command=usage or stays accessibility-tree before focused read-back");
   assert_focus_reject_coords_or_stay_named(run_directory, executable, handle, focus_name, label);
 
   print("STEP focus --name " + focus_name + " then compare CU focused with pyatspi STATE_FOCUSED");
@@ -586,24 +692,24 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available();
 
 try {
-  print("STEP focused typed-fails usage when AT-SPI --name, --coords, --bogus, or other unexpected arguments are present");
+  print("STEP focused typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present (usage_rejects_unexpected)");
   assert_focused_usage_limit(run_directory, executable);
 
   print("STEP focus typed-fails usage when --name is missing or --window is zero before focused read-back court");
   assert_focus_usage_limit(run_directory, executable);
 
-  print("STEP get-extents typed-fail usage when --window is zero or --name is missing before focused read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before focused observe/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before focused read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before focused observe/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
-  print("STEP focused/focus typed-fail host-limit on invalid AT-SPI bus before focused read-back court");
+  print("STEP focused/focus typed-fail host-limit on invalid AT-SPI bus before focused observe/read-back court");
   assert_focused_host_limit_when_atspi_absent(run_directory, executable);
   assert_focus_host_limit_when_atspi_absent(run_directory, executable);
 
-  if (!atspi_available) {
-    print("STEP independent pyatspi desktop probe is unavailable; usage/host-limit court is the evidence");
+  if (atspi_available !== true) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; focused actuate/observe read-back still requires AT-SPI");
     succeeded = 1;
   } else {
     print("STEP start owned GTK fixture and resolve one window handle");
@@ -650,9 +756,9 @@ if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux CU focused matches independent pyatspi STATE_FOCUSED after focus --name with typed focused/focus --coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux CU focused matches independent pyatspi STATE_FOCUSED after focus --name with typed focused/focus --name/--coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux focused/focus typed-fail with typed focused --coords/--bogus and get-extents --name usage/host-limit honesty when independent pyatspi desktop probe is unavailable");
+    print("PASS: Linux focused/focus typed-fail with typed focused --name/--coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

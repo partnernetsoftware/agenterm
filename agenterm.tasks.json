@@ -7152,7 +7152,7 @@
     },
     {
       "id": "cu-linux-focused-honesty-smoke",
-      "description": "Linux CU focused --window on a disposable GTK fixture matches independent pyatspi deepest STATE_FOCUSED node name and role after focus --name actuation; typed focused and focus usage plus focused/focus --coords/--bogus reject-or-stay-named and get-extents --name usage/host-limit paths before the focused observe/read-back court; focused/focus/get-extents host-limit on an invalid AT-SPI bus and when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
+      "description": "Linux CU focused --window on a disposable GTK fixture matches independent pyatspi deepest STATE_FOCUSED node name and role after focus --name actuation; typed focused/focus usage rejects AT-SPI --name/--coords/--bogus (usage_rejects_unexpected); get-extents --name usage AND host-limit plus --coords/--bogus command=usage before the focused observe/read-back court; focus --coords/--bogus reject as command=usage or stay accessibility-tree --name; focused/focus/get-extents host-limit on an invalid AT-SPI bus and when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-focused-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
