@@ -1,0 +1,1095 @@
+// acu.dynamic.004 held-button exact-window discriminator court.
+//
+// RESEARCH ONLY. This runner registers no public evidence, changes no product
+// capability state and cannot close the compatibility TODO. A fully green run
+// proves only plan/design-skylight-window-local-pointer-experiment.md G1-G8 on
+// one current host. G9 repeatability and G10 host coverage remain separate.
+//
+// The court owns one direct Chromium profile, two windows (target B and peer A)
+// and a separate foreground guard. Before the first native post it freezes a
+// zero-injection CDP viewport calibration and checks it against both the CG
+// window inventory and AX root bounds. It then runs 20 deterministically
+// shuffled PRIVATE/PUBLIC_LOC/PUBLIC_OFF triplets, alternating the inside and
+// inside-to-outside trajectories.
+//
+// Args: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST
+// or:   --list-evidence   (prints nothing; research is not public evidence)
+//
+// Page contract (drag/page.html):
+//   window.__agentermDrag.calibrate() -> JSON string with
+//     {screen:{x,y},outer:{width,height},inner:{width,height},dpr,stage,
+//      start,inside_end,outside_endpoint}
+//   window.__agentermDrag.reset(TRIAL_NONCE) -> JSON reset receipt
+//   window.__agentermDrag.snapshot() -> JSON string with
+//     {label,nonce,trial_nonce,has_focus,sequence:[event...]}
+//   Each event carries {seq,kind,button,buttons,clientX,clientY,target_id,
+//   target_path_ids}. The path starts at target_id and walks toward the root.
+//
+// Injector contract (drag gesture):
+//   --mode gesture --arm private|public-loc|public-off
+//   --pid PID --window CGID --window-x X --window-y Y
+//   --window-width W --window-height H --start-x X --start-y Y --end-x X --end-y Y
+//   --off-dx DX --off-dy DY --steps 20 --cadence-us 6000 --guard-state PATH
+// The one JSON receipt must prove the frozen identity, 1 down attempt, 20 move
+// attempts, 1 same-target up attempt, a baseline plus 22 complete host samples,
+// <=50 ms post-to-sample latency, and outcome_unknown=false.
+//
+// If the gesture process crashes, times out or cannot prove an up attempt, the
+// parent invokes the same injector once with --mode release-only and the exact
+// same identity/final point. Recovery never makes the trial green. The verdict
+// is FAIL_RELEASE/outcome_unknown and no later gesture/down is launched.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const TRIPLETS = 20;
+const SEED = 20260910;
+const ARMS = ["private", "public-loc", "public-off"];
+const STEPS = 20;
+const CADENCE_US = 6000;
+const SAMPLE_BOUND_MS = 50;
+const FRAME_A = { x: 40, y: 80, width: 520, height: 400 };
+const FRAME_B = { x: 700, y: 80, width: 520, height: 400 };
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) { current = rh.field(current, key); }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  return value_at === undefined || value_at === null ? "" : "" + value_at;
+}
+
+function number_at(value, dotted) {
+  const value_at = at(value, dotted);
+  ensure(typeof value_at === "number" && value_at === value_at,
+    "acu004_number_missing:" + dotted);
+  return value_at;
+}
+
+function integer_at(value, dotted) {
+  const number = number_at(value, dotted);
+  ensure(number % 1 === 0, "acu004_integer_required:" + dotted);
+  return number;
+}
+
+function boolean_at(value, dotted) {
+  const value_at = at(value, dotted);
+  ensure(typeof value_at === "boolean", "acu004_boolean_missing:" + dotted);
+  return value_at;
+}
+
+function absolute(value) { return value < 0 ? 0 - value : value; }
+
+function scrubbed_failure(value) {
+  let text = "" + value;
+  for (const secret_path of [run_directory, repo, executable, chromium,
+      injector, guard_fixture]) {
+    if (secret_path !== "") { text = text.split(secret_path).join("<PATH>"); }
+  }
+  return text;
+}
+
+function near(left, right, tolerance) {
+  return absolute(left - right) <= tolerance;
+}
+
+function same_rect(left, right, tolerance) {
+  return near(left.x, right.x, tolerance) && near(left.y, right.y, tolerance)
+    && near(left.width, right.width, tolerance)
+    && near(left.height, right.height, tolerance);
+}
+
+function point_in_rect(point, rect) {
+  return point.x >= rect.x && point.x < rect.x + rect.width
+    && point.y >= rect.y && point.y < rect.y + rect.height;
+}
+
+function path_point(path, index) {
+  return {
+    x: path.start.x + (path.end.x - path.start.x) * index / STEPS,
+    y: path.start.y + (path.end.y - path.start.y) * index / STEPS
+  };
+}
+
+function path_avoids(path, rectangles) {
+  for (let index = 0; index <= STEPS; index = index + 1) {
+    const point = path_point(path, index);
+    for (const rect of rectangles) {
+      if (point_in_rect(point, rect)) { return false; }
+    }
+  }
+  return true;
+}
+
+function parsed_port_or_zero(text) {
+  try { return rh.parse_int(text); }
+  catch (error) { return 0; }
+}
+
+let rng_state = SEED;
+function next_random() {
+  rng_state = (rng_state * 1103515245 + 12345) % 2147483648;
+  return rng_state;
+}
+
+function arm_order_for_round() {
+  const order = [];
+  let pool = [];
+  for (const arm of ARMS) { pool.push(arm); }
+  while (pool.length > 0) {
+    const index = next_random() % pool.length;
+    order.push(pool[index]);
+    const rest = [];
+    for (let at = 0; at < pool.length; at = at + 1) {
+      if (at !== index) { rest.push(pool[at]); }
+    }
+    pool = rest;
+  }
+  return order;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") { return; }
+harness.require(args.length === 7,
+  "expected: REPO AGENTERM_CU_EXE CHROMIUM_EXE DRAG_INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const chromium = rh.absolute(args[2]);
+const injector = rh.absolute(args[3]);
+const guard_fixture = rh.absolute(args[4]);
+const source_sha = "" + args[5];
+const probe_digest = "" + args[6];
+
+const context = harness.new_context(repo, "acu-004-chromium-drag-discriminator");
+const run_directory = context.run_directory;
+const nonce = "" + context.run_id;
+const page_path = rh.join(repo, "research/skylight-window-local-pointer/drag/page.html");
+const guard_state_path = rh.join(run_directory, "guard.json");
+const cu_env = {
+  AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+  AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+  AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-idempotency.json"),
+  AGENTERM_NO_ACTIVATE: "1"
+};
+
+function invoke(grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env,
+    timeout_ms: 60000
+  });
+  const text = output.stdout.trim();
+  ensure(text !== "", "acu004_empty_reply:" + argv[0]);
+  return { output: output, reply: JSON.parse(text) };
+}
+
+function require_ok(result, label) {
+  ensure(result.output.success === true && result.reply.ok === true,
+    label + ":" + JSON.stringify(result.reply));
+  return result.reply;
+}
+
+function page_url(label) {
+  return "file://" + page_path + "?label=" + label + "&nonce=" + nonce;
+}
+
+function page_title(label) {
+  return "acu-004-drag-" + label + "-" + nonce;
+}
+
+function native_windows_for(pid) {
+  const reply = require_ok(invoke("observe", ["windows", "--pid", "" + pid, "--max", "8"]),
+    "acu004_native_windows_failed");
+  const rows = [];
+  for (const row of reply.data.windows) {
+    if (row.process_id === pid) { rows.push(row); }
+  }
+  return rows;
+}
+
+function native_window_by_title(pid, title) {
+  let found = null;
+  for (const row of native_windows_for(pid)) {
+    if (row.title === title) {
+      ensure(found === null, "acu004_native_title_ambiguous:" + title);
+      found = row;
+    }
+  }
+  ensure(found !== null, "acu004_native_title_missing:" + title);
+  return found;
+}
+
+function focused_native_window() {
+  const reply = require_ok(invoke("observe", ["windows", "--focused", "true", "--max", "2"]),
+    "acu004_focused_window_failed");
+  ensure(reply.data.returned === 1, "acu004_focused_window_ambiguous");
+  return reply.data.windows[0];
+}
+
+function place_frame(handle, frame) {
+  return require_ok(invoke("observe,actuate", [
+    "window-place", "--action", "frame", "--window", "" + handle,
+    "--x", "" + frame.x, "--y", "" + frame.y,
+    "--width", "" + frame.width, "--height", "" + frame.height
+  ]), "acu004_window_place_failed:" + handle);
+}
+
+function page_target_by_title(port, title) {
+  const reply = require_ok(invoke("observe", ["page-targets", "--port", "" + port]),
+    "acu004_page_targets_failed");
+  let found = null;
+  for (const row of reply.data.targets) {
+    if (row.type === "page" && row.title === title) {
+      ensure(found === null, "acu004_page_target_ambiguous:" + title);
+      found = row;
+    }
+  }
+  ensure(found !== null, "acu004_page_target_missing:" + title);
+  return "" + found.id;
+}
+
+function page_js(port, target_id, expression) {
+  const reply = require_ok(invoke("observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", expression
+  ]), "acu004_page_js_failed:" + target_id);
+  return reply.data.value;
+}
+
+function page_calibration(port, target_id, label) {
+  const raw = page_js(port, target_id, "window.__agentermDrag.calibrate()");
+  const value = JSON.parse("" + raw);
+  ensure(typeof value.screen === "object" && value.screen !== null
+      && typeof value.outer === "object" && value.outer !== null
+      && typeof value.inner === "object" && value.inner !== null
+      && typeof value.stage === "object" && value.stage !== null
+      && typeof value.start === "object" && value.start !== null
+      && typeof value.inside_end === "object" && value.inside_end !== null
+      && typeof value.outside_endpoint === "object" && value.outside_endpoint !== null,
+    "acu004_calibration_shape:" + label);
+  number_at(value, "screen.x");
+  number_at(value, "screen.y");
+  number_at(value, "outer.width");
+  number_at(value, "outer.height");
+  number_at(value, "inner.width");
+  number_at(value, "inner.height");
+  number_at(value, "dpr");
+  ensure(value.outer.width > 0 && value.outer.height > 0
+      && value.inner.width > 0 && value.inner.height > 0 && value.dpr > 0,
+    "acu004_calibration_dimensions:" + label);
+  for (const field of ["left", "top", "width", "height"]) {
+    number_at(value.stage, field);
+  }
+  ensure(value.stage.width >= 80 && value.stage.height >= 80,
+    "acu004_calibration_stage_too_small:" + label);
+  return value;
+}
+
+function reset_oracle(port, target_id, label, trial_nonce) {
+  const expression = "window.__agentermDrag.reset(" + JSON.stringify(trial_nonce) + ")";
+  const raw = page_js(port, target_id, expression);
+  const value = JSON.parse("" + raw);
+  ensure(value.label === label && value.fixture_nonce === nonce
+      && value.trial_nonce === trial_nonce && value.reset === true,
+    "acu004_reset_readback:" + label + ":" + raw);
+}
+
+function snapshot_oracle(port, target_id, label, trial_nonce) {
+  const raw = page_js(port, target_id, "window.__agentermDrag.snapshot()");
+  const value = JSON.parse("" + raw);
+  ensure(value.label === label && value.nonce === nonce
+      && value.trial_nonce === trial_nonce && typeof value.has_focus === "boolean"
+      && Array.isArray(value.sequence),
+    "acu004_snapshot_identity:" + label + ":" + raw);
+  return value;
+}
+
+function ax_root_bounds(handle) {
+  const reply = require_ok(invoke("observe", [
+    "tree", "--window", "" + handle, "--depth", "0", "--flat"
+  ]), "acu004_ax_root_failed:" + handle);
+  ensure(reply.data.nodes.length === 1 && reply.data.nodes[0].depth === 0
+      && typeof reply.data.nodes[0].bounds === "object"
+      && reply.data.nodes[0].bounds !== null,
+    "acu004_ax_root_shape:" + handle);
+  return reply.data.nodes[0].bounds;
+}
+
+function guard_ready(deadline_ms) {
+  while (rh.now_ms() < deadline_ms) {
+    if (rh.exists(guard_state_path)) {
+      const text = rh.read_text(guard_state_path);
+      if (text.trim() !== "") { return JSON.parse(text); }
+    }
+    rh.sleep_ms(20);
+  }
+  throw "acu004_guard_readiness_timeout";
+}
+
+function calibrated_geometry(calibration, native_bounds, ax_bounds) {
+  const cdp_outer = {
+    x: calibration.screen.x,
+    y: calibration.screen.y,
+    width: calibration.outer.width,
+    height: calibration.outer.height
+  };
+  ensure(same_rect(cdp_outer, native_bounds, 1),
+    "acu004_cdp_cg_bounds_disagree:" + JSON.stringify(cdp_outer)
+      + ":" + JSON.stringify(native_bounds));
+  ensure(same_rect(ax_bounds, native_bounds, 1),
+    "acu004_ax_cg_bounds_disagree:" + JSON.stringify(ax_bounds)
+      + ":" + JSON.stringify(native_bounds));
+
+  const horizontal_inset = (calibration.outer.width - calibration.inner.width) / 2;
+  const vertical_inset = calibration.outer.height - calibration.inner.height;
+  ensure(horizontal_inset >= 0 && vertical_inset >= 0,
+    "acu004_viewport_insets_invalid");
+  const client_origin = {
+    x: calibration.screen.x + horizontal_inset,
+    y: calibration.screen.y + vertical_inset
+  };
+  const start_client = {
+    x: calibration.start.center_x,
+    y: calibration.start.center_y
+  };
+  const inside_end_client = {
+    x: calibration.inside_end.center_x,
+    y: calibration.inside_end.center_y
+  };
+  const start = { x: client_origin.x + start_client.x, y: client_origin.y + start_client.y };
+  const inside_end = {
+    x: client_origin.x + inside_end_client.x,
+    y: client_origin.y + inside_end_client.y
+  };
+  ensure(point_in_rect(start, native_bounds) && point_in_rect(inside_end, native_bounds),
+    "acu004_calibrated_inside_path_outside_window");
+  return {
+    cdp_outer: cdp_outer,
+    client_origin: client_origin,
+    start_client: start_client,
+    inside_end_client: inside_end_client,
+    start: start,
+    inside_end: inside_end,
+    outside_end_client: {
+      x: calibration.outside_endpoint.client_x,
+      y: calibration.outside_endpoint.client_y
+    },
+    outside_end: {
+      x: client_origin.x + calibration.outside_endpoint.client_x,
+      y: client_origin.y + calibration.outside_endpoint.client_y
+    },
+    device_pixel_ratio: calibration.dpr
+  };
+}
+
+function boundary_path(geometry, target_bounds, peer_bounds, guard_bounds) {
+  const path = { start: geometry.start, end: geometry.outside_end };
+  ensure(!point_in_rect(path.end, target_bounds)
+      && path_avoids(path, [peer_bounds, guard_bounds]),
+    "acu004_calibrated_boundary_path_hits_peer_or_guard");
+  return path;
+}
+
+function translated_control(path, target_bounds, peer_bounds, guard_bounds) {
+  let minimum_x = target_bounds.x;
+  let minimum_y = target_bounds.y;
+  for (const rect of [peer_bounds, guard_bounds]) {
+    if (rect.x < minimum_x) { minimum_x = rect.x; }
+    if (rect.y < minimum_y) { minimum_y = rect.y; }
+  }
+  const maximum_path_x = path.start.x > path.end.x ? path.start.x : path.end.x;
+  const maximum_path_y = path.start.y > path.end.y ? path.start.y : path.end.y;
+  const translation = {
+    x: minimum_x - 160 - maximum_path_x,
+    y: minimum_y - 160 - maximum_path_y
+  };
+  const translated = {
+    start: { x: path.start.x + translation.x, y: path.start.y + translation.y },
+    end: { x: path.end.x + translation.x, y: path.end.y + translation.y }
+  };
+  ensure(path_avoids(translated, [target_bounds, peer_bounds, guard_bounds]),
+    "acu004_public_off_path_intersects_fixture");
+  return translation;
+}
+
+function build_injector_argv(mode, arm, trajectory, browser_pid, target_window,
+    target_bounds, path, translation) {
+  return [
+    "--mode", mode,
+    "--arm", arm,
+    "--pid", "" + browser_pid,
+    "--window", "" + target_window,
+    "--window-x", "" + target_bounds.x,
+    "--window-y", "" + target_bounds.y,
+    "--window-width", "" + target_bounds.width,
+    "--window-height", "" + target_bounds.height,
+    "--start-x", "" + path.start.x,
+    "--start-y", "" + path.start.y,
+    "--end-x", "" + path.end.x,
+    "--end-y", "" + path.end.y,
+    "--off-dx", "" + translation.x,
+    "--off-dy", "" + translation.y,
+    "--steps", "" + STEPS,
+    "--cadence-us", "" + CADENCE_US,
+    "--guard-state", guard_state_path
+  ];
+}
+
+function run_injector(argv, timeout_ms) {
+  const output = rh.command(injector, argv, {
+    cwd: run_directory,
+    env: cu_env,
+    timeout_ms: timeout_ms
+  });
+  const text = output.stdout.trim();
+  let reply = null;
+  if (text !== "") {
+    try { reply = JSON.parse(text); }
+    catch (error) { reply = null; }
+  }
+  return { output: output, reply: reply, stdout: text };
+}
+
+function host_state_equal(left, right) {
+  return number_at(left, "pointer.x") === number_at(right, "pointer.x")
+    && number_at(left, "pointer.y") === number_at(right, "pointer.y")
+    && integer_at(left, "frontmost_pid") === integer_at(right, "frontmost_pid")
+    && text_at(left, "frontmost_window") === text_at(right, "frontmost_window")
+    && text_at(left, "target_ax_main_window") === text_at(right, "target_ax_main_window")
+    && text_at(left, "target_ax_focused_window")
+      === text_at(right, "target_ax_focused_window");
+}
+
+function receipt_release_proved(reply) {
+  return reply !== null && reply.mode === "gesture"
+    && reply.down_attempts === 1
+    && reply.up_attempts === 1 && reply.up_attempted === true
+    && reply.outcome_unknown === false;
+}
+
+function receipt_proves_pre_down_failure(result) {
+  const reply = result.reply;
+  if (result.output.success === true || reply === null
+      || reply.down_attempts !== 0 || reply.up_attempts !== 0
+      || reply.outcome_unknown !== false || reply.outcome !== "failed-before-down"
+      || typeof reply.error !== "object" || reply.error === null
+      || typeof reply.error.code !== "string") { return false; }
+  return [
+    "argument_missing", "argument_invalid", "provider_unavailable",
+    "fixture_guard_not_frontmost", "fixture_guard_changed",
+    "host_state_unavailable", "stale_window", "window_owner_changed",
+    "window_not_onscreen", "window_geometry_invalid", "window_geometry_changed",
+    "path_invalid", "control_path_invalid", "event_create_failed"
+  ].includes(reply.error.code);
+}
+
+function validate_gesture_receipt(reply, arm, trajectory, browser_pid,
+    target_window, target_bounds, path, translation) {
+  ensure(reply !== null && reply.ok === true && reply.schema === 1
+      && reply.mode === "gesture" && reply.arm === arm,
+    "acu004_gesture_receipt_shape");
+  ensure(reply.pid === browser_pid && reply.window === target_window
+      && reply.same_identity === true,
+    "acu004_gesture_receipt_identity");
+  ensure(typeof reply.frozen_window_bounds === "object"
+      && reply.frozen_window_bounds !== null
+      && same_rect(reply.frozen_window_bounds, target_bounds, 0),
+    "acu004_gesture_frozen_bounds");
+  ensure(reply.steps === STEPS && reply.down_attempts === 1
+      && reply.move_attempts === STEPS && reply.up_attempts === 1
+      && reply.up_attempted === true
+      && reply.outcome_unknown === false,
+    "acu004_gesture_attempt_accounting");
+  ensure(typeof reply.from === "object" && reply.from !== null
+      && typeof reply.to === "object" && reply.to !== null
+      && typeof reply.off_delta === "object" && reply.off_delta !== null
+      && near(reply.from.x, path.start.x, 0) && near(reply.from.y, path.start.y, 0)
+      && near(reply.to.x, path.end.x, 0) && near(reply.to.y, path.end.y, 0)
+      && near(reply.off_delta.x, translation.x, 0)
+      && near(reply.off_delta.y, translation.y, 0),
+    "acu004_gesture_path_receipt");
+  ensure(reply.cadence_us === CADENCE_US && reply.host_samples_complete === true
+      && reply.host_unchanged === true && Array.isArray(reply.host_samples)
+      && reply.host_samples.length === STEPS + 3,
+    "acu004_host_sampling_completeness");
+  const baseline = reply.host_samples[0];
+  ensure(typeof baseline === "object" && baseline !== null,
+    "acu004_host_baseline_missing");
+  ensure(text_at(baseline, "stage") === "before"
+      && text_at(reply.host_samples[1], "stage") === "after-down"
+      && text_at(reply.host_samples[reply.host_samples.length - 1], "stage") === "after-up",
+    "acu004_host_sample_stage_order");
+  let previous_t_ns = -1;
+  for (let index = 0; index < reply.host_samples.length; index = index + 1) {
+    const sample = reply.host_samples[index];
+    ensure(typeof sample === "object" && sample !== null
+        && number_at(sample, "t_ns") >= previous_t_ns
+        && host_state_equal(baseline, sample),
+      "acu004_host_sample_invalid:" + index);
+    previous_t_ns = sample.t_ns;
+  }
+  ensure(number_at(reply, "max_post_to_sample_ms") >= 0
+      && reply.max_post_to_sample_ms <= SAMPLE_BOUND_MS,
+    "acu004_post_to_sample_bound");
+  return reply.max_post_to_sample_ms;
+}
+
+function release_only(arm, trajectory, browser_pid, target_window, target_bounds,
+    path, translation) {
+  const argv = build_injector_argv("release-only", arm, trajectory, browser_pid,
+    target_window, target_bounds, path, translation);
+  const result = run_injector(argv, 15000);
+  const reply = result.reply;
+  return {
+    attempted: true,
+    process_success: result.output.success === true,
+    proved: reply !== null && reply.ok === true && reply.mode === "release-only"
+      && reply.pid === browser_pid && reply.window === target_window
+      && reply.up_attempts === 1 && reply.up_attempted === true,
+    reply: reply
+  };
+}
+
+function common_ancestor(down_path, up_path) {
+  ensure(Array.isArray(down_path) && Array.isArray(up_path),
+    "acu004_event_target_path_missing");
+  for (const candidate of down_path) {
+    if (typeof candidate === "string" && candidate !== ""
+        && up_path.includes(candidate)) { return candidate; }
+  }
+  return null;
+}
+
+function validate_exact_sequence(snapshot, trajectory, expected_start, expected_end) {
+  const sequence = snapshot.sequence;
+  let down = null;
+  let up = null;
+  let down_count = 0;
+  let up_count = 0;
+  let held_moves = 0;
+  let click_count = 0;
+  let click = null;
+  let final_move = null;
+  let up_position = -1;
+  for (let index = 0; index < sequence.length; index = index + 1) {
+    const event = sequence[index];
+    ensure(typeof event === "object" && event !== null
+        && integer_at(event, "seq") === index + 1
+        && typeof event.kind === "string" && typeof event.target_id === "string"
+        && Array.isArray(event.target_path_ids),
+      "acu004_event_shape:" + index);
+    if (event.kind === "mousedown") {
+      down_count = down_count + 1;
+      down = event;
+      ensure(event.button === 0 && event.buttons === 1 && index === 0,
+        "acu004_down_semantics");
+    } else if (event.kind === "mousemove") {
+      ensure(down_count === 1 && up_count === 0 && event.buttons === 1,
+        "acu004_held_move_semantics:" + index);
+      held_moves = held_moves + 1;
+      final_move = event;
+    } else if (event.kind === "mouseup") {
+      up_count = up_count + 1;
+      up = event;
+      up_position = index;
+      ensure(down_count === 1 && event.button === 0 && event.buttons === 0,
+        "acu004_up_semantics");
+    } else if (event.kind === "click") {
+      click_count = click_count + 1;
+      click = event;
+      ensure(up_count === 1 && index > up_position,
+        "acu004_click_precedes_up");
+    } else {
+      throw "acu004_unexpected_event:" + event.kind;
+    }
+  }
+  ensure(snapshot.active === false
+      && down_count === 1 && up_count === 1 && held_moves >= 1
+      && final_move !== null && down !== null && up !== null,
+    "acu004_sequence_cardinality");
+  ensure(near(down.clientX, expected_start.x, 1)
+      && near(down.clientY, expected_start.y, 1)
+      && near(final_move.clientX, expected_end.x, 1)
+      && near(final_move.clientY, expected_end.y, 1)
+      && near(up.clientX, expected_end.x, 1)
+      && near(up.clientY, expected_end.y, 1),
+    "acu004_sequence_endpoints");
+  if (trajectory === "inside") {
+    ensure(snapshot.completed_inside === true && snapshot.completed_outside === false,
+      "acu004_inside_business_effect");
+    ensure(click_count <= 1, "acu004_inside_click_duplicate");
+    if (click_count === 1) {
+      const ancestor = common_ancestor(down.target_path_ids, up.target_path_ids);
+      ensure(ancestor !== null && click.target_id === ancestor,
+        "acu004_inside_click_target_invalid");
+    }
+  } else {
+    ensure(snapshot.completed_outside === true && snapshot.completed_inside === false,
+      "acu004_boundary_business_effect");
+    ensure(click_count === 0, "acu004_boundary_click_forbidden");
+  }
+  return { down: down_count, held_moves: held_moves, up: up_count, clicks: click_count };
+}
+
+function empty_sequence(snapshot) {
+  return Array.isArray(snapshot.sequence) && snapshot.sequence.length === 0;
+}
+
+let chrome_child = -1;
+let guard_child = -1;
+let stage = "setup";
+let failure = "";
+let cleanup_failure = "";
+let cleanup_required = false;
+let cleanup_verified = false;
+let release_failed = false;
+let release_failure = "";
+let release_recovery = null;
+let stop_downs = false;
+let behavioral_failure = "";
+let unstable_failure = "";
+let dependency_failure = "";
+let identity = null;
+let triplets_run = 0;
+let private_exact = 0;
+let public_loc_exact = 0;
+let public_off_delivery = 0;
+let peer_delivery = 0;
+let maximum_post_to_sample_ms = 0;
+const track_counts = {
+  inside: { triplets: 0, private_exact: 0 },
+  boundary: { triplets: 0, private_exact: 0 }
+};
+const rounds = [];
+
+try {
+  ensure(direct_file(executable), "acu004_cu_executable_missing");
+  ensure(direct_file(chromium), "acu004_chromium_missing");
+  ensure(direct_file(injector), "acu004_injector_missing");
+  ensure(direct_file(guard_fixture), "acu004_guard_fixture_missing");
+  ensure(direct_file(page_path), "acu004_page_missing");
+  ensure(source_sha !== "" && probe_digest !== "", "acu004_result_identity_missing");
+
+  const profile = rh.join(run_directory, "chrome-profile");
+  const active_port_path = rh.join(profile, "DevToolsActivePort");
+  let port = 0;
+
+  stage = "browser-launch-b";
+  chrome_child = harness.start({
+    program: chromium,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=0",
+      "--remote-debugging-address=127.0.0.1",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--new-window",
+      page_url("B")
+    ],
+    current_dir: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 600000
+  });
+  cleanup_required = true;
+  const browser_pid = harness.spawned_pid(chrome_child);
+  let cdp_ready = false;
+  for (let attempt = 0; attempt < 120; attempt = attempt + 1) {
+    if (rh.exists(active_port_path)) {
+      const active_lines = rh.read_text(active_port_path).trim().split("\n");
+      if (active_lines.length >= 2) {
+        const selected_port = parsed_port_or_zero(active_lines[0].trim());
+        const browser_path = active_lines[1].trim();
+        if (selected_port >= 1 && selected_port <= 65535
+            && browser_path.startsWith("/devtools/browser/")) {
+          const probe = rh.command("curl", [
+            "-s", "--noproxy", "*", "--max-time", "1",
+            "http://127.0.0.1:" + selected_port + "/json/version"
+          ], { cwd: run_directory, timeout_ms: 3000 });
+          if (probe.success === true && probe.stdout.indexOf("Browser") >= 0
+              && probe.stdout.indexOf(browser_path) >= 0) {
+            port = selected_port;
+            cdp_ready = true;
+            break;
+          }
+        }
+      }
+    }
+    rh.sleep_ms(250);
+  }
+  ensure(cdp_ready, "acu004_cdp_readiness_timeout");
+
+  stage = "browser-launch-a";
+  const opened_a = rh.command(chromium, [
+    "--user-data-dir=" + profile, "--new-window", page_url("A")
+  ], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 15000
+  });
+  ensure(opened_a.success === true, "acu004_open_a_failed");
+
+  stage = "native-candidates";
+  let candidate_a = null;
+  let candidate_b = null;
+  const discovery_deadline = rh.now_ms() + 15000;
+  while (rh.now_ms() < discovery_deadline && (candidate_a === null || candidate_b === null)) {
+    const rows = native_windows_for(browser_pid);
+    let seen_a = null;
+    let seen_b = null;
+    let ambiguous = false;
+    for (const row of rows) {
+      if (row.title === page_title("A")) {
+        if (seen_a !== null) { ambiguous = true; }
+        seen_a = row;
+      }
+      if (row.title === page_title("B")) {
+        if (seen_b !== null) { ambiguous = true; }
+        seen_b = row;
+      }
+    }
+    ensure(!ambiguous, "acu004_native_candidate_ambiguous");
+    if (seen_a !== null && seen_b !== null) {
+      candidate_a = seen_a;
+      candidate_b = seen_b;
+    } else {
+      rh.sleep_ms(100);
+    }
+  }
+  ensure(candidate_a !== null && candidate_b !== null, "acu004_native_candidates_missing");
+  ensure(candidate_a.handle !== candidate_b.handle, "acu004_native_handles_collide");
+
+  stage = "window-place";
+  place_frame(candidate_a.handle, FRAME_A);
+  place_frame(candidate_b.handle, FRAME_B);
+  rh.sleep_ms(300);
+
+  stage = "bijection";
+  const native_a = native_window_by_title(browser_pid, page_title("A"));
+  const native_b = native_window_by_title(browser_pid, page_title("B"));
+  ensure(!same_rect(native_a.bounds, native_b.bounds, 0), "acu004_native_bounds_collide");
+  const target_window = native_b.handle;
+  const peer_window = native_a.handle;
+  const browser_front = focused_native_window();
+  ensure(browser_front.process_id === browser_pid && browser_front.handle === peer_window,
+    "acu004_target_b_is_key_window:" + JSON.stringify(browser_front));
+
+  stage = "guard";
+  guard_child = harness.start({
+    program: guard_fixture,
+    args: ["--role", "guard", "--state", guard_state_path],
+    current_dir: run_directory,
+    env: {},
+    timeout_ms: 600000
+  });
+  const guard = guard_ready(rh.now_ms() + 10000);
+  ensure(guard.pid > 0, "acu004_guard_pid");
+  rh.sleep_ms(300);
+  const guard_window = focused_native_window();
+  ensure(guard_window.process_id === guard.pid,
+    "acu004_guard_not_frontmost:" + JSON.stringify(guard_window));
+  const native_b_after_guard = native_window_by_title(browser_pid, page_title("B"));
+  ensure(native_b_after_guard.handle === target_window
+      && same_rect(native_b_after_guard.bounds, native_b.bounds, 0),
+    "acu004_target_b_moved_after_guard");
+
+  stage = "page-targets";
+  const target_a = page_target_by_title(port, page_title("A"));
+  const target_b = page_target_by_title(port, page_title("B"));
+  ensure(target_a !== target_b, "acu004_page_targets_collide");
+
+  stage = "zero-injection-calibration";
+  const calibration_a = page_calibration(port, target_a, "A");
+  const calibration_b = page_calibration(port, target_b, "B");
+  const zero_trial = "zero-" + nonce;
+  reset_oracle(port, target_a, "A", zero_trial);
+  reset_oracle(port, target_b, "B", zero_trial);
+  const zero_a = snapshot_oracle(port, target_a, "A", zero_trial);
+  const zero_b = snapshot_oracle(port, target_b, "B", zero_trial);
+  ensure(empty_sequence(zero_a) && empty_sequence(zero_b),
+    "acu004_calibration_was_not_zero_injection");
+  const ax_a = ax_root_bounds(peer_window);
+  const ax_b = ax_root_bounds(target_window);
+  const geometry_a = calibrated_geometry(calibration_a, native_a.bounds, ax_a);
+  const geometry_b = calibrated_geometry(calibration_b, native_b.bounds, ax_b);
+  const inside_path = { start: geometry_b.start, end: geometry_b.inside_end };
+  const outside_path = boundary_path(geometry_b, native_b.bounds,
+    native_a.bounds, guard_window.bounds);
+  const inside_translation = translated_control(inside_path, native_b.bounds,
+    native_a.bounds, guard_window.bounds);
+  const outside_translation = translated_control(outside_path, native_b.bounds,
+    native_a.bounds, guard_window.bounds);
+
+  identity = {
+    browser_pid: browser_pid,
+    cdp_port: port,
+    target: {
+      label: "B", cg_window: target_window, bounds: native_b.bounds,
+      ax_bounds: ax_b, target_id: target_b, calibration: calibration_b
+    },
+    peer: {
+      label: "A", cg_window: peer_window, bounds: native_a.bounds,
+      ax_bounds: ax_a, target_id: target_a, calibration: calibration_a
+    },
+    guard: { pid: guard.pid, cg_window: guard_window.handle, bounds: guard_window.bounds },
+    paths: {
+      inside: { path: inside_path, off_translation: inside_translation },
+      boundary: { path: outside_path, off_translation: outside_translation }
+    },
+    viewport: {
+      client_origin: geometry_b.client_origin,
+      device_pixel_ratio: geometry_b.device_pixel_ratio
+    }
+  };
+
+  stage = "triplets";
+  for (let round = 0; round < TRIPLETS && !stop_downs; round = round + 1) {
+    const trajectory = round % 2 === 0 ? "inside" : "boundary";
+    const path = trajectory === "inside" ? inside_path : outside_path;
+    const translation = trajectory === "inside" ? inside_translation : outside_translation;
+    const order = arm_order_for_round();
+    const round_record = {
+      round: round + 1,
+      trajectory: trajectory,
+      order: order,
+      results: []
+    };
+    for (const arm of order) {
+      if (stop_downs) { break; }
+      const trial_nonce = nonce + "-" + (round + 1) + "-" + arm;
+      reset_oracle(port, target_a, "A", trial_nonce);
+      reset_oracle(port, target_b, "B", trial_nonce);
+      const before_a = snapshot_oracle(port, target_a, "A", trial_nonce);
+      const before_b = snapshot_oracle(port, target_b, "B", trial_nonce);
+      ensure(empty_sequence(before_a) && empty_sequence(before_b)
+          && before_a.has_focus === false && before_b.has_focus === false,
+        "acu004_oracle_not_clean_before:" + trial_nonce);
+      const before_front = focused_native_window();
+      ensure(before_front.process_id === guard.pid && before_front.handle === guard_window.handle,
+        "acu004_guard_lost_before:" + trial_nonce);
+
+      const primary = run_injector(build_injector_argv("gesture", arm, trajectory,
+        browser_pid, target_window, native_b.bounds, path, translation), 30000);
+      const reply = primary.reply;
+      const down_known_absent = receipt_proves_pre_down_failure(primary);
+      if (!receipt_release_proved(reply)) {
+        if (!down_known_absent) {
+          release_recovery = release_only(arm, trajectory, browser_pid,
+            target_window, native_b.bounds, path, translation);
+          release_failed = true;
+          release_failure = "primary receipt did not prove exactly one same-target up attempt";
+          stop_downs = true;
+        } else {
+          dependency_failure = reply !== null && typeof reply.error === "object"
+            && reply.error !== null && typeof reply.error.code === "string"
+            ? "injector failed before its first down:" + reply.error.code
+            : "injector failed before its first down:unstructured";
+          stop_downs = true;
+        }
+        round_record.results.push({
+          arm: arm,
+          primary: reply,
+          release_recovery: release_recovery,
+          outcome_unknown: !down_known_absent
+        });
+        break;
+      }
+
+      let receipt_latency = 0;
+      try {
+        receipt_latency = validate_gesture_receipt(reply, arm, trajectory,
+          browser_pid, target_window, native_b.bounds, path, translation);
+      } catch (error) {
+        if (arm === "private") { behavioral_failure = "" + error; }
+        else { unstable_failure = "" + error; }
+        stop_downs = true;
+      }
+      if (receipt_latency > maximum_post_to_sample_ms) {
+        maximum_post_to_sample_ms = receipt_latency;
+      }
+
+      rh.sleep_ms(500);
+      const snap_b = snapshot_oracle(port, target_b, "B", trial_nonce);
+      const snap_a = snapshot_oracle(port, target_a, "A", trial_nonce);
+      const after_front = focused_native_window();
+      if (after_front.process_id !== guard.pid || after_front.handle !== guard_window.handle
+          || snap_a.has_focus !== false || snap_b.has_focus !== false) {
+        if (arm === "private") {
+          behavioral_failure = "acu004_focus_or_foreground_drift:" + trial_nonce;
+        } else {
+          unstable_failure = "acu004_public_focus_or_foreground_drift:" + trial_nonce;
+        }
+        stop_downs = true;
+      }
+
+      let exact = false;
+      let sequence_facts = null;
+      const expected_start = geometry_b.start_client;
+      const expected_end = trajectory === "inside" ? geometry_b.inside_end_client : {
+        x: path.end.x - geometry_b.client_origin.x,
+        y: path.end.y - geometry_b.client_origin.y
+      };
+      if (!empty_sequence(snap_a)) {
+        peer_delivery = peer_delivery + 1;
+        if (arm === "private") {
+          behavioral_failure = "acu004_peer_delivery:" + trial_nonce;
+        } else {
+          unstable_failure = "acu004_public_peer_delivery:" + trial_nonce;
+        }
+        stop_downs = true;
+      }
+      if (arm === "public-off") {
+        if (!empty_sequence(snap_b)) {
+          public_off_delivery = public_off_delivery + 1;
+          unstable_failure = "acu004_public_off_delivery:" + trial_nonce;
+          stop_downs = true;
+        }
+      } else if (!empty_sequence(snap_b)) {
+        try {
+          sequence_facts = validate_exact_sequence(snap_b, trajectory,
+            expected_start, expected_end);
+          exact = true;
+        } catch (error) {
+          if (arm === "private") { behavioral_failure = "" + error; }
+          else { unstable_failure = "" + error; }
+          stop_downs = true;
+        }
+      }
+      if (arm === "private") {
+        if (exact) {
+          private_exact = private_exact + 1;
+          track_counts[trajectory].private_exact = track_counts[trajectory].private_exact + 1;
+        } else if (behavioral_failure === "") {
+          behavioral_failure = "acu004_private_delivery_missing:" + trial_nonce;
+          stop_downs = true;
+        }
+      } else if (arm === "public-loc" && exact) {
+        public_loc_exact = public_loc_exact + 1;
+      }
+
+      round_record.results.push({
+        arm: arm,
+        exact: exact,
+        target_sequence_length: snap_b.sequence.length,
+        peer_sequence_length: snap_a.sequence.length,
+        sequence: sequence_facts,
+        injector: reply
+      });
+    }
+    rounds.push(round_record);
+    if (!stop_downs && round_record.results.length === ARMS.length) {
+      triplets_run = triplets_run + 1;
+      track_counts[trajectory].triplets = track_counts[trajectory].triplets + 1;
+    }
+  }
+  stage = stop_downs ? "stopped-after-kill" : "done";
+} catch (error) {
+  failure = scrubbed_failure(error);
+}
+
+try {
+  if (guard_child >= 0) {
+    if (harness.state(guard_child) === "running") { harness.kill(guard_child); }
+    const guard_exit = harness.wait(guard_child, 2000);
+    ensure(guard_exit.timed_out !== true, "acu004_guard_cleanup_timeout");
+  }
+  if (chrome_child >= 0) {
+    if (harness.state(chrome_child) === "running") { harness.kill(chrome_child); }
+    const chrome_exit = harness.wait(chrome_child, 5000);
+    ensure(chrome_exit.timed_out !== true, "acu004_chromium_cleanup_timeout");
+  }
+  cleanup_verified = true;
+} catch (error) {
+  cleanup_failure = "" + error;
+}
+
+let verdict = "INCONCLUSIVE";
+if (release_failed) {
+  verdict = "FAIL_RELEASE";
+} else if (behavioral_failure !== "") {
+  verdict = "FAIL_PRIVATE";
+} else if (unstable_failure !== "") {
+  verdict = "INCONCLUSIVE_UNSTABLE";
+} else if (failure === "" && dependency_failure === "" && cleanup_failure === ""
+    && triplets_run === TRIPLETS && private_exact === TRIPLETS
+    && public_off_delivery === 0 && peer_delivery === 0
+    && track_counts.inside.triplets === 10 && track_counts.boundary.triplets === 10
+    && track_counts.inside.private_exact === 10
+    && track_counts.boundary.private_exact === 10) {
+  if (public_loc_exact === 0) {
+    verdict = "PASS_G1_G8_RESEARCH_ONLY";
+  } else if (public_loc_exact === TRIPLETS) {
+    verdict = "FAIL_NONDISTINGUISHING";
+  } else {
+    verdict = "INCONCLUSIVE_UNSTABLE";
+  }
+}
+
+const report = {
+  verdict: verdict,
+  research_only: true,
+  product_eligible: false,
+  closes_gap: false,
+  registers_evidence: false,
+  criteria_measured: ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+  criteria_remaining: ["G9", "G10"],
+  source_sha: source_sha,
+  probe_digest: probe_digest,
+  seed: SEED,
+  triplets_requested: TRIPLETS,
+  triplets_run: triplets_run,
+  private_exact_count: private_exact,
+  public_loc_exact_count: public_loc_exact,
+  public_off_delivery_count: public_off_delivery,
+  peer_delivery_count: peer_delivery,
+  tracks: track_counts,
+  gesture: {
+    button: "left",
+    move_attempts: STEPS,
+    cadence_us: CADENCE_US,
+    post_to_sample_bound_ms: SAMPLE_BOUND_MS,
+    observed_max_post_to_sample_ms: maximum_post_to_sample_ms
+  },
+  release: {
+    failed: release_failed,
+    outcome_unknown: release_failed,
+    failure: release_failure,
+    recovery: release_recovery,
+    further_down_forbidden: stop_downs && release_failed
+  },
+  cleanup_required: cleanup_required,
+  cleanup_verified: cleanup_verified,
+  identity: identity,
+  rounds: JSON.parse(scrubbed_failure(JSON.stringify(rounds))),
+  stage: stage,
+  dependency_failure: scrubbed_failure(dependency_failure),
+  behavioral_failure: scrubbed_failure(behavioral_failure),
+  unstable_failure: scrubbed_failure(unstable_failure),
+  failure: scrubbed_failure(failure),
+  cleanup_failure: scrubbed_failure(cleanup_failure),
+  run_id: nonce
+};
+print(JSON.stringify(report));
+
+if (verdict === "INCONCLUSIVE" || verdict === "INCONCLUSIVE_UNSTABLE"
+    || cleanup_failure !== "") {
+  throw "acu004_" + verdict
+    + (dependency_failure !== "" ? ":" + scrubbed_failure(dependency_failure) : "")
+    + (failure !== "" ? ":" + scrubbed_failure(failure) : "")
+    + (cleanup_failure !== "" ? ":" + scrubbed_failure(cleanup_failure) : "");
+}
+harness.remove_run(context);
+return;

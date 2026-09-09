@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<!--
+  Research-only Chromium drag oracle for acu.dynamic.004.
+
+  The future parent court loads this file into two owned windows as
+  file://.../page.html?label=A|B&nonce=<fixture nonce>. It resets each page with
+  a separate trial nonce, injects nothing through this page, and reads the
+  resulting browser observations through window.__agentermDrag.
+
+  There are no external resources or network requests.
+-->
+<html id="drag-html">
+<head>
+<meta charset="utf-8">
+<title>acu-004-drag-pending</title>
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #18202b;
+    color: #eef4ff;
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+    user-select: none;
+  }
+  #drag-page { position: absolute; inset: 0; }
+  #page-label {
+    position: absolute;
+    left: 16px;
+    top: 12px;
+    font-size: 22px;
+    font-weight: 700;
+  }
+  #drag-stage {
+    position: absolute;
+    left: 12%;
+    right: 12%;
+    top: 30%;
+    bottom: 25%;
+    border: 2px solid #8194ad;
+    border-radius: 12px;
+    background: #253246;
+  }
+  #drag-start, #drag-inside-end {
+    position: absolute;
+    top: 50%;
+    width: 88px;
+    height: 88px;
+    margin-top: -44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+  #drag-start {
+    left: 8%;
+    border: 4px solid #ffd166;
+    background: #755d1f;
+  }
+  #drag-inside-end {
+    right: 8%;
+    border: 4px solid #76e6a5;
+    background: #195b3a;
+  }
+  #drag-token {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: #fff3b0;
+    color: #18202b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    pointer-events: none;
+    transform: translate(0px, 0px);
+  }
+  #viewport-top-left, #viewport-bottom-right, #outside-exit-edge {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    box-sizing: border-box;
+    border: 2px solid #ff6b6b;
+    pointer-events: none;
+  }
+  #viewport-top-left { left: 0; top: 0; }
+  #viewport-bottom-right { right: 0; bottom: 0; }
+  #outside-exit-edge {
+    right: 0;
+    top: 50%;
+    margin-top: -6px;
+    border-color: #66d9ef;
+  }
+  #status {
+    position: absolute;
+    left: 16px;
+    bottom: 12px;
+    color: #b9c7da;
+  }
+</style>
+</head>
+<body id="drag-body">
+<main id="drag-page">
+  <div id="page-label">?</div>
+  <section id="drag-stage">
+    <div id="drag-start">
+      <div id="drag-token">DRAG</div>
+    </div>
+    <div id="drag-inside-end">INSIDE</div>
+  </section>
+  <div id="viewport-top-left"></div>
+  <div id="viewport-bottom-right"></div>
+  <div id="outside-exit-edge"></div>
+  <div id="status">research oracle · not product evidence</div>
+</main>
+<script>
+(function () {
+  "use strict";
+
+  var params = new URLSearchParams(window.location.search);
+  var label = params.get("label") || "?";
+  var fixtureNonce = params.get("nonce") || "no-fixture-nonce";
+  var title = "acu-004-drag-" + label + "-" + fixtureNonce;
+  document.title = title;
+  document.getElementById("page-label").textContent = label;
+
+  var token = document.getElementById("drag-token");
+  var insideEnd = document.getElementById("drag-inside-end");
+  var state = freshState("not-reset");
+
+  function freshState(trialNonce) {
+    return {
+      trialNonce: String(trialNonce),
+      sequence: [],
+      nextSequence: 1,
+      active: false,
+      downTarget: null,
+      upTarget: null,
+      clickTarget: null,
+      completedInside: false,
+      completedOutside: false,
+      finalClient: null,
+      tokenOffset: { x: 0, y: 0 }
+    };
+  }
+
+  function stableId(node) {
+    var current = node;
+    while (current && current !== document) {
+      if (current.id) { return current.id; }
+      current = current.parentNode;
+    }
+    return null;
+  }
+
+  function stablePath(node) {
+    var result = [];
+    var current = node;
+    while (current && current !== document) {
+      if (current.id) { result.push(current.id); }
+      current = current.parentNode;
+    }
+    return result;
+  }
+
+  function nearestCommonAncestorId(left, right) {
+    if (!left || !right) { return null; }
+    var ancestors = [];
+    var current = left;
+    while (current && current !== document) {
+      ancestors.push(current);
+      current = current.parentNode;
+    }
+    current = right;
+    while (current && current !== document) {
+      if (ancestors.indexOf(current) >= 0) { return stableId(current); }
+      current = current.parentNode;
+    }
+    return null;
+  }
+
+  function pointInside(rect, x, y) {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  function record(kind, event) {
+    var entry = {
+      seq: state.nextSequence,
+      trial_nonce: state.trialNonce,
+      kind: kind,
+      timestamp: event.timeStamp,
+      button: event.button,
+      buttons: event.buttons,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      screenX: event.screenX,
+      screenY: event.screenY,
+      target_id: stableId(event.target),
+      target_path_ids: stablePath(event.target)
+    };
+    state.nextSequence = state.nextSequence + 1;
+    state.sequence.push(entry);
+    if (state.sequence.length > 4096) { state.sequence.shift(); }
+    return entry;
+  }
+
+  window.addEventListener("mousedown", function (event) {
+    record("mousedown", event);
+    if (event.button === 0 && event.buttons === 1) {
+      state.active = true;
+      state.downTarget = event.target;
+    }
+  }, { capture: true, passive: true });
+
+  window.addEventListener("mousemove", function (event) {
+    record("mousemove", event);
+    if (state.active && event.buttons === 1) {
+      var start = document.getElementById("drag-start").getBoundingClientRect();
+      var startX = start.left + start.width / 2;
+      var startY = start.top + start.height / 2;
+      state.tokenOffset = { x: event.clientX - startX, y: event.clientY - startY };
+      token.style.transform = "translate(" + state.tokenOffset.x + "px, "
+        + state.tokenOffset.y + "px)";
+    }
+  }, { capture: true, passive: true });
+
+  window.addEventListener("mouseup", function (event) {
+    record("mouseup", event);
+    state.upTarget = event.target;
+    state.finalClient = { x: event.clientX, y: event.clientY };
+    if (state.active && event.button === 0 && event.buttons === 0) {
+      state.completedInside = pointInside(
+        insideEnd.getBoundingClientRect(), event.clientX, event.clientY);
+      state.completedOutside = event.clientX < 0 || event.clientX > window.innerWidth
+        || event.clientY < 0 || event.clientY > window.innerHeight;
+    }
+    state.active = false;
+  }, { capture: true, passive: true });
+
+  window.addEventListener("click", function (event) {
+    record("click", event);
+    state.clickTarget = event.target;
+  }, { capture: true, passive: true });
+
+  function rectFact(id) {
+    var rect = document.getElementById(id).getBoundingClientRect();
+    return {
+      id: id,
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+      center_x: rect.left + rect.width / 2,
+      center_y: rect.top + rect.height / 2
+    };
+  }
+
+  function calibration() {
+    var exit = rectFact("outside-exit-edge");
+    return {
+      screen: { x: window.screenX, y: window.screenY },
+      outer: { width: window.outerWidth, height: window.outerHeight },
+      inner: { width: window.innerWidth, height: window.innerHeight },
+      dpr: window.devicePixelRatio,
+      stage: rectFact("drag-stage"),
+      viewport_markers: {
+        top_left: rectFact("viewport-top-left"),
+        bottom_right: rectFact("viewport-bottom-right"),
+        outside_exit_edge: exit
+      },
+      start: rectFact("drag-start"),
+      inside_end: rectFact("drag-inside-end"),
+      outside_endpoint: {
+        client_x: window.innerWidth + 32,
+        client_y: exit.center_y,
+        relation: "right-of-viewport"
+      }
+    };
+  }
+
+  window.__agentermDrag = {
+    label: label,
+    fixture_nonce: fixtureNonce,
+    title: title,
+    reset: function (trialNonce) {
+      if (trialNonce === undefined || trialNonce === null || String(trialNonce).length < 1) {
+        throw new Error("trial nonce is required");
+      }
+      state = freshState(trialNonce);
+      token.style.transform = "translate(0px, 0px)";
+      return JSON.stringify({
+        label: label,
+        fixture_nonce: fixtureNonce,
+        trial_nonce: state.trialNonce,
+        reset: true
+      });
+    },
+    calibrate: function () {
+      return JSON.stringify(calibration());
+    },
+    snapshot: function () {
+      return JSON.stringify({
+        label: label,
+        nonce: fixtureNonce,
+        fixture_nonce: fixtureNonce,
+        trial_nonce: state.trialNonce,
+        title: document.title,
+        has_focus: document.hasFocus(),
+        active: state.active,
+        completed_inside: state.completedInside,
+        completed_outside: state.completedOutside,
+        final_client: state.finalClient,
+        token_offset: state.tokenOffset,
+        down_target_id: stableId(state.downTarget),
+        up_target_id: stableId(state.upTarget),
+        click_target_id: stableId(state.clickTarget),
+        down_up_common_ancestor_id: nearestCommonAncestorId(
+          state.downTarget, state.upTarget),
+        sequence_length: state.sequence.length,
+        sequence: state.sequence.slice(0)
+      });
+    }
+  };
+})();
+</script>
+</body>
+</html>
