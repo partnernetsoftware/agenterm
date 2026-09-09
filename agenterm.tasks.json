@@ -6734,7 +6734,7 @@
     },
     {
       "id": "cu-linux-page-drag-smoke",
-      "description": "Linux CDP page-drag between viewport CSS points with typed page-drag/get-extents AT-SPI/--name court before actuate, usage/zero-distance/miss/no-CDP host-limit paths, and independent page-js trusted mousedown/mousemove/mouseup endpoint read-back; disposable Chrome, no --coords.",
+      "description": "Linux CDP page-drag between viewport CSS points with typed page-drag --name/--coords/--bogus and get-extents --name usage/host-limit court before actuate, usage/zero-distance/miss/no-CDP host-limit paths, and independent page-js trusted mousedown/mousemove/mouseup endpoint read-back; disposable Chrome, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-drag-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
