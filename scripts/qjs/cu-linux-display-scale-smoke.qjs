@@ -1,4 +1,9 @@
 // CEO: Linux displays inventory with independent xrandr/X11 read-back.
+// Acceptance is smoke read-back only: CU displays must agree with xrandr/X11
+// facts derived outside agenterm-cu. Typed displays usage must reject AT-SPI
+// --name and other unexpected arguments; typed get-extents --name usage/host-limit
+// paths must hold before the scale/DPI read-back court. AT-SPI/--name only;
+// no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -9,20 +14,11 @@ const declared_evidence = [
   "cu.linux-display-scale",
 ];
 
+const AT_SPI_PROBE_NAME = "Display Scale Court Anchor";
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
-
-function text_at(value, dotted) {
-  let current = value;
-  for (const key of dotted.split(".")) {
-    current = rh.field(current, key);
-  }
-  if (current === undefined || current === null) { return ""; }
-  return "" + current;
-}
-
-function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
 
 function at(value, dotted) {
   let current = value;
@@ -32,18 +28,167 @@ function at(value, dotted) {
   return current;
 }
 
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function int_at(value, dotted) { return rh.int_of(at(value, dotted)); }
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "", "cu_linux_display_scale_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "displays" || text_at(reply, "command") === "usage",
+    "cu_linux_display_scale_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "", "cu_linux_display_scale_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_displays_usage_limit(run_directory, executable, env) {
+  const with_name = run_cu_reply(run_directory, executable, [
+    "displays", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(with_name),
+    "cu_linux_display_scale_usage_name_ok:" + JSON.stringify(with_name));
+  ensure(
+    text_at(with_name, "error.code") === "usage",
+    "cu_linux_display_scale_usage_name_code:" + JSON.stringify(with_name.error)
+  );
+  ensure(
+    text_at(with_name, "command") === "usage",
+    "cu_linux_display_scale_usage_name_command:" + JSON.stringify(with_name)
+  );
+  ensure(
+    text_at(with_name, "error.message").indexOf("--name") >= 0
+      || text_at(with_name, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_display_scale_usage_name_message:" + JSON.stringify(with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, ["displays", "--bogus"], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_display_scale_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_display_scale_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("no arguments") >= 0
+      || text_at(with_bogus, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_display_scale_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_display_scale_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_display_scale_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_display_scale_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_display_scale_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_display_scale_extents_unavailable_code:" + code
+  );
+}
+
 function run_cu(run_directory, executable, arguments) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe",
   ].concat(arguments), {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: cu_env(executable),
     timeout_ms: 30000,
   });
   ensure(output.success === true, "cu_linux_display_scale_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_display_scale_empty");
-  return JSON.parse(trimmed);
+  const reply = JSON.parse(trimmed);
+  ensure(reply.ok === true, "cu_linux_display_scale_reply:" + JSON.stringify(reply));
+  ensure(text_at(reply, "command") === "displays", "cu_linux_display_scale_command:" + JSON.stringify(reply));
+  return reply;
 }
 
 function parse_int_token(text) {
@@ -145,8 +290,8 @@ function parse_xdpyinfo_physical(stdout) {
   return { width, height, width_mm, height_mm, dpi_x, dpi_y };
 }
 
-function independent_display_facts() {
-  const xrandr = rh.command("xrandr", ["--query"], { timeout_ms: 10000 });
+function independent_display_facts(env) {
+  const xrandr = rh.command("xrandr", ["--query"], { env: env, timeout_ms: 10000 });
   ensure(xrandr.success === true, "xrandr_query_failed:" + xrandr.stderr);
   const geometry = parse_xrandr_geometry(xrandr.stdout);
 
@@ -156,7 +301,7 @@ function independent_display_facts() {
   let dpi_y = 0;
 
   if (width_mm <= 0 || height_mm <= 0) {
-    const xdpyinfo = rh.command("xdpyinfo", [], { timeout_ms: 10000 });
+    const xdpyinfo = rh.command("xdpyinfo", [], { env: env, timeout_ms: 10000 });
     ensure(xdpyinfo.success === true, "xdpyinfo_query_failed:" + xdpyinfo.stderr);
     const physical = parse_xdpyinfo_physical(xdpyinfo.stdout);
     ensure(
@@ -188,32 +333,7 @@ function independent_display_facts() {
   };
 }
 
-const args = rh.args();
-if (args.length === 1 && args[0] === "--list-evidence") {
-  for (const id of declared_evidence) { print(id); }
-  return;
-}
-harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
-const repo = rh.absolute(args[0]);
-let executable = rh.absolute(args[1]);
-if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
-harness.require(rh.exists(executable), "agenterm-cu executable missing");
-
-const context = harness.new_context(repo, "cu-linux-display-scale");
-let succeeded = 0;
-let failure = "";
-try {
-  print("STEP independent xrandr/X11 read-back captures frame geometry and physical size");
-  const independent = independent_display_facts();
-  ensure(
-    independent.width_mm > 0 && independent.height_mm > 0
-      && independent.dpi_x > 0 && independent.dpi_y > 0 && independent.scale_factor > 0.0,
-    "independent_display_facts:" + JSON.stringify(independent)
-  );
-
-  print("STEP displays returns size/DPI/scale matching independent read-back");
-  const reply = run_cu(context.run_directory, executable, ["displays"]);
-  ensure(reply.ok === true && reply.command === "displays", "displays_reply");
+function assert_ok_readback(reply, independent) {
   ensure(text_at(reply, "data.via") === "agt_screen_list", "displays_via");
   const rows = at(reply, "data.displays");
   ensure(rows !== undefined && rows.length > 0, "displays_empty");
@@ -232,6 +352,48 @@ try {
   ensure(Math.abs(int_at(primary, "dpiX") - independent.dpi_x) <= 1, "dpi_x_mismatch");
   ensure(Math.abs(int_at(primary, "dpiY") - independent.dpi_y) <= 1, "dpi_y_mismatch");
   ensure(Math.abs(Number(at(primary, "scaleFactor")) - independent.scale_factor) < 0.01, "scale_factor_mismatch");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(rh.exists(executable), "cu_linux_display_scale_executable_missing:" + executable);
+
+const context = harness.new_context(repo, "cu-linux-display-scale");
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP displays typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_displays_usage_limit(context.run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before scale/DPI read-back");
+    assert_get_extents_usage_limit(context.run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
+
+  print("STEP independent xrandr/X11 read-back captures frame geometry and physical size");
+  ensure(text_at({ display: rh.env_or("DISPLAY", "") }, "display") !== "", "cu_linux_display_scale_display_missing");
+  const independent = independent_display_facts(env);
+  ensure(
+    independent.width_mm > 0 && independent.height_mm > 0
+      && independent.dpi_x > 0 && independent.dpi_y > 0 && independent.scale_factor > 0.0,
+    "independent_display_facts:" + JSON.stringify(independent)
+  );
+
+  print("STEP displays returns size/DPI/scale matching independent read-back");
+  const reply = run_cu(context.run_directory, executable, ["displays"]);
+  assert_ok_readback(reply, independent);
 
   succeeded = 1;
 } catch (error) {
@@ -244,7 +406,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-display-scale");
   harness.remove_run(context);
-  print("PASS: CEO Linux displays inventory with independent xrandr/X11 read-back");
+  if (atspi_available) {
+    print("PASS: Linux displays inventory with independent xrandr/X11 read-back and typed displays/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux displays inventory with independent xrandr/X11 read-back and typed displays/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
