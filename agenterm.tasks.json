@@ -7433,7 +7433,7 @@
     },
     {
       "id": "cu-linux-process-kill-smoke",
-      "description": "Linux process-kill graceful and forceful termination with start-identity matches independent waitpid exit read-back on disposable children; graceful refusal on TERM-ignoring child then forceful kill is verified; no --coords.",
+      "description": "Linux process-kill graceful and forceful termination with start-identity matches independent waitpid exit read-back on disposable children; graceful refusal on TERM-ignoring child then forceful kill is verified; typed process-kill usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the kill/read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-kill-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
