@@ -5833,7 +5833,7 @@
     },
     {
       "id": "cu-linux-hit-honesty-smoke",
-      "description": "Linux hit --window point→node honesty with independent AT-SPI name/role read-back; probe points from get-extents --name only; no --coords.",
+      "description": "Linux hit --window point→node honesty with named-control ranking, independent AT-SPI name/role read-back, typed usage/miss host-limit paths, and unavailable-pyatspi host-limit honesty; probe points from get-extents --name only; no --coords.",
       "entry": "scripts/qjs/cu-linux-hit-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6372,7 +6372,7 @@
     },
     {
       "id": "cu-linux-scroll-smoke",
-      "description": "Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on a GTK ScrolledWindow fixture: independent get-extents before must fail for an off-screen named node, scroll must succeed via scroll-to, and a second get-extents must return on-screen geometry; no XTest wheel, --coords, or screenshot degradation.",
+      "description": "Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on a GTK ScrolledWindow fixture: independent get-extents before must fail for an off-screen named node while an on-screen reference node stays readable, scroll must succeed via scroll-to and name the matched node, and a second get-extents must return positive geometry below the reference and inside the fixture window bounds with STATE_SHOWING; no XTest wheel, --coords, or screenshot degradation.",
       "entry": "scripts/qjs/cu-linux-scroll-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
