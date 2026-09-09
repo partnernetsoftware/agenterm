@@ -498,6 +498,11 @@ shapes fail typed instead of being ignored.
   closure. Its first PRIVATE down changed Chromium's AX main/focused window
   while the pointer and foreground guard stayed fixed, so the precommitted
   `FAIL_PRIVATE` branch rejects that route and keeps the gap open. MCU-shaped
+  drag now has one final precommitted research branch: a focus lease may allow
+  only the application-local A-to-B transition during the gesture, must restore
+  A after release, and must preserve system focus and z-order at every sample.
+  Failure of its dry cycle or either frozen 20-triplet run selects typed
+  retirement rather than another experiment. MCU-shaped
   `zoom` is
   now losslessly projected through native
   `--local-region`: bounded pure arithmetic applies the archived 20 percent

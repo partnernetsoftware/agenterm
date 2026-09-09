@@ -600,10 +600,13 @@ ACU-only cutover
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green,
 │  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
 │  ├─ [~] acu.dynamic.004 · legacy drag requires exact-window down/held-move/up delivery;
-│  │  └─ wheel delivery cannot prove held-button routing or release cleanup, so the
+│  │  ├─ wheel delivery cannot prove held-button routing or release cleanup, so the
 │  │     research-only Chromium drag court returned `FAIL_PRIVATE`: its first private
 │  │     down changed Chromium's AX main/focused window despite preserving the physical
 │  │     pointer and foreground guard; release and cleanup closed, but this route cannot ship
+│  │  └─ [ ] §10.6 precommits the last macOS research spend: an application-local focus
+│  │     lease must preserve system focus and z-order, close A -> B -> A exactly and pass
+│  │     two frozen 20-triplet runs, or the macOS HANDLE shape is permanently retired
 │  ├─ [x] acu.dynamic.005 · legacy window-local zoom corners map to native `--local-region`;
 │  │  └─ bounded pure arithmetic preserves the archived 20 percent padding while native
 │  │     clipping uses one observed window bound; explicit output replaces the hidden path

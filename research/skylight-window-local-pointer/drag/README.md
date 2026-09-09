@@ -12,7 +12,10 @@ registered as public evidence or used to change the capability ledger. The
 parent court owns the disposable Chromium profile, peer windows,
 foreground guard, exact native identities, injection process and cleanup.
 Section 10.5 forbids rerunning this measured protocol without a new explicit
-precommitment.
+precommitment. Section 10.6 is that new precommitment, but the implementation in
+this directory still implements section 10.5: do not run it again until the
+focus-lease dry cycle, G6a/G6b receipts and revised decision tree have been
+implemented and reviewed against section 10.6.
 
 `page.html` has no external resources. The parent court loads it twice as:
 
@@ -21,7 +24,8 @@ file://.../page.html?label=A&nonce=<fixture-nonce>
 file://.../page.html?label=B&nonce=<fixture-nonce>
 ```
 
-From the repository root, an authorized owned-fixture run uses:
+After that implementation review, an authorized owned-fixture run from the
+repository root uses:
 
 ```sh
 AGENTERM_CU_BROWSER_EXE=~/path/to/Chromium \

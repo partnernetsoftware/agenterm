@@ -1,6 +1,6 @@
 # SkyLight window-local pointer delivery experiment
 
-Status: **MEASURED PARTIAL · research only · not a product provider**
+Status: **MEASURED PARTIAL · revised-contract experiment precommitted · research only · not a product provider**
 
 Date: 2026-09-07
 Purpose: decide whether the private macOS SkyLight route already explored by
@@ -535,3 +535,169 @@ retire the legacy window-handle drag, or precommit a different mechanism or a
 changed contract. Accepting application-local focus movement would revise G6
 and the background-local promise, so it resets these results and cannot
 retroactively turn this run green.
+
+### 10.6 Precommitment: bounded application-local focus lease or retirement
+
+This section does not revise or reclassify section 10.5. It defines one new
+experiment with a different, explicit contract and is the last authorized
+research spend for the macOS window-handle drag. The question is whether the
+system foreground, physical pointer and window order can remain unchanged
+while Chromium focus moves from peer A to target B only for the gesture and is
+then restored exactly to A after the same-target button-up. A failure selects
+typed retirement of the macOS HANDLE shape; a pass only permits a guarded
+provider design and does not qualify one.
+
+The archived helper establishes only two inputs to this experiment. Its click
+path used an application-window focus lease with set/read-back/restore, while
+its drag path did not use that lease and did not sample application-local
+focus. That is evidence that the mechanism exists, not that it closes a drag.
+The archived click path could also lease SkyLight application activation when
+the target app was not foreground; this experiment forbids that action and is
+therefore intentionally stricter. Its failure cannot be generalized to the
+archived click mechanism.
+
+#### 10.6.1 Hard constraints
+
+1. Reuse the owned two-window Chromium fixture, foreground guard, frozen PID,
+   process-start identity, window ids and bounds, two trajectories, page
+   oracle, build/architecture pin and release discipline from section 10.
+   User profiles and windows remain out of scope.
+2. The only new action is a clean-room application-local focus lease. Before
+   the down, set the application's `kAXFocusedWindowAttribute` to the exact
+   target and observe that attribute plus each window's `kAXMainAttribute` and
+   `kAXFocusedAttribute` as the closed focus tuple. Move that tuple from frozen
+   peer A to exact target B and read it back. After the up attempt, restore the
+   exact prior tuple and read it back. No invented AX key-window attribute or
+   implementation-chosen subset is permitted.
+3. Activation, raise/order APIs, SkyLight application activation, global
+   pointer posting or movement, degraded fallback, duplicate event posting,
+   a second injection provider, dynamic cadence changes and event-field tuning
+   are forbidden. Needing any one of them is a finding that selects retirement.
+4. Before any pointer event, run one lease-only dry cycle A -> B -> A. Record
+   every focus and z-order observation. Failure or ambiguity before the down
+   emits no pointer event.
+5. The gesture remains one prebuilt down, twenty held-button moves and one up
+   at the frozen six-millisecond cadence. Every post-to-sample interval remains
+   at most fifty milliseconds. PRIVATE, PUBLIC_LOC and PUBLIC_OFF differ only
+   in their already frozen delivery route and translated path.
+6. Once a down is attempted, release has highest priority. Every in-process
+   exit attempts exactly one same-route, same-target up. An unproved attempt
+   permits exactly one parent-owned release-only recovery and permanently
+   fails that trial as outcome-unknown and non-retryable.
+7. Focus must equal the acquired B tuple from immediately before down through
+   the up sample. It may be restored only after the up attempt. A mismatch
+   stops remaining moves, performs release closure, attempts restoration and
+   fails the experiment.
+8. The CG window ordering digest, levels and relative A/B/guard ranks must be
+   unchanged before acquisition, after acquisition, after down, after every
+   move, after up and after restoration. Comparing only the endpoints is not
+   sufficient.
+9. DOM events remain the delivery oracle. Post counts, AX state, screenshots
+   and native receipts cannot substitute for exact page down/move/up order,
+   endpoints, peer isolation and the trajectory-specific click rules.
+10. Any implementation pressure to weaken identity, add an activation or
+    raise, use the global pointer, double-post, tune event fields after seeing
+    results or add another provider is the pathology this experiment detects;
+    record it and select retirement rather than expanding the experiment.
+
+#### 10.6.2 Minimal experiment and revised G6
+
+Only two pieces may be added to the existing research implementation: a
+lease-only mode and the focus acquisition/restoration bracket around the
+unchanged drag sequence. The experiment records two safety gates:
+
+- **G6a · system-host preservation:** every sample keeps the physical pointer,
+  foreground PID/window and guard identity unchanged, and preserves the frozen
+  A/B/guard z-order digest, levels and relative order.
+- **G6b · bounded application-local focus lease:** the preflight AX
+  main/key/focused tuple is uniquely readable and equals the frozen A tuple;
+  acquisition changes only the predeclared tuple to B and verifies it; every
+  gesture sample stays at B; restoration after up returns every field to the
+  original tuple. `document.hasFocus()` for A and B is frozen for each phase
+  from values observed during the lease-only dry cycle before any down; those
+  observed values are the only phase expectations and must remain in the
+  receipt rather than disappearing from the oracle.
+
+If the host does not expose distinct main/key concepts, preflight freezes the
+exact readable tuple and its unavailable fields before the dry cycle. It may
+not choose a more favorable subset after the result. An unavailable or
+ambiguous tuple before any down is dependency-inconclusive; after down it is a
+lease failure and selects retirement after release closure.
+
+All other G1-G5, G7 and G8 criteria remain unchanged. Release, target/peer
+delivery and G6a are the highest-priority gates; G6b closure is next; only then
+may the PRIVATE/PUBLIC discriminator be evaluated.
+
+#### 10.6.3 Decision tree and kill criterion
+
+1. Run at most three fresh-fixture lease-only dry attempts per dependency
+   state, at most two dependency repairs and at most six dry attempts total. If
+   none proves
+   exact A -> B -> A closure, any attempt changes G6a state, or the lease needs
+   a forbidden action, select macOS HANDLE typed retirement without posting a
+   down. A transient dependency failure may be repaired only without changing
+   this specification, then the dry count restarts from zero.
+2. After any down, an unmatched or uncertain up, duplicate or wrong DOM event,
+   peer/guard delivery, unexpected click, identity change, G6a drift, G6b
+   transition outside the declared phases, restoration failure or z-order
+   change immediately selects retirement. Cleanup cannot erase the failure.
+3. PRIVATE must deliver exactly 20/20 triplets across both alternating
+   trajectories. PUBLIC_LOC at 20/20 is `FAIL_NONDISTINGUISHING`; 1..19 is
+   unstable. Either result selects retirement rather than another experiment.
+   PUBLIC_LOC 0/20 and PUBLIC_OFF isolation are required to continue.
+4. A complete 20-triplet pass must be repeated from a fresh profile and
+   fixture with the same source, probe digest and exact seed. The two runs must
+   have the same per-triplet arm/trajectory order, counts and classifications;
+   any difference selects retirement.
+5. Only two identical G1-G8 passes permit G9. The 1,000 PRIVATE gestures
+   alternate inside/boundary 500 each in parent-owned blocks of at most fifty;
+   the first behavioral, safety, release or lease failure selects retirement.
+6. Only a complete G9 pass permits G10. Every macOS generation the product
+   proposes to support independently runs the dry cycle, two 20-triplet runs
+   and 1,000 repeat. An untested or failed generation stays typed unavailable.
+   Failure on a must-support baseline selects retirement for the macOS HANDLE
+   compatibility shape; the wheel matrix cannot substitute.
+7. Passing every proposed generation makes a focus-leased provider eligible
+   for design. It still requires a separate product ABI, runtime probe,
+   receipt and public-court review before `window_local_drag_available()` may
+   return true.
+
+Kill criterion: stop at the first post-down release uncertainty, misdelivery,
+duplicate, G6a change, G6b mismatch or unproved restore, z-order change,
+forbidden mechanism, first/second-run disagreement or G9 failure. Do not run
+remaining arms, repeat or another host after that decision.
+
+The time box is evidence-based, not calendar-based: produce one complete
+lease-only dry receipt and, only if it passes, two complete 20-triplet results.
+The second result is the mandatory stopping point for review. G9, G10 and
+product code are forbidden before that review.
+
+Every retirement result records one exclusive rationale class in RESULTS,
+the PRD and the platform ledger. `measured-safety-failure` is reserved for an
+observed release, delivery, G6a, G6b or z-order failure. A PUBLIC_LOC unstable
+result or repeated dependency loss is
+`research-budget-exhausted-without-a-discriminating-result`; it must not be
+rewritten as proof that exact delivery cannot occur. `FAIL_NONDISTINGUISHING`
+records that the private route was not justified. No branch may use the
+broader claim that background drag is impossible unless its measurements
+directly prove that claim.
+
+#### 10.6.4 Receipt and explicit non-answers
+
+The research receipt must add a bounded `focus_lease` object containing the
+prior and target main/key/focused identities; acquisition/restoration
+attempted, verified and read-back fields; transition timestamps; A/B page-focus
+facts; and the frozen z-order digest at every stage. It retains the existing
+route, trajectory, seed, timing, host samples, DOM sequence, event-attempt,
+release-recovery and cleanup fields. Any release or restoration uncertainty
+sets `outcome_unknown=true` and `retry_safe=false`. It must not include page
+text, user paths or unbounded samples.
+
+This experiment does not answer whether the focus lease works outside
+Chromium, on Linux or Windows, in user profiles, across untested macOS builds,
+between the bounded samples, or for semantic drag across arbitrary controls.
+It does not change the earlier click/wheel findings, decide accessibility
+permission repair, expand the supported macOS set or authorize a product
+provider. Its result must be appended to
+`research/skylight-window-local-pointer/RESULTS.md` with the decision-tree
+trace before either branch changes the PRD or ledger.
