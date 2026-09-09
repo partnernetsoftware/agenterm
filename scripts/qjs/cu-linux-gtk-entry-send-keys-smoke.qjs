@@ -1,7 +1,10 @@
 // CEO#10: GTK entry semantic modifier chords by --name.
 // Plant SEED with send-text, move caret with ctrl+home/ctrl+end, select-all
 // with ctrl+a, clear with backspace. Independent get-caret/get-selection/
-// get-text prove each chord mutated the entry. AT-SPI --name only.
+// get-text prove each chord mutated the entry. Typed usage and host-limit
+// paths must hold when --window/--name are missing or the AT-SPI bus is
+// unavailable; miss paths must not mutate the entry (independent get-text
+// read-back). AT-SPI --name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -15,6 +18,11 @@ const declared_evidence = [
   "cu.linux-gtk-entry-send-keys-ctrl-v",
   "cu.linux-gtk-entry-send-keys-select-delete",
 ];
+
+const ENTRY_NAME = "Fixture Entry";
+const MISSING_NODE = "No Such Entry";
+const UNAVAILABLE_NODE = "Fixture Check";
+const FIXTURE_SEED = "seed";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -68,20 +76,156 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_gtk_entry_send_keys_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_gtk_entry_send_keys_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_gtk_entry_send_keys_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_gtk_entry_send_keys_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_gtk_entry_send_keys_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_entry_text(run_directory, executable, handle, expected, label) {
+  const got = run_cu(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--name", ENTRY_NAME,
+  ]);
+  const readback = text_at(got, "data.text");
+  ensure(
+    readback === expected && text_at(got, "data.via") === "gettext",
+    "cu_linux_gtk_entry_send_keys_get_text_" + label + ":" + JSON.stringify({
+      expected: expected,
+      readback: readback,
+    })
+  );
+  return got;
+}
+
+function assert_send_keys_usage_limit(run_directory, executable) {
+  const missing_window = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-keys", "--name", ENTRY_NAME, "--", "ctrl+home",
+  ]);
+  ensure(!output_success(missing_window), "cu_linux_gtk_entry_send_keys_usage_ok:" + JSON.stringify(missing_window));
+  ensure(
+    text_at(missing_window, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_send_keys_usage_code:" + JSON.stringify(missing_window.error)
+  );
+  ensure(
+    text_at(missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_entry_send_keys_usage_message:" + JSON.stringify(missing_window.error)
+  );
+
+  const role_without_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", "1", "--role", "entry", "--", "ctrl+a",
+  ]);
+  ensure(!output_success(role_without_name), "cu_linux_gtk_entry_send_keys_role_ok:" + JSON.stringify(role_without_name));
+  ensure(
+    text_at(role_without_name, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_send_keys_role_code:" + JSON.stringify(role_without_name.error)
+  );
+  ensure(
+    text_at(role_without_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_send_keys_role_message:" + JSON.stringify(role_without_name.error)
+  );
+
+  const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", "0", "--name", ENTRY_NAME, "--", "ctrl+home",
+  ]);
+  ensure(!output_success(zero_handle), "cu_linux_gtk_entry_send_keys_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_send_keys_zero_handle_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_entry_send_keys_zero_handle_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_send_keys_unsupported_chord(run_directory, executable, handle) {
+  const unsupported = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", handle, "--name", ENTRY_NAME, "--", "ctrl+z",
+  ]);
+  ensure(!output_success(unsupported), "cu_linux_gtk_entry_send_keys_unsupported_ok:" + JSON.stringify(unsupported));
+  ensure(
+    text_at(unsupported, "error.code") === "a11y_key_unavailable",
+    "cu_linux_gtk_entry_send_keys_unsupported_code:" + JSON.stringify(unsupported.error)
+  );
+}
+
+function assert_send_keys_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", "1", "--name", ENTRY_NAME, "--", "ctrl+home",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_gtk_entry_send_keys_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_gtk_entry_send_keys_unavailable_code:" + code
+  );
+}
+
+function assert_send_keys_missing_node(run_directory, executable, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", handle, "--name", MISSING_NODE, "--", "ctrl+home",
+  ]);
+  ensure(!output_success(reply), "cu_linux_gtk_entry_send_keys_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_gtk_entry_send_keys_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function send_keys_unavailable_code_ok(code) {
+  return code === "a11y_caret_unavailable"
+    || code === "a11y_selection_unavailable"
+    || code === "a11y_key_unavailable"
+    || code === "a11y_backend_failed";
+}
+
+function assert_send_keys_unavailable(run_directory, executable, handle, node_name, keys, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-keys", "--window", handle, "--name", node_name, "--", keys,
+  ]);
+  ensure(!output_success(reply), "cu_linux_gtk_entry_send_keys_unavailable_ok_" + label);
+  const code = text_at(reply, "error.code");
+  ensure(
+    send_keys_unavailable_code_ok(code),
+    "cu_linux_gtk_entry_send_keys_unavailable_code_" + label + ":" + JSON.stringify(reply.error)
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -103,6 +247,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_gtk_entry_send_keys_executable_missing");
 const context = harness.new_context(repo, "cu-linux-gtk-entry-send-keys");
 const run_directory = rh.join(repo, "target/cu-linux-gtk-entry-send-keys-smoke-run");
 rh.create_dir_all(run_directory);
@@ -114,196 +259,225 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_entry_send_keys_window_wait");
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_gtk_entry_send_keys_window_identity");
-  const handle = "" + at(row, "handle");
+  print("STEP send-keys typed-fail usage when --window or --name is missing or the chord is unsupported");
+  assert_send_keys_usage_limit(run_directory, executable);
 
-  print("STEP focus moves AT-SPI focus to the named GTK entry");
-  run_cu(run_directory, executable, "observe,actuate", [
-    "focus", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  run_cu(run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
-  const focused = run_cu(run_directory, executable, "observe", [
-    "focused", "--window", handle,
-  ]);
-  ensure(
-    text_at(focused, "data.node.name") === "Fixture Entry",
-    "cu_linux_gtk_entry_send_keys_focused:" + JSON.stringify(focused.data)
-  );
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_send_keys_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_entry_send_keys_window_wait");
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_gtk_entry_send_keys_window_identity");
+    const handle = "" + at(row, "handle");
 
-  const seed = "ceo10-keys-" + context.run_id;
-  const seed_len = seed.length;
-  const mid_offset = 4;
-  ensure(mid_offset < seed_len, "cu_linux_gtk_entry_send_keys_mid_offset");
+    print("STEP send-keys typed-fail a11y_node_not_found when the named entry is missing");
+    assert_send_keys_missing_node(run_directory, executable, handle, "before_focus");
+    print("STEP independent get-text proves the entry stayed at the fixture seed after the miss");
+    assert_entry_text(run_directory, executable, handle, FIXTURE_SEED, "after_missing");
 
-  print("STEP send-text --name plants SEED through AT-SPI EditableText/Text");
-  const sent = run_cu(run_directory, executable, "observe,actuate", [
-    "send-text", "--window", handle, "--name", "Fixture Entry", "--", seed,
-  ]);
-  ensure(
-    text_at(sent, "data.typed") === seed
-      && text_at(sent, "data.addressing") === "accessibility-tree",
-    "cu_linux_gtk_entry_send_keys_send:" + JSON.stringify(sent.data)
-  );
+    print("STEP send-keys typed-fail when the target has no Text caret interface for ctrl+home");
+    assert_send_keys_unavailable(
+      run_directory, executable, handle, UNAVAILABLE_NODE, "ctrl+home", "check_without_text"
+    );
+    print("STEP independent get-text proves the unavailable send-keys did not mutate the entry");
+    assert_entry_text(run_directory, executable, handle, FIXTURE_SEED, "after_unavailable");
 
-  print("STEP set-caret --name places caret away from home before ctrl+home");
-  run_cu(run_directory, executable, "observe,actuate", [
-    "set-caret", "--window", handle, "--name", "Fixture Entry",
-    "--offset", "" + mid_offset,
-  ]);
+    print("STEP focus moves AT-SPI focus to the named GTK entry");
+    run_cu(run_directory, executable, "observe,actuate", [
+      "focus", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    run_cu(run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
+    const focused = run_cu(run_directory, executable, "observe", [
+      "focused", "--window", handle,
+    ]);
+    ensure(
+      text_at(focused, "data.node.name") === ENTRY_NAME,
+      "cu_linux_gtk_entry_send_keys_focused:" + JSON.stringify(focused.data)
+    );
 
-  print("STEP send-keys ctrl+home --name moves caret to offset 0");
-  const homed = run_cu(run_directory, executable, "observe,actuate", [
-    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "ctrl+home",
-  ]);
-  ensure(
-    text_at(homed, "data.addressing") === "accessibility-tree"
-      && text_at(homed, "data.via") === "set-caret-offset"
-      && int_at(homed, "data.offset") === 0,
-    "cu_linux_gtk_entry_send_keys_ctrl_home:" + JSON.stringify(homed.data)
-  );
-  const caret_home = run_cu(run_directory, executable, "observe", [
-    "get-caret", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(caret_home, "data.via") === "get-caret-offset"
-      && int_at(caret_home, "data.offset") === 0,
-    "cu_linux_gtk_entry_send_keys_caret_home:" + JSON.stringify(caret_home.data)
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-home");
+    print("STEP send-keys typed-fail a11y_key_unavailable when the chord has no semantic AT-SPI spelling");
+    assert_send_keys_unsupported_chord(run_directory, executable, handle);
 
-  print("STEP send-keys ctrl+end --name moves caret to the SEED end");
-  const ended = run_cu(run_directory, executable, "observe,actuate", [
-    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "ctrl+end",
-  ]);
-  ensure(
-    text_at(ended, "data.addressing") === "accessibility-tree"
-      && text_at(ended, "data.via") === "set-caret-offset"
-      && int_at(ended, "data.offset") === seed_len,
-    "cu_linux_gtk_entry_send_keys_ctrl_end:" + JSON.stringify(ended.data)
-  );
-  const caret_end = run_cu(run_directory, executable, "observe", [
-    "get-caret", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(caret_end, "data.via") === "get-caret-offset"
-      && int_at(caret_end, "data.offset") === seed_len,
-    "cu_linux_gtk_entry_send_keys_caret_end:" + JSON.stringify(caret_end.data)
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-end");
+    const seed = "ceo10-keys-" + context.run_id;
+    const seed_len = seed.length;
+    const mid_offset = 4;
+    ensure(mid_offset < seed_len, "cu_linux_gtk_entry_send_keys_mid_offset");
 
-  print("STEP send-keys ctrl+a --name selects the full SEED slice");
-  const selected = run_cu(run_directory, executable, "observe,actuate", [
-    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "ctrl+a",
-  ]);
-  ensure(
-    text_at(selected, "data.addressing") === "accessibility-tree"
-      && text_at(selected, "data.via") === "set-selection",
-    "cu_linux_gtk_entry_send_keys_ctrl_a:" + JSON.stringify(selected.data)
-  );
-  const selection = run_cu(run_directory, executable, "observe", [
-    "get-selection", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(selection, "data.via") === "get-selection"
-      && int_at(selection, "data.n") === 1
-      && int_at(selection, "data.start") === 0
-      && int_at(selection, "data.end") === seed_len
-      && text_at(selection, "data.text") === seed,
-    "cu_linux_gtk_entry_send_keys_selection:" + JSON.stringify(selection.data)
-  );
+    print("STEP send-text --name plants SEED through AT-SPI EditableText/Text");
+    const sent = run_cu(run_directory, executable, "observe,actuate", [
+      "send-text", "--window", handle, "--name", ENTRY_NAME, "--", seed,
+    ]);
+    ensure(
+      text_at(sent, "data.typed") === seed
+        && text_at(sent, "data.addressing") === "accessibility-tree",
+      "cu_linux_gtk_entry_send_keys_send:" + JSON.stringify(sent.data)
+    );
+    print("STEP independent get-text --name reads SEED back through AT-SPI Text.GetText");
+    assert_entry_text(run_directory, executable, handle, seed, "after_send");
 
-  print("STEP send-keys ctrl+c --name publishes SEED through semantic copy");
-  const copied = run_cu(run_directory, executable, "observe,actuate", [
-    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "ctrl+c",
-  ]);
-  ensure(
-    text_at(copied, "data.addressing") === "accessibility-tree"
-      && text_at(copied, "data.via") === "gettext"
-      && flag_at(copied, "data.clipboard")
-      && text_at(copied, "data.text") === seed,
-    "cu_linux_gtk_entry_send_keys_ctrl_c:" + JSON.stringify(copied.data)
-  );
-  const clipboard = run_cu(run_directory, executable, "observe", ["clipboard-read"]);
-  ensure(
-    text_at(clipboard, "data.text") === seed
-      && flag_at(clipboard, "data.types_available"),
-    "cu_linux_gtk_entry_send_keys_clipboard:" + JSON.stringify(clipboard.data)
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-c");
+    print("STEP set-caret --name places caret away from home before ctrl+home");
+    run_cu(run_directory, executable, "observe,actuate", [
+      "set-caret", "--window", handle, "--name", ENTRY_NAME,
+      "--offset", "" + mid_offset,
+    ]);
 
-  print("STEP send-keys backspace --name clears the selected SEED");
-  const cleared = run_cu(run_directory, executable, "observe,actuate", [
-    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "backspace",
-  ]);
-  ensure(
-    text_at(cleared, "data.addressing") === "accessibility-tree"
-      && flag_at(cleared, "data.changed") === true,
-    "cu_linux_gtk_entry_send_keys_backspace:" + JSON.stringify(cleared.data)
-  );
-  const text_cleared = run_cu(run_directory, executable, "observe", [
-    "get-text", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(text_cleared, "data.via") === "gettext"
-      && text_at(text_cleared, "data.text") === "",
-    "cu_linux_gtk_entry_send_keys_text_empty:" + JSON.stringify(text_cleared.data)
-  );
-  const caret_cleared = run_cu(run_directory, executable, "observe", [
-    "get-caret", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(caret_cleared, "data.via") === "get-caret-offset"
-      && int_at(caret_cleared, "data.offset") === 0,
-    "cu_linux_gtk_entry_send_keys_caret_cleared:" + JSON.stringify(caret_cleared.data)
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-select-delete");
+    print("STEP send-keys ctrl+home --name moves caret to offset 0");
+    const homed = run_cu(run_directory, executable, "observe,actuate", [
+      "send-keys", "--window", handle, "--name", ENTRY_NAME, "--", "ctrl+home",
+    ]);
+    ensure(
+      text_at(homed, "data.addressing") === "accessibility-tree"
+        && text_at(homed, "data.via") === "set-caret-offset"
+        && int_at(homed, "data.offset") === 0,
+      "cu_linux_gtk_entry_send_keys_ctrl_home:" + JSON.stringify(homed.data)
+    );
+    const caret_home = run_cu(run_directory, executable, "observe", [
+      "get-caret", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(caret_home, "data.via") === "get-caret-offset"
+        && int_at(caret_home, "data.offset") === 0,
+      "cu_linux_gtk_entry_send_keys_caret_home:" + JSON.stringify(caret_home.data)
+    );
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-home");
 
-  print("STEP send-keys ctrl+v --name pastes clipboard SEED back into the entry");
-  const pasted = run_cu(run_directory, executable, "observe,actuate", [
-    "send-keys", "--window", handle, "--name", "Fixture Entry", "--", "ctrl+v",
-  ]);
-  ensure(
-    text_at(pasted, "data.addressing") === "accessibility-tree"
-      && flag_at(pasted, "data.clipboard")
-      && text_at(pasted, "data.typed") === seed,
-    "cu_linux_gtk_entry_send_keys_ctrl_v:" + JSON.stringify(pasted.data)
-  );
-  const text_after = run_cu(run_directory, executable, "observe", [
-    "get-text", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(text_after, "data.via") === "gettext"
-      && text_at(text_after, "data.text") === seed,
-    "cu_linux_gtk_entry_send_keys_text_restored:" + JSON.stringify(text_after.data)
-  );
-  const caret_after = run_cu(run_directory, executable, "observe", [
-    "get-caret", "--window", handle, "--name", "Fixture Entry",
-  ]);
-  ensure(
-    text_at(caret_after, "data.via") === "get-caret-offset"
-      && int_at(caret_after, "data.offset") === seed_len,
-    "cu_linux_gtk_entry_send_keys_caret_after:" + JSON.stringify(caret_after.data)
-  );
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-v");
+    print("STEP send-keys ctrl+end --name moves caret to the SEED end");
+    const ended = run_cu(run_directory, executable, "observe,actuate", [
+      "send-keys", "--window", handle, "--name", ENTRY_NAME, "--", "ctrl+end",
+    ]);
+    ensure(
+      text_at(ended, "data.addressing") === "accessibility-tree"
+        && text_at(ended, "data.via") === "set-caret-offset"
+        && int_at(ended, "data.offset") === seed_len,
+      "cu_linux_gtk_entry_send_keys_ctrl_end:" + JSON.stringify(ended.data)
+    );
+    const caret_end = run_cu(run_directory, executable, "observe", [
+      "get-caret", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(caret_end, "data.via") === "get-caret-offset"
+        && int_at(caret_end, "data.offset") === seed_len,
+      "cu_linux_gtk_entry_send_keys_caret_end:" + JSON.stringify(caret_end.data)
+    );
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-end");
 
-  succeeded = 1;
+    print("STEP send-keys ctrl+a --name selects the full SEED slice");
+    const selected = run_cu(run_directory, executable, "observe,actuate", [
+      "send-keys", "--window", handle, "--name", ENTRY_NAME, "--", "ctrl+a",
+    ]);
+    ensure(
+      text_at(selected, "data.addressing") === "accessibility-tree"
+        && text_at(selected, "data.via") === "set-selection",
+      "cu_linux_gtk_entry_send_keys_ctrl_a:" + JSON.stringify(selected.data)
+    );
+    const selection = run_cu(run_directory, executable, "observe", [
+      "get-selection", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(selection, "data.via") === "get-selection"
+        && int_at(selection, "data.n") === 1
+        && int_at(selection, "data.start") === 0
+        && int_at(selection, "data.end") === seed_len
+        && text_at(selection, "data.text") === seed,
+      "cu_linux_gtk_entry_send_keys_selection:" + JSON.stringify(selection.data)
+    );
+
+    print("STEP send-keys ctrl+c --name publishes SEED through semantic copy");
+    const copied = run_cu(run_directory, executable, "observe,actuate", [
+      "send-keys", "--window", handle, "--name", ENTRY_NAME, "--", "ctrl+c",
+    ]);
+    ensure(
+      text_at(copied, "data.addressing") === "accessibility-tree"
+        && text_at(copied, "data.via") === "gettext"
+        && flag_at(copied, "data.clipboard")
+        && text_at(copied, "data.text") === seed,
+      "cu_linux_gtk_entry_send_keys_ctrl_c:" + JSON.stringify(copied.data)
+    );
+    const clipboard = run_cu(run_directory, executable, "observe", ["clipboard-read"]);
+    ensure(
+      text_at(clipboard, "data.text") === seed
+        && flag_at(clipboard, "data.types_available"),
+      "cu_linux_gtk_entry_send_keys_clipboard:" + JSON.stringify(clipboard.data)
+    );
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-c");
+
+    print("STEP send-keys backspace --name clears the selected SEED");
+    const cleared = run_cu(run_directory, executable, "observe,actuate", [
+      "send-keys", "--window", handle, "--name", ENTRY_NAME, "--", "backspace",
+    ]);
+    ensure(
+      text_at(cleared, "data.addressing") === "accessibility-tree"
+        && flag_at(cleared, "data.changed") === true,
+      "cu_linux_gtk_entry_send_keys_backspace:" + JSON.stringify(cleared.data)
+    );
+    const text_cleared = run_cu(run_directory, executable, "observe", [
+      "get-text", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(text_cleared, "data.via") === "gettext"
+        && text_at(text_cleared, "data.text") === "",
+      "cu_linux_gtk_entry_send_keys_text_empty:" + JSON.stringify(text_cleared.data)
+    );
+    const caret_cleared = run_cu(run_directory, executable, "observe", [
+      "get-caret", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(caret_cleared, "data.via") === "get-caret-offset"
+        && int_at(caret_cleared, "data.offset") === 0,
+      "cu_linux_gtk_entry_send_keys_caret_cleared:" + JSON.stringify(caret_cleared.data)
+    );
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-select-delete");
+
+    print("STEP send-keys ctrl+v --name pastes clipboard SEED back into the entry");
+    const pasted = run_cu(run_directory, executable, "observe,actuate", [
+      "send-keys", "--window", handle, "--name", ENTRY_NAME, "--", "ctrl+v",
+    ]);
+    ensure(
+      text_at(pasted, "data.addressing") === "accessibility-tree"
+        && flag_at(pasted, "data.clipboard")
+        && text_at(pasted, "data.typed") === seed,
+      "cu_linux_gtk_entry_send_keys_ctrl_v:" + JSON.stringify(pasted.data)
+    );
+    const text_after = run_cu(run_directory, executable, "observe", [
+      "get-text", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(text_after, "data.via") === "gettext"
+        && text_at(text_after, "data.text") === seed,
+      "cu_linux_gtk_entry_send_keys_text_restored:" + JSON.stringify(text_after.data)
+    );
+    print("STEP independent get-caret --name after semantic ctrl+v leaves caret at the pasted text start");
+    const caret_after = run_cu(run_directory, executable, "observe", [
+      "get-caret", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(caret_after, "data.via") === "get-caret-offset"
+        && int_at(caret_after, "data.offset") === 0,
+      "cu_linux_gtk_entry_send_keys_caret_after:" + JSON.stringify(caret_after.data)
+    );
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-keys-ctrl-v");
+
+    run_cu(run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -314,7 +488,10 @@ if (fixture_pid > 0) {
 if (fixture >= 0) {
   harness.wait(fixture, 5000);
 }
-run_cu(run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_send_keys_failed");
-print("PASS: CEO#10 GTK entry semantic modifier chords ctrl+a/c/v by --name (get-selection/clipboard-read/get-text read-back)");
+if (atspi_available) {
+  print("PASS: CEO#10 GTK entry semantic modifier chords by --name with independent get-caret/get-selection/clipboard-read/get-text read-back and usage/miss/host-limit honesty");
+} else {
+  print("PASS: CEO#10 GTK entry send-keys typed-fails when independent pyatspi desktop probe is unavailable");
+}
