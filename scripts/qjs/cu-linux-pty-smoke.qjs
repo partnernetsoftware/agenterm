@@ -1,8 +1,9 @@
 // CEO: Linux headless PTY + AgenTerm Unix-socket honesty with independent read-back.
 // Proves pty-start / pty-send / pty-wait / pty-read on a live authority and typed
-// pty_job_not_found when the deterministic Unix socket authority is absent. Present
-// authority uses independent runtime path, fuser, and connect read-back on the scoped
-// Unix socket; absent authority also cross-checks the transport socket path.
+// pty_job_not_found when the deterministic Unix socket authority is missing or stale.
+// Present authority uses independent runtime path, fuser, connect, and pty-status
+// instance/scope read-back; missing authority uses ENOENT transport + absent socket
+// node proof; stale authority uses ECONNREFUSED transport + dead socket node proof.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -77,4 +78,4 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-pty-send");
 harness.emit_evidence(context, declared_evidence, "cu.linux-pty-wait");
 harness.emit_evidence(context, declared_evidence, "cu.linux-pty-read");
 harness.remove_run(context);
-print("PASS: Linux PTY sock honesty with typed missing-authority detail and independent read-back");
+print("PASS: Linux PTY missing/stale/present sock host-limit honesty with independent read-back");
