@@ -1,6 +1,6 @@
 // Pure public court for legacy resource-volume routing. The full-volume form
 // reaches the bounded privacy-minimized native inventory, while exact-path
-// lookup stays explicit until a path-bound provider exists.
+// lookup reaches the separate native path-bound provider.
 //
 // Args: REPO | --list-evidence
 import * as compat from "skills/acu/lib/compat";
@@ -48,11 +48,9 @@ try {
   }
 
   const disk = compat.canonicalize(["resource", "disk", "/"]);
-  ensure(disk.kind === "todo" && disk.command === "resource"
-      && disk.gap_id === "acu.dynamic.057.resource-disk"
-      && disk.message.indexOf("path-bound") >= 0
-      && disk.message.indexOf("storage-volumes") >= 0,
-    "acu_resource_disk_exact_path_gap");
+  ensure(disk.kind === "exec", "acu_resource_disk_exact_path_kind");
+  same_argv(disk.argv, ["--target", "current", "--grant", "observe,actuate",
+    "storage-volume-at", "/"], "acu_resource_disk_exact_path");
   ensure(compat.canonicalize(["resource", "disk", "/", "extra"]).kind === "usage",
     "acu_resource_disk_extra_path");
   succeeded = 1;
@@ -66,7 +64,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "acu.compat-resource-volumes");
   harness.remove_run(context);
-  print("PASS: legacy resource volumes preserve bounds and exact-path lookup stays a named gap");
+  print("PASS: legacy resource volumes preserve bounds and resource disk uses exact path-bound capacity");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

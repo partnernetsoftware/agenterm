@@ -1925,6 +1925,7 @@ impl Executor {
             Command::FontDiscovery { .. } => font_discovery_payload(),
             Command::StorageDevices { max, .. } => storage_devices_payload(*max),
             Command::StorageVolumes { max, .. } => storage_volumes_payload(*max),
+            Command::StorageVolumeAt { path, .. } => storage_volume_at_payload(path),
             Command::DeviceList { selector, max, .. } => device_inventory_payload(*selector, *max),
             Command::DeviceWatch {
                 selector,

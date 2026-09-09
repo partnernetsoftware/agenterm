@@ -46,8 +46,7 @@ const cases = [
   [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
   [["device", "claim", "legacy-device-path"], "acu.dynamic.054"],
   [["browser", "bridge", "status"], "acu.dynamic.075"],
-  [["elements", "Window#1", "--page", "--tab-id", "4"], "acu.dynamic.078.page-index-space"],
-  [["resource", "disk", "/"], "acu.dynamic.057.resource-disk"]
+  [["elements", "Window#1", "--page", "--tab-id", "4"], "acu.dynamic.078.page-index-space"]
 ];
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);
@@ -76,6 +75,13 @@ require_ok(resource_volumes.ok === true && resource_volumes.command === "storage
     && resource_volumes.data.volumes.length <= 500,
   "legacy resource volumes must reach the bounded native provider:"
     + JSON.stringify(resource_volumes));
+
+const resource_disk = invoke(launcher, ["resource", "disk", "."], 0);
+require_ok(resource_disk.ok === true && resource_disk.command === "storage-volume-at"
+    && resource_disk.data.path_kind === "directory"
+    && resource_disk.data.mutation_performed === false,
+  "legacy resource disk must reach the exact path-bound native provider:"
+    + JSON.stringify(resource_disk));
 
 const elements_projection = invoke(launcher, ["elements", "Window#1"], 1);
 require_ok(elements_projection.ok === false

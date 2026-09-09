@@ -42,7 +42,7 @@ pub fn parse_command(
     if spec.name.starts_with("simulator-") {
         return simulator::parse(spec, spelled, target, args);
     }
-    if spec.name == "storage-volumes" {
+    if matches!(spec.name, "storage-volumes" | "storage-volume-at") {
         return storage::parse(spec, target, args);
     }
     match spec.family {

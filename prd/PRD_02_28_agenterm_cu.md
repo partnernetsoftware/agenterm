@@ -608,9 +608,9 @@ ACU-only cutover
 │  ├─ [x] acu.dynamic.057 · native `storage volumes` passes through as the
 │  │  `storage-volumes` alias; archived MCU exposed no storage-group mount, unmount
 │  │  or eject subcommand, while privileged volume mutation remains a separate gap
-│  ├─ [~] acu.dynamic.057.resource-disk · archived `resource volumes` maps to the
-│  │  bounded native inventory with its 500-row default explicit; exact-path
-│  │  `resource disk` awaits a path-bound provider and never guesses by mount prefix
+│  ├─ [x] acu.dynamic.057.resource-disk · archived `resource disk [PATH]` maps to
+│  │  native `storage-volume-at`; file and directory capacity use the exact canonical
+│  │  path, and mount identity is kernel- or mount-namespace-proved, never inferred
 │  ├─ [x] acu.dynamic.058 · legacy `privilege plan process.signal` reaches the native
 │  │  identity- and tree-bound read-only planner; consented apply qualification remains separate
 │  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
@@ -2283,9 +2283,10 @@ flowchart LR
   its default `--max 500` made explicit; values above the native 512-row ceiling
   fail locally rather than being clamped. Its filesystem device name and derived
   used percentage are intentionally absent from the privacy-minimized native
-  reply. `resource disk [PATH]` remains open: skipped or truncated mounts,
-  symbolic links, mount namespaces and lossy path encodings make a longest-prefix
-  projection unprovable, so the replacement must query the path natively.
+  reply. `resource disk [PATH]` now maps to `storage-volume-at`: it follows
+  canonical file or directory identity, obtains capacity from that exact path and
+  accepts mount identity only from the kernel or current mount namespace. It
+  never projects from a skipped, truncated or lossy inventory.
   The platform mechanism implements identity-bound Unix mode/xattr
   inspect-plan-apply-readback primitives, including macOS quarantine removal.
   It binds a no-follow opened directory entry to the caller's existing handle

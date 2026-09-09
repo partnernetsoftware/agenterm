@@ -6,7 +6,7 @@
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
-const declared_evidence = ["cu.storage-volumes"];
+const declared_evidence = ["cu.storage-volumes", "cu.storage-volume-at"];
 
 const SAFE_LINUX_FS_TYPES = {
   "btrfs": true,
@@ -230,6 +230,30 @@ function assert_inventory(reply, max) {
   return data;
 }
 
+function assert_path_volume(reply, expected_kind) {
+  ensure(reply.command === "storage-volume-at" && reply.target === "current",
+    "cu_storage_volume_at_identity");
+  const data = reply.data;
+  ensure(data.path_kind === expected_kind, "cu_storage_volume_at_kind");
+  ensure(typeof data.canonical_path === "string" && data.canonical_path.length > 0,
+    "cu_storage_volume_at_canonical");
+  ensure(data.canonical_path_encoding === "utf8" || data.canonical_path_encoding === "lossy",
+    "cu_storage_volume_at_canonical_encoding");
+  ensure(data.mount_path === null || typeof data.mount_path === "string",
+    "cu_storage_volume_at_mount");
+  ensure(typeof data.mount_proof === "string" && data.mount_proof.length > 0,
+    "cu_storage_volume_at_proof");
+  ensure(decimal_le(data.available_bytes, data.free_bytes)
+      && decimal_le(data.free_bytes, data.total_bytes),
+    "cu_storage_volume_at_capacity");
+  ensure(data.mutation_performed === false, "cu_storage_volume_at_mutation");
+  ensure(data.privacy.device_identifiers_returned === false
+      && data.privacy.serial_numbers_returned === false
+      && data.privacy.volume_guid_returned === false,
+    "cu_storage_volume_at_private_identity");
+  return data;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -248,8 +272,8 @@ let failure = "";
 try {
   print("STEP mounted-volume capacity is bounded, coherent and read-only");
   const inventory = assert_inventory(invoke(context.run_directory, executable, [
-    "--target", "current", "--grant", "observe", "storage-volumes", "--max", "16"
-  ], true), 16);
+    "--target", "current", "--grant", "observe", "storage-volumes", "--max", "512"
+  ], true), 512);
   if (platform === "linux") {
     print("STEP linux mounted volumes match independent findmnt or /proc/mounts read-back");
     assert_linux_independent_readback(inventory);
@@ -259,6 +283,39 @@ try {
   assert_inventory(invoke(context.run_directory, executable, [
     "--target", "current", "--grant", "observe", "storage", "volumes", "--max", "1"
   ], true), 1);
+
+  print("STEP exact path-bound capacity accepts a directory and a file");
+  const file_path = rh.join(context.run_directory, "volume-at-probe.txt");
+  rh.write_text(file_path, "path-bound volume probe\n");
+  const directory_volume = assert_path_volume(invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "storage-volume-at", context.run_directory
+  ], true), "directory");
+  const file_volume = assert_path_volume(invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "storage-volume-at", file_path
+  ], true), "file");
+  ensure(directory_volume.mount_path !== null, "cu_storage_volume_at_directory_mount_unproved");
+  ensure(file_volume.mount_path !== null, "cu_storage_volume_at_file_mount_unproved");
+  ensure(directory_volume.mount_path === file_volume.mount_path,
+    "cu_storage_volume_at_same_mount");
+  ensure(directory_volume.total_bytes === file_volume.total_bytes
+      && directory_volume.allocation_unit === file_volume.allocation_unit,
+    "cu_storage_volume_at_same_geometry");
+  let inventory_match = false;
+  for (const row of inventory.volumes) {
+    if (row.mount_path === directory_volume.mount_path) {
+      inventory_match = row.total_bytes === directory_volume.total_bytes
+        && row.allocation_unit === directory_volume.allocation_unit;
+    }
+  }
+  ensure(inventory_match, "cu_storage_volume_at_inventory_identity");
+
+  print("STEP missing exact path fails with its stable typed code");
+  const missing = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe", "storage-volume-at",
+    context.run_directory + "/missing-volume-path"
+  ], false);
+  ensure(missing.error.code === "storage_volume_at_path_not_found",
+    "cu_storage_volume_at_missing_code");
 
   print("STEP malformed, zero and over-ceiling bounds fail before native observation");
   for (const max of ["nope", "0", "513"]) {
@@ -277,6 +334,7 @@ try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.storage-volumes");
+  harness.emit_evidence(context, declared_evidence, "cu.storage-volume-at");
   harness.remove_run(context);
   if (platform === "linux") {
     print("PASS: native mounted-volume capacity is bounded, coherent, privacy-minimized and matches independent mount read-back");

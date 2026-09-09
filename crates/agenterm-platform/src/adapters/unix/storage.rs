@@ -51,3 +51,25 @@ pub(crate) fn mounted_volume_space(
         allocation_unit,
     )
 }
+
+pub(crate) fn volume_at(
+    path: &std::path::Path,
+) -> Result<crate::storage::NativePathVolume, StorageError> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::selected::storage_volumes::path_volume(path)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let space = mounted_volume_space(path)?;
+        let mount = crate::selected::storage_volumes::path_mount(path)?;
+        Ok(crate::storage::NativePathVolume {
+            mount_path: mount.mount_path,
+            mount_path_reason: mount.mount_path_reason,
+            mount_proof: mount.mount_proof,
+            space,
+            drive_kind: None,
+            in_inventory: mount.in_inventory,
+        })
+    }
+}

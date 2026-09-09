@@ -2201,20 +2201,20 @@
         {
           "id": "resource.disk-path",
           "mcu_shape": "resource disk [PATH] with exact path-bound filesystem capacity facts",
-          "acu_shape": null,
-          "state": "gap",
-          "platforms": {"macos": "gap", "linux": "gap", "windows": "legacy-unsupported"},
+          "acu_shape": "storage-volume-at PATH canonicalizes one exact path and reports its kernel-proved mount and complete capacity tuple without device identity",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-qualified", "linux": "native-court-pending", "windows": "native-court-pending"},
           "qualification": {
             "schema": 2,
             "platforms": {
-              "linux": {"result": "pending", "blocker_code": "native-path-provider-not-implemented"},
-              "macos": {"result": "pending", "blocker_code": "native-path-provider-not-implemented"},
-              "windows": {"result": "pending", "blocker_code": "native-path-provider-not-implemented"}
+              "linux": {"result": "pending", "blocker_code": "native-public-court-not-run"},
+              "macos": {"result": "native-qualified", "gate": "cu-storage-volumes-smoke", "evidence": ["cu.storage-volume-at"]},
+              "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
             }
           },
-          "evidence": [],
-          "next": "add a native canonical path-bound capacity query; prove mount identity from the kernel or mount metadata and never from a truncated, skipped, lossy or lexical-prefix inventory",
-          "note": "The compatibility entry returns the stable acu.dynamic.057.resource-disk TODO. A longest-mount-prefix projection cannot prove correctness across skipped mounts, symbolic links, mount namespaces, lossy paths or truncated inventory. The platform volume_space primitive already supplies canonical path capacity, but a public provider must still preserve file-versus-directory input and publish only independently proven mount identity. Archived Windows resource disk was unsupported; the native gap remains explicit on every cell rather than borrowing the qualified resource volumes evidence."
+          "evidence": ["cu.storage-volume-at"],
+          "next": "run the unchanged exact-path volume court on native Linux and Windows; preserve null-plus-reason when Linux mountinfo cannot prove a matching st_dev",
+          "note": "The Bun-free compatibility entry maps resource disk [PATH] to storage-volume-at, with the archived default root path explicit. Files, directories and other existing filesystem entries are canonicalized and symbolic links are followed. Capacity comes from the exact native path query. macOS proves mount identity with statfs f_mntonname; Linux requires both st_dev equality and a component-boundary mountinfo prefix in the current namespace and returns null plus a reason rather than guessing; Windows uses GetVolumePathNameW and labels whether the resolved drive kind belongs to the bounded fixed/RAM inventory. Replies expose canonical and mount paths but never device/source names, fsids, volume GUIDs or serials. The public macOS court proves directory/file parity and mounted-inventory identity; Linux and Windows remain pending native execution."
         },
         {
           "id": "resource.process-policy",

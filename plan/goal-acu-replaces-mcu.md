@@ -329,9 +329,10 @@ retaining the stale `acu.dynamic.057` TODO. Its real privileged-plan
 `storage.mount` and `storage.unmount` operations remain a separate mutation gap.
 Archived `resource volumes` also maps to `storage-volumes`, explicitly retaining
 the reviewed 500-row default and rejecting values above the native 512-row
-ceiling instead of clamping. Exact-path `resource disk` remains a named provider
-gap: a truncated, skipped or lossy mounted-volume inventory cannot prove the
-correct mount by lexical prefix.
+ceiling instead of clamping. Exact-path `resource disk [PATH]` now maps to
+`storage-volume-at`: file and directory inputs are canonicalized, capacity is
+queried for that exact native path, and mount identity comes only from the
+kernel or the current mount namespace rather than a volume-inventory prefix.
 The reviewed retirement of the no-authority `ghost` overlay and obsolete
 `desktop-helper` sidecar removed two more fallbacks without inventing replacement
 mechanisms. This is not the remaining capability count: group verbs contain
@@ -614,8 +615,9 @@ shapes fail typed instead of being ignored.
   aliases are local usage; the archived privileged-plan volume mutations remain
   separate identity-bound work.
   Legacy `resource volumes` now reaches the same inventory with its archived
-  default made explicit. `resource disk [PATH]` remains open until a native
-  path-bound capacity query replaces the unsafe longest-prefix shortcut.
+  default made explicit. `resource disk [PATH]` reaches the separate
+  `storage-volume-at` provider, which queries the canonical path directly and
+  never projects a mount from the bounded inventory.
   Existing stable-entry, no-overwrite and per-volume primitives stay separate
   from physical devices. Unix modes/xattrs and Windows
   ACLs/attributes remain distinct platform vocabularies; parity must not be

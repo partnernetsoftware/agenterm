@@ -1,4 +1,12 @@
-use std::{collections::BTreeMap, os::unix::ffi::OsStringExt, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    io::Read,
+    os::unix::ffi::OsStringExt,
+    os::unix::fs::MetadataExt,
+    path::{Path, PathBuf},
+};
+
+const MOUNTINFO_BYTES_MAX: u64 = 4 * 1024 * 1024;
 
 use crate::{
     contract::storage::{StorageError, StorageErrorKind},
@@ -6,12 +14,7 @@ use crate::{
 };
 
 pub(crate) fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, StorageError> {
-    let snapshot = std::fs::read("/proc/self/mountinfo").map_err(|source| {
-        StorageError::new(
-            StorageErrorKind::Query,
-            format!("read mount inventory: {source}"),
-        )
-    })?;
+    let snapshot = read_mountinfo()?;
     let mut mount_paths = BTreeMap::new();
     let mut parse_errors = 0usize;
     for line in snapshot
@@ -44,6 +47,110 @@ pub(crate) fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, Stor
         );
     }
     collect_paths(mount_paths, max, parse_errors)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MountCandidate {
+    device: Vec<u8>,
+    mount_path: PathBuf,
+    local_safe: bool,
+}
+
+pub(crate) fn path_mount(path: &Path) -> Result<crate::storage::NativePathMount, StorageError> {
+    let snapshot = read_mountinfo()?;
+    let metadata = std::fs::metadata(path).map_err(|source| {
+        StorageError::new(
+            StorageErrorKind::Path,
+            format!("{}: {source}", path.display()),
+        )
+    })?;
+    let device = format!(
+        "{}:{}",
+        libc::major(metadata.dev()),
+        libc::minor(metadata.dev())
+    );
+    let candidates = snapshot
+        .split(|byte| *byte == b'\n')
+        .filter_map(parse_mount_candidate)
+        .collect::<Vec<_>>();
+    let selected = select_mount(&candidates, device.as_bytes(), path);
+    Ok(match selected {
+        Some(candidate) => crate::storage::NativePathMount {
+            mount_path: Some(candidate.mount_path.clone()),
+            mount_path_reason: None,
+            mount_proof: "mountinfo-st_dev-longest-prefix",
+            in_inventory: candidate.local_safe,
+        },
+        None => crate::storage::NativePathMount {
+            mount_path: None,
+            mount_path_reason: Some("mountinfo-no-matching-entry"),
+            mount_proof: "mountinfo-st_dev-longest-prefix",
+            in_inventory: false,
+        },
+    })
+}
+
+fn read_mountinfo() -> Result<Vec<u8>, StorageError> {
+    let file = std::fs::File::open("/proc/self/mountinfo").map_err(|source| {
+        StorageError::new(
+            StorageErrorKind::Query,
+            format!("open mount inventory: {source}"),
+        )
+    })?;
+    let mut snapshot = Vec::new();
+    file.take(MOUNTINFO_BYTES_MAX + 1)
+        .read_to_end(&mut snapshot)
+        .map_err(|source| {
+            StorageError::new(
+                StorageErrorKind::Query,
+                format!("read mount inventory: {source}"),
+            )
+        })?;
+    if snapshot.len() as u64 > MOUNTINFO_BYTES_MAX {
+        return Err(StorageError::new(
+            StorageErrorKind::Query,
+            "mount inventory exceeds 4194304 bytes",
+        ));
+    }
+    Ok(snapshot)
+}
+
+fn parse_mount_candidate(line: &[u8]) -> Option<MountCandidate> {
+    let fields = line
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|field| !field.is_empty())
+        .collect::<Vec<_>>();
+    let device = fields.get(2)?;
+    let encoded_path = fields.get(4)?;
+    let separator = fields.iter().position(|field| *field == b"-")?;
+    let fs_type = fields.get(separator + 1)?;
+    let mount_path = PathBuf::from(std::ffi::OsString::from_vec(
+        decode_mount_field(encoded_path).ok()?,
+    ));
+    Some(MountCandidate {
+        device: device.to_vec(),
+        mount_path,
+        local_safe: capacity_query_is_local_safe(&String::from_utf8_lossy(fs_type)),
+    })
+}
+
+fn select_mount<'a>(
+    candidates: &'a [MountCandidate],
+    device: &[u8],
+    path: &Path,
+) -> Option<&'a MountCandidate> {
+    let mut selected = None;
+    for candidate in candidates {
+        if candidate.device != device || !path.starts_with(&candidate.mount_path) {
+            continue;
+        }
+        if selected.is_none_or(|current: &MountCandidate| {
+            candidate.mount_path.components().count() >= current.mount_path.components().count()
+        }) {
+            selected = Some(candidate);
+        }
+    }
+    selected
 }
 
 fn collect_paths(
@@ -174,5 +281,49 @@ mod tests {
         assert!(!capacity_query_is_local_safe("fuse.sshfs"));
         assert!(!capacity_query_is_local_safe("unknown-future-fs"));
         assert!(capacity_query_is_local_safe("ext4"));
+    }
+
+    #[test]
+    fn selects_same_device_by_component_prefix_and_prefers_the_last_deepest_mount() {
+        let candidates = [
+            MountCandidate {
+                device: b"1:2".to_vec(),
+                mount_path: PathBuf::from("/"),
+                local_safe: true,
+            },
+            MountCandidate {
+                device: b"1:2".to_vec(),
+                mount_path: PathBuf::from("/mnt/a"),
+                local_safe: true,
+            },
+            MountCandidate {
+                device: b"1:2".to_vec(),
+                mount_path: PathBuf::from("/mnt/a"),
+                local_safe: false,
+            },
+            MountCandidate {
+                device: b"9:9".to_vec(),
+                mount_path: PathBuf::from("/mnt/a/deeper"),
+                local_safe: true,
+            },
+        ];
+        assert_eq!(
+            select_mount(&candidates, b"1:2", Path::new("/mnt/a/file")),
+            Some(&candidates[2])
+        );
+        assert_eq!(
+            select_mount(&candidates, b"1:2", Path::new("/mnt/ab/file")),
+            Some(&candidates[0])
+        );
+        assert_eq!(select_mount(&candidates, b"3:4", Path::new("/mnt/a")), None);
+    }
+
+    #[test]
+    fn parses_mountinfo_device_path_escape_and_filesystem_class() {
+        let candidate =
+            parse_mount_candidate(b"10 9 1:2 / /media/a\\040b rw - ext4 /dev/x rw").unwrap();
+        assert_eq!(candidate.device, b"1:2");
+        assert_eq!(candidate.mount_path, PathBuf::from("/media/a b"));
+        assert!(candidate.local_safe);
     }
 }

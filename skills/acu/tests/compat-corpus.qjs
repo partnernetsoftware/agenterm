@@ -465,11 +465,14 @@ require(compat.canonicalize([
 require(compat.canonicalize([
   "resource", "volumes", "--max", "0"
 ]).kind === "usage", "resource volumes keeps the archived positive lower bound");
-const resource_disk_gap = compat.canonicalize(["resource", "disk", "/"]);
-require(resource_disk_gap.kind === "todo"
-    && resource_disk_gap.gap_id === "acu.dynamic.057.resource-disk"
-    && resource_disk_gap.message.indexOf("path-bound") >= 0,
-  "resource disk must name the missing exact-path provider without guessing a mount prefix");
+same_argv(compat.canonicalize(["resource", "disk", "/"]).argv,
+  ["--target", "current", "--grant", "observe,actuate",
+    "storage-volume-at", "/"],
+  "resource disk must use the exact path-bound native provider");
+same_argv(compat.canonicalize(["resource", "disk"]).argv,
+  ["--target", "current", "--grant", "observe,actuate",
+    "storage-volume-at", "/"],
+  "resource disk must preserve the archived default root path");
 
 require(compat.canonicalize(["unknown-verb"]).kind === "exec",
   "ordinary unknown spelling must reach native usage, not TODO");

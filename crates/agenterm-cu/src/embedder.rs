@@ -297,6 +297,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::Spaces { .. }
         | Command::StorageDevices { .. }
         | Command::StorageVolumes { .. }
+        | Command::StorageVolumeAt { .. }
         | Command::TabClose { .. }
         | Command::TabList { .. }
         | Command::TabSelect { .. }

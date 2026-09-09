@@ -77,6 +77,7 @@ pub const SIMULATOR_RESULTS_MAX: usize = 200;
 pub const SIMULATOR_TIMEOUT_MS_MAX: u64 = 600_000;
 pub const STORAGE_DEVICES_MAX: usize = 5_000;
 pub const STORAGE_VOLUMES_MAX: usize = agenterm_platform::storage::VOLUME_RESULTS_MAX;
+pub const STORAGE_VOLUME_PATH_BYTES_MAX: usize = 8_192;
 pub const DEVICE_INVENTORY_MAX: usize = 5_000;
 pub const DEVICE_WATCH_DURATION_MS_MAX: u64 = 3_600_000;
 pub const DEVICE_WATCH_INTERVAL_MS_MIN: u64 = 250;
@@ -2827,6 +2828,10 @@ pub enum Command {
         #[serde(deserialize_with = "deserialize_storage_volumes_max")]
         max: usize,
     },
+    StorageVolumeAt {
+        target: TargetRef,
+        path: String,
+    },
     DeviceList {
         target: TargetRef,
         selector: DeviceInventorySelector,
@@ -4480,6 +4485,7 @@ impl Command {
             Self::FontDiscovery { .. } => "font-discovery".into(),
             Self::StorageDevices { .. } => "storage-devices".into(),
             Self::StorageVolumes { .. } => "storage-volumes".into(),
+            Self::StorageVolumeAt { .. } => "storage-volume-at".into(),
             Self::DeviceList { .. } => "device-list".into(),
             Self::DeviceWatch { .. } => "device-watch".into(),
             Self::DeviceClaims { .. } => "device-claims".into(),
@@ -4926,6 +4932,7 @@ impl Command {
             | Self::FontDiscovery { target }
             | Self::StorageDevices { target, .. }
             | Self::StorageVolumes { target, .. }
+            | Self::StorageVolumeAt { target, .. }
             | Self::DeviceList { target, .. }
             | Self::DeviceWatch { target, .. }
             | Self::DeviceClaims { target, .. }
@@ -5888,6 +5895,15 @@ impl Command {
             Self::StorageVolumes { max, .. } => {
                 if !(1..=STORAGE_VOLUMES_MAX).contains(max) {
                     return Err("storage volumes max must be in 1..=512");
+                }
+                Ok(())
+            }
+            Self::StorageVolumeAt { path, .. } => {
+                if path.is_empty()
+                    || path.len() > STORAGE_VOLUME_PATH_BYTES_MAX
+                    || path.as_bytes().contains(&0)
+                {
+                    return Err("storage volume path must be 1..=8192 bytes without NUL");
                 }
                 Ok(())
             }
