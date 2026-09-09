@@ -46,11 +46,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function get_extents_misuse_message_ok(message, token) {
-  return usage_rejects_unexpected(message, token)
-    || message.indexOf("--name") >= 0;
-}
-
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return 0; }
@@ -189,8 +184,7 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
     "cu_linux_tab_select_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
   ensure(
-    text_at(flat_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(flat_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(flat_with_name, "error.message"), "--name"),
     "cu_linux_tab_select_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
   );
 
@@ -204,8 +198,11 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
     "cu_linux_tab_select_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
   );
   ensure(
-    text_at(grouped_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(grouped_with_name, "error.message").indexOf("unexpected") >= 0,
+    text_at(grouped_with_name, "command") === "usage",
+    "cu_linux_tab_select_usage_grouped_name_command:" + JSON.stringify(grouped_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_with_name, "error.message"), "--name"),
     "cu_linux_tab_select_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
   );
 
@@ -217,6 +214,10 @@ function assert_tab_select_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(with_bogus, "error.code") === "usage",
     "cu_linux_tab_select_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_tab_select_usage_bogus_command:" + JSON.stringify(with_bogus)
   );
   ensure(
     usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
@@ -307,7 +308,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_tab_select_extents_coords_command:" + JSON.stringify(extents_coords)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_tab_select_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -325,7 +327,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_tab_select_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_tab_select_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -659,16 +662,16 @@ let cdp_inventory_ready = false;
 const atspi_available = probe_atspi_available(env);
 
 try {
-  print("STEP tab-select typed-fail usage when AT-SPI --name/--coords/--bogus is present");
+  print("STEP tab-select typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present (usage_rejects_unexpected)");
   assert_tab_select_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before tab-select actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before tab-select actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before tab-select actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
-  if (!atspi_available) {
+  if (atspi_available !== true) {
     print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; tab read-back still uses tab-list and independent Chrome/CDP /json");
   }
 
@@ -912,10 +915,10 @@ if (succeeded !== 0 && completion_failure === "") {
     : "independent tab-list read-back with Chrome/CDP/browser-tabs host-limit honesty";
   if (atspi_available) {
     print("PASS: Linux tab-select by --title / --index with " + cdp_clause
-      + " and typed tab-select/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
+      + " and typed tab-select --name/--coords/--bogus usage_rejects_unexpected plus get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
   } else {
     print("PASS: Linux tab-select by --title / --index with " + cdp_clause
-      + " and typed tab-select/get-extents --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
+      + " and typed tab-select --name/--coords/--bogus usage_rejects_unexpected plus get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
