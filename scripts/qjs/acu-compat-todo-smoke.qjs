@@ -1,6 +1,6 @@
-// Public CLI black box for legacy compatibility gaps. Every listed command is
-// intercepted before native dispatch, so this court performs no GUI, browser,
-// device, storage, privilege, job or pointer operation.
+// Public CLI black box for legacy compatibility gaps and one repaired
+// read-only plan. TODO cases are intercepted before native dispatch; the
+// signal-plan case reaches the shared typed planner without consent or effect.
 //
 // Args: AGENTERM_LAUNCHER
 import * as rh from "lib/rh_compat";
@@ -9,15 +9,19 @@ function require_ok(condition, message) {
   if (!condition) { throw message; }
 }
 
-function run(launcher, argv) {
+function invoke(launcher, argv, expected_exit) {
   const command = ["cli", "acu"];
   for (let i = 0; i < argv.length; i = i + 1) { command.push(argv[i]); }
   const result = rh.command(launcher, command, {
     env: { AGENTERM_NO_ACTIVATE: "1" }, timeout_ms: 30000
   });
-  require_ok(!result.timed_out && result.exit_code === 2,
+  require_ok(!result.timed_out && result.exit_code === expected_exit,
     "acu_compat_exit:" + argv[0] + ":" + result.stderr);
   return JSON.parse(result.stdout.trim());
+}
+
+function run(launcher, argv) {
+  return invoke(launcher, argv, 2);
 }
 
 function require_todo(launcher, argv, gap_id) {
@@ -44,7 +48,6 @@ const cases = [
   [["job", "resources", "job-1", "--generation", "7", "--interval", "1"], "acu.dynamic.018"],
   [["device", "claim", "legacy-device-path"], "acu.dynamic.054"],
   [["storage", "mount", "disk-1"], "acu.dynamic.057"],
-  [["privilege", "plan", "process.signal", "42", "TERM"], "acu.dynamic.058"],
   [["browser", "bridge", "status"], "acu.dynamic.075"],
   [["elements", "Window#1", "--actionable", "true"], "acu.dynamic.078"],
   [["observe", "Window#1", "--action", "press"], "acu.dynamic.081"],
@@ -53,6 +56,30 @@ const cases = [
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);
 }
+
+const signal_plan = invoke(launcher, [
+  "privilege", "plan", "process.signal", "" + rh.pid(), "STOP",
+  "--timeout-ms", "5000", "--ttl-seconds", "60"
+], 0);
+require_ok(signal_plan.ok === true && signal_plan.command === "privilege-plan",
+  "acu_compat_signal_plan_reply:" + JSON.stringify(signal_plan));
+require_ok(signal_plan.data.operation === "process.signal"
+    && signal_plan.data.signal === "SIGSTOP"
+    && signal_plan.data.scope === "single"
+    && signal_plan.data.members.length === 1
+    && signal_plan.data.members[0].pid === rh.pid(),
+  "acu_compat_signal_plan_identity:" + JSON.stringify(signal_plan.data));
+require_ok(signal_plan.data.consent_requested === false
+    && signal_plan.data.mutation_performed === false,
+  "acu_compat_signal_plan_must_be_read_only:" + JSON.stringify(signal_plan.data));
+
+const unsafe_kill = run(launcher, [
+  "privilege", "plan", "process.signal", "" + rh.pid(), "KILL"
+]);
+require_ok(unsafe_kill.ok === false && unsafe_kill.alert === undefined
+    && unsafe_kill.error.code === "usage"
+    && unsafe_kill.error.message.indexOf("--force exactly for KILL") >= 0,
+  "acu_compat_signal_plan_native_usage:" + JSON.stringify(unsafe_kill));
 
 for (const operation of ["install", "status", "start", "stop", "uninstall"]) {
   const retired = run(launcher, ["daemon", "service", operation]);

@@ -23,7 +23,7 @@ export const LEGACY_TOP_LEVEL = [
 export const LEGACY_TODO_GAP_IDS = [
   "acu.dynamic.004", "acu.dynamic.005", "acu.dynamic.018",
   "acu.dynamic.054", "acu.dynamic.057",
-  "acu.dynamic.058", "acu.dynamic.075", "acu.dynamic.078",
+  "acu.dynamic.075", "acu.dynamic.078",
   "acu.dynamic.081", "acu.dynamic.085"
 ];
 
@@ -239,11 +239,6 @@ function known_dynamic_boundary(argv) {
   if (verb === "storage" && (sub === "mount" || sub === "unmount" || sub === "eject")) {
     return todo("acu.dynamic.057", "storage",
       "legacy storage volume operations need a typed adapter");
-  }
-  if (verb === "privilege" && sub === "plan" && argv.length >= 3
-      && argv[2] === "process.signal") {
-    return todo("acu.dynamic.058", "privilege",
-      "legacy privileged process signals need a typed plan adapter");
   }
   if (verb === "browser" && (sub === "open" || sub === "bridge"
       || sub === "profile" || sub === "nav")) {
