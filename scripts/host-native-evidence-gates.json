@@ -421,6 +421,14 @@
       ]
     },
     {
+      "id": "cu-linux-browser-profiles-open-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-browser-profiles-installed",
+        "cu.linux-browser-open-window"
+      ]
+    },
+    {
       "id": "cu-linux-chrome-text-smoke",
       "platform": "linux",
       "evidence": [

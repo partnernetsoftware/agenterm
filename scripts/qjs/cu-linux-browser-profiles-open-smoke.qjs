@@ -120,11 +120,16 @@ const fixture = rh.join(html_dir, "fixture.html");
 const fixture_title = "CEO Browser Open " + context.run_id;
 const env = isolated_env(run_directory);
 env.AGENTERM_ABI_LIB = abi_library;
+env.CHROME_USER_DATA_DIR = user_data;
 
 let succeeded = 0;
 let failure = "";
 
 try {
+  print("STEP clear stale box-chrome singletons on this display before browser-open");
+  rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+  harness.sleep_ms(1000);
+
   print("STEP write synthetic Chromium Local State under an invocation-owned HOME");
   rh.create_dir_all(rh.join(user_data, "Default"));
   rh.create_dir_all(html_dir);
@@ -171,13 +176,29 @@ try {
 
   print("STEP browser-open court-alpha and verify a new chrome window through windows inventory");
   const fixture_url = "file://" + fixture;
-  const opened = run_cu(run_directory, executable, "actuate", [
-    "browser-open",
-    "--profile", "court-alpha",
-    "--url", fixture_url,
-    "--app", "Google Chrome",
-    "--timeout-ms", "30000",
-  ], env);
+  let opened = null;
+  for (let open_attempt = 0; open_attempt < 3 && opened === null; open_attempt = open_attempt + 1) {
+    if (open_attempt > 0) {
+      rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+      harness.sleep_ms(2000);
+    }
+    const output = rh.command(executable, [
+      "--target", "current", "--grant", "actuate",
+      "browser-open",
+      "--profile", "court-alpha",
+      "--url", fixture_url,
+      "--app", "Google Chrome",
+      "--timeout-ms", "30000",
+    ], { cwd: run_directory, env: env, timeout_ms: 60000 });
+    if (output.success !== true) { continue; }
+    const trimmed = output.stdout.trim();
+    if (trimmed === "") { continue; }
+    const reply = JSON.parse(trimmed);
+    if (reply.command === "browser-open" && flag_at(reply, "ok")) {
+      opened = reply;
+    }
+  }
+  ensure(opened !== null, "cu_linux_browser_open_failed");
   ensure(opened.command === "browser-open", "cu_linux_browser_open_identity");
   const open_handle = "" + at(opened, "data.handle");
   ensure(open_handle !== "" && open_handle !== "0",
