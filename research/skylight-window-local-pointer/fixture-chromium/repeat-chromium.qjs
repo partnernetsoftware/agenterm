@@ -1,0 +1,623 @@
+// acu.dynamic.074 Chromium PRIVATE 1000-action repeat.
+//
+// Research only. Pre-committed follow-up to the discriminator court that
+// passed on this host: the same invocation-owned Chromium profile, the same
+// B/A window identity (B opened first so it is never the key window), the
+// same caller-selected guard fixture in the foreground and the same one-shot
+// injector, but only the PRIVATE arm, repeated ACTIONS times. Every action is
+// independent: reset both oracles, prove the guard is frontmost, run one
+// injector process, bounded-poll the target oracle over CDP, wait a quiet
+// window, read both oracles back, prove the guard is still frontmost and
+// classify the action. The five frozen discriminator sources are reused
+// unchanged; this file and its runner are the only additions.
+//
+// Args: REPO AGENTERM_CU_EXE CHROMIUM_EXE INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST [ACTIONS]
+//   ACTIONS defaults to 1000. Any other value is a detector test (for example
+//   10 actions with a deliberately wrong injector target) and is flagged as
+//   detector_mode in the verdict; it never counts as the pre-committed repeat.
+// Run with `--project-root scripts/qjs` so `lib/rh_compat` and
+// `lib/test_harness` resolve exactly as they do for the public courts.
+// or:   --list-evidence   (registers no evidence; prints nothing)
+//
+// Injector contract is the frozen discriminator contract:
+//   INJECTOR_EXE --arm private --pid PID --window CGID --x X --y Y
+//                --off-x X --off-y Y --dx 0 --dy 3 --guard-state PATH
+//   stdout is one JSON object. ok !== true is an injector failure
+//   (INCONCLUSIVE); host_unchanged !== true is a HOST_DRIFT failure.
+//
+// Classification per action (first matching wins, all are counted):
+//   HOST_DRIFT   injector reported host_unchanged === false, or the guard was
+//                not frontmost before/after the action (the run then stops)
+//   MISDELIVERY  peer A received any wheel event
+//   DUP          target B received more than one wheel event
+//   LOSS         target B received no wheel event, or the recorded last wheel
+//                is not on the requested axis
+// Verdict: PASS when every action is exact; otherwise FAIL_<first category by
+// precedence HOST_DRIFT > MISDELIVERY > DUP > LOSS>; behavioural verdicts
+// exit 0. Setup, oracle, injector, cleanup and timebox problems are
+// INCONCLUSIVE and exit non-zero. Output is bounded: at most 20 failure
+// records, one summary per 100 actions, and the final verdict JSON.
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const DEFAULT_ACTIONS = 1000;
+const WHEEL_DX = 0;
+const WHEEL_DY = 3;
+const FRAME_A = { x: 40, y: 80, width: 520, height: 400 };
+const FRAME_B = { x: 700, y: 80, width: 520, height: 400 };
+const POLL_INTERVAL_MS = 25;
+const POLL_BOUND_MS = 500;
+const QUIET_WINDOW_MS = 150;
+const SUMMARY_EVERY = 100;
+const FAILURE_RECORD_CAP = 20;
+const FAILURE_ABORT_AFTER = 20;
+const TIMEBOX_MS = 1500000;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const result = at(value, dotted);
+  return result === undefined || result === null ? "" : "" + result;
+}
+
+function half(value) {
+  return (value - (value % 2)) / 2;
+}
+
+function number_at(value, dotted) {
+  const raw = text_at(value, dotted);
+  if (raw === "") { return 0; }
+  return rh.parse_int(raw);
+}
+
+function parsed_port_or_zero(text) {
+  try {
+    return rh.parse_int(text);
+  } catch (error) {
+    return 0;
+  }
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  return;
+}
+harness.require(args.length === 7 || args.length === 8,
+  "expected: REPO AGENTERM_CU_EXE CHROMIUM_EXE INJECTOR_EXE GUARD_FIXTURE_EXE SOURCE_SHA PROBE_DIGEST [ACTIONS]");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const chromium = rh.absolute(args[2]);
+const injector = rh.absolute(args[3]);
+const guard_fixture = rh.absolute(args[4]);
+const source_sha = "" + args[5];
+const probe_digest = "" + args[6];
+let actions = DEFAULT_ACTIONS;
+if (args.length === 8) {
+  actions = rh.parse_int(args[7]);
+  harness.require(actions >= 1 && actions <= DEFAULT_ACTIONS,
+    "ACTIONS must be an integer from 1 to " + DEFAULT_ACTIONS);
+}
+const detector_mode = actions !== DEFAULT_ACTIONS;
+
+const context = harness.new_context(repo, "acu-074-chromium-repeat");
+const run_directory = context.run_directory;
+const nonce = "" + context.run_id;
+const page_path = rh.join(repo, "research/skylight-window-local-pointer/fixture-chromium/page.html");
+const guard_state = rh.join(run_directory, "guard.json");
+const cu_env = {
+  AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+  AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+  AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-idempotency.json"),
+  AGENTERM_NO_ACTIVATE: "1"
+};
+
+function invoke(grant, arguments) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: cu_env,
+    timeout_ms: 60000
+  });
+  const text = output.stdout.trim();
+  ensure(text !== "", "acu074_empty_reply:" + argv.join(" ") + ":" + output.stderr);
+  return { output: output, reply: JSON.parse(text) };
+}
+
+function require_ok(result, label) {
+  ensure(result.output.success === true && result.reply.ok === true,
+    label + ":" + JSON.stringify(result.reply));
+  return result.reply;
+}
+
+function page_url(label) {
+  return "file://" + page_path + "?label=" + label + "&nonce=" + nonce;
+}
+
+function page_title(label) {
+  return "acu-074-" + label + "-" + nonce;
+}
+
+// Native window rows carry {handle, process_id, title, bounds{x,y,width,height}}.
+function native_windows_for(pid) {
+  const reply = require_ok(invoke("observe", ["windows", "--pid", "" + pid, "--max", "8"]),
+    "acu074_native_windows_failed");
+  const rows = [];
+  for (const row of reply.data.windows) {
+    if (row.process_id === pid) { rows.push(row); }
+  }
+  return rows;
+}
+
+function native_window_by_title(pid, title) {
+  let found = null;
+  for (const row of native_windows_for(pid)) {
+    if (row.title === title) {
+      ensure(found === null, "acu074_native_title_ambiguous:" + title);
+      found = row;
+    }
+  }
+  ensure(found !== null, "acu074_native_title_missing:" + title);
+  return found;
+}
+
+function bounds_distinct(left, right) {
+  return left.x !== right.x || left.y !== right.y
+    || left.width !== right.width || left.height !== right.height;
+}
+
+function place_frame(handle, frame) {
+  const placed = require_ok(invoke("observe,actuate", [
+    "window-place", "--action", "frame", "--window", "" + handle,
+    "--x", "" + frame.x, "--y", "" + frame.y,
+    "--width", "" + frame.width, "--height", "" + frame.height
+  ]), "acu074_window_place_failed:" + handle);
+  return placed;
+}
+
+function page_target_by_title(port, title) {
+  const targets = require_ok(invoke("observe", ["page-targets", "--port", "" + port]),
+    "acu074_page_targets_failed");
+  let found = null;
+  for (const row of targets.data.targets) {
+    if (row.type === "page" && row.title === title) {
+      ensure(found === null, "acu074_page_target_ambiguous:" + title);
+      found = row;
+    }
+  }
+  ensure(found !== null, "acu074_page_target_missing:" + title);
+  return "" + found.id;
+}
+
+function page_js(port, target_id, expression) {
+  const reply = require_ok(invoke("observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id, "--expression", expression
+  ]), "acu074_page_js_failed:" + target_id);
+  return reply.data.value;
+}
+
+function reset_counts(port, target_id, label) {
+  const value = "" + page_js(port, target_id, "window.__agentermWheel.reset()");
+  ensure(value === "reset:" + label, "acu074_reset_readback:" + label + ":" + value);
+}
+
+function snapshot_counts(port, target_id, label) {
+  const raw = page_js(port, target_id, "window.__agentermWheel.snapshot()");
+  const snapshot = JSON.parse("" + raw);
+  ensure(snapshot.label === label && snapshot.nonce === nonce,
+    "acu074_snapshot_identity:" + label + ":" + raw);
+  return snapshot;
+}
+
+function oracle_self_test(port, target_id, label) {
+  reset_counts(port, target_id, label);
+  const raw = page_js(port, target_id,
+    "window.__agentermWheel.selfTest(" + WHEEL_DX + "," + WHEEL_DY + ")");
+  const snapshot = JSON.parse("" + raw);
+  ensure(snapshot.label === label && snapshot.count === 1
+    && snapshot.last_wheel !== null && snapshot.last_wheel.kind === "wheel"
+    && snapshot.last_wheel.deltaX === WHEEL_DX && snapshot.last_wheel.deltaY === WHEEL_DY,
+    "acu074_oracle_self_test_failed:" + label + ":" + raw);
+  reset_counts(port, target_id, label);
+}
+
+function guard_ready(deadline_ms) {
+  while (rh.now_ms() < deadline_ms) {
+    if (rh.exists(guard_state)) {
+      const text = rh.read_text(guard_state);
+      if (text.trim() !== "") { return JSON.parse(text); }
+    }
+    rh.sleep_ms(20);
+  }
+  throw "acu074_guard_readiness_timeout";
+}
+
+function focused_native_window() {
+  const reply = require_ok(invoke("observe", ["windows", "--focused", "true", "--max", "2"]),
+    "acu074_focused_window_failed");
+  ensure(reply.data.returned === 1, "acu074_focused_window_ambiguous");
+  return reply.data.windows[0];
+}
+
+function run_injector(arm, browser_pid, target_window, target_point, off_point) {
+  const argv = [
+    "--arm", arm,
+    "--pid", "" + browser_pid,
+    "--window", "" + target_window,
+    "--x", "" + target_point.x, "--y", "" + target_point.y,
+    "--off-x", "" + off_point.x, "--off-y", "" + off_point.y,
+    "--dx", "" + WHEEL_DX, "--dy", "" + WHEEL_DY,
+    "--guard-state", guard_state
+  ];
+  const output = rh.command(injector, argv, {
+    cwd: run_directory,
+    env: cu_env,
+    timeout_ms: 30000
+  });
+  const text = output.stdout.trim();
+  ensure(output.success === true && text !== "",
+    "acu074_injector_failed:" + arm + ":" + output.stdout + output.stderr);
+  const reply = JSON.parse(text);
+  // ok === false is an injector/oracle failure (INCONCLUSIVE); host_unchanged
+  // is returned to the caller so the repeat can classify HOST_DRIFT as a
+  // behavioural failure instead of aborting the whole run.
+  ensure(reply.ok === true, "acu074_injector_not_ok:" + arm + ":" + text);
+  return reply;
+}
+
+let chrome_child = -1;
+let guard_child = -1;
+let stage = "setup";
+let failure = "";
+let cleanup_required = false;
+let cleanup_verified = false;
+let identity = null;
+const started_ms = rh.now_ms();
+let actions_run = 0;
+let exact_count = 0;
+let failure_count = 0;
+let counts = { HOST_DRIFT: 0, MISDELIVERY: 0, DUP: 0, LOSS: 0 };
+const failures = [];
+const summaries = [];
+let aborted_reason = "";
+
+function classify(injected, before_front_ok, after_front_ok, snap_b, snap_a) {
+  if (injected.host_unchanged !== true || !before_front_ok || !after_front_ok) {
+    return "HOST_DRIFT";
+  }
+  if (snap_a.count > 0) { return "MISDELIVERY"; }
+  if (snap_b.count > 1) { return "DUP"; }
+  if (snap_b.count === 0) { return "LOSS"; }
+  if (snap_b.last_wheel === null || snap_b.last_wheel.kind !== "wheel"
+    || snap_b.last_wheel.deltaX !== WHEEL_DX || snap_b.last_wheel.deltaY === 0) {
+    return "LOSS";
+  }
+  return "";
+}
+
+function record_failure(index, category, injected, snap_b, snap_a, before_front, after_front) {
+  failure_count = failure_count + 1;
+  counts[category] = counts[category] + 1;
+  if (failures.length < FAILURE_RECORD_CAP) {
+    failures.push({
+      action: index,
+      category: category,
+      target_count: snap_b === null ? null : snap_b.count,
+      peer_count: snap_a === null ? null : snap_a.count,
+      target_last_wheel: snap_b === null ? null : snap_b.last_wheel,
+      host_unchanged: injected === null ? null : injected.host_unchanged,
+      before_front_pid: before_front === null ? null : before_front.process_id,
+      after_front_pid: after_front === null ? null : after_front.process_id,
+      elapsed_ms: rh.now_ms() - started_ms
+    });
+  }
+}
+
+function poll_target_until_delivered(port, target_id) {
+  const deadline = rh.now_ms() + POLL_BOUND_MS;
+  let snapshot = snapshot_counts(port, target_id, "B");
+  while (snapshot.count < 1 && rh.now_ms() < deadline) {
+    rh.sleep_ms(POLL_INTERVAL_MS);
+    snapshot = snapshot_counts(port, target_id, "B");
+  }
+  return snapshot;
+}
+
+try {
+  ensure(direct_file(executable), "acu074_cu_executable_missing:" + executable);
+  ensure(direct_file(chromium), "acu074_chromium_missing:" + chromium);
+  ensure(direct_file(injector), "acu074_injector_missing:" + injector);
+  ensure(direct_file(guard_fixture), "acu074_guard_fixture_missing:" + guard_fixture);
+  ensure(direct_file(page_path), "acu074_page_missing:" + page_path);
+  ensure(source_sha !== "" && probe_digest !== "", "acu074_result_identity_missing");
+
+  const profile = rh.join(run_directory, "chrome-profile");
+  let port = 0;
+  const active_port_path = rh.join(profile, "DevToolsActivePort");
+
+  stage = "browser-launch-b";
+  chrome_child = harness.start({
+    program: chromium,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=0",
+      "--remote-debugging-address=127.0.0.1",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--new-window",
+      page_url("B")
+    ],
+    current_dir: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 1740000
+  });
+  cleanup_required = true;
+  const browser_pid = harness.spawned_pid(chrome_child);
+  let cdp_ready = false;
+  for (let attempt = 0; attempt < 120; attempt = attempt + 1) {
+    if (rh.exists(active_port_path)) {
+      const active_lines = rh.read_text(active_port_path).trim().split("\n");
+      if (active_lines.length >= 2) {
+        const selected_port = parsed_port_or_zero(active_lines[0].trim());
+        const browser_path = active_lines[1].trim();
+        if (selected_port >= 1 && selected_port <= 65535
+          && browser_path.startsWith("/devtools/browser/")) {
+          const probe = rh.command("curl", [
+            "-s", "--noproxy", "*", "--max-time", "1",
+            "http://127.0.0.1:" + selected_port + "/json/version"
+          ], { cwd: run_directory, timeout_ms: 3000 });
+          if (probe.success === true && probe.stdout.indexOf("Browser") >= 0
+            && probe.stdout.indexOf(browser_path) >= 0) {
+            port = selected_port;
+            cdp_ready = true;
+            break;
+          }
+        }
+      }
+    }
+    rh.sleep_ms(250);
+  }
+  ensure(cdp_ready, "acu074_cdp_readiness_timeout");
+
+  stage = "browser-launch-a";
+  const opened_a = rh.command(chromium, [
+    "--user-data-dir=" + profile,
+    "--new-window",
+    page_url("A")
+  ], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 15000
+  });
+  ensure(opened_a.success === true, "acu074_open_a_failed:" + opened_a.stderr);
+
+  stage = "native-candidates";
+  let candidate_a = null;
+  let candidate_b = null;
+  const discovery_deadline = rh.now_ms() + 15000;
+  while (rh.now_ms() < discovery_deadline && (candidate_a === null || candidate_b === null)) {
+    const rows = native_windows_for(browser_pid);
+    let seen_a = null;
+    let seen_b = null;
+    let ambiguous = false;
+    for (const row of rows) {
+      if (row.title === page_title("A")) { if (seen_a !== null) { ambiguous = true; } seen_a = row; }
+      if (row.title === page_title("B")) { if (seen_b !== null) { ambiguous = true; } seen_b = row; }
+    }
+    ensure(!ambiguous, "acu074_native_candidate_ambiguous");
+    if (seen_a !== null && seen_b !== null) {
+      candidate_a = seen_a;
+      candidate_b = seen_b;
+      break;
+    }
+    rh.sleep_ms(100);
+  }
+  ensure(candidate_a !== null && candidate_b !== null, "acu074_native_candidates_missing");
+  ensure(candidate_a.handle !== candidate_b.handle, "acu074_native_handles_collide");
+
+  stage = "window-place";
+  place_frame(candidate_a.handle, FRAME_A);
+  place_frame(candidate_b.handle, FRAME_B);
+  rh.sleep_ms(300);
+
+  stage = "bijection";
+  const native_a = native_window_by_title(browser_pid, page_title("A"));
+  const native_b = native_window_by_title(browser_pid, page_title("B"));
+  ensure(bounds_distinct(native_a.bounds, native_b.bounds), "acu074_native_bounds_not_distinct");
+  const target_window = native_b.handle;
+  const peer_window = native_a.handle;
+  const browser_front = focused_native_window();
+  ensure(browser_front.process_id === browser_pid && browser_front.handle === peer_window,
+    "acu074_target_b_is_key_window:" + JSON.stringify(browser_front));
+
+  stage = "guard";
+  guard_child = harness.start({
+    program: guard_fixture,
+    args: ["--role", "guard", "--state", guard_state],
+    current_dir: run_directory,
+    env: {},
+    timeout_ms: 1740000
+  });
+  const guard = guard_ready(rh.now_ms() + 10000);
+  ensure(guard.pid > 0, "acu074_guard_pid");
+  rh.sleep_ms(300);
+  const front = focused_native_window();
+  ensure(front.process_id === guard.pid, "acu074_guard_not_frontmost:" + JSON.stringify(front));
+  const native_b_after_guard = native_window_by_title(browser_pid, page_title("B"));
+  ensure(native_b_after_guard.handle === target_window
+    && !bounds_distinct(native_b_after_guard.bounds, native_b.bounds),
+    "acu074_target_b_moved_after_guard");
+
+  stage = "page-targets";
+  const target_a = page_target_by_title(port, page_title("A"));
+  const target_b = page_target_by_title(port, page_title("B"));
+  ensure(target_a !== target_b, "acu074_page_targets_collide");
+
+  stage = "oracle-self-test";
+  oracle_self_test(port, target_a, "A");
+  oracle_self_test(port, target_b, "B");
+
+  // B screen point (center of B) and a recorded off-target point placed at the
+  // center of A: it is outside B by construction because the two frames are
+  // mutually distinct and non-overlapping.
+  const target_point = {
+    x: native_b.bounds.x + half(native_b.bounds.width),
+    y: native_b.bounds.y + half(native_b.bounds.height)
+  };
+  const off_point = {
+    x: native_a.bounds.x + half(native_a.bounds.width),
+    y: native_a.bounds.y + half(native_a.bounds.height)
+  };
+  ensure(off_point.x < native_b.bounds.x || off_point.x >= native_b.bounds.x + native_b.bounds.width
+    || off_point.y < native_b.bounds.y || off_point.y >= native_b.bounds.y + native_b.bounds.height,
+    "acu074_off_point_inside_target");
+
+  identity = {
+    browser_pid: browser_pid,
+    cdp_port: port,
+    target: { label: "B", cg_window: target_window,
+              bounds: native_b.bounds, target_id: target_b },
+    peer: { label: "A", cg_window: peer_window,
+            bounds: native_a.bounds, target_id: target_a },
+    guard_pid: guard.pid,
+    target_point: target_point,
+    off_point: off_point
+  };
+
+  stage = "repeat";
+  for (let index = 1; index <= actions; index = index + 1) {
+    if (rh.now_ms() - started_ms > TIMEBOX_MS) {
+      throw "acu074_repeat_timebox_exceeded:" + index;
+    }
+    reset_counts(port, target_a, "A");
+    reset_counts(port, target_b, "B");
+    const before_front = focused_native_window();
+    const before_ok = before_front.process_id === guard.pid;
+    let injected = null;
+    let snap_b = null;
+    let snap_a = null;
+    let after_front = null;
+    let after_ok = false;
+    if (before_ok) {
+      injected = run_injector("private", browser_pid, target_window, target_point, off_point);
+      poll_target_until_delivered(port, target_b);
+      rh.sleep_ms(QUIET_WINDOW_MS);
+      snap_b = snapshot_counts(port, target_b, "B");
+      snap_a = snapshot_counts(port, target_a, "A");
+      after_front = focused_native_window();
+      after_ok = after_front.process_id === guard.pid;
+    }
+    const category = before_ok
+      ? classify(injected, before_ok, after_ok, snap_b, snap_a)
+      : "HOST_DRIFT";
+    actions_run = index;
+    if (category === "") {
+      exact_count = exact_count + 1;
+    } else {
+      record_failure(index, category, injected, snap_b, snap_a, before_front, after_front);
+      if (!before_ok || !after_ok) {
+        aborted_reason = "guard_not_frontmost";
+        break;
+      }
+      if (failure_count >= FAILURE_ABORT_AFTER) {
+        aborted_reason = "failure_cap";
+        break;
+      }
+    }
+    if (index % SUMMARY_EVERY === 0) {
+      const elapsed = rh.now_ms() - started_ms;
+      summaries.push({
+        through: index,
+        exact: exact_count,
+        failures: failure_count,
+        elapsed_ms: elapsed,
+        avg_action_ms: (elapsed - (elapsed % index)) / index
+      });
+    }
+  }
+  stage = "done";
+} catch (error) {
+  failure = "" + error;
+}
+
+// Cleanup always runs; its outcome is part of the verdict.
+let cleanup_failure = "";
+try {
+  if (guard_child >= 0) {
+    if (harness.state(guard_child) === "running") { harness.kill(guard_child); }
+    const guard_exit = harness.wait(guard_child, 2000);
+    ensure(guard_exit.timed_out !== true, "acu074_guard_cleanup_timeout");
+  }
+  if (chrome_child >= 0) {
+    if (harness.state(chrome_child) === "running") { harness.kill(chrome_child); }
+    const chrome_exit = harness.wait(chrome_child, 5000);
+    ensure(chrome_exit.timed_out !== true, "acu074_chromium_cleanup_timeout");
+  }
+  cleanup_verified = true;
+} catch (error) {
+  cleanup_failure = "" + error;
+}
+
+let verdict = "INCONCLUSIVE";
+if (failure === "" && cleanup_failure === "" && (actions_run === actions || aborted_reason !== "")) {
+  if (failure_count === 0 && actions_run === actions) {
+    verdict = "PASS";
+  } else if (counts.HOST_DRIFT > 0) {
+    verdict = "FAIL_HOST_DRIFT";
+  } else if (counts.MISDELIVERY > 0) {
+    verdict = "FAIL_MISDELIVERY";
+  } else if (counts.DUP > 0) {
+    verdict = "FAIL_DUP";
+  } else {
+    verdict = "FAIL_LOSS";
+  }
+}
+
+const report = {
+  verdict: verdict,
+  detector_mode: detector_mode,
+  source_sha: source_sha,
+  probe_digest: probe_digest,
+  actions_requested: actions,
+  actions_run: actions_run,
+  exact_count: exact_count,
+  failure_count: failure_count,
+  failure_counts: counts,
+  aborted_reason: aborted_reason,
+  elapsed_ms: rh.now_ms() - started_ms,
+  cleanup_required: cleanup_required,
+  cleanup_verified: cleanup_verified,
+  wheel: { dx: WHEEL_DX, dy: WHEEL_DY },
+  poll: { interval_ms: POLL_INTERVAL_MS, bound_ms: POLL_BOUND_MS, quiet_ms: QUIET_WINDOW_MS },
+  identity: identity,
+  summaries: summaries,
+  failures: failures,
+  stage: stage,
+  failure: failure,
+  cleanup_failure: cleanup_failure,
+  run_id: nonce
+};
+print(JSON.stringify(report));
+
+if (verdict === "INCONCLUSIVE" || cleanup_failure !== "") {
+  throw "acu074_repeat_" + verdict + (failure !== "" ? ":" + failure : "")
+    + (cleanup_failure !== "" ? ":" + cleanup_failure : "");
+}
+harness.remove_run(context);
+return;
