@@ -7387,7 +7387,7 @@
     },
     {
       "id": "cu-linux-observe-smoke",
-      "description": "Linux CU observe poll-diff events for named GTK fixture node changes agree with independent pyatspi before/after probes taken at mutation time and independent windows inventory handle/title read-back; typed observe usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage/host-limit paths before the observe read-back court; AT-SPI --name; no --coords.",
+      "description": "Linux CU observe poll-diff events for named GTK fixture node changes agree with independent pyatspi before/after probes and windows inventory handle/title read-back; typed observe/get-extents --name/--coords/--bogus usage or honest non-usage; get-extents usage AND host-limit before process-state/desktop-state and observe read-back (no atspi gating); AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-observe-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
