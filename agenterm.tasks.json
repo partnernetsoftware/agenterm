@@ -6465,7 +6465,7 @@
     },
     {
       "id": "cu-linux-hover-click-smoke",
-      "description": "Linux GTK hover then click the same button by --name; AT-SPI GenerateMouseEvent(abs) hover leaves count unchanged, click advances pressed label; independent pyatspi read-back only; typed usage/miss/host-limit paths; no --coords.",
+      "description": "Linux GTK hover then click the same button by --name; AT-SPI GenerateMouseEvent(abs) hover leaves count unchanged, click advances pressed label; independent pyatspi read-back only; typed hover/click usage and host-limit paths plus get-extents --name usage/host-limit court before the native actuate/read-back court; no --coords.",
       "entry": "scripts/qjs/cu-linux-hover-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6603,7 +6603,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-paste-smoke",
-      "description": "Linux GTK entry clipboard-write UTF-8 seed then paste --name with independent get-text == SEED; typed usage and host-limit paths when --window/--name are missing or the AT-SPI bus is unavailable; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry clipboard-write UTF-8 seed then paste --name with independent get-text == SEED; typed paste/get-text usage and host-limit paths when --window/--name are missing or the AT-SPI bus is unavailable; typed get-extents --name usage/host-limit paths before the native actuate/read-back court; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-paste-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6623,7 +6623,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-caret-smoke",
-      "description": "Linux GTK entry set-caret / get-caret roundtrip by --name after send-text seeds SEED with independent pyatspi Text.CaretOffset read-back; typed usage and host-limit paths when the named entry is missing or has no Text caret interface; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry set-caret / get-caret roundtrip by --name after send-text seeds SEED with independent pyatspi Text.CaretOffset read-back; typed get-caret/set-caret usage and host-limit paths when --window/--name are missing, the named entry is missing, has no Text caret interface, or the AT-SPI bus is unavailable; typed get-extents --name usage/host-limit paths before the native actuate/read-back court; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-caret-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6743,7 +6743,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-focused-send-text-smoke",
-      "description": "Linux GTK entry focus --name then send-text --window without --name into the focused control with independent get-text --window read-back == SEED; AT-SPI live-probe only, no --coords.",
+      "description": "Linux GTK entry focus --name then send-text --window without --name into the focused control with independent get-text --window read-back == SEED; typed focus/send-text/get-text/focused usage and host-limit paths before the native actuate/read-back court; typed get-extents --name usage/host-limit paths; AT-SPI live-probe only, no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-focused-send-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
