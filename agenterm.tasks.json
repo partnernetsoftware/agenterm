@@ -8709,7 +8709,7 @@
     },
     {
       "id": "cu-linux-storage-devices-smoke",
-      "description": "Linux storage-devices visited count, capacity and stable block fields match independent lsblk and /sys/block read-back after typed storage-devices/get-extents AT-SPI --name usage or host-limit honesty; no --coords.",
+      "description": "Linux storage-devices visited count, capacity and stable block fields match independent lsblk and /sys/block read-back after typed storage-devices/get-extents --name/--coords/--bogus usage or host-limit honesty; no --coords degradation.",
       "entry": "scripts/qjs/cu-linux-storage-devices-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
