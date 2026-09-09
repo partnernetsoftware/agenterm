@@ -7132,7 +7132,7 @@
     },
     {
       "id": "cu-linux-get-text-honesty-smoke",
-      "description": "Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; typed get-text usage rejects missing/zero --window, --role-without--name, and --coords/--bogus misuse or stays accessibility-tree/gettext; typed get-extents --name usage/host-limit court before read-back; AT-SPI/--name only, no --coords.",
+      "description": "Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; typed get-text usage rejects missing/zero --window, --role-without--name, and --coords/--bogus misuse (usage_rejects_unexpected) or stays accessibility-tree/gettext; typed get-extents --name usage/host-limit court (usage_rejects_unexpected --coords/--bogus) before read-back; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-get-text-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
