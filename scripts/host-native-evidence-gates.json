@@ -353,6 +353,13 @@
       ]
     },
     {
+      "id": "cu-linux-storage-devices-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-storage-devices-readback"
+      ]
+    },
+    {
       "id": "cu-linux-pty-smoke",
       "platform": "linux",
       "evidence": [
