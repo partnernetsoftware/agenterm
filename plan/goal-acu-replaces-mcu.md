@@ -346,7 +346,7 @@ privilege provider, dynamic argument-shape gaps remain, and Linux,
 Windows-refusal plus explicit mutation/rollback courts are not yet green.
 
 ACU now owns `job-resources JOB_ID GENERATION [--watch-ms N --interval-ms N
---max-samples N]` as an exact, identity-bracketed observation of every current
+--max-samples N] [--members-per-sample]` as an exact, identity-bracketed observation of every current
 native containment-group member. Point and bounded-series replies expose a
 stable membership digest, per-member facts and lossless aggregate RSS, CPU and
 page-fault counters. An explicit interval and sample ceiling bound the series;
@@ -354,9 +354,12 @@ the Bun-free compatibility path preserves the legacy seconds units and its
 one-second/300-sample defaults. A
 Windows Job Object prevents breakaway and can report `tree_complete=true`;
 POSIX process groups report complete current membership but deliberately do
-not claim genealogy after breakaway. Legacy top-member and acquisition-limit
-flags remain `acu.dynamic.018` because they would make this complete-membership
-aggregate partial; Linux/Windows public evidence is also still open. `job env`
+not claim genealogy after breakaway. The compatibility projection now preserves
+complete aggregates while applying legacy member display ceilings and ranks
+point or per-sample top members over complete membership; the 131072-row native
+ceiling bounds per-sample publication. This retires `acu.dynamic.018` without
+copying its archived partial-aggregate defect. Linux/Windows public evidence is
+also still open. `job env`
 remains separate because the resident record intentionally does not publish a
 secret-bearing environment.
 
@@ -972,10 +975,10 @@ compatibility adapter has zero static `STAY` spellings and its
 argument-sensitive corpus is complete and no longer requires MCU at runtime;
 its two dynamic-stay witnesses are included in the 65 blockers under their
 stable gap ids instead of being omitted from retirement accounting. The public
-`acu.compat-job-resources` court now proves that legacy point resource
+`acu.compat-job-resources` and `acu.compat-job-resources-projection` courts now prove that legacy point resource
 inspection resolves its generation and that bounded watch/interval/max-samples
-execute through the native series. Partial top/acquisition-max flags stay
-visible as `acu.dynamic.018`. The public
+execute through the native series while top/member ceilings remain projections
+over complete membership. The public
 `acu-retirement` task additionally refuses arbitrary missing paths: it resolves
 a configured archived Git checkout, verifies the checked-in marker set, and
 derives every live MCU path whose absence must be proved. The report still

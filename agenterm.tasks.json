@@ -5131,6 +5131,23 @@
         "task.acu-job-resources-compat-smoke"
       ]
     },
+    "acu-job-resources-projection-smoke": {
+      "inputs": [
+        "acu-compound-fixtures"
+      ],
+      "outputs": [
+        "acu-job-resources-projection-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-job-resources-projection-smoke"
+      ]
+    },
     "acu-compound-projection": {
       "inputs": [
         "acu-compound-fixtures"
@@ -10833,7 +10850,7 @@
     },
     {
       "id": "acu-job-resources-compat-smoke",
-      "description": "Prove the embedded ACU compatibility entry discovers one owned managed job's generation, returns the shared typed point reply, and executes bounded legacy watch/interval/max-samples while partial top/acquisition-max shapes retain acu.dynamic.018.",
+      "description": "Prove the embedded ACU compatibility entry discovers one owned managed job generation, preserves complete resource aggregates under legacy member projection, and executes bounded per-sample ranking with explicit member rows.",
       "entry": "scripts/qjs/acu-job-resources-compat-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -10851,6 +10868,25 @@
       "side_effects": [
         "artifact_write",
         "process_spawn"
+      ]
+    },
+    {
+      "id": "acu-job-resources-projection-smoke",
+      "description": "Prove pure legacy job-resource projection preserves complete aggregates, decimal ranking, stable tie-breaks and typed incomplete-membership or undefined-rate failures without host effects.",
+      "entry": "scripts/qjs/acu-job-resources-projection-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
       ]
     },
     {

@@ -20,7 +20,7 @@ const corpus_gap_ids = [];
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
 }
-require(compat.LEGACY_TODO_GAP_IDS.length === 7,
+require(compat.LEGACY_TODO_GAP_IDS.length === 6,
   "legacy TODO catalog count drifted from the reviewed archive");
 for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
   const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
@@ -67,7 +67,7 @@ const resolved_todo = [];
 const resolved_usage = ["acu.dynamic.058", "acu.dynamic.083",
   "acu.dynamic.088", "acu.dynamic.094"];
 const resolved_compound = {
-  "acu.dynamic.018": "job-generation",
+  "acu.dynamic.018": "job-resources-projection",
   "acu.dynamic.019": "job-generation",
   "acu.dynamic.020": "job-generation",
   "acu.dynamic.023": "job-generation",
@@ -209,6 +209,28 @@ const missing_job_resources_id = compat.canonicalize(["job", "resources"]);
 require(missing_job_resources_id.kind === "usage",
   "job resources without an id is a local typed usage failure");
 
+const projected_job_resources = compat.canonicalize([
+  "job", "resources", "job-1", "--generation", "7", "--watch", "1",
+  "--top", "3", "--max", "4"
+]);
+require(projected_job_resources.kind === "job-resources-projection",
+  "legacy top/max uses the complete-membership projection");
+require(projected_job_resources.top === 3 && projected_job_resources.max === 4
+    && projected_job_resources.watch === true,
+  "legacy resource projection preserves reviewed bounds");
+same_argv(projected_job_resources.tail,
+  ["--watch-ms", "1000", "--interval-ms", "1000", "--max-samples", "300",
+    "--members-per-sample"], "legacy watch projection requests member rows");
+require(compat.canonicalize([
+  "job", "resources", "job-1", "--interval", "1"
+]).kind === "usage", "job resource interval without watch is usage");
+require(compat.canonicalize([
+  "job", "resources", "job-1", "--top", "21"
+]).kind === "usage", "job resource top above 20 is usage");
+require(compat.canonicalize([
+  "job", "resources", "job-1", "--max", "4097"
+]).kind === "usage", "job resource max above 4096 is usage");
+
 const simulator_udid = "00000000-0000-0000-0000-000000000000";
 const simulator_boot = compat.canonicalize([
   "simulator", "boot", "--device", simulator_udid
@@ -312,12 +334,6 @@ todo_case(["drag", "10", "20", "30", "40", "--to", "Window#1"],
   "acu.dynamic.004", "legacy drag");
 todo_case(["zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4"],
   "acu.dynamic.005", "legacy zoom");
-todo_case(["job", "resources", "job-1", "--generation", "7", "--interval", "1"],
-  "acu.dynamic.018", "legacy job resources");
-todo_case(["job", "resources", "job-1", "--generation", "7", "--top", "5"],
-  "acu.dynamic.018", "legacy job resource member projection");
-todo_case(["job", "resources", "job-1", "--generation", "7", "--max", "5"],
-  "acu.dynamic.018", "legacy job resource acquisition ceiling");
 todo_case(["device", "claim", "legacy-device-path"], "acu.dynamic.054", "legacy device claim");
 todo_case(["storage", "mount", "disk-1"], "acu.dynamic.057", "legacy storage mount");
 todo_case(["browser", "bridge", "status"], "acu.dynamic.075", "legacy browser bridge");

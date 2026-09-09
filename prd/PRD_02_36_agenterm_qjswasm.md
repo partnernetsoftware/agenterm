@@ -71,7 +71,7 @@ agenterm-qjswasm
 │  │  │  │  explicit gap/typed-rejection queue; no MCU fallback exists
 │  │  │  ├─ both dynamic-TODO rows retain their exact gap id; two permanent-scope rows reject locally
 │  │  │  ├─ 32 resolved rows: 18 exec · 9 compound · 5 usage · 0 TODO
-│  │  │  │  └─ `job resources JOB_ID`: typed status→generation→resource point or bounded watch; partial top/max remains `acu.dynamic.018`
+│  │  │  │  └─ `job resources JOB_ID`: typed status→generation→resource point or bounded watch; top/max project complete membership without partial aggregates
 │  │  │  ├─ `agenterm cli acu` runs the compiled-in source through the normal worker/budget/audit path
 │  │  │  └─ no Bun, executable discovery, CU child process, repository cwd or MCU fallback
 │  │  │     the real production resolver compiles the complete closure; an exact Wasm-import allowlist is the

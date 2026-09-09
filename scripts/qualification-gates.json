@@ -662,6 +662,12 @@
       ]
     },
     {
+      "id": "acu-job-resources-projection-smoke",
+      "evidence": [
+        "acu.compat-job-resources-projection"
+      ]
+    },
+    {
       "id": "cu-process-inventory-smoke",
       "evidence": [
         "cu.process-inventory-rich"

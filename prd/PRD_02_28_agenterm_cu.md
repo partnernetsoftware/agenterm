@@ -1611,9 +1611,14 @@ flowchart LR
   point reply. Bounded legacy `--watch`, `--interval`, and `--max-samples`
   preserve their seconds conversion and one-second/300-sample defaults through
   the same compound. Public evidence `acu.compat-job-resources` owns both
-  paths. Legacy `--top` and acquisition `--max` remain the explicit
-  `acu.dynamic.018` TODO because their partial member set and aggregate cannot
-  be presented as this native command's complete containment truth.
+  paths. Legacy `--max` now projects only pid-ordered returned member rows while
+  preserving the complete count, digest and aggregates. Legacy `--top` ranks a
+  point by cumulative CPU time and bounded-watch samples by interval CPU rate
+  over complete membership; combining it with `--max` never ranks only the
+  displayed prefix. Native `--members-per-sample` stops before the bounded
+  131072-row ceiling and reports typed `member-rows` truncation. Public evidence
+  `acu.compat-job-resources-projection` retires `acu.dynamic.018` without
+  reproducing the archived partial-aggregate defect.
   `job-set-state` and the retry-safe `job-signal STOP|CONT` subset now
   require the owning session, exact generation and durable root start identity,
   then reuse the same write-ahead exact-tree transaction as `process-signal

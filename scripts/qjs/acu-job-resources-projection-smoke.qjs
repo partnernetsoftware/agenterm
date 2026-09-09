@@ -1,0 +1,147 @@
+// Pure public court for the Bun-free legacy job-resource response projection.
+// It owns no process, filesystem, GUI or network effects.
+//
+// Args: REPO | --list-evidence
+import * as compound from "skills/acu/lib/compound";
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["acu.compat-job-resources-projection"];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function member(pid, identity, cpu, rss) {
+  return {
+    pid: pid, start_identity: identity, cpu_time_ns: cpu, rss_bytes: rss,
+    page_faults: { total: "0", soft: "0", hard: "0" }, verified: true
+  };
+}
+
+function point(members) {
+  return {
+    mode: "point", membership_complete: true, member_count: members.length,
+    membership_sha256: "complete-digest", cpu_time_ns: "3000000000000000000",
+    rss_bytes: "600", page_faults: { total: "0", soft: "0", hard: "0" },
+    members: members, verified: true
+  };
+}
+
+function project(data, top, max, watch) {
+  return compound.job_resources_projection({ ok: true, data: data }, top, max, watch);
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 1, "expected: REPO");
+const context = harness.new_context(rh.absolute(args[0]), "acu-job-resources-projection");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const rows = [
+    member(1, "one", "999999999999999999", "500"),
+    member(2, "two", "1000000000000000000", "20"),
+    member(3, "three", "1000000000000000000", "10")
+  ];
+  const original = point(rows);
+  const limited = project(original, 3, 2, false);
+  ensure(limited.ok === true, "acu_job_projection_point_failed");
+  ensure(limited.value.member_count === 3 && limited.value.members.length === 2
+      && limited.value.members[0].pid === 1 && limited.value.members[1].pid === 2,
+    "acu_job_projection_pid_order");
+  ensure(limited.value.member_projection.truncated === true
+      && limited.value.member_projection.aggregates === "complete-membership"
+      && limited.value.membership_sha256 === original.membership_sha256
+      && limited.value.cpu_time_ns === original.cpu_time_ns
+      && limited.value.rss_bytes === original.rss_bytes,
+    "acu_job_projection_complete_aggregates");
+  ensure(limited.value.top_members.length === 3
+      && limited.value.top_members[0].pid === 2
+      && limited.value.top_members[1].pid === 3
+      && limited.value.top_members[2].pid === 1,
+    "acu_job_projection_decimal_and_tiebreak_order");
+  const zero = project(original, 0, 4096, false);
+  ensure(zero.ok === true && zero.value.top_members.length === 0
+      && zero.value.member_projection.truncated === false,
+    "acu_job_projection_zero_top_and_untruncated_max");
+
+  const sample0 = point([
+    member(10, "stable", "100", "50"), member(20, "leaves", "500", "40")
+  ]);
+  sample0.t_ms = 0;
+  const sample1 = point([
+    member(10, "stable", "300", "50"), member(30, "joins", "900", "60")
+  ]);
+  sample1.t_ms = 100;
+  const series = point(sample1.members);
+  series.mode = "bounded-series";
+  series.samples = [sample0, sample1];
+  const watched = project(series, 1, 1, true);
+  ensure(watched.ok === true && watched.value.samples.length === 2
+      && watched.value.samples[0].top_members[0].pid === 20
+      && watched.value.samples[0].top_rank_basis === "cumulative-cpu-time"
+      && watched.value.samples[1].top_members[0].pid === 10
+      && watched.value.samples[1].top_rank_basis === "interval-cpu-rate"
+      && watched.value.samples[0].members.length === 1
+      && watched.value.samples[1].members.length === 1,
+    "acu_job_projection_interval_rate_and_sample_ceiling");
+  const max_only = project(series, null, 1, true);
+  ensure(max_only.ok === true && max_only.value.samples[0].members.length === 1
+      && max_only.value.samples[1].members.length === 1
+      && max_only.value.samples[0].top_members === undefined,
+    "acu_job_projection_max_only_watch");
+
+  const missing = point(rows);
+  missing.mode = "bounded-series";
+  missing.samples = [{ t_ms: 0, membership_complete: true, member_count: 1 }];
+  ensure(project(missing, 1, null, true).code
+      === "job_resources_members_per_sample_unavailable",
+    "acu_job_projection_missing_sample_members_typed");
+  missing.samples = [null];
+  ensure(project(missing, 1, null, true).code
+      === "job_resources_membership_incomplete",
+    "acu_job_projection_null_sample_typed");
+  const incomplete = point(rows);
+  incomplete.membership_complete = false;
+  ensure(project(incomplete, null, 1, false).code
+      === "job_resources_membership_incomplete",
+    "acu_job_projection_incomplete_membership_typed");
+  const negative0 = point([member(10, "stable", "300", "50")]);
+  negative0.t_ms = 0;
+  const negative1 = point([member(10, "stable", "200", "50")]);
+  negative1.t_ms = 100;
+  const negative = point(negative1.members);
+  negative.mode = "bounded-series";
+  negative.samples = [negative0, negative1];
+  ensure(project(negative, 1, null, true).code === "job_resources_rate_undefined",
+    "acu_job_projection_negative_rate_typed");
+  negative1.members[0].cpu_time_ns = "9007199254741292";
+  negative0.members[0].cpu_time_ns = "0";
+  ensure(project(negative, 1, null, true).code === "job_resources_rate_undefined",
+    "acu_job_projection_unsafe_rate_typed");
+  negative1.members[0].cpu_time_ns = "300";
+  negative0.members[0].cpu_time_ns = "100";
+  negative1.t_ms = 0;
+  ensure(project(negative, 1, null, true).code === "job_resources_rate_undefined",
+    "acu_job_projection_zero_interval_typed");
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "acu.compat-job-resources-projection");
+  harness.remove_run(context);
+  print("PASS: legacy job-resource projections preserve complete aggregates and bounded ranking");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
