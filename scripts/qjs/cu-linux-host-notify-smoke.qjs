@@ -2,6 +2,9 @@
 // Independent read-back uses session-bus dbus-monitor (not CU self-report).
 // Action buttons dispatch through FDO Notify pairs; invoke is proved by
 // ActionInvoked on the session bus after dunstctl action (not AT-SPI/coords).
+// Typed usage and host-limit paths must hold when TITLE/--action are missing
+// or the session bus is unavailable; miss paths must not publish onto the bus
+// (independent dbus-monitor read-back).
 //
 // Args: REPO AGENTERM_CU_EXE | --list-evidence
 import * as rh from "lib/rh_compat";
@@ -27,6 +30,10 @@ function text_at(value, dotted) {
   return "" + value_at;
 }
 
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -45,7 +52,7 @@ function cu_env(run_directory) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, command_argv, expect_error, env_remove) {
+function run_cu_reply(run_directory, executable, grant, command_argv, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const item of command_argv) { argv.push("" + item); }
   const spec = {
@@ -58,16 +65,76 @@ function run_cu(run_directory, executable, grant, command_argv, expect_error, en
   if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
   const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_host_notify_empty_stdout");
-  const reply = JSON.parse(trimmed);
+  ensure(trimmed !== "", "cu_linux_host_notify_empty_stdout:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, command_argv, expect_error, env_remove) {
+  const reply = run_cu_reply(run_directory, executable, grant, command_argv, env_remove);
   if (expect_error !== undefined) {
-    ensure(output.success !== true && reply.ok !== true && reply.error.code === expect_error,
+    ensure(!output_success(reply) && text_at(reply, "error.code") === expect_error,
       "cu_linux_host_notify_wrong_failure:" + JSON.stringify(reply));
     return reply.error;
   }
-  ensure(output.success === true && reply.ok === true,
-    "cu_linux_host_notify_failed:" + JSON.stringify(reply));
+  ensure(output_success(reply), "cu_linux_host_notify_failed:" + JSON.stringify(reply));
   return reply.data;
+}
+
+function assert_host_notify_usage_limit(run_directory, executable) {
+  const missing_title = run_cu_reply(run_directory, executable, "actuate", ["host-notify"]);
+  ensure(!output_success(missing_title), "cu_linux_host_notify_usage_title_ok:" + JSON.stringify(missing_title));
+  ensure(
+    text_at(missing_title, "error.code") === "usage",
+    "cu_linux_host_notify_usage_title_code:" + JSON.stringify(missing_title.error)
+  );
+  ensure(
+    text_at(missing_title, "error.message").indexOf("TITLE") >= 0,
+    "cu_linux_host_notify_usage_title_message:" + JSON.stringify(missing_title.error)
+  );
+
+  const action_missing_label = run_cu_reply(run_directory, executable, "actuate", [
+    "host-notify", "AgenTerm", "--action", "ack",
+  ]);
+  ensure(!output_success(action_missing_label),
+    "cu_linux_host_notify_usage_action_ok:" + JSON.stringify(action_missing_label));
+  ensure(
+    text_at(action_missing_label, "error.code") === "usage",
+    "cu_linux_host_notify_usage_action_code:" + JSON.stringify(action_missing_label.error)
+  );
+  ensure(
+    text_at(action_missing_label, "error.message").indexOf("--action") >= 0,
+    "cu_linux_host_notify_usage_action_message:" + JSON.stringify(action_missing_label.error)
+  );
+
+  const unexpected_arg = run_cu_reply(run_directory, executable, "actuate", [
+    "host-notify", "AgenTerm", "body", "unexpected",
+  ]);
+  ensure(!output_success(unexpected_arg),
+    "cu_linux_host_notify_usage_extra_ok:" + JSON.stringify(unexpected_arg));
+  ensure(
+    text_at(unexpected_arg, "error.code") === "usage",
+    "cu_linux_host_notify_usage_extra_code:" + JSON.stringify(unexpected_arg.error)
+  );
+  ensure(
+    text_at(unexpected_arg, "error.message").indexOf("host-notify accepts") >= 0,
+    "cu_linux_host_notify_usage_extra_message:" + JSON.stringify(unexpected_arg.error)
+  );
+}
+
+function assert_miss_does_not_dispatch(
+  run_directory, executable, log_path, pid_path, command_argv, expect_error, token, label
+) {
+  const pid = start_dbus_monitor(run_directory, log_path, pid_path);
+  harness.sleep_ms(150);
+  const error = run_cu(run_directory, executable, "actuate", command_argv, expect_error);
+  harness.sleep_ms(200);
+  stop_dbus_monitor(pid);
+  ensure(text_at(error, "detail.effect") === "not_performed",
+    "cu_linux_host_notify_miss_effect_" + label);
+  ensure(direct_file(log_path), "cu_linux_host_notify_miss_log_missing_" + label);
+  const monitor_text = rh.read_text(log_path);
+  ensure(monitor_text.indexOf(token) < 0,
+    "cu_linux_host_notify_miss_token_leaked_" + label + ":" + token);
 }
 
 function dbus_send(command_argv) {
@@ -135,6 +202,9 @@ try {
   ensure(text_at(notify_cap, "actions.verification") === "dispatcher-accepted-only",
     "cu_linux_host_notify_actions_verification_truth");
 
+  print("STEP host-notify typed-fails usage when TITLE or --action pairs are missing");
+  assert_host_notify_usage_limit(run_directory, executable);
+
   print("STEP host-notify without session bus returns typed dispatcher-unavailable host-limit detail");
   const no_bus = run_cu(run_directory, executable, "actuate",
     ["host-notify", "AgenTerm", "no-session-bus"], "host_notification_dispatcher_unavailable",
@@ -170,6 +240,28 @@ try {
     ["host-notify", "AgenTerm", "body", "--sound"], "host_notification_unsupported");
   ensure(text_at(sound_error, "detail.effect") === "not_performed",
     "cu_linux_host_notify_sound_effect");
+
+  print("STEP invalid title/action miss paths must not publish onto the session bus");
+  const miss_title_token = "cu-host-notify-miss-title-" + rh.now_ms();
+  assert_miss_does_not_dispatch(
+    run_directory, executable,
+    rh.join(run_directory, "dbus-miss-title.log"),
+    rh.join(run_directory, "dbus-miss-title.pid"),
+    ["host-notify", "", miss_title_token],
+    "host_notification_invalid_input",
+    miss_title_token,
+    "empty_title"
+  );
+  const miss_action_token = "cu-host-notify-miss-action-" + rh.now_ms();
+  assert_miss_does_not_dispatch(
+    run_directory, executable,
+    rh.join(run_directory, "dbus-miss-action.log"),
+    rh.join(run_directory, "dbus-miss-action.pid"),
+    ["host-notify", "AgenTerm", miss_action_token, "--action", "", "Acknowledge"],
+    "host_notification_invalid_input",
+    miss_action_token,
+    "empty_action_key"
+  );
 
   print("STEP session-bus monitor proves FDO Notify carries the bounded token");
   monitor_pid = start_dbus_monitor(run_directory, monitor_log, monitor_pid_path);
@@ -246,5 +338,5 @@ if (monitor_pid > 0) { stop_dbus_monitor(monitor_pid); }
 if (action_pid > 0) { stop_dbus_monitor(action_pid); }
 ensure(succeeded === 1, failure || "cu_linux_host_notify_failed");
 harness.remove_run(context);
-print("PASS: Linux FDO host-notify dispatch with dbus read-back and action-button invoke");
+print("PASS: Linux FDO host-notify dispatch with dbus read-back, typed usage/miss/host-limit honesty, and action-button invoke");
 return;
