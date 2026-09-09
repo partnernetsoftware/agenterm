@@ -4,9 +4,15 @@
 // of the same named node, the winner must not be a structural filler/label,
 // and typed host-limit paths must hold when usage or the point misses.
 // Typed hit usage must reject AT-SPI --name, --coords, --bogus, and other
-// unexpected arguments; typed get-extents --name usage AND host-limit paths
-// must both hold before the hit observe/read-back court. Prefer host-limit
-// clarity over fake success. AT-SPI/--name only; no --coords or screenshot.
+// unexpected arguments via usage_rejects_unexpected + command=usage, or an
+// honest non-usage typed failure (never fake command=usage). Typed
+// get-extents --name usage AND host-limit paths must both hold before
+// process-state, desktop-state, and the hit observe/read-back court (no
+// if/else gating those courts on atspi_available); get-extents
+// --coords/--bogus must reject as command=usage. process-state and
+// desktop-state fixture binding courts must hold before observe/read-back.
+// Prefer host-limit clarity over fake success. AT-SPI/--name only; no
+// --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -20,6 +26,8 @@ const declared_evidence = [
 const HIT_DEPTH = 8;
 const HIT_MAX_NODES = 500;
 const AT_SPI_PROBE_NAME = "Hit Honesty Court Anchor";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 const NAMED_NODES = [
   "Fixture Press",
   "Fixture Entry",
@@ -391,11 +399,61 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AT_SPI_BUS_ADDRESS: "invalid",
   });
   ensure(!output_success(reply), "cu_linux_hit_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_hit_honesty_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_hit_honesty_extents_unavailable_code:" + code
+  );
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_hit_honesty_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_hit_honesty_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_hit_honesty_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_hit_honesty_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_hit_honesty_desktop_state_tree:" + JSON.stringify(state.data.tree)
   );
 }
 
@@ -405,6 +463,10 @@ function assert_hit_miss(run_directory, executable, handle) {
     "--depth", "" + HIT_DEPTH, "--max-nodes", "" + HIT_MAX_NODES,
   ]);
   ensure(!flag_at(reply, "ok"), "cu_linux_hit_honesty_miss_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_hit_honesty_miss_fake_usage:" + JSON.stringify(reply)
+  );
   ensure(
     text_at(reply, "error.code") === "a11y_node_not_found",
     "cu_linux_hit_honesty_miss_code:" + JSON.stringify(reply.error)
@@ -423,6 +485,10 @@ function assert_hit_unavailable_when_atspi_absent(run_directory, executable) {
     "--depth", "" + HIT_DEPTH, "--max-nodes", "" + HIT_MAX_NODES,
   ], { AGENTERM_NO_ACTIVATE: "1" });
   ensure(!flag_at(reply, "ok"), "cu_linux_hit_honesty_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_hit_honesty_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_node_not_found" || code === "unsupported" || code === "bad_handle",
@@ -515,14 +581,14 @@ try {
   print("STEP hit typed-fails usage when AT-SPI --name/--coords/--bogus is present");
   assert_hit_atspi_name_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected) before hit observe/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before process-state/desktop-state and hit observe/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before hit observe/read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and hit observe/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; typed hit host-limit when AT-SPI bus is absent");
     assert_hit_unavailable_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
@@ -546,6 +612,15 @@ try {
     ensure(inventory_row !== null, "cu_linux_hit_honesty_window_identity");
     const handle = int_at(inventory_row, "handle");
     ensure(handle > 0, "cu_linux_hit_honesty_handle:" + JSON.stringify(inventory_row));
+    const handle_text = "" + handle;
+
+    print("STEP process-state binds the owned fixture pid before hit observe/read-back court");
+    assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+    print("STEP desktop-state window row agrees with inventory before hit observe/read-back court");
+    assert_fixture_desktop_state(
+      run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+    );
 
     print("STEP hit typed-fails a11y_node_not_found when the point is outside every node bounds");
     assert_hit_miss(run_directory, executable, handle);
@@ -579,9 +654,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-hit-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux hit --window with typed hit/get-extents --name/--coords/--bogus usage_rejects_unexpected and get-extents --name host-limit honesty plus independent AT-SPI name/role read-back (AT-SPI --name, no --coords)");
+    print("PASS: Linux hit --window with typed hit/get-extents --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), process-state/desktop-state courts before observe, and independent AT-SPI name/role read-back (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux hit typed hit/get-extents --name/--coords/--bogus usage_rejects_unexpected with get-extents --name host-limit when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
+    print("PASS: Linux hit typed hit/get-extents --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage) with get-extents --name usage AND host-limit when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
