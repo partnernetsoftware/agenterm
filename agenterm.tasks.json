@@ -7389,7 +7389,7 @@
     },
     {
       "id": "cu-linux-pointer-smoke",
-      "description": "Linux pointer-position observes absolute screen coordinates and pointer-grab/ungrab verify with xdotool and X11 grab-probe read-back on DISPLAY=:2; hover --name delivers AT-SPI pointer with typed usage (zero-handle), --coords/--bogus misuse or stay on accessibility-tree, miss, and host-limit paths; typed get-extents --name usage AND host-limit (--coords/--bogus honesty) before hover actuate/read-back; independent pyatspi extents plus xdotool read-back; AT-SPI/--name only, no --coords.",
+      "description": "Linux pointer-position plus pointer-grab/ungrab with xdotool/X11 grab-probe read-back on DISPLAY=:2; hover --name typed usage, --coords/--bogus usage_rejects_unexpected, miss/host-limit; get-extents --name usage AND host-limit plus --coords/--bogus command=usage before hover actuate/read-back; pyatspi extents + xdotool read-back; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-pointer-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
