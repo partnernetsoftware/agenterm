@@ -1,7 +1,11 @@
 // CEO#8: GTK3 button click --name then N>=3 independent focused + get-text
 // read-backs. Acceptance: each `focused --window` must name the clicked
-// button and each `get-text --name` must return a non-empty stable label;
-// no --coords, screenshot, or coordinate degradation.
+// button and each `get-text --name` must return a non-empty stable label.
+// Typed click/focused/get-text usage and host-limit paths must hold when
+// --window/--name are missing or the AT-SPI bus is unavailable; typed
+// get-extents --name usage/host-limit paths must hold before the native
+// actuate/read-back court. AT-SPI --name only; no --coords, screenshot,
+// or coordinate degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -35,6 +39,8 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -61,20 +67,176 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_gtk_button_focus_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_gtk_button_focus_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_gtk_button_focus_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_gtk_button_focus_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_gtk_button_focus_reply:" + JSON.stringify(document));
   return document;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_gtk_button_focus_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_button_focus_usage_limit(run_directory, executable) {
+  const click_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1",
+  ]);
+  ensure(!output_success(click_missing), "cu_linux_gtk_button_focus_click_usage_ok:" + JSON.stringify(click_missing));
+  ensure(
+    text_at(click_missing, "error.code") === "invalid_input",
+    "cu_linux_gtk_button_focus_click_usage_code:" + JSON.stringify(click_missing.error)
+  );
+  ensure(
+    text_at(click_missing, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_button_focus_click_usage_message:" + JSON.stringify(click_missing.error)
+  );
+
+  const click_zero = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "0", "--name", BUTTON_NAME,
+  ]);
+  ensure(!output_success(click_zero), "cu_linux_gtk_button_focus_click_zero_ok:" + JSON.stringify(click_zero));
+  ensure(
+    text_at(click_zero, "error.code") === "invalid_input",
+    "cu_linux_gtk_button_focus_click_zero_code:" + JSON.stringify(click_zero.error)
+  );
+  ensure(
+    text_at(click_zero, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_button_focus_click_zero_message:" + JSON.stringify(click_zero.error)
+  );
+
+  const focused_zero = run_cu_reply(run_directory, executable, "observe", [
+    "focused", "--window", "0",
+  ]);
+  ensure(!output_success(focused_zero), "cu_linux_gtk_button_focus_focused_usage_ok:" + JSON.stringify(focused_zero));
+  ensure(
+    text_at(focused_zero, "error.code") === "usage",
+    "cu_linux_gtk_button_focus_focused_usage_code:" + JSON.stringify(focused_zero.error)
+  );
+  ensure(
+    text_at(focused_zero, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_gtk_button_focus_focused_usage_message:" + JSON.stringify(focused_zero.error)
+  );
+
+  const get_text_zero = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "0", "--name", BUTTON_NAME,
+  ]);
+  ensure(!output_success(get_text_zero), "cu_linux_gtk_button_focus_get_text_zero_ok:" + JSON.stringify(get_text_zero));
+  ensure(
+    text_at(get_text_zero, "error.code") === "invalid_input",
+    "cu_linux_gtk_button_focus_get_text_zero_code:" + JSON.stringify(get_text_zero.error)
+  );
+  ensure(
+    text_at(get_text_zero, "error.message").indexOf("window") >= 0,
+    "cu_linux_gtk_button_focus_get_text_zero_message:" + JSON.stringify(get_text_zero.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_gtk_button_focus_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_gtk_button_focus_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_gtk_button_focus_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", BUTTON_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_gtk_button_focus_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_gtk_button_focus_extents_unavailable_code:" + code
+  );
+}
+
+function assert_button_focus_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const click_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(click_reply), "cu_linux_gtk_button_focus_click_unavailable_ok:" + JSON.stringify(click_reply));
+  const click_code = text_at(click_reply, "error.code");
+  ensure(
+    click_code === "a11y_backend_failed" || click_code === "unsupported" || click_code === "bad_handle",
+    "cu_linux_gtk_button_focus_click_unavailable_code:" + click_code
+  );
+
+  const focused_reply = run_cu_reply(run_directory, executable, "observe", [
+    "focused", "--window", "1",
+  ], env);
+  ensure(!output_success(focused_reply), "cu_linux_gtk_button_focus_focused_unavailable_ok:" + JSON.stringify(focused_reply));
+  const focused_code = text_at(focused_reply, "error.code");
+  ensure(
+    focused_code === "a11y_backend_failed" || focused_code === "unsupported" || focused_code === "bad_handle",
+    "cu_linux_gtk_button_focus_focused_unavailable_code:" + focused_code
+  );
+
+  const get_text_reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(get_text_reply), "cu_linux_gtk_button_focus_get_text_unavailable_ok:" + JSON.stringify(get_text_reply));
+  const get_text_code = text_at(get_text_reply, "error.code");
+  ensure(
+    get_text_code === "a11y_backend_failed" || get_text_code === "unsupported" || get_text_code === "bad_handle",
+    "cu_linux_gtk_button_focus_get_text_unavailable_code:" + get_text_code
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -97,6 +259,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_gtk_button_focus_executable_missing");
 const context = harness.new_context(repo, "cu-linux-gtk-button-focus");
 const run_directory = rh.join(repo, "target/cu-linux-gtk-button-focus-smoke-run");
 rh.create_dir_all(run_directory);
@@ -108,67 +271,87 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_button_focus_window_wait");
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_gtk_button_focus_window_identity");
-  const handle = "" + at(row, "handle");
+  print("STEP click/focused/get-text typed-fail usage when --window or --name is missing");
+  assert_button_focus_usage_limit(run_directory, executable);
 
-  print("STEP click --name " + BUTTON_NAME + " through AT-SPI accessibility-tree actuation");
-  const clicked = run_cu(run_directory, executable, "observe,actuate", [
-    "click", "--window", handle, "--name", BUTTON_NAME,
-  ]);
-  ensure(
-    flag_at(clicked, "data.performed")
-      && text_at(clicked, "data.addressing") === "accessibility-tree",
-    "cu_linux_gtk_button_focus_click:" + JSON.stringify(clicked.data)
-  );
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
-  print("STEP " + FOCUS_PROBE_COUNT + " sequential focused + get-text read-backs must name the clicked button");
-  let stable_text = "";
-  for (let probe = 1; probe <= FOCUS_PROBE_COUNT; probe += 1) {
-    const focused = run_cu(run_directory, executable, "observe", [
-      "focused", "--window", handle,
+  if (!atspi_available) {
+    print("STEP click/focused/get-text typed-fail host-limit when independent pyatspi desktop probe is unavailable");
+    assert_button_focus_host_limit_when_atspi_absent(run_directory, executable);
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-button-focus");
+    succeeded = 1;
+  } else {
+    print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
     ]);
-    const focused_name = text_at(focused, "data.node.name");
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_button_focus_window_wait");
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_gtk_button_focus_window_identity");
+    const handle = "" + at(row, "handle");
+
+    print("STEP click --name " + BUTTON_NAME + " through AT-SPI accessibility-tree actuation");
+    const clicked = run_cu(run_directory, executable, "observe,actuate", [
+      "click", "--window", handle, "--name", BUTTON_NAME,
+    ]);
     ensure(
-      focused_name === BUTTON_NAME,
-      "cu_linux_gtk_button_focus_probe_" + probe + ":" + JSON.stringify(focused.data)
+      flag_at(clicked, "data.performed")
+        && text_at(clicked, "data.addressing") === "accessibility-tree",
+      "cu_linux_gtk_button_focus_click:" + JSON.stringify(clicked.data)
     );
-    const named_text = run_cu(run_directory, executable, "observe", [
-      "get-text", "--window", handle, "--name", BUTTON_NAME,
-    ]);
-    const text = text_at(named_text, "data.text");
-    ensure(text !== "", "cu_linux_gtk_button_get_text_empty_" + probe + ":" + JSON.stringify(named_text.data));
-    if (stable_text === "") {
-      stable_text = text;
-    } else {
+
+    print("STEP " + FOCUS_PROBE_COUNT + " sequential focused + get-text read-backs must name the clicked button");
+    let stable_text = "";
+    for (let probe = 1; probe <= FOCUS_PROBE_COUNT; probe += 1) {
+      const focused = run_cu(run_directory, executable, "observe", [
+        "focused", "--window", handle,
+      ]);
+      const focused_name = text_at(focused, "data.node.name");
       ensure(
-        text === stable_text,
-        "cu_linux_gtk_button_get_text_unstable_" + probe + ":" + text + ":" + stable_text
+        focused_name === BUTTON_NAME,
+        "cu_linux_gtk_button_focus_probe_" + probe + ":" + JSON.stringify(focused.data)
+      );
+      const named_text = run_cu(run_directory, executable, "observe", [
+        "get-text", "--window", handle, "--name", BUTTON_NAME,
+      ]);
+      const text = text_at(named_text, "data.text");
+      ensure(text !== "", "cu_linux_gtk_button_get_text_empty_" + probe + ":" + JSON.stringify(named_text.data));
+      if (stable_text === "") {
+        stable_text = text;
+      } else {
+        ensure(
+          text === stable_text,
+          "cu_linux_gtk_button_get_text_unstable_" + probe + ":" + text + ":" + stable_text
+        );
+      }
+      ensure(
+        text === BUTTON_NAME,
+        "cu_linux_gtk_button_get_text_probe_" + probe + ":" + JSON.stringify(named_text.data)
       );
     }
-    ensure(
-      text === BUTTON_NAME,
-      "cu_linux_gtk_button_get_text_probe_" + probe + ":" + JSON.stringify(named_text.data)
-    );
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-button-focus");
+    succeeded = 1;
   }
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-button-focus");
-  succeeded = 1;
 } catch (error) {
   failure = "" + error;
 }
@@ -182,4 +365,9 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_button_focus_failed");
 harness.remove_run(context);
-print("PASS: CEO#8 GTK3 button click --name then " + FOCUS_PROBE_COUNT + " focused + get-text read-backs (AT-SPI --name, no --coords)");
+if (atspi_available) {
+  print("PASS: CEO#8 GTK3 button click --name then " + FOCUS_PROBE_COUNT + " focused + get-text read-backs with typed click/focused/get-text/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: CEO#8 GTK3 button click/focused/get-text typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+}
+return;
