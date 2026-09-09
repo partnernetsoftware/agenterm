@@ -1382,6 +1382,25 @@
         "task.cu-linux-page-click-smoke"
       ]
     },
+    "cu-linux-page-dialog-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-dialog-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-dialog-smoke"
+      ]
+    },
     "cu-linux-page-download-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6581,7 +6600,7 @@
     },
     {
       "id": "cu-linux-page-dialog-smoke",
-      "description": "Linux CDP page-dialog accept/dismiss one real JavaScript dialog and independent page-js dialog-closed read-back proves the exact effect; typed page-dialog usage rejects AT-SPI --name/--bogus and --dismiss+--text; typed get-extents --name usage/host-limit court before actuate; missing dialog typed cdp_dialog_not_open does nothing; disposable Chrome+CDP; --port/--target-id only; no --coords.",
+      "description": "Linux CDP page-dialog accept/dismiss one real JavaScript dialog and independent page-js dialog-closed read-back proves the exact effect; typed page-dialog usage rejects AT-SPI --name/--coords/--bogus and --dismiss+--text; typed get-extents --name usage/host-limit court before page-js dialog-closed read-back; missing dialog typed cdp_dialog_not_open does nothing; disposable Chrome+CDP; --port/--target-id only; no --coords.",
       "entry": "scripts/qjs/cu-linux-page-dialog-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
