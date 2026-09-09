@@ -425,6 +425,32 @@ const browser_foreground_nav = compat.canonicalize([
 require(browser_foreground_nav.kind === "usage"
     && browser_foreground_nav.message.includes("page-nav"),
   "legacy AppleScript foreground navigation must give an exact native migration path");
+const browser_open = compat.canonicalize([
+  "browser", "open", "https://example.test/background"
+]);
+require(browser_open.kind === "bridge-open"
+    && browser_open.url === "https://example.test/background"
+    && browser_open.profile === null,
+  "legacy positional browser open must use one atomic minimized bridge window");
+const browser_open_selected = compat.canonicalize([
+  "browser", "open", "https://example.test/background",
+  "--profile", "11111111", "--timeout", "22000"
+]);
+require(browser_open_selected.kind === "bridge-open"
+    && browser_open_selected.profile === "11111111"
+    && browser_open_selected.legacy_timeout === "22000",
+  "legacy positional browser open must preserve one exact profile prefix");
+require(compat.canonicalize([
+  "browser", "open", "https://example.test/background", "--profile", "Default"
+]).gap_id === "acu.dynamic.075.profile-name-binding",
+"legacy positional browser open must not guess a human profile name");
+require(compat.canonicalize([
+  "browser", "open", "https://example.test/background", "--app", "brave"
+]).gap_id === "acu.dynamic.075.profile-name-binding",
+"legacy positional browser open must not guess an application identity");
+require(compat.canonicalize([
+  "browser", "open", "https://example.test/background", "extra"
+]).kind === "usage", "legacy positional browser open must keep its exact shape");
 todo_case(["browser", "profile", "create", "legacy-profile"],
   "acu.dynamic.075", "legacy managed browser profile");
 const page_elements = compat.canonicalize([

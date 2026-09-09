@@ -30,8 +30,8 @@ pub use registry::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-pub const PROTOCOL_VERSION: u32 = 3;
-pub const BRIDGE_EXTENSION_VERSION: &str = "1.3.0";
+pub const PROTOCOL_VERSION: u32 = 4;
+pub const BRIDGE_EXTENSION_VERSION: &str = "1.4.0";
 pub const REQUEST_MAX_BYTES: usize = 1024 * 1024;
 pub const NATIVE_MESSAGE_MAX_BYTES: usize = REQUEST_MAX_BYTES;
 pub const ACU_NATIVE_HOST_NAME: &str = "software.partnernet.agenterm_acu.browser_bridge";
@@ -529,9 +529,10 @@ pub struct BrowserWindowBounds {
     pub height: u32,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BrowserWindowState {
+    #[default]
     Normal,
     Minimized,
     Maximized,
@@ -551,6 +552,8 @@ pub struct WindowStateRequest {
 pub struct WindowOpenRequest {
     pub url: String,
     pub focused: bool,
+    #[serde(default)]
+    pub state: BrowserWindowState,
 }
 
 impl WindowOpenRequest {
@@ -561,7 +564,23 @@ impl WindowOpenRequest {
             false,
             "browser_bridge_control_value",
             "window URL",
-        )
+        )?;
+        if !matches!(
+            self.state,
+            BrowserWindowState::Normal | BrowserWindowState::Minimized
+        ) {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_window_state_unsupported",
+                "window-open accepts only normal or minimized",
+            ));
+        }
+        if self.focused && self.state == BrowserWindowState::Minimized {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_window_open_focus_invalid",
+                "a minimized window cannot be requested as focused",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -664,6 +683,7 @@ pub struct WindowStateResult {
 #[serde(deny_unknown_fields)]
 pub struct WindowOpenResult {
     pub requested_focused: bool,
+    pub requested_state: BrowserWindowState,
     pub performed: bool,
     pub verified: bool,
     pub focus_changed: bool,
@@ -691,16 +711,17 @@ impl WindowOpenResult {
                 && !self.focus_changed
         };
         if self.requested_focused != req.focused
+            || self.requested_state != req.state
             || !self.performed
             || !self.verified
             || self.focus_changed != expected_change
-            || self.window.state != BrowserWindowState::Normal
+            || self.window.state != req.state
             || self.window.tab_count != 1
             || !focus_valid
         {
             return Err(BridgeProtocolError::new(
                 "browser_bridge_window_open_postcondition_invalid",
-                "window-open result does not prove one exact normal window and its requested focus effect",
+                "window-open result does not prove one exact window and its requested state and focus effect",
             ));
         }
         Ok(())
@@ -1786,6 +1807,7 @@ mod tests {
         let request = WindowOpenRequest {
             url: "data:text/html,ACU".into(),
             focused: false,
+            state: BrowserWindowState::Normal,
         };
         let window = BrowserWindow {
             window_id: 9,
@@ -1803,6 +1825,7 @@ mod tests {
         };
         let mut result = WindowOpenResult {
             requested_focused: false,
+            requested_state: BrowserWindowState::Normal,
             performed: true,
             verified: true,
             focus_changed: false,
@@ -1820,6 +1843,7 @@ mod tests {
         let focused_request = WindowOpenRequest {
             url: request.url.clone(),
             focused: true,
+            state: BrowserWindowState::Normal,
         };
         result.requested_focused = true;
         result.focus_changed = true;
@@ -1830,10 +1854,33 @@ mod tests {
         let invalid = WindowOpenRequest {
             url: "bad\nurl".into(),
             focused: false,
+            state: BrowserWindowState::Normal,
         };
         assert_eq!(
             invalid.validate().unwrap_err().code,
             "browser_bridge_control_value"
+        );
+
+        let minimized_request = WindowOpenRequest {
+            url: request.url,
+            focused: false,
+            state: BrowserWindowState::Minimized,
+        };
+        result.requested_focused = false;
+        result.requested_state = BrowserWindowState::Minimized;
+        result.focus_changed = false;
+        result.focused_window_after = result.focused_window_before;
+        result.window.focused = false;
+        result.window.state = BrowserWindowState::Minimized;
+        result.validate_for(&minimized_request).unwrap();
+
+        let invalid_focus = WindowOpenRequest {
+            focused: true,
+            ..minimized_request
+        };
+        assert_eq!(
+            invalid_focus.validate().unwrap_err().code,
+            "browser_bridge_window_open_focus_invalid"
         );
     }
 }

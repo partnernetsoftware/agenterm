@@ -1,7 +1,7 @@
 "use strict";
 
 const HOST = "software.partnernet.agenterm_acu.browser_bridge";
-const PROTOCOL = 3;
+const PROTOCOL = 4;
 const PROFILE_INSTANCE_KEY = "acuProfileInstanceId";
 // One extra result lets compatibility projections observe the legacy page
 // ceiling with a max+1 sentinel instead of reporting a false complete page.
@@ -543,11 +543,24 @@ async function focusedWindowId() {
   return focused.length === 1 ? focused[0].id : null;
 }
 
+function windowOpenFailure(error, effect) {
+  const failure = new Error(String(error && error.message ||
+    "browser_bridge_window_open_failed"));
+  failure.effect = effect;
+  return failure;
+}
+
 async function openWindow(args) {
   const keys = Object.keys(args).sort().join(",");
-  if (keys !== "focused,url" || typeof args.focused !== "boolean" ||
+  if (keys !== "focused,url" && keys !== "focused,state,url" ||
+      typeof args.focused !== "boolean" ||
       typeof args.url !== "string" || args.url.length < 1 ||
       Array.from(args.url).length > TAB_LIMITS.urlCharacters || hasControl(args.url)) {
+    throw new Error("browser_bridge_window_open_args_invalid");
+  }
+  const state = args.state === undefined ? "normal" : args.state;
+  if (!(["normal", "minimized"].includes(state)) ||
+      state === "minimized" && args.focused) {
     throw new Error("browser_bridge_window_open_args_invalid");
   }
   const focusedBefore = await focusedWindowId();
@@ -556,6 +569,7 @@ async function openWindow(args) {
     const created = await chrome.windows.create({
       url: args.url,
       focused: args.focused,
+      state,
       type: "normal"
     });
     if (!created || !boundedInteger(created.id, 0xffffffff)) {
@@ -567,11 +581,12 @@ async function openWindow(args) {
     const validFocus = args.focused
       ? window.focused === true && focusedAfter === createdId
       : window.focused === false && focusedAfter === focusedBefore;
-    if (window.state !== "normal" || window.tab_count !== 1 || !validFocus) {
+    if (window.state !== state || window.tab_count !== 1 || !validFocus) {
       throw new Error("browser_bridge_window_open_postcondition_failed");
     }
     return {
       requested_focused: args.focused,
+      requested_state: state,
       performed: true,
       verified: true,
       focus_changed: focusedBefore !== focusedAfter,
@@ -580,20 +595,22 @@ async function openWindow(args) {
       window
     };
   } catch (error) {
-    if (createdId !== null) {
-      try {
-        await chrome.windows.remove(createdId);
-        if (focusedBefore !== null) await chrome.windows.update(focusedBefore, { focused: true });
-        const remaining = await chrome.windows.getAll();
-        if (remaining.some(window => window.id === createdId) ||
-            await focusedWindowId() !== focusedBefore) {
-          throw new Error("browser_bridge_window_open_rollback_failed");
-        }
-      } catch (_) {
+    if (createdId === null) {
+      throw windowOpenFailure(error, "unknown");
+    }
+    try {
+      await chrome.windows.remove(createdId);
+      if (focusedBefore !== null) await chrome.windows.update(focusedBefore, { focused: true });
+      const remaining = await chrome.windows.getAll();
+      if (remaining.some(window => window.id === createdId) ||
+          await focusedWindowId() !== focusedBefore) {
         throw new Error("browser_bridge_window_open_rollback_failed");
       }
+    } catch (_) {
+      throw windowOpenFailure(
+        new Error("browser_bridge_window_open_rollback_failed"), "unknown");
     }
-    throw error;
+    throw windowOpenFailure(error, "rolled-back");
   }
 }
 
@@ -766,12 +783,17 @@ function connect() {
         const code = isDebug ? debugErrorCode(error, "browser_bridge_debug_failed") :
           String(error && error.message || "browser_bridge_failed")
             .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").slice(0, 96);
-        const isEffect = request && ["debug-invoke", "debug-type", "debug-files"].includes(request.command);
+        const isEffect = request &&
+          ["debug-invoke", "debug-type", "debug-files", "window-open"].includes(request.command);
         const errorResult = { code: code || "browser_bridge_failed" };
-        if (isEffect) {
+        if (isEffect && isDebug) {
           errorResult.tab_id = request.args && request.args.tab_id;
           errorResult.effect = "not-performed";
           errorResult.detach = { outcome: "already-detached" };
+        } else if (request && request.command === "window-open") {
+          errorResult.effect = error &&
+            ["not-performed", "rolled-back", "unknown"].includes(error.effect)
+            ? error.effect : "not-performed";
         }
         opened.postMessage({ protocol: PROTOCOL, id: request && request.id,
           ok: false, error: errorResult });

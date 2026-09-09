@@ -268,8 +268,8 @@ try {
   const bridge_status = require_ok(invoke("observe", [
     "browser-bridge-status", bridge_id
   ]), "cu_browser_bridge_status_failed");
-  ensure(bridge_status.data.result.protocol === 3, "cu_browser_bridge_protocol");
-  ensure(bridge_status.data.result.extension_version === "1.3.0",
+  ensure(bridge_status.data.result.protocol === 4, "cu_browser_bridge_protocol");
+  ensure(bridge_status.data.result.extension_version === "1.4.0",
     "cu_browser_bridge_extension_version");
   ensure(bridge_status.data.result.profile_instance_id.length === 32,
     "cu_browser_bridge_profile_identity");
@@ -342,6 +342,49 @@ try {
     "cu_browser_bridge_background_window_focus_changed");
   const second_window_id = second_window.data.result.window.window_id;
   const attached_tab_id = second_window.data.result.window.active_tab_id;
+
+  const minimized_window = require_ok(invoke("observe,actuate", [
+    "browser-bridge-window-open", bridge_id,
+    "--url", "data:text/html,acu-minimized", "--state", "minimized"
+  ]), "cu_browser_bridge_minimized_window_open_failed");
+  ensure(minimized_window.data.result.requested_state === "minimized" &&
+    minimized_window.data.result.requested_focused === false &&
+    minimized_window.data.result.performed === true &&
+    minimized_window.data.result.verified === true &&
+    minimized_window.data.result.focus_changed === false &&
+    minimized_window.data.result.focused_window_before === first_window_id &&
+    minimized_window.data.result.focused_window_after === first_window_id &&
+    minimized_window.data.result.window.state === "minimized" &&
+    minimized_window.data.result.window.focused === false &&
+    minimized_window.data.result.window.tab_count === 1 &&
+    minimized_window.data.desktop_focus.verified === true &&
+    minimized_window.data.desktop_focus.after === minimized_window.data.desktop_focus.before,
+    "cu_browser_bridge_minimized_window_unverified");
+  const minimized_window_id = minimized_window.data.result.window.window_id;
+  const minimized_tab_id = minimized_window.data.result.window.active_tab_id;
+  const windows_after_minimized = require_ok(invoke("observe", [
+    "browser-bridge-windows", bridge_id
+  ]), "cu_browser_bridge_minimized_inventory_failed");
+  let minimized_inventory_row = null;
+  for (const row of windows_after_minimized.data.result.windows) {
+    if (row.window_id === minimized_window_id) { minimized_inventory_row = row; }
+  }
+  ensure(minimized_inventory_row !== null &&
+    minimized_inventory_row.state === "minimized" &&
+    minimized_inventory_row.focused === false &&
+    minimized_inventory_row.active_tab_id === minimized_tab_id,
+    "cu_browser_bridge_minimized_inventory_mismatch");
+
+  const legacy_open = require_ok(invoke_acu([
+    "browser", "open", "data:text/html,acu-legacy-minimized"
+  ]), "cu_browser_legacy_atomic_open_failed");
+  ensure(legacy_open.data.transport === "native-bridge" &&
+    legacy_open.data.connection_id === bridge_id &&
+    legacy_open.data.profile_instance_id === profile_instance_id &&
+    legacy_open.data.background === true && legacy_open.data.verified === true &&
+    legacy_open.data.state === "minimized" && legacy_open.data.focused === false &&
+    legacy_open.data.transient_normal_window === false,
+    "cu_browser_legacy_atomic_open_unverified");
 
   print("STEP exact profile-wide tab inventory preserves background URLs without focus change");
   const profile_tabs_focus_before_reply = require_ok(invoke("observe", [

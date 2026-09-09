@@ -6275,7 +6275,7 @@
       "grant": "actuate",
       "family": "browser",
       "summary": "open one exact Chromium window with explicit focus semantics",
-      "usage": "browser-bridge-window-open CONNECTION_ID --url URL [--focused]\nbrowser bridge window-open ...",
+      "usage": "browser-bridge-window-open CONNECTION_ID --url URL [--focused] [--state normal|minimized]\nbrowser bridge window-open ...",
       "args": [
         {
           "flag": "CONNECTION_ID",
@@ -6291,6 +6291,11 @@
           "flag": "--focused",
           "value": "",
           "help": "explicitly focus the new window; default preserves existing focus"
+        },
+        {
+          "flag": "--state",
+          "value": "STATE",
+          "help": "create the window directly as normal (default) or minimized"
         }
       ]
     },
@@ -8001,7 +8006,7 @@
     },
     {
       "name": "browser-bridge-status",
-      "text": "agenterm-cu browser-bridge-status\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-status CONNECTION_ID\n  browser bridge status CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nRoutes the closed protocol-v3 status request only to that exact current-user and process-identity-bound connection. It returns the fixed extension version, persistent profile instance identity and the exact supported command set. A missing, stale, foreign or malformed identity fails typed.\n"
+      "text": "agenterm-cu browser-bridge-status\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-status CONNECTION_ID\n  browser bridge status CONNECTION_ID\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n\nRoutes the closed protocol-v4 status request only to that exact current-user and process-identity-bound connection. It returns the fixed extension version, persistent profile instance identity and the exact supported command set. A missing, stale, foreign or malformed identity fails typed.\n"
     },
     {
       "name": "browser-bridge-tabs",
@@ -8025,7 +8030,7 @@
     },
     {
       "name": "browser-bridge-window-open",
-      "text": "agenterm-cu browser-bridge-window-open\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-window-open CONNECTION_ID --url URL [--focused]\n  browser bridge window-open ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --url URL                     initial URL for the new ordinary Chromium window\n  --focused                     explicitly focus the new window; omitted preserves existing browser focus\n\nCreates one normal window through the exact fixed MV3 connection and returns its stable Chromium window/tab identity. The default verifies that browser focus ownership did not change; --focused is an explicit foreground request and verifies that the new window owns browser focus. A failed postcondition removes the created window and restores the prior browser focus, or fails typed if rollback cannot be proven.\n"
+      "text": "agenterm-cu browser-bridge-window-open\n  scope: actuate    family: Browser page & tabs\n\nusage:\n  browser-bridge-window-open CONNECTION_ID --url URL [--focused] [--state normal|minimized]\n  browser bridge window-open ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --url URL                     initial URL for the new ordinary Chromium window\n  --focused                     explicitly focus the new window; omitted preserves existing browser and desktop focus\n  --state STATE                 create the window directly as normal (default) or minimized\n\nCreates one exact window through the fixed MV3 connection and returns its stable Chromium window/tab identity. A minimized request is passed to the same chrome.windows.create operation, so there is no transient normal-window state; minimized and --focused are mutually exclusive. Background creation brackets the exact desktop foreground identity and verifies both browser and desktop focus ownership afterward. A failed postcondition removes the created window and restores the prior browser focus. Extension failures carry effect=not-performed|rolled-back|unknown; retry_safe is false exactly for unknown. Any transport interruption after delivery, rollback failure or unproved desktop-focus restoration returns browser_bridge_outcome_unknown with effect=unknown and retry_safe=false. Successful replies include requested_state and a verified desktop_focus receipt for background requests.\n"
     },
     {
       "name": "browser-bridge-debug-read",

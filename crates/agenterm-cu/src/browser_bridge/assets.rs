@@ -212,5 +212,14 @@ mod tests {
             assert!(!source.contains(forbidden));
         }
         assert!(source.contains("Accessibility.getFullAXTree"));
+        let open_start = source.find("async function openWindow").unwrap();
+        let open_end = source[open_start..]
+            .find("async function waitWindowState")
+            .map(|offset| open_start + offset)
+            .unwrap();
+        let open_source = &source[open_start..open_end];
+        assert!(open_source.contains("chrome.windows.create"));
+        assert!(open_source.contains("state,"));
+        assert!(!open_source.contains("chrome.windows.update(createdId"));
     }
 }
