@@ -6347,7 +6347,7 @@
     },
     {
       "id": "cu-linux-chrome-text-smoke",
-      "description": "Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; typed focus/send-text/get-text usage and typed get-extents --name usage/host-limit paths hold before the actuate/read-back court; miss paths must not mutate the field; no --coords.",
+      "description": "Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; typed focus/send-text/get-text usage rejects missing --window/--name and --coords/--bogus misuse (or stays named AT-SPI, never coordinate degradation); typed get-extents --name usage AND host-limit paths both hold before the chrome/send-text actuate/read-back court; miss paths must not mutate the field; no --coords.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
