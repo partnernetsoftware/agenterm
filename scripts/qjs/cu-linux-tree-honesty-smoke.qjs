@@ -2,8 +2,9 @@
 // Acceptance is smoke read-back only: CU tree --flat node names/roles/states
 // for one owned GTK fixture window must agree with an independent AT-SPI dump
 // of the same application walk (BFS order, matching depth/node budget, volatile
-// focus/active/armed/selected states excluded). AT-SPI/--name only; no --coords
-// or screenshot degradation.
+// focus/active/armed/selected states excluded). Typed usage and AT-SPI
+// host-limit paths must hold when the independent pyatspi desktop probe is
+// unavailable. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -74,20 +75,105 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function last_json_line(text) {
+  const lines = text.trim().split("\n");
+  for (let index = lines.length - 1; index >= 0; index = index - 1) {
+    const line = lines[index].trim();
+    if (line !== "") { return JSON.parse(line); }
+  }
+  throw "cu_linux_tree_honesty_missing_json";
+}
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_tree_honesty_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_tree_honesty_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_tree_honesty_reply:" + JSON.stringify(document));
+  ensure(output.stdout.trim() !== "", "cu_linux_tree_honesty_cli:" + output.stdout + output.stderr);
+  return last_json_line(output.stdout);
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_tree_honesty_reply:" + JSON.stringify(document));
   return document;
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function probe_atspi_available() {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_tree_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "tree", "--window", "0",
+    "--depth", "" + TREE_DEPTH,
+    "--max-nodes", "" + MAX_NODES,
+    "--flat",
+  ]);
+  ensure(!output_success(reply), "cu_linux_tree_honesty_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_tree_honesty_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_tree_honesty_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_tree_budget_bounds(run_directory, executable, handle) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "tree", "--window", "" + handle,
+    "--depth", "" + TREE_DEPTH,
+    "--max-nodes", "0",
+    "--flat",
+  ]);
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === "invalid_input",
+    "cu_linux_tree_honesty_budget_bounds:" + JSON.stringify(reply)
+  );
+}
+
+function assert_tree_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "tree", "--window", "1",
+    "--depth", "" + TREE_DEPTH,
+    "--max-nodes", "" + MAX_NODES,
+    "--flat",
+  ], { AGENTERM_NO_ACTIVATE: "1", AT_SPI_BUS_ADDRESS: "invalid" });
+  ensure(!output_success(reply), "cu_linux_tree_honesty_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_tree_honesty_unavailable_code:" + code
+  );
+  if (code === "a11y_backend_failed") {
+    const message = text_at(reply, "error.message").toLowerCase();
+    ensure(
+      message.indexOf("accessibility") >= 0
+        || message.indexOf("address") >= 0
+        || message.indexOf("bus") >= 0,
+      "cu_linux_tree_honesty_unavailable_message:" + JSON.stringify(reply.error)
+    );
+  }
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -287,9 +373,19 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available();
 
 try {
-  print("STEP start owned GTK fixture and resolve one window handle");
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_tree_usage_limit(run_directory, executable);
+    assert_tree_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP tree typed-fails usage when --window handle is zero");
+    assert_tree_usage_limit(run_directory, executable);
+
+    print("STEP start owned GTK fixture and resolve one window handle");
   fixture = harness.start({
     program: "python3",
     args: [fixture_source],
@@ -321,6 +417,14 @@ try {
     text_at(tree, "data.backend") === "at-spi2"
       && text_at(tree, "data.addressing") === "accessibility-tree"
       && int_at(tree, "data.window") === handle
+      && flag_at(tree, "data.flat")
+      && !flag_at(tree, "data.degraded")
+      && !flag_at(tree, "data.truncated")
+      && int_at(tree, "data.budget.depth") === TREE_DEPTH
+      && int_at(tree, "data.budget.max_nodes") === MAX_NODES
+      && int_at(tree, "data.visited") === tree.data.nodes.length
+      && int_at(tree, "data.returned") === tree.data.nodes.length
+      && int_at(tree, "data.visited") <= MAX_NODES
       && Array.isArray(tree.data.nodes)
       && tree.data.nodes.length > 5,
     "cu_linux_tree_honesty_tree_shape:" + JSON.stringify(tree.data)
@@ -341,7 +445,11 @@ try {
   print("STEP independent pyatspi BFS dump agrees on names/roles/states");
   verify_readback(run_directory, executable, fixture_pid, handle, cu_tree_path);
 
+  print("STEP tree typed-fails invalid_input when --max-nodes is zero");
+  assert_tree_budget_bounds(run_directory, executable, handle);
+
   succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -356,7 +464,11 @@ if (fixture >= 0) {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux tree --flat names/roles/states match independent AT-SPI dump");
+  if (atspi_available) {
+    print("PASS: Linux tree --flat names/roles/states match independent AT-SPI dump with depth/max-nodes budget honesty");
+  } else {
+    print("PASS: Linux tree typed-fails when independent pyatspi desktop probe is unavailable");
+  }
 }
 if (failure !== "") { throw failure; }
 return;

@@ -6028,7 +6028,7 @@
     },
     {
       "id": "cu-linux-tree-honesty-smoke",
-      "description": "Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk; volatile focus/active/armed/selected states excluded; AT-SPI/--name only, no --coords.",
+      "description": "Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk with depth/max-nodes budget honesty; volatile focus/active/armed/selected states excluded; typed usage and AT-SPI host-limit paths when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tree-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
