@@ -662,15 +662,14 @@ try {
   print("STEP focus/send-text/get-text typed-fail usage for missing/zero --window, --role-without--name, and --coords/--bogus misuse");
   assert_entry_text_usage_limit(run_directory, executable);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus misuse before actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus misuse before actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; gtk-entry read-back requires pyatspi");
     print("STEP focus/send-text/get-text typed-fail host-limit when independent pyatspi desktop probe is unavailable");
     assert_entry_text_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
@@ -774,5 +773,5 @@ ensure(succeeded === 1, failure || "cu_linux_gtk_entry_text_failed");
 if (atspi_available) {
   print("PASS: CEO#2 GTK entry focus → " + READBACK_COUNT + " send-text --name → get-text roundtrips with independent pyatspi Text.GetText read-back and typed focus/send-text/get-text/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO#2 GTK entry focus/send-text/get-text typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO#2 GTK entry focus/send-text/get-text typed-fails with typed get-extents --name usage and host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
