@@ -280,6 +280,13 @@
       ]
     },
     {
+      "id": "cu-linux-atspi-drag-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-drag"
+      ]
+    },
+    {
       "id": "cu-linux-chrome-text-smoke",
       "platform": "linux",
       "evidence": [
