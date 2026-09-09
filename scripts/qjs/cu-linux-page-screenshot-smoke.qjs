@@ -61,7 +61,7 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments, env) {
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
@@ -69,12 +69,52 @@ function run_cu(run_directory, executable, grant, arguments, env) {
     env: env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_page_screenshot_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_screenshot_empty");
-  const document = JSON.parse(trimmed);
+  ensure(output.stdout.trim() !== "", "cu_linux_page_screenshot_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
   ensure(flag_at(document, "ok"), "cu_linux_page_screenshot_reply:" + JSON.stringify(document));
   return document;
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_screenshot_false_success:" + JSON.stringify(reply));
+  ensure(text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_screenshot_host_limit_code:" + JSON.stringify(reply));
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_screenshot_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
+}
+
+function assert_x11_display_usable(run_directory, env) {
+  const output = rh.command("xdpyinfo", [], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 5000,
+  });
+  if (output.success === true) { return; }
+  const text = output.stdout + output.stderr;
+  ensure(
+    text.indexOf("Maximum number of clients reached") < 0
+      && text.indexOf("unable to open display") < 0,
+    "cu_linux_page_screenshot_host_limit:x11_display_unavailable:" + text.trim()
+  );
+  ensure(false, "cu_linux_page_screenshot_host_limit:xdpyinfo:" + text.trim());
 }
 
 function page_target(rows) {
@@ -138,6 +178,8 @@ ensure(direct_file(abi_library), "cu_linux_page_screenshot_library_missing:" + a
 const context = harness.new_context(repo, "cu-linux-page-screenshot");
 const run_directory = context.run_directory;
 const env = cu_env(executable);
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+env.CHROME_USER_DATA_DIR = profile;
 
 const fixture_title = "CEO Page Screenshot " + context.run_id;
 const fixture = rh.join(run_directory, "page-screenshot.html");
@@ -145,21 +187,31 @@ rh.write_text(fixture, "<!DOCTYPE html><html><head><title>"
   + fixture_title + "</title></head><body style='background:#3366cc;color:#fff;font:48px sans-serif'>"
   + "SHOT " + context.run_id + "</body></html>");
 
-const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
 const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
 const port = 9600 + (rh.pid() % 500);
+env.SAND_CHROME_REMOTE_DEBUG_PORT = "" + port;
 const screenshot_path = rh.join(run_directory, "page-shot-" + context.run_id + ".png");
 let chrome_child = -1;
 let succeeded = 0;
 let failure = "";
 
 try {
+  print("STEP verify the configured X11 display is usable before owning Chrome");
+  assert_x11_display_usable(run_directory, env);
+
+  print("STEP clear stale box-chrome singletons on this display before owned CDP launch");
+  rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+  harness.sleep_ms(1000);
+
   const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
     cwd: run_directory,
     timeout_ms: 3000,
   });
   ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_screenshot_port_in_use:" + port);
+
+  print("STEP page-targets --port typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
@@ -175,14 +227,10 @@ try {
     env: env,
     timeout_ms: 45000,
   });
-  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
-    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
-      cwd: run_directory,
-      timeout_ms: 3000,
-    });
-    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
+  ensure(cdp_ready(run_directory, port), "cu_linux_page_screenshot_cdp_not_ready:" + port);
 
   print("STEP page-targets selects the owned fixture tab");
   let target_id = "";
