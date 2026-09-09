@@ -1,9 +1,11 @@
 // CEO#1: hover then click the same GTK button by --name on Linux AT-SPI.
 // Acceptance is independent pyatspi read-back only: hover must not advance the
-// count label, click must. Typed usage and host-limit paths must hold when
-// --name/--window is missing or the independent pyatspi desktop probe is
-// unavailable; missing named nodes must typed-fail a11y_node_not_found. CU tree
-// is not used for effect proof. No --coords, screenshot, or coordinate degradation.
+// count label, click must. Typed hover/click usage and host-limit paths must
+// hold when --name/--window is missing or the independent pyatspi desktop probe
+// is unavailable; typed get-extents --name usage/host-limit paths must hold
+// before the native actuate/read-back court; missing named nodes must
+// typed-fail a11y_node_not_found. CU tree is not used for effect proof. No
+// --coords, screenshot, or coordinate degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -90,6 +92,19 @@ function run_cu(run_directory, executable, grant, arguments) {
   return document;
 }
 
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_hover_click_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
 function probe_atspi_available(executable) {
   const script = [
     "import sys",
@@ -146,6 +161,38 @@ function assert_hover_click_usage_limit(run_directory, executable) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("--window") >= 0,
     "cu_linux_hover_click_zero_handle_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_hover_click_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_hover_click_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_hover_click_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", BUTTON_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_hover_click_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_hover_click_extents_unavailable_code:" + code
   );
 }
 
@@ -284,14 +331,23 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
   print("STEP hover / click typed-fail usage when --name or --window is missing");
   assert_hover_click_usage_limit(run_directory, executable);
 
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    print("STEP hover / click typed-fail host-limit when independent pyatspi desktop probe is unavailable");
     assert_hover_click_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
@@ -371,8 +427,8 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_hover_click_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: CEO#1 Linux AT-SPI hover then click by --name with pyatspi read-back and typed usage/miss/host-limit paths (no --coords)");
+  print("PASS: CEO#1 Linux AT-SPI hover then click by --name with pyatspi read-back and typed hover/click/get-extents usage honesty (no --coords)");
 } else {
-  print("PASS: CEO#1 Linux AT-SPI hover/click typed-fails when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO#1 Linux AT-SPI hover/click typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
 return;
