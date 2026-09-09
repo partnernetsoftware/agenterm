@@ -1812,6 +1812,7 @@ impl Executor {
                 max_depth,
                 max_scan,
                 max_results,
+                actionable,
                 ..
             } => browser_bridge_debug_read_payload(
                 connection_id,
@@ -1820,6 +1821,7 @@ impl Executor {
                 *max_depth,
                 *max_scan,
                 *max_results,
+                *actionable,
             ),
             Command::BrowserBridgeDebugInvoke {
                 connection_id,

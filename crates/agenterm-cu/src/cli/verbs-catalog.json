@@ -6301,7 +6301,7 @@
       "grant": "observe",
       "family": "browser",
       "summary": "read bounded AX facts from one exact background tab",
-      "usage": "browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N] [--max-scan N] [--max-results N]\nbrowser bridge debug-read ...",
+      "usage": "browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N] [--max-scan N] [--max-results N] [--actionable]\nbrowser bridge debug-read ...",
       "args": [
         {
           "flag": "CONNECTION_ID",
@@ -6331,7 +6331,12 @@
         {
           "flag": "--max-results",
           "value": "N",
-          "help": "AX rows returned, 1..=1000 (default 1000)"
+          "help": "AX rows returned, 1..=1001 (default 1000; 1001 supports max+1 completeness proofs)"
+        },
+        {
+          "flag": "--actionable",
+          "value": "",
+          "help": "filter actionable roles or focusable/editable nodes before consuming the result budget"
         }
       ]
     },
@@ -8024,7 +8029,7 @@
     },
     {
       "name": "browser-bridge-debug-read",
-      "text": "agenterm-cu browser-bridge-debug-read\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N]\n      [--max-scan N] [--max-results N]\n  browser bridge debug-read ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --tab-id N                    exact positive Chromium tab id from browser-bridge-tabs\n  --max-frames N                cross-frame bound, 1..=64 (default 64)\n  --max-depth N                 AX depth bound, 1..=20 (default 20)\n  --max-scan N                  AX nodes scanned, 1..=5000 (default 5000)\n  --max-results N               AX rows returned, 1..=1000 (default 1000)\n\nReads only bounded AX frame/node identity, role and name facts. Form/control values and arbitrary DOM attributes are excluded. Success requires unchanged tab activation and window focus plus proven debugger detach; every violation fails typed.\n"
+      "text": "agenterm-cu browser-bridge-debug-read\n  scope: observe    family: Browser page & tabs\n\nusage:\n  browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N]\n      [--max-scan N] [--max-results N] [--actionable]\n  browser bridge debug-read ...\n\narguments:\n  CONNECTION_ID                 exact 64-character lowercase hexadecimal id from browser-bridge-connections\n  --tab-id N                    exact positive Chromium tab id from browser-bridge-tabs\n  --max-frames N                cross-frame bound, 1..=64 (default 64)\n  --max-depth N                 AX depth bound, 1..=20 (default 20)\n  --max-scan N                  AX nodes scanned, 1..=5000 (default 5000)\n  --max-results N               AX rows returned, 1..=1001 (default 1000; 1001 supports max+1 completeness proofs)\n  --actionable                  retain actionable roles or focusable/editable nodes before the result bound\n\nReads bounded AX frame/backend-node identity, depth, role, name, actionable, disabled and focused facts. --actionable applies the archived page predicate before rows consume max-results: button, checkbox, combobox, link, listbox, menuitem, radio, searchbox, slider, spinbutton, switch, tab, textbox and treeitem roles, plus nodes whose focusable or editable property is true. request_actionable echoes that provider-side choice. The scan ceiling is shared across frames, and truncated exposes either scan or result incompleteness. Form/control values and arbitrary DOM attributes are excluded. Success requires unchanged tab activation and window focus plus proven debugger detach; every violation fails typed.\n"
     },
     {
       "name": "browser-bridge-debug-invoke",

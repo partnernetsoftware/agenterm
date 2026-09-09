@@ -1118,7 +1118,7 @@ mod tests {
             json!({"tab_id":7,"max_frames":1,"max_depth":2,"max_scan":3,"max_results":2}),
         )
         .unwrap();
-        let valid = json!({"tab_id":7,"frame_count":1,"scanned":1,"truncated":false,"nodes":[{"frame_id":"f","backend_node_id":9,"depth":1,"role":"heading","name":"Account"}],"presentation":{"tab_active_before":false,"tab_active_after":false,"window_focused_before":false,"window_focused_after":false,"activation_requested":false},"detach":{"outcome":"detached"}});
+        let valid = json!({"tab_id":7,"request_actionable":false,"frame_count":1,"scanned":1,"truncated":false,"nodes":[{"frame_id":"f","backend_node_id":9,"depth":1,"role":"heading","name":"Account","actionable":false,"disabled":false,"focused":false}],"presentation":{"tab_active_before":false,"tab_active_after":false,"window_focused_before":false,"window_focused_after":false,"activation_requested":false},"detach":{"outcome":"detached"}});
         let response_bytes = response(&valid_request, valid);
         let mut browser_in = response_bytes.as_slice();
         exchange_one(
@@ -1129,7 +1129,7 @@ mod tests {
         )
         .unwrap();
 
-        let changed = json!({"tab_id":7,"frame_count":1,"scanned":0,"truncated":false,"nodes":[],"presentation":{"tab_active_before":false,"tab_active_after":true,"window_focused_before":false,"window_focused_after":false,"activation_requested":false},"detach":{"outcome":"detached"}});
+        let changed = json!({"tab_id":7,"request_actionable":false,"frame_count":1,"scanned":0,"truncated":false,"nodes":[],"presentation":{"tab_active_before":false,"tab_active_after":true,"window_focused_before":false,"window_focused_after":false,"activation_requested":false},"detach":{"outcome":"detached"}});
         let mut changed_request = request("debug-read");
         changed_request.args = serde_json::from_value(
             json!({"tab_id":7,"max_frames":1,"max_depth":2,"max_scan":3,"max_results":2}),

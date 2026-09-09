@@ -3946,6 +3946,8 @@ pub enum Command {
         max_depth: u8,
         max_scan: u32,
         max_results: u16,
+        #[serde(default, skip_serializing_if = "is_false")]
+        actionable: bool,
     },
     /// Invoke one exact AX node exposed by the authenticated Chromium bridge.
     /// The caller request identity and its runtime session own at-most-once
@@ -9223,6 +9225,7 @@ mod tests {
             max_depth: 9,
             max_scan: 300,
             max_results: 80,
+            actionable: false,
         };
         assert_eq!(debug.required_grant(), Grant::Observe);
         assert_eq!(debug.target(), TargetRef::Ssh);

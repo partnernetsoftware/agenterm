@@ -475,6 +475,7 @@ pub(super) fn browser_bridge_debug_read_payload(
     max_depth: u8,
     max_scan: u32,
     max_results: u16,
+    actionable: bool,
 ) -> Result<Value, CuError> {
     let request = DebugReadRequest {
         tab_id,
@@ -482,6 +483,7 @@ pub(super) fn browser_bridge_debug_read_payload(
         max_depth,
         max_scan,
         max_results,
+        actionable,
     };
     request
         .validate()
@@ -1590,6 +1592,7 @@ mod tests {
             crate::browser_bridge::DEBUG_READ_MAX_DEPTH,
             crate::browser_bridge::DEBUG_READ_MAX_SCAN,
             crate::browser_bridge::DEBUG_READ_MAX_RESULTS,
+            false,
         )
         .unwrap_err();
         assert_eq!(error.code, "browser_bridge_debug_read_limit_invalid");

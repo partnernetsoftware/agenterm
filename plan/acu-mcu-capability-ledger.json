@@ -435,8 +435,8 @@
           "acu_shape": "tree/query flat results, selector-rooted subtree projection, bounded action/depth/tri-state filters, filtered poll-diff watch and typed truncation/timeout metadata; inspect/find/read conveniences are not yet lossless MCU receipt aliases",
           "state": "delegated",
           "evidence": ["cu.macos-ax-query", "cu.linux-atspi-query", "cu.windows-uia-query", "cu.tree-selector-subtree", "cu.query-watch-filtered-poll", "cu.query-native-filter-core"],
-          "note": "Legacy static elements is a fixed native query projection: it walks depth 12 so returned indices stay in the invoke --index flatten space, applies the requested depth as a filter, pages after actionable filtering, and preserves the archived defaults actionable=true and max=200. Legacy tree flags outside its archived closed shape fail usage. Browser page elements retain a separate typed gap because their page index space must never be presented as an accessibility index.",
-          "next": "map acu.dynamic.078.page-index-space only through a complete browser debug-read identity binding; do not mix it with accessibility-tree indices"
+          "note": "Legacy static elements is a fixed native query projection: it walks depth 12 so returned indices stay in the invoke --index flatten space, applies the requested depth as a filter, pages after actionable filtering, and preserves the archived defaults actionable=true and max=200. Legacy tree flags outside its archived closed shape fail usage. Browser page elements retain a separate typed gap because their page index space must never be presented as an accessibility index. The fixed MV3 debug-read provider now filters the archived actionable predicate before consuming its result budget and publishes exact actionable/disabled/focused facts plus the request_actionable receipt needed by that projection.",
+          "next": "finish acu.dynamic.078.page-index-space as a browser-tabs-bound compound projection with reply-local page indices and exact frame/backend-node identities; never mix those indices with invoke --index"
         },
         {
           "id": "desktop.focused-element",
@@ -904,7 +904,7 @@
             }
           },
           "evidence": ["cu.browser-closed-tree.macos"],
-          "note": "The public macOS court reads and actuates controls inside a closed shadow root hosted in a child frame. Type, focus, press and file injection bind the exact tab/frame/backend-node plus role/name, preserve background presentation, require effect-specific postconditions and mandatory debugger detach, and independently verify business state through CDP. Text, node labels and complete local paths are absent from durable receipts and audit. Any transport or validation loss after effect delivery becomes outcome_unknown and cannot be replayed.",
+          "note": "The public macOS court reads and actuates controls inside a closed shadow root hosted in a child frame. Its owned page places more than 1,000 non-actionable rows before the target controls: an unfiltered read exhausts the result page, while provider-side --actionable filtering scans past them and returns exact actionable/disabled/focused facts before the result ceiling. Type, focus, press and file injection bind the exact tab/frame/backend-node plus role/name, preserve background presentation, require effect-specific postconditions and mandatory debugger detach, and independently verify business state through CDP. Text, node labels and complete local paths are absent from durable receipts and audit. Any transport or validation loss after effect delivery becomes outcome_unknown and cannot be replayed.",
           "next": "run the same exact cross-frame closed-shadow court with ACU-owned native Chromium-family Profiles on Linux and Windows"
         },
         {
