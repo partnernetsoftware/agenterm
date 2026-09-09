@@ -6544,7 +6544,7 @@
     },
     {
       "id": "cu-linux-host-open-smoke",
-      "description": "Linux host-open --app and app launch --path open disposable GTK fixture; windows and get-text --name read-back; teardown clean. AT-SPI --name; no --coords.",
+      "description": "Linux host-open --app and app launch --path open disposable GTK fixture; independent windows/ps/get-text --name read-back and teardown clean; typed host-open usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the read-back court; AT-SPI --name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-host-open-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7155,7 +7155,7 @@
     },
     {
       "id": "cu-linux-process-sockets-smoke",
-      "description": "Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; no --coords.",
+      "description": "Linux process-sockets socket rows match independent /proc/<pid>/fd inode join and /proc/<pid>/net read-back for an invocation-owned loopback TCP listener; typed process-sockets usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc fd/net read-back court; permission-denied host-limit when independent /proc/<pid>/fd probe is denied; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-sockets-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7249,7 +7249,7 @@
     },
     {
       "id": "cu-linux-file-watch-smoke",
-      "description": "Prove bounded single-directory Linux inotify file-watch: direct-entry create, modify, rename and remove events have independent filesystem read-back; nested and outside changes do not leak; max-events 1 truncates and returns early; invalid paths and zero bounds fail typed. No GUI.",
+      "description": "Linux bounded single-directory inotify file-watch: direct-entry create, modify, rename and remove events have independent filesystem read-back; nested and outside changes do not leak; max-events 1 truncates and returns early; typed file-watch usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the inotify read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-file-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7686,7 +7686,7 @@
     },
     {
       "id": "cu-linux-shell-exec-smoke",
-      "description": "Linux shell-exec bounded command stdout, stderr and exit match independent identical /bin/sh read-back for disposable seeds; no --coords.",
+      "description": "Linux shell-exec bounded command stdout, stderr and exit match independent identical /bin/sh read-back for disposable seeds; typed shell-exec/get-extents AT-SPI --name usage or host-limit honesty before read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-shell-exec-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
