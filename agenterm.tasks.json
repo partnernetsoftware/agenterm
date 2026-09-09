@@ -5833,7 +5833,7 @@
     },
     {
       "id": "cu-linux-hit-honesty-smoke",
-      "description": "Linux hit --window point→node honesty with independent AT-SPI name/role read-back; probe points from get-extents --name only; no --coords.",
+      "description": "Linux hit --window point→node honesty with named-control ranking, independent AT-SPI name/role read-back, typed usage/miss host-limit paths, and unavailable-pyatspi host-limit honesty; probe points from get-extents --name only; no --coords.",
       "entry": "scripts/qjs/cu-linux-hit-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

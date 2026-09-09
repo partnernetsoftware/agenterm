@@ -1,7 +1,9 @@
 // CEO: Linux hit --window point→node honesty with independent AT-SPI name/role
 // read-back. Probe points come from get-extents --name only; acceptance is
 // smoke read-back: CU hit name/role must agree with a separate pyatspi walk
-// of the same named node. AT-SPI/--name only; no --coords or screenshot.
+// of the same named node, the winner must not be a structural filler/label,
+// and typed host-limit paths must hold when usage or the point misses.
+// AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -19,6 +21,9 @@ const NAMED_NODES = [
   "Fixture Entry",
   "Fixture Check",
   "Fixture Drag Source",
+];
+const STRUCTURAL_ROLES = [
+  "filler", "generic", "group", "panel", "section", "paragraph", "label", "statictext",
 ];
 
 function ensure(condition, message) {
@@ -73,20 +78,65 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, cu_args) {
+function normalize_role(role) {
+  return ("" + role).toLowerCase().replaceAll(" ", "");
+}
+
+function is_structural_role(role) {
+  const normalized = normalize_role(role);
+  for (let index = 0; index < STRUCTURAL_ROLES.length; index = index + 1) {
+    if (normalized === STRUCTURAL_ROLES[index]) { return true; }
+  }
+  return false;
+}
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_hit_honesty_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_hit_honesty_empty");
-  const document = JSON.parse(trimmed);
+  ensure(output.stdout.trim() !== "", "cu_linux_hit_honesty_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function run_cu(run_directory, executable, grant, cu_args) {
+  const document = run_cu_reply(run_directory, executable, grant, cu_args);
   ensure(flag_at(document, "ok"), "cu_linux_hit_honesty_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available() {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function containing_includes_winner(containing, winner) {
+  const winner_id = text_at(winner, "id");
+  const winner_name = text_at(winner, "name");
+  const winner_role = text_at(winner, "role");
+  for (let index = 0; index < containing.length; index = index + 1) {
+    const row = containing[index];
+    if (text_at(row, "id") === winner_id) { return true; }
+    if (text_at(row, "name") === winner_name && text_at(row, "role") === winner_role) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -171,6 +221,52 @@ function probe_point_from_extents(extents) {
   return { x: x, y: y };
 }
 
+function assert_hit_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "hit", "--window", "0", "--x", "1", "--y", "1",
+  ]);
+  ensure(!flag_at(reply, "ok"), "cu_linux_hit_honesty_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_hit_honesty_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_hit_honesty_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_hit_miss(run_directory, executable, handle) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "hit", "--window", "" + handle, "--x", "-99999", "--y", "-99999",
+    "--depth", "" + HIT_DEPTH, "--max-nodes", "" + HIT_MAX_NODES,
+  ]);
+  ensure(!flag_at(reply, "ok"), "cu_linux_hit_honesty_miss_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_hit_honesty_miss_code:" + JSON.stringify(reply.error)
+  );
+  const detail = at(reply, "error.detail");
+  ensure(int_at(detail, "window") === handle, "cu_linux_hit_honesty_miss_window:" + JSON.stringify(detail));
+  ensure(
+    int_at(detail, "visited") > 0 && !flag_at(detail, "truncated"),
+    "cu_linux_hit_honesty_miss_walk:" + JSON.stringify(detail)
+  );
+}
+
+function assert_hit_unavailable_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "hit", "--window", "1", "--x", "1", "--y", "1",
+    "--depth", "" + HIT_DEPTH, "--max-nodes", "" + HIT_MAX_NODES,
+  ], { AGENTERM_NO_ACTIVATE: "1" });
+  ensure(!flag_at(reply, "ok"), "cu_linux_hit_honesty_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_node_not_found" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_hit_honesty_unavailable_code:" + code
+  );
+}
+
 function assert_hit_honesty(run_directory, executable, handle, title, node_name, label) {
   const extents = run_cu(run_directory, executable, "observe", [
     "get-extents", "--window", "" + handle, "--name", node_name,
@@ -189,19 +285,37 @@ function assert_hit_honesty(run_directory, executable, handle, title, node_name,
     !flag_at(hit, "data.truncated"),
     "cu_linux_hit_honesty_truncated_" + label + ":" + JSON.stringify(hit.data)
   );
+  const winner = at(hit, "data.node");
+  const containing = at(hit, "data.containing");
+  ensure(Array.isArray(containing) && containing.length > 0,
+    "cu_linux_hit_honesty_containing_" + label + ":" + JSON.stringify(hit.data));
+  ensure(
+    containing_includes_winner(containing, winner),
+    "cu_linux_hit_honesty_containing_winner_" + label + ":" + JSON.stringify({
+      winner: winner,
+      containing: containing,
+    })
+  );
   const probe = independent_named_node(run_directory, title, node_name);
   ensure(
-    text_at(hit, "data.node.name") === probe.name,
+    text_at(winner, "name") === probe.name,
     "cu_linux_hit_honesty_name_" + label + ":" + JSON.stringify({
-      hit: hit.data.node,
+      hit: winner,
       probe: probe,
     })
   );
   ensure(
-    text_at(hit, "data.node.role") === probe.role,
+    text_at(winner, "role") === probe.role,
     "cu_linux_hit_honesty_role_" + label + ":" + JSON.stringify({
-      hit: hit.data.node,
+      hit: winner,
       probe: probe,
+    })
+  );
+  ensure(
+    !is_structural_role(text_at(winner, "role")),
+    "cu_linux_hit_honesty_ranking_" + label + ":" + JSON.stringify({
+      winner: winner,
+      containing: containing,
     })
   );
 }
@@ -228,38 +342,53 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available();
 
 try {
-  print("STEP start owned GTK fixture and resolve window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_hit_usage_limit(run_directory, executable);
+    assert_hit_unavailable_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP hit typed-fails usage when --window handle is zero");
+    assert_hit_usage_limit(run_directory, executable);
 
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "ok") && flag_at(window_wait, "data.met"), "cu_linux_hit_honesty_window_wait");
+    print("STEP start owned GTK fixture and resolve window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
 
-  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(inventory_row !== null, "cu_linux_hit_honesty_window_identity");
-  const handle = int_at(inventory_row, "handle");
-  ensure(handle > 0, "cu_linux_hit_honesty_handle:" + JSON.stringify(inventory_row));
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "ok") && flag_at(window_wait, "data.met"), "cu_linux_hit_honesty_window_wait");
 
-  for (let index = 0; index < NAMED_NODES.length; index = index + 1) {
-    const node_name = NAMED_NODES[index];
-    print("STEP hit --window point from get-extents --name " + node_name + " agrees with independent AT-SPI name/role");
-    assert_hit_honesty(
-      run_directory, executable, handle, fixture_title, node_name, "node_" + index
-    );
+    const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(inventory_row !== null, "cu_linux_hit_honesty_window_identity");
+    const handle = int_at(inventory_row, "handle");
+    ensure(handle > 0, "cu_linux_hit_honesty_handle:" + JSON.stringify(inventory_row));
+
+    print("STEP hit typed-fails a11y_node_not_found when the point is outside every node bounds");
+    assert_hit_miss(run_directory, executable, handle);
+
+    for (let index = 0; index < NAMED_NODES.length; index = index + 1) {
+      const node_name = NAMED_NODES[index];
+      print("STEP hit --window point from get-extents --name " + node_name
+        + " ranks the named control and agrees with independent AT-SPI name/role");
+      assert_hit_honesty(
+        run_directory, executable, handle, fixture_title, node_name, "node_" + index
+      );
+    }
+
+    succeeded = 1;
   }
-
-  succeeded = 1;
 } catch (error) {
   failure = "" + error;
 }
@@ -277,7 +406,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-hit-readback");
   harness.remove_run(context);
-  print("PASS: Linux hit --window point→node honesty with independent AT-SPI name/role read-back");
+  if (atspi_available) {
+    print("PASS: Linux hit --window point→node honesty with named-control ranking and independent AT-SPI name/role read-back");
+  } else {
+    print("PASS: Linux hit typed-fails when independent pyatspi desktop probe is unavailable");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
