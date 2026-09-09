@@ -1,10 +1,14 @@
 // CEO: Linux privilege-plan observe honesty with independent before/after read-back.
 // Acceptance is smoke read-back only: process.set-priority and system.power-action
 // plans must be expiring, identity-bound, mutation_performed=false, and must not
-// change independent nice, boot_id or CLOCK_BOOTTIME probes. Typed usage, observe
-// grant escalation refusal, and missing installed provider helper refusal must
-// fail before any scheduler, boot or provider transport effect. Never perform
-// privilege-apply. No --coords or screenshot degradation.
+// change independent nice, boot_id or CLOCK_BOOTTIME probes. Typed privilege-plan
+// usage must reject AT-SPI --name, --coords, --bogus, and other unexpected
+// arguments; typed get-extents --name usage AND host-limit paths must both hold
+// before the process/boot read-back court. Typed usage, observe grant escalation
+// refusal, and missing installed provider helper refusal must fail before any
+// scheduler, boot or provider transport effect. Never perform privilege-apply.
+// Prefer host-limit clarity over fake success. No --coords or screenshot
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -135,100 +139,93 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function priority_usage_message_rejects_stray(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("unexpected") >= 0
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function privilege_priority_usage_message_ok(message, token) {
+  return usage_rejects_unexpected(message, token)
     || message.indexOf("requires PID NICE") >= 0;
 }
 
-function power_usage_message_rejects_stray(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("unexpected") >= 0
+function privilege_power_usage_message_ok(message, token) {
+  return usage_rejects_unexpected(message, token)
     || message.indexOf("requires exactly sleep, restart or shutdown") >= 0;
 }
 
+function get_extents_misuse_message_ok(message, token) {
+  return usage_rejects_unexpected(message, token)
+    || message.indexOf("--name") >= 0
+    || message.indexOf("requires --window") >= 0;
+}
+
+function assert_privilege_unexpected(
+  run_directory, executable, env, arguments, label, token, message_ok
+) {
+  const reply = invoke_observe_reply(run_directory, executable, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_privilege_plan_usage_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_privilege_plan_usage_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_privilege_plan_usage_" + label + "_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    message_ok(text_at(reply, "error.message"), token),
+    "cu_linux_privilege_plan_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+}
+
 function assert_privilege_plan_usage_limit(run_directory, executable, env) {
-  const flat_priority = invoke_observe_reply(run_directory, executable, [
+  assert_privilege_unexpected(run_directory, executable, env, [
     "privilege-plan", "process.set-priority", "1", "0",
     "--name", AT_SPI_PROBE_NAME, "--ttl-seconds", "60",
-  ], env);
-  ensure(!output_success(flat_priority),
-    "cu_linux_privilege_plan_usage_flat_priority_ok:" + JSON.stringify(flat_priority));
-  ensure(
-    text_at(flat_priority, "error.code") === "usage",
-    "cu_linux_privilege_plan_usage_flat_priority_code:" + JSON.stringify(flat_priority.error)
-  );
-  ensure(
-    text_at(flat_priority, "command") === "usage",
-    "cu_linux_privilege_plan_usage_flat_priority_command:" + JSON.stringify(flat_priority)
-  );
-  ensure(
-    priority_usage_message_rejects_stray(text_at(flat_priority, "error.message")),
-    "cu_linux_privilege_plan_usage_flat_priority_message:" + JSON.stringify(flat_priority.error)
-  );
-
-  const grouped_priority = invoke_observe_reply(run_directory, executable, [
+  ], "flat_priority_name", "--name", privilege_priority_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
     "privilege", "plan", "process.set-priority", "1", "0",
     "--name", AT_SPI_PROBE_NAME, "--ttl-seconds", "60",
-  ], env);
-  ensure(!output_success(grouped_priority),
-    "cu_linux_privilege_plan_usage_grouped_priority_ok:" + JSON.stringify(grouped_priority));
-  ensure(
-    text_at(grouped_priority, "error.code") === "usage",
-    "cu_linux_privilege_plan_usage_grouped_priority_code:" + JSON.stringify(grouped_priority.error)
-  );
-  ensure(
-    priority_usage_message_rejects_stray(text_at(grouped_priority, "error.message")),
-    "cu_linux_privilege_plan_usage_grouped_priority_message:" + JSON.stringify(grouped_priority.error)
-  );
+  ], "grouped_priority_name", "--name", privilege_priority_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
+    "privilege-plan", "process.set-priority", "1", "0",
+    "--coords", "10,10", "--ttl-seconds", "60",
+  ], "flat_priority_coords", "--coords", privilege_priority_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
+    "privilege", "plan", "process.set-priority", "1", "0",
+    "--coords", "10,10", "--ttl-seconds", "60",
+  ], "grouped_priority_coords", "--coords", privilege_priority_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
+    "privilege-plan", "process.set-priority", "1", "0", "--bogus", "--ttl-seconds", "60",
+  ], "flat_priority_bogus", "--bogus", privilege_priority_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
+    "privilege", "plan", "process.set-priority", "1", "0", "--bogus", "--ttl-seconds", "60",
+  ], "grouped_priority_bogus", "--bogus", privilege_priority_usage_message_ok);
 
-  const flat_power = invoke_observe_reply(run_directory, executable, [
+  assert_privilege_unexpected(run_directory, executable, env, [
     "privilege-plan", "system.power-action", "sleep",
     "--name", AT_SPI_PROBE_NAME, "--ttl-seconds", "60",
-  ], env);
-  ensure(!output_success(flat_power),
-    "cu_linux_privilege_plan_usage_flat_power_ok:" + JSON.stringify(flat_power));
-  ensure(
-    text_at(flat_power, "error.code") === "usage",
-    "cu_linux_privilege_plan_usage_flat_power_code:" + JSON.stringify(flat_power.error)
-  );
-  ensure(
-    text_at(flat_power, "command") === "usage",
-    "cu_linux_privilege_plan_usage_flat_power_command:" + JSON.stringify(flat_power)
-  );
-  ensure(
-    power_usage_message_rejects_stray(text_at(flat_power, "error.message")),
-    "cu_linux_privilege_plan_usage_flat_power_message:" + JSON.stringify(flat_power.error)
-  );
-
-  const grouped_power = invoke_observe_reply(run_directory, executable, [
+  ], "flat_power_name", "--name", privilege_power_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
     "privilege", "plan", "system.power-action", "sleep",
     "--name", AT_SPI_PROBE_NAME, "--ttl-seconds", "60",
-  ], env);
-  ensure(!output_success(grouped_power),
-    "cu_linux_privilege_plan_usage_grouped_power_ok:" + JSON.stringify(grouped_power));
-  ensure(
-    text_at(grouped_power, "error.code") === "usage",
-    "cu_linux_privilege_plan_usage_grouped_power_code:" + JSON.stringify(grouped_power.error)
-  );
-  ensure(
-    power_usage_message_rejects_stray(text_at(grouped_power, "error.message")),
-    "cu_linux_privilege_plan_usage_grouped_power_message:" + JSON.stringify(grouped_power.error)
-  );
-
-  const with_bogus = invoke_observe_reply(run_directory, executable, [
-    "privilege-plan", "process.set-priority", "1", "0", "--bogus", "--ttl-seconds", "60",
-  ], env);
-  ensure(!output_success(with_bogus),
-    "cu_linux_privilege_plan_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_privilege_plan_usage_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    priority_usage_message_rejects_stray(text_at(with_bogus, "error.message")),
-    "cu_linux_privilege_plan_usage_bogus_message:" + JSON.stringify(with_bogus.error)
-  );
+  ], "grouped_power_name", "--name", privilege_power_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
+    "privilege-plan", "system.power-action", "sleep",
+    "--coords", "10,10", "--ttl-seconds", "60",
+  ], "flat_power_coords", "--coords", privilege_power_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
+    "privilege", "plan", "system.power-action", "sleep",
+    "--coords", "10,10", "--ttl-seconds", "60",
+  ], "grouped_power_coords", "--coords", privilege_power_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
+    "privilege-plan", "system.power-action", "sleep", "--bogus", "--ttl-seconds", "60",
+  ], "flat_power_bogus", "--bogus", privilege_power_usage_message_ok);
+  assert_privilege_unexpected(run_directory, executable, env, [
+    "privilege", "plan", "system.power-action", "sleep", "--bogus", "--ttl-seconds", "60",
+  ], "grouped_power_bogus", "--bogus", privilege_power_usage_message_ok);
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -244,6 +241,60 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_privilege_plan_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_privilege_plan_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_privilege_plan_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_privilege_plan_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_privilege_plan_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_privilege_plan_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_privilege_plan_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_privilege_plan_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    "cu_linux_privilege_plan_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_privilege_plan_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_privilege_plan_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_privilege_plan_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    "cu_linux_privilege_plan_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -390,15 +441,36 @@ const atspi_available = probe_atspi_available(executable);
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP privilege-plan typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP privilege-plan typed-fails usage when AT-SPI --name/--coords/--bogus is present");
+  const pid = rh.pid();
+  const court_probe_before = independent_process_probe(pid);
+  const court_boot_before = independent_boot_id();
+  const court_uptime_before = independent_uptime_milliseconds();
   assert_privilege_plan_usage_limit(context.run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before process/boot read-back");
-    assert_get_extents_usage_limit(context.run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before process/boot read-back");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process/boot read-back");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+
+  const court_probe_after = independent_process_probe(pid);
+  const court_boot_after = independent_boot_id();
+  const court_uptime_after = independent_uptime_milliseconds();
+  ensure(court_probe_before.nice === court_probe_after.nice,
+         "cu_linux_privilege_plan_usage_court_mutated_nice:before=" + court_probe_before.nice
+         + ":after=" + court_probe_after.nice);
+  ensure(court_probe_before.start_identity === court_probe_after.start_identity,
+         "cu_linux_privilege_plan_usage_court_mutated_identity");
+  ensure(court_boot_before === court_boot_after,
+         "cu_linux_privilege_plan_usage_court_mutated_boot:" + court_boot_before
+         + "!=" + court_boot_after);
+  ensure(court_uptime_after >= court_uptime_before,
+         "cu_linux_privilege_plan_usage_court_uptime_regressed:before=" + court_uptime_before
+         + ":after=" + court_uptime_after);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; privilege-plan court remains observe-only");
   }
 
   print("STEP setup enrolls the private installation identity");
@@ -409,7 +481,6 @@ try {
          "cu_linux_privilege_plan_setup_identity");
 
   print("STEP process.set-priority plan is identity-bound and does not mutate nice");
-  const pid = rh.pid();
   const before_probe = independent_process_probe(pid);
   const desired_nice = before_probe.nice === 0 ? 5 : 0;
   const priority_reply = plan_priority(context.run_directory, executable, pid, desired_nice, 60);
@@ -578,9 +649,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-privilege-plan-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux privilege-plan observe honesty with typed privilege-plan/get-extents usage honesty (AT-SPI --name, no --coords), escalation refusal, missing-helper host-limit, and independent process/boot read-back");
+    print("PASS: Linux privilege-plan observe honesty with typed privilege-plan --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords), escalation refusal, missing-helper host-limit, and independent process/boot read-back");
   } else {
-    print("PASS: Linux privilege-plan observe honesty with typed privilege-plan/get-extents host-limit honesty (AT-SPI --name, no --coords), escalation refusal, missing-helper host-limit, and independent process/boot read-back");
+    print("PASS: Linux privilege-plan observe honesty with typed privilege-plan --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords), escalation refusal, missing-helper host-limit, and independent process/boot read-back");
   }
 }
 if (failure !== "") { throw failure; }

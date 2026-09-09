@@ -7356,7 +7356,7 @@
     },
     {
       "id": "cu-linux-privilege-plan-smoke",
-      "description": "Linux privilege-plan observe for process.set-priority and system.power-action returns expiring host/boot-bound plans with mutation_performed=false and no independent nice, boot_id or uptime side effects; typed privilege-plan/get-extents --name usage or host-limit courts run before process/boot read-back; typed usage, observe-grant apply refusal, and missing installed provider helper refusal stay mutation-free with independent read-back; never performs privilege-apply; no --coords.",
+      "description": "Linux privilege-plan observe for process.set-priority and system.power-action returns expiring host/boot-bound plans with mutation_performed=false and no independent nice, boot_id or uptime side effects; typed privilege-plan usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage AND host-limit both hold before the process/boot court; observe-grant apply and missing helper refusals stay mutation-free; never privilege-apply; no --coords.",
       "entry": "scripts/qjs/cu-linux-privilege-plan-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
