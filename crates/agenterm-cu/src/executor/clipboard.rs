@@ -139,6 +139,7 @@ pub(super) fn clipboard_encoding_and_value(
         || type_name.contains("UTF8")
         || type_name.contains("text/plain")
         || type_name.contains("text/html")
+        || type_name == "text/uri-list"
         || type_name == "CF_TEXT"
         || type_name == "CF_UNICODETEXT"
         || type_name == "CF_OEMTEXT"
@@ -391,6 +392,51 @@ fn verified_text_receipt(
     }))
 }
 
+const CLIPBOARD_URI_LIST_TYPE: &str = "text/uri-list";
+
+fn linux_x11_clipboard_publish_available() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("DISPLAY").is_some()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+fn canonical_clipboard_file_path(path: &str) -> Result<std::path::PathBuf, CuError> {
+    std::fs::canonicalize(path).map_err(|error| {
+        CuError::new(
+            "invalid_input",
+            format!("clipboard-write-file path could not be canonicalized: {error}"),
+        )
+    })
+}
+
+fn percent_encode_file_uri_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for ch in path.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '/' | '-' | '_' | '.' | '~') {
+            out.push(ch);
+        } else {
+            let mut buf = [0u8; 4];
+            for byte in ch.encode_utf8(&mut buf).bytes() {
+                out.push('%');
+                out.push(char::from(b"0123456789ABCDEF"[(byte >> 4) as usize]));
+                out.push(char::from(b"0123456789ABCDEF"[(byte & 0x0f) as usize]));
+            }
+        }
+    }
+    out
+}
+
+fn file_uri_list_bytes(canonical: &std::path::Path) -> Vec<u8> {
+    let path = canonical.to_string_lossy();
+    let encoded = percent_encode_file_uri_path(&path);
+    format!("file://{encoded}\r\n").into_bytes()
+}
+
 pub(super) fn clipboard_write_file(path: &str) -> Result<serde_json::Value, CuError> {
     if !std::path::Path::new(path).exists() {
         return Err(CuError::new(
@@ -398,11 +444,35 @@ pub(super) fn clipboard_write_file(path: &str) -> Result<serde_json::Value, CuEr
             "clipboard-write-file path does not exist",
         ));
     }
+    if linux_x11_clipboard_publish_available() {
+        let canonical = canonical_clipboard_file_path(path)?;
+        let abs_path = canonical.to_string_lossy().into_owned();
+        let uri_bytes = file_uri_list_bytes(&canonical);
+        mechanism::clipboard::publish_type(CLIPBOARD_URI_LIST_TYPE, &uri_bytes)
+            .map_err(map_mechanism_err)?;
+        let stored = mechanism::clipboard::get_type(CLIPBOARD_URI_LIST_TYPE, MAX_CLIPBOARD_TYPE_BYTES)
+            .map_err(map_mechanism_err)?;
+        let verified = stored == uri_bytes;
+        return Ok(serde_json::json!({
+            "path": abs_path,
+            "mechanism": "libagenterm",
+            "verified": verified,
+        }));
+    }
     mechanism::clipboard::set_file(path).map_err(map_mechanism_err)?;
+    let verified = match canonical_clipboard_file_path(path) {
+        Ok(canonical) => {
+            let uri_bytes = file_uri_list_bytes(&canonical);
+            mechanism::clipboard::get_type(CLIPBOARD_URI_LIST_TYPE, MAX_CLIPBOARD_TYPE_BYTES)
+                .map(|stored| stored == uri_bytes)
+                .unwrap_or(false)
+        }
+        Err(_) => false,
+    };
     Ok(serde_json::json!({
         "path": path,
         "mechanism": "libagenterm",
-        "verified": true,
+        "verified": verified,
     }))
 }
 

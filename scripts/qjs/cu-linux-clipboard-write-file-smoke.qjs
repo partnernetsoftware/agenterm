@@ -1,14 +1,14 @@
 // CEO: Linux clipboard-write-file richer-types honesty on X11.
 // clipboard-write-file puts a file:// URI as text/uri-list. UTF-8/HTML/PNG
 // writes keep a detached CLIPBOARD owner after the CLI exits; write-file
-// currently does not. Do not treat in-process data.verified as roundtrip
-// success. Acceptance is independent clipboard-read --type text/uri-list
+// must do the same. Do not treat in-process data.verified as roundtrip
+// success. PASS requires independent clipboard-read --type text/uri-list
 // (and xclip TARGETS/text/uri-list when present, or an X11 GetSelectionOwner
 // probe) after the writer process has exited:
-//   - surviving uri bytes/sha256/value plus inventory listing text/uri-list
-//     is a real roundtrip;
-//   - owner/URI loss is a typed gap / host-limit with that independent
-//     evidence, not a fake pass.
+//   - surviving detached CLIPBOARD owner plus uri bytes/sha256/value and
+//     inventory listing text/uri-list is the only green path;
+//   - owner/URI loss is a typed FAIL / product-gap with that independent
+//     evidence, never a fake green.
 // Typed clipboard-write-file/read/clear usage must reject AT-SPI --name and
 // other unexpected arguments; typed get-extents --name usage/miss/host-limit
 // paths must hold before the actuate/read-back court. AT-SPI/--name only; no
@@ -553,7 +553,6 @@ const atspi_available = probe_atspi_available(executable);
 let succeeded = 0;
 let failure = "";
 let mutated = false;
-let owner_loss = false;
 try {
   const probe_path = rh.join(context.run_directory, "probe-token.txt");
   rh.write_text(probe_path, "CEO-write-file-probe\n");
@@ -583,16 +582,22 @@ try {
   const file_path = rh.join(context.run_directory, "payload-" + context.run_id + ".txt");
   rh.write_text(file_path, "CEO-file-ref-" + context.run_id + " ≠ 你好\n");
   const abs_path = rh.absolute(file_path);
-  const expected_uri = expected_uri_for_path(abs_path);
-  const digest = digest_of_text(context.run_directory, "uri.txt", expected_uri);
   mutated = true;
 
   print("STEP clipboard-write-file disposable file reference");
   const write = invoke(context.run_directory, executable, "actuate", [
     "clipboard-write-file", "--path", abs_path,
   ], env);
-  ensure(write.command === "clipboard-write-file" && text_at(write, "data.path") === abs_path,
-         "cu_linux_clipboard_write_file_write_identity");
+  const write_path = text_at(write, "data.path");
+  ensure(write.command === "clipboard-write-file" && write_path !== "",
+         "cu_linux_clipboard_write_file_write_identity:" + JSON.stringify(write.data));
+  ensure(
+    write_path === abs_path
+      || (direct_file(write_path) && rh.sha256_file(write_path) === rh.sha256_file(abs_path)),
+    "cu_linux_clipboard_write_file_write_path:" + write_path + "!=" + abs_path
+  );
+  const expected_uri = expected_uri_for_path(write_path);
+  const digest = digest_of_text(context.run_directory, "uri.txt", expected_uri);
   const write_claimed_verified = flag_at(write, "data.verified");
 
   print("STEP independent clipboard-read --type text/uri-list after writer exit");
@@ -633,8 +638,7 @@ try {
              "cu_linux_clipboard_write_file_owner_none_on_surviving_uri:" + owner_xid);
     }
   } else {
-    owner_loss = true;
-    print("STEP typed-gap: clipboard-write-file lost CLIPBOARD uri-list ownership after writer exit");
+    print("STEP FAIL: clipboard-write-file lost CLIPBOARD uri-list ownership after writer exit");
     ensure(typed_uri_lost(typed),
            "cu_linux_clipboard_write_file_read_not_typed_loss:" + JSON.stringify(typed));
     ensure(!inventory_has_uri_list(inventory),
@@ -668,6 +672,7 @@ try {
       + write_claimed_verified
       + " but independent clipboard-read --type text/uri-list did not survive writer exit"
     );
+    throw "cu_linux_clipboard_write_file_uri_not_surviving:" + JSON.stringify(typed);
   }
 
   succeeded = 1;
@@ -693,13 +698,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-clipboard-write-file-roundtrip");
   harness.remove_run(context);
-  if (owner_loss) {
-    if (atspi_available) {
-      print("PASS: Linux clipboard-write-file uri-list owner-loss honesty with independent clipboard-read evidence and clipboard/get-extents usage honesty (AT-SPI --name, no --coords)");
-    } else {
-      print("PASS: Linux clipboard-write-file uri-list owner-loss honesty with independent clipboard-read evidence and clipboard/get-extents host-limit honesty (AT-SPI --name, no --coords)");
-    }
-  } else if (atspi_available) {
+  if (atspi_available) {
     print("PASS: Linux clipboard-write-file file-reference roundtrip with independent typed read-back and clipboard/get-extents usage honesty (AT-SPI --name, no --coords)");
   } else {
     print("PASS: Linux clipboard-write-file file-reference roundtrip with independent typed read-back and clipboard/get-extents host-limit honesty (AT-SPI --name, no --coords)");
