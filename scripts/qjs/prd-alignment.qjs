@@ -360,6 +360,7 @@ const evidence_suites = {
   "cu-macos-save-panel-smoke": true,
   "cu-macos-app-facts-smoke": true,
   "cu-app-watch-smoke": true,
+  "cu-macos-windows-watch-filters-smoke": true,
   "cu-macos-file-watch-smoke": true,
   "cu-windows-file-watch-smoke": true,
   "cu-windows-app-facts-smoke": true,

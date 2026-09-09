@@ -3217,6 +3217,24 @@
         "task.cu-app-watch-smoke"
       ]
     },
+    "cu-macos-windows-watch-filters-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-macos-windows-watch-filters-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-windows-watch-filters-smoke"
+      ]
+    },
     "cu-clipboard-roundtrip-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -8541,6 +8559,26 @@
       "side_effects": [
         "artifact_write",
         "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-windows-watch-filters-smoke",
+      "description": "Prove that macOS windows-watch applies minimized, onscreen, occlusion and event-kind filters inside each bounded sample; retains complete all-window truth through ABI 1.36; filters before its event ceiling; and rejects unsupported truth or invalid bounds with typed errors. The court owns one no-activate Cocoa fixture and restores its window before cleanup.",
+      "entry": "scripts/qjs/cu-macos-windows-watch-filters-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
       ]
     },
     {

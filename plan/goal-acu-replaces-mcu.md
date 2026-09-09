@@ -81,7 +81,7 @@ ACU replaces MCU
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
 │  │  all 2 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
 │  │  `.051` keeps frozen `resource top` native and maps related `resource pressure` losslessly with a public qjswasm court;
-│  │  `.084` Space filtering executes natively while its remaining filter shapes keep that typed TODO;
+│  │  `.084` maps archived watch timing, event/window ceilings and state/type/all filters to native per-sample semantics;
 │  │  all 32 resolved witnesses have a checked disposition (18 exec · 9 compound · 5 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;

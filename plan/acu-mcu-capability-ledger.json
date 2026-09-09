@@ -422,11 +422,12 @@
       "capabilities": [
         {
           "id": "desktop.window.inventory",
-          "mcu_shape": "windows [watch] with app/pid/title/space/state/occlusion/AX-root filters and pagination",
-          "acu_shape": "windows plus windows-watch with bounded filters and native z-order/occlusion/space metadata",
-          "state": "delegated",
-          "evidence": ["cu.macos-ax-window-identity", "cu.linux-atspi-window-identity", "cu.windows-uia-window-identity"],
-          "note": "The common inventory exists; every MCU argument shape still needs contract-level parity classification."
+          "mcu_shape": "windows watch with app/pid/title/space/focused/minimized/onscreen/occluded/all/type filters and duration/interval/event/window ceilings",
+          "acu_shape": "windows-watch with the same filters, millisecond budgets, complete-snapshot max-windows and typed provider/bound failures",
+          "state": "native",
+          "evidence": ["cu.macos-ax-window-identity", "cu.linux-atspi-window-identity", "cu.windows-uia-window-identity", "cu.linux-windows-watch-readback", "cu.windows-watch.macos-filters", "cu.windows-watch.macos-bounds", "cu.windows-watch.macos-typed"],
+          "note": "Filters are applied inside every sample before diffing, event-kind selection precedes the event ceiling, and truncation becomes true only after observing a retained max+1 event. The legacy --max shape maps to a complete filtered snapshot ceiling instead of preserving MCU's silent pre-watch pagination loss. Occlusion without native stacking truth and snapshot overflow fail typed. Legacy duration, interval, max-events and max defaults and ranges map exactly where native bounds can represent them; values above native bounds fail usage rather than being clipped.",
+          "next": "add equivalent Linux and Windows public filter courts; macOS owns the first complete-filter and ABI 1.36 all-window evidence"
         },
         {
           "id": "desktop.tree.query",

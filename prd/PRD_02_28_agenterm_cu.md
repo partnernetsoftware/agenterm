@@ -190,9 +190,10 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   ordinary usage errors. The `.050` witness now
   maps to native exact simulator app status, `.072` maps exact application facts and the
   exact `apps watch APP` spelling through native identity-bound providers without borrowing
-  window evidence, and `.084` now
-  proves native Space filtering, while its other legacy watch filters remain explicitly
-  asserted as the same typed TODO until their per-poll semantics exist.
+  window evidence, and `.084` now maps the archived timing defaults, event and complete-window
+  ceilings, event kinds, and focused/minimized/onscreen/occluded/all filters into each native
+  sample before diffing. Unsupported occlusion truth and inventory overflow fail typed rather
+  than becoming false state or silent pagination loss.
   This closes the valid top-level compatibility set, not the dynamic debt: every unsupported
   sub-shape still returns its stable `acu_todo`/usage result and never falls back to MCU.
   A TODO is visible progress, not parity: no row may be called migrated until
@@ -646,8 +647,11 @@ ACU-only cutover
 │  ├─ [x] acu.dynamic.078 · invalid legacy `tree --page` is closed usage;
 │  │  └─ valid `tree --max-value-bytes` maps to native UTF-8 previews,
 │  │     byte-length/digest metadata and explicit provider-incomplete truth
-│  ├─ [~] acu.dynamic.084 · `--space` is evaluated inside every windows-watch poll;
-│  │  └─ qjs compatibility + native unit gates green, macOS live Space-transition court pending
+│  ├─ [x] acu.dynamic.084 · archived `windows watch` timing, event/window ceilings and
+│  │  state/type/all filters map to bounded native per-sample semantics;
+│  │  ├─ event type selection precedes the ceiling and truncation requires a retained max+1 event
+│  │  ├─ `--max` is a complete filtered snapshot bound, not legacy silent pre-watch pagination
+│  │  └─ macOS owned-window court proves state boundaries, occlusion honesty and ABI 1.36 `--all`
 │  ├─ [x] acu.dynamic.086 · native macOS `app-menu-inspect` resolves an exact app + unique process;
 │  │  ├─ process start identity, complete matching window set and foreground are bracketed
 │  │  ├─ public owned qjswasm menu court is green without activation

@@ -1067,6 +1067,15 @@
       ]
     },
     {
+      "id": "cu-macos-windows-watch-filters-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.windows-watch.macos-filters",
+        "cu.windows-watch.macos-bounds",
+        "cu.windows-watch.macos-typed"
+      ]
+    },
+    {
       "id": "cu-simulator-lifecycle-smoke",
       "platform": "macos",
       "evidence": [
