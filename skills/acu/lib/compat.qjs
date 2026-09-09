@@ -21,8 +21,7 @@ export const LEGACY_TOP_LEVEL = [
 // archive; unknown spellings are deliberately absent and continue to native
 // usage handling.
 export const LEGACY_TODO_GAP_IDS = [
-  "acu.dynamic.004", "acu.dynamic.054",
-  "acu.dynamic.075", "acu.dynamic.078.page-index-space",
+  "acu.dynamic.004", "acu.dynamic.075", "acu.dynamic.078.page-index-space",
 ];
 
 function contains(values, wanted) {
@@ -264,9 +263,16 @@ function known_dynamic_boundary(argv) {
     append(native, tail);
     return { kind: "exec", argv: native };
   }
-  if (verb === "device" && sub === "claim" && argv.length >= 3) {
-    return todo("acu.dynamic.054", "device",
-      "legacy raw-path device claims are not lossless aliases of opaque device ids");
+  if (verb === "device" && sub === "claim" && argv.length >= 3
+      && argv[2].startsWith("/dev/")) {
+    return { kind: "usage", code: "retired", command: "device",
+      message: "device claim PATH is permanently retired: run device list, then device claim DEVICE_ID --ttl-seconds N with --session, --session-lease and --request-id; raw /dev paths and implicit runtime sessions are not accepted" };
+  }
+  if (verb === "device"
+      && (sub === "read" || sub === "write" || sub === "renew" || sub === "release")
+      && has_arg(argv, "--lease") && !has_arg(argv, "--generation")) {
+    return { kind: "usage", code: "retired", command: "device",
+      message: "the implicit legacy device lease lifecycle is permanently retired: use device-status, device-read, device-write, device-renew or device-release with LEASE_ID, --generation N and --lease SECRET under the explicit claiming session" };
   }
   if (verb === "storage" && (sub === "mount" || sub === "unmount" || sub === "eject")) {
     return { kind: "usage", command: "storage",

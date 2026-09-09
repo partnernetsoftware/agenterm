@@ -1690,6 +1690,14 @@
           "next": "run the public qjswasm journey on Linux and Windows native courts, then keep claim/lease and byte I/O as separate blockers"
         },
         {
+          "id": "device.claim.raw-path",
+          "mcu_shape": "device claim /dev/PATH plus read|write|renew|release under one implicit runtime lease",
+          "acu_shape": null,
+          "state": "retired",
+          "evidence": ["acu.compat-todo-boundary"],
+          "note": "The archived raw-path lifecycle depended on one hidden Bun daemon session and used a caller-visible locator as authority. Separate ACU invocations cannot preserve that authority without persisting a hidden session, lease or request identity, and raw locators never cross the public device facade. These spellings therefore fail with the stable retired code. Callers migrate through device list to an opaque DEVICE_ID, create an explicit runtime session and request identity, then use device-claim plus the returned lease id, generation and secret for later I/O, renewal and release. Non-inventory character devices and runtime-only soft exclusivity are intentionally not reproduced. The qualified opaque device.claim.lifecycle remains active and is not retired by this row."
+        },
+        {
           "id": "device.claim.lifecycle",
           "mcu_shape": "device claims|claim|renew|release with exclusive TTL secret lease",
           "acu_shape": "device-claims; device-claim DEVICE_ID with bounded serial configuration and TTL; device-status/read/write/renew/release by lease id, generation and secret",

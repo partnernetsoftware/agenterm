@@ -44,7 +44,6 @@ require_ok(rh.exists(launcher) && rh.metadata(launcher).is_file,
 
 const cases = [
   [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
-  [["device", "claim", "legacy-device-path"], "acu.dynamic.054"],
   [["browser", "bridge", "status"], "acu.dynamic.075"],
   [["elements", "Window#1", "--page", "--tab-id", "4"], "acu.dynamic.078.page-index-space"]
 ];
@@ -140,6 +139,30 @@ for (const operation of ["install", "status", "start", "stop", "uninstall"]) {
       && retired.error.todo === undefined && retired.error.gap_id === undefined,
     "daemon service must remain a typed retirement without fallback:" + operation);
 }
+
+const retired_device_shapes = [
+  ["device", "claim", "/dev/cu.fixture", "--ttl", "300"],
+  ["device", "read", "legacy-lease", "--lease", "legacy-secret"],
+  ["device", "write", "legacy-lease", "--lease", "legacy-secret", "--hex", "00"],
+  ["device", "renew", "legacy-lease", "--lease", "legacy-secret"],
+  ["device", "release", "legacy-lease", "--lease", "legacy-secret"]
+];
+for (let i = 0; i < retired_device_shapes.length; i = i + 1) {
+  const retired = run(launcher, retired_device_shapes[i]);
+  require_ok(retired.ok === false && retired.command === "device"
+      && retired.data === null && retired.alert === undefined,
+    "legacy device retirement envelope:" + retired_device_shapes[i][1]);
+  require_ok(retired.error.code === "retired"
+      && retired.error.message.includes("permanently retired")
+      && retired.error.todo === undefined && retired.error.gap_id === undefined,
+    "legacy device lifecycle must remain a typed retirement without fallback:"
+      + retired_device_shapes[i][1]);
+}
+const retired_device_claim = run(launcher, ["device", "claim", "/dev/cu.fixture"]);
+require_ok(retired_device_claim.error.message.includes("device list")
+    && retired_device_claim.error.message.includes("--session")
+    && retired_device_claim.error.message.includes("--request-id"),
+  "legacy device retirement must name the opaque-id and explicit-session migration");
 
 const typo = run(launcher, ["unknown-verb"]);
 require_ok(typo.error.code === "usage" && typo.alert === undefined

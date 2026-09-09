@@ -57,6 +57,7 @@ ACU replaces MCU
 │  └─ current/ssh/vnc/VM targets preserve one command and result schema
 ├─ active device frontier
 │  ├─ [x] opaque id → exact resident native object; no raw locator as public authority
+│  ├─ [x] raw `/dev` + implicit-runtime legacy leases fail as a typed retirement with an explicit migration
 │  ├─ [x] macOS public qjswasm claim/replay/I/O/renew/release/TTL/session court
 │  ├─ [x] durable state and audit exclude locator, lease secret and byte payload
 │  ├─ [x] preserve partial-write lower bound, delivery uncertainty and retry safety independently
@@ -79,10 +80,10 @@ ACU replaces MCU
 │  │     families remain G1-red until provider preserves framing/lifetime/cleanup parity
 │  ├─ phase 3 [~]: `skills/acu/acu.qjs` + bounded argv helpers + frozen compatibility court are green;
 │  │  42/42 positive legacy probes execute in-process; 95 dynamic witnesses remain the named repair queue;
-│  │  all 2 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
+│  │  all 3 dynamic-stay witnesses fail with their exact gap id instead of falling through to native usage;
 │  │  `.051` keeps frozen `resource top` native and maps related `resource pressure` losslessly with a public qjswasm court;
 │  │  `.084` maps archived watch timing, event/window ceilings and state/type/all filters to native per-sample semantics;
-│  │  all 32 resolved witnesses have a checked disposition (18 exec · 9 compound · 5 usage · 0 TODO);
+│  │  all 33 resolved witnesses have a checked disposition (20 exec · 9 compound · 4 usage · 0 TODO);
 │  │  tmux topology is a permanent local rejection; reducible native PTY waits use exact byte search;
 │  │  embedded `agenterm cli acu` is green from an arbitrary cwd with no Bun in PATH;
 │  │  external wrapper now execs that entry; remaining dynamic mappings, MCP mutation design and native courts remain
@@ -1104,8 +1105,11 @@ actions in 20 contiguous blocks with zero loss, misdelivery, duplicate or host
 drift and with cleanup verified before the verdict. This unlocks only the
 previous-generation C9 court; it does not register public evidence, qualify a
 provider or close `acu.dynamic.074`.
-The only reviewed permanent retirement in this cut is the login-service
-query for MCU's removed global daemon object.
+The reviewed permanent retirements in this cut are the login-service query for
+MCU's removed global daemon object and the raw-path device lifecycle that depended
+on one implicit Bun runtime session. The latter does not retire ACU's qualified
+opaque lifecycle: callers migrate through `device list`, explicit session and
+request identity, then generation-bound lease operations.
 
 The previous `terminal.agenterm.viewport-image` gap incorrectly collapsed two
 product-level behaviors into MCU's already-covered PTY screen parity. It is now

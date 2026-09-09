@@ -20,7 +20,7 @@ const corpus_gap_ids = [];
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
 }
-require(compat.LEGACY_TODO_GAP_IDS.length === 4,
+require(compat.LEGACY_TODO_GAP_IDS.length === 3,
   "legacy TODO catalog count drifted from the reviewed archive");
 for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
   const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
@@ -347,7 +347,30 @@ require(legacy_zoom.window === "Window#1" && legacy_zoom.x1 === 1 && legacy_zoom
 require(compat.canonicalize([
   "zoom", "Window#1", "--x1", "1", "--y1", "2", "--x2", "3", "--y2", "4"
 ]).kind === "usage", "legacy zoom refuses a hidden default output path");
-todo_case(["device", "claim", "legacy-device-path"], "acu.dynamic.054", "legacy device claim");
+const retired_device_claim = compat.canonicalize(["device", "claim", "/dev/cu.fixture"]);
+require(retired_device_claim.kind === "usage" && retired_device_claim.code === "retired"
+    && retired_device_claim.command === "device"
+    && retired_device_claim.gap_id === undefined,
+  "legacy raw-path device claim must be a local typed retirement");
+for (const operation of ["read", "write", "renew", "release"]) {
+  const tail = operation === "write" ? ["--lease", "secret", "--hex", "00"]
+    : ["--lease", "secret"];
+  const retired = compat.canonicalize(["device", operation, "legacy-lease"].concat(tail));
+  require(retired.kind === "usage" && retired.code === "retired"
+      && retired.command === "device" && retired.gap_id === undefined,
+    "legacy implicit device " + operation + " must be a local typed retirement");
+}
+const native_device_claim = compat.canonicalize([
+  "device", "claim",
+  "agt-device-v1-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+]);
+require(native_device_claim.kind === "exec",
+  "opaque native device claim alias must remain reachable");
+require(compat.canonicalize([
+  "device", "read", "00000000-0000-4000-8000-000000000000",
+  "--generation", "1", "--lease",
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+]).kind === "exec", "generation-bound native device read must remain reachable");
 const storage_volumes = compat.canonicalize(["storage", "volumes", "--max", "5"]);
 require(storage_volumes.kind === "exec", "native storage volumes alias must pass through");
 same_argv(storage_volumes.argv, ["--target", "current", "--grant", "observe,actuate",

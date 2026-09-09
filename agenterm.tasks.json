@@ -10901,7 +10901,7 @@
     },
     {
       "id": "acu-compat-todo-smoke",
-      "description": "Prove archived legacy gaps and retirements keep stable typed identities before dispatch, repaired elements and observe projections reach their native providers, the privilege signal plan stays read-only, and unknown spellings remain native usage errors.",
+      "description": "Prove archived legacy gaps and retirements keep stable typed identities before dispatch, including raw-path device lifecycle retirement and its explicit-session migration; repaired elements and observe projections reach native providers, the privilege signal plan stays read-only, and unknown spellings remain native usage errors.",
       "entry": "scripts/qjs/acu-compat-todo-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

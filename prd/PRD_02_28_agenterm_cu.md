@@ -179,14 +179,16 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
 
   The frozen corpus records source digests and normalized, redacted argv; its
   qjswasm court currently proves exactly `42 positive exec / 0 positive TODO`, plus all
-  `2 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
-  rejections. The 32 resolved witnesses now have an executable disposition:
-  18 direct exec, 9 Bun-free compound projections, and 5 local usage refusals; no resolved
-  row remains TODO. All 95 dynamic witnesses remain frozen, and the 2 remaining
+  `3 dynamic-stay` rows as their exact typed TODO and two permanent-scope rows as local
+  rejections. The 33 resolved witnesses now have an executable disposition:
+  20 direct exec, 9 Bun-free compound projections, and 4 local usage refusals; no resolved
+  row remains TODO. All 95 dynamic witnesses remain frozen, and the 3 remaining
   dynamic-stay witness rows keep their stable repair identities. A public black-box
-  compatibility court additionally proves 8 known argument-sensitive legacy shapes
+  compatibility court additionally proves 3 known argument-sensitive legacy shapes
   return `ACU_CAPABILITY_TODO` with their exact `gap_id` instead of falling through to
-  naked native `usage`; unknown verbs and misspelled subcommands deliberately remain
+  naked native `usage`; the archived raw-path device lifecycle instead returns one
+  explicit typed retirement with its opaque-id and explicit-session migration, while
+  unknown verbs and misspelled subcommands deliberately remain
   ordinary usage errors. The `.050` witness now
   maps to native exact simulator app status, `.072` maps exact application facts and the
   exact `apps watch APP` spelling through native identity-bound providers without borrowing
@@ -195,7 +197,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   sample before diffing. Unsupported occlusion truth and inventory overflow fail typed rather
   than becoming false state or silent pagination loss.
   This closes the valid top-level compatibility set, not the dynamic debt: every unsupported
-  sub-shape still returns its stable `acu_todo`/usage result and never falls back to MCU.
+  sub-shape still returns its stable `acu_todo`, `retired` or usage result and never falls
+  back to MCU.
   A TODO is visible progress, not parity: no row may be called migrated until
   its expected argv and public behavior both pass without Bun or a child
   process.
@@ -605,6 +608,9 @@ ACU-only cutover
 │  ├─ [x] acu.dynamic.051 · the frozen `resource top` witness remains native and the related
 │  │  `resource pressure` spelling now maps losslessly to `resource-pressure`; the public
 │  │  qjswasm court executes both pressure spellings and preserves host-native semantics
+│  ├─ [x] acu.dynamic.054 · archived raw `/dev` claims and their implicit-runtime
+│  │  read/write/renew/release lifecycle are a typed retirement; callers migrate through
+│  │  opaque device ids, an explicit session/request identity and generation-bound leases
 │  ├─ [x] acu.dynamic.057 · native `storage volumes` passes through as the
 │  │  `storage-volumes` alias; archived MCU exposed no storage-group mount, unmount
 │  │  or eject subcommand, while privileged volume mutation remains a separate gap
@@ -2509,6 +2515,14 @@ flowchart LR
   execution, emitted `cu.device-lease`, returned exit zero and was stopped by
   the invocation-owned lease. Windows still needs a native COM or controlled
   virtual-COM court because a Unix PTY is not Windows evidence.
+  The archived `device claim /dev/PATH` family is deliberately not an alias for
+  this lifecycle: its raw locator was public authority and its lease lived inside
+  one hidden Bun daemon session, which cannot span independent ACU invocations
+  without persisting hidden authority. The compatibility spellings for raw-path
+  claim and legacy read/write/renew/release therefore fail with the stable
+  `retired` code and name the migration through `device list`, an opaque device id,
+  an explicit session/request identity, and the returned lease id, generation and
+  secret. This retirement does not change or retire the qualified opaque lifecycle.
   Partial-write failures now preserve three independent facts end to end:
   known-written lower bound, delivery uncertainty and retry safety. An effect
   may be certain yet unsafe to retry when native bytes were accepted before a
