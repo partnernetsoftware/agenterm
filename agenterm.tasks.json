@@ -6472,7 +6472,7 @@
     },
     {
       "id": "cu-linux-chrome-text-smoke",
-      "description": "Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; typed focus/send-text/get-text usage_rejects_unexpected for --coords/--bogus or stay named AT-SPI, never coords; typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage always before actuate/read-back; miss paths must not mutate the field; no --coords.",
+      "description": "Linux Chrome focus \u2192 send-text --name \u2192 get-text == SEED on a visible GetTextField: AT-SPI read-back only; send-text may use Chrome CDP AX set-value when EditableText is absent; typed focus/send-text/get-text --coords/--bogus usage_rejects_unexpected + command=usage or honest non-usage (never fake command=usage) or stay named AT-SPI, never coords; typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage always before process-state/desktop-state and actuate/read-back, no atspi gating; process-state/desktop-state fixture binding courts before actuate; miss paths must not mutate the field; no --coords.",
       "entry": "scripts/qjs/cu-linux-chrome-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
