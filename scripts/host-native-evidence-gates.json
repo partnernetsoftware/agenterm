@@ -690,6 +690,13 @@
       ]
     },
     {
+      "id": "cu-linux-window-title-contains-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-window-title-contains"
+      ]
+    },
+    {
       "id": "cu-linux-fullscreen-expect-smoke",
       "platform": "linux",
       "evidence": [
