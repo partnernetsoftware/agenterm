@@ -288,10 +288,29 @@ try {
     "cu_linux_terminal_shallow_tree_shape:" + JSON.stringify(tree.data)
   );
 
-  print("STEP term-read typed-fails terminal_buffer_not_found on the shallow frame handle");
-  run_cu_expect_error(context.run_directory, executable, [
+  print("STEP term-read typed-fails terminal_buffer_not_found with host-limit detail on the shallow frame handle");
+  const term_read_error = run_cu_expect_error(context.run_directory, executable, [
     "term-read", "" + handle,
   ], "terminal_buffer_not_found");
+  const term_read_detail = at(term_read_error, "error.detail");
+  ensure(text_at(term_read_detail, "limit") === "host",
+    "cu_linux_terminal_shallow_tree_term_read_limit:" + JSON.stringify(term_read_detail));
+  ensure(text_at(term_read_detail, "group") === "terminal",
+    "cu_linux_terminal_shallow_tree_term_read_group:" + JSON.stringify(term_read_detail));
+  ensure(text_at(term_read_detail, "mechanism") === "at-spi2-window-frame-fallback",
+    "cu_linux_terminal_shallow_tree_term_read_mechanism:" + JSON.stringify(term_read_detail));
+  ensure(
+    text_at(term_read_detail, "signal").indexOf("visited=1") >= 0,
+    "cu_linux_terminal_shallow_tree_term_read_signal:" + JSON.stringify(term_read_detail)
+  );
+  ensure(int_at(term_read_detail, "tree.visited") === 1,
+    "cu_linux_terminal_shallow_tree_term_read_tree:" + JSON.stringify(term_read_detail));
+  const term_read_alternatives = at(term_read_detail, "alternatives");
+  ensure(Array.isArray(term_read_alternatives) && term_read_alternatives.length >= 2,
+    "cu_linux_terminal_shallow_tree_term_read_alternatives:" + JSON.stringify(term_read_detail));
+  const term_read_joined = term_read_alternatives.join(" ");
+  ensure(term_read_joined.indexOf("pty-") >= 0 && term_read_joined.indexOf("terminal-") >= 0,
+    "cu_linux_terminal_shallow_tree_term_read_pty_terminal:" + term_read_joined);
 
   print("STEP independent pyatspi finds zero registered application roots for the terminal pid");
   const probe = independent_shallow_probe(terminal_pid);

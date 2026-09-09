@@ -118,6 +118,33 @@ fn terminal_role(role: &str) -> bool {
     )
 }
 
+fn shallow_terminal_tree(tree: &mechanism::A11yTree) -> bool {
+    tree.visited == 1
+        && !tree.truncated
+        && tree.returned == 1
+        && tree.nodes.len() == 1
+        && observe::normalize_role(&tree.nodes[0].role) == "frame"
+}
+
+fn terminal_buffer_not_found_error(tree: &mechanism::A11yTree) -> CuError {
+    let error = CuError::new(
+        "terminal_buffer_not_found",
+        "the exact window exposes no showing terminal text buffer",
+    );
+    if shallow_terminal_tree(tree) {
+        return error.with_detail(crate::host_limit::terminal_a11y_shallow_tree_detail(
+            &serde_json::json!({
+                "backend": tree.backend,
+                "visited": tree.visited,
+                "returned": tree.returned,
+                "truncated": tree.truncated,
+                "root_role": tree.nodes[0].role,
+            }),
+        ));
+    }
+    error
+}
+
 fn select_candidate(mut candidates: Vec<TerminalBuffer>) -> Result<TerminalBuffer, CuError> {
     if candidates.is_empty() {
         return Err(CuError::new(
@@ -198,12 +225,9 @@ fn read_buffer(identity: &ExternalWindowIdentity) -> Result<TerminalBuffer, CuEr
     }
     revalidate_window(identity)?;
     if candidates.is_empty() {
-        return Err(text_error.unwrap_or_else(|| {
-            CuError::new(
-                "terminal_buffer_not_found",
-                "the exact window exposes no showing terminal text buffer",
-            )
-        }));
+        return Err(
+            text_error.unwrap_or_else(|| terminal_buffer_not_found_error(&tree)),
+        );
     }
     select_candidate(candidates)
 }
@@ -794,6 +818,42 @@ mod tests {
         assert!(terminal_role("scroll-area"));
         assert!(terminal_role("Terminal"));
         assert!(!terminal_role("button"));
+    }
+
+    #[test]
+    fn shallow_terminal_tree_detects_single_frame_without_children() {
+        let tree = mechanism::A11yTree {
+            backend: "at-spi2".into(),
+            window_handle: Some(7),
+            root_id: "/0".into(),
+            nodes: vec![mechanism::A11yNode {
+                id: "/0".into(),
+                parent_id: None,
+                role: "frame".into(),
+                subrole: None,
+                name: "fixture".into(),
+                states: Vec::new(),
+                bounds: mechanism::A11yBounds {
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 50,
+                },
+                actions: Vec::new(),
+                text: None,
+                identifier: None,
+            }],
+            truncated: false,
+            visited: 1,
+            returned: 1,
+        };
+        assert!(shallow_terminal_tree(&tree));
+        let error = terminal_buffer_not_found_error(&tree);
+        assert_eq!(error.code, "terminal_buffer_not_found");
+        let detail = error.detail.expect("host-limit detail");
+        assert_eq!(detail["limit"], "host");
+        assert_eq!(detail["group"], "terminal");
+        assert_eq!(detail["tree"]["visited"], 1);
     }
 
     #[test]

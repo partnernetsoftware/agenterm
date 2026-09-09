@@ -218,6 +218,24 @@ pub(crate) fn simulator_unsupported(verb: &str) -> CuError {
     )
 }
 
+/// Typed host-limit detail when an external terminal window publishes only a
+/// single accessibility frame with no TextArea/ScrollArea/Terminal children.
+pub(crate) fn terminal_a11y_shallow_tree_detail(tree: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "os": crate::mcu_surface::host_os(),
+        "limit": "host",
+        "group": "terminal",
+        "mechanism": "at-spi2-window-frame-fallback",
+        "signal": "visited=1 with role=frame and truncated=false is a host toolkit limit, not a walker bug",
+        "tree": tree,
+        "alternatives": [
+            "pty-start / pty-read / pty-send / pty-wait (headless AgenTerm PTY jobs)",
+            "terminal-list / terminal-read / terminal-send / terminal-wait (AgenTerm-owned tabs; requires running agenterm server)",
+            "term-read only when the app exposes TextArea/ScrollArea/Terminal roles in accessibility",
+        ],
+    })
+}
+
 pub(crate) fn terminal_control_unavailable_detail(
     transport: impl Into<String>,
 ) -> serde_json::Value {
@@ -313,6 +331,26 @@ mod tests {
         let error = login_session_unsupported();
         assert_eq!(error.code, "login_session_unsupported");
         assert!(!error.message.contains("Unsupported:"));
+    }
+
+    #[test]
+    fn terminal_a11y_shallow_tree_detail_is_host_limit_typed() {
+        let detail = terminal_a11y_shallow_tree_detail(&serde_json::json!({
+            "visited": 1,
+            "returned": 1,
+            "truncated": false,
+            "root_role": "frame",
+        }));
+        assert_eq!(detail["os"], crate::mcu_surface::host_os());
+        assert_eq!(detail["limit"], "host");
+        assert_eq!(detail["group"], "terminal");
+        assert_eq!(detail["mechanism"], "at-spi2-window-frame-fallback");
+        assert!(
+            detail["alternatives"]
+                .as_array()
+                .is_some_and(|rows| rows.len() >= 2)
+        );
+        assert_eq!(detail["tree"]["visited"], 1);
     }
 
     #[test]
