@@ -1,7 +1,10 @@
-// CEO: Linux spaces host-limit honesty with independent SkyLight absence probe.
-// Acceptance is smoke read-back only: `spaces` must return typed unsupported with
-// detail.os/required_os/alternatives, and capabilities must declare spaces absent.
-// Observe-only; no --coords or screenshot degradation.
+// CEO: Linux spaces host-limit honesty with independent SkyLight absence and
+// EWMH workspace probes. Acceptance is smoke read-back only: `spaces` must
+// return typed unsupported with detail.os/required_os/alternatives even when
+// the root window exposes _NET_CURRENT_DESKTOP / _NET_NUMBER_OF_DESKTOPS
+// (EWMH virtual desktops are not macOS SkyLight managed Spaces). Typed usage,
+// headless host-limit, and capabilities alignment must hold before any owned
+// fixture window exists. Observe-only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -39,6 +42,14 @@ function text_at(value, dotted) {
   return "" + current;
 }
 
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -65,21 +76,56 @@ function cu_env(executable) {
   return env;
 }
 
+function run_cu_reply(run_directory, executable, grant, arguments, env, env_remove) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 30000,
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_spaces_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
 function invoke(run_directory, executable, arguments, expect_success) {
-  const output = rh.command(executable, [
-    "--target", "current", "--grant", "observe",
-  ].concat(arguments), {
+  const reply = run_cu_reply(run_directory, executable, "observe", arguments);
+  ensure(reply.ok === expect_success,
+    "cu_linux_spaces_reply:" + JSON.stringify(reply));
+  return reply;
+}
+
+function parse_xprop_cardinal(stdout, property) {
+  const marker = property + "(CARDINAL) = ";
+  const start = stdout.indexOf(marker);
+  if (start < 0) { return -1; }
+  const tail = stdout.slice(start + marker.length).trim();
+  const end = tail.indexOf("\n");
+  const number = end < 0 ? tail : tail.slice(0, end);
+  if (number === "") { return -1; }
+  return rh.parse_int(number);
+}
+
+function independent_ewmh_desktops(run_directory, executable) {
+  const output = rh.command("xprop", [
+    "-root", "_NET_CURRENT_DESKTOP", "_NET_NUMBER_OF_DESKTOPS",
+  ], {
     cwd: run_directory,
     env: cu_env(executable),
-    timeout_ms: 30000,
+    timeout_ms: 10000,
   });
-  ensure(output.success === expect_success,
-    "cu_linux_spaces_exit:" + output.exit_code + ":" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_spaces_empty");
-  const reply = JSON.parse(trimmed);
-  ensure(reply.ok === expect_success, "cu_linux_spaces_reply:" + JSON.stringify(reply));
-  return reply;
+  if (!output.success) {
+    return { current_desktop: -1, desktop_count: -1, ewmh_present: false };
+  }
+  const current_desktop = parse_xprop_cardinal(output.stdout, "_NET_CURRENT_DESKTOP");
+  const desktop_count = parse_xprop_cardinal(output.stdout, "_NET_NUMBER_OF_DESKTOPS");
+  const ewmh_present = current_desktop >= 0 && desktop_count > 0;
+  return { current_desktop, desktop_count, ewmh_present };
 }
 
 function independent_probe() {
@@ -91,7 +137,51 @@ function independent_probe() {
   return JSON.parse(output.stdout.trim());
 }
 
-function verify_spaces_unsupported(reply, probe) {
+function assert_spaces_usage_limit(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", ["spaces", "--bogus"]);
+  ensure(!flag_at(reply, "ok"), "cu_linux_spaces_usage_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_spaces_usage_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_spaces_usage_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_spaces_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_headless_host_limit(run_directory, executable) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "observe",
+    ["spaces"],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!flag_at(reply, "ok"), "cu_linux_spaces_headless_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_spaces_headless_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.required_os") === "macos",
+    "cu_linux_spaces_headless_required_os:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.limit") === "host",
+    "cu_linux_spaces_headless_limit:" + JSON.stringify(reply.error)
+  );
+}
+
+function verify_spaces_unsupported(reply, probe, ewmh) {
   ensure(reply.ok !== true, "cu_linux_spaces_false_success");
   ensure(text_at(reply, "error.code") === "unsupported", "cu_linux_spaces_code");
   ensure(text_at(reply, "command") === "spaces", "cu_linux_spaces_command");
@@ -107,8 +197,24 @@ function verify_spaces_unsupported(reply, probe) {
   const alternatives = at(detail, "alternatives");
   ensure(Array.isArray(alternatives) && alternatives.length > 0,
     "cu_linux_spaces_alternatives:" + JSON.stringify(detail));
+  const joined = alternatives.join(" ").toLowerCase();
+  ensure(joined.indexOf("displays") >= 0, "cu_linux_spaces_alternatives_displays:" + joined);
+  ensure(joined.indexOf("windows") >= 0, "cu_linux_spaces_alternatives_windows:" + joined);
   ensure(probe.managed_spaces_unavailable === true,
     "cu_linux_spaces_probe_unavailable:" + JSON.stringify(probe));
+  if (ewmh.ewmh_present) {
+    ensure(
+      text_at(reply, "error.detail.required_os") === "macos",
+      "cu_linux_spaces_ewmh_still_macos_only:" + JSON.stringify(reply.error)
+    );
+    print(
+      "STEP independent xprop read-back: EWMH current_desktop="
+        + ewmh.current_desktop + " desktop_count=" + ewmh.desktop_count
+        + " does not satisfy macOS SkyLight managed Space inventory"
+    );
+  } else {
+    print("STEP host lacks root _NET_CURRENT_DESKTOP/_NET_NUMBER_OF_DESKTOPS; spaces remains macOS-only");
+  }
 }
 
 const args = rh.args();
@@ -122,13 +228,22 @@ const executable = rh.absolute(args[1]);
 ensure(direct_file(executable), "cu_linux_spaces_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-spaces");
+
+print("STEP spaces typed-fails usage when unexpected arguments are present");
+assert_spaces_usage_limit(context.run_directory, executable);
+
+print("STEP spaces without DISPLAY typed-fails unsupported macOS host-limit");
+assert_headless_host_limit(context.run_directory, executable);
+
 print("STEP independent probe confirms Linux has no macOS SkyLight managed Space model");
 const probe = independent_probe();
 ensure(probe.linux === true, "cu_linux_spaces_not_linux:" + JSON.stringify(probe));
 
+const ewmh = independent_ewmh_desktops(context.run_directory, executable);
+
 print("STEP spaces returns typed host-limit unsupported with detail.os/required_os/alternatives");
 const spaces = invoke(context.run_directory, executable, ["spaces"], false);
-verify_spaces_unsupported(spaces, probe);
+verify_spaces_unsupported(spaces, probe, ewmh);
 
 print("STEP capabilities declares spaces unsupported on this Linux host");
 const caps = invoke(context.run_directory, executable, ["capabilities"], true);
@@ -141,4 +256,4 @@ ensure(text_at(caps, "data.verbs.spaces.provider") === "none",
 
 harness.emit_evidence(context, declared_evidence, "cu.linux-spaces-readback");
 harness.remove_run(context);
-print("PASS typed unsupported with macOS SkyLight host-limit honesty and capabilities alignment");
+print("PASS typed unsupported with SkyLight host-limit honesty, EWMH workspace read-back, usage/headless paths, and capabilities alignment");
