@@ -1,5 +1,8 @@
 // CEO: Linux pointer-position observe plus pointer-grab/ungrab with
-// independent X11 read-back on DISPLAY=:2.
+// independent xdotool position and X11 grab-probe read-back on DISPLAY=:2.
+// Acceptance is smoke read-back only: CU coords must match xdotool and grab
+// status fields must match an independent XGrabPointer probe bracketing each
+// verb. No AT-SPI fixture, --coords, or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -11,6 +14,38 @@ const declared_evidence = [
   "cu.linux-pointer-grab",
   "cu.linux-pointer-ungrab",
 ];
+
+const GRAB_PROBE_SCRIPT = [
+  "import ctypes, ctypes.util, json, os",
+  "if not os.environ.get('DISPLAY'):",
+  "    raise SystemExit('missing DISPLAY')",
+  "x11 = ctypes.CDLL(ctypes.util.find_library('X11'))",
+  "x11.XOpenDisplay.restype = ctypes.c_void_p",
+  "x11.XOpenDisplay.argtypes = [ctypes.c_char_p]",
+  "x11.XDefaultScreen.restype = ctypes.c_int",
+  "x11.XDefaultScreen.argtypes = [ctypes.c_void_p]",
+  "x11.XRootWindow.restype = ctypes.c_ulong",
+  "x11.XRootWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]",
+  "x11.XGrabPointer.restype = ctypes.c_int",
+  "x11.XGrabPointer.argtypes = [",
+  "    ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_uint,",
+  "    ctypes.c_int, ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong,",
+  "]",
+  "x11.XUngrabPointer.restype = ctypes.c_int",
+  "x11.XUngrabPointer.argtypes = [ctypes.c_void_p, ctypes.c_ulong]",
+  "x11.XCloseDisplay.restype = ctypes.c_int",
+  "x11.XCloseDisplay.argtypes = [ctypes.c_void_p]",
+  "display = x11.XOpenDisplay(None)",
+  "if not display:",
+  "    raise SystemExit('XOpenDisplay failed')",
+  "screen = x11.XDefaultScreen(display)",
+  "root = x11.XRootWindow(display, screen)",
+  "status = x11.XGrabPointer(display, root, 0, 0, 1, 1, 0, 0, 0)",
+  "if status == 0:",
+  "    x11.XUngrabPointer(display, 0)",
+  "x11.XCloseDisplay(display)",
+  "print(json.dumps({'grab_status': int(status)}))",
+].join("\n");
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -86,7 +121,56 @@ function pointer_xy(run_directory, executable) {
   ]);
   const coords = reply.data.coords;
   ensure(coords.length === 2, "cu_linux_pointer_coords:" + JSON.stringify(reply.data));
-  return [int_at(reply, "data.coords.0"), int_at(reply, "data.coords.1")];
+  return [rh.int_of(coords[0]), rh.int_of(coords[1])];
+}
+
+function pointer_pair_from_data(data, field_name) {
+  const coords = rh.field(data, field_name);
+  ensure(coords !== undefined && coords !== null && coords.length === 2,
+         "cu_linux_pointer_pair:" + field_name + ":" + JSON.stringify(data));
+  return [rh.int_of(coords[0]), rh.int_of(coords[1])];
+}
+
+function coords_equal(left, right) {
+  return left[0] === right[0] && left[1] === right[1];
+}
+
+function independent_pointer_xy(run_directory) {
+  const output = rh.command("xdotool", ["getmouselocation", "--shell"], {
+    cwd: run_directory,
+    env: cu_env(run_directory),
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_pointer_xdotool_failed:" + output.stderr);
+  let x = null;
+  let y = null;
+  for (const line of output.stdout.split("\n")) {
+    if (line.startsWith("X=")) { x = rh.parse_int(line.slice(2)); }
+    if (line.startsWith("Y=")) { y = rh.parse_int(line.slice(2)); }
+  }
+  ensure(x !== null && y !== null, "cu_linux_pointer_xdotool_parse:" + output.stdout);
+  return [x, y];
+}
+
+function independent_grab_status(run_directory) {
+  const output = rh.command("python3", ["-c", GRAB_PROBE_SCRIPT], {
+    cwd: run_directory,
+    env: cu_env(run_directory),
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_pointer_grab_probe_failed:" + output.stderr);
+  const probe = JSON.parse(output.stdout.trim());
+  return int_at(probe, "grab_status");
+}
+
+function assert_pointer_matches_independent(run_directory, executable, label) {
+  const cu = pointer_xy(run_directory, executable);
+  const independent = independent_pointer_xy(run_directory);
+  ensure(
+    coords_equal(cu, independent),
+    "cu_linux_pointer_position_independent_mismatch:" + label + ":" + JSON.stringify({ cu, independent })
+  );
+  return cu;
 }
 
 const args = rh.args();
@@ -108,20 +192,24 @@ let succeeded = 0;
 let failure = "";
 
 try {
-  print("STEP pointer-position observes absolute screen coordinates on :2");
-  const before = pointer_xy(run_directory, executable);
+  print("STEP independent xdotool read-back agrees with pointer-position on :2");
+  const before = assert_pointer_matches_independent(run_directory, executable, "baseline");
   ensure(
     before[0] === rh.parse_int("" + before[0]) && before[1] === rh.parse_int("" + before[1]),
     "cu_linux_pointer_position_not_integers:" + JSON.stringify(before)
   );
-  const second = pointer_xy(run_directory, executable);
+  const second = assert_pointer_matches_independent(run_directory, executable, "stable");
   ensure(
-    second[0] === before[0] && second[1] === before[1],
+    coords_equal(second, before),
     "cu_linux_pointer_position_stable:" + JSON.stringify({ before, second })
   );
   succeeded += 1;
 
-  print("STEP pointer-grab verifies an independent X11 grab probe");
+  print("STEP pointer-grab verifies with independent X11 grab-probe read-back");
+  ensure(
+    independent_grab_status(run_directory) === 0,
+    "cu_linux_pointer_grab_before_not_available"
+  );
   const grab = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "actuate", "pointer-grab"
   ]);
@@ -132,14 +220,22 @@ try {
       && flag_at(grab, "data.verification.verified"),
     "cu_linux_pointer_grab:" + JSON.stringify(grab.data)
   );
-  const after_grab = pointer_xy(run_directory, executable);
   ensure(
-    after_grab[0] === before[0] && after_grab[1] === before[1],
+    coords_equal(pointer_pair_from_data(grab.data, "pointer"), before),
+    "cu_linux_pointer_grab_pointer_mismatch:" + JSON.stringify(grab.data)
+  );
+  ensure(
+    independent_grab_status(run_directory) === 0,
+    "cu_linux_pointer_grab_after_not_released"
+  );
+  const after_grab = assert_pointer_matches_independent(run_directory, executable, "after_grab");
+  ensure(
+    coords_equal(after_grab, before),
     "cu_linux_pointer_grab_moved_pointer:" + JSON.stringify({ before, after_grab })
   );
   succeeded += 1;
 
-  print("STEP pointer-ungrab proves grab is available again");
+  print("STEP pointer-ungrab proves grab is available again with independent probe");
   const ungrab = run_cu_json(run_directory, executable, [
     "--target", "current", "--grant", "actuate", "pointer-ungrab"
   ]);
@@ -149,9 +245,13 @@ try {
       && flag_at(ungrab, "data.verification.verified"),
     "cu_linux_pointer_ungrab:" + JSON.stringify(ungrab.data)
   );
-  const after_ungrab = pointer_xy(run_directory, executable);
   ensure(
-    after_ungrab[0] === before[0] && after_ungrab[1] === before[1],
+    int_at(ungrab, "data.verify_status") === independent_grab_status(run_directory),
+    "cu_linux_pointer_ungrab_probe_mismatch:" + JSON.stringify(ungrab.data)
+  );
+  const after_ungrab = assert_pointer_matches_independent(run_directory, executable, "after_ungrab");
+  ensure(
+    coords_equal(after_ungrab, before),
     "cu_linux_pointer_ungrab_moved_pointer:" + JSON.stringify({ before, after_ungrab })
   );
   succeeded += 1;
@@ -174,4 +274,4 @@ harness.emit_evidence(context, declared_evidence, "cu.linux-pointer-ungrab");
 harness.remove_run(context);
 ensure(failure === "", failure);
 ensure(succeeded === declared_evidence.length, "cu_linux_pointer_incomplete:" + succeeded);
-print("PASS: cu-linux-pointer-smoke (" + succeeded + " evidence ids)");
+print("PASS: cu-linux-pointer-smoke with independent xdotool and X11 grab-probe read-back (" + succeeded + " evidence ids)");
