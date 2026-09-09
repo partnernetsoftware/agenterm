@@ -5676,7 +5676,7 @@
     },
     {
       "id": "cu-linux-window-move-smoke",
-      "description": "Linux movewin --expect XxY on a disposable GTK fixture with independent windows inventory and xwininfo origin read-back; no --coords.",
+      "description": "Linux movewin --expect XxY on a disposable GTK fixture with independent windows inventory, xwininfo origin, and AT-SPI get-extents --name read-back; usage/miss/host-limit honesty; no --coords.",
       "entry": "scripts/qjs/cu-linux-window-move-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
