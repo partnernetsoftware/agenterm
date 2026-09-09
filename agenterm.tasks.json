@@ -6594,7 +6594,7 @@
     },
     {
       "id": "cu-linux-page-download-smoke",
-      "description": "Linux CDP page-download triggers a background download and independent download-dir filesystem read-back proves a non-empty file appeared under --download-dir; typed page-download usage rejects AT-SPI --name/--bogus and missing --download-dir/node; typed get-extents --name usage/host-limit court before actuate; no-CDP host-limit and bad-target miss paths; disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.",
+      "description": "Linux CDP page-download triggers a background download and independent download-dir filesystem read-back proves a non-empty file appeared under --download-dir; typed page-download usage rejects AT-SPI --name, --coords, --bogus; typed get-extents --name usage AND host-limit paths before the download-dir read-back court; missing --download-dir/node, no-CDP host-limit, and bad-target miss paths; disposable Chrome+CDP; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-download-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
