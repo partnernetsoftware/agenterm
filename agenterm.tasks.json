@@ -6390,7 +6390,7 @@
     },
     {
       "id": "cu-linux-browser-profiles-open-smoke",
-      "description": "Linux browser-profiles reads installed Google Chrome Local State without a live profile window and browser-open yields a new chrome window verified by independent windows inventory read-back; typed browser-profiles/browser-open usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux browser-profiles lists installed Google Chrome Local State with ZERO Chrome windows; get-extents --name court before browser-open; browser-open yields a new chrome window verified by independent windows inventory and AT-SPI tree/--name read-back (scripts/box-chrome-a11y.sh when present); Linux launch is not macOS open -na; typed browser-profiles/browser-open usage rejects AT-SPI --name; typed get-extents --name usage/host-limit paths before the court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-browser-profiles-open-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

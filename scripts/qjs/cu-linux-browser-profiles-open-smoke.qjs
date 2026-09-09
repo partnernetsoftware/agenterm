@@ -1,9 +1,11 @@
-// CEO: Linux browser-profiles (installed Local State, no live profile window)
-// plus browser-open with independent windows inventory read-back.
+// CEO: Linux browser-profiles lists installed Chrome profiles with ZERO Chrome
+// windows (Local State inventory evidence), then browser-open with independent
+// windows inventory plus AT-SPI tree/--name read-back.
 // Typed browser-profiles/browser-open usage must reject AT-SPI --name and other
-// unexpected arguments; typed get-extents --name usage/host-limit paths must
-// hold before the browser-profiles/browser-open read-back court.
-// AT-SPI/--name only; no --coords or screenshot degradation.
+// unexpected arguments; typed get-extents --name usage/host-limit/court paths
+// must hold BEFORE browser-open. After open+profile, tree --window must see the
+// Chrome window through AT-SPI (pin scripts/box-chrome-a11y.sh when present).
+// Linux launch must not be macOS `open -na`. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -16,6 +18,7 @@ const declared_evidence = [
 ];
 
 const AT_SPI_PROBE_NAME = "Browser Profiles Court Anchor";
+const COURT_NODE_NAME = "Fixture Entry";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -36,6 +39,12 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
 
 function output_success(document) { return flag_at(document, "ok"); }
 
@@ -245,6 +254,21 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_browser_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_browser_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  const missing_code = text_at(missing_name, "error.code");
+  ensure(
+    missing_code === "usage" || missing_code === "invalid_input",
+    "cu_linux_browser_extents_missing_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("name") >= 0,
+    "cu_linux_browser_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
 }
 
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
@@ -288,16 +312,233 @@ function profile_row(data, name) {
   throw "cu_linux_browser_missing_profile:" + name;
 }
 
+function windows_rows(document) {
+  const data = at(document, "data");
+  if (data === undefined || data === null) { return []; }
+  if (data.windows !== undefined) { return data.windows; }
+  if (Array.isArray(data)) { return data; }
+  return [];
+}
+
 function chrome_handles(document) {
-  const rows = document.data.windows === undefined ? document.data : document.data.windows;
   const handles = [];
-  for (const row of rows) {
+  for (const row of windows_rows(document)) {
     const app = text_at(row, "app_name").toLowerCase();
     if (app.indexOf("chrome") >= 0 || app === "google-chrome" || app === "google-chrome-stable") {
       handles.push("" + at(row, "handle"));
     }
   }
   return handles;
+}
+
+function attach_atspi_bus_from_runtime(env) {
+  if (env.AT_SPI_BUS_ADDRESS !== undefined && env.AT_SPI_BUS_ADDRESS !== "") {
+    return;
+  }
+  const runtime = env.XDG_RUNTIME_DIR;
+  if (runtime === undefined || runtime === "") { return; }
+  const bus_file = rh.join(runtime, "at-spi/bus");
+  if (!rh.exists(bus_file)) { return; }
+  const guid_parts = rh.read_text(bus_file).trim().split(",guid=");
+  const address = guid_parts[0];
+  if (address !== "") {
+    env.AT_SPI_BUS_ADDRESS = address;
+    env.AT_SPI_BUS = address;
+  }
+}
+
+function pin_box_chrome_atspi_bus(repo, env) {
+  const wrapper = rh.join(repo, "scripts/box-chrome-a11y.sh");
+  if (!direct_file(wrapper)) { return false; }
+  attach_atspi_bus_from_runtime(env);
+  let address = "";
+  if (env.AT_SPI_BUS_ADDRESS !== undefined) { address = "" + env.AT_SPI_BUS_ADDRESS; }
+  if (address === "" && env.AT_SPI_BUS !== undefined) { address = "" + env.AT_SPI_BUS; }
+  if (address === "") { return true; }
+  const guid_parts = address.split(",guid=");
+  address = guid_parts[0];
+  let display_num = "1";
+  if (env.DISPLAY !== undefined) {
+    let display = "" + env.DISPLAY;
+    const colon_parts = display.split(":");
+    if (colon_parts.length > 1) { display = colon_parts[1]; }
+    const dot_parts = display.split(".");
+    display_num = dot_parts[0];
+  }
+  let chrome_xdg = "/tmp/xdg-runtime-box";
+  if (rh.parse_int(display_num) >= 2) {
+    chrome_xdg = "/tmp/xdg-runtime-box-" + display_num;
+  }
+  rh.create_dir_all(rh.join(chrome_xdg, "at-spi"));
+  rh.write_text(rh.join(chrome_xdg, "at-spi/bus"), address + "\n");
+  env.AT_SPI_BUS_ADDRESS = address;
+  env.AT_SPI_BUS = address;
+  env.QT_ACCESSIBILITY = "1";
+  env.GNOME_ACCESSIBILITY = "1";
+  env.ACCESSIBILITY_ENABLED = "1";
+  return true;
+}
+
+function clear_stale_chrome() {
+  rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
+  rh.command_status("pkill", ["-9", "-f", "/opt/google/chrome/chrome"], { timeout_ms: 5000 });
+  harness.sleep_ms(1000);
+}
+
+function assert_zero_chrome_windows(run_directory, executable, env) {
+  let last = null;
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    last = run_cu(run_directory, executable, "observe", ["windows"], env);
+    if (chrome_handles(last).length === 0) { return last; }
+    if (attempt === 10 || attempt === 20) { clear_stale_chrome(); }
+    harness.sleep_ms(250);
+  }
+  const leftover = [];
+  for (const row of windows_rows(last)) {
+    const app = text_at(row, "app_name").toLowerCase();
+    if (app.indexOf("chrome") >= 0 || app === "google-chrome" || app === "google-chrome-stable") {
+      leftover.push({
+        handle: at(row, "handle"),
+        pid: at(row, "process_id"),
+        title: text_at(row, "title"),
+      });
+    }
+  }
+  throw "cu_linux_browser_chrome_windows_not_zero:" + JSON.stringify(leftover);
+}
+
+function window_row_for_title(run_directory, executable, env, title_needle, pid) {
+  const reply = run_cu(run_directory, executable, "observe", ["windows"], env);
+  for (const row of windows_rows(reply)) {
+    const title = text_at(row, "title");
+    const pid_ok = pid <= 0 || int_at(row, "process_id") === pid;
+    if (title.indexOf(title_needle) >= 0 && pid_ok && int_at(row, "handle") > 0) {
+      return row;
+    }
+  }
+  return null;
+}
+
+function assert_get_extents_name_court(run_directory, executable, env, repo) {
+  const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+  ensure(direct_file(fixture_source), "cu_linux_browser_court_fixture_missing:" + fixture_source);
+  const fixture_env = {};
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (env[key] !== undefined) { fixture_env[key] = env[key]; }
+  }
+  fixture_env.GTK_MODULES = "gail:atk-bridge";
+  const fixture = harness.start({
+    program: "python3",
+    args: [fixture_source],
+    current_dir: run_directory,
+    env: fixture_env,
+    timeout_ms: 30000,
+  });
+  let court_ok = false;
+  let failure = "";
+  try {
+    const fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ], env);
+    ensure(flag_at(window_wait, "data.met"),
+      "cu_linux_browser_court_window_wait:" + JSON.stringify(window_wait));
+    let row = null;
+    for (let attempt = 0; attempt < 40 && row === null; attempt = attempt + 1) {
+      row = window_row_for_title(run_directory, executable, env, fixture_title, fixture_pid);
+      if (row === null) { harness.sleep_ms(250); }
+    }
+    ensure(row !== null, "cu_linux_browser_court_inventory_missing:" + fixture_title);
+    const handle = "" + at(row, "handle");
+    const extents = run_cu(run_directory, executable, "observe", [
+      "get-extents", "--window", handle, "--name", COURT_NODE_NAME,
+    ], env);
+    const matched_name = text_at(extents, "data.matched.name");
+    const payload_name = text_at(extents, "data.name");
+    const named = matched_name === COURT_NODE_NAME || payload_name === COURT_NODE_NAME;
+    ensure(
+      text_at(extents, "command") === "get-extents"
+        && text_at(extents, "data.via") === "get-extents"
+        && int_at(extents, "data.extents.width") > 0
+        && int_at(extents, "data.extents.height") > 0
+        && named,
+      "cu_linux_browser_court_extents:" + JSON.stringify(extents)
+    );
+    court_ok = true;
+  } catch (error) {
+    failure = "" + error;
+  }
+  try { harness.kill(fixture); } catch (error) { print("cleanup court fixture: " + error); }
+  ensure(court_ok, failure || "cu_linux_browser_court_failed");
+}
+
+function assert_linux_open_not_macos_na(opened) {
+  const mechanism = text_at(opened, "data.mechanism");
+  ensure(
+    mechanism !== "open -na" && mechanism === "chromium --profile-directory+cdp",
+    "cu_linux_browser_open_macos_na:" + JSON.stringify(opened.data)
+  );
+  const argv = at(opened, "data.argv");
+  ensure(Array.isArray(argv) && argv.length > 0,
+    "cu_linux_browser_open_argv:" + JSON.stringify(opened.data));
+  let argv_text = "";
+  for (const argument of argv) { argv_text = argv_text + " " + argument; }
+  ensure(
+    argv_text.indexOf("open -na") < 0 && argv_text.indexOf(" -na ") < 0,
+    "cu_linux_browser_open_argv_na:" + argv_text
+  );
+  const binary = ("" + argv[0]).toLowerCase();
+  ensure(
+    binary.indexOf("chrome") >= 0 || binary.indexOf("chromium") >= 0,
+    "cu_linux_browser_open_linux_binary:" + argv[0]
+  );
+}
+
+function tree_sees_chrome_window(document, handle, title_needle, require_renderer) {
+  ensure(
+    text_at(document, "command") === "tree"
+      && text_at(document, "data.backend") === "at-spi2"
+      && text_at(document, "data.addressing") === "accessibility-tree"
+      && ("" + at(document, "data.window")) === ("" + handle)
+      && !flag_at(document, "data.degraded"),
+    "cu_linux_browser_open_tree_shape:" + JSON.stringify(document.data)
+  );
+  const nodes = at(document, "data.nodes");
+  ensure(Array.isArray(nodes) && nodes.length >= 1 && int_at(document, "data.visited") >= 1,
+    "cu_linux_browser_open_tree_empty:" + JSON.stringify(document.data));
+  let saw = false;
+  for (const node of nodes) {
+    const name = text_at(node, "name").toLowerCase();
+    const role = text_at(node, "role").toLowerCase();
+    if (name.indexOf("chrome") >= 0
+        || (title_needle !== "" && name.indexOf(title_needle.toLowerCase()) >= 0)
+        || role.indexOf("application") >= 0
+        || role.indexOf("frame") >= 0) {
+      saw = true;
+    }
+  }
+  ensure(saw, "cu_linux_browser_open_tree_no_chrome:" + JSON.stringify({
+    handle: handle,
+    title: title_needle,
+    visited: at(document, "data.visited"),
+    nodes: nodes.length,
+  }));
+  if (require_renderer) {
+    ensure(
+      nodes.length > 1 && int_at(document, "data.visited") > 1,
+      "cu_linux_browser_open_tree_x11_frame_only:" + JSON.stringify({
+        visited: at(document, "data.visited"),
+        returned: nodes.length,
+      })
+    );
+  }
 }
 
 const args = rh.args();
@@ -323,6 +564,8 @@ const fixture = rh.join(html_dir, "fixture.html");
 const fixture_title = "CEO Browser Open " + context.run_id;
 const env = isolated_env(run_directory, executable);
 env.CHROME_USER_DATA_DIR = user_data;
+attach_atspi_bus_from_runtime(env);
+const a11y_launcher_present = pin_box_chrome_atspi_bus(repo, env);
 const atspi_available = probe_atspi_available(executable);
 
 let succeeded = 0;
@@ -333,16 +576,17 @@ try {
   assert_browser_profiles_open_usage_limit(run_directory, executable, env);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before browser-profiles/browser-open read-back");
+    print("STEP get-extents typed-fail invalid_input when --window is zero or --name is missing before browser-open");
     assert_get_extents_usage_limit(run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
     assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
   }
 
-  print("STEP clear stale box-chrome singletons on this display before browser-open");
-  rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
-  harness.sleep_ms(1000);
+  print("STEP clear stale Chrome/box-chrome processes on this display before zero-chrome inventory");
+  clear_stale_chrome();
+  print("STEP prove ZERO Chrome windows on this display before browser-profiles");
+  assert_zero_chrome_windows(run_directory, executable, env);
 
   print("STEP write synthetic Chromium Local State under an invocation-owned HOME");
   rh.create_dir_all(rh.join(user_data, "Default"));
@@ -360,7 +604,7 @@ try {
     },
   }));
 
-  print("STEP browser-profiles lists Google Chrome from installed Local State without a live court-alpha window");
+  print("STEP browser-profiles lists Google Chrome from installed Local State with ZERO Chrome windows");
   const profiles = run_cu(run_directory, executable, "observe", [
     "browser-profiles", "--app", "Google Chrome",
   ], env);
@@ -382,6 +626,13 @@ try {
     "cu_linux_browser_profiles_alpha_no_live_window:" + JSON.stringify(alpha.windows));
   harness.emit_evidence(context, declared_evidence, "cu.linux-browser-profiles-installed");
 
+  if (atspi_available) {
+    print("STEP get-extents --name court on owned GTK fixture BEFORE browser-open");
+    assert_get_extents_name_court(run_directory, executable, env, repo);
+  } else {
+    print("STEP skip get-extents --name court: pyatspi desktop probe unavailable (host-limit already recorded)");
+  }
+
   print("STEP record independent chrome window handles before browser-open");
   const before_inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
   const before_handles = chrome_handles(before_inventory);
@@ -393,8 +644,8 @@ try {
   let opened = null;
   for (let open_attempt = 0; open_attempt < 3 && opened === null; open_attempt = open_attempt + 1) {
     if (open_attempt > 0) {
-      rh.command_status("pkill", ["-9", "-f", "/usr/local/bin/box-chrome"], { timeout_ms: 5000 });
-      harness.sleep_ms(2000);
+      clear_stale_chrome();
+      harness.sleep_ms(1000);
     }
     const output = rh.command(executable, [
       "--target", "current", "--grant", "actuate",
@@ -414,6 +665,8 @@ try {
   }
   ensure(opened !== null, "cu_linux_browser_open_failed");
   ensure(opened.command === "browser-open", "cu_linux_browser_open_identity");
+  print("STEP browser-open Linux launch is chromium --profile-directory+cdp, not macOS open -na");
+  assert_linux_open_not_macos_na(opened);
   const open_handle = "" + at(opened, "data.handle");
   ensure(open_handle !== "" && open_handle !== "0",
     "cu_linux_browser_open_handle:" + JSON.stringify(opened.data));
@@ -422,9 +675,8 @@ try {
   for (let attempt = 0; attempt < 40 && readback_handle === null; attempt = attempt + 1) {
     const inventory = run_cu(run_directory, executable, "observe", ["windows"], env);
     for (const handle of chrome_handles(inventory)) {
-      if (before_set[handle] !== true) {
+      if (readback_handle === null && before_set[handle] !== true) {
         readback_handle = handle;
-        break;
       }
     }
     if (readback_handle === null) { harness.sleep_ms(250); }
@@ -437,6 +689,36 @@ try {
     }));
   harness.emit_evidence(context, declared_evidence, "cu.linux-browser-open-window");
 
+  if (atspi_available) {
+    print("STEP tree --window sees the opened Chrome window through AT-SPI"
+      + (a11y_launcher_present ? " (box-chrome-a11y.sh present)" : " (box-chrome-a11y.sh absent)"));
+    let tree_document = null;
+    let tree_error = "";
+    for (let attempt = 0; attempt < 40 && tree_document === null; attempt = attempt + 1) {
+      const tree = run_cu_reply(run_directory, executable, "observe", [
+        "tree", "--window", open_handle,
+        "--depth", "6",
+        "--max-nodes", "200",
+        "--flat",
+      ], env);
+      if (output_success(tree)) {
+        try {
+          tree_sees_chrome_window(tree, open_handle, fixture_title, a11y_launcher_present);
+          tree_document = tree;
+        } catch (error) {
+          tree_error = "" + error;
+          harness.sleep_ms(250);
+        }
+      } else {
+        tree_error = "cu_linux_browser_open_tree_reply:" + JSON.stringify(tree);
+        harness.sleep_ms(250);
+      }
+    }
+    ensure(tree_document !== null, tree_error || "cu_linux_browser_open_tree_missing");
+  } else {
+    print("STEP skip Chrome AT-SPI tree read-back: pyatspi desktop probe unavailable");
+  }
+
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -448,9 +730,9 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux browser-profiles installed inventory + browser-open windows read-back with typed browser-profiles/browser-open/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux browser-profiles zero-chrome installed inventory + browser-open windows/tree AT-SPI --name court (not open -na, no --coords)");
   } else {
-    print("PASS: Linux browser-profiles installed inventory + browser-open windows read-back with typed browser-profiles/browser-open/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux browser-profiles zero-chrome installed inventory + browser-open windows read-back with get-extents/tree host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
