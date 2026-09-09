@@ -6088,7 +6088,7 @@
     },
     {
       "id": "cu-linux-hide-show-smoke",
-      "description": "Linux app hide/show with typed app hide/show/get-extents AT-SPI --name usage or host-limit honesty, miss/headless host-limit paths, and independent windows inventory plus xprop map-state read-back; no --coords.",
+      "description": "Linux app hide/show with typed app hide/show usage rejects AT-SPI --name/--coords/--bogus misuse (or stays named AT-SPI, never coordinate degradation); typed get-extents --name usage AND host-limit paths both hold before the hide/show actuate/read-back court; miss/headless host-limit paths and independent windows inventory plus xprop map-state read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-hide-show-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
