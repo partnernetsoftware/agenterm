@@ -1080,8 +1080,11 @@ reached the exact profile's `DevToolsActivePort` record, but the readiness curl
 was routed through the host HTTP proxy. Attempt 4 bypasses proxies only for
 that loopback check and passed the frozen discriminator: PRIVATE 20/20, both
 public controls 0/20, zero peer delivery or host-state drift, cleanup verified.
-The separate 1,000-action Chromium PRIVATE repeat still precedes any
-previous-generation C9 court or product provider claim.
+The corrected current-host Chromium PRIVATE repeat then passed 1,000/1,000
+actions in 20 contiguous blocks with zero loss, misdelivery, duplicate or host
+drift and with cleanup verified before the verdict. This unlocks only the
+previous-generation C9 court; it does not register public evidence, qualify a
+provider or close `acu.dynamic.074`.
 The only reviewed permanent retirement in this cut is the login-service
 query for MCU's removed global daemon object.
 

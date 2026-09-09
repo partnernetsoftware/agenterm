@@ -339,6 +339,14 @@ malformed, timed-out or budget-exhausted block makes the whole run
 `INCONCLUSIVE`. This changes only execution isolation; criteria, event fields,
 target identity and the kill criterion remain frozen.
 
+The corrected run from repository SHA `ee478c2a` and repeat digest
+`c27769903ba69056ab171ff7297a69f4fa981a821a5af3b1e81c8e9a8e066e3e`
+passed 1,000/1,000 actions in 20 contiguous blocks with zero loss,
+misdelivery, duplicate delivery or host drift and with cleanup verified before
+the verdict. The current-host repeat gate is therefore complete. C9 remains
+the next required decision node; no product provider or release dependency is
+authorized by this result alone.
+
 ### 9.4 Explicitly not answered
 
 - whether PID-targeted public delivery is documented or future-stable;

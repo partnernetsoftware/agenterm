@@ -164,3 +164,45 @@ one parent retains the same live profile, A/B window identities and guard while
 criteria and first-failure kill rule are unchanged. This correction was frozen
 before any qualifying chunked run; no behavioral result was available when the
 protocol changed.
+
+## Chromium PRIVATE repeat attempt 2 · 2026-09-09
+
+- Repository source SHA: `67685196101c72bdcc81cf7493387876d484fab0`.
+- Repeat source digest:
+  `fc30f730a1678c381a35f439b82a69cbc87d227a476eb1426baae17f6a287c61`.
+- Runner output: 1,000/1,000 exact across 20 contiguous 50-action blocks;
+  zero loss, duplicate, peer delivery or host drift; cleanup reported complete.
+- Elapsed time: 610,130 ms.
+- Protocol adjudication: `INCONCLUSIVE_REPORT_CONTRACT`.
+
+The action path completed cleanly, but a post-run read-only audit found that a
+short detector could still print `PASS`, rejected-worker diagnostics could put
+host paths in the public JSON, a failure reply's global action index was not
+independently checked, and the run directory was removed after rather than
+before printing `PASS`. None changed a successful action's delivery oracle, but
+they were defects in the frozen result contract. The source was corrected, so
+this run is not carried forward as the qualifying result.
+
+## Chromium PRIVATE repeat attempt 3 · 2026-09-09
+
+- Repository source SHA: `ee478c2abfcb001315343833ad6f262cd752fabf`.
+- Repeat source digest:
+  `c27769903ba69056ab171ff7297a69f4fa981a821a5af3b1e81c8e9a8e066e3e`.
+- Host: macOS 26.5.1 build 25F80, arm64.
+- Verdict: `PASS`.
+- Completed repeat: 1,000/1,000 exact PRIVATE actions in 20 contiguous
+  50-action workers under one parent-owned profile, A/B identity and guard.
+- Failure counts: host drift 0, misdelivery 0, duplicate 0, loss 0.
+- Elapsed time: 609,655 ms.
+- Cleanup: required, completed and verified before the final verdict was
+  printed.
+
+Every worker echoed the frozen source identity, global range and timing
+contract; the parent rejected nonzero, timed-out, truncated, malformed or
+noncontiguous replies and accepted all ranges from 1 through 1,000 exactly
+once. Each action reset and independently read both DOM oracles, injected one
+PRIVATE wheel action at the fixed background target, and preserved the guard's
+foreground ownership. This satisfies the precommitted current-host Chromium
+repeat gate. It does not qualify a product provider or close
+`acu.dynamic.074`; it only permits spending a previous-generation arm64 host
+on the unchanged C9 run.

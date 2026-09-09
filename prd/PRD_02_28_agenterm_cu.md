@@ -627,8 +627,11 @@ ACU-only cutover
 │  │     its readiness curl was routed through the host HTTP proxy. Attempt 4 bypasses
 │  │     proxies only for that loopback check and passed the frozen discriminator:
 │  │     PRIVATE 20/20, both public controls 0/20, zero peer delivery or host-state
-│  │     drift, and verified cleanup. Product qualification remains blocked behind
-│  │     the separate 1,000-action PRIVATE repeat and previous-generation C9.
+│  │     drift, and verified cleanup. The corrected current-host repeat then passed
+│  │     1,000/1,000 PRIVATE actions in 20 contiguous blocks with zero loss,
+│  │     misdelivery, duplicate or host drift and verified cleanup. Product
+│  │     qualification remains blocked behind previous-generation C9; neither
+│  │     research result registers public evidence or authorizes a provider.
 │  │     This is distinct from Linux named `scroll-wheel`, which temporarily moves
 │  │     and then restores the physical pointer.
 │  ├─ [~] acu.dynamic.075 · native `browser-tabs` resolves one exact MV3 profile connection;
