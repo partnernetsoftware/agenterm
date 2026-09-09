@@ -1,6 +1,7 @@
 // CEO: maximize/unmaximize --expect maximized|unmaximized on Linux.
-// Acceptance is smoke read-back only: independent windows inventory
-// maximized field must match --expect after each verb. No --coords or screenshot.
+// Acceptance is smoke read-back only: independent xprop _NET_WM_STATE and
+// windows inventory maximized field must match --expect after each verb.
+// No --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -92,6 +93,18 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
+function independent_net_wm_maximized(run_directory, handle) {
+  const xprop = rh.command("xprop", ["-id", "" + handle, "_NET_WM_STATE"], {
+    cwd: run_directory,
+    env: cu_env(""),
+    timeout_ms: 10000,
+  });
+  if (!xprop.success) { return false; }
+  const stdout = xprop.stdout;
+  return stdout.indexOf("_NET_WM_STATE_MAXIMIZED_VERT") >= 0
+    && stdout.indexOf("_NET_WM_STATE_MAXIMIZED_HORZ") >= 0;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -143,6 +156,12 @@ try {
     "cu_linux_maximize_expect_reply_maximized:" + JSON.stringify(maximized.data)
   );
 
+  print("STEP independent xprop _NET_WM_STATE read-back: maximized must be true");
+  ensure(
+    independent_net_wm_maximized(run_directory, int_at(row, "handle")) === true,
+    "cu_linux_maximize_expect_xprop_maximized"
+  );
+
   print("STEP independent windows inventory read-back: maximized must be true");
   const maximized_row = window_row(run_directory, executable, fixture_pid, fixture_title);
   ensure(maximized_row !== null, "cu_linux_maximize_expect_maximized_row_missing");
@@ -159,6 +178,12 @@ try {
     flag_at(unmaximized, "data.verified")
       && flag_at(unmaximized, "data.after.maximized") === false,
     "cu_linux_maximize_expect_reply_unmaximized:" + JSON.stringify(unmaximized.data)
+  );
+
+  print("STEP independent xprop _NET_WM_STATE read-back: maximized must be false");
+  ensure(
+    independent_net_wm_maximized(run_directory, int_at(row, "handle")) === false,
+    "cu_linux_maximize_expect_xprop_unmaximized"
   );
 
   print("STEP independent windows inventory read-back: maximized must be false");
@@ -180,5 +205,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-maximize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-maximize-expect-state");
 harness.remove_run(context);
-print("PASS: CEO Linux maximize/unmaximize --expect with independent windows inventory maximized read-back");
+print("PASS: CEO Linux maximize/unmaximize --expect with independent xprop and windows inventory maximized read-back");
 return;
