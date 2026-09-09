@@ -4,9 +4,10 @@
 // over the same selector window. Typed process-watch usage must reject --coords,
 // --bogus, and other unexpected arguments; native --name remains the
 // executable-name selector (not AT-SPI). Typed get-extents --name usage AND
-// host-limit paths must both hold before the /proc scan diff read-back court.
-// Prefer host-limit clarity over fake success. AT-SPI/--name only; no --coords
-// or screenshot degradation.
+// host-limit paths must both hold before the /proc scan diff read-back court,
+// including get-extents --coords/--bogus command=usage honesty via
+// usage_rejects_unexpected. Prefer host-limit clarity over fake success.
+// AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -42,11 +43,6 @@ function output_success(document) { return at(document, "ok") === true; }
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
-}
-
-function get_extents_misuse_message_ok(message, token) {
-  return usage_rejects_unexpected(message, token)
-    || message.indexOf("--name") >= 0;
 }
 
 function cu_env(executable) {
@@ -146,6 +142,10 @@ function assert_process_watch_usage_limit(run_directory, executable, env) {
     "cu_linux_process_watch_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
   );
   ensure(
+    text_at(grouped_with_bogus, "command") === "usage",
+    "cu_linux_process_watch_usage_grouped_bogus_command:" + JSON.stringify(grouped_with_bogus)
+  );
+  ensure(
     usage_rejects_unexpected(text_at(grouped_with_bogus, "error.message"), "--bogus"),
     "cu_linux_process_watch_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
@@ -176,6 +176,10 @@ function assert_process_watch_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(grouped_with_coords, "error.code") === "usage",
     "cu_linux_process_watch_usage_grouped_coords_code:" + JSON.stringify(grouped_with_coords.error)
+  );
+  ensure(
+    text_at(grouped_with_coords, "command") === "usage",
+    "cu_linux_process_watch_usage_grouped_coords_command:" + JSON.stringify(grouped_with_coords)
   );
   ensure(
     usage_rejects_unexpected(text_at(grouped_with_coords, "error.message"), "--coords"),
@@ -263,7 +267,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_process_watch_extents_coords_command:" + JSON.stringify(extents_coords)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_process_watch_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -281,7 +286,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_process_watch_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_process_watch_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -582,15 +588,11 @@ try {
   print("STEP process-watch typed-fails usage when --coords/--bogus is present; native --name remains executable selector");
   assert_process_watch_usage_limit(context.run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before /proc scan diff read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before /proc scan diff read-back court");
   assert_get_extents_usage_limit(context.run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before /proc scan diff read-back court");
   assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
-
-  if (atspi_available !== true) {
-    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; process-watch read-back still uses /proc scan diffs");
-  }
 
   print("STEP process-watch --parent diff matches independent /proc child add/remove read-back");
   verify_parent_watch(context.run_directory, executable, env);
@@ -610,9 +612,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-process-watch-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux process-watch matches independent /proc scan diff read-back with typed process-watch --coords/--bogus and get-extents --name usage/host-limit honesty (native --name executable selector; AT-SPI --name, no --coords)");
+    print("PASS: Linux process-watch matches independent /proc scan diff read-back with typed process-watch --coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (native --name executable selector; AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux process-watch matches independent /proc scan diff read-back with typed process-watch --coords/--bogus usage and get-extents --name host-limit honesty (native --name executable selector; AT-SPI --name, no --coords)");
+    print("PASS: Linux process-watch matches independent /proc scan diff read-back with typed process-watch --coords/--bogus usage_rejects_unexpected and get-extents --name host-limit plus --coords/--bogus command=usage honesty (native --name executable selector; AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

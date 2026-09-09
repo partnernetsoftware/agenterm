@@ -7533,7 +7533,7 @@
     },
     {
       "id": "cu-linux-process-watch-smoke",
-      "description": "Linux process-watch started/exited diffs match independent /proc scan pid/start-identity add/remove read-back over the same selector window; typed process-watch usage rejects --coords/--bogus and other unexpected arguments while native --name remains the executable selector; typed get-extents --name usage AND host-limit paths both hold before the /proc scan diff read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux process-watch started/exited diffs match independent /proc scan pid/start-identity add/remove read-back; typed process-watch usage rejects --coords/--bogus (usage_rejects_unexpected + command=usage) while native --name stays the executable selector; typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty before /proc read-back; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-watch-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
