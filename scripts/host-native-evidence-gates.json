@@ -544,6 +544,23 @@
       ]
     },
     {
+      "id": "cu-linux-gtk-copy-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-gtk-entry-copy-clipboard",
+        "cu.linux-gtk-label-copy-clipboard"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-entry-selection-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-gtk-entry-select-region",
+        "cu.linux-gtk-entry-select-all",
+        "cu.linux-gtk-entry-get-selection"
+      ]
+    },
+    {
       "id": "cu-linux-desktop-state-smoke",
       "platform": "linux",
       "evidence": [
