@@ -5,13 +5,17 @@
 // select-all via send-keys. Typed get-selection/select usage and host-limit
 // paths must hold when --window/--name are missing or the AT-SPI bus is
 // unavailable; typed get-extents --name usage AND host-limit courts must both
-// hold before the native actuate/read-back court (no if/else gating those
-// courts on atspi_available). Typed get-selection/select must reject
-// --coords/--bogus without --name as usage (usage_rejects_unexpected) with
-// command=usage, and named --coords/--bogus must reject as command=usage or
-// stay accessibility-tree --name (never coordinate addressing). Miss paths
-// must not mutate the entry (independent get-text read-back). AT-SPI --name
-// only; no --coords, screenshot, or clipboard proof.
+// hold before process-state, desktop-state, and the native actuate/read-back
+// court (no if/else gating those courts on atspi_available). Typed
+// get-selection/select must reject --coords/--bogus without --name as usage
+// (usage_rejects_unexpected) with command=usage, or honest non-usage typed
+// failure (never fake command=usage); named --coords/--bogus must reject as
+// command=usage or stay accessibility-tree --name (never coordinate
+// addressing). get-extents --coords/--bogus must reject as command=usage.
+// process-state and desktop-state fixture binding courts must hold before
+// actuate/read-back. Miss paths must not mutate the entry (independent
+// get-text read-back). AT-SPI --name only; no --coords, screenshot, or
+// clipboard proof.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -28,6 +32,8 @@ const ENTRY_NAME = "Fixture Entry";
 const MISSING_NODE = "No Such Entry";
 const UNAVAILABLE_NODE = "Fixture Check";
 const FIXTURE_SEED = "seed";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -84,6 +90,27 @@ function cu_env(executable) {
     env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
   }
   return env;
+}
+
+function invalid_atspi_env(executable) {
+  return {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+}
+
+function assert_host_limit_code(code, label, reply) {
+  ensure(
+    text_at(reply, "command") !== "usage",
+    label + "_fake_usage:" + JSON.stringify(reply)
+  );
+  const allowed = code === "a11y_backend_failed"
+    || code === "unsupported"
+    || code === "bad_handle"
+    || code === "a11y_node_not_found"
+    || code === "a11y_selection_unavailable";
+  ensure(allowed, label + ":" + code + ":" + JSON.stringify(reply.error));
 }
 
 function output_success(document) { return flag_at(document, "ok"); }
@@ -458,44 +485,81 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
   const reply = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--name", ENTRY_NAME,
-  ], {
-    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
-    AGENTERM_NO_ACTIVATE: "1",
-    AT_SPI_BUS_ADDRESS: "invalid",
-  });
+  ], invalid_atspi_env(executable));
   ensure(!output_success(reply), "cu_linux_gtk_entry_selection_extents_unavailable_ok:" + JSON.stringify(reply));
-  const code = text_at(reply, "error.code");
-  ensure(
-    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
-      || code === "a11y_node_not_found",
-    "cu_linux_gtk_entry_selection_extents_unavailable_code:" + code
+  assert_host_limit_code(
+    text_at(reply, "error.code"),
+    "cu_linux_gtk_entry_selection_extents_unavailable_code",
+    reply
   );
 }
 
 function assert_selection_host_limit_when_atspi_absent(run_directory, executable) {
-  const env = {
-    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
-    AGENTERM_NO_ACTIVATE: "1",
-    AT_SPI_BUS_ADDRESS: "invalid",
-  };
+  const env = invalid_atspi_env(executable);
   const get_reply = run_cu_reply(run_directory, executable, "observe", [
     "get-selection", "--window", "1", "--name", ENTRY_NAME,
   ], env);
   ensure(!output_success(get_reply), "cu_linux_gtk_entry_selection_unavailable_ok:" + JSON.stringify(get_reply));
-  const get_code = text_at(get_reply, "error.code");
-  ensure(
-    get_code === "a11y_backend_failed" || get_code === "unsupported" || get_code === "bad_handle",
-    "cu_linux_gtk_entry_selection_unavailable_code:" + get_code
+  assert_host_limit_code(
+    text_at(get_reply, "error.code"),
+    "cu_linux_gtk_entry_selection_unavailable_code",
+    get_reply
   );
 
   const select_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
     "select", "--window", "1", "--name", ENTRY_NAME, "--start", "0", "--end", "1",
   ], env);
   ensure(!output_success(select_reply), "cu_linux_gtk_entry_selection_select_unavailable_ok:" + JSON.stringify(select_reply));
-  const select_code = text_at(select_reply, "error.code");
+  assert_host_limit_code(
+    text_at(select_reply, "error.code"),
+    "cu_linux_gtk_entry_selection_select_unavailable_code",
+    select_reply
+  );
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
   ensure(
-    select_code === "a11y_backend_failed" || select_code === "unsupported" || select_code === "bad_handle",
-    "cu_linux_gtk_entry_selection_select_unavailable_code:" + select_code
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_gtk_entry_selection_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_gtk_entry_selection_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_gtk_entry_selection_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_gtk_entry_selection_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_gtk_entry_selection_desktop_state_tree:" + JSON.stringify(state.data.tree)
   );
 }
 
@@ -591,17 +655,17 @@ try {
   print("STEP get-selection / select typed-fail usage when --window or --name is missing, or --coords/--bogus is present without --name (usage_rejects_unexpected + command=usage)");
   assert_selection_usage_limit(run_directory, executable);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before process-state/desktop-state and actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
-  print("STEP get-selection / select typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+  print("STEP get-selection / select typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and actuate/read-back court");
   assert_selection_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
-    print("STEP independent pyatspi desktop probe unavailable: get-extents and get-selection/select host-limit already held");
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held");
     succeeded = 1;
   } else {
     print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
@@ -621,6 +685,25 @@ try {
     const row = window_row(run_directory, executable, fixture_pid, fixture_title);
     ensure(row !== null, "cu_linux_gtk_entry_selection_window_identity");
     const handle = "" + at(row, "handle");
+
+    print("STEP process-state binds the owned fixture pid before get-selection/select actuate/read-back court");
+    assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+    print("STEP desktop-state window row agrees with inventory before get-selection/select actuate/read-back court");
+    assert_fixture_desktop_state(
+      run_directory, executable, fixture_pid, fixture_title, handle, row
+    );
+
+    print("STEP get-extents --name locates the GTK entry before get-selection/select actuate/read-back court");
+    const entry_extents = run_cu(run_directory, executable, "observe", [
+      "get-extents", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(entry_extents, "data.matched.name") === ENTRY_NAME
+        && int_at(entry_extents, "data.extents.width") > 0
+        && int_at(entry_extents, "data.extents.height") > 0,
+      "cu_linux_gtk_entry_selection_extents_before_actuate:" + JSON.stringify(entry_extents.data)
+    );
 
     print("STEP get-selection / select typed-fail a11y_node_not_found when the named entry is missing");
     assert_selection_missing_node(run_directory, executable, handle, "before_focus");
@@ -764,7 +847,7 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_selection_failed");
 if (atspi_available) {
-  print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection/get-text read-back, typed get-selection/select --coords/--bogus usage_rejects_unexpected, and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection/get-text read-back, typed get-selection/select --coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state courts before actuate (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO#7 GTK entry selection typed-fails with typed get-extents --name usage AND host-limit honesty, get-selection/select host-limit, and --coords/--bogus command=usage when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO#7 GTK entry selection typed-fails with typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty, get-selection/select host-limit (never fake command=usage), when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
 }
