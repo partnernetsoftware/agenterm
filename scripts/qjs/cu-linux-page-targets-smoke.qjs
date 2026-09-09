@@ -1,7 +1,9 @@
 // CEO: Linux page-targets honesty — CU CDP /json inventory matches independent curl read.
 // Acceptance is smoke read-back only: page-targets --port and identity-bound --pid
 // must agree with curl /json on the same debugging port; a free port must typed-fail
-// before any owned Chrome exists. Disposable Chrome profile; no --coords or screenshot.
+// before any owned Chrome exists. Typed get-extents --name usage/miss/host-limit paths
+// and independent pyatspi extents agreement must hold before the CDP read-back court.
+// AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -11,6 +13,9 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-cdp-page-targets-readback",
 ];
+
+const ANCHOR_NAME = "Fixture Anchor";
+const MISSING_NODE = "No Such Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -31,6 +36,14 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -72,8 +85,164 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
 
 function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
-  ensure(flag_at(document, "ok"), "cu_linux_page_targets_reply:" + JSON.stringify(document));
+  ensure(output_success(document), "cu_linux_page_targets_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_page_targets_usage_rejects_name(run_directory, executable, env, port) {
+  const with_name = run_cu_reply(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port, "--name", ANCHOR_NAME,
+  ], env);
+  ensure(!output_success(with_name), "cu_linux_page_targets_usage_name_ok:" + JSON.stringify(with_name));
+  ensure(
+    text_at(with_name, "error.code") === "usage",
+    "cu_linux_page_targets_usage_name_code:" + JSON.stringify(with_name.error)
+  );
+  ensure(
+    text_at(with_name, "command") === "usage"
+      || text_at(with_name, "error.message").indexOf("--name") >= 0
+      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_page_targets_usage_name_message:" + JSON.stringify(with_name.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", ANCHOR_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_page_targets_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_targets_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_targets_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", ANCHOR_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_page_targets_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_page_targets_extents_unavailable_code:" + code
+  );
+}
+
+function assert_get_extents_missing_node(run_directory, executable, env, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", MISSING_NODE,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_targets_extents_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_page_targets_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function independent_pyatspi_extents(run_directory, executable, env, window_title, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "want = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and title in (w.name or ''):",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == want:",
+    "        return node",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_page_targets_atspi_no_frame')",
+    "node = walk(frame)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_page_targets_atspi_miss:' + want)",
+    "component = node.queryComponent()",
+    "ext = component.getExtents(pyatspi.DESKTOP_COORDS)",
+    "x, y, w, h = int(ext.x), int(ext.y), int(ext.width), int(ext.height)",
+    "print(json.dumps({",
+    "    'name': want,",
+    "    'x': x, 'y': y, 'width': w, 'height': h,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, window_title, node_name], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_page_targets_pyatspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_get_extents_agreement(run_directory, executable, env, handle, window_title, node_name) {
+  const pyatspi_anchor = independent_pyatspi_extents(
+    run_directory, executable, env, window_title, node_name
+  );
+  const anchor_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", node_name,
+  ], env);
+  ensure(
+    int_at(anchor_extents, "data.extents.x") === pyatspi_anchor.x
+      && int_at(anchor_extents, "data.extents.y") === pyatspi_anchor.y
+      && int_at(anchor_extents, "data.extents.width") === pyatspi_anchor.width
+      && int_at(anchor_extents, "data.extents.height") === pyatspi_anchor.height,
+    "cu_linux_page_targets_extents_agree:" + JSON.stringify({
+      cu: anchor_extents.data.extents,
+      pyatspi_anchor: pyatspi_anchor,
+    })
+  );
+}
+
+function window_row_for_title(run_directory, executable, env, title_needle) {
+  const reply = run_cu(run_directory, executable, "observe", ["windows"], env);
+  for (const row of windows_rows(reply)) {
+    const title = text_at(row, "title");
+    if (title.indexOf(title_needle) < 0) { continue; }
+    const handle = int_at(row, "handle");
+    if (handle > 0) { return row; }
+  }
+  return null;
 }
 
 function windows_rows(reply) {
@@ -218,7 +387,9 @@ const env = cu_env(executable);
 const fixture_title = "CEO Page Targets " + context.run_id;
 const fixture = rh.join(run_directory, "page-targets.html");
 rh.write_text(fixture, "<!DOCTYPE html><html><head><title>"
-  + fixture_title + "</title></head><body>ok</body></html>");
+  + fixture_title + "</title></head><body>"
+  + "<button type=\"button\" aria-label=\"" + ANCHOR_NAME + "\">anchor</button>"
+  + "</body></html>");
 
 const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
 const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
@@ -226,6 +397,7 @@ const port = 9500 + (rh.pid() % 500);
 let chrome_child = -1;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
   const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
@@ -235,8 +407,19 @@ try {
   ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_targets_port_in_use:" + port);
 
+  print("STEP page-targets typed-fails usage when AT-SPI --name is present");
+  assert_page_targets_usage_rejects_name(run_directory, executable, env, port);
+
   print("STEP page-targets --port typed-fails no CDP listener on the owned free port before Chrome starts");
   assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before Chrome starts");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
@@ -259,6 +442,38 @@ try {
     });
     if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
     harness.sleep_ms(250);
+  }
+
+  const window_wait = run_cu(run_directory, executable, "observe", [
+    "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+  ], env);
+  ensure(flag_at(window_wait, "data.met"), "cu_linux_page_targets_window_wait");
+
+  let window_row = null;
+  for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
+    window_row = window_row_for_title(run_directory, executable, env, fixture_title);
+    if (window_row === null) { harness.sleep_ms(250); }
+  }
+  ensure(window_row !== null, "cu_linux_page_targets_window_missing:" + fixture_title);
+  const window_handle = "" + int_at(window_row, "handle");
+  const window_title = text_at(window_row, "title");
+  ensure(window_handle !== "" && window_handle !== "0",
+    "cu_linux_page_targets_window_handle:" + JSON.stringify(window_row));
+
+  print("STEP unlock enables the Chrome renderer accessibility tree before named read-back");
+  const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+    "unlock", "--window", window_handle,
+  ], env);
+  ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_targets_unlock:" + JSON.stringify(unlocked.data));
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
+    assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_cdp");
+
+    print("STEP independent pyatspi extents and CU get-extents --name agree before CDP read-back");
+    assert_get_extents_agreement(
+      run_directory, executable, env, window_handle, window_title, ANCHOR_NAME
+    );
   }
 
   print("STEP page-targets --port agrees with an independent curl /json inventory read-back");
@@ -309,5 +524,9 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_targets_failed");
 harness.remove_run(context);
-print("PASS: Linux page-targets CDP /json inventory matches independent curl read-back");
+if (atspi_available) {
+  print("PASS: page-targets CDP /json read-back with get-extents --name pyatspi agreement and typed usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: page-targets CDP /json read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
 return;
