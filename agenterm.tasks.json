@@ -6360,7 +6360,7 @@
     },
     {
       "id": "cu-linux-verify-expect-honesty-smoke",
-      "description": "Linux verify --expect value and checked facts on named GTK fixture nodes match an independent pyatspi AT-SPI read-back of the same nodes, including after a disposable invoke set-value actuation; typed verify usage must reject AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths must hold before the verify/expect read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux verify --expect value and checked facts on named GTK fixture nodes match an independent pyatspi AT-SPI read-back of the same nodes, including after a disposable invoke set-value actuation; typed verify usage must reject AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths must both hold before the verify/expect read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-verify-expect-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
