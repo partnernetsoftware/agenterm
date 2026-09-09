@@ -966,6 +966,115 @@ export function elements_page_tab(reply, tab_id, profile) {
   });
 }
 
+// Resolve the one complete MV3 tab inventory used by legacy browser nav. A
+// missing legacy tab id is accepted only when the complete selected profile
+// inventory, after the native provider applies the archived --match selector,
+// contains exactly one tab; no active-tab or reply-local index fallback exists.
+export function bridge_nav_tab(reply, tab_id, profile, match_text) {
+  if (tab_id !== null && !positive_integer(tab_id)) {
+    return failure("browser_bridge_tab_invalid",
+      "browser nav --tab-id must be a positive integer");
+  }
+  const unpacked = reply_data(reply, "browser-tabs reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  if (!object_value(data) || data.mechanism !== "mv3-native-messaging") {
+    return failure("browser_bridge_profile_connection_not_found",
+      "browser nav needs one exact live MV3 profile connection");
+  }
+  if (data.truncated === true) {
+    return failure("browser_bridge_tabs_inventory_truncated",
+      "bridge tab inventory is truncated; a unique navigation target cannot be proven");
+  }
+  if (!lower_hex(data.connection_id, 64) || !lower_hex(data.profile_instance_id, 32)
+      || data.verified !== true || data.focus_changed !== false
+      || !Array.isArray(data.tabs) || !nonnegative_integer(data.returned)
+      || data.tabs.length !== data.returned || !object_value(data.selection)
+      || data.selection.connection_id !== null || data.selection.match !== match_text
+      || data.selection.tab_id !== tab_id
+      || (profile === null && data.selection.profile_instance_id !== null)
+      || (profile !== null && data.selection.profile_instance_id !== profile)
+      || (profile !== null && !data.profile_instance_id.startsWith(profile))) {
+    return failure("browser_bridge_nav_selection_invalid",
+      "browser-tabs did not prove one exact MV3 connection and complete tab inventory");
+  }
+  if (data.tabs.length === 0) {
+    return failure("browser_bridge_tab_not_found",
+      "the requested tab is not present in the exact bridge tab inventory");
+  }
+  if (data.tabs.length !== 1) {
+    return failure("browser_bridge_tab_ambiguous",
+      "browser nav needs exactly one tab; pass its stable --tab-id");
+  }
+  const tab = data.tabs[0];
+  if (!object_value(tab) || !positive_integer(tab.tab_id)
+      || (tab_id !== null && tab.tab_id !== tab_id)
+      || !positive_integer(tab.window_id) || typeof tab.active !== "boolean") {
+    return failure("browser_bridge_nav_selection_invalid",
+      "browser-tabs returned a mismatched or incomplete tab identity");
+  }
+  return success({
+    connection_id: data.connection_id,
+    profile_instance_id: data.profile_instance_id,
+    tab_id: tab.tab_id,
+    window_id: tab.window_id,
+    active: tab.active
+  });
+}
+
+// Keep the native mutation proof intact while adding only the two legacy
+// transport facts. Native failures are returned by acu.qjs before this helper
+// is called, so this function never converts an effect failure into success.
+export function bridge_nav_projection(selected, reply) {
+  const unpacked = reply_data(reply, "browser-bridge-nav reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  const result = object_value(data) ? data.result : null;
+  if (!object_value(selected) || !object_value(data)
+      || data.connection_id !== selected.connection_id
+      || !object_value(data.tab) || data.tab.tab_id !== selected.tab_id
+      || !object_value(result) || result.tab_id !== selected.tab_id
+      || typeof result.requested_url !== "string"
+      || typeof result.committed_url !== "string"
+      || typeof result.observed_url !== "string"
+      || typeof result.observed_title !== "string"
+      || typeof result.observed_truncated !== "boolean"
+      || (result.navigation_kind !== "cross-document"
+        && result.navigation_kind !== "same-document")
+      || typeof result.frame_id !== "string" || result.frame_id.length === 0
+      || typeof result.loader_id !== "string" || result.loader_id.length === 0
+      || result.committed_url_equals_requested
+        !== (result.committed_url === result.requested_url)
+      || (result.unreachable_url !== null && result.unreachable_url !== undefined)
+      || typeof result.load_event_fired !== "boolean"
+      || (result.load_state !== "loading" && result.load_state !== "complete")
+      || !nonnegative_integer(result.same_document_navigations)
+      || result.performed !== true || result.verified !== true
+      || !object_value(result.presentation)
+      || result.presentation.activation_requested !== false
+      || result.presentation.tab_active_before !== result.presentation.tab_active_after
+      || result.presentation.window_focused_before
+        !== result.presentation.window_focused_after
+      || !object_value(result.detach)
+      || (result.detach.outcome !== "detached"
+        && result.detach.outcome !== "already-detached")
+      || !object_value(data.lock) || !object_value(data.lock_after)
+      || typeof data.lock.lock_id !== "string" || data.lock.lock_id.length === 0
+      || data.lock_after.lock_id !== data.lock.lock_id
+      || !object_value(data.desktop_focus)
+      || !positive_integer(data.desktop_focus.before)
+      || data.desktop_focus.after !== data.desktop_focus.before
+      || data.desktop_focus.changed !== false
+      || data.desktop_focus.verified !== true || data.verified !== true) {
+    return failure("browser_bridge_nav_projection_invalid",
+      "browser-bridge-nav reply lacks the exact tab identity or native effect proof");
+  }
+  const projected = clone(data);
+  projected.transport = "native-bridge";
+  projected.background = true;
+  return success(projected);
+}
+
 function checked_page_node(node) {
   if (!object_value(node) || !positive_integer(node.backend_node_id)
       || typeof node.frame_id !== "string" || node.frame_id.length === 0

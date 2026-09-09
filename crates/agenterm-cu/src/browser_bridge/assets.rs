@@ -2,6 +2,8 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::json;
 
+#[cfg(test)]
+use super::PROTOCOL_VERSION;
 use super::{ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -173,12 +175,14 @@ mod tests {
         assert_eq!(manifest["background"]["service_worker"], "background.js");
         let source = std::str::from_utf8(ASSETS[1].bytes).unwrap();
         assert!(source.contains(ACU_NATIVE_HOST_NAME));
+        assert!(source.contains(&format!("const PROTOCOL = {PROTOCOL_VERSION};")));
         for command in [
             "status",
             "tabs",
             "windows",
             "window-open",
             "window-state",
+            "nav",
             "debug-read",
             "debug-invoke",
             "debug-type",
@@ -221,5 +225,65 @@ mod tests {
         assert!(open_source.contains("chrome.windows.create"));
         assert!(open_source.contains("state,"));
         assert!(!open_source.contains("chrome.windows.update(createdId"));
+
+        let nav_start = source.find("async function navigateTab").unwrap();
+        let nav_end = source[nav_start..]
+            .find("async function openWindow")
+            .map(|offset| nav_start + offset)
+            .unwrap();
+        let nav_source = &source[nav_start..nav_end];
+        assert!(source.contains("Object.keys(args).sort().join(\",\") !== \"tab_id,url\""));
+        assert!(source.contains("request.command === \"nav\" && !validNavArgs(request.args)"));
+        assert!(nav_source.contains("if (!validNavArgs(args))"));
+        assert!(source.contains("parsed.username.length === 0"));
+        assert!(source.contains("parsed.password.length === 0"));
+        assert!(nav_source.contains("chrome.debugger.attach(target, \"1.3\")"));
+        assert!(nav_source.contains("chrome.debugger.sendCommand("));
+        assert!(nav_source.contains("\"Page.navigate\""));
+        assert!(nav_source.contains("Page.frameNavigated"));
+        assert!(nav_source.contains("params.frame.parentId === undefined"));
+        assert!(nav_source.contains("Page.navigatedWithinDocument"));
+        assert!(nav_source.contains("params.frameId === rootFrameId && params.url === args.url"));
+        assert!(nav_source.contains("Page.javascriptDialogOpening"));
+        assert!(nav_source.contains("dialogSignal.then"));
+        assert!(nav_source.contains("NAV_EVENT_MAX"));
+        assert!(nav_source.contains("browser_bridge_nav_dialog_blocked"));
+        assert!(
+            nav_source.find("if (dialogBlocked)").unwrap()
+                < nav_source.find("commitProven = true").unwrap()
+        );
+        assert!(nav_source.contains("navigationDeadline = Date.now() + NAV_COMMIT_TIMEOUT_MS"));
+        assert!(nav_source.contains("beforeDeadline("));
+        assert!(nav_source.contains("navigationPromise.catch(() => {})"));
+        assert!(nav_source.contains("browser_bridge_nav_commit_timeout"));
+        assert!(nav_source.contains("browser_bridge_nav_actuation_failed"));
+        assert!(source.contains(
+            "NAV_ERROR_CODES.has(raw)\n    ? raw : \"browser_bridge_nav_actuation_failed\""
+        ));
+        assert!(nav_source.contains("navigation.errorText"));
+        assert!(nav_source.contains("failureNavigation ="));
+        assert!(nav_source.contains("navigation: failureNavigation"));
+        assert!(nav_source.contains("afterTab.windowId !== beforeTab.windowId"));
+        assert!(nav_source.contains("afterActive !== beforeActive"));
+        assert!(nav_source.contains("afterFocused !== beforeFocused"));
+        assert!(nav_source.contains("method === \"Page.loadEventFired\" && commitProven"));
+        assert!(nav_source.contains("![\"loading\", \"complete\"].includes(afterTab.status)"));
+        assert!(nav_source.contains("load_state: afterTab.status"));
+        assert!(nav_source.contains("activation_requested: false"));
+        assert!(nav_source.contains("raw === \"browser_bridge_nav_failed\""));
+        assert!(nav_source.contains("performedFailure ? \"performed\""));
+        assert!(nav_source.contains("navEffect = \"unknown\""));
+        assert!(nav_source.contains("navEffect = effectStarted ? \"unknown\" : \"not-performed\""));
+        assert!(nav_source.contains("browser_bridge_nav_detach_failed"));
+        assert!(nav_source.contains("chrome.debugger.detach(target)"));
+        assert_eq!(nav_source.matches("effectStarted = true").count(), 1);
+        assert!(
+            nav_source.find("effectStarted = true").unwrap()
+                < nav_source.find("\"Page.navigate\"").unwrap()
+        );
+        assert!(source.contains("errorResult.detach = error && error.detach ||"));
+        assert!(!nav_source.contains("chrome.tabs.update"));
+        assert!(!nav_source.contains("chrome.tabs.remove"));
+        assert!(!source.contains("Page.handleJavaScriptDialog"));
     }
 }

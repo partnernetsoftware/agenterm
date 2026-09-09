@@ -26,10 +26,10 @@ use super::{
     ACU_EXTENSION_ID, ACU_NATIVE_HOST_NAME, BRIDGE_EXTENSION_VERSION, BridgeProtocolError,
     BridgeRequest, ConnectionEndpoint, ConnectionEntry, ConnectionId, DebugFilesRequest,
     DebugFilesResult, DebugInvokeRequest, DebugInvokeResult, DebugReadFailure, DebugReadRequest,
-    DebugReadResult, DebugTypeRequest, DebugTypeResult, NATIVE_MESSAGE_MAX_BYTES, PROTOCOL_VERSION,
-    ProcessIdentity, REQUEST_LEDGER_MAX_ENTRIES, ReloadResult, TabsResult, WindowOpenRequest,
-    WindowOpenResult, WindowStateRequest, WindowStateResult, WindowsResult, decode_request,
-    encode_native_message,
+    DebugReadResult, DebugTypeRequest, DebugTypeResult, NATIVE_MESSAGE_MAX_BYTES, NavRequest,
+    NavResult, PROTOCOL_VERSION, ProcessIdentity, REQUEST_LEDGER_MAX_ENTRIES, ReloadResult,
+    TabsResult, WindowOpenRequest, WindowOpenResult, WindowStateRequest, WindowStateResult,
+    WindowsResult, decode_request, encode_native_message,
 };
 
 const CONNECTION_SCHEMA: u32 = 1;
@@ -60,6 +60,8 @@ pub struct BridgeWireError {
     pub detach: Option<super::DetachOutcome>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigation: Option<super::NavFailureObservation>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -103,6 +105,7 @@ impl BridgeResponse {
                             "windows",
                             "window-open",
                             "window-state",
+                            "nav",
                             "debug-read",
                             "debug-invoke",
                             "debug-type",
@@ -137,6 +140,13 @@ impl BridgeResponse {
                     serde_json::from_value(Value::Object(request.args.clone()))
                         .map_err(|_| BridgeHostError::new("browser_bridge_request_invalid"))?;
                 serde_json::from_value::<WindowOpenResult>(result)
+                    .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
+                    .validate_for(&args)
+                    .map_err(BridgeHostError::protocol)?;
+            }
+            "nav" => {
+                let args: NavRequest = request_args(request)?;
+                serde_json::from_value::<NavResult>(result)
                     .map_err(|_| BridgeHostError::new("browser_bridge_response_invalid"))?
                     .validate_for(&args)
                     .map_err(BridgeHostError::protocol)?;
@@ -200,7 +210,10 @@ fn validate_wire_error(
         "debug-invoke" | "debug-type" | "debug-files"
     );
     if is_debug_effect
-        && (error.tab_id.is_none() || error.detach.is_none() || error.effect.is_none())
+        && (error.tab_id.is_none()
+            || error.detach.is_none()
+            || error.effect.is_none()
+            || error.navigation.is_some())
     {
         return Err(BridgeHostError::new("browser_bridge_response_invalid"));
     }
@@ -210,12 +223,49 @@ fn validate_wire_error(
             || error.code.chars().any(char::is_control)
             || error.tab_id.is_some()
             || error.detach.is_some()
+            || error.navigation.is_some()
             || !matches!(
                 error.effect.as_deref(),
                 Some("not-performed" | "rolled-back" | "unknown")
             )
         {
             return Err(BridgeHostError::new("browser_bridge_response_invalid"));
+        }
+        return Ok(());
+    }
+    if request.command == "nav" {
+        let expected_tab_id = request
+            .args
+            .get("tab_id")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| BridgeHostError::new("browser_bridge_request_invalid"))?;
+        if error.code.is_empty()
+            || error.code.len() > 96
+            || error.code.chars().any(char::is_control)
+            || error.tab_id != Some(expected_tab_id)
+            || error.detach.is_none()
+            || !matches!(
+                error.effect.as_deref(),
+                Some("not-performed" | "performed" | "unknown")
+            )
+        {
+            return Err(BridgeHostError::new("browser_bridge_response_invalid"));
+        }
+        super::validate_debug_failure(
+            expected_tab_id,
+            &error.code,
+            error.detach.as_ref().expect("checked above"),
+        )
+        .map_err(BridgeHostError::protocol)?;
+        match (error.effect.as_deref(), &error.navigation) {
+            (Some("performed" | "unknown"), Some(observation)) => {
+                observation.validate().map_err(BridgeHostError::protocol)?
+            }
+            (Some("performed"), None) | (Some("not-performed"), Some(_)) => {
+                return Err(BridgeHostError::new("browser_bridge_response_invalid"));
+            }
+            _ => {}
         }
         return Ok(());
     }
@@ -257,6 +307,7 @@ fn validate_wire_error(
     } else if error.tab_id.is_none()
         && error.detach.is_none()
         && error.effect.is_none()
+        && error.navigation.is_none()
         && !error.code.is_empty()
         && error.code.len() <= 96
         && !error.code.chars().any(char::is_control)
@@ -270,7 +321,7 @@ fn validate_wire_error(
 #[derive(Clone, Debug)]
 enum LedgerEntry {
     Reserved([u8; 32]),
-    Complete([u8; 32], BridgeResponse),
+    Complete([u8; 32], Box<BridgeResponse>),
 }
 
 #[derive(Default)]
@@ -280,7 +331,7 @@ pub struct RequestLedger {
 
 enum Admission {
     New,
-    Replay(BridgeResponse),
+    Replay(Box<BridgeResponse>),
 }
 
 impl RequestLedger {
@@ -313,8 +364,10 @@ impl RequestLedger {
         else {
             unreachable!("only a reserved request can complete")
         };
-        self.entries
-            .insert(request.id.clone(), LedgerEntry::Complete(*digest, response));
+        self.entries.insert(
+            request.id.clone(),
+            LedgerEntry::Complete(*digest, Box::new(response)),
+        );
     }
 }
 
@@ -336,7 +389,7 @@ fn exchange_one(
 ) -> Result<BridgeResponse, BridgeHostError> {
     request.validate().map_err(BridgeHostError::protocol)?;
     match ledger.admit(&request)? {
-        Admission::Replay(response) => return Ok(response),
+        Admission::Replay(response) => return Ok(*response),
         Admission::New => {}
     }
     let frame = encode_native_message(
@@ -405,7 +458,7 @@ fn exchange_from_browser_input(
 ) -> Result<BridgeResponse, BridgeHostError> {
     request.validate().map_err(BridgeHostError::protocol)?;
     match ledger.admit(&request)? {
-        Admission::Replay(response) => return Ok(response),
+        Admission::Replay(response) => return Ok(*response),
         Admission::New => {}
     }
     let frame = encode_native_message(
@@ -606,6 +659,7 @@ fn serve_local(
                 tab_id: None,
                 detach: None,
                 effect: None,
+                navigation: None,
             }),
         }),
     }
@@ -671,7 +725,7 @@ fn send_to_connection_at(
         .map_err(|_| BridgeHostError::new("browser_bridge_deadline_setup_failed"))?;
     let is_effect = matches!(
         request.command.as_str(),
-        "debug-invoke" | "debug-type" | "debug-files" | "window-open"
+        "debug-invoke" | "debug-type" | "debug-files" | "window-open" | "nav"
     );
     write_all_with_deadline(&mut stream, &frame, deadline).map_err(|error| {
         if is_effect {
@@ -1025,7 +1079,7 @@ mod tests {
             "extension_id": ACU_EXTENSION_ID,
             "extension_version": BRIDGE_EXTENSION_VERSION,
             "profile_instance_id": "1234567890abcdef1234567890abcdef",
-            "commands": ["status","tabs","windows","window-open","window-state","debug-read","debug-invoke","debug-type","debug-files","reload"]
+            "commands": ["status","tabs","windows","window-open","window-state","nav","debug-read","debug-invoke","debug-type","debug-files","reload"]
         })
     }
 
@@ -1111,6 +1165,7 @@ mod tests {
             tab_id: None,
             detach: None,
             effect: None,
+            navigation: None,
         };
         assert_eq!(
             validate_wire_error(&generic, &effect).unwrap_err().code,
@@ -1121,6 +1176,7 @@ mod tests {
             tab_id: Some(7),
             detach: Some(super::super::DetachOutcome::AlreadyDetached),
             effect: Some("not-performed".into()),
+            navigation: None,
         };
         validate_wire_error(&explicit, &effect).unwrap();
 
@@ -1142,6 +1198,7 @@ mod tests {
             tab_id: None,
             detach: None,
             effect: Some("rolled-back".into()),
+            navigation: None,
         };
         validate_wire_error(&rolled_back, &window_open).unwrap();
         let unknown = BridgeWireError {
@@ -1149,6 +1206,59 @@ mod tests {
             ..rolled_back
         };
         validate_wire_error(&unknown, &window_open).unwrap();
+
+        let mut nav = request("nav");
+        nav.args = serde_json::from_value(json!({
+            "tab_id": 7,
+            "url": "https://example.test/landing"
+        }))
+        .unwrap();
+        let not_performed = BridgeWireError {
+            code: "browser_bridge_nav_tab_not_found".into(),
+            tab_id: Some(7),
+            detach: Some(super::super::DetachOutcome::AlreadyDetached),
+            effect: Some("not-performed".into()),
+            navigation: None,
+        };
+        validate_wire_error(&not_performed, &nav).unwrap();
+        let wrong_tab = BridgeWireError {
+            tab_id: Some(8),
+            ..not_performed.clone()
+        };
+        assert_eq!(
+            validate_wire_error(&wrong_tab, &nav).unwrap_err().code,
+            "browser_bridge_response_invalid"
+        );
+        let unknown_nav = BridgeWireError {
+            effect: Some("unknown".into()),
+            ..not_performed
+        };
+        validate_wire_error(&unknown_nav, &nav).unwrap();
+        let performed_nav = BridgeWireError {
+            effect: Some("performed".into()),
+            navigation: Some(super::super::NavFailureObservation {
+                error_text: "net::ERR_CONNECTION_REFUSED".into(),
+                committed_url: "chrome-error://chromewebdata/".into(),
+                unreachable_url: Some("https://example.test/unreachable".into()),
+                frame_id: "frame-1".into(),
+                loader_id: "loader-1".into(),
+            }),
+            ..unknown_nav
+        };
+        validate_wire_error(&performed_nav, &nav).unwrap();
+        let mut invalid_unknown = performed_nav;
+        invalid_unknown.effect = Some("unknown".into());
+        invalid_unknown
+            .navigation
+            .as_mut()
+            .expect("navigation observation")
+            .frame_id = String::new();
+        assert_eq!(
+            validate_wire_error(&invalid_unknown, &nav)
+                .unwrap_err()
+                .code,
+            "browser_bridge_nav_failure_invalid"
+        );
     }
 
     #[test]

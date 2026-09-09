@@ -1807,6 +1807,23 @@ impl Executor {
                 .expect("window-state args are an object");
                 browser_bridge_window_state_payload(connection_id, args)
             }
+            Command::BrowserBridgeNav {
+                connection_id,
+                tab_id,
+                url,
+                lock_ttl_seconds,
+                timeout_ms,
+                ..
+            } => browser_bridge_nav_payload(
+                require_effect_request(job_request, "browser-bridge-nav")?,
+                connection_id,
+                crate::browser_bridge::NavRequest {
+                    tab_id: *tab_id,
+                    url: url.clone(),
+                },
+                *lock_ttl_seconds,
+                *timeout_ms,
+            ),
             Command::BrowserBridgeDebugRead {
                 connection_id,
                 tab_id,

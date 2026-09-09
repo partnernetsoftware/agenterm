@@ -417,8 +417,39 @@ require(browser_nav_port_precedence.kind === "exec"
     && !browser_nav_port_precedence.argv.includes("--profile")
     && !browser_nav_port_precedence.argv.includes("--allow-foreground"),
   "archived explicit CDP transport must take precedence over fallback selectors");
-todo_case(["browser", "nav", "https://example.test"],
-  "acu.dynamic.075.bridge-nav", "browser bridge navigation");
+const browser_bridge_nav = compat.canonicalize([
+  "--request-id", "nav-1", "--session", "session-1", "--session-lease", "lease-1",
+  "browser", "nav", "https://example.test", "--tab-id", "7",
+  "--profile", "0123abcd"
+]);
+require(browser_bridge_nav.kind === "bridge-nav"
+    && browser_bridge_nav.url === "https://example.test"
+    && browser_bridge_nav.tab_id === 7
+    && browser_bridge_nav.profile === "0123abcd"
+    && browser_bridge_nav.match === null,
+  "browser bridge navigation must resolve one exact MV3 tab");
+same_argv(browser_bridge_nav.globals, [
+  "--target", "current", "--grant", "observe,actuate", "--request-id", "nav-1",
+  "--session", "session-1", "--session-lease", "lease-1"
+], "browser bridge navigation globals");
+const browser_bridge_nav_match = compat.canonicalize([
+  "browser", "nav", "https://example.test/matched", "--match", "Guide"
+]);
+require(browser_bridge_nav_match.kind === "bridge-nav"
+    && browser_bridge_nav_match.match === "Guide"
+    && browser_bridge_nav_match.tab_id === null,
+  "browser bridge navigation preserves archived unique title filtering");
+require(compat.canonicalize([
+  "browser", "nav", "file:///tmp/nope", "--tab-id", "7"
+]).kind === "usage", "browser bridge navigation accepts only http(s)");
+require(compat.canonicalize([
+  "browser", "nav", "https://example.test", "--profile", "Default"
+]).gap_id === "acu.dynamic.075.profile-name-binding",
+  "browser bridge navigation keeps human profile binding typed");
+require(compat.canonicalize([
+  "browser", "nav", "https://example.test", "--app", "Brave Browser"
+]).gap_id === "acu.dynamic.075.profile-name-binding",
+  "browser bridge navigation keeps application binding typed");
 const browser_foreground_nav = compat.canonicalize([
   "browser", "nav", "https://example.test", "--allow-foreground"
 ]);

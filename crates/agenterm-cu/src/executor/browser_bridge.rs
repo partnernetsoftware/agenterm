@@ -10,7 +10,7 @@ use crate::{
     browser_bridge::{
         BridgeRequest, BridgeStatus, ConnectionId, DEBUG_FILES_MAX_FILES, DebugFile,
         DebugFilesRequest, DebugInvokeRequest, DebugReadRequest, DebugTarget, DebugTypeRequest,
-        ProfileInstanceId, ReloadResult, TabsResult, install_for_current_user,
+        NavRequest, ProfileInstanceId, ReloadResult, TabsResult, install_for_current_user,
         list_live_connections, send_to_connection, send_to_connection_with_timeout,
     },
     reply::CuError,
@@ -524,6 +524,112 @@ pub(super) fn browser_bridge_debug_invoke_payload(
     )
 }
 
+pub(super) fn browser_bridge_nav_payload(
+    request_context: &super::JobRequestContext<'_>,
+    connection_id: &ConnectionId,
+    request: NavRequest,
+    lock_ttl_seconds: u64,
+    timeout_ms: u64,
+) -> Result<Value, CuError> {
+    if lock_ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(LOCK_DEADLINE_MARGIN_MS) {
+        return Err(CuError::new(
+            "browser_bridge_lock_ttl_invalid",
+            "the tab lock TTL must cover the overall effect deadline plus 5000ms",
+        ));
+    }
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    let before_focus = desktop_focus_handle()?.ok_or_else(|| {
+        CuError::new(
+            "browser_bridge_desktop_focus_unavailable",
+            "no exact desktop foreground window is available before background navigation",
+        )
+    })?;
+    let before_status = bridge_status_until(connection_id, deadline)?;
+    let before_tab = exact_complete_tab_until(connection_id, request.tab_id, deadline)?;
+    require_unique_profile_connection(connection_id, &before_status.profile_instance_id, deadline)?;
+    let lock_target = tab_lock_target(&before_status.profile_instance_id, request.tab_id);
+    let lock = super::runtime::lock_acquire_payload(
+        request_context.session_id,
+        request_context.session_lease,
+        &lock_target,
+        lock_ttl_seconds,
+    )?;
+    let after_lock_status = bridge_status_until(connection_id, deadline)?;
+    let after_lock_tab = exact_complete_tab_until(connection_id, request.tab_id, deadline)?;
+    require_unique_profile_connection(connection_id, &before_status.profile_instance_id, deadline)?;
+    if after_lock_status.profile_instance_id != before_status.profile_instance_id
+        || !same_tab_identity_and_presentation(&before_tab, &after_lock_tab)
+    {
+        return Err(CuError::new(
+            "browser_bridge_nav_identity_changed",
+            "the exact profile connection or tab changed before navigation delivery",
+        )
+        .with_detail(json!({ "effect": "not-performed", "retry_safe": true })));
+    }
+    let effect_timeout = remaining_bridge_timeout(deadline)?;
+    if effect_timeout < NAV_COMMIT_PLUS_WIRE_MARGIN {
+        return Err(CuError::new(
+            "browser_bridge_operation_timeout",
+            "the remaining deadline cannot contain the extension commit proof and wire margin",
+        )
+        .with_detail(json!({ "effect": "not-performed", "retry_safe": true })));
+    }
+    let Value::Object(args) = serde_json::to_value(&request).map_err(|_| {
+        CuError::new(
+            "browser_bridge_request_invalid",
+            "the navigation request could not be serialized",
+        )
+    })?
+    else {
+        return Err(CuError::new(
+            "browser_bridge_request_invalid",
+            "the navigation request was not an object",
+        ));
+    };
+    let result =
+        browser_bridge_request_result_with_timeout(connection_id, "nav", args, effect_timeout)?;
+    let postcheck = (|| {
+        let after_status = bridge_status_until(connection_id, deadline)?;
+        let after_tab = exact_complete_tab_until(connection_id, request.tab_id, deadline)?;
+        require_unique_profile_connection(
+            connection_id,
+            &before_status.profile_instance_id,
+            deadline,
+        )?;
+        if after_status.profile_instance_id != before_status.profile_instance_id
+            || !same_tab_identity_and_presentation(&before_tab, &after_tab)
+        {
+            return Err(CuError::new(
+                "browser_bridge_nav_identity_changed",
+                "the exact profile connection or tab changed after navigation delivery",
+            ));
+        }
+        let lock_after = super::runtime::lock_acquire_payload(
+            request_context.session_id,
+            request_context.session_lease,
+            &lock_target,
+            lock_ttl_seconds,
+        )?;
+        verify_focus_unchanged(Some(before_focus), deadline)?;
+        Ok(lock_after)
+    })();
+    let lock_after = postcheck.map_err(|cause| nav_effect_unknown(cause, &result))?;
+    Ok(json!({
+        "connection_id": connection_id,
+        "tab": tab_identity(&before_tab),
+        "result": result,
+        "lock": public_lock(&lock),
+        "lock_after": public_lock(&lock_after),
+        "desktop_focus": {
+            "before": before_focus,
+            "after": before_focus,
+            "changed": false,
+            "verified": true,
+        },
+        "verified": true,
+    }))
+}
+
 pub(super) fn browser_bridge_debug_type_payload(
     request_context: &super::JobRequestContext<'_>,
     connection_id: &ConnectionId,
@@ -797,7 +903,21 @@ fn debug_effect_unknown(cause: CuError) -> CuError {
     }))
 }
 
+fn nav_effect_unknown(cause: CuError, committed_result: &Value) -> CuError {
+    CuError::new(
+        "browser_bridge_outcome_unknown",
+        "the navigation committed but its exact postcondition or cleanup could not be fully proved",
+    )
+    .with_detail(json!({
+        "effect": "unknown",
+        "retry_safe": false,
+        "navigation": committed_result,
+        "cause": { "code": cause.code, "detail": cause.detail },
+    }))
+}
+
 const BRIDGE_REQUEST_MAX_TIMEOUT: Duration = Duration::from_secs(35);
+const NAV_COMMIT_PLUS_WIRE_MARGIN: Duration = Duration::from_secs(22);
 const PRESENTATION_SETTLE: Duration = Duration::from_millis(500);
 const LOCK_DEADLINE_MARGIN_MS: u64 = 5_000;
 
@@ -867,6 +987,38 @@ fn exact_tab_until(
                 "connection_id": connection_id,
                 "tab_id": tab_id,
                 "inventory_truncated": inventory.truncated,
+            }))
+        })
+}
+
+fn exact_complete_tab_until(
+    connection_id: &ConnectionId,
+    tab_id: u32,
+    deadline: Instant,
+) -> Result<crate::browser_bridge::BrowserTab, CuError> {
+    let inventory = bridge_tabs_until(connection_id, deadline)?;
+    if inventory.truncated {
+        return Err(CuError::new(
+            "browser_bridge_tabs_inventory_truncated",
+            "a complete tab inventory is required before navigation delivery",
+        )
+        .with_detail(json!({
+            "connection_id": connection_id,
+            "tab_id": tab_id,
+        })));
+    }
+    inventory
+        .tabs
+        .into_iter()
+        .find(|tab| tab.tab_id == tab_id)
+        .ok_or_else(|| {
+            CuError::new(
+                "browser_bridge_nav_tab_not_found",
+                "the exact navigation tab is not exposed by this bridge connection",
+            )
+            .with_detail(json!({
+                "connection_id": connection_id,
+                "tab_id": tab_id,
             }))
         })
 }
@@ -1290,14 +1442,16 @@ fn browser_bridge_request_result_with_timeout(
     .map_err(host_error)?;
     if let Some(error) = response.error {
         let uncertain = error.effect.as_deref() == Some("unknown");
+        let retry_safe = !matches!(error.effect.as_deref(), Some("performed" | "unknown"));
         let cause = error.code.clone();
         let detail = json!({
             "connection_id": connection_id,
             "tab_id": error.tab_id,
             "detach": error.detach,
             "effect": error.effect,
+            "navigation": error.navigation,
             "cause": cause,
-            "retry_safe": !uncertain,
+            "retry_safe": retry_safe,
         });
         return Err(CuError::new(
             if uncertain {

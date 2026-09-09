@@ -1865,6 +1865,18 @@ rollback failure or unproved native-focus restoration is `outcome_unknown`
 with `retry_safe=false`; only a proved rollback may keep the original typed
 error retryable.
 
+For an exact-tab browser navigation, a method acknowledgement is not a commit
+receipt. Bind `Page.navigate` to the root-frame `frameId` plus `loaderId` and a
+matching `Page.frameNavigated` event; keep same-document navigation as a
+separate, exact-frame-and-URL case. Nest deadlines so the extension's commit
+deadline expires before the Native Messaging read deadline, which itself must
+expire before the session lock TTL. After navigation delivery, transport loss,
+dialog blocking, missing commit, failed readback, presentation drift, or detach
+failure is `outcome_unknown` and is never retried. Reserve `performed` failure
+for a proved commit carrying the browser's explicit navigation error, and keep
+requested, committed, and observed URLs distinct because redirects are facts,
+not postcondition failures.
+
 For an owned Chromium session, request `--remote-debugging-port=0` and read the
 bounded `DevToolsActivePort` file from that session's private profile. Require a
 nonzero decimal port and a `/devtools/browser/` websocket path; reject extra

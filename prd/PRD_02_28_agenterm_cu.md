@@ -676,8 +676,9 @@ ACU-only cutover
 │  │  │  the minimized unfocused window atomically with browser + desktop focus read-back
 │  │  ├─ the frozen no-argument witness is resolved; this does not close every legacy option
 │  │  ├─ [ ] acu.dynamic.075.profile-name-binding · human `--profile` / `--app` stays typed TODO
-│  │  ├─ [ ] acu.dynamic.075.bridge-nav · navigation without an explicit CDP endpoint awaits
-│  │  │  an exact fixed-identity MV3 command; no default port or process scan is guessed
+│  │  ├─ [x] acu.dynamic.075.bridge-nav · navigation without an explicit CDP endpoint selects
+│  │  │  one exact MV3 profile/tab under an explicit session and proves an HTTP(S) debugger
+│  │  │  root-frame/loader commit without browser or desktop focus drift
 │  │  ├─ [ ] legacy setup retains acu.dynamic.075 until its single-application selector maps
 │  │  │  without widening installation to every discovered Chromium family
 │  │  ├─ [ ] legacy reload and managed-profile lifecycle retain acu.dynamic.075 until their
@@ -988,10 +989,18 @@ flowchart LR
   validates the complete live-connection inventory plus each closed status
   reply, then selects one exact profile-instance prefix without reading tabs;
   fields about installation and manifests remain withheld rather than guessed.
-  Legacy `browser nav` maps only when `--port` or `--pid` supplies an explicit
-  CDP endpoint: `--match` selects natively, otherwise the compound requires one
-  page target before navigation. No-endpoint MV3 navigation remains stable TODO
-  `acu.dynamic.075.bridge-nav`; setup remains under the parent gap because its
+  Legacy `browser nav` with `--port` or `--pid` maps to the explicit CDP
+  endpoint: `--match` selects natively, otherwise the compound requires one
+  page target before navigation. With no endpoint, the adapter now resolves one
+  exact complete MV3 profile/tab inventory and calls `browser-bridge-nav` under
+  the caller's durable request/session/session-lease identity. For HTTP(S), the
+  protocol-5 extension binds `Page.navigate` root `frameId`/`loaderId` to the
+  committed `Page.frameNavigated` event, with a closed same-document path that
+  retains the root loader. Requested, committed and observed URLs stay separate;
+  redirects are informational and load state is bounded observation rather than
+  a final-page promise. Foreground targets and JavaScript dialogs are intentionally
+  refused without activation or dismissal, and native read-back proves no browser
+  or desktop focus drift. Setup remains under the parent gap because its
   legacy single-application selector would otherwise widen to all discovered
   Chromium families. Positional legacy `browser open URL` now resolves one exact
   live bridge connection and issues one `window-open --state minimized` effect;
@@ -2988,3 +2997,33 @@ flowchart LR
     V -->|no| R["rollback / exact focus restore<br/>or typed failure"]
     E --> Q["Linux + Windows native courts"]
 ```
+
+- [x] `browser.bridge-nav` is an exact-tab MV3 mutation, not endpoint guessing.
+  - **User problem:** a caller with a live fixed-extension Profile needs to
+    navigate one known background tab without discovering or assuming a CDP
+    port and without stealing browser or desktop focus.
+  - **Behavior:** `browser-bridge-nav CONNECTION_ID --tab-id N --url URL`
+    accepts only HTTP(S), requires global request/session/session-lease identity, validates one
+    complete unique Profile connection, owns the canonical Profile/tab lock,
+    attaches the debugger, submits `Page.navigate`, and returns separate requested,
+    committed and observed URL facts plus root frame/loader, detach, lock and focus receipts.
+    The compatibility adapter resolves omitted endpoint selectors from one
+    complete exact MV3 tab inventory before invoking this command.
+  - **Invariant:** success binds a cross-document root `frameId` and `loaderId`
+    to `Page.frameNavigated`, or proves the closed same-document root-frame case,
+    while the exact tab/window, browser presentation and native desktop foreground
+    remain unchanged. Redirect URL differences are informational; load state is
+    not a final-page promise. Foreground targets and JavaScript dialogs are refused
+    without activation or dismissal. Failures report `effect=not-performed|performed|unknown`;
+    `retry_safe` is true if and only if the effect is `not-performed`.
+  - **Evidence:** the owned-profile macOS qjswasm court navigates to its existing
+    loopback DevTools HTTP endpoint without external network access, checks protocol 5,
+    extension version 1.5.0 and the closed 11-command catalog, proves root-frame/loader
+    commit and debugger detach, reads the same tab and URL through `browser-bridge-tabs`, and emits
+    `cu.browser-bridge-nav.macos` only with unchanged browser and desktop focus.
+  - **Delivery:** Linux and Windows keep pending native-court cells until the
+    same fixed-identity executable journey is green there.
+  - **Non-goal:** this capability does not infer a human profile/application
+    name, scan command lines, choose port 9222, activate the tab, or claim that
+    a page reached network idle or its final application state. It does not claim
+    server-redirect coverage from the loopback court.

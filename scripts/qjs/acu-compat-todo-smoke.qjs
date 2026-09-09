@@ -44,8 +44,7 @@ require_ok(rh.exists(launcher) && rh.metadata(launcher).is_file,
 
 const cases = [
   [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
-  [["browser", "profile", "create", "legacy-profile"], "acu.dynamic.075"],
-  [["browser", "nav", "https://example.test"], "acu.dynamic.075.bridge-nav"]
+  [["browser", "profile", "create", "legacy-profile"], "acu.dynamic.075"]
 ];
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);

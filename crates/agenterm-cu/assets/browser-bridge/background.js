@@ -1,7 +1,7 @@
 "use strict";
 
 const HOST = "software.partnernet.agenterm_acu.browser_bridge";
-const PROTOCOL = 4;
+const PROTOCOL = 5;
 const PROFILE_INSTANCE_KEY = "acuProfileInstanceId";
 // One extra result lets compatibility projections observe the legacy page
 // ceiling with a max+1 sentinel instead of reporting a false complete page.
@@ -23,6 +23,16 @@ const DEBUG_ERROR_CODES = new Set([
   "browser_bridge_debug_press_role_mismatch", "browser_bridge_debug_press_name_mismatch",
   "browser_bridge_debug_presentation_changed", "browser_bridge_debug_detach_failed"
 ]);
+const NAV_ERROR_CODES = new Set([
+  "browser_bridge_nav_args_invalid", "browser_bridge_nav_foreground_refused",
+  "browser_bridge_nav_tab_invalid", "browser_bridge_nav_frame_invalid",
+  "browser_bridge_nav_event_limit", "browser_bridge_nav_actuation_failed",
+  "browser_bridge_nav_commit_timeout", "browser_bridge_nav_dialog_blocked",
+  "browser_bridge_nav_failed", "browser_bridge_nav_postcondition_failed",
+  "browser_bridge_nav_presentation_changed", "browser_bridge_nav_detach_failed"
+]);
+const NAV_COMMIT_TIMEOUT_MS = 20_000;
+const NAV_EVENT_MAX = 128;
 let port = null;
 let profileInstancePromise = null;
 let connectPromise = null;
@@ -65,6 +75,31 @@ function boundedInteger(value, maximum) {
   return Number.isInteger(value) && value >= 1 && value <= maximum;
 }
 
+function validNavArgs(args) {
+  if (!args || Array.isArray(args) || typeof args !== "object" ||
+      Object.keys(args).sort().join(",") !== "tab_id,url" ||
+      !boundedInteger(args.tab_id, 0xffffffff) || typeof args.url !== "string" ||
+      !/^[\x21-\x7e]{1,2048}$/u.test(args.url)) return false;
+  try {
+    const parsed = new URL(args.url);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      typeof parsed.host === "string" && parsed.host.length > 0 &&
+      parsed.username.length === 0 && parsed.password.length === 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+function beforeDeadline(promise, deadline, code) {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return Promise.reject(new Error(code));
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(code)), remaining);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function signedInteger(value) {
   return Number.isInteger(value) && value >= -0x80000000 && value <= 0x7fffffff;
 }
@@ -80,11 +115,14 @@ function validateRequest(request) {
       !request.args || Array.isArray(request.args) || typeof request.args !== "object") {
     throw new Error("browser_bridge_request_invalid");
   }
-  if (!["status", "tabs", "windows", "window-open", "window-state", "debug-read", "debug-invoke", "debug-type", "debug-files", "reload"].includes(request.command)) {
+  if (!["status", "tabs", "windows", "window-open", "window-state", "nav", "debug-read", "debug-invoke", "debug-type", "debug-files", "reload"].includes(request.command)) {
     throw new Error("browser_bridge_command_unknown");
   }
-  if (!["debug-read", "debug-invoke", "debug-type", "debug-files", "window-open", "window-state", "reload"].includes(request.command) && Object.keys(request.args).length !== 0) {
+  if (!["debug-read", "debug-invoke", "debug-type", "debug-files", "window-open", "window-state", "nav", "reload"].includes(request.command) && Object.keys(request.args).length !== 0) {
     throw new Error("browser_bridge_args_invalid");
+  }
+  if (request.command === "nav" && !validNavArgs(request.args)) {
+    throw new Error("browser_bridge_nav_args_invalid");
   }
 }
 
@@ -550,6 +588,229 @@ function windowOpenFailure(error, effect) {
   return failure;
 }
 
+function navFailure(error, effect) {
+  const raw = String(error && error.message || "browser_bridge_nav_actuation_failed");
+  const failure = new Error(NAV_ERROR_CODES.has(raw)
+    ? raw : "browser_bridge_nav_actuation_failed");
+  failure.effect = effect;
+  return failure;
+}
+
+async function navigateTab(args) {
+  if (!validNavArgs(args)) return { tab_id: args && args.tab_id,
+    code: "browser_bridge_nav_args_invalid", effect: "not-performed",
+    detach: { outcome: "already-detached" } };
+  const target = { tabId: args.tab_id };
+  let effectStarted = false;
+  let commitProven = false;
+  let attached = false;
+  let detach = { outcome: "already-detached" };
+  let result;
+  let navError = null;
+  let navEffect = "not-performed";
+  let failureNavigation;
+  let failureBase;
+  const frameNavigations = [];
+  const sameDocumentNavigations = [];
+  let loadEventFired = false;
+  let dialogBlocked = false;
+  let navigationEventsOverflow = false;
+  let navigationDeadline = 0;
+  let rootFrameId = null;
+  let signalDialog = null;
+  const dialogSignal = new Promise(resolve => { signalDialog = resolve; });
+  const onEvent = (source, method, params) => {
+    if (!source || source.tabId !== args.tab_id || !params || typeof params !== "object") return;
+    if (method === "Page.frameNavigated" && params.frame && typeof params.frame === "object" &&
+        params.frame.parentId === undefined) {
+      if (frameNavigations.length >= NAV_EVENT_MAX) navigationEventsOverflow = true;
+      else frameNavigations.push(params.frame);
+    } else if (method === "Page.navigatedWithinDocument" &&
+        params.frameId === rootFrameId && params.url === args.url) {
+      if (sameDocumentNavigations.length >= NAV_EVENT_MAX) navigationEventsOverflow = true;
+      else sameDocumentNavigations.push(params);
+    } else if (method === "Page.loadEventFired" && commitProven) {
+      loadEventFired = true;
+    } else if (method === "Page.javascriptDialogOpening" && effectStarted) {
+      dialogBlocked = true;
+      signalDialog();
+    }
+  };
+  try {
+    const beforeTab = await chrome.tabs.get(args.tab_id);
+    if (!beforeTab || beforeTab.id !== args.tab_id ||
+        !boundedInteger(beforeTab.windowId, 0xffffffff)) {
+      throw new Error("browser_bridge_nav_tab_invalid");
+    }
+    const beforeWindow = await chrome.windows.get(beforeTab.windowId);
+    const beforeActive = beforeTab.active === true;
+    const beforeFocused = beforeWindow.focused === true;
+    if (beforeFocused) throw new Error("browser_bridge_nav_foreground_refused");
+
+    await chrome.debugger.attach(target, "1.3");
+    attached = true;
+    detach = { outcome: "failed", code: "detach_not_attempted" };
+    await chrome.debugger.sendCommand(target, "Page.enable");
+    const beforeFrameTree = await chrome.debugger.sendCommand(target, "Page.getFrameTree");
+    const beforeRoot = beforeFrameTree && beforeFrameTree.frameTree &&
+      beforeFrameTree.frameTree.frame;
+    if (!beforeRoot || typeof beforeRoot.id !== "string" || beforeRoot.id.length < 1 ||
+        typeof beforeRoot.loaderId !== "string" || beforeRoot.loaderId.length < 1 ||
+        beforeRoot.id.length > 256 || beforeRoot.loaderId.length > 256 ||
+        hasControl(beforeRoot.id) || hasControl(beforeRoot.loaderId)) {
+      throw new Error("browser_bridge_nav_frame_invalid");
+    }
+    rootFrameId = beforeRoot.id;
+    chrome.debugger.onEvent.addListener(onEvent);
+    navigationDeadline = Date.now() + NAV_COMMIT_TIMEOUT_MS;
+    effectStarted = true;
+    const navigationPromise = chrome.debugger.sendCommand(
+      target, "Page.navigate", { url: args.url }).then(value => ({ kind: "navigation", value }));
+    navigationPromise.catch(() => {});
+    const navigationOutcome = await beforeDeadline(Promise.race([
+      navigationPromise,
+      dialogSignal.then(() => ({ kind: "dialog" }))
+    ]),
+      navigationDeadline, "browser_bridge_nav_commit_timeout");
+    if (navigationOutcome.kind === "dialog") {
+      throw new Error("browser_bridge_nav_dialog_blocked");
+    }
+    const navigation = navigationOutcome.value;
+    if (!navigation || typeof navigation.frameId !== "string" ||
+        navigation.frameId.length < 1 || navigation.frameId.length > 256 ||
+        hasControl(navigation.frameId) || navigation.frameId !== beforeRoot.id ||
+        (navigation.loaderId !== undefined && (typeof navigation.loaderId !== "string" ||
+          navigation.loaderId.length < 1 || navigation.loaderId.length > 256 ||
+          hasControl(navigation.loaderId)))) {
+      throw new Error("browser_bridge_nav_frame_invalid");
+    }
+
+    let committedFrame = null;
+    let sameDocument = null;
+    while (Date.now() < navigationDeadline && !dialogBlocked &&
+        committedFrame === null && sameDocument === null) {
+      if (navigation.loaderId !== undefined) {
+        committedFrame = frameNavigations.find(frame => frame.id === navigation.frameId &&
+          frame.loaderId === navigation.loaderId && frame.parentId === undefined) || null;
+      } else {
+        sameDocument = sameDocumentNavigations.find(event =>
+          event.frameId === navigation.frameId && typeof event.url === "string") || null;
+      }
+      if (committedFrame === null && sameDocument === null) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+    }
+    if (dialogBlocked) throw new Error("browser_bridge_nav_dialog_blocked");
+    if (committedFrame === null && sameDocument === null) {
+      throw new Error("browser_bridge_nav_commit_timeout");
+    }
+    const commit = committedFrame || sameDocument;
+    const committedRaw = commit.url;
+    if (typeof committedRaw !== "string" || committedRaw.length < 1 || hasControl(committedRaw)) {
+      throw new Error("browser_bridge_nav_postcondition_failed");
+    }
+    const committed = boundedText(committedRaw, TAB_LIMITS.urlCharacters);
+    const unreachableRaw = committedFrame && typeof committedFrame.unreachableUrl === "string"
+      ? committedFrame.unreachableUrl : undefined;
+    const unreachable = unreachableRaw === undefined
+      ? null : boundedText(unreachableRaw, TAB_LIMITS.urlCharacters);
+    const committedLoaderId = navigation.loaderId === undefined
+      ? beforeRoot.loaderId : navigation.loaderId;
+    failureBase = {
+      committed_url: committed.text,
+      unreachable_url: unreachable === null ? undefined : unreachable.text,
+      frame_id: navigation.frameId,
+      loader_id: committedLoaderId
+    };
+    commitProven = true;
+    navEffect = "unknown";
+    if (navigationEventsOverflow) throw new Error("browser_bridge_nav_event_limit");
+    if ((typeof navigation.errorText === "string" && navigation.errorText.length > 0) ||
+        unreachable !== null) {
+      failureNavigation = {
+        error_text: boundedText(
+          typeof navigation.errorText === "string" && navigation.errorText.length > 0
+            ? navigation.errorText : "navigation committed an unreachable URL", 1024).text,
+        ...failureBase
+      };
+      throw new Error("browser_bridge_nav_failed");
+    }
+    const afterTab = await chrome.tabs.get(args.tab_id);
+    if (!afterTab || afterTab.id !== args.tab_id || afterTab.windowId !== beforeTab.windowId ||
+        typeof afterTab.url !== "string" || hasControl(afterTab.url) ||
+        !["loading", "complete"].includes(afterTab.status)) {
+      throw new Error("browser_bridge_nav_postcondition_failed");
+    }
+    const afterWindow = await chrome.windows.get(beforeTab.windowId);
+    const afterActive = afterTab.active === true;
+    const afterFocused = afterWindow.focused === true;
+    if (afterActive !== beforeActive || afterFocused !== beforeFocused) {
+      throw new Error("browser_bridge_nav_presentation_changed");
+    }
+    const observed = boundedText(afterTab.url, TAB_LIMITS.urlCharacters);
+    const title = boundedText(afterTab.title, TAB_LIMITS.titleCharacters);
+    result = {
+      tab_id: args.tab_id,
+      requested_url: args.url,
+      committed_url: committed.text,
+      observed_url: observed.text,
+      observed_title: title.text,
+      observed_truncated: committed.truncated || observed.truncated || title.truncated ||
+        unreachable !== null && unreachable.truncated,
+      navigation_kind: committedFrame === null ? "same-document" : "cross-document",
+      frame_id: navigation.frameId,
+      loader_id: committedLoaderId,
+      committed_url_equals_requested: committedRaw === args.url,
+      unreachable_url: unreachable === null ? undefined : unreachable.text,
+      load_event_fired: loadEventFired,
+      load_state: afterTab.status,
+      same_document_navigations: sameDocumentNavigations.length,
+      performed: true,
+      verified: true,
+      presentation: {
+        tab_active_before: beforeActive,
+        tab_active_after: afterActive,
+        window_focused_before: beforeFocused,
+        window_focused_after: afterFocused,
+        activation_requested: false
+      }
+    };
+  } catch (error) {
+    const raw = String(error && error.message || "browser_bridge_nav_actuation_failed");
+    const performedFailure = commitProven && failureNavigation !== undefined &&
+      raw === "browser_bridge_nav_failed";
+    const failure = navFailure(error, performedFailure ? "performed" :
+      effectStarted ? "unknown" : "not-performed");
+    navError = failure.message;
+    navEffect = failure.effect;
+    if (commitProven && failureNavigation === undefined && failureBase !== undefined) {
+      failureNavigation = { error_text: failure.message, ...failureBase };
+    }
+  } finally {
+    chrome.debugger.onEvent.removeListener(onEvent);
+    if (attached) {
+      try {
+        await chrome.debugger.detach(target);
+        detach = { outcome: "detached" };
+      } catch (_) {
+        detach = { outcome: "failed", code: "browser_bridge_nav_detach_failed" };
+      }
+    }
+  }
+  if (detach.outcome === "failed" && navError === null) {
+    navError = "browser_bridge_nav_detach_failed";
+    navEffect = effectStarted ? "unknown" : "not-performed";
+    if (commitProven && failureBase !== undefined) {
+      failureNavigation = { error_text: navError, ...failureBase };
+    }
+  }
+  if (navError !== null) {
+    return { tab_id: args.tab_id, code: navError, effect: navEffect,
+      navigation: failureNavigation, detach };
+  }
+  return { ...result, detach };
+}
+
 async function openWindow(args) {
   const keys = Object.keys(args).sort().join(",");
   if (keys !== "focused,url" && keys !== "focused,state,url" ||
@@ -707,7 +968,7 @@ async function dispatch(request) {
     return { protocol: PROTOCOL, extension_id: chrome.runtime.id,
       extension_version: chrome.runtime.getManifest().version,
       profile_instance_id: await profileInstanceId(),
-      commands: ["status", "tabs", "windows", "window-open", "window-state", "debug-read", "debug-invoke", "debug-type", "debug-files", "reload"] };
+      commands: ["status", "tabs", "windows", "window-open", "window-state", "nav", "debug-read", "debug-invoke", "debug-type", "debug-files", "reload"] };
   }
   if (request.command === "tabs") {
     const tabs = await chrome.tabs.query({});
@@ -746,6 +1007,7 @@ async function dispatch(request) {
   }
   if (request.command === "window-open") return openWindow(request.args);
   if (request.command === "window-state") return updateWindowState(request.args);
+  if (request.command === "nav") return navigateTab(request.args);
   if (["debug-invoke", "debug-type", "debug-files"].includes(request.command)) {
     return debugActuate(request.command, request.args);
   }
@@ -764,10 +1026,11 @@ function connect() {
     opened.onMessage.addListener(async request => {
       try {
         const result = await dispatch(request);
-        if (request.command.startsWith("debug-") && result && result.code && result.detach) {
+        if ((request.command.startsWith("debug-") || request.command === "nav") &&
+            result && result.code && result.detach) {
           opened.postMessage({ protocol: PROTOCOL, id: request.id, ok: false,
             error: { code: result.code, tab_id: result.tab_id, effect: result.effect,
-              detach: result.detach } });
+              navigation: result.navigation, detach: result.detach } });
         } else {
           opened.postMessage({ protocol: PROTOCOL, id: request.id, ok: true, result });
         }
@@ -784,7 +1047,7 @@ function connect() {
           String(error && error.message || "browser_bridge_failed")
             .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").slice(0, 96);
         const isEffect = request &&
-          ["debug-invoke", "debug-type", "debug-files", "window-open"].includes(request.command);
+          ["debug-invoke", "debug-type", "debug-files", "window-open", "nav"].includes(request.command);
         const errorResult = { code: code || "browser_bridge_failed" };
         if (isEffect && isDebug) {
           errorResult.tab_id = request.args && request.args.tab_id;
@@ -794,6 +1057,12 @@ function connect() {
           errorResult.effect = error &&
             ["not-performed", "rolled-back", "unknown"].includes(error.effect)
             ? error.effect : "not-performed";
+        } else if (request && request.command === "nav") {
+          errorResult.tab_id = request.args && request.args.tab_id;
+          errorResult.effect = error && ["not-performed", "performed", "unknown"].includes(error.effect)
+            ? error.effect : "not-performed";
+          errorResult.navigation = error && error.navigation;
+          errorResult.detach = error && error.detach || { outcome: "already-detached" };
         }
         opened.postMessage({ protocol: PROTOCOL, id: request && request.id,
           ok: false, error: errorResult });

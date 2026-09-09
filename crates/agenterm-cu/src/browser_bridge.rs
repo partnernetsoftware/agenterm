@@ -30,8 +30,8 @@ pub use registry::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-pub const PROTOCOL_VERSION: u32 = 4;
-pub const BRIDGE_EXTENSION_VERSION: &str = "1.4.0";
+pub const PROTOCOL_VERSION: u32 = 5;
+pub const BRIDGE_EXTENSION_VERSION: &str = "1.5.0";
 pub const REQUEST_MAX_BYTES: usize = 1024 * 1024;
 pub const NATIVE_MESSAGE_MAX_BYTES: usize = REQUEST_MAX_BYTES;
 pub const ACU_NATIVE_HOST_NAME: &str = "software.partnernet.agenterm_acu.browser_bridge";
@@ -57,6 +57,7 @@ const COMMANDS: &[&str] = &[
     "windows",
     "window-open",
     "window-state",
+    "nav",
     "debug-read",
     "debug-invoke",
     "debug-type",
@@ -188,6 +189,16 @@ impl BridgeRequest {
                         BridgeProtocolError::new(
                             "browser_bridge_args_invalid",
                             format!("window-open args are invalid: {e}"),
+                        )
+                    })?;
+                req.validate()
+            }
+            "nav" => {
+                let req: NavRequest = serde_json::from_value(Value::Object(self.args.clone()))
+                    .map_err(|e| {
+                        BridgeProtocolError::new(
+                            "browser_bridge_args_invalid",
+                            format!("nav args are invalid: {e}"),
                         )
                     })?;
                 req.validate()
@@ -556,6 +567,79 @@ pub struct WindowOpenRequest {
     pub state: BrowserWindowState,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NavRequest {
+    pub tab_id: u32,
+    pub url: String,
+}
+
+impl NavRequest {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        if self.tab_id == 0 {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_nav_args_invalid",
+                "nav requires an exact positive Chromium tab id",
+            ));
+        }
+        if self.url.len() > 2_048
+            || !self.url.is_ascii()
+            || self.url.bytes().any(|byte| !byte.is_ascii_graphic())
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_nav_url_refused",
+                "nav accepts a printable ASCII http(s) URL of at most 2048 bytes",
+            ));
+        }
+        let rest = if self
+            .url
+            .get(..8)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
+        {
+            &self.url[8..]
+        } else if self
+            .url
+            .get(..7)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://"))
+        {
+            &self.url[7..]
+        } else {
+            ""
+        };
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        if authority.contains('@') {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_nav_url_refused",
+                "nav URLs must not contain credentials",
+            ));
+        }
+        let host = authority.rsplit('@').next().unwrap_or_default();
+        let host_valid = if let Some(ipv6) = host.strip_prefix('[') {
+            ipv6.split_once(']').is_some_and(|(address, suffix)| {
+                !address.is_empty()
+                    && (suffix.is_empty()
+                        || suffix
+                            .strip_prefix(':')
+                            .is_some_and(|port| port.parse::<u16>().is_ok_and(|value| value != 0)))
+            })
+        } else {
+            let mut pieces = host.split(':');
+            let name = pieces.next().unwrap_or_default();
+            let port = pieces.next();
+            !name.is_empty()
+                && pieces.next().is_none()
+                && port.is_none_or(|value| value.parse::<u16>().is_ok_and(|parsed| parsed != 0))
+        };
+        if !host_valid {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_nav_url_refused",
+                "nav requires an absolute http(s) URL with a nonempty host",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl WindowOpenRequest {
     pub fn validate(&self) -> Result<(), BridgeProtocolError> {
         validate_text(
@@ -692,6 +776,149 @@ pub struct WindowOpenResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_window_after: Option<u32>,
     pub window: BrowserWindow,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NavResult {
+    pub tab_id: u32,
+    pub requested_url: String,
+    pub committed_url: String,
+    pub observed_url: String,
+    pub observed_title: String,
+    pub observed_truncated: bool,
+    pub navigation_kind: NavigationKind,
+    pub frame_id: String,
+    pub loader_id: String,
+    pub committed_url_equals_requested: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unreachable_url: Option<String>,
+    pub load_event_fired: bool,
+    pub load_state: NavigationLoadState,
+    pub same_document_navigations: u32,
+    pub performed: bool,
+    pub verified: bool,
+    pub presentation: PresentationObservation,
+    pub detach: DetachOutcome,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NavFailureObservation {
+    pub error_text: String,
+    pub committed_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unreachable_url: Option<String>,
+    pub frame_id: String,
+    pub loader_id: String,
+}
+
+impl NavFailureObservation {
+    pub fn validate(&self) -> Result<(), BridgeProtocolError> {
+        for (value, max, field) in [
+            (self.error_text.as_str(), 4_096, "navigation error text"),
+            (
+                self.committed_url.as_str(),
+                TAB_URL_MAX_BYTES,
+                "failed committed URL",
+            ),
+            (self.frame_id.as_str(), 256, "failed navigation frame id"),
+            (self.loader_id.as_str(), 256, "failed navigation loader id"),
+        ] {
+            validate_text(
+                value,
+                max,
+                false,
+                "browser_bridge_nav_failure_invalid",
+                field,
+            )?;
+        }
+        if let Some(url) = &self.unreachable_url {
+            validate_text(
+                url,
+                TAB_URL_MAX_BYTES,
+                false,
+                "browser_bridge_nav_failure_invalid",
+                "unreachable navigation URL",
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NavigationKind {
+    CrossDocument,
+    SameDocument,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NavigationLoadState {
+    Loading,
+    Complete,
+}
+
+impl NavResult {
+    pub fn validate_for(&self, req: &NavRequest) -> Result<(), BridgeProtocolError> {
+        req.validate()?;
+        validate_text(
+            &self.observed_url,
+            TAB_URL_MAX_BYTES,
+            true,
+            "browser_bridge_nav_postcondition_invalid",
+            "observed navigation URL",
+        )?;
+        validate_text(
+            &self.committed_url,
+            TAB_URL_MAX_BYTES,
+            false,
+            "browser_bridge_nav_postcondition_invalid",
+            "committed navigation URL",
+        )?;
+        validate_text(
+            &self.observed_title,
+            TAB_TITLE_MAX_BYTES,
+            true,
+            "browser_bridge_nav_postcondition_invalid",
+            "observed navigation title",
+        )?;
+        validate_text(
+            &self.frame_id,
+            256,
+            false,
+            "browser_bridge_nav_postcondition_invalid",
+            "navigation frame id",
+        )?;
+        validate_text(
+            &self.loader_id,
+            256,
+            false,
+            "browser_bridge_nav_postcondition_invalid",
+            "navigation loader id",
+        )?;
+        validate_detach(&self.detach)?;
+        if self.tab_id != req.tab_id
+            || self.requested_url != req.url
+            || self.committed_url_equals_requested != (self.committed_url == req.url)
+            || self.unreachable_url.is_some()
+            || !self.performed
+            || !self.verified
+            || (matches!(self.navigation_kind, NavigationKind::SameDocument)
+                && self.same_document_navigations == 0)
+            || self.presentation.activation_requested
+            || self.presentation.tab_active_before != self.presentation.tab_active_after
+            || self.presentation.window_focused_before != self.presentation.window_focused_after
+            || matches!(self.detach, DetachOutcome::Failed { .. })
+        {
+            return Err(BridgeProtocolError::new(
+                "browser_bridge_nav_postcondition_invalid",
+                "nav result does not prove an exact committed navigation without presentation drift and with debugger cleanup",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl WindowOpenResult {
@@ -1263,7 +1490,12 @@ mod tests {
         let mut reload = req("reload");
         reload.args.insert("tab_id".into(), json!(7));
         reload.validate().unwrap();
-        for command in ["read", "click", "type", "nav"] {
+        let mut nav = req("nav");
+        nav.args.insert("tab_id".into(), json!(7));
+        nav.args
+            .insert("url".into(), json!("https://example.test/landing"));
+        nav.validate().unwrap();
+        for command in ["read", "click", "type"] {
             assert_eq!(
                 req(command).validate().unwrap_err().code,
                 "browser_bridge_command_unknown"
@@ -1881,6 +2113,106 @@ mod tests {
         assert_eq!(
             invalid_focus.validate().unwrap_err().code,
             "browser_bridge_window_open_focus_invalid"
+        );
+    }
+
+    #[test]
+    fn nav_proves_an_exact_commit_without_claiming_load_completion() {
+        let request = NavRequest {
+            tab_id: 7,
+            url: "https://example.test/redirect".into(),
+        };
+        request.validate().unwrap();
+        let mut result = NavResult {
+            tab_id: 7,
+            requested_url: request.url.clone(),
+            committed_url: "https://example.test/landing".into(),
+            observed_url: "https://example.test/landing".into(),
+            observed_title: "Landing".into(),
+            observed_truncated: false,
+            navigation_kind: NavigationKind::CrossDocument,
+            frame_id: "frame-1".into(),
+            loader_id: "loader-1".into(),
+            committed_url_equals_requested: false,
+            unreachable_url: None,
+            load_event_fired: false,
+            load_state: NavigationLoadState::Loading,
+            same_document_navigations: 0,
+            performed: true,
+            verified: true,
+            presentation: PresentationObservation {
+                tab_active_before: false,
+                tab_active_after: false,
+                window_focused_before: false,
+                window_focused_after: false,
+                activation_requested: false,
+            },
+            detach: DetachOutcome::Detached,
+        };
+        result.validate_for(&request).unwrap();
+        result.committed_url_equals_requested = true;
+        assert_eq!(
+            result.validate_for(&request).unwrap_err().code,
+            "browser_bridge_nav_postcondition_invalid"
+        );
+        result.committed_url_equals_requested = false;
+        result.unreachable_url = Some("https://example.test/redirect".into());
+        assert_eq!(
+            result.validate_for(&request).unwrap_err().code,
+            "browser_bridge_nav_postcondition_invalid"
+        );
+        result.unreachable_url = None;
+        result.detach = DetachOutcome::Failed {
+            code: "browser_bridge_nav_detach_failed".into(),
+        };
+        assert_eq!(
+            result.validate_for(&request).unwrap_err().code,
+            "browser_bridge_nav_postcondition_invalid"
+        );
+        result.detach = DetachOutcome::Detached;
+        result.navigation_kind = NavigationKind::SameDocument;
+        assert_eq!(
+            result.validate_for(&request).unwrap_err().code,
+            "browser_bridge_nav_postcondition_invalid"
+        );
+        // Load state and load-event timing are informational: tabs status and CDP
+        // events may be briefly reordered after an already-proven commit.
+        result.same_document_navigations = 1;
+        result.validate_for(&request).unwrap();
+        result.navigation_kind = NavigationKind::CrossDocument;
+        result.same_document_navigations = 0;
+        result.load_event_fired = true;
+        result.load_state = NavigationLoadState::Loading;
+        result.validate_for(&request).unwrap();
+        assert_eq!(
+            NavRequest {
+                tab_id: 7,
+                url: "data:text/html,ACU-nav".into(),
+            }
+            .validate()
+            .unwrap_err()
+            .code,
+            "browser_bridge_nav_url_refused"
+        );
+        assert_eq!(
+            NavRequest {
+                tab_id: 7,
+                url: "https://user:secret@example.test/landing".into(),
+            }
+            .validate()
+            .unwrap_err()
+            .code,
+            "browser_bridge_nav_url_refused"
+        );
+        assert_eq!(
+            NavRequest {
+                tab_id: 0,
+                url: request.url,
+            }
+            .validate()
+            .unwrap_err()
+            .code,
+            "browser_bridge_nav_args_invalid"
         );
     }
 }

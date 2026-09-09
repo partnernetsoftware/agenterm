@@ -993,6 +993,7 @@ impl Executor {
             command,
             Command::BrowserBridgeAttach { .. }
                 | Command::BrowserBridgeReload { .. }
+                | Command::BrowserBridgeNav { .. }
                 | Command::BrowserBridgeDebugInvoke { .. }
                 | Command::BrowserBridgeDebugType { .. }
                 | Command::BrowserBridgeDebugFiles { .. }
@@ -1591,6 +1592,49 @@ mod tests {
         assert_eq!(record["detail"]["window_id"], 11);
         assert_eq!(record["detail"]["tab_content_redacted"], true);
         assert_eq!(record["detail"]["lease_redacted"], true);
+        remove_audit_scratch(&path);
+    }
+
+    #[test]
+    fn browser_bridge_nav_audit_never_persists_requested_or_committed_urls() {
+        let path = audit_scratch("browser-bridge-nav-redaction");
+        let mut audit = AuditLog::open_at(&path).expect("open isolated audit");
+        let command = Command::BrowserBridgeNav {
+            target: TargetRef::Current,
+            connection_id: crate::browser_bridge::ConnectionId::parse(&"ef".repeat(32))
+                .expect("connection id"),
+            tab_id: 7,
+            url: "https://example.invalid/private-request".into(),
+            lock_ttl_seconds: 35,
+            timeout_ms: 30_000,
+        };
+        let reply = CuReply::ok(
+            &command,
+            serde_json::json!({
+                "connection_id": "private-connection-id",
+                "tab": {"tab_id": 7, "window_id": 11, "active": false},
+                "result": {
+                    "requested_url": "https://example.invalid/private-request",
+                    "committed_url": "https://example.invalid/private-commit",
+                    "observed_url": "https://example.invalid/private-observed",
+                    "verified": true
+                },
+                "verified": true
+            }),
+        );
+        Executor::audit_after(&mut audit, &command, &reply).expect("audit outcome");
+        let text = std::fs::read_to_string(&path).expect("read audit");
+        for private in [
+            "private-request",
+            "private-commit",
+            "private-observed",
+            "private-connection-id",
+        ] {
+            assert!(!text.contains(private), "audit leaked {private}");
+        }
+        let record: serde_json::Value = serde_json::from_str(text.trim()).expect("audit JSON");
+        assert_eq!(record["detail"]["tab_id"], 7);
+        assert_eq!(record["detail"]["tab_content_redacted"], true);
         remove_audit_scratch(&path);
     }
 

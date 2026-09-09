@@ -8,6 +8,7 @@ const declared_evidence = [
   "cu.browser-bridge-owned-profile.macos",
   "cu.browser-profile-tabs.macos",
   "cu.browser-bridge-reload.macos",
+  "cu.browser-bridge-nav.macos",
   "cu.browser-closed-tree.macos",
   "cu.browser-window-lifecycle.macos",
   "cu.browser-cdp-actuate.macos",
@@ -268,18 +269,19 @@ try {
   const bridge_status = require_ok(invoke("observe", [
     "browser-bridge-status", bridge_id
   ]), "cu_browser_bridge_status_failed");
-  ensure(bridge_status.data.result.protocol === 4, "cu_browser_bridge_protocol");
-  ensure(bridge_status.data.result.extension_version === "1.4.0",
+  ensure(bridge_status.data.result.protocol === 5, "cu_browser_bridge_protocol");
+  ensure(bridge_status.data.result.extension_version === "1.5.0",
     "cu_browser_bridge_extension_version");
   ensure(bridge_status.data.result.profile_instance_id.length === 32,
     "cu_browser_bridge_profile_identity");
   const profile_instance_id = bridge_status.data.result.profile_instance_id;
   const commands = bridge_status.data.result.commands;
-  ensure(commands.length === 10 && commands[0] === "status" && commands[1] === "tabs" &&
+  ensure(commands.length === 11 && commands[0] === "status" && commands[1] === "tabs" &&
     commands[2] === "windows" && commands[3] === "window-open" &&
-    commands[4] === "window-state" && commands[5] === "debug-read" &&
-    commands[6] === "debug-invoke" && commands[7] === "debug-type" &&
-    commands[8] === "debug-files" && commands[9] === "reload",
+    commands[4] === "window-state" && commands[5] === "nav" &&
+    commands[6] === "debug-read" && commands[7] === "debug-invoke" &&
+    commands[8] === "debug-type" && commands[9] === "debug-files" &&
+    commands[10] === "reload",
     "cu_browser_bridge_commands");
   const legacy_status_focus_before = require_ok(invoke("observe", [
     "windows", "--focused", "true", "--max", "2"
@@ -672,6 +674,84 @@ try {
   ]), "cu_browser_closed_tree_business_read_failed");
   ensure(text_at(closed_business, "data.value") === closed_secret + "|yes|closed-upload.txt:13",
     "cu_browser_closed_tree_business_state");
+
+  print("STEP exact MV3 navigation proves one debugger commit on the same background tab");
+  const bridge_nav_url = "http://127.0.0.1:" + started.data.endpoint.port + "/json/version";
+  const bridge_nav_focus_before = require_ok(invoke("observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]), "cu_browser_bridge_nav_focus_before_failed");
+  ensure(bridge_nav_focus_before.data.returned === 1 &&
+    bridge_nav_focus_before.data.windows[0].handle === controlled_focus_handle,
+    "cu_browser_bridge_nav_focus_before_ambiguous");
+  const bridge_nav = bridge_effect("bridge-nav-" + rh.pid(), [
+    "browser-bridge-nav", bridge_id, "--tab-id", "" + attached_tab_id,
+    "--url", bridge_nav_url, "--lock-ttl-seconds", "35", "--timeout-ms", "30000"
+  ]);
+  ensure(bridge_nav.data.connection_id === bridge_id &&
+    bridge_nav.data.tab.tab_id === attached_tab_id &&
+    bridge_nav.data.tab.window_id === second_window_id &&
+    bridge_nav.data.result.tab_id === attached_tab_id &&
+    bridge_nav.data.result.requested_url === bridge_nav_url &&
+    bridge_nav.data.result.committed_url === bridge_nav_url &&
+    bridge_nav.data.result.observed_url === bridge_nav_url &&
+    bridge_nav.data.result.committed_url_equals_requested === true &&
+    bridge_nav.data.result.navigation_kind === "cross-document" &&
+    typeof bridge_nav.data.result.frame_id === "string" &&
+    bridge_nav.data.result.frame_id.length > 0 &&
+    typeof bridge_nav.data.result.loader_id === "string" &&
+    bridge_nav.data.result.loader_id.length > 0 &&
+    bridge_nav.data.result.unreachable_url === undefined &&
+    typeof bridge_nav.data.result.load_event_fired === "boolean" &&
+    (bridge_nav.data.result.load_state === "loading" ||
+      bridge_nav.data.result.load_state === "complete") &&
+    bridge_nav.data.result.same_document_navigations === 0 &&
+    bridge_nav.data.result.observed_truncated === false &&
+    typeof bridge_nav.data.result.observed_title === "string" &&
+    bridge_nav.data.result.performed === true && bridge_nav.data.result.verified === true &&
+    bridge_nav.data.result.detach.outcome === "detached" &&
+    bridge_nav.data.result.presentation.activation_requested === false &&
+    bridge_nav.data.result.presentation.tab_active_before ===
+      bridge_nav.data.result.presentation.tab_active_after &&
+    bridge_nav.data.result.presentation.window_focused_before ===
+      bridge_nav.data.result.presentation.window_focused_after &&
+    typeof bridge_nav.data.lock.lock_id === "string" &&
+    bridge_nav.data.lock.lock_id.length > 0 &&
+    bridge_nav.data.lock.session_id === runtime_session.session_id &&
+    bridge_nav.data.lock.target_redacted === true &&
+    bridge_nav.data.lock_after.lock_id === bridge_nav.data.lock.lock_id &&
+    bridge_nav.data.lock_after.session_id === runtime_session.session_id &&
+    bridge_nav.data.lock_after.target_redacted === true &&
+    bridge_nav.data.desktop_focus.changed === false &&
+    bridge_nav.data.desktop_focus.verified === true &&
+    bridge_nav.data.desktop_focus.before === controlled_focus_handle &&
+    bridge_nav.data.desktop_focus.after === controlled_focus_handle &&
+    bridge_nav.data.verified === true,
+    "cu_browser_bridge_nav_commit_unverified");
+  const bridge_nav_read_deadline = rh.now_ms() + 10000;
+  let bridge_nav_tab = null;
+  while (rh.now_ms() < bridge_nav_read_deadline) {
+    const nav_tabs = require_ok(invoke("observe", [
+      "browser-bridge-tabs", bridge_id
+    ]), "cu_browser_bridge_nav_tabs_read_failed");
+    for (const row of nav_tabs.data.result.tabs) {
+      if (row.tab_id === attached_tab_id && row.url === bridge_nav_url) {
+        bridge_nav_tab = row;
+      }
+    }
+    if (bridge_nav_tab !== null) { break; }
+    rh.sleep_ms(25);
+  }
+  ensure(bridge_nav_tab !== null && bridge_nav_tab.window_id === second_window_id &&
+    bridge_nav_tab.active === bridge_nav.data.tab.active,
+    "cu_browser_bridge_nav_tabs_identity_or_url_mismatch");
+  const bridge_nav_focus_after = require_ok(invoke("observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]), "cu_browser_bridge_nav_focus_after_failed");
+  ensure(bridge_nav_focus_after.data.returned === 1 &&
+    bridge_nav_focus_after.data.windows[0].handle === controlled_focus_handle,
+    "cu_browser_bridge_nav_changed_desktop_focus");
+  harness.emit_evidence(context, declared_evidence, "cu.browser-bridge-nav.macos");
+
   const fixture = "data:text/html,<title>acu-qjs-browser</title>"
     + "<form onsubmit='document.getElementById(\"out\").textContent=\"submitted\";return false'>"
     + "<input id='q'><button id='go' type='button' onclick='document.getElementById(\"out\").textContent=\"clicked\"'>Go</button></form>"

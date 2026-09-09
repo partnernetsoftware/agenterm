@@ -104,6 +104,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::BrowserBridgeDebugInvoke { .. }
         | Command::BrowserBridgeDebugRead { .. }
         | Command::BrowserBridgeDebugType { .. }
+        | Command::BrowserBridgeNav { .. }
         | Command::BrowserBridgeReload { .. }
         | Command::BrowserBridgeSetup { .. }
         | Command::BrowserBridgeStatus { .. }

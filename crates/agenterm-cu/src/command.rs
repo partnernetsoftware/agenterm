@@ -3940,6 +3940,17 @@ pub enum Command {
         window_id: u32,
         state: crate::browser_bridge::BrowserWindowState,
     },
+    /// Navigate one exact bridge tab without activating it. The caller's
+    /// request identity and runtime session own at-most-once delivery and the
+    /// stable profile/tab lock.
+    BrowserBridgeNav {
+        target: TargetRef,
+        connection_id: ConnectionId,
+        tab_id: u32,
+        url: String,
+        lock_ttl_seconds: u64,
+        timeout_ms: u64,
+    },
     BrowserBridgeDebugRead {
         target: TargetRef,
         connection_id: ConnectionId,
@@ -4573,6 +4584,7 @@ impl Command {
             Self::BrowserBridgeWindows { .. } => "browser-bridge-windows".into(),
             Self::BrowserBridgeWindowOpen { .. } => "browser-bridge-window-open".into(),
             Self::BrowserBridgeWindowState { .. } => "browser-bridge-window-state".into(),
+            Self::BrowserBridgeNav { .. } => "browser-bridge-nav".into(),
             Self::BrowserBridgeDebugRead { .. } => "browser-bridge-debug-read".into(),
             Self::BrowserBridgeDebugInvoke { .. } => "browser-bridge-debug-invoke".into(),
             Self::BrowserBridgeDebugType { .. } => "browser-bridge-debug-type".into(),
@@ -5020,6 +5032,7 @@ impl Command {
             | Self::BrowserBridgeWindows { target, .. }
             | Self::BrowserBridgeWindowOpen { target, .. }
             | Self::BrowserBridgeWindowState { target, .. }
+            | Self::BrowserBridgeNav { target, .. }
             | Self::BrowserBridgeDebugRead { target, .. }
             | Self::BrowserBridgeDebugInvoke { target, .. }
             | Self::BrowserBridgeDebugType { target, .. }
@@ -5166,6 +5179,7 @@ impl Command {
             | Self::BrowserBridgeDebugFiles { .. }
             | Self::BrowserBridgeWindowOpen { .. }
             | Self::BrowserBridgeWindowState { .. }
+            | Self::BrowserBridgeNav { .. }
             | Self::SimulatorBoot { .. }
             | Self::SimulatorShutdown { .. }
             | Self::SimulatorLaunch { .. }
@@ -5460,6 +5474,26 @@ impl Command {
                 }
                 .validate()
                 .map_err(|_| "browser bridge debug-invoke request is invalid")?;
+                validate_browser_debug_deadline(*lock_ttl_seconds, *timeout_ms)
+            }
+            Self::BrowserBridgeNav {
+                tab_id,
+                url,
+                lock_ttl_seconds,
+                timeout_ms,
+                ..
+            } => {
+                if !(25_000..=60_000).contains(timeout_ms) {
+                    return Err(
+                        "browser bridge nav timeout must leave a bounded commit-proof window",
+                    );
+                }
+                crate::browser_bridge::NavRequest {
+                    tab_id: *tab_id,
+                    url: url.clone(),
+                }
+                .validate()
+                .map_err(|_| "browser bridge nav request is invalid")?;
                 validate_browser_debug_deadline(*lock_ttl_seconds, *timeout_ms)
             }
             Self::BrowserBridgeDebugType {
@@ -9218,6 +9252,18 @@ mod tests {
             state: crate::browser_bridge::BrowserWindowState::Minimized,
         };
         assert!(invalid_open.validate().is_err());
+
+        let nav = Command::BrowserBridgeNav {
+            target: TargetRef::Current,
+            connection_id: connection_id.clone(),
+            tab_id: 7,
+            url: "https://example.test/landing".into(),
+            lock_ttl_seconds: 35,
+            timeout_ms: 30_000,
+        };
+        assert_eq!(nav.required_grant(), Grant::Actuate);
+        assert_eq!(nav.verb(), "browser-bridge-nav");
+        nav.validate().unwrap();
 
         let attach = Command::BrowserBridgeAttach {
             target: TargetRef::Current,

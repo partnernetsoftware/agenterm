@@ -315,7 +315,8 @@ function known_dynamic_boundary(argv) {
     return compound_plan("bridge-status", "browser", { profile: parsed.values.profile });
   }
   if (verb === "browser" && sub === "nav") {
-    const valued = without_value_flags(argv, ["port", "pid", "match", "profile", "app"]);
+    const valued = without_value_flags(argv,
+      ["port", "pid", "match", "profile", "app", "tab-id"]);
     if (!valued.ok) { return { kind: "usage", command: "browser", message: valued.message }; }
     const switched = without_switch_flags(valued.argv, ["allow-foreground"]);
     if (!switched.ok) { return { kind: "usage", command: "browser", message: switched.message }; }
@@ -334,8 +335,33 @@ function known_dynamic_boundary(argv) {
         return { kind: "usage", command: "browser",
           message: "browser nav --allow-foreground is not mapped: no AppleScript navigation path exists; use page-nav --port N or --pid PID with --match SUB and --url URL" };
       }
-      return todo("acu.dynamic.075.bridge-nav", "browser",
-        "browser bridge navigation needs an exact native MV3 nav command; pass --port or --pid for CDP page-nav");
+      const url = switched.argv[2];
+      const scheme_url = url.toLowerCase();
+      if (!(scheme_url.startsWith("http://") || scheme_url.startsWith("https://"))) {
+        return { kind: "usage", command: "browser",
+          message: "browser bridge nav accepts only an http(s) URL" };
+      }
+      if (valued.values.app !== null) {
+        return todo("acu.dynamic.075.profile-name-binding", "browser",
+          "browser nav --app needs a verified Chromium application and MV3 profile identity binding");
+      }
+      if (valued.values.profile !== null && !lower_hex_prefix(valued.values.profile)) {
+        return todo("acu.dynamic.075.profile-name-binding", "browser",
+          "browser nav human profile names need a verified MV3 profile identity binding");
+      }
+      if (valued.values.match !== null && valued.values.match.length === 0) {
+        return { kind: "usage", command: "browser",
+          message: "browser nav --match must not be empty" };
+      }
+      const tab = optional_integer(valued.values["tab-id"], 1, "browser nav --tab-id");
+      if (!tab.ok || tab.value !== null && tab.value > 4294967295) {
+        return { kind: "usage", command: "browser",
+          message: "browser nav --tab-id must be 1..4294967295" };
+      }
+      return compound_plan("bridge-nav", "browser", {
+        url: url, profile: valued.values.profile, tab_id: tab.value,
+        match: valued.values.match
+      });
     }
     const transport = port.value !== null
       ? ["--port", "" + port.value] : ["--pid", "" + pid.value];
@@ -696,7 +722,8 @@ export function canonicalize(input) {
   if (mapped.kind === "focused-pid" || mapped.kind === "observe-roles"
       || mapped.kind === "observe-filters"
       || mapped.kind === "elements-page" || mapped.kind === "bridge-status"
-      || mapped.kind === "bridge-open" || mapped.kind === "cdp-nav"
+      || mapped.kind === "bridge-open" || mapped.kind === "bridge-nav"
+      || mapped.kind === "cdp-nav"
       || mapped.kind === "selector-dclick") {
     mapped.globals = copy(extracted.prefix);
     return mapped;

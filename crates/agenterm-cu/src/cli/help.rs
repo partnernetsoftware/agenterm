@@ -401,6 +401,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "browser-bridge-windows",
         "browser-bridge-window-open",
         "browser-bridge-window-state",
+        "browser-bridge-nav",
         "browser-bridge-debug-read",
         "browser-bridge-debug-invoke",
         "browser-bridge-debug-type",

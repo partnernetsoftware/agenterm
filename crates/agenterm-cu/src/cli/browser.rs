@@ -56,6 +56,7 @@ pub fn parse(
             "browser-bridge-windows" => browser_bridge(target, Some("windows"), args),
             "browser-bridge-window-open" => browser_bridge(target, Some("window-open"), args),
             "browser-bridge-window-state" => browser_bridge(target, Some("window-state"), args),
+            "browser-bridge-nav" => browser_bridge(target, Some("nav"), args),
             "browser-bridge-debug-read" => browser_bridge(target, Some("debug-read"), args),
             "browser-bridge-debug-invoke" => browser_bridge(target, Some("debug-invoke"), args),
             "browser-bridge-debug-type" => browser_bridge(target, Some("debug-type"), args),
@@ -1021,7 +1022,7 @@ fn browser_bridge(
     let action = match action {
         Some(action) => action,
         None => args.first().map(String::as_str).ok_or_else(|| {
-            "browser bridge requires setup | connections | status | tabs | attach | reload | windows | window-open | window-state | debug-read | debug-invoke | debug-type | debug-files"
+            "browser bridge requires setup | connections | status | tabs | attach | reload | windows | window-open | window-state | nav | debug-read | debug-invoke | debug-type | debug-files"
                 .to_owned()
         })?,
     }
@@ -1035,13 +1036,14 @@ fn browser_bridge(
         && action != "windows"
         && action != "window-open"
         && action != "window-state"
+        && action != "nav"
         && action != "debug-read"
         && action != "debug-invoke"
         && action != "debug-type"
         && action != "debug-files"
     {
         return Err(format!(
-            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | attach | reload | windows | window-open | window-state | debug-read | debug-invoke | debug-type | debug-files"
+            "unknown browser bridge action {action:?}; expected setup | connections | status | tabs | attach | reload | windows | window-open | window-state | nav | debug-read | debug-invoke | debug-type | debug-files"
         ));
     }
     if action.is_empty() {
@@ -1179,6 +1181,32 @@ fn browser_bridge(
                 connection_id: exact_connection_id("browser bridge window-state", args)?,
                 window_id,
                 state,
+            })
+        }
+        "nav" => {
+            let tab_id = flag_parsed::<u32>(args, "--tab-id")?
+                .ok_or_else(|| "browser bridge nav requires --tab-id N".to_owned())?;
+            let url = flag_text(args, "--url")?
+                .ok_or_else(|| "browser bridge nav requires --url URL".to_owned())?;
+            let lock_ttl_seconds = flag_parsed::<u64>(args, "--lock-ttl-seconds")?.unwrap_or(35);
+            let timeout_ms = flag_parsed::<u64>(args, "--timeout-ms")?.unwrap_or(30_000);
+            let request = agenterm_cu::browser_bridge::NavRequest {
+                tab_id,
+                url: url.clone(),
+            };
+            request.validate().map_err(|error| error.message)?;
+            if !(25_000..=60_000).contains(&timeout_ms)
+                || lock_ttl_seconds.saturating_mul(1_000) < timeout_ms.saturating_add(5_000)
+            {
+                return Err("browser bridge nav requires --timeout-ms 25000..60000 and a lock TTL covering that deadline plus 5000ms".into());
+            }
+            Ok(Command::BrowserBridgeNav {
+                target,
+                connection_id: exact_connection_id("browser bridge nav", args)?,
+                tab_id,
+                url,
+                lock_ttl_seconds,
+                timeout_ms,
             })
         }
         "debug-read" => {
@@ -1613,6 +1641,28 @@ mod tests {
                 state: agenterm_cu::browser_bridge::BrowserWindowState::Minimized,
                 ..
             }) if url == "data:text/html,ACU"
+        ));
+
+        let mut nav = words(&[
+            &id,
+            "--tab-id",
+            "7",
+            "--url",
+            "https://example.test/landing",
+            "--lock-ttl-seconds",
+            "35",
+            "--timeout-ms",
+            "30000",
+        ]);
+        assert!(matches!(
+            browser_bridge(TargetRef::Current, Some("nav"), &mut nav),
+            Ok(Command::BrowserBridgeNav {
+                tab_id: 7,
+                ref url,
+                lock_ttl_seconds: 35,
+                timeout_ms: 30_000,
+                ..
+            }) if url == "https://example.test/landing"
         ));
 
         let mut state = words(&[&id, "--window-id", "9", "--state", "minimized"]);

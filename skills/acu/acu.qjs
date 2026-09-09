@@ -234,6 +234,31 @@ function execute_compound(request) {
       compound.bridge_window_open_projection(
         selected.value, opened, request.legacy_timeout));
   }
+  if (request.kind === "bridge-nav") {
+    const tabs_argv = ["browser-tabs"];
+    if (request.tab_id !== null) {
+      append_argv(tabs_argv, ["--tab-id", "" + request.tab_id]);
+    }
+    if (request.match !== null) {
+      append_argv(tabs_argv, ["--match", request.match]);
+    }
+    if (request.profile !== null) {
+      append_argv(tabs_argv, ["--profile-instance-id", request.profile]);
+    }
+    const tabs = acu.argv(prefixed(request.globals, tabs_argv));
+    const selected = compound.bridge_nav_tab(
+      tabs, request.tab_id, request.profile, request.match);
+    if (!selected.ok) {
+      return projection_error(request.command, selected);
+    }
+    const navigated = acu.argv(prefixed(request.globals, [
+      "browser-bridge-nav", selected.value.connection_id,
+      "--tab-id", "" + selected.value.tab_id, "--url", request.url
+    ]));
+    if (navigated.ok !== true) { return navigated; }
+    return projected_reply(request.command, navigated,
+      compound.bridge_nav_projection(selected.value, navigated));
+  }
   if (request.kind === "cdp-nav") {
     const targets_argv = ["page-targets"];
     append_argv(targets_argv, request.transport);

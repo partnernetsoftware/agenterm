@@ -1,6 +1,6 @@
-// Pure public court for legacy browser bridge/status and explicit-CDP nav
-// compatibility projections. It owns no GUI, browser, process or network
-// effects; every native reply below is synthetic.
+// Pure public court for legacy browser bridge/status, exact MV3 navigation and
+// explicit-CDP compatibility projections. It owns no GUI, browser, process or
+// network effects; every native reply below is synthetic.
 // Args: REPO | --list-evidence
 import * as compat from "skills/acu/lib/compat";
 import * as compound from "skills/acu/lib/compound";
@@ -69,6 +69,73 @@ function target(id, type, title) {
     url: "data:text/html," + title,
     description: ""
   };
+}
+
+function tabs_reply(rows, profile_selector, tab_id, match_text) {
+  return { ok: true, data: {
+    mechanism: "mv3-native-messaging",
+    connection_id: CONNECTION_A,
+    profile_instance_id: PROFILE_A,
+    selection: {
+      profile_instance_id: profile_selector,
+      connection_id: null,
+      match: match_text,
+      tab_id: tab_id
+    },
+    returned: rows.length,
+    truncated: false,
+    tabs: rows,
+    focus: false,
+    focus_changed: false,
+    verified: true
+  } };
+}
+
+function bridge_tab(tab_id, window_id) {
+  return {
+    tab_id: tab_id,
+    window_id: window_id,
+    active: false,
+    title: "Guide",
+    url: "https://example.test/before"
+  };
+}
+
+function nav_reply(tab_id, url) {
+  return { ok: true, target: "current", command: "browser-bridge-nav", data: {
+    connection_id: CONNECTION_A,
+    tab: { tab_id: tab_id, window_id: 44, active: false },
+    result: {
+      tab_id: tab_id,
+      requested_url: url,
+      committed_url: url,
+      observed_url: url,
+      observed_title: "Committed title",
+      observed_truncated: false,
+      navigation_kind: "cross-document",
+      frame_id: "frame-1",
+      loader_id: "loader-1",
+      committed_url_equals_requested: true,
+      unreachable_url: null,
+      load_event_fired: true,
+      load_state: "complete",
+      same_document_navigations: 0,
+      performed: true,
+      verified: true,
+      presentation: {
+        activation_requested: false,
+        tab_active_before: false,
+        tab_active_after: false,
+        window_focused_before: false,
+        window_focused_after: false
+      },
+      detach: { outcome: "detached" }
+    },
+    lock: { lock_id: "lock-1", target_redacted: true },
+    lock_after: { lock_id: "lock-1", target_redacted: true },
+    desktop_focus: { before: 9001, after: 9001, changed: false, verified: true },
+    verified: true
+  }, receipt: { request_id: "nav-1", state: "completed" } };
 }
 
 function window_open_reply(connection_id, state, focused, desktop_after) {
@@ -156,11 +223,46 @@ try {
   same_array(unique_nav.transport, ["--pid", "42"],
     "acu_browser_cdp_nav_unique_transport");
   const bridge_nav = compat.canonicalize([
-    "browser", "nav", "https://example.test/next"
+    "--request-id", "nav-1", "--session", "session-1",
+    "--session-lease", "lease-1", "browser", "nav",
+    "https://example.test/next", "--tab-id", "55",
+    "--profile", PROFILE_A.substring(0, 8)
   ]);
-  ensure(bridge_nav.kind === "todo"
-      && bridge_nav.gap_id === "acu.dynamic.075.bridge-nav",
-    "acu_browser_bridge_nav_stays_typed");
+  ensure(bridge_nav.kind === "bridge-nav"
+      && bridge_nav.url === "https://example.test/next"
+      && bridge_nav.tab_id === 55
+      && bridge_nav.profile === PROFILE_A.substring(0, 8),
+    "acu_browser_bridge_nav_route");
+  same_array(bridge_nav.globals, [
+    "--target", "current", "--grant", "observe,actuate",
+    "--request-id", "nav-1", "--session", "session-1",
+    "--session-lease", "lease-1"
+  ], "acu_browser_bridge_nav_globals");
+  const bridge_nav_unique = compat.canonicalize([
+    "browser", "nav", "https://example.test/only"
+  ]);
+  ensure(bridge_nav_unique.kind === "bridge-nav"
+      && bridge_nav_unique.tab_id === null
+      && bridge_nav_unique.profile === null
+      && bridge_nav_unique.match === null,
+    "acu_browser_bridge_nav_unique_inventory_route");
+  const bridge_nav_match = compat.canonicalize([
+    "browser", "nav", "https://example.test/matched", "--match", "Guide"
+  ]);
+  ensure(bridge_nav_match.kind === "bridge-nav"
+      && bridge_nav_match.match === "Guide",
+    "acu_browser_bridge_nav_match_route");
+  ensure(compat.canonicalize([
+    "browser", "nav", "file:///tmp/not-allowed", "--tab-id", "55"
+  ]).kind === "usage", "acu_browser_bridge_nav_http_only");
+  ensure(compat.canonicalize([
+    "browser", "nav", "https://example.test/next", "--profile", "Default"
+  ]).gap_id === "acu.dynamic.075.profile-name-binding",
+  "acu_browser_bridge_nav_human_profile_stays_typed");
+  ensure(compat.canonicalize([
+    "browser", "nav", "https://example.test/next", "--app", "brave"
+  ]).gap_id === "acu.dynamic.075.profile-name-binding",
+  "acu_browser_bridge_nav_app_stays_typed");
   const foreground_nav = compat.canonicalize([
     "browser", "nav", "https://example.test/next", "--allow-foreground"
   ]);
@@ -194,6 +296,75 @@ try {
   ensure(compat.canonicalize([
     "browser", "open", "https://example.test/a", "extra"
   ]).kind === "usage", "acu_browser_open_exact_shape");
+
+  const selected_nav = compound.bridge_nav_tab(tabs_reply(
+    [bridge_tab(55, 44)], PROFILE_A.substring(0, 8), 55, null),
+    55, PROFILE_A.substring(0, 8), null);
+  ensure(selected_nav.ok === true
+      && selected_nav.value.connection_id === CONNECTION_A
+      && selected_nav.value.profile_instance_id === PROFILE_A
+      && selected_nav.value.tab_id === 55
+      && selected_nav.value.window_id === 44,
+    "acu_browser_bridge_nav_exact_tab_" + selected_nav.code);
+  const unique_nav_tab = compound.bridge_nav_tab(tabs_reply(
+    [bridge_tab(55, 44)], null, null, null), null, null, null);
+  ensure(unique_nav_tab.ok === true && unique_nav_tab.value.tab_id === 55,
+    "acu_browser_bridge_nav_unique_inventory_" + unique_nav_tab.code);
+  const matched_nav_tab = compound.bridge_nav_tab(tabs_reply(
+    [bridge_tab(55, 44)], null, null, "Guide"), null, null, "Guide");
+  ensure(matched_nav_tab.ok === true && matched_nav_tab.value.tab_id === 55,
+    "acu_browser_bridge_nav_match_inventory_" + matched_nav_tab.code);
+  ensure(compound.bridge_nav_tab(tabs_reply([
+    bridge_tab(55, 44), bridge_tab(56, 44)
+  ], null, null, null), null, null, null).code === "browser_bridge_tab_ambiguous",
+  "acu_browser_bridge_nav_ambiguous_typed");
+  const truncated_nav = tabs_reply([bridge_tab(55, 44)], null, null, null);
+  truncated_nav.data.truncated = true;
+  ensure(compound.bridge_nav_tab(truncated_nav, null, null, null).code
+      === "browser_bridge_tabs_inventory_truncated",
+    "acu_browser_bridge_nav_truncated_typed");
+  ensure(compound.bridge_nav_tab(tabs_reply(
+    [bridge_tab(56, 44)], null, 55, null), 55, null, null).code
+      === "browser_bridge_nav_selection_invalid",
+    "acu_browser_bridge_nav_mismatch_typed");
+
+  const nav_native = nav_reply(55, "https://example.test/next");
+  const nav_projected = compound.bridge_nav_projection(selected_nav.value, nav_native);
+  ensure(nav_projected.ok === true
+      && nav_projected.value.transport === "native-bridge"
+      && nav_projected.value.background === true
+      && nav_projected.value.result.requested_url === "https://example.test/next"
+      && nav_projected.value.result.committed_url === "https://example.test/next"
+      && nav_projected.value.result.observed_url === "https://example.test/next"
+      && nav_projected.value.result.navigation_kind === "cross-document"
+      && nav_projected.value.result.loader_id === "loader-1"
+      && nav_projected.value.result.detach.outcome === "detached"
+      && nav_projected.value.result.presentation.activation_requested === false
+      && nav_projected.value.lock.lock_id === "lock-1"
+      && nav_native.receipt.request_id === "nav-1",
+    "acu_browser_bridge_nav_projection_" + nav_projected.code);
+  const native_nav_failure = {
+    ok: false,
+    target: "current",
+    command: "browser-bridge-nav",
+    data: null,
+    error: {
+      code: "browser_bridge_outcome_unknown",
+      message: "the bridge effect cannot be proved",
+      detail: { effect: "unknown", retry_safe: false }
+    }
+  };
+  const preserved_nav_failure = compound.bridge_nav_projection(
+    selected_nav.value, native_nav_failure);
+  ensure(preserved_nav_failure.ok === false
+      && JSON.stringify(preserved_nav_failure.native_reply)
+        === JSON.stringify(native_nav_failure),
+    "acu_browser_bridge_nav_native_failure_preserved");
+  const incomplete_nav = nav_reply(55, "https://example.test/next");
+  incomplete_nav.data.lock_after = null;
+  ensure(compound.bridge_nav_projection(selected_nav.value, incomplete_nav).code
+      === "browser_bridge_nav_projection_invalid",
+    "acu_browser_bridge_nav_incomplete_proof_typed");
 
   const inventory = connections_reply([
     connection(CONNECTION_A, 101), connection(CONNECTION_B, 202)
@@ -328,7 +499,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "acu.compat-browser-bridge");
   harness.remove_run(context);
-  print("PASS: legacy browser status, atomic background open and explicit CDP navigation stay exact and typed");
+  print("PASS: legacy browser status, atomic background open, MV3 navigation and explicit CDP navigation stay exact and typed");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
