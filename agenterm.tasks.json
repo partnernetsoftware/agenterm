@@ -7391,7 +7391,7 @@
     },
     {
       "id": "cu-linux-process-argv-cwd-smoke",
-      "description": "Linux process-argv and process-cwd match independent /proc/<pid>/cmdline, exe and cwd read-back for current and chosen PID; typed process-argv/process-cwd usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc cmdline+cwd read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux process-argv and process-cwd match independent /proc/<pid>/cmdline, exe and cwd read-back for current and chosen PID; typed process-argv/process-cwd usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage AND host-limit paths both hold before the /proc cmdline+cwd read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-process-argv-cwd-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
