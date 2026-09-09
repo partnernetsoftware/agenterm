@@ -1,11 +1,14 @@
 // CEO: topmost/untopmost --expect topmost|untopmost on Linux.
-// Acceptance is smoke read-back only: independent xprop _NET_WM_STATE_ABOVE and
-// windows inventory above field must match --expect after each verb.
-// Typed topmost/untopmost usage must reject AT-SPI --name and other unexpected
-// arguments; typed get-extents --name usage/host-limit paths must hold before
-// the topmost actuate/read-back court. Typed usage, destructive-gate refusals,
-// missing-window and headless host-limit paths must hold before any owned
-// fixture window exists. AT-SPI/--name only; no --coords or screenshot.
+// Acceptance is smoke read-back only: independent xprop _NET_WM_STATE_ABOVE,
+// independent pyatspi frame showing/visible state, and windows inventory above
+// field must match --expect after each verb. AT-SPI does not expose always-on-
+// top; pyatspi proves the fixture frame is still showing, xprop proves ABOVE.
+// Typed topmost/untopmost usage must reject AT-SPI --name, --coords, --bogus,
+// and other unexpected arguments; typed get-extents --name usage AND host-limit
+// paths must both hold before the topmost actuate/read-back court. Typed usage,
+// destructive-gate refusals, missing-window and headless host-limit paths must
+// hold before any owned fixture window exists. Prefer host-limit clarity over
+// fake success. AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -43,6 +46,11 @@ function text_of(value) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -209,8 +217,7 @@ function assert_topmost_atspi_name_usage_limit(run_directory, executable, env) {
     "cu_linux_topmost_expect_usage_name_command:" + JSON.stringify(topmost_with_name)
   );
   ensure(
-    text_at(topmost_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(topmost_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(topmost_with_name, "error.message"), "--name"),
     "cu_linux_topmost_expect_usage_name_message:" + JSON.stringify(topmost_with_name.error)
   );
 
@@ -230,9 +237,88 @@ function assert_topmost_atspi_name_usage_limit(run_directory, executable, env) {
     "cu_linux_topmost_expect_untopmost_usage_name_command:" + JSON.stringify(untopmost_with_name)
   );
   ensure(
-    text_at(untopmost_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(untopmost_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(untopmost_with_name, "error.message"), "--name"),
     "cu_linux_topmost_expect_untopmost_usage_name_message:" + JSON.stringify(untopmost_with_name.error)
+  );
+
+  const topmost_with_bogus = invoke_topmost_reply(run_directory, executable, [
+    "topmost",
+    "--window", "1",
+    "--expect", "topmost",
+    "--bogus",
+  ], env);
+  ensure(!output_success(topmost_with_bogus), "cu_linux_topmost_expect_usage_bogus_ok:" + JSON.stringify(topmost_with_bogus));
+  ensure(
+    text_at(topmost_with_bogus, "error.code") === "usage",
+    "cu_linux_topmost_expect_usage_bogus_code:" + JSON.stringify(topmost_with_bogus.error)
+  );
+  ensure(
+    text_at(topmost_with_bogus, "command") === "usage",
+    "cu_linux_topmost_expect_usage_bogus_command:" + JSON.stringify(topmost_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(topmost_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_topmost_expect_usage_bogus_message:" + JSON.stringify(topmost_with_bogus.error)
+  );
+
+  const untopmost_with_bogus = invoke_topmost_reply(run_directory, executable, [
+    "untopmost",
+    "--window", "1",
+    "--expect", "untopmost",
+    "--bogus",
+  ], env);
+  ensure(!output_success(untopmost_with_bogus), "cu_linux_topmost_expect_untopmost_usage_bogus_ok:" + JSON.stringify(untopmost_with_bogus));
+  ensure(
+    text_at(untopmost_with_bogus, "error.code") === "usage",
+    "cu_linux_topmost_expect_untopmost_usage_bogus_code:" + JSON.stringify(untopmost_with_bogus.error)
+  );
+  ensure(
+    text_at(untopmost_with_bogus, "command") === "usage",
+    "cu_linux_topmost_expect_untopmost_usage_bogus_command:" + JSON.stringify(untopmost_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(untopmost_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_topmost_expect_untopmost_usage_bogus_message:" + JSON.stringify(untopmost_with_bogus.error)
+  );
+
+  const topmost_with_coords = invoke_topmost_reply(run_directory, executable, [
+    "topmost",
+    "--window", "1",
+    "--expect", "topmost",
+    "--coords", "10,10",
+  ], env);
+  ensure(!output_success(topmost_with_coords), "cu_linux_topmost_expect_usage_coords_ok:" + JSON.stringify(topmost_with_coords));
+  ensure(
+    text_at(topmost_with_coords, "error.code") === "usage",
+    "cu_linux_topmost_expect_usage_coords_code:" + JSON.stringify(topmost_with_coords.error)
+  );
+  ensure(
+    text_at(topmost_with_coords, "command") === "usage",
+    "cu_linux_topmost_expect_usage_coords_command:" + JSON.stringify(topmost_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(topmost_with_coords, "error.message"), "--coords"),
+    "cu_linux_topmost_expect_usage_coords_message:" + JSON.stringify(topmost_with_coords.error)
+  );
+
+  const untopmost_with_coords = invoke_topmost_reply(run_directory, executable, [
+    "untopmost",
+    "--window", "1",
+    "--expect", "untopmost",
+    "--coords", "10,10",
+  ], env);
+  ensure(!output_success(untopmost_with_coords), "cu_linux_topmost_expect_untopmost_usage_coords_ok:" + JSON.stringify(untopmost_with_coords));
+  ensure(
+    text_at(untopmost_with_coords, "error.code") === "usage",
+    "cu_linux_topmost_expect_untopmost_usage_coords_code:" + JSON.stringify(untopmost_with_coords.error)
+  );
+  ensure(
+    text_at(untopmost_with_coords, "command") === "usage",
+    "cu_linux_topmost_expect_untopmost_usage_coords_command:" + JSON.stringify(untopmost_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(untopmost_with_coords, "error.message"), "--coords"),
+    "cu_linux_topmost_expect_untopmost_usage_coords_message:" + JSON.stringify(untopmost_with_coords.error)
   );
 }
 
@@ -248,6 +334,23 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_topmost_expect_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_topmost_expect_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_topmost_expect_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_topmost_expect_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_topmost_expect_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
 }
 
@@ -394,6 +497,59 @@ function independent_net_wm_above(run_directory, executable, handle) {
   return xprop.stdout.indexOf("_NET_WM_STATE_ABOVE") >= 0;
 }
 
+function independent_pyatspi_frame_state(run_directory, executable, title) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "frame = None",
+    "for i in range(desktop.childCount):",
+    "    app = desktop.getChildAtIndex(i)",
+    "    if app is None:",
+    "        continue",
+    "    for j in range(app.childCount):",
+    "        candidate = app.getChildAtIndex(j)",
+    "        if candidate is not None and candidate.name == title:",
+    "            frame = candidate",
+    "            break",
+    "    if frame is not None:",
+    "        break",
+    "if frame is None:",
+    "    print(json.dumps({'found': False}))",
+    "    raise SystemExit(0)",
+    "states = frame.getState()",
+    "print(json.dumps({",
+    "    'found': True,",
+    "    'name': frame.name,",
+    "    'role': frame.getRoleName(),",
+    "    'showing': bool(states.contains(pyatspi.STATE_SHOWING)),",
+    "    'visible': bool(states.contains(pyatspi.STATE_VISIBLE)),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(
+    output.success === true,
+    "cu_linux_topmost_expect_pyatspi_probe:" + output.stderr + output.stdout
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_topmost_expect_pyatspi_empty");
+  return JSON.parse(trimmed);
+}
+
+function ensure_pyatspi_frame_showing(probe, label) {
+  ensure(
+    flag_at(probe, "found") === true
+      && flag_at(probe, "showing") === true
+      && flag_at(probe, "visible") === true,
+    "cu_linux_topmost_expect_pyatspi_" + label + ":" + JSON.stringify(probe)
+  );
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -413,16 +569,14 @@ ensure(direct_file(fixture_source), "cu_linux_topmost_expect_fixture_missing:" +
 print("STEP topmost/untopmost typed-fails usage when --window handle is zero");
 assert_topmost_usage_limit(run_directory, executable);
 
-print("STEP topmost/untopmost typed-fails usage when AT-SPI --name is present");
+print("STEP topmost/untopmost typed-fails usage when AT-SPI --name/--coords/--bogus is present");
 assert_topmost_atspi_name_usage_limit(run_directory, executable, env);
 
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before topmost actuate/read-back court");
-  assert_get_extents_usage_limit(run_directory, executable, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-}
+print("STEP get-extents typed-fail usage when --window is zero or --name is missing before topmost actuate/read-back court");
+assert_get_extents_usage_limit(run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before topmost actuate/read-back court");
+assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 print("STEP topmost/untopmost typed-fails refused destructive_gate when target or postcondition is missing");
 assert_topmost_destructive_gate(run_directory, executable);
@@ -465,6 +619,15 @@ try {
     independent_net_wm_above(run_directory, executable, handle) === false,
     "cu_linux_topmost_expect_baseline_xprop_not_above"
   );
+  if (atspi_available) {
+    print("STEP independent pyatspi frame state baseline: showing/visible, AT-SPI has no always-on-top");
+    ensure_pyatspi_frame_showing(
+      independent_pyatspi_frame_state(run_directory, executable, fixture_title),
+      "baseline"
+    );
+  } else {
+    print("STEP host-limit: independent pyatspi desktop probe is unavailable; xprop _NET_WM_STATE remains the topmost state court");
+  }
 
   print("STEP destructive_gate refusals on a live handle must not change xprop or inventory");
   topmost_refused(
@@ -483,6 +646,12 @@ try {
     flag_at(refusal_row, "above") === false,
     "cu_linux_topmost_expect_refusal_inventory_changed:" + JSON.stringify(refusal_row)
   );
+  if (atspi_available) {
+    ensure_pyatspi_frame_showing(
+      independent_pyatspi_frame_state(run_directory, executable, fixture_title),
+      "refusal"
+    );
+  }
 
   print("STEP topmost --window " + handle_text + " --expect topmost");
   const topmost = run_cu(run_directory, executable, "actuate", [
@@ -508,6 +677,14 @@ try {
     "cu_linux_topmost_expect_inventory_above:" + JSON.stringify(topmost_row)
   );
 
+  if (atspi_available) {
+    print("STEP independent pyatspi frame state after topmost: still showing/visible (AT-SPI has no ABOVE)");
+    ensure_pyatspi_frame_showing(
+      independent_pyatspi_frame_state(run_directory, executable, fixture_title),
+      "topmost"
+    );
+  }
+
   print("STEP untopmost --window " + handle_text + " --expect untopmost");
   const untopmost = run_cu(run_directory, executable, "actuate", [
     "untopmost", "--window", handle_text, "--expect", "untopmost",
@@ -531,6 +708,14 @@ try {
     flag_at(restored_row, "above") === false,
     "cu_linux_topmost_expect_inventory_untopmost:" + JSON.stringify(restored_row)
   );
+
+  if (atspi_available) {
+    print("STEP independent pyatspi frame state after untopmost: still showing/visible (AT-SPI has no ABOVE)");
+    ensure_pyatspi_frame_showing(
+      independent_pyatspi_frame_state(run_directory, executable, fixture_title),
+      "untopmost"
+    );
+  }
 } finally {
   if (fixture_pid !== 0) {
     rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
@@ -544,8 +729,8 @@ const context = harness.new_context(repo, "cu-linux-topmost-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-topmost-expect-state");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux topmost/untopmost usage/host-limit/miss honesty + independent xprop and windows inventory topmost read-back with typed topmost/untopmost/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux topmost/untopmost usage/host-limit/miss honesty + independent xprop, pyatspi showing/visible, and windows inventory topmost read-back with typed topmost/untopmost --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux topmost/untopmost usage/host-limit/miss honesty with typed topmost/untopmost/get-extents host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
+  print("PASS: Linux topmost/untopmost usage/host-limit/miss honesty + independent xprop and windows inventory topmost read-back with typed topmost/untopmost --name/--coords/--bogus usage and get-extents --name host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
 }
 return;
