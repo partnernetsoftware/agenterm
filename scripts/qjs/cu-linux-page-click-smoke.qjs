@@ -1,5 +1,5 @@
 // CEO: Linux CDP page-click honesty — click a named page control; prove with
-// independent page-find text read-back (not page-click performed/verified).
+// independent page-js DOM read-back (not page-click performed/verified).
 // Disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -79,6 +79,14 @@ function page_target(rows) {
     if (text_at(row, "type") === "page") { return row; }
   }
   return null;
+}
+
+function out_text(run_directory, executable, env, port, target_id) {
+  const read = run_cu(run_directory, executable, "observe", [
+    "page-js", "--port", "" + port, "--target-id", target_id,
+    "--expression", "document.getElementById('out').textContent",
+  ], env);
+  return text_at(read, "data.value");
 }
 
 const args = rh.args();
@@ -163,17 +171,11 @@ try {
     "cu_linux_page_click_nav:" + JSON.stringify(nav.data)
   );
 
-  print("STEP page-find #out proves the output starts idle before the click");
-  const before = run_cu(run_directory, executable, "observe", [
-    "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#out",
-  ], env);
-  const before_nodes = at(before, "data.nodes");
+  print("STEP independent page-js baseline proves #out starts idle before the click");
+  const before_text = out_text(run_directory, executable, env, port, target_id);
   ensure(
-    at(before, "data.returned") === 1
-      && before_nodes !== undefined
-      && before_nodes.length === 1
-      && text_at(before_nodes[0], "text") === "idle",
-    "cu_linux_page_click_before:" + JSON.stringify(before.data)
+    before_text === "idle",
+    "cu_linux_page_click_before:" + JSON.stringify({ text: before_text })
   );
 
   print("STEP page-click --selector #go actuates the named control (receipt not acceptance)");
@@ -186,16 +188,10 @@ try {
   );
   harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-click");
 
-  print("STEP independent page-find #out text read-back proves the click mutated DOM state");
+  print("STEP independent page-js read-back proves the click mutated DOM state");
   let readback_text = "";
   for (let attempt = 0; attempt < 40 && readback_text !== "clicked"; attempt = attempt + 1) {
-    const readback = run_cu(run_directory, executable, "observe", [
-      "page-find", "--port", "" + port, "--target-id", target_id, "--selector", "#out",
-    ], env);
-    const readback_nodes = at(readback, "data.nodes");
-    readback_text = readback_nodes === undefined || readback_nodes.length !== 1
-      ? ""
-      : text_at(readback_nodes[0], "text");
+    readback_text = out_text(run_directory, executable, env, port, target_id);
     if (readback_text !== "clicked") { harness.sleep_ms(250); }
   }
   ensure(
@@ -215,5 +211,5 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_click_failed");
 harness.remove_run(context);
-print("PASS: CEO CDP page-click → independent page-find text read-back (no --coords)");
+print("PASS: CEO CDP page-click → independent page-js DOM read-back (no --coords)");
 return;
