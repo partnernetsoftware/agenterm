@@ -255,6 +255,13 @@
       ]
     },
     {
+      "id": "cu-linux-process-signal-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-signal-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-state-smoke",
       "platform": "linux",
       "evidence": [
