@@ -1,10 +1,11 @@
 // CEO: Linux orderwin above/below with independent xprop _NET_CLIENT_LIST_STACKING
 // and windows inventory z_index read-back. Two disposable GTK fixture windows; every
 // actuation verified from stacking sources outside the verb reply. Typed orderwin
-// usage must reject AT-SPI --name and other unexpected arguments; typed get-extents
-// --name usage/host-limit paths must hold before the actuate/read-back court.
-// Missing-window and headless host-limit paths must hold before any owned fixture
-// window exists. AT-SPI inventory handles only; no --coords or screenshot.
+// usage must reject AT-SPI --name, --coords, --bogus, and other unexpected arguments;
+// typed get-extents --name usage AND host-limit paths must both hold before the
+// actuate/read-back court. Missing-window and headless host-limit paths must hold
+// before any owned fixture window exists. Prefer host-limit clarity over fake
+// success. AT-SPI inventory handles only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -37,6 +38,20 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function last_json_line(text) {
+  const lines = text.trim().split("\n");
+  for (let index = lines.length - 1; index >= 0; index = index - 1) {
+    const line = lines[index].trim();
+    if (line !== "") { return JSON.parse(line); }
+  }
+  throw "cu_linux_orderwin_missing_json";
+}
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -82,9 +97,8 @@ function run_cu_reply(run_directory, executable, grant, arguments, env, env_remo
   };
   if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
   const output = rh.command_spec(spec);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_orderwin_empty_reply:" + output.stderr);
-  return JSON.parse(trimmed);
+  ensure(output.stdout.trim() !== "", "cu_linux_orderwin_empty_reply:" + output.stderr);
+  return last_json_line(output.stdout);
 }
 
 function output_success(document) { return flag_at(document, "ok"); }
@@ -103,9 +117,8 @@ function invoke_orderwin_reply(run_directory, executable, cu_args, env) {
     env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_orderwin_actuate_cli:" + output.stderr);
-  const reply = JSON.parse(trimmed);
+  ensure(output.stdout.trim() !== "", "cu_linux_orderwin_actuate_cli:" + output.stderr);
+  const reply = last_json_line(output.stdout);
   const command = text_at(reply, "command");
   ensure(
     command === "orderwin" || command === "usage",
@@ -122,9 +135,8 @@ function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
     env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_orderwin_extents_cli:" + output.stderr);
-  return JSON.parse(trimmed);
+  ensure(output.stdout.trim() !== "", "cu_linux_orderwin_extents_cli:" + output.stderr);
+  return last_json_line(output.stdout);
 }
 
 function probe_atspi_available(executable) {
@@ -242,9 +254,50 @@ function assert_orderwin_atspi_name_usage_limit(run_directory, executable, env) 
     "cu_linux_orderwin_usage_name_command:" + JSON.stringify(with_name)
   );
   ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
-      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(with_name, "error.message"), "--name"),
     "cu_linux_orderwin_usage_name_message:" + JSON.stringify(with_name.error)
+  );
+
+  const with_bogus = invoke_orderwin_reply(run_directory, executable, [
+    "orderwin",
+    "--window", "1",
+    "--relation", "above",
+    "--relative", "2",
+    "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus), "cu_linux_orderwin_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_orderwin_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_orderwin_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
+    "cu_linux_orderwin_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = invoke_orderwin_reply(run_directory, executable, [
+    "orderwin",
+    "--window", "1",
+    "--relation", "above",
+    "--relative", "2",
+    "--coords", "10,10",
+  ], env);
+  ensure(!output_success(with_coords), "cu_linux_orderwin_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_orderwin_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_orderwin_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_orderwin_usage_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
@@ -260,6 +313,23 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_orderwin_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_orderwin_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_orderwin_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_orderwin_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_orderwin_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
 }
 
@@ -422,16 +492,14 @@ ensure(direct_file(fixture_source), "cu_linux_orderwin_fixture_missing:" + fixtu
 print("STEP orderwin typed-fails usage when --window, --relative, or --relation is missing or invalid");
 assert_orderwin_usage_limit(run_directory, executable);
 
-print("STEP orderwin typed-fails usage when AT-SPI --name is present");
+print("STEP orderwin typed-fails usage when AT-SPI --name/--coords/--bogus is present");
 assert_orderwin_atspi_name_usage_limit(run_directory, executable, env);
 
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before orderwin actuate/read-back court");
-  assert_get_extents_usage_limit(run_directory, executable, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-}
+print("STEP get-extents typed-fail usage when --window is zero or --name is missing before orderwin actuate/read-back court");
+assert_get_extents_usage_limit(run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before orderwin actuate/read-back court");
+assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 print("STEP orderwin typed-fails a11y_window_gone when handle is absent from inventory");
 assert_orderwin_missing_window(run_directory, executable);
@@ -574,8 +642,8 @@ const context = harness.new_context(repo, "cu-linux-orderwin");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-orderwin");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back with typed orderwin/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back with typed orderwin --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back with typed orderwin/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back with typed orderwin --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
 }
 return;
