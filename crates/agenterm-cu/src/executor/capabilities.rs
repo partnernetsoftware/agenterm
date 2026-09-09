@@ -771,7 +771,7 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert(
             "file-watch".into(),
             serde_json::json!({
-                "status": if cfg!(any(target_os = "linux", target_os = "macos")) { "available" } else { "unsupported" },
+                "status": if cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows")) { "available" } else { "unsupported" },
                 "group": "file",
                 "grant": "observe",
                 "mode": "bounded-native-directory-events",
@@ -779,13 +779,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
                     "linux-inotify"
                 } else if cfg!(target_os = "macos") {
                     "macos-fsevents"
+                } else if cfg!(target_os = "windows") {
+                    "windows-read-directory-changes"
                 } else {
                     "none"
                 },
                 "scope": "single-directory-non-recursive",
-                "delivery": "at-least-once-coalesced",
+                "delivery": if cfg!(target_os = "macos") {
+                    "at-least-once-coalesced"
+                } else {
+                    "one-event-per-native-record"
+                },
                 "event_kinds": "created-modified-removed",
-                "unsupported_hosts": "windows-typed-unsupported-gap",
+                "unsupported_hosts": "none",
             }),
         );
         verbs.insert(

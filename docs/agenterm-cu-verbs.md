@@ -1563,8 +1563,10 @@ with relative entry names and decoded masks. Reaching --max-events before the
 deadline reports truncated=true and completed=false. Linux uses inotify with one
 event per kernel record. macOS uses FSEvents on the same single directory, keeps
 only direct entries, resolves cumulative flags by entry existence at delivery
-and delivers each kind at least once with coalescing allowed. Windows returns a
-typed unsupported gap instead of pretending an unmapped provider is available.
+and delivers each kind at least once with coalescing allowed. Windows uses
+ReadDirectoryChangesW on the same single directory without subtree watching;
+renames arrive as one removed and one created record, and a notification-buffer
+overflow fails typed instead of returning an incomplete snapshot.
 ```
 
 ### `file-copy`

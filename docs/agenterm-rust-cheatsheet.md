@@ -183,6 +183,16 @@ alive through Stop, and clean up in Start/Stop/Invalidate/Release order. Do not
 use `FSEventStreamFlushSync` in a duration-bounded observer: it has no timeout
 and can silently defeat the public deadline.
 
+`ReadDirectoryChangesW` overlapped reads borrow their notification buffer and
+`OVERLAPPED` until final completion. Use DWORD-aligned storage, share the
+directory for read/write/delete, and on every timeout or abnormal wait path run
+`CancelIoEx` followed by a blocking `GetOverlappedResult` drain before any
+borrowed storage or event handle can drop. Treat a zero-byte completion as lost
+directory truth, validate the entire offset chain before applying a public event
+cap, and keep `bWatchSubtree` false plus a separator check for a non-recursive
+single-directory contract. Rename-old and rename-new are independent removed and
+created facts; do not require them to arrive in one batch.
+
 When a binary format has both converter inspection and runtime loading, keep
 one structural validator and split capability *description* from capability
 *availability*. Static inspection may parse manifests, imports and export
