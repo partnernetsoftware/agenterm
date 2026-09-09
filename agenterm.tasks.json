@@ -6088,7 +6088,7 @@
     },
     {
       "id": "cu-linux-workspace-desktop-smoke",
-      "description": "Linux EWMH workspace/desktop index observe for one fixture window: windows inventory workspace_desktop must match independent xprop _NET_WM_DESKTOP read-back, or answer typed unsupported with alternatives; AT-SPI/--name only, no --coords.",
+      "description": "Linux EWMH workspace/desktop index observe for one fixture window: windows inventory workspace_desktop must match independent xprop _NET_WM_DESKTOP read-back, or answer typed unsupported with alternatives; typed get-extents --name usage/miss/host-limit paths and independent pyatspi extents agreement before the workspace court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-workspace-desktop-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
