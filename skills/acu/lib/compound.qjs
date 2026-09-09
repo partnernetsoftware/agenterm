@@ -705,6 +705,169 @@ function lower_hex(value, length) {
   return true;
 }
 
+function bridge_status_result(reply, connection_id) {
+  const unpacked = reply_data(reply, "browser-bridge-status reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  const result = object_value(data) && object_value(data.result) ? data.result : null;
+  if (!object_value(data) || data.connection_id !== connection_id || result === null
+      || !lower_hex(result.profile_instance_id, 32)
+      || !positive_integer(result.protocol)
+      || typeof result.extension_id !== "string" || result.extension_id.length === 0
+      || typeof result.extension_version !== "string" || result.extension_version.length === 0
+      || !Array.isArray(result.commands)) {
+    return failure("browser_bridge_response_invalid",
+      "bridge status reply lacks exact connection, protocol or extension identity");
+  }
+  for (let i = 0; i < result.commands.length; i = i + 1) {
+    if (typeof result.commands[i] !== "string" || result.commands[i].length === 0) {
+      return failure("browser_bridge_response_invalid",
+        "bridge status commands must be non-empty strings");
+    }
+  }
+  return success(result);
+}
+
+// Select one exact live MV3 connection from the complete native inventory.
+// Human profile names are rejected by compat before this identity boundary.
+export function bridge_select_connection(connections_reply, status_replies, profile) {
+  if (profile !== null && (typeof profile !== "string"
+      || profile.length < 1 || profile.length > 32
+      || !lower_hex(profile, profile.length))) {
+    return failure("browser_bridge_profile_identity_invalid",
+      "bridge profile selector must be a 1..32 lowercase hexadecimal prefix");
+  }
+  if (!object_value(status_replies)) {
+    return failure("browser_bridge_response_invalid",
+      "bridge status replies must be keyed by exact connection id");
+  }
+  const unpacked = reply_data(connections_reply, "browser-bridge-connections reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  if (!object_value(data) || !Array.isArray(data.connections)
+      || typeof data.truncated !== "boolean" || !nonnegative_integer(data.visited)
+      || data.connections.length > data.visited) {
+    return failure("browser_bridge_response_invalid",
+      "bridge connection inventory lacks bounded completeness facts");
+  }
+  if (data.truncated) {
+    return failure("browser_bridge_connection_inventory_truncated",
+      "the live bridge connection inventory is incomplete; uniqueness cannot be proved");
+  }
+  const matched = [];
+  for (let i = 0; i < data.connections.length; i = i + 1) {
+    const entry = data.connections[i];
+    if (!object_value(entry) || !lower_hex(entry.connection_id, 64)
+        || !object_value(entry.process) || !positive_integer(entry.process.pid)) {
+      return failure("browser_bridge_response_invalid",
+        "bridge connection inventory contains an incomplete identity");
+    }
+    const status = bridge_status_result(status_replies[entry.connection_id], entry.connection_id);
+    if (!status.ok) { return status; }
+    if (profile === null || status.value.profile_instance_id.startsWith(profile)) {
+      matched.push({
+        connection_id: entry.connection_id,
+        profile_instance_id: status.value.profile_instance_id,
+        pid: entry.process.pid,
+        status: status.value
+      });
+    }
+  }
+  if (matched.length === 0) {
+    return failure("browser_bridge_profile_connection_not_found",
+      "no live bridge connection matches the requested profile identity");
+  }
+  if (matched.length > 1) {
+    return failure("browser_bridge_profile_connection_ambiguous",
+      "more than one live bridge connection matches; pass a longer profile prefix");
+  }
+  return success(matched[0]);
+}
+
+export function bridge_status_projection(selected, connections_reply) {
+  if (!object_value(selected) || !lower_hex(selected.connection_id, 64)
+      || !lower_hex(selected.profile_instance_id, 32) || !positive_integer(selected.pid)
+      || !object_value(selected.status)) {
+    return failure("browser_bridge_response_invalid",
+      "selected bridge connection is incomplete");
+  }
+  const unpacked = reply_data(connections_reply, "browser-bridge-connections reply");
+  if (!unpacked.ok) { return unpacked; }
+  const rows = unpacked.value.connections;
+  if (!Array.isArray(rows)) {
+    return failure("browser_bridge_response_invalid",
+      "bridge connection inventory lacks connections");
+  }
+  const connections = [];
+  let selected_count = 0;
+  for (let i = 0; i < rows.length; i = i + 1) {
+    const row = rows[i];
+    if (!object_value(row) || !lower_hex(row.connection_id, 64)
+        || !object_value(row.process) || !positive_integer(row.process.pid)) {
+      return failure("browser_bridge_response_invalid",
+        "bridge connection inventory contains an incomplete identity");
+    }
+    if (row.connection_id === selected.connection_id) {
+      if (row.process.pid !== selected.pid) {
+        return failure("browser_bridge_response_invalid",
+          "selected bridge process identity changed inside the inventory");
+      }
+      selected_count = selected_count + 1;
+    }
+    connections.push({ connection_id: row.connection_id, pid: row.process.pid });
+  }
+  if (selected_count !== 1) {
+    return failure("browser_bridge_response_invalid",
+      "selected bridge connection is not unique in the complete inventory");
+  }
+  return success({
+    connected: true,
+    ready: true,
+    connection: {
+      connection_id: selected.connection_id,
+      profile_instance_id: selected.profile_instance_id,
+      pid: selected.pid
+    },
+    connections: connections,
+    version: {
+      extension_id: selected.status.extension_id,
+      extension_version: selected.status.extension_version,
+      protocol: selected.status.protocol,
+      current: true
+    },
+    commands: clone(selected.status.commands),
+    diagnosis: null,
+    facts_withheld: ["installed", "manifests", "extensionPath", "profiles", "registry"]
+  });
+}
+
+export function cdp_nav_target(reply) {
+  const unpacked = reply_data(reply, "page-targets reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  if (!object_value(data) || !Array.isArray(data.targets)) {
+    return failure("page_targets_shape_invalid", "page-targets reply lacks targets");
+  }
+  const pages = [];
+  for (let i = 0; i < data.targets.length; i = i + 1) {
+    const target = data.targets[i];
+    if (!object_value(target) || typeof target.type !== "string"
+        || typeof target.id !== "string" || target.id.length === 0) {
+      return failure("page_targets_shape_invalid",
+        "page-targets contains an incomplete target identity");
+    }
+    if (target.type === "page") {
+      pages.push(target);
+    }
+  }
+  if (pages.length !== 1) {
+    return failure("page_target_ambiguous",
+      pages.length === 0 ? "no CDP page target exists; pass --match to select one"
+        : "more than one CDP page target exists; pass --match to select one");
+  }
+  return success({ target_id: pages[0].id });
+}
+
 // Resolve one exact MV3 connection and tab through native browser-tabs. The
 // returned connection id, not the reply-local page index, owns later reads.
 export function elements_page_tab(reply, tab_id, profile) {

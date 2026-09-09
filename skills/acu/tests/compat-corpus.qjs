@@ -382,7 +382,51 @@ require(compat.canonicalize(["storage", "unmount", "disk-1"]).kind === "usage",
   "legacy storage unmount was never an MCU storage subcommand");
 require(compat.canonicalize(["storage", "eject", "disk-1"]).kind === "usage",
   "legacy storage eject was never an MCU storage subcommand");
-todo_case(["browser", "bridge", "status"], "acu.dynamic.075", "legacy browser bridge");
+const bridge_status = compat.canonicalize(["browser", "bridge", "status"]);
+require(bridge_status.kind === "bridge-status" && bridge_status.profile === null,
+  "legacy browser bridge status must use exact connection selection");
+const bridge_status_profile = compat.canonicalize([
+  "browser", "bridge", "status", "--profile", "abcdef12"
+]);
+require(bridge_status_profile.kind === "bridge-status"
+    && bridge_status_profile.profile === "abcdef12",
+  "legacy browser bridge status must retain a profile identity prefix");
+todo_case(["browser", "bridge", "status", "--profile", "Default"],
+  "acu.dynamic.075.profile-name-binding", "human browser bridge profile");
+const browser_nav_match = compat.canonicalize([
+  "browser", "nav", "https://example.test", "--port", "9333", "--match", "Guide"
+]);
+require(browser_nav_match.kind === "exec", "explicit matched CDP navigation must execute");
+same_argv(browser_nav_match.argv, ["--target", "current", "--grant", "observe,actuate",
+  "page-nav", "--port", "9333", "--match", "Guide", "--url", "https://example.test"],
+  "explicit matched CDP navigation");
+const browser_nav_unique = compat.canonicalize([
+  "browser", "nav", "https://example.test", "--pid", "42"
+]);
+require(browser_nav_unique.kind === "cdp-nav"
+    && browser_nav_unique.transport[0] === "--pid"
+    && browser_nav_unique.transport[1] === "42",
+  "explicit unmatched CDP navigation must resolve one page target");
+const browser_nav_port_precedence = compat.canonicalize([
+  "browser", "nav", "https://example.test", "--port", "9333", "--pid", "42",
+  "--match", "Guide", "--profile", "Default", "--allow-foreground"
+]);
+require(browser_nav_port_precedence.kind === "exec"
+    && browser_nav_port_precedence.argv.includes("--port")
+    && !browser_nav_port_precedence.argv.includes("--pid")
+    && !browser_nav_port_precedence.argv.includes("--profile")
+    && !browser_nav_port_precedence.argv.includes("--allow-foreground"),
+  "archived explicit CDP transport must take precedence over fallback selectors");
+todo_case(["browser", "nav", "https://example.test"],
+  "acu.dynamic.075.bridge-nav", "browser bridge navigation");
+const browser_foreground_nav = compat.canonicalize([
+  "browser", "nav", "https://example.test", "--allow-foreground"
+]);
+require(browser_foreground_nav.kind === "usage"
+    && browser_foreground_nav.message.includes("page-nav"),
+  "legacy AppleScript foreground navigation must give an exact native migration path");
+todo_case(["browser", "profile", "create", "legacy-profile"],
+  "acu.dynamic.075", "legacy managed browser profile");
 const page_elements = compat.canonicalize([
   "elements", "Window#1", "--page", "--tab-id", "4"
 ]);

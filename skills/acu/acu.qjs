@@ -164,6 +164,48 @@ function execute_compound(request) {
         connection_id: selected.value.connection_id
       }));
   }
+  if (request.kind === "bridge-status") {
+    const connections = acu.argv(prefixed(request.globals,
+      ["browser-bridge-connections"]));
+    if (connections.ok !== true) { return connections; }
+    if (connections.data === null || connections.data === undefined
+        || !Array.isArray(connections.data.connections)) {
+      return acu_error(request.command, "browser_bridge_response_invalid",
+        "browser-bridge-connections reply lacks connections");
+    }
+    const statuses = {};
+    for (let i = 0; i < connections.data.connections.length; i = i + 1) {
+      const row = connections.data.connections[i];
+      if (row === null || typeof row !== "object"
+          || typeof row.connection_id !== "string") {
+        return acu_error(request.command, "browser_bridge_response_invalid",
+          "browser-bridge-connections reply contains an incomplete identity");
+      }
+      statuses[row.connection_id] = acu.argv(prefixed(request.globals,
+        ["browser-bridge-status", row.connection_id]));
+    }
+    const selected = compound.bridge_select_connection(
+      connections, statuses, request.profile);
+    if (!selected.ok) {
+      return acu_error(request.command, selected.code, selected.message);
+    }
+    return projected_reply(request.command, connections,
+      compound.bridge_status_projection(selected.value, connections));
+  }
+  if (request.kind === "cdp-nav") {
+    const targets_argv = ["page-targets"];
+    append_argv(targets_argv, request.transport);
+    const targets = acu.argv(prefixed(request.globals, targets_argv));
+    const selected = compound.cdp_nav_target(targets);
+    if (!selected.ok) {
+      return acu_error(request.command, selected.code, selected.message);
+    }
+    const nav_argv = ["page-nav"];
+    append_argv(nav_argv, request.transport);
+    append_argv(nav_argv, ["--target-id", selected.value.target_id,
+      "--url", request.url]);
+    return acu.argv(prefixed(request.globals, nav_argv));
+  }
   if (request.kind === "focused-pid") {
     const windows = acu.argv(prefixed(request.globals,
       ["windows", "--pid", "" + request.pid, "--max", "2"]));

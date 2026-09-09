@@ -281,6 +281,28 @@ try {
     commands[6] === "debug-invoke" && commands[7] === "debug-type" &&
     commands[8] === "debug-files" && commands[9] === "reload",
     "cu_browser_bridge_commands");
+  const legacy_status_focus_before = require_ok(invoke("observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]), "cu_browser_legacy_status_focus_before_failed");
+  const legacy_status = require_ok(invoke_acu([
+    "browser", "bridge", "status", "--profile", profile_instance_id.substring(0, 8)
+  ]), "cu_browser_legacy_status_failed");
+  ensure(legacy_status.data.connected === true && legacy_status.data.ready === true
+      && legacy_status.data.connection.connection_id === bridge_id
+      && legacy_status.data.connection.profile_instance_id === profile_instance_id
+      && legacy_status.data.version.protocol === bridge_status.data.result.protocol
+      && legacy_status.data.version.extension_id === bridge_status.data.result.extension_id
+      && legacy_status.data.version.extension_version === bridge_status.data.result.extension_version
+      && legacy_status.data.commands.length === commands.length,
+    "cu_browser_legacy_status_identity");
+  const legacy_status_focus_after = require_ok(invoke("observe", [
+    "windows", "--focused", "true", "--max", "2"
+  ]), "cu_browser_legacy_status_focus_after_failed");
+  ensure(legacy_status_focus_before.data.returned === 1
+      && legacy_status_focus_after.data.returned === 1
+      && legacy_status_focus_before.data.windows[0].handle === controlled_focus_handle
+      && legacy_status_focus_after.data.windows[0].handle === controlled_focus_handle,
+    "cu_browser_legacy_status_changed_focus");
   const bridge_tabs = require_ok(invoke("observe", [
     "browser-bridge-tabs", bridge_id
   ]), "cu_browser_bridge_tabs_failed");

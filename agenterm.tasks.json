@@ -5202,6 +5202,24 @@
         "task.acu-elements-page-compat-smoke"
       ]
     },
+    "acu-browser-bridge-compat-smoke": {
+      "inputs": [
+        "acu-compound-fixtures",
+        "acu-compatibility-corpus"
+      ],
+      "outputs": [
+        "acu-browser-bridge-compat-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 30000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.acu-browser-bridge-compat-smoke"
+      ]
+    },
     "acu-storage-legacy-boundary-smoke": {
       "inputs": [
         "acu-compatibility-corpus"
@@ -9161,7 +9179,7 @@
     },
     {
       "id": "cu-browser-session-smoke",
-      "description": "Prove one ACU-owned isolated browser profile, persistent MV3 identity, exact-tab ownership, legacy page elements with reply-local indices and exact backend identity, background Native Messaging reconnection, provider-side actionable filtering before the result ceiling, exact closed-shadow read/type/invoke/files without secret persistence, window focus restoration, background CDP actuation, stat-only download, stop, host EOF and TTL cleanup.",
+      "description": "Prove one ACU-owned isolated browser profile, persistent MV3 identity, exact-tab ownership, legacy bridge status and page elements with reply-local indices and exact backend identity, background Native Messaging reconnection, provider-side actionable filtering before the result ceiling, exact closed-shadow read/type/invoke/files without secret persistence, window focus restoration, background CDP actuation, stat-only download, stop, host EOF and TTL cleanup.",
       "entry": "scripts/qjs/cu-browser-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -11000,6 +11018,25 @@
       "id": "acu-elements-page-compat-smoke",
       "description": "Prove legacy page elements bind one exact MV3 tab and connection, preserve provider-side actionable filtering, emit reply-local indices with frame and backend-node identity, and never mix them with native accessibility indices.",
       "entry": "scripts/qjs/acu-elements-page-compat-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        "."
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows",
+        "linux",
+        "macos"
+      ],
+      "side_effects": [
+        "artifact_write"
+      ]
+    },
+    {
+      "id": "acu-browser-bridge-compat-smoke",
+      "description": "Prove legacy bridge status selects one exact complete MV3 connection without reading tabs, explicit CDP navigation never guesses a page target, and unresolved bridge/profile mutations stay typed.",
+      "entry": "scripts/qjs/acu-browser-bridge-compat-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

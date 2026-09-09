@@ -44,11 +44,19 @@ require_ok(rh.exists(launcher) && rh.metadata(launcher).is_file,
 
 const cases = [
   [["drag", "10", "20", "30", "40", "--to", "Window#1"], "acu.dynamic.004"],
-  [["browser", "bridge", "status"], "acu.dynamic.075"]
+  [["browser", "profile", "create", "legacy-profile"], "acu.dynamic.075"],
+  [["browser", "nav", "https://example.test"], "acu.dynamic.075.bridge-nav"]
 ];
 for (let i = 0; i < cases.length; i = i + 1) {
   require_todo(launcher, cases[i][0], cases[i][1]);
 }
+
+const bridge_status = invoke(launcher, ["browser", "bridge", "status"], 1);
+require_ok(bridge_status.ok === false && bridge_status.command === "browser"
+    && bridge_status.error.code !== "usage"
+    && bridge_status.error.code !== "acu_todo",
+  "legacy bridge status must reach exact native connection inventory:"
+    + JSON.stringify(bridge_status));
 
 const storage_rejections = [
   ["storage", "mount", "disk-1"],

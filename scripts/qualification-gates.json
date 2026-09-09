@@ -680,6 +680,12 @@
       ]
     },
     {
+      "id": "acu-browser-bridge-compat-smoke",
+      "evidence": [
+        "acu.compat-browser-bridge"
+      ]
+    },
+    {
       "id": "acu-storage-legacy-boundary-smoke",
       "evidence": [
         "acu.compat-storage-legacy-boundary"
