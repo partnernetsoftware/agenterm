@@ -1,10 +1,10 @@
-// CEO: Linux fontconfig monospace discovery with independent fc-match read-back.
-// Acceptance is smoke read-back only: CU font-discovery must agree with an
-// independent `fc-match monospace` probe or declare a typed hardcoded fallback.
-// Typed font-discovery usage must reject AT-SPI --name and other unexpected
-// arguments; typed get-extents --name usage/host-limit paths must hold before
-// the fc-match read-back court. AT-SPI/--name only; no --coords or screenshot
-// degradation.
+// CEO: Linux fontconfig monospace discovery with independent fc-match/fc-list
+// read-back. Acceptance is smoke read-back only: CU font-discovery must agree
+// with independent `fc-match monospace` and `fc-list :spacing=mono` probes or
+// declare a typed hardcoded fallback. Typed font-discovery usage must reject
+// AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the fontconfig read-back court.
+// AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -125,6 +125,21 @@ function assert_font_discovery_usage_limit(run_directory, executable, env) {
     "cu_linux_font_discovery_usage_name_message:" + JSON.stringify(with_name.error)
   );
 
+  const grouped_with_name = run_cu_reply(run_directory, executable, [
+    "font", "discovery", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_font_discovery_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_font_discovery_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    text_at(grouped_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(grouped_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_font_discovery_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
   const with_bogus = run_cu_reply(run_directory, executable, ["font-discovery", "--bogus"], env);
   ensure(!output_success(with_bogus),
     "cu_linux_font_discovery_usage_bogus_ok:" + JSON.stringify(with_bogus));
@@ -136,6 +151,22 @@ function assert_font_discovery_usage_limit(run_directory, executable, env) {
     text_at(with_bogus, "error.message").indexOf("no arguments") >= 0
       || text_at(with_bogus, "error.message").indexOf("unexpected") >= 0,
     "cu_linux_font_discovery_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const grouped_with_bogus = run_cu_reply(run_directory, executable, [
+    "font", "discovery", "--bogus",
+  ], env);
+  ensure(!output_success(grouped_with_bogus),
+    "cu_linux_font_discovery_usage_grouped_bogus_ok:" + JSON.stringify(grouped_with_bogus));
+  ensure(
+    text_at(grouped_with_bogus, "error.code") === "usage",
+    "cu_linux_font_discovery_usage_grouped_bogus_code:" + JSON.stringify(grouped_with_bogus.error)
+  );
+  ensure(
+    text_at(grouped_with_bogus, "error.message").indexOf("no arguments") >= 0
+      || text_at(grouped_with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(grouped_with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_font_discovery_usage_grouped_bogus_message:" + JSON.stringify(grouped_with_bogus.error)
   );
 }
 
@@ -152,6 +183,37 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_font_discovery_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_font_discovery_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_font_discovery_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_font_discovery_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_font_discovery_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+}
+
+function assert_get_extents_name_miss(run_directory, executable, env) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(reply),
+    "cu_linux_font_discovery_extents_miss_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_node_not_found" || code === "bad_handle" || code === "a11y_backend_failed",
+    "cu_linux_font_discovery_extents_miss_code:" + code
   );
 }
 
@@ -213,7 +275,53 @@ function independent_fc_match() {
   return { available: true, family: family, file: file };
 }
 
-function assert_ok_readback(fc, reply) {
+function independent_fc_list() {
+  const output = rh.command("fc-list", [
+    ":spacing=mono", "family", "file",
+  ], { timeout_ms: 15000 });
+  if (!output.success) {
+    return { available: false, entries: [] };
+  }
+  const entries = [];
+  for (const line of output.stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") { continue; }
+    const colon = trimmed.indexOf(": ");
+    if (colon < 0) { continue; }
+    const file = trimmed.slice(0, colon).trim();
+    const family = trimmed.slice(colon + 2).trim();
+    if (file !== "" && family !== "" && rh.exists(file)) {
+      entries.push({ family: family, file: file });
+    }
+  }
+  return { available: entries.length > 0, entries: entries };
+}
+
+function fc_list_contains(list, family, file) {
+  for (const entry of list.entries) {
+    if (entry.family === family && entry.file === file) { return true; }
+  }
+  return false;
+}
+
+function fc_list_has_family(list, family) {
+  for (const entry of list.entries) {
+    if (entry.family === family) { return true; }
+  }
+  return false;
+}
+
+function assert_fontconfig_independent_evidence(fc, list) {
+  if (fc.available) {
+    ensure(list.available,
+      "cu_linux_font_discovery_fc_list_unavailable_while_fc_match_ok");
+    ensure(fc_list_contains(list, fc.family, fc.file),
+      "cu_linux_font_discovery_fc_list_primary_missing:fc=" + fc.family
+        + ":" + fc.file);
+  }
+}
+
+function assert_ok_readback(fc, list, reply) {
   const data = reply.data;
   const source = text_at(data, "source");
   ensure(
@@ -235,6 +343,8 @@ function assert_ok_readback(fc, reply) {
            "cu_linux_font_discovery_fontconfig_family_mismatch");
     ensure(text_at(data, "fontconfig.file") === fc.file,
            "cu_linux_font_discovery_fontconfig_file_mismatch");
+    ensure(fc_list_contains(list, fc.family, fc.file),
+           "cu_linux_font_discovery_fc_list_readback_missing:" + fc.family);
   } else if (source === "hardcoded-fallback") {
     const primary_path = text_at(data, "primary_path");
     ensure(primary_path !== "" && rh.exists(primary_path),
@@ -242,6 +352,12 @@ function assert_ok_readback(fc, reply) {
     const alternatives = data.alternatives;
     ensure(Array.isArray(alternatives),
            "cu_linux_font_discovery_alternatives_shape");
+    if (list.available) {
+      for (const alt of alternatives) {
+        ensure(fc_list_has_family(list, "" + alt),
+               "cu_linux_font_discovery_fallback_alt_not_in_fc_list:" + alt);
+      }
+    }
   } else {
     ensure(source === "unavailable",
            "cu_linux_font_discovery_unexpected_unavailable:" + source);
@@ -269,8 +385,10 @@ try {
   assert_font_discovery_usage_limit(context.run_directory, executable, env);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before fc-match read-back");
+    print("STEP get-extents typed-fail usage when --window is zero or --name is missing before fontconfig read-back court");
     assert_get_extents_usage_limit(context.run_directory, executable, env);
+    print("STEP get-extents typed-fail miss when --name is absent from the desktop before fontconfig read-back court");
+    assert_get_extents_name_miss(context.run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
     assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
@@ -278,11 +396,14 @@ try {
 
   print("STEP independent fc-match monospace captures fontconfig facts");
   const fc = independent_fc_match();
+  print("STEP independent fc-list :spacing=mono captures installed monospace inventory");
+  const list = independent_fc_list();
+  assert_fontconfig_independent_evidence(fc, list);
 
   print("STEP font-discovery observe returns explicit source and primary face");
   const reply = invoke(context.run_directory, executable, ["font-discovery"], true, env);
   ensure(reply.target === "current", "cu_linux_font_discovery_target");
-  assert_ok_readback(fc, reply);
+  assert_ok_readback(fc, list, reply);
 
   succeeded = 1;
 } catch (error) {
@@ -296,9 +417,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-fontconfig-monospace");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux font-discovery matches independent fc-match monospace read-back with typed font-discovery/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux font-discovery matches independent fc-match/fc-list monospace read-back with typed font-discovery/get-extents usage honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux font-discovery matches independent fc-match monospace read-back with typed font-discovery/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux font-discovery matches independent fc-match/fc-list monospace read-back with typed font-discovery/get-extents host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
