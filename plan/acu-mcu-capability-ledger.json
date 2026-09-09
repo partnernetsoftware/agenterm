@@ -780,8 +780,8 @@
           "mcu_shape": "page click/type/nav and browser click/type/nav",
           "acu_shape": "page-click/page-fill/page-type/page-nav with exact or --match-selected target; page-type preserves existing focus and redacts text/value",
           "state": "delegated",
-          "evidence": ["cu.browser-cdp-actuate.macos"],
-          "note": "The public qjswasm macOS court proves navigation, exact find/fill/click and independent DOM post-state inside one ACU-owned isolated Profile without foreground activation. Windows journey is declared but not yet promoted to evidence."
+          "evidence": ["cu.browser-cdp-actuate.macos", "acu.compat-browser-bridge"],
+          "note": "The public qjswasm macOS court proves navigation, exact find/fill/click and independent DOM post-state inside one ACU-owned isolated Profile without foreground activation. The ACU compatibility adapter maps legacy browser nav only when --port or --pid supplies the CDP endpoint; --match selects natively, while its absence requires one exact page target before page-nav. Automatic endpoint discovery, MV3 navigation and AppleScript foreground fallback remain typed acu.dynamic.075 boundaries. Windows journey is declared but not yet promoted to evidence."
         },
         {
           "id": "browser.cdp.screenshot",
@@ -868,7 +868,7 @@
             }
           },
           "evidence": ["cu.browser-managed-profile.macos", "agenterm-cu browser session owner/store tests"],
-          "note": "The macOS public qjswasm court uses an isolated HOME and an exact caller-supplied browser executable. It proves ready owner/browser identities, list/status generation continuity, explicit stop, verified removal, same-name restart and TTL-owned process cleanup without foreground activation.",
+          "note": "The macOS public qjswasm court uses an isolated HOME and an exact caller-supplied browser executable. It proves ready owner/browser identities, list/status generation continuity, explicit stop, verified removal, same-name restart and TTL-owned process cleanup without foreground activation. The archived managed-profile store and receipt lease are not aliases of this session store; legacy create/list/start/status/stop/remove remain typed acu.dynamic.075 until their authority model is explicitly retired or mapped.",
           "next": "run the same public qjswasm lifecycle court with native browser executables on Linux and Windows; add crash-recovery evidence before cross-platform promotion"
         },
         {
@@ -885,9 +885,60 @@
               "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
             }
           },
-          "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos"],
-          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact fixed extension, proves its persistent profile instance identity, leases one exact tab to an ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. Session end proves exact lock release and browser stop reaps the host. The receipt names reload_scope=native-connection: it does not claim Chromium hot-loaded new extension code.",
+          "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos", "acu.compat-browser-bridge"],
+          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact fixed extension, proves its persistent profile instance identity, leases one exact tab to an ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. The compatibility adapter now resolves legacy bridge status by validating every entry in the complete live-connection inventory and selecting one exact profile-instance prefix; it withholds legacy installation/manifest fields that native status does not observe. Session end proves exact lock release and browser stop reaps the host. Legacy setup target selection, profile-level extension reload and one-effect minimized open remain typed acu.dynamic.075. The receipt names reload_scope=native-connection: it does not claim Chromium hot-loaded new extension code.",
           "next": "prove the same owned-Profile identity, target-lock, reconnect, focus and cleanup contract with native Chromium-family executables on Linux and Windows; keep extension-code update activation as a separate setup boundary"
+        },
+        {
+          "id": "browser.profile-name-binding",
+          "mcu_shape": "human browser --profile and --app selectors bound to one live MV3 profile instance",
+          "acu_shape": null,
+          "state": "gap",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "verified-profile-name-binding-not-implemented"},
+              "macos": {"result": "pending", "blocker_code": "verified-profile-name-binding-not-implemented"},
+              "windows": {"result": "pending", "blocker_code": "verified-profile-name-binding-not-implemented"}
+            }
+          },
+          "evidence": [],
+          "note": "Stable TODO acu.dynamic.075.profile-name-binding prevents a human profile or application label from being guessed into a cryptographic profile_instance_id prefix.",
+          "next": "design a native observation that proves one human profile/application identity maps to exactly one live fixed-extension profile instance"
+        },
+        {
+          "id": "browser.bridge-nav",
+          "mcu_shape": "browser nav URL through the selected fixed-extension profile when no explicit CDP endpoint is supplied",
+          "acu_shape": null,
+          "state": "gap",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "mv3-navigation-command-not-implemented"},
+              "macos": {"result": "pending", "blocker_code": "mv3-navigation-command-not-implemented"},
+              "windows": {"result": "pending", "blocker_code": "mv3-navigation-command-not-implemented"}
+            }
+          },
+          "evidence": [],
+          "note": "Stable TODO acu.dynamic.075.bridge-nav refuses to guess port 9222 or scan process command lines. Explicit --port/--pid CDP navigation is mapped separately; the fixed-identity extension publishes no navigation command today. The archived --allow-foreground AppleScript fallback is permanent local usage with an exact page-nav migration path, not part of this blocker.",
+          "next": "add an exact tab-bound MV3 navigation command with URL read-back, unchanged presentation proof and an owned-profile public court"
+        },
+        {
+          "id": "browser.legacy-lifecycle-mapping",
+          "mcu_shape": "browser bridge setup/reload, managed profile create/list/start/status/stop/remove, and one-effect minimized background open",
+          "acu_shape": null,
+          "state": "gap",
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "legacy-browser-authority-not-mapped"},
+              "macos": {"result": "pending", "blocker_code": "legacy-browser-authority-not-mapped"},
+              "windows": {"result": "pending", "blocker_code": "legacy-browser-authority-not-mapped"}
+            }
+          },
+          "evidence": [],
+          "note": "Stable TODO acu.dynamic.075 remains for these archived shapes. Native setup registers all discovered Chromium families rather than one legacy selector; native reload owns an exact tab/session lease rather than profile-level extension reload; browser-session uses a different persistent store and owner model; and composing normal window-open with a later minimize would not preserve the archived one-effect postcondition or request identity.",
+          "next": "decide each shape independently: add exact native selector/state support where semantics can align, otherwise publish a permanent typed retirement with an explicit migration path"
         },
         {
           "id": "browser.closed-tree",

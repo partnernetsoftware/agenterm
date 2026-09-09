@@ -112,6 +112,29 @@ function without_value_flags(argv, names) {
   return { ok: true, values: removed, argv: remaining };
 }
 
+function without_switch_flags(argv, names) {
+  const removed = {};
+  const remaining = [];
+  for (let n = 0; n < names.length; n = n + 1) { removed[names[n]] = false; }
+  for (let i = 0; i < argv.length; i = i + 1) {
+    let matched = null;
+    for (let n = 0; n < names.length; n = n + 1) {
+      if (argv[i] === "--" + names[n]) { matched = names[n]; }
+      if (argv[i].startsWith("--" + names[n] + "=")) {
+        return { ok: false, message: "--" + names[n] + " does not take a value" };
+      }
+    }
+    if (matched === null) {
+      remaining.push(argv[i]);
+    } else if (removed[matched]) {
+      return { ok: false, message: "--" + matched + " may be specified only once" };
+    } else {
+      removed[matched] = true;
+    }
+  }
+  return { ok: true, values: removed, argv: remaining };
+}
+
 function optional_integer(raw, minimum, label) {
   if (raw === null) { return { ok: true, value: null }; }
   if (raw.length === 0) { return { ok: false, message: label + " must be an integer" }; }
@@ -278,8 +301,62 @@ function known_dynamic_boundary(argv) {
     return { kind: "usage", command: "storage",
       message: "legacy storage accepts only storage devices [--max N]; use storage-volumes for mounted capacity" };
   }
+  if (verb === "browser" && sub === "bridge" && argv[2] === "status") {
+    const parsed = without_value_flags(argv, ["profile"]);
+    if (!parsed.ok) { return { kind: "usage", command: "browser", message: parsed.message }; }
+    if (parsed.argv.length !== 3) {
+      return { kind: "usage", command: "browser",
+        message: "browser bridge status accepts only --profile PROFILE_INSTANCE_PREFIX" };
+    }
+    if (parsed.values.profile !== null && !lower_hex_prefix(parsed.values.profile)) {
+      return todo("acu.dynamic.075.profile-name-binding", "browser",
+        "browser bridge status human profile names need a verified MV3 profile identity binding");
+    }
+    return compound_plan("bridge-status", "browser", { profile: parsed.values.profile });
+  }
+  if (verb === "browser" && sub === "nav") {
+    const valued = without_value_flags(argv, ["port", "pid", "match", "profile", "app"]);
+    if (!valued.ok) { return { kind: "usage", command: "browser", message: valued.message }; }
+    const switched = without_switch_flags(valued.argv, ["allow-foreground"]);
+    if (!switched.ok) { return { kind: "usage", command: "browser", message: switched.message }; }
+    if (switched.argv.length !== 3 || switched.argv[2].startsWith("--")) {
+      return { kind: "usage", command: "browser", message: "browser nav needs one URL" };
+    }
+    const port = optional_integer(valued.values.port, 1, "browser nav --port");
+    const pid = optional_integer(valued.values.pid, 1, "browser nav --pid");
+    if (!port.ok || !pid.ok || port.value !== null && port.value > 65535
+        || pid.value !== null && pid.value > 4294967295) {
+      return { kind: "usage", command: "browser",
+        message: "browser nav requires --port 1..65535 or --pid 1..4294967295" };
+    }
+    if (port.value === null && pid.value === null) {
+      if (switched.values["allow-foreground"]) {
+        return { kind: "usage", command: "browser",
+          message: "browser nav --allow-foreground is not mapped: no AppleScript navigation path exists; use page-nav --port N or --pid PID with --match SUB and --url URL" };
+      }
+      return todo("acu.dynamic.075.bridge-nav", "browser",
+        "browser bridge navigation needs an exact native MV3 nav command; pass --port or --pid for CDP page-nav");
+    }
+    const transport = port.value !== null
+      ? ["--port", "" + port.value] : ["--pid", "" + pid.value];
+    if (valued.values.match !== null) {
+      if (valued.values.match.length === 0) {
+        return { kind: "usage", command: "browser",
+          message: "browser nav --match must not be empty" };
+      }
+      return { kind: "exec", argv: ["page-nav", transport[0], transport[1],
+        "--match", valued.values.match, "--url", switched.argv[2]] };
+    }
+    return compound_plan("cdp-nav", "browser", {
+      transport: transport, url: switched.argv[2]
+    });
+  }
+  if (verb === "browser" && sub === "open" && argv.length > 2
+      && argv[2].startsWith("--")) {
+    return null;
+  }
   if (verb === "browser" && (sub === "open" || sub === "bridge"
-      || sub === "profile" || sub === "nav")) {
+      || sub === "profile")) {
     return todo("acu.dynamic.075", "browser",
       "legacy browser profile and bridge shapes need an exact native identity binding");
   }
@@ -597,7 +674,8 @@ export function canonicalize(input) {
   }
   if (mapped.kind === "focused-pid" || mapped.kind === "observe-roles"
       || mapped.kind === "observe-filters"
-      || mapped.kind === "elements-page"
+      || mapped.kind === "elements-page" || mapped.kind === "bridge-status"
+      || mapped.kind === "cdp-nav"
       || mapped.kind === "selector-dclick") {
     mapped.globals = copy(extracted.prefix);
     return mapped;

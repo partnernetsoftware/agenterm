@@ -652,8 +652,18 @@ ACU-only cutover
 │  ├─ [~] acu.dynamic.075 · native `browser-tabs` resolves one exact MV3 profile connection;
 │  │  ├─ complete profile-wide background tabs retain stable tab/window ids, title and URL
 │  │  ├─ truncated/ambiguous connection or tab inventories fail typed; no AX/CDP heuristic fallback
+│  │  ├─ [x] legacy bridge status validates the complete connection/status inventory and selects
+│  │  │  one exact profile-instance prefix without reading or bounding the profile's tabs
+│  │  ├─ [x] legacy browser nav with explicit `--port` or `--pid` maps to background `page-nav`;
+│  │  │  an omitted `--match` first requires exactly one CDP page target
 │  │  ├─ the frozen no-argument witness is resolved; this does not close every legacy option
 │  │  ├─ [ ] acu.dynamic.075.profile-name-binding · human `--profile` / `--app` stays typed TODO
+│  │  ├─ [ ] acu.dynamic.075.bridge-nav · navigation without an explicit CDP endpoint awaits
+│  │  │  an exact fixed-identity MV3 command; no default port or process scan is guessed
+│  │  ├─ [ ] legacy setup retains acu.dynamic.075 until its single-application selector maps
+│  │  │  without widening installation to every discovered Chromium family
+│  │  ├─ [ ] legacy reload, managed-profile lifecycle and minimized open retain
+│  │  │  acu.dynamic.075 until mutation scope, lease authority and atomic postconditions align
 │  │  └─ owned-profile macOS qjswasm court is wired; Linux/Windows native courts remain
 │  ├─ [x] acu.dynamic.076 · `inspect --app` maps to native bounded `app-inspect`;
 │  │  ├─ whole matching window set + foreground identity are bracketed as one observation
@@ -956,8 +966,19 @@ flowchart LR
   verifiable binding to the extension profile identity exists; the stable
   `acu.dynamic.075.profile-name-binding` TODO makes that missing sub-shape
   visible instead of misclassifying it as usage or treating the frozen
-  no-argument witness as full closure. The macOS owned
-  profile court is wired; Linux and Windows native qualification remains.
+  no-argument witness as full closure. Legacy `browser bridge status` now
+  validates the complete live-connection inventory plus each closed status
+  reply, then selects one exact profile-instance prefix without reading tabs;
+  fields about installation and manifests remain withheld rather than guessed.
+  Legacy `browser nav` maps only when `--port` or `--pid` supplies an explicit
+  CDP endpoint: `--match` selects natively, otherwise the compound requires one
+  page target before navigation. No-endpoint MV3 navigation remains stable TODO
+  `acu.dynamic.075.bridge-nav`; setup remains under the parent gap because its
+  legacy single-application selector would otherwise widen to all discovered
+  Chromium families. Profile lifecycle, reload and minimized open remain there
+  because their stores, leases or atomic postconditions differ. The macOS owned
+  profile court is wired; Linux and
+  Windows native qualification remains.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
   gated `minimize`/`restore` are live in the macOS Cocoa/AX public journey.
   The same source state must still pass Linux AT-SPI2 and Windows UIA courts;

@@ -1,0 +1,237 @@
+// Pure public court for legacy browser bridge/status and explicit-CDP nav
+// compatibility projections. It owns no GUI, browser, process or network
+// effects; every native reply below is synthetic.
+// Args: REPO | --list-evidence
+import * as compat from "skills/acu/lib/compat";
+import * as compound from "skills/acu/lib/compound";
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = ["acu.compat-browser-bridge"];
+const CONNECTION_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const CONNECTION_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const PROFILE_A = "11111111111111111111111111111111";
+const PROFILE_B = "22222222222222222222222222222222";
+
+function ensure(condition, message) { if (!condition) { throw message; } }
+
+function same_array(actual, expected, label) {
+  ensure(Array.isArray(actual) && actual.length === expected.length,
+    label + "_length");
+  for (let i = 0; i < expected.length; i = i + 1) {
+    ensure(actual[i] === expected[i], label + "_item_" + i);
+  }
+}
+
+function connection(id, pid) {
+  return {
+    connection_id: id,
+    process: { pid: pid, start_identity: "start-" + pid },
+    endpoint: { extension_id: "knofdkmmpkbnjhdkcjddbakbpmgpmjpe" }
+  };
+}
+
+function connections_reply(rows, truncated) {
+  return { ok: true, data: {
+    visited: rows.length,
+    truncated: truncated === true,
+    connections: rows
+  } };
+}
+
+function status_reply(connection_id, profile_id, version) {
+  return { ok: true, data: {
+    connection_id: connection_id,
+    result: {
+      protocol: 3,
+      extension_id: "knofdkmmpkbnjhdkcjddbakbpmgpmjpe",
+      extension_version: version,
+      profile_instance_id: profile_id,
+      commands: ["status", "tabs", "windows", "window-open", "window-state"]
+    }
+  } };
+}
+
+function targets_reply(rows) {
+  return { ok: true, data: {
+    backend: "chromium-cdp",
+    port: 9333,
+    via: "/json",
+    targets: rows
+  } };
+}
+
+function target(id, type, title) {
+  return {
+    id: id,
+    type: type,
+    title: title,
+    url: "data:text/html," + title,
+    description: ""
+  };
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 1, "expected: REPO");
+const context = harness.new_context(rh.absolute(args[0]), "acu-browser-bridge-compat");
+let succeeded = 0;
+let failure = "";
+
+try {
+  const status_default = compat.canonicalize(["browser", "bridge", "status"]);
+  ensure(status_default.kind === "bridge-status" && status_default.profile === null,
+    "acu_browser_bridge_status_default_route");
+  const status_profile = compat.canonicalize([
+    "browser", "bridge", "status", "--profile", PROFILE_A.substring(0, 8)
+  ]);
+  ensure(status_profile.kind === "bridge-status"
+      && status_profile.profile === PROFILE_A.substring(0, 8),
+    "acu_browser_bridge_status_profile_route");
+  const human_profile = compat.canonicalize([
+    "browser", "bridge", "status", "--profile", "Default"
+  ]);
+  ensure(human_profile.kind === "todo"
+      && human_profile.gap_id === "acu.dynamic.075.profile-name-binding",
+    "acu_browser_bridge_human_profile_typed");
+
+  const matched_nav = compat.canonicalize([
+    "browser", "nav", "https://example.test/next", "--port", "9333",
+    "--match", "Guide"
+  ]);
+  ensure(matched_nav.kind === "exec", "acu_browser_cdp_nav_match_route");
+  same_array(matched_nav.argv,
+    ["--target", "current", "--grant", "observe,actuate", "page-nav",
+      "--port", "9333", "--match", "Guide", "--url", "https://example.test/next"],
+    "acu_browser_cdp_nav_match_argv");
+  const port_precedence = compat.canonicalize([
+    "browser", "nav", "https://example.test/next", "--port", "9333",
+    "--pid", "42", "--match", "Guide", "--profile", "Default",
+    "--app", "brave", "--allow-foreground"
+  ]);
+  ensure(port_precedence.kind === "exec", "acu_browser_cdp_nav_port_precedence_route");
+  same_array(port_precedence.argv,
+    ["--target", "current", "--grant", "observe,actuate", "page-nav",
+      "--port", "9333", "--match", "Guide", "--url", "https://example.test/next"],
+    "acu_browser_cdp_nav_port_precedence_argv");
+  const unique_nav = compat.canonicalize([
+    "browser", "nav", "https://example.test/next", "--pid", "42"
+  ]);
+  ensure(unique_nav.kind === "cdp-nav" && unique_nav.url === "https://example.test/next",
+    "acu_browser_cdp_nav_unique_route");
+  same_array(unique_nav.transport, ["--pid", "42"],
+    "acu_browser_cdp_nav_unique_transport");
+  const bridge_nav = compat.canonicalize([
+    "browser", "nav", "https://example.test/next"
+  ]);
+  ensure(bridge_nav.kind === "todo"
+      && bridge_nav.gap_id === "acu.dynamic.075.bridge-nav",
+    "acu_browser_bridge_nav_stays_typed");
+  const foreground_nav = compat.canonicalize([
+    "browser", "nav", "https://example.test/next", "--allow-foreground"
+  ]);
+  ensure(foreground_nav.kind === "usage"
+      && foreground_nav.message.indexOf("page-nav") >= 0,
+    "acu_browser_foreground_nav_is_permanent_usage");
+
+  const inventory = connections_reply([
+    connection(CONNECTION_A, 101), connection(CONNECTION_B, 202)
+  ], false);
+  const statuses = {};
+  statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.3.0");
+  statuses[CONNECTION_B] = status_reply(CONNECTION_B, PROFILE_B, "1.3.0");
+  const selected = compound.bridge_select_connection(
+    inventory, statuses, PROFILE_A.substring(0, 8));
+  ensure(selected.ok === true, "acu_browser_bridge_status_selection_" + selected.code);
+  const projected = compound.bridge_status_projection(selected.value, inventory);
+  ensure(projected.ok === true, "acu_browser_bridge_status_projection_" + projected.code);
+  const view = projected.value;
+  ensure(view.connected === true && view.ready === true && view.diagnosis === null
+      && view.connection.connection_id === CONNECTION_A
+      && view.connection.profile_instance_id === PROFILE_A
+      && view.connection.pid === 101,
+    "acu_browser_bridge_status_exact_identity");
+  ensure(Array.isArray(view.connections) && view.connections.length === 2
+      && view.connections[0].connection_id === CONNECTION_A
+      && view.connections[1].connection_id === CONNECTION_B,
+    "acu_browser_bridge_status_complete_inventory");
+  ensure(view.version.protocol === 3 && view.version.extension_version === "1.3.0"
+      && view.version.current === true,
+    "acu_browser_bridge_status_version");
+  ensure(view.installed === undefined && view.manifests === undefined
+      && view.facts_withheld.length === 5,
+    "acu_browser_bridge_status_withholds_unobserved_installation_facts");
+  same_array(view.commands,
+    ["status", "tabs", "windows", "window-open", "window-state"],
+    "acu_browser_bridge_status_commands");
+
+  const ambiguous_default = compound.bridge_select_connection(inventory, statuses, null);
+  ensure(ambiguous_default.code === "browser_bridge_profile_connection_ambiguous",
+    "acu_browser_bridge_status_default_ambiguous");
+  const absent_profile = compound.bridge_select_connection(inventory, statuses, "33333333");
+  ensure(absent_profile.code === "browser_bridge_profile_connection_not_found",
+    "acu_browser_bridge_status_profile_not_found");
+  const truncated_statuses = {};
+  truncated_statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.3.0");
+  const truncated = compound.bridge_select_connection(
+    connections_reply([connection(CONNECTION_A, 101)], true),
+    truncated_statuses, PROFILE_A.substring(0, 8));
+  ensure(truncated.code === "browser_bridge_connection_inventory_truncated",
+    "acu_browser_bridge_status_truncated_typed");
+  const duplicate_statuses = {};
+  duplicate_statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.3.0");
+  duplicate_statuses[CONNECTION_B] = status_reply(CONNECTION_B, PROFILE_A, "1.3.0");
+  const duplicate_profile = compound.bridge_select_connection(
+    inventory, duplicate_statuses, PROFILE_A.substring(0, 8));
+  ensure(duplicate_profile.code === "browser_bridge_profile_connection_ambiguous",
+    "acu_browser_bridge_status_duplicate_profile_typed");
+  const native_status_error = compound.bridge_select_connection(
+    { ok: false, error: { code: "browser_bridge_registry_unavailable", message: "registry" } },
+    {}, null);
+  ensure(native_status_error.code === "browser_bridge_registry_unavailable",
+    "acu_browser_bridge_status_native_error_passthrough");
+
+  const one_page = compound.cdp_nav_target(targets_reply([
+    target("worker-1", "service_worker", "worker"),
+    target("page-1", "page", "Guide")
+  ]));
+  ensure(one_page.ok === true && one_page.value.target_id === "page-1",
+    "acu_browser_cdp_nav_unique_page");
+  const no_page = compound.cdp_nav_target(targets_reply([
+    target("worker-1", "service_worker", "worker")
+  ]));
+  ensure(no_page.code === "page_target_ambiguous",
+    "acu_browser_cdp_nav_no_page_typed");
+  const many_pages = compound.cdp_nav_target(targets_reply([
+    target("page-1", "page", "One"), target("page-2", "page", "Two")
+  ]));
+  ensure(many_pages.code === "page_target_ambiguous",
+    "acu_browser_cdp_nav_many_pages_typed");
+  const malformed_target = compound.cdp_nav_target({ ok: true, data: { targets: null } });
+  ensure(malformed_target.code === "page_targets_shape_invalid",
+    "acu_browser_cdp_nav_target_inventory_required");
+  const native_target_error = compound.cdp_nav_target({
+    ok: false, error: { code: "cdp_connection_failed", message: "endpoint" }
+  });
+  ensure(native_target_error.code === "cdp_connection_failed",
+    "acu_browser_cdp_nav_native_error_passthrough");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "acu.compat-browser-bridge");
+  harness.remove_run(context);
+  print("PASS: legacy browser status and explicit CDP navigation stay exact and typed");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
