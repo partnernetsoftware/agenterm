@@ -7325,7 +7325,7 @@
     },
     {
       "id": "cu-linux-ps-smoke",
-      "description": "Linux ps inventory pid, parent_pid and executable_name match independent /proc exe/stat read-back; no --coords.",
+      "description": "Linux ps inventory pid, parent_pid and executable_name match independent /proc exe/stat read-back; typed ps usage rejects AT-SPI --window/--name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-ps-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

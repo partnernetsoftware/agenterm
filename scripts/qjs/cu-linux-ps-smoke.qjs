@@ -1,7 +1,10 @@
 // CEO: Linux ps inventory honesty with independent /proc pid/exe/stat read-back.
 // Acceptance is smoke read-back only: CU ps must agree with pid, parent_pid and
 // executable_name facts derived outside agenterm-cu from the same /proc scan
-// semantics the Linux adapter uses. No --coords or screenshot degradation.
+// semantics the Linux adapter uses. Typed ps usage must reject AT-SPI --window/--name
+// and other unexpected arguments; typed get-extents --name usage/host-limit paths
+// must hold before the /proc read-back court. AT-SPI/--name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,6 +15,7 @@ const declared_evidence = [
   "cu.linux-ps-readback",
 ];
 
+const AT_SPI_PROBE_NAME = "Ps Court Anchor";
 const MAX_VISITED = 10000;
 const MAX_RESULTS = 5000;
 
@@ -19,7 +23,177 @@ function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function verify_inventory_with_retry(run_directory, executable) {
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function output_success(document) { return at(document, "ok") === true; }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke_observe_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_ps_observe_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "ps" || text_at(reply, "command") === "usage",
+    "cu_linux_ps_observe_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_ps_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_ps_usage_limit(run_directory, executable, env) {
+  const atspi_window_name = invoke_observe_reply(run_directory, executable, [
+    "ps", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(atspi_window_name),
+    "cu_linux_ps_usage_window_name_ok:" + JSON.stringify(atspi_window_name));
+  ensure(
+    text_at(atspi_window_name, "error.code") === "usage",
+    "cu_linux_ps_usage_window_name_code:" + JSON.stringify(atspi_window_name.error)
+  );
+  ensure(
+    text_at(atspi_window_name, "command") === "usage",
+    "cu_linux_ps_usage_window_name_command:" + JSON.stringify(atspi_window_name)
+  );
+  ensure(
+    text_at(atspi_window_name, "error.message").indexOf("--window") >= 0
+      || text_at(atspi_window_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_ps_usage_window_name_message:" + JSON.stringify(atspi_window_name.error)
+  );
+
+  const detail_with_name = invoke_observe_reply(run_directory, executable, [
+    "ps", "--pid", "1", "--depth", "1", "--name", "sleep",
+  ], env);
+  ensure(!output_success(detail_with_name),
+    "cu_linux_ps_usage_detail_name_ok:" + JSON.stringify(detail_with_name));
+  ensure(
+    text_at(detail_with_name, "error.code") === "usage",
+    "cu_linux_ps_usage_detail_name_code:" + JSON.stringify(detail_with_name.error)
+  );
+  ensure(
+    text_at(detail_with_name, "error.message").indexOf("detail") >= 0
+      || text_at(detail_with_name, "error.message").indexOf("list") >= 0
+      || text_at(detail_with_name, "error.message").indexOf("offset") >= 0,
+    "cu_linux_ps_usage_detail_name_message:" + JSON.stringify(detail_with_name.error)
+  );
+
+  const with_bogus = invoke_observe_reply(run_directory, executable, [
+    "ps", "--pid", "1", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_ps_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_ps_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_ps_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_ps_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_ps_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_ps_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_ps_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_ps_extents_unavailable_code:" + code
+  );
+}
+
+function verify_inventory_with_retry(run_directory, executable, env) {
   const script = [
     "import json, os, subprocess, sys",
     "cu = sys.argv[1]",
@@ -175,13 +349,13 @@ function verify_inventory_with_retry(run_directory, executable) {
   ].join("\n");
   const output = rh.command("python3", ["-c", script, executable, run_directory], {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env,
     timeout_ms: 120000,
   });
   ensure(output.success === true, "cu_linux_ps_inventory:" + output.stderr + output.stdout);
 }
 
-function verify_exact_pid(run_directory, executable, pid) {
+function verify_exact_pid(run_directory, executable, pid, env) {
   const script = [
     "import json, os, subprocess, sys",
     "cu = sys.argv[1]",
@@ -216,13 +390,13 @@ function verify_exact_pid(run_directory, executable, pid) {
   ].join("\n");
   const output = rh.command("python3", ["-c", script, executable, run_directory, "" + pid], {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env,
     timeout_ms: 60000,
   });
   ensure(output.success === true, "cu_linux_ps_exact:" + output.stderr + output.stdout);
 }
 
-function verify_child_filter(run_directory, executable, pid, name_substring) {
+function verify_child_filter(run_directory, executable, pid, name_substring, env) {
   const script = [
     "import json, os, subprocess, sys",
     "cu = sys.argv[1]",
@@ -263,7 +437,7 @@ function verify_child_filter(run_directory, executable, pid, name_substring) {
     "-c", script, executable, run_directory, "" + pid, name_substring,
   ], {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env,
     timeout_ms: 60000,
   });
   ensure(output.success === true, "cu_linux_ps_child:" + output.stderr + output.stdout);
@@ -281,14 +455,27 @@ if (!rh.exists(executable) && harness.host_is_windows()) { executable = executab
 harness.require(rh.exists(executable), "agenterm-cu executable missing");
 
 const context = harness.new_context(repo, "cu-linux-ps");
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP ps typed-fails usage when AT-SPI --window/--name or other unexpected arguments are present");
+  assert_ps_usage_limit(context.run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before /proc read-back court");
+    assert_get_extents_usage_limit(context.run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
+
   print("STEP ps inventory matches independent /proc exe/stat read-back");
-  verify_inventory_with_retry(context.run_directory, executable);
+  verify_inventory_with_retry(context.run_directory, executable, env);
 
   print("STEP exact --pid read-back matches independent /proc facts for self");
-  verify_exact_pid(context.run_directory, executable, rh.pid());
+  verify_exact_pid(context.run_directory, executable, rh.pid(), env);
 
   print("STEP spawned child --pid/--name filter agrees with independent /proc read-back");
   const child = harness.start({
@@ -299,7 +486,7 @@ try {
     timeout_ms: 60000,
   });
   const child_pid = harness.spawned_pid(child);
-  verify_child_filter(context.run_directory, executable, child_pid, "sleep");
+  verify_child_filter(context.run_directory, executable, child_pid, "sleep", env);
   harness.kill(child);
 
   succeeded = 1;
@@ -313,7 +500,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-ps-readback");
   harness.remove_run(context);
-  print("PASS: Linux ps inventory matches independent /proc pid/parent/executable read-back");
+  if (atspi_available) {
+    print("PASS: Linux ps inventory matches independent /proc pid/parent/executable read-back with typed ps/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux ps inventory matches independent /proc pid/parent/executable read-back with typed ps/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
