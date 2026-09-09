@@ -48,6 +48,11 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return 0; }
@@ -272,8 +277,50 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_gtk_entry_caret_extents_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_gtk_entry_caret_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_gtk_entry_caret_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_gtk_entry_caret_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_gtk_entry_caret_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_gtk_entry_caret_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_caret_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_gtk_entry_caret_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_gtk_entry_caret_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_gtk_entry_caret_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_caret_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -332,6 +379,11 @@ function assert_get_caret_reject_coords_or_stay_named(
       misuse_code_ok(text_at(get_caret_coords, "error.code")),
       "cu_linux_gtk_entry_caret_get_coords_code_" + label + ":" + JSON.stringify(get_caret_coords.error)
     );
+    ensure(
+      usage_rejects_unexpected(text_at(get_caret_coords, "error.message"), "--coords")
+        || text_at(get_caret_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_caret_get_coords_message_" + label + ":" + JSON.stringify(get_caret_coords.error)
+    );
   } else {
     ensure(
       text_at(get_caret_coords, "data.via") === "get-caret-offset"
@@ -347,6 +399,11 @@ function assert_get_caret_reject_coords_or_stay_named(
     ensure(
       misuse_code_ok(text_at(get_caret_bogus, "error.code")),
       "cu_linux_gtk_entry_caret_get_bogus_code_" + label + ":" + JSON.stringify(get_caret_bogus.error)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(get_caret_bogus, "error.message"), "--bogus")
+        || text_at(get_caret_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_caret_get_bogus_message_" + label + ":" + JSON.stringify(get_caret_bogus.error)
     );
   } else {
     ensure(
@@ -369,6 +426,11 @@ function assert_set_caret_reject_coords_or_stay_named(
       misuse_code_ok(text_at(set_caret_coords, "error.code")),
       "cu_linux_gtk_entry_caret_set_coords_code_" + label + ":" + JSON.stringify(set_caret_coords.error)
     );
+    ensure(
+      usage_rejects_unexpected(text_at(set_caret_coords, "error.message"), "--coords")
+        || text_at(set_caret_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_caret_set_coords_message_" + label + ":" + JSON.stringify(set_caret_coords.error)
+    );
   } else {
     ensure(
       text_at(set_caret_coords, "data.addressing") === "accessibility-tree"
@@ -385,6 +447,11 @@ function assert_set_caret_reject_coords_or_stay_named(
     ensure(
       misuse_code_ok(text_at(set_caret_bogus, "error.code")),
       "cu_linux_gtk_entry_caret_set_bogus_code_" + label + ":" + JSON.stringify(set_caret_bogus.error)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(set_caret_bogus, "error.message"), "--bogus")
+        || text_at(set_caret_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_gtk_entry_caret_set_bogus_message_" + label + ":" + JSON.stringify(set_caret_bogus.error)
     );
   } else {
     ensure(
@@ -464,11 +531,75 @@ function assert_caret_usage_limit(run_directory, executable) {
     "get-caret", "--window", "1", "--coords", "10,10",
   ]);
   ensure(!output_success(get_caret_coords), "cu_linux_gtk_entry_caret_get_coords_ok:" + JSON.stringify(get_caret_coords));
+  ensure(
+    text_at(get_caret_coords, "error.code") === "usage",
+    "cu_linux_gtk_entry_caret_get_coords_code:" + JSON.stringify(get_caret_coords.error)
+  );
+  ensure(
+    text_at(get_caret_coords, "command") === "usage",
+    "cu_linux_gtk_entry_caret_get_coords_command:" + JSON.stringify(get_caret_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(get_caret_coords, "error.message"), "--coords")
+      || text_at(get_caret_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_caret_get_coords_message:" + JSON.stringify(get_caret_coords.error)
+  );
+
+  const get_caret_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-caret", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(get_caret_bogus), "cu_linux_gtk_entry_caret_get_bogus_ok:" + JSON.stringify(get_caret_bogus));
+  ensure(
+    text_at(get_caret_bogus, "error.code") === "usage",
+    "cu_linux_gtk_entry_caret_get_bogus_code:" + JSON.stringify(get_caret_bogus.error)
+  );
+  ensure(
+    text_at(get_caret_bogus, "command") === "usage",
+    "cu_linux_gtk_entry_caret_get_bogus_command:" + JSON.stringify(get_caret_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(get_caret_bogus, "error.message"), "--bogus")
+      || text_at(get_caret_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_caret_get_bogus_message:" + JSON.stringify(get_caret_bogus.error)
+  );
 
   const set_caret_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "set-caret", "--window", "1", "--coords", "10,10", "--offset", "0",
   ]);
   ensure(!output_success(set_caret_coords), "cu_linux_gtk_entry_caret_set_coords_ok:" + JSON.stringify(set_caret_coords));
+  ensure(
+    text_at(set_caret_coords, "error.code") === "usage"
+      || text_at(set_caret_coords, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_caret_set_coords_code:" + JSON.stringify(set_caret_coords.error)
+  );
+  ensure(
+    text_at(set_caret_coords, "command") === "usage",
+    "cu_linux_gtk_entry_caret_set_coords_command:" + JSON.stringify(set_caret_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(set_caret_coords, "error.message"), "--coords")
+      || text_at(set_caret_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_caret_set_coords_message:" + JSON.stringify(set_caret_coords.error)
+  );
+
+  const set_caret_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "set-caret", "--window", "1", "--bogus", "--offset", "0",
+  ]);
+  ensure(!output_success(set_caret_bogus), "cu_linux_gtk_entry_caret_set_bogus_ok:" + JSON.stringify(set_caret_bogus));
+  ensure(
+    text_at(set_caret_bogus, "error.code") === "usage"
+      || text_at(set_caret_bogus, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_caret_set_bogus_code:" + JSON.stringify(set_caret_bogus.error)
+  );
+  ensure(
+    text_at(set_caret_bogus, "command") === "usage",
+    "cu_linux_gtk_entry_caret_set_bogus_command:" + JSON.stringify(set_caret_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(set_caret_bogus, "error.message"), "--bogus")
+      || text_at(set_caret_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_caret_set_bogus_message:" + JSON.stringify(set_caret_bogus.error)
+  );
 }
 
 function assert_caret_host_limit_when_atspi_absent(run_directory, executable) {
