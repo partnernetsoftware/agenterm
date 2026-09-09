@@ -220,6 +220,13 @@
       ]
     },
     {
+      "id": "cu-linux-process-environment-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-environment-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-fds-smoke",
       "platform": "linux",
       "evidence": [
