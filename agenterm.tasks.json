@@ -7614,7 +7614,7 @@
     },
     {
       "id": "cu-linux-capabilities-honesty-smoke",
-      "description": "Linux capabilities matrix present/absent status for a bounded verb set matches independent AT-SPI, cgroup, ip, inotify, X11, proc, desktop-entry, D-Bus, SkyLight, CoreMediaIO and xcrun simctl host probes; unsupported verbs must declare macOS host-limit reason or platforms metadata; no --coords.",
+      "description": "Linux capabilities matrix present/absent status for a bounded verb set matches independent AT-SPI, cgroup, ip, inotify, X11, proc, desktop-entry, D-Bus, SkyLight, CoreMediaIO and xcrun simctl host probes; unsupported verbs must declare macOS host-limit reason or platforms metadata; typed capabilities usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the native read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-capabilities-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
