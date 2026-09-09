@@ -5856,7 +5856,7 @@
     },
     {
       "id": "cu-linux-pty-smoke",
-      "description": "Linux headless PTY + AgenTerm Unix-socket honesty: typed pty/get-extents AT-SPI --name usage or host-limit honesty before the PTY/AgenTerm sock read-back court; pty-start/read/send/wait with independent socket, process-sockets listener, and base64 read-back; missing/stale authority typed pty_job_not_found with ENOENT/ECONNREFUSED transport and independent socket-node proof across observe and actuate verbs; abi-dev, no --coords.",
+      "description": "Linux headless PTY + AgenTerm Unix-socket honesty: typed pty/get-extents AT-SPI --name/--coords/--bogus usage AND get-extents host-limit before the PTY/AgenTerm sock read-back court; QJS-owned missing/stale/present sock courts with independent path/fuser/connect/process-sockets proof (never fake a live sock); pty-start/read/send/wait with independent base64 read-back; missing/stale authority typed pty_job_not_found with ENOENT/ECONNREFUSED transport across observe and actuate verbs; abi-dev, no --coords.",
       "entry": "scripts/qjs/cu-linux-pty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
