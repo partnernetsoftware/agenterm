@@ -1,7 +1,8 @@
 // CEO: window-opacity --opacity/--expect on Linux.
 // Acceptance is smoke read-back only: independent xprop _NET_WM_WINDOW_OPACITY
-// and windows inventory `opacity` must match --expect after set. No --coords
-// or screenshot degradation.
+// and windows inventory `opacity` must match --expect after set. Typed usage,
+// destructive-gate refusals, missing-window and headless host-limit paths must
+// hold before any owned fixture window exists. No --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,6 +13,7 @@ const declared_evidence = [
   "cu.linux-window-opacity",
 ];
 
+const MISSING_HANDLE = "99999999";
 const TARGET_OPACITY = 0.5;
 const TARGET_PERMILLE = 500;
 const OPAQUE_CARDINAL = 4294967295;
@@ -34,11 +36,16 @@ function text_at(value, dotted) {
   return "" + value_at;
 }
 
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
-  if (value_at === undefined || value_at === null) { return -1; }
+  if (value_at === undefined || value_at === null) { return 0; }
   return rh.parse_int("" + value_at);
 }
 
@@ -74,20 +81,139 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, arguments, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: cu_env(executable),
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
-  });
-  ensure(output.success === true, "cu_linux_window_opacity_cli:" + output.stdout + output.stderr);
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_window_opacity_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_window_opacity_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_window_opacity_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_window_opacity_reply:" + JSON.stringify(document));
   return document;
+}
+
+function opacity_refused(run_directory, executable, arguments, code) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", ["window-opacity"].concat(arguments));
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === code,
+    "cu_linux_window_opacity_refused:" + code + ":" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function assert_opacity_usage_limit(run_directory, executable) {
+  const zero_window = run_cu_reply(run_directory, executable, "actuate", [
+    "window-opacity", "--window", "0",
+    "--opacity", "" + TARGET_OPACITY, "--expect", "" + TARGET_OPACITY,
+  ]);
+  ensure(!output_success(zero_window), "cu_linux_window_opacity_usage_ok:" + JSON.stringify(zero_window));
+  ensure(
+    text_at(zero_window, "error.code") === "usage",
+    "cu_linux_window_opacity_usage_code:" + JSON.stringify(zero_window.error)
+  );
+  ensure(
+    text_at(zero_window, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_window_opacity_usage_message:" + JSON.stringify(zero_window.error)
+  );
+
+  const mismatched_expect = run_cu_reply(run_directory, executable, "actuate", [
+    "window-opacity", "--window", "1",
+    "--opacity", "" + TARGET_OPACITY, "--expect", "0.8",
+  ]);
+  ensure(!output_success(mismatched_expect), "cu_linux_window_opacity_mismatch_ok:" + JSON.stringify(mismatched_expect));
+  ensure(
+    text_at(mismatched_expect, "error.code") === "invalid_input",
+    "cu_linux_window_opacity_mismatch_code:" + JSON.stringify(mismatched_expect.error)
+  );
+  ensure(
+    text_at(mismatched_expect, "error.message").indexOf("must match") >= 0,
+    "cu_linux_window_opacity_mismatch_message:" + JSON.stringify(mismatched_expect.error)
+  );
+}
+
+function assert_opacity_destructive_gate(run_directory, executable) {
+  const missing_target = opacity_refused(
+    run_directory, executable, ["--opacity", "" + TARGET_OPACITY], "refused"
+  );
+  ensure(
+    text_at(missing_target, "error.detail.reason") === "destructive_gate"
+      && text_at(missing_target, "error.detail.effect") === "not_performed"
+      && missing_target.error.detail.missing.length >= 1
+      && text_of(missing_target.error.detail.missing[0]) === "target",
+    "cu_linux_window_opacity_missing_target:" + JSON.stringify(missing_target)
+  );
+
+  const missing_postcondition = opacity_refused(
+    run_directory, executable, ["--window", "1", "--opacity", "" + TARGET_OPACITY], "refused"
+  );
+  ensure(
+    text_at(missing_postcondition, "error.detail.reason") === "destructive_gate"
+      && missing_postcondition.error.detail.missing.length === 1
+      && text_of(missing_postcondition.error.detail.missing[0]) === "postcondition",
+    "cu_linux_window_opacity_missing_postcondition:" + JSON.stringify(missing_postcondition)
+  );
+}
+
+function assert_opacity_missing_window(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", [
+    "window-opacity", "--window", MISSING_HANDLE,
+    "--opacity", "" + TARGET_OPACITY, "--expect", "" + TARGET_OPACITY,
+  ]);
+  ensure(!output_success(reply), "cu_linux_window_opacity_missing_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "window_op_failed",
+    "cu_linux_window_opacity_missing_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.effect") === "not_performed",
+    "cu_linux_window_opacity_missing_effect:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_headless_host_limit(run_directory, executable) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "actuate",
+    [
+      "window-opacity", "--window", "1",
+      "--opacity", "" + TARGET_OPACITY, "--expect", "" + TARGET_OPACITY,
+    ],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply), "cu_linux_window_opacity_headless_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_window_opacity_headless_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("mechanism unavailable") >= 0
+      || message.indexOf("agt_native_window_opacity") >= 0,
+    "cu_linux_window_opacity_headless_message:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.effect") === "not_performed",
+    "cu_linux_window_opacity_headless_effect:" + JSON.stringify(reply.error)
+  );
 }
 
 function window_rows(reply) {
@@ -107,6 +233,7 @@ function window_row(run_directory, executable, pid, title) {
 }
 
 function parse_xprop_opacity(stdout) {
+  if (stdout.indexOf("not found") >= 0) { return OPAQUE_CARDINAL; }
   const marker = "_NET_WM_WINDOW_OPACITY(CARDINAL) = ";
   const start = stdout.indexOf(marker);
   if (start < 0) { return -1; }
@@ -126,10 +253,10 @@ function opacity_close(got_permille, want_permille) {
   return Math.abs(got_permille - want_permille) <= 2;
 }
 
-function independent_net_wm_opacity(run_directory, handle) {
+function independent_net_wm_opacity(run_directory, executable, handle) {
   const xprop = rh.command("xprop", ["-id", "" + handle, "_NET_WM_WINDOW_OPACITY"], {
     cwd: run_directory,
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   if (!xprop.success) { return -1; }
@@ -149,6 +276,31 @@ rh.create_dir_all(run_directory);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_window_opacity_fixture_missing:" + fixture_source);
+
+print("STEP window-opacity typed-fails usage when --window handle is zero or --expect mismatches --opacity");
+assert_opacity_usage_limit(run_directory, executable);
+
+print("STEP window-opacity typed-fails refused destructive_gate when target or postcondition is missing");
+assert_opacity_destructive_gate(run_directory, executable);
+
+print("STEP window-opacity typed-fails window_op_failed when handle is absent from inventory");
+assert_opacity_missing_window(run_directory, executable);
+
+print("STEP window-opacity without DISPLAY typed-fails unsupported host-limit");
+assert_headless_host_limit(run_directory, executable);
+
+const caps = run_cu(run_directory, executable, "observe", ["capabilities"]);
+const opacity_readback = text_at(caps, "data.verbs.window-opacity.opacity_readback");
+if (opacity_readback !== "available") {
+  print("STEP host lacks window opacity; typed unsupported = " + opacity_readback);
+  ensure(
+    text_at(caps, "data.verbs.window-opacity.status") === "unsupported"
+      || opacity_readback !== "",
+    "cu_linux_window_opacity_unsupported_shape:" + JSON.stringify(caps.data.verbs["window-opacity"])
+  );
+  print("PASS: typed unsupported host-limit; alternatives: xprop -id HANDLE _NET_WM_WINDOW_OPACITY");
+  return;
+}
 
 let fixture = -1;
 let fixture_pid = 0;
@@ -170,26 +322,43 @@ try {
 
   const row = window_row(run_directory, executable, fixture_pid, fixture_title);
   ensure(row !== null, "cu_linux_window_opacity_window_missing");
-  const handle_text = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_window_opacity_handle:" + JSON.stringify(row));
+  const handle = int_at(row, "handle");
+  const handle_text = "" + handle;
+  ensure(handle > 0, "cu_linux_window_opacity_handle:" + JSON.stringify(row));
   const baseline_permille = Math.round(float_at(row, "opacity") * 1000);
   ensure(
     opacity_close(baseline_permille, 1000),
     "cu_linux_window_opacity_baseline_opaque:" + JSON.stringify(row)
   );
+  ensure(
+    opacity_close(cardinal_to_permille(independent_net_wm_opacity(run_directory, executable, handle)), 1000),
+    "cu_linux_window_opacity_baseline_xprop_opaque"
+  );
 
-  const caps = run_cu(run_directory, executable, "observe", ["capabilities"]);
-  const opacity_readback = text_at(caps, "data.verbs.window-opacity.opacity_readback");
-  if (opacity_readback !== "available") {
-    print("STEP host lacks window opacity; typed unsupported = " + opacity_readback);
-    ensure(
-      text_at(caps, "data.verbs.window-opacity.status") === "unsupported"
-        || opacity_readback !== "",
-      "cu_linux_window_opacity_unsupported_shape:" + JSON.stringify(caps.data.verbs["window-opacity"])
-    );
-    print("PASS: typed unsupported; alternatives: xprop -id HANDLE _NET_WM_WINDOW_OPACITY");
-    return;
-  }
+  print("STEP destructive_gate refusals on a live handle must not change xprop or inventory");
+  opacity_refused(
+    run_directory, executable,
+    ["--window", handle_text, "--opacity", "" + TARGET_OPACITY],
+    "refused"
+  );
+  const mismatch = run_cu_reply(run_directory, executable, "actuate", [
+    "window-opacity", "--window", handle_text,
+    "--opacity", "" + TARGET_OPACITY, "--expect", "0.8",
+  ]);
+  ensure(
+    !output_success(mismatch) && text_at(mismatch, "error.code") === "invalid_input",
+    "cu_linux_window_opacity_live_mismatch:" + JSON.stringify(mismatch)
+  );
+  ensure(
+    opacity_close(cardinal_to_permille(independent_net_wm_opacity(run_directory, executable, handle)), 1000),
+    "cu_linux_window_opacity_refusal_xprop_changed"
+  );
+  const refusal_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(refusal_row !== null, "cu_linux_window_opacity_refusal_row_missing");
+  ensure(
+    opacity_close(Math.round(float_at(refusal_row, "opacity") * 1000), 1000),
+    "cu_linux_window_opacity_refusal_inventory_changed:" + JSON.stringify(refusal_row)
+  );
 
   print("STEP window-opacity --window " + handle_text + " --opacity " + TARGET_OPACITY + " --expect " + TARGET_OPACITY);
   const set_reply = run_cu(run_directory, executable, "actuate", [
@@ -205,7 +374,7 @@ try {
   );
 
   print("STEP independent xprop _NET_WM_WINDOW_OPACITY read-back");
-  const cardinal = independent_net_wm_opacity(run_directory, int_at(row, "handle"));
+  const cardinal = independent_net_wm_opacity(run_directory, executable, handle);
   const xprop_permille = cardinal_to_permille(cardinal);
   ensure(
     opacity_close(xprop_permille, TARGET_PERMILLE),
@@ -235,7 +404,7 @@ try {
   );
 
   print("STEP independent xprop _NET_WM_WINDOW_OPACITY read-back: opaque");
-  const restored_cardinal = independent_net_wm_opacity(run_directory, int_at(row, "handle"));
+  const restored_cardinal = independent_net_wm_opacity(run_directory, executable, handle);
   const restored_xprop_permille = cardinal_to_permille(restored_cardinal);
   ensure(
     opacity_close(restored_xprop_permille, 1000),
@@ -263,5 +432,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-window-opacity");
 harness.emit_evidence(context, declared_evidence, "cu.linux-window-opacity");
 harness.remove_run(context);
-print("PASS: CEO Linux window-opacity --expect with independent xprop and windows inventory read-back");
+print("PASS: Linux window-opacity usage/miss/host-limit honesty + independent xprop and windows inventory opacity read-back (no --coords)");
 return;
