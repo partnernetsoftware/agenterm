@@ -45,6 +45,11 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function output_success(document) { return flag_at(document, "ok"); }
 
 function int_at(value, dotted) {
@@ -232,13 +237,6 @@ function misuse_code_ok(code) {
   return code === "usage" || code === "invalid_input";
 }
 
-function usage_message_mentions_unexpected(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("--coords") >= 0
-    || message.indexOf("unexpected") >= 0
-    || message.indexOf("--bogus") >= 0;
-}
-
 function assert_scroll_usage_limit(run_directory, executable, env) {
   const missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
     "scroll", "--window", "1",
@@ -249,7 +247,11 @@ function assert_scroll_usage_limit(run_directory, executable, env) {
     "cu_linux_scroll_usage_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(missing_name, "error.message")),
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_scroll_usage_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_scroll_usage_missing_name_message:" + JSON.stringify(missing_name.error)
   );
 
@@ -275,7 +277,12 @@ function assert_scroll_usage_limit(run_directory, executable, env) {
     "cu_linux_scroll_usage_coords_code:" + JSON.stringify(scroll_coords.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(scroll_coords, "error.message")),
+    text_at(scroll_coords, "command") === "usage",
+    "cu_linux_scroll_usage_coords_command:" + JSON.stringify(scroll_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(scroll_coords, "error.message"), "--coords")
+      || text_at(scroll_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_scroll_usage_coords_message:" + JSON.stringify(scroll_coords.error)
   );
 
@@ -288,7 +295,12 @@ function assert_scroll_usage_limit(run_directory, executable, env) {
     "cu_linux_scroll_usage_bogus_code:" + JSON.stringify(scroll_bogus.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(scroll_bogus, "error.message")),
+    text_at(scroll_bogus, "command") === "usage",
+    "cu_linux_scroll_usage_bogus_command:" + JSON.stringify(scroll_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(scroll_bogus, "error.message"), "--bogus")
+      || text_at(scroll_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_scroll_usage_bogus_message:" + JSON.stringify(scroll_bogus.error)
   );
 }
@@ -316,6 +328,10 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_scroll_extents_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_scroll_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_scroll_extents_missing_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -329,7 +345,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_scroll_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(extents_coords, "error.message")),
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_scroll_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_scroll_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -342,7 +363,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_scroll_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(extents_bogus, "error.message")),
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_scroll_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_scroll_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -583,15 +609,10 @@ try {
   print("STEP scroll typed-fails usage when --name is missing, --window handle is zero, or --coords/--bogus is present");
   assert_scroll_usage_limit(run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before scroll actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-    print("STEP get-extents typed-fail host-limit on invalid AT-SPI bus before scroll actuate/read-back court");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before scroll actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+  print("STEP get-extents typed-fail host-limit on invalid AT-SPI bus before scroll actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
     print("STEP scroll typed-fail host-limit when independent pyatspi desktop probe is unavailable");
