@@ -1,10 +1,10 @@
 // CEO: Linux capabilities matrix honesty with independent host probes.
 // Acceptance is smoke read-back only: a bounded verb set's declared
 // present/absent status must match facts derived outside agenterm-cu.
-// Typed capabilities usage must reject AT-SPI --name and other unexpected
-// arguments; typed get-extents --name usage/host-limit paths must hold
-// before the native read-back court. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// Typed capabilities usage must reject AT-SPI --name, --coords, --bogus, and
+// other unexpected arguments; typed get-extents --name usage AND host-limit
+// paths must both hold before the native read-back court. Prefer honesty over
+// fake success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -122,6 +122,11 @@ function text_at(value, dotted) {
   return "" + current;
 }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
@@ -219,7 +224,7 @@ function assert_capabilities_usage_limit(run_directory, executable) {
     "cu_linux_capabilities_honesty_usage_name_command:" + JSON.stringify(with_name)
   );
   ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
+    usage_rejects_unexpected(text_at(with_name, "error.message"), "--name")
       || text_at(with_name, "error.message").indexOf("no arguments") >= 0,
     "cu_linux_capabilities_honesty_usage_name_message:" + JSON.stringify(with_name.error)
   );
@@ -232,8 +237,32 @@ function assert_capabilities_usage_limit(run_directory, executable) {
     "cu_linux_capabilities_honesty_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("no arguments") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_capabilities_honesty_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus")
+      || text_at(with_bogus, "error.message").indexOf("no arguments") >= 0,
     "cu_linux_capabilities_honesty_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = invoke_reply(run_directory, executable, [
+    "capabilities", "--coords", "10,10",
+  ]);
+  ensure(!output_success(with_coords),
+    "cu_linux_capabilities_honesty_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_capabilities_honesty_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_capabilities_honesty_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords")
+      || text_at(with_coords, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_capabilities_honesty_usage_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
@@ -250,6 +279,62 @@ function assert_get_extents_usage_limit(run_directory, executable) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_capabilities_honesty_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ]);
+  ensure(!output_success(missing_name),
+    "cu_linux_capabilities_honesty_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_capabilities_honesty_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_capabilities_honesty_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_capabilities_honesty_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(extents_coords),
+    "cu_linux_capabilities_honesty_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_capabilities_honesty_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_capabilities_honesty_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_capabilities_honesty_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_capabilities_honesty_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_capabilities_honesty_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_capabilities_honesty_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_capabilities_honesty_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -363,11 +448,11 @@ const atspi_available = probe_atspi_available(executable);
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP capabilities typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP capabilities typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
   assert_capabilities_usage_limit(context.run_directory, executable);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before native read-back court");
+    print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before capabilities inventory/read-back court");
     assert_get_extents_usage_limit(context.run_directory, executable);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
@@ -429,9 +514,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-capabilities-honesty-readback");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux capabilities matrix matches independent host probes for bounded verbs with typed capabilities/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux capabilities matrix matches independent host probes for bounded verbs with typed capabilities/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux capabilities matrix matches independent host probes for bounded verbs with typed capabilities/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux capabilities matrix matches independent host probes for bounded verbs with typed capabilities --name/--coords/--bogus usage plus get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
