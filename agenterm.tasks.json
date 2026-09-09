@@ -5943,7 +5943,7 @@
     },
     {
       "id": "cu-linux-pty-smoke",
-      "description": "Linux headless PTY + AgenTerm Unix-socket honesty: typed pty/get-extents AT-SPI --name/--coords/--bogus usage AND get-extents host-limit before the PTY/AgenTerm sock read-back court; QJS-owned missing/stale/present sock courts with independent path/fuser/connect/process-sockets proof (never fake a live sock); pty-start/read/send/wait with independent base64 read-back; missing/stale authority typed pty_job_not_found with ENOENT/ECONNREFUSED transport across observe and actuate verbs; abi-dev, no --coords.",
+      "description": "Linux headless PTY + AgenTerm Unix-socket honesty: typed pty/get-extents AT-SPI --name/--coords/--bogus usage_rejects_unexpected (pty-list/stop/prune too) AND get-extents --name usage/host-limit before the PTY/AgenTerm sock court; QJS-owned missing/stale/present sock courts with independent path/fuser/connect/process-sockets proof (never fake a live sock); pty-start/read/send/wait independent base64 read-back; missing/stale pty_job_not_found ENOENT/ECONNREFUSED; abi-dev, no --coords.",
       "entry": "scripts/qjs/cu-linux-pty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6914,7 +6914,7 @@
     },
     {
       "id": "cu-linux-atspi-drag-smoke",
-      "description": "Linux named drag --from-name/--to-name via AT-SPI GenerateMouseEvent: typed drag usage (--coords/--bogus and zero-handle), miss, and host-limit paths; typed get-extents --name usage AND host-limit before actuation; independent pyatspi extents before drag with CU get-extents agreement, drag receipt names both nodes without worker verified, independent xdotool pointer lands on pyatspi target center and CU pointer-position agrees; AT-SPI/--name only, no --coords.",
+      "description": "Linux named drag --from-name/--to-name via AT-SPI GenerateMouseEvent: typed drag usage_rejects_unexpected (--coords/--bogus and zero-handle), miss, and host-limit paths; typed get-extents --name usage (--coords/--bogus honesty) AND host-limit before actuation; independent pyatspi extents before drag with CU get-extents agreement, drag receipt names both nodes without worker verified, independent xdotool pointer lands on pyatspi target center and CU pointer-position agrees; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-atspi-drag-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8063,7 +8063,7 @@
     },
     {
       "id": "cu-linux-clipboard-utf8-smoke",
-      "description": "Linux clipboard-write UTF-8 disposable token round-trips through independent clipboard-read --type with matching bytes, sha256 and value on X11; optional xclip/xsel cross-check or X11 GetSelectionOwner property evidence when absent; typed clipboard-write/read/clear usage rejects AT-SPI --name, --coords and other unexpected arguments; typed get-extents --name usage/miss/host-limit paths before the actuate/read-back court; AT-SPI --name; no --coords.",
+      "description": "Linux clipboard-write UTF-8 disposable token round-trips through independent clipboard-read --type with matching bytes, sha256 and value on X11; optional xclip/xsel cross-check or X11 GetSelectionOwner property evidence when absent; typed clipboard-write/read/clear flat/grouped --name/--coords/--bogus usage (usage_rejects_unexpected); typed get-extents --name usage AND host-limit paths (usage_rejects_unexpected --coords/--bogus) before the actuate/read-back court; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-clipboard-utf8-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

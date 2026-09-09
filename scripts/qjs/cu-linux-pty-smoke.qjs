@@ -144,11 +144,9 @@ function text_at(value, dotted) {
 
 function output_success(document) { return at(document, "ok") === true; }
 
-function usage_message_mentions_unexpected(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("--coords") >= 0
-    || message.indexOf("unexpected") >= 0
-    || message.indexOf("--bogus") >= 0;
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
 }
 
 function cu_env(executable, extra) {
@@ -224,8 +222,17 @@ function assert_usage_unexpected(reply, verb, token, label) {
     "cu_linux_pty_usage_" + label + "_code:" + JSON.stringify(reply.error)
   );
   ensure(
-    text_at(reply, "error.message") === verb + ' received unexpected "' + token + '"',
+    text_at(reply, "command") === "usage",
+    "cu_linux_pty_usage_" + label + "_command:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message === verb + ' received unexpected "' + token + '"',
     "cu_linux_pty_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    usage_rejects_unexpected(message, token),
+    "cu_linux_pty_usage_" + label + "_unexpected:" + JSON.stringify(reply.error)
   );
 }
 
@@ -288,6 +295,10 @@ function assert_pty_usage_rejects_unexpected(run_directory, executable, env, job
     "cu_linux_pty_usage_send_text_code:" + JSON.stringify(send_missing_text.error)
   );
   ensure(
+    text_at(send_missing_text, "command") === "usage",
+    "cu_linux_pty_usage_send_text_command:" + JSON.stringify(send_missing_text)
+  );
+  ensure(
     text_at(send_missing_text, "error.message")
       === "pty-send requires exactly one non-empty text argument after --; quote text containing spaces",
     "cu_linux_pty_usage_send_text_message:" + JSON.stringify(send_missing_text.error)
@@ -302,6 +313,17 @@ function assert_pty_usage_rejects_unexpected(run_directory, executable, env, job
     text_at(send_with_name, "error.code") === "usage",
     "cu_linux_pty_usage_send_name_code:" + JSON.stringify(send_with_name.error)
   );
+  ensure(
+    text_at(send_with_name, "command") === "usage",
+    "cu_linux_pty_usage_send_name_command:" + JSON.stringify(send_with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(send_with_name, "error.message"), "--name")
+      || text_at(send_with_name, "error.message").indexOf(
+        "requires exactly one non-empty text argument after --"
+      ) >= 0,
+    "cu_linux_pty_usage_send_name_message:" + JSON.stringify(send_with_name.error)
+  );
 
   const send_with_coords = invoke_actuate_reply(run_directory, executable, [
     "pty-send", job, "--coords", "10,10",
@@ -311,6 +333,17 @@ function assert_pty_usage_rejects_unexpected(run_directory, executable, env, job
   ensure(
     text_at(send_with_coords, "error.code") === "usage",
     "cu_linux_pty_usage_send_coords_code:" + JSON.stringify(send_with_coords.error)
+  );
+  ensure(
+    text_at(send_with_coords, "command") === "usage",
+    "cu_linux_pty_usage_send_coords_command:" + JSON.stringify(send_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(send_with_coords, "error.message"), "--coords")
+      || text_at(send_with_coords, "error.message").indexOf(
+        "requires exactly one non-empty text argument after --"
+      ) >= 0,
+    "cu_linux_pty_usage_send_coords_message:" + JSON.stringify(send_with_coords.error)
   );
 
   const send_with_bogus = invoke_actuate_reply(run_directory, executable, [
@@ -322,6 +355,56 @@ function assert_pty_usage_rejects_unexpected(run_directory, executable, env, job
     text_at(send_with_bogus, "error.code") === "usage",
     "cu_linux_pty_usage_send_bogus_code:" + JSON.stringify(send_with_bogus.error)
   );
+  ensure(
+    text_at(send_with_bogus, "command") === "usage",
+    "cu_linux_pty_usage_send_bogus_command:" + JSON.stringify(send_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(send_with_bogus, "error.message"), "--bogus")
+      || text_at(send_with_bogus, "error.message").indexOf(
+        "requires exactly one non-empty text argument after --"
+      ) >= 0,
+    "cu_linux_pty_usage_send_bogus_message:" + JSON.stringify(send_with_bogus.error)
+  );
+
+  const list_name = invoke_observe_reply(run_directory, executable, [
+    "pty-list", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  assert_usage_unexpected(list_name, "pty-list", "--name", "observe_name_pty-list");
+  const list_coords = invoke_observe_reply(run_directory, executable, [
+    "pty-list", "--coords", "10,10",
+  ], env);
+  assert_usage_unexpected(list_coords, "pty-list", "--coords", "observe_coords_pty-list");
+  const list_bogus = invoke_observe_reply(run_directory, executable, [
+    "pty-list", "--bogus",
+  ], env);
+  assert_usage_unexpected(list_bogus, "pty-list", "--bogus", "observe_bogus_pty-list");
+
+  const stop_name = invoke_actuate_reply(run_directory, executable, [
+    "pty-stop", job, "--expect", "stopped", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  assert_usage_unexpected(stop_name, "pty-stop", "--name", "stop_name");
+  const stop_coords = invoke_actuate_reply(run_directory, executable, [
+    "pty-stop", job, "--expect", "stopped", "--coords", "10,10",
+  ], env);
+  assert_usage_unexpected(stop_coords, "pty-stop", "--coords", "stop_coords");
+  const stop_bogus = invoke_actuate_reply(run_directory, executable, [
+    "pty-stop", job, "--expect", "stopped", "--bogus",
+  ], env);
+  assert_usage_unexpected(stop_bogus, "pty-stop", "--bogus", "stop_bogus");
+
+  const prune_name = invoke_actuate_reply(run_directory, executable, [
+    "pty-prune", job, "--expect", "stale", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  assert_usage_unexpected(prune_name, "pty-prune", "--name", "prune_name");
+  const prune_coords = invoke_actuate_reply(run_directory, executable, [
+    "pty-prune", job, "--expect", "stale", "--coords", "10,10",
+  ], env);
+  assert_usage_unexpected(prune_coords, "pty-prune", "--coords", "prune_coords");
+  const prune_bogus = invoke_actuate_reply(run_directory, executable, [
+    "pty-prune", job, "--expect", "stale", "--bogus",
+  ], env);
+  assert_usage_unexpected(prune_bogus, "pty-prune", "--bogus", "prune_bogus");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -349,6 +432,10 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_pty_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_pty_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_pty_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
@@ -363,7 +450,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_pty_extents_usage_coords_code:" + JSON.stringify(extents_coords.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(extents_coords, "error.message")),
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_pty_extents_usage_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_pty_extents_usage_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -377,7 +469,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_pty_extents_usage_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(extents_bogus, "error.message")),
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_pty_extents_usage_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_pty_extents_usage_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -385,7 +482,11 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
   const reply = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
-  ], cu_env(executable, { AT_SPI_BUS_ADDRESS: "invalid" }));
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
   ensure(!output_success(reply),
     "cu_linux_pty_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
