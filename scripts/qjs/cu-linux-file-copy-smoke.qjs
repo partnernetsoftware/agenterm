@@ -2,8 +2,11 @@
 // Acceptance is smoke read-back only: CU file-copy plan source_snapshot must
 // agree with independent os.lstat+sha256 on a temp regular file; the default
 // plan must not mutate; actuate --apply must publish destination bytes and
-// permissions that agree with independent read-back. No --coords or screenshot
-// degradation.
+// permissions that agree with independent read-back. Typed file-copy usage must
+// reject AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the copy/read-back court.
+// Permission-denied open host-limit paths must match an independent os.open
+// probe. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -14,9 +17,27 @@ const declared_evidence = [
   "cu.linux-file-copy-readback",
 ];
 
+const AT_SPI_PROBE_NAME = "File Copy Court Anchor";
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function output_success(document) { return at(document, "ok") === true; }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -24,8 +45,28 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function isolated_env(run_directory) {
-  return {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function isolated_env(run_directory, executable) {
+  const env = {
     HOME: rh.join(run_directory, "home"),
     USERPROFILE: rh.join(run_directory, "home"),
     XDG_CONFIG_HOME: rh.join(run_directory, "config"),
@@ -36,29 +77,220 @@ function isolated_env(run_directory) {
     AGENTERM_CU_FILE_TRANSACTION_DIR: rh.join(run_directory, "transactions"),
     AGENTERM_NO_ACTIVATE: "1",
   };
+  const cu = cu_env(executable);
+  env.AGENTERM_ABI_LIB = cu.AGENTERM_ABI_LIB;
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (cu[key] !== undefined) { env[key] = cu[key]; }
+  }
+  return env;
 }
 
-function invoke(run_directory, executable, grant, arguments, expected_error) {
+function invoke_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: isolated_env(run_directory),
+    env: env,
     timeout_ms: 30000,
   });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_file_copy_cli:" + output.stdout + output.stderr);
   let reply = null;
   try { reply = JSON.parse(output.stdout.trim()); }
   catch (error) { throw "cu_linux_file_copy_invalid_reply"; }
-  ensure(reply.command === "file-copy", "cu_linux_file_copy_wrong_command:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") === "file-copy" || text_at(reply, "command") === "usage",
+    "cu_linux_file_copy_wrong_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_file_copy_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_error, env) {
+  const reply = invoke_reply(run_directory, executable, grant, arguments, env);
   if (expected_error !== undefined) {
-    ensure(output.success !== true && reply.ok !== true, "cu_linux_file_copy_expected_failure");
-    ensure(reply.error.code === expected_error,
+    ensure(!output_success(reply), "cu_linux_file_copy_expected_failure");
+    ensure(text_at(reply, "error.code") === expected_error,
       "cu_linux_file_copy_wrong_error:" + JSON.stringify(reply.error));
     return reply.error;
   }
-  ensure(output.success === true && reply.ok === true,
-    "cu_linux_file_copy_failed:" + JSON.stringify(reply));
+  ensure(output_success(reply), "cu_linux_file_copy_failed:" + JSON.stringify(reply));
   return reply.data;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("requires SOURCE DESTINATION") >= 0;
+}
+
+function assert_file_copy_usage_limit(run_directory, executable, source, destination, env) {
+  const flat_with_name = invoke_reply(run_directory, executable, "observe", [
+    "file-copy", source, destination, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_file_copy_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_file_copy_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_file_copy_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_file_copy_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = invoke_reply(run_directory, executable, "observe", [
+    "file", "copy", source, destination, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_file_copy_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_file_copy_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_file_copy_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = invoke_reply(run_directory, executable, "observe", [
+    "file-copy", source, destination, "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_file_copy_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_file_copy_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(with_bogus, "error.message")),
+    "cu_linux_file_copy_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_file_copy_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_file_copy_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_file_copy_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_file_copy_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_file_copy_extents_unavailable_code:" + code
+  );
+}
+
+function probe_file_open(path) {
+  const script = [
+    "import json, os, sys",
+    "path = sys.argv[1]",
+    "readable = False",
+    "error_kind = None",
+    "try:",
+    "    handle = os.open(path, os.O_RDONLY)",
+    "    os.close(handle)",
+    "    readable = True",
+    "except OSError as error:",
+    "    if error.errno == 13:",
+    "        error_kind = 'PermissionDenied'",
+    "    elif error.errno == 2:",
+    "        error_kind = 'NotFound'",
+    "    else:",
+    "        error_kind = error.__class__.__name__",
+    "print(json.dumps({",
+    "    'readable': readable,",
+    "    'error_kind': error_kind,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, path], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+    "cu_linux_file_copy_open_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_file_copy_open_denied_host_limit(
+  run_directory, executable, source, destination, grant, env, apply
+) {
+  const probe = probe_file_open(source);
+  ensure(probe.readable !== true && probe.error_kind === "PermissionDenied",
+    "cu_linux_file_copy_denied_probe_not_denied:" + JSON.stringify(probe));
+  const arguments = ["file-copy", source, destination];
+  if (apply === true) { arguments.push("--apply"); }
+  const reply = invoke_reply(run_directory, executable, grant, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_file_copy_denied_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "file_transaction_entry_invalid",
+    "cu_linux_file_copy_denied_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("Permission denied") >= 0 || message.indexOf("os error 13") >= 0,
+    "cu_linux_file_copy_denied_message:" + message
+  );
 }
 
 function independent_snapshot(path) {
@@ -116,8 +348,12 @@ ensure(uname.success === true && uname.stdout.trim() === "Linux",
 
 const context = harness.new_context(repo, "cu-linux-file-copy");
 const run_directory = context.run_directory;
+const env = isolated_env(run_directory, executable);
+const atspi_available = probe_atspi_available(executable);
 const source = rh.join(run_directory, "source.bin");
 const destination = rh.join(run_directory, "destination.bin");
+const denied_source = rh.join(run_directory, "denied-source.bin");
+const denied_destination = rh.join(run_directory, "denied-destination.bin");
 let succeeded = 0;
 let failure = "";
 
@@ -130,10 +366,21 @@ try {
   ensure(prepared.success === true, "cu_linux_file_copy_fixture_setup_failed:" + prepared.stderr);
   const source_before = independent_snapshot(source);
 
+  print("STEP file-copy typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_file_copy_usage_limit(run_directory, executable, source, destination, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before copy/read-back");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP dry plan source_snapshot matches independent src byte+mode read-back");
   const plan = invoke(run_directory, executable, "observe", [
     "file-copy", source, destination,
-  ]);
+  ], undefined, env);
   ensure(plan.operation === "file.copy" && plan.replace === false,
     "cu_linux_file_copy_plan_shape:" + JSON.stringify(plan));
   ensure(plan.destination_snapshot === null,
@@ -146,13 +393,13 @@ try {
   print("STEP observe plus --apply is denied before mutation");
   invoke(run_directory, executable, "observe", [
     "file-copy", source, destination, "--apply",
-  ], "refused");
+  ], "refused", env);
   ensure(!rh.exists(destination), "cu_linux_file_copy_refusal_created_destination");
 
   print("STEP actuate apply publishes destination bytes+mode matching independent read-back");
   const applied = invoke(run_directory, executable, "actuate", [
     "file-copy", source, destination, "--apply",
-  ]);
+  ], undefined, env);
   ensure(applied.state === "completed" && applied.destination_durable === true,
     "cu_linux_file_copy_apply_state:" + JSON.stringify(applied));
   ensure(applied.result_snapshot !== null && typeof applied.result_snapshot === "object",
@@ -173,7 +420,7 @@ try {
   ];
   const rollback_output = rh.command(executable, rollback_argv, {
     cwd: run_directory,
-    env: isolated_env(run_directory),
+    env: env,
     timeout_ms: 30000,
   });
   let rollback_reply = null;
@@ -183,6 +430,28 @@ try {
     "cu_linux_file_copy_rollback_failed:" + JSON.stringify(rollback_reply));
   ensure(rollback_reply.data.state === "rolled_back", "cu_linux_file_copy_rollback_state");
   ensure(!rh.exists(destination), "cu_linux_file_copy_rollback_left_destination");
+
+  rh.write_text(denied_source, "file-copy-denied-fixture");
+  const denied_prep = rh.command("/bin/chmod", ["0000", denied_source], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(denied_prep.success === true,
+    "cu_linux_file_copy_denied_fixture_setup_failed:" + denied_prep.stderr);
+  const denied_probe = probe_file_open(denied_source);
+  if (denied_probe.readable !== true && denied_probe.error_kind === "PermissionDenied") {
+    print("STEP file-copy typed-fails file_transaction_entry_invalid host-limit when independent os.open probe is denied");
+    assert_file_copy_open_denied_host_limit(
+      run_directory, executable, denied_source, denied_destination, "observe", env, false);
+    assert_file_copy_open_denied_host_limit(
+      run_directory, executable, denied_source, denied_destination, "actuate", env, true);
+    ensure(!rh.exists(denied_destination),
+      "cu_linux_file_copy_denied_created_destination");
+    ensure(independent_snapshot(source).sha256 === source_before.sha256,
+      "cu_linux_file_copy_denied_mutated_source");
+  } else {
+    print("STEP skip permission-denied host-limit: independent os.open probe is readable on this host");
+  }
 
   succeeded = 1;
 } catch (error) {
@@ -195,7 +464,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-file-copy-readback");
   harness.remove_run(context);
-  print("PASS: Linux file-copy plan/apply agree with independent src/dst byte+mode read-back");
+  if (atspi_available) {
+    print("PASS: Linux file-copy plan/apply agree with independent src/dst byte+mode read-back with typed file-copy/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux file-copy plan/apply agree with independent src/dst byte+mode read-back with typed file-copy/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
