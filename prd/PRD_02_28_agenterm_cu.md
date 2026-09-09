@@ -605,6 +605,9 @@ ACU-only cutover
 │  ├─ [x] acu.dynamic.051 · the frozen `resource top` witness remains native and the related
 │  │  `resource pressure` spelling now maps losslessly to `resource-pressure`; the public
 │  │  qjswasm court executes both pressure spellings and preserves host-native semantics
+│  ├─ [x] acu.dynamic.057 · native `storage volumes` passes through as the
+│  │  `storage-volumes` alias; archived MCU exposed no storage-group mount, unmount
+│  │  or eject subcommand, while privileged volume mutation remains a separate gap
 │  ├─ [x] acu.dynamic.058 · legacy `privilege plan process.signal` reaches the native
 │  │  identity- and tree-bound read-only planner; consented apply qualification remains separate
 │  ├─ [x] acu.dynamic.061 · tmux topology is outside the one-tab AgenTerm PTY contract
@@ -2256,7 +2259,12 @@ flowchart LR
   courts remain open. Therefore the
   ledger is `platform-limited`, not yet promoted to native or removed from the
   overall storage family. The exact inventory spelling already routes through
-  ACU; mutation and volume sub-shapes remain dynamic compatibility fallbacks.
+  ACU, and native `storage volumes` passes through as the public
+  `storage-volumes` alias. Archived MCU exposed no storage-group `mount`,
+  `unmount` or `eject` subcommand, so those invented spellings are local usage
+  rather than the stale `acu.dynamic.057` TODO. Its real privileged-plan
+  `storage.mount` and `storage.unmount` operations remain a separate
+  identity-bound mutation gap.
   `storage-volumes [--max N]` now closes the mounted-filesystem half without
   conflating it with physical devices. Its exact decimal reply keeps
   current-user available capacity distinct from filesystem free capacity,

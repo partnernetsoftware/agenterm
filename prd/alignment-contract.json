@@ -454,6 +454,7 @@
         "acu.compat-job-resources",
         "acu.compat-job-resources-projection",
         "acu.compat-zoom-legacy-rect",
+        "acu.compat-storage-legacy-boundary",
         "acu.compat-resource-pressure",
         "cu.managed-job-limits",
         "cu.managed-job-adopt",

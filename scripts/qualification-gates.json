@@ -674,6 +674,12 @@
       ]
     },
     {
+      "id": "acu-storage-legacy-boundary-smoke",
+      "evidence": [
+        "acu.compat-storage-legacy-boundary"
+      ]
+    },
+    {
       "id": "cu-process-inventory-smoke",
       "evidence": [
         "cu.process-inventory-rich"

@@ -21,7 +21,7 @@ export const LEGACY_TOP_LEVEL = [
 // archive; unknown spellings are deliberately absent and continue to native
 // usage handling.
 export const LEGACY_TODO_GAP_IDS = [
-  "acu.dynamic.004", "acu.dynamic.054", "acu.dynamic.057",
+  "acu.dynamic.004", "acu.dynamic.054",
   "acu.dynamic.075", "acu.dynamic.078.page-index-space",
 ];
 
@@ -269,8 +269,8 @@ function known_dynamic_boundary(argv) {
       "legacy raw-path device claims are not lossless aliases of opaque device ids");
   }
   if (verb === "storage" && (sub === "mount" || sub === "unmount" || sub === "eject")) {
-    return todo("acu.dynamic.057", "storage",
-      "legacy storage volume operations need a typed adapter");
+    return { kind: "usage", command: "storage",
+      message: "legacy storage accepts only storage devices [--max N]; use storage-volumes for mounted capacity" };
   }
   if (verb === "browser" && (sub === "open" || sub === "bridge"
       || sub === "profile" || sub === "nav")) {
