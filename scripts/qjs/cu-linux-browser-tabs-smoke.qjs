@@ -1,4 +1,8 @@
 // CEO: Linux browser-open then independent browser-tabs inventory read-back.
+// Typed browser-tabs/browser-open usage must reject AT-SPI --name and other
+// unexpected arguments; typed get-extents --name usage/host-limit paths must
+// hold before the browser-open/browser-tabs actuate/read-back court.
+// AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -8,6 +12,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-browser-tabs-inventory",
 ];
+
+const AT_SPI_PROBE_NAME = "Browser Tabs Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -29,20 +35,17 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function isolated_env(run_directory) {
+function cu_env(executable) {
   const env = {
-    HOME: run_directory,
-    XDG_CONFIG_HOME: rh.join(run_directory, ".config"),
-    XDG_DATA_HOME: rh.join(run_directory, ".data"),
-    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
-    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
-    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
     AGENTERM_NO_ACTIVATE: "1",
   };
   for (const key of [
@@ -60,19 +63,209 @@ function isolated_env(run_directory) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments, env) {
+function isolated_env(run_directory, executable) {
+  const env = {
+    HOME: run_directory,
+    XDG_CONFIG_HOME: rh.join(run_directory, ".config"),
+    XDG_DATA_HOME: rh.join(run_directory, ".data"),
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl"),
+    AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  const cu = cu_env(executable);
+  env.AGENTERM_ABI_LIB = cu.AGENTERM_ABI_LIB;
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (cu[key] !== undefined) { env[key] = cu[key]; }
+  }
+  return env;
+}
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: env,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_browser_tabs_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_browser_tabs_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_browser_tabs_reply:" + JSON.stringify(document));
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_browser_tabs_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 60000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_browser_tabs_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_browser_tabs_usage_limit(run_directory, executable, env) {
+  const flat_tabs = run_cu_reply(run_directory, executable, "observe", [
+    "browser-tabs", "--match", "fixture", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_tabs),
+    "cu_linux_browser_tabs_usage_flat_name_ok:" + JSON.stringify(flat_tabs));
+  ensure(
+    text_at(flat_tabs, "error.code") === "usage",
+    "cu_linux_browser_tabs_usage_flat_name_code:" + JSON.stringify(flat_tabs.error)
+  );
+  ensure(
+    text_at(flat_tabs, "command") === "usage",
+    "cu_linux_browser_tabs_usage_flat_name_command:" + JSON.stringify(flat_tabs)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_tabs, "error.message")),
+    "cu_linux_browser_tabs_usage_flat_name_message:" + JSON.stringify(flat_tabs.error)
+  );
+
+  const grouped_tabs = run_cu_reply(run_directory, executable, "observe", [
+    "browser", "tabs", "--match", "fixture", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_tabs),
+    "cu_linux_browser_tabs_usage_grouped_name_ok:" + JSON.stringify(grouped_tabs));
+  ensure(
+    text_at(grouped_tabs, "error.code") === "usage",
+    "cu_linux_browser_tabs_usage_grouped_name_code:" + JSON.stringify(grouped_tabs.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_tabs, "error.message")),
+    "cu_linux_browser_tabs_usage_grouped_name_message:" + JSON.stringify(grouped_tabs.error)
+  );
+
+  const tabs_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "browser-tabs", "--match", "fixture", "--bogus",
+  ], env);
+  ensure(!output_success(tabs_bogus),
+    "cu_linux_browser_tabs_usage_bogus_ok:" + JSON.stringify(tabs_bogus));
+  ensure(
+    text_at(tabs_bogus, "error.code") === "usage",
+    "cu_linux_browser_tabs_usage_bogus_code:" + JSON.stringify(tabs_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(tabs_bogus, "error.message")),
+    "cu_linux_browser_tabs_usage_bogus_message:" + JSON.stringify(tabs_bogus.error)
+  );
+
+  const flat_open = run_cu_reply(run_directory, executable, "actuate", [
+    "browser-open", "--profile", "court-alpha", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_open),
+    "cu_linux_browser_tabs_open_usage_flat_name_ok:" + JSON.stringify(flat_open));
+  ensure(
+    text_at(flat_open, "error.code") === "usage",
+    "cu_linux_browser_tabs_open_usage_flat_name_code:" + JSON.stringify(flat_open.error)
+  );
+  ensure(
+    text_at(flat_open, "command") === "usage",
+    "cu_linux_browser_tabs_open_usage_flat_name_command:" + JSON.stringify(flat_open)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_open, "error.message")),
+    "cu_linux_browser_tabs_open_usage_flat_name_message:" + JSON.stringify(flat_open.error)
+  );
+
+  const grouped_open = run_cu_reply(run_directory, executable, "actuate", [
+    "browser", "open", "--profile", "court-alpha", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_open),
+    "cu_linux_browser_tabs_open_usage_grouped_name_ok:" + JSON.stringify(grouped_open));
+  ensure(
+    text_at(grouped_open, "error.code") === "usage",
+    "cu_linux_browser_tabs_open_usage_grouped_name_code:" + JSON.stringify(grouped_open.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_open, "error.message")),
+    "cu_linux_browser_tabs_open_usage_grouped_name_message:" + JSON.stringify(grouped_open.error)
+  );
+
+  const open_bogus = run_cu_reply(run_directory, executable, "actuate", [
+    "browser-open", "--profile", "court-alpha", "--bogus",
+  ], env);
+  ensure(!output_success(open_bogus),
+    "cu_linux_browser_tabs_open_usage_bogus_ok:" + JSON.stringify(open_bogus));
+  ensure(
+    text_at(open_bogus, "error.code") === "usage",
+    "cu_linux_browser_tabs_open_usage_bogus_code:" + JSON.stringify(open_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(open_bogus, "error.message")),
+    "cu_linux_browser_tabs_open_usage_bogus_message:" + JSON.stringify(open_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_browser_tabs_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_browser_tabs_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_browser_tabs_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_browser_tabs_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_browser_tabs_extents_unavailable_code:" + code
+  );
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_browser_tabs_reply:" + JSON.stringify(document));
   return document;
 }
 
@@ -109,13 +302,24 @@ const local_state = rh.join(user_data, "Local State");
 const html_dir = rh.join(run_directory, "html");
 const fixture = rh.join(html_dir, "fixture.html");
 const fixture_title = "CEO Browser Tabs " + context.run_id;
-const env = isolated_env(run_directory);
-env.AGENTERM_ABI_LIB = abi_library;
+const env = isolated_env(run_directory, executable);
+const atspi_available = probe_atspi_available(executable);
 
 let succeeded = 0;
 let failure = "";
 
 try {
+  print("STEP browser-tabs/browser-open typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_browser_tabs_usage_limit(run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before browser-open/browser-tabs read-back");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP write synthetic Chromium Local State under an invocation-owned HOME");
   rh.create_dir_all(rh.join(user_data, "Default"));
   rh.create_dir_all(html_dir);
@@ -210,7 +414,11 @@ try { harness.complete_children(context, [], succeeded !== 0, failure); }
 catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
-  print("PASS: Linux browser-open + independent browser-tabs inventory read-back");
+  if (atspi_available) {
+    print("PASS: Linux browser-open + independent browser-tabs inventory read-back with typed browser-tabs/browser-open/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux browser-open + independent browser-tabs inventory read-back with typed browser-tabs/browser-open/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
