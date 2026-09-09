@@ -7469,7 +7469,7 @@
     },
     {
       "id": "cu-linux-processor-affinity-smoke",
-      "description": "Linux processor-affinity-status scheduler-allowed CPU set matches independent /proc/<pid>/status Cpus_allowed_list or taskset read-back for current and chosen PID; no --coords.",
+      "description": "Linux processor-affinity-status scheduler-allowed CPU set matches independent /proc/<pid>/status Cpus_allowed_list or taskset read-back for current and chosen PID; typed processor-affinity-status usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /proc status Cpus_allowed / sched_getaffinity read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-processor-affinity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
