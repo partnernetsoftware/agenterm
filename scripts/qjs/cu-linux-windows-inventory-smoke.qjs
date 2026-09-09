@@ -1,7 +1,10 @@
 // CEO: Linux windows inventory honesty with independent xdotool/xprop/AT-SPI read-back.
 // Acceptance is smoke read-back only: CU windows top-level rows must agree with
 // pid, title and app_name facts derived outside agenterm-cu from the same EWMH
-// client-list semantics the Linux adapter uses. No --coords or screenshot
+// client-list semantics the Linux adapter uses. Typed windows usage must reject
+// AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the inventory/xprop read-back court.
+// AT-SPI inventory handles only; no --name on windows, no --coords or screenshot
 // degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -12,6 +15,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-windows-inventory-readback",
 ];
+
+const AT_SPI_PROBE_NAME = "Windows Inventory Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -27,6 +32,8 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return rh.field(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -227,18 +234,136 @@ function independent_probe(run_directory) {
   return JSON.parse(output.stdout.trim());
 }
 
-function invoke_windows(run_directory, executable, arguments) {
-  const output = rh.command(executable, [
-    "--target", "current", "--grant", "observe",
-  ].concat(arguments), {
-    cwd: run_directory,
-    env: cu_env(executable),
+function run_cu_reply(run_directory, executable, arguments, env, env_remove) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 120000,
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_windows_inventory_empty:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
   });
-  ensure(output.success === true, "cu_linux_windows_inventory_invoke:" + output.stderr);
-  const reply = JSON.parse(output.stdout.trim());
-  ensure(reply.ok === true && reply.command === "windows",
-         "cu_linux_windows_inventory_reply:" + output.stdout.trim());
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_windows_usage_limit(run_directory, executable, env) {
+  const with_name = run_cu_reply(run_directory, executable, [
+    "windows", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(with_name),
+    "cu_linux_windows_inventory_usage_name_ok:" + JSON.stringify(with_name));
+  ensure(
+    text_at(with_name, "error.code") === "usage",
+    "cu_linux_windows_inventory_usage_name_code:" + JSON.stringify(with_name.error)
+  );
+  ensure(
+    text_at(with_name, "command") === "usage",
+    "cu_linux_windows_inventory_usage_name_command:" + JSON.stringify(with_name)
+  );
+  ensure(
+    text_at(with_name, "error.message").indexOf("--name") >= 0
+      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_windows_inventory_usage_name_message:" + JSON.stringify(with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, ["windows", "--bogus"], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_windows_inventory_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_windows_inventory_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_windows_inventory_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_windows_inventory_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_windows_inventory_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_windows_inventory_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_windows_inventory_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_windows_inventory_extents_unavailable_code:" + code
+  );
+}
+
+function assert_windows_headless_host_limit(run_directory, executable) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    ["windows", "--max", "1"],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply),
+    "cu_linux_windows_inventory_headless_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_windows_inventory_headless_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("window enumeration") >= 0
+      || message.indexOf("mechanism unavailable") >= 0,
+    "cu_linux_windows_inventory_headless_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function invoke_windows(run_directory, executable, arguments) {
+  const reply = run_cu_reply(run_directory, executable, arguments);
+  ensure(output_success(reply) && text_at(reply, "command") === "windows",
+         "cu_linux_windows_inventory_reply:" + JSON.stringify(reply));
   const data = reply.data;
   if (Array.isArray(data)) { return data; }
   return data.windows || [];
@@ -378,9 +503,25 @@ harness.require(rh.exists(executable), "agenterm-cu executable missing");
 
 const context = harness.new_context(repo, "cu-linux-windows-inventory");
 const run_directory = context.run_directory;
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source),
   "cu_linux_windows_inventory_fixture_missing:" + fixture_source);
+
+print("STEP windows typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+assert_windows_usage_limit(run_directory, executable, env);
+
+print("STEP windows without DISPLAY typed-fails unsupported host-limit");
+assert_windows_headless_host_limit(run_directory, executable);
+
+if (atspi_available) {
+  print("STEP get-extents typed-fail invalid_input when --window is zero before inventory/xprop read-back");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+} else {
+  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+}
 
 const initial_probe = independent_probe(run_directory);
 if (initial_probe.available !== true) {
@@ -388,7 +529,11 @@ if (initial_probe.available !== true) {
   verify_unavailable(run_directory, executable, initial_probe.reason);
   harness.emit_evidence(context, declared_evidence, "cu.linux-windows-inventory-readback");
   harness.remove_run(context);
-  print("PASS: CEO Linux windows inventory typed gap with independent probe absence read-back");
+  if (atspi_available) {
+    print("PASS: CEO Linux windows inventory typed gap with independent probe absence and typed windows/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: CEO Linux windows inventory typed gap with independent probe absence and typed windows/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
   return;
 }
 
@@ -429,7 +574,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-windows-inventory-readback");
   harness.remove_run(context);
-  print("PASS: CEO Linux windows inventory matches independent pid/title/app read-back");
+  if (atspi_available) {
+    print("PASS: CEO Linux windows inventory matches independent pid/title/app read-back with typed windows/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: CEO Linux windows inventory matches independent pid/title/app read-back with typed windows/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
