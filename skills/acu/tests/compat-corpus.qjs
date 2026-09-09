@@ -64,7 +64,7 @@ const resolved_exec = ["acu.dynamic.003", "acu.dynamic.021", "acu.dynamic.050", 
   "acu.dynamic.066", "acu.dynamic.067", "acu.dynamic.075", "acu.dynamic.079", "acu.dynamic.082", "acu.dynamic.091", "acu.dynamic.092",
   "acu.dynamic.072", "acu.dynamic.076", "acu.dynamic.077", "acu.dynamic.084", "acu.dynamic.085", "acu.dynamic.086", "acu.dynamic.087", "acu.dynamic.096"];
 const resolved_todo = [];
-const resolved_usage = ["acu.dynamic.058", "acu.dynamic.078", "acu.dynamic.083",
+const resolved_usage = ["acu.dynamic.058", "acu.dynamic.083",
   "acu.dynamic.088", "acu.dynamic.094"];
 const resolved_compound = {
   "acu.dynamic.018": "job-generation",
@@ -144,9 +144,9 @@ for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
     resolved_checked = resolved_checked + 1;
   }
 }
-require(dynamic_stays === 2, "dynamic stay corpus count");
+require(dynamic_stays === 3, "dynamic stay corpus count");
 require(permanent_rejections === 2, "permanent rejection corpus count");
-require(resolved_checked === 32, "resolved dynamic corpus count");
+require(resolved_checked === 31, "resolved dynamic corpus count");
 
 const point_job_resources = compat.canonicalize(["job", "resources", "job-1"]);
 require(point_job_resources.kind === "job-generation",
@@ -321,10 +321,45 @@ todo_case(["job", "resources", "job-1", "--generation", "7", "--max", "5"],
 todo_case(["device", "claim", "legacy-device-path"], "acu.dynamic.054", "legacy device claim");
 todo_case(["storage", "mount", "disk-1"], "acu.dynamic.057", "legacy storage mount");
 todo_case(["browser", "bridge", "status"], "acu.dynamic.075", "legacy browser bridge");
-todo_case(["elements", "Window#1", "--actionable", "true"],
-  "acu.dynamic.078", "legacy elements projection");
+todo_case(["elements", "Window#1", "--page", "--tab-id", "4"],
+  "acu.dynamic.078.page-index-space", "legacy page elements index space");
 todo_case(["observe", "Window#1", "--action", "press"],
   "acu.dynamic.081", "legacy observe filter");
+
+const default_elements = compat.canonicalize(["elements", "Window#1"]);
+require(default_elements.kind === "exec", "legacy default elements maps to native query");
+same_argv(default_elements.argv, [
+  "--target", "current", "--grant", "observe,actuate", "query",
+  "--window", "Window#1", "--depth", "12", "--max-depth", "12",
+  "--max", "200", "--offset", "0", "--actionable"
+], "legacy default elements projection");
+
+const all_elements = compat.canonicalize([
+  "elements", "Window#1", "--actionable", "false", "--max", "50", "--depth", "4"
+]);
+require(all_elements.kind === "exec", "legacy unfiltered elements maps to native query");
+same_argv(all_elements.argv, [
+  "--target", "current", "--grant", "observe,actuate", "query",
+  "--window", "Window#1", "--depth", "12", "--max-depth", "4",
+  "--max", "50", "--offset", "0"
+], "legacy unfiltered elements projection");
+
+require(compat.canonicalize(["elements", "Window#1", "--max", "2001"]).kind === "usage",
+  "legacy elements rejects max above 2000");
+require(compat.canonicalize(["elements", "Window#1", "--depth", "13"]).kind === "usage",
+  "legacy elements rejects depth above 12");
+require(compat.canonicalize(["elements", "Window#1", "--depth", "0"]).kind === "usage",
+  "legacy elements rejects zero depth");
+require(compat.canonicalize(["elements", "Window#1", "--index", "3"]).kind === "usage",
+  "legacy elements rejects the invoke-only index flag");
+require(compat.canonicalize(["elements", "Window#1", "--offset", "1"]).kind === "usage",
+  "legacy elements rejects offset paging");
+require(compat.canonicalize(["tree", "Window#1", "--actionable"]).kind === "usage",
+  "legacy tree rejects elements-only actionable filtering");
+require(compat.canonicalize(["tree", "Window#1", "--max", "5"]).kind === "usage",
+  "legacy tree rejects the non-MCU max alias");
+require(compat.canonicalize(["tree", "Window#1", "--page", "2"]).kind === "usage",
+  "legacy tree rejects the browser-only page index space");
 require(compat.canonicalize(["windows", "--space", "7", "--occluded", "true",
   "--ax-role", "AXWindow", "--ax-scan-max", "50", "--meta"]).kind === "exec",
   "legacy windows Space, state and AX filters map to native execution");

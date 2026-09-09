@@ -6,7 +6,7 @@ import * as legacy from "agenterm:acu/legacy-args";
 import * as rewrite from "agenterm:acu/rewrite";
 
 export const LEGACY_TOP_LEVEL = [
-  "windows", "apps", "tree", "query", "invoke", "verify", "wait", "unlock",
+  "windows", "apps", "tree", "elements", "query", "invoke", "verify", "wait", "unlock",
   "observe", "focused", "click", "dclick", "rclick", "type", "key",
   "move", "shot", "clip", "clipboard", "displays", "spaces", "cursor",
   "frame", "movewin", "resize", "maximize", "close", "orderwin",
@@ -23,7 +23,7 @@ export const LEGACY_TOP_LEVEL = [
 export const LEGACY_TODO_GAP_IDS = [
   "acu.dynamic.004", "acu.dynamic.005", "acu.dynamic.018",
   "acu.dynamic.054", "acu.dynamic.057",
-  "acu.dynamic.075", "acu.dynamic.078",
+  "acu.dynamic.075", "acu.dynamic.078.page-index-space",
   "acu.dynamic.081"
 ];
 
@@ -245,10 +245,10 @@ function known_dynamic_boundary(argv) {
     return todo("acu.dynamic.075", "browser",
       "legacy browser profile and bridge shapes need an exact native identity binding");
   }
-  if ((verb === "tree" || verb === "elements")
+  if (verb === "tree"
       && has_any_arg(argv, ["--actionable", "--index", "--offset", "--max"])) {
-    return todo("acu.dynamic.078", verb,
-      "legacy actionable or index-space tree projection needs a typed adapter");
+    return { kind: "usage", command: "tree",
+      message: "tree accepts only --depth, --max-nodes, --max-value-bytes and --selector" };
   }
   if (verb === "observe" && has_any_arg(argv, [
       "--action", "--text", "--enabled", "--focused", "--selected", "--checked",
