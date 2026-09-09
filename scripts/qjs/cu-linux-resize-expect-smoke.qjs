@@ -1,11 +1,13 @@
 // CEO#6: resize --expect WxH on a named window target.
 // Acceptance is smoke read-back only: independent windows inventory
 // bounds and xwininfo Width/Height must match --expect after resize.
-// Typed resize usage must reject AT-SPI --name and other unexpected
-// arguments; typed get-extents --name usage/host-limit paths must hold
-// before the actuate/read-back court. Destructive-gate refusals,
-// missing-window and headless host-limit paths must also hold before any
-// owned fixture window exists. AT-SPI --name only; no --coords or screenshot.
+// Typed resize usage must reject AT-SPI --name, --coords, --bogus, and
+// other unexpected arguments; typed get-extents --name usage AND
+// host-limit paths must both hold before the actuate/read-back court.
+// Destructive-gate refusals, missing-window and headless host-limit
+// paths must also hold before any owned fixture window exists. Prefer
+// host-limit clarity over fake success. AT-SPI/--name only; no --coords
+// or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -17,6 +19,7 @@ const declared_evidence = [
 ];
 
 const MISSING_HANDLE = "99999999";
+const NAMED_NODE = "Fixture Entry";
 const AT_SPI_PROBE_NAME = "Resize Expect Court Anchor";
 const TARGET_WIDTH = 400;
 // GTK fixture enforces ~430px minimum client height; 360 clamps and breaks --expect.
@@ -46,6 +49,11 @@ function text_of(value) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -283,13 +291,13 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_resize_atspi_name_usage_limit(run_directory, executable) {
+function assert_resize_unexpected_usage(run_directory, executable, env) {
   const expect_text = "" + TARGET_WIDTH + "x" + TARGET_HEIGHT;
   const resize_with_name = run_cu_reply(run_directory, executable, "actuate", [
     "resize", "--window", "1", "--name", AT_SPI_PROBE_NAME,
     "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
     "--expect", expect_text,
-  ]);
+  ], env);
   ensure(!output_success(resize_with_name),
     "cu_linux_resize_expect_usage_resize_name_ok:" + JSON.stringify(resize_with_name));
   ensure(
@@ -301,8 +309,7 @@ function assert_resize_atspi_name_usage_limit(run_directory, executable) {
     "cu_linux_resize_expect_usage_resize_name_command:" + JSON.stringify(resize_with_name)
   );
   ensure(
-    text_at(resize_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(resize_with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(resize_with_name, "error.message"), "--name"),
     "cu_linux_resize_expect_usage_resize_name_message:" + JSON.stringify(resize_with_name.error)
   );
 
@@ -310,7 +317,7 @@ function assert_resize_atspi_name_usage_limit(run_directory, executable) {
     "resize", "--window", "1",
     "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
     "--expect", expect_text, "--bogus",
-  ]);
+  ], env);
   ensure(!output_success(with_bogus),
     "cu_linux_resize_expect_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
@@ -318,16 +325,39 @@ function assert_resize_atspi_name_usage_limit(run_directory, executable) {
     "cu_linux_resize_expect_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_resize_expect_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_resize_expect_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = run_cu_reply(run_directory, executable, "actuate", [
+    "resize", "--window", "1",
+    "--width", "" + TARGET_WIDTH, "--height", "" + TARGET_HEIGHT,
+    "--expect", expect_text, "--coords", "10,10",
+  ], env);
+  ensure(!output_success(with_coords),
+    "cu_linux_resize_expect_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_resize_expect_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_resize_expect_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_resize_expect_usage_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
-function assert_get_extents_usage_limit(run_directory, executable) {
+function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
-  ]);
+  ], env);
   ensure(!output_success(zero_handle),
     "cu_linux_resize_expect_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
@@ -337,6 +367,62 @@ function assert_get_extents_usage_limit(run_directory, executable) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_resize_expect_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_resize_expect_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_resize_expect_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_resize_expect_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_resize_expect_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_resize_expect_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_resize_expect_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_resize_expect_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_resize_expect_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_resize_expect_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_resize_expect_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_resize_expect_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_resize_expect_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -355,6 +441,78 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_resize_expect_extents_unavailable_code:" + code
+  );
+}
+
+function independent_pyatspi_named_extents(run_directory, executable, title, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "want = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and w.name == title:",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == want:",
+    "        return node",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_resize_expect_atspi_no_frame')",
+    "node = walk(frame)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_resize_expect_atspi_miss:' + want)",
+    "component = node.queryComponent()",
+    "ext = component.getExtents(pyatspi.DESKTOP_COORDS)",
+    "print(json.dumps({",
+    "    'name': want,",
+    "    'x': int(ext.x), 'y': int(ext.y),",
+    "    'width': int(ext.width), 'height': int(ext.height),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title, node_name], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(
+    output.success === true,
+    "cu_linux_resize_expect_pyatspi_named:" + output.stderr + output.stdout
+  );
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_get_extents_name_agreement(run_directory, executable, handle, title, node_name) {
+  const pyatspi_node = independent_pyatspi_named_extents(
+    run_directory, executable, title, node_name
+  );
+  const cu_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", node_name,
+  ]);
+  ensure(
+    int_at(cu_extents, "data.extents.x") === pyatspi_node.x
+      && int_at(cu_extents, "data.extents.y") === pyatspi_node.y
+      && int_at(cu_extents, "data.extents.width") === pyatspi_node.width
+      && int_at(cu_extents, "data.extents.height") === pyatspi_node.height,
+    "cu_linux_resize_expect_extents_agree:" + JSON.stringify({
+      cu: cu_extents.data.extents,
+      pyatspi: pyatspi_node,
+    })
   );
 }
 
@@ -384,6 +542,8 @@ const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const run_directory = rh.join(repo, "target/cu-linux-resize-expect-smoke-run");
 rh.create_dir_all(run_directory);
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_resize_expect_fixture_missing:" + fixture_source);
@@ -400,17 +560,17 @@ assert_resize_missing_window(run_directory, executable);
 print("STEP resize without DISPLAY typed-fails unsupported host-limit");
 assert_headless_host_limit(run_directory, executable);
 
-const atspi_available = probe_atspi_available(executable);
+print("STEP resize typed-fail usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+assert_resize_unexpected_usage(run_directory, executable, env);
 
-print("STEP resize typed-fails usage when AT-SPI --name or other unexpected arguments are present");
-assert_resize_atspi_name_usage_limit(run_directory, executable);
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before resize read-back court");
+assert_get_extents_usage_limit(run_directory, executable, env);
 
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before resize read-back court");
-  assert_get_extents_usage_limit(run_directory, executable);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before resize read-back court");
+assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+if (!atspi_available) {
+  print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; resize read-back still uses inventory/xwininfo");
 }
 
 let fixture = -1;
@@ -439,6 +599,13 @@ try {
   const before_width = int_at(row, "bounds.width");
   const before_height = int_at(row, "bounds.height");
   ensure(before_width > 0 && before_height > 0, "cu_linux_resize_expect_baseline:" + before_width + "x" + before_height);
+
+  if (atspi_available) {
+    print("STEP independent pyatspi extents and CU get-extents --name agree before resize actuate/read-back");
+    assert_get_extents_name_agreement(
+      run_directory, executable, handle_text, fixture_title, NAMED_NODE
+    );
+  }
 
   print("STEP invalid_input refusals on a live handle must not change inventory or xwininfo bounds");
   resize_refused(run_directory, executable, [
@@ -510,8 +677,8 @@ const context = harness.new_context(repo, "cu-linux-resize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-resize-expect-geometry");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux resize --expect usage/miss/host-limit honesty + independent windows inventory and xwininfo bounds read-back with typed resize/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux resize --expect usage/miss/host-limit honesty + independent windows inventory and xwininfo bounds read-back with typed resize --name/--coords/--bogus and get-extents --name usage/host-limit honesty plus pyatspi get-extents --name geometry (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux resize --expect usage/miss/host-limit honesty + independent windows inventory and xwininfo bounds read-back with typed resize/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux resize --expect usage/miss/host-limit honesty + independent windows inventory and xwininfo bounds read-back with typed resize --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
 }
 return;

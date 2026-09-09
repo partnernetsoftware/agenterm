@@ -5912,7 +5912,7 @@
     },
     {
       "id": "cu-linux-resize-expect-smoke",
-      "description": "Linux resize --expect WxH on a named GTK fixture window: typed resize usage rejects AT-SPI --name; typed get-extents --name usage/host-limit court before actuate; destructive-gate, missing-window and headless host-limit paths; independent windows inventory bounds and xwininfo Width/Height must match --expect after resize; no --coords.",
+      "description": "Linux resize --expect WxH on a named GTK fixture window: typed resize usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage AND host-limit paths both hold before actuate; destructive-gate, missing-window and headless host-limit paths; independent pyatspi get-extents --name geometry plus windows inventory bounds and xwininfo Width/Height must match --expect after resize; no --coords.",
       "entry": "scripts/qjs/cu-linux-resize-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
