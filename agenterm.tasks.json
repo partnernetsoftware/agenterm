@@ -7112,7 +7112,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-selection-smoke",
-      "description": "Linux GTK entry interior select --start/--end and semantic ctrl+a select-all by --name with independent get-selection scalar slice read-back; typed get-selection/select usage rejects missing/zero --window/--name and --coords/--bogus without --name; named --coords/--bogus reject or stay accessibility-tree --name; host-limit when AT-SPI absent; get-extents --name usage/host-limit court (including --coords/--bogus honesty) before actuate; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry interior select --start/--end and semantic ctrl+a select-all by --name with independent get-selection scalar slice read-back; typed get-selection/select usage rejects missing/zero --window/--name and --coords/--bogus (usage_rejects_unexpected + command=usage); named --coords/--bogus reject as command=usage or stay accessibility-tree; host-limit when AT-SPI absent; get-extents --name usage AND host-limit (command=usage on --coords/--bogus) always before actuate; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-selection-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

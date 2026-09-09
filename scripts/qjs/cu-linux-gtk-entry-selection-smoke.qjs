@@ -5,12 +5,13 @@
 // select-all via send-keys. Typed get-selection/select usage and host-limit
 // paths must hold when --window/--name are missing or the AT-SPI bus is
 // unavailable; typed get-extents --name usage AND host-limit courts must both
-// hold before the native actuate/read-back court. Typed get-selection/select
-// must reject --coords/--bogus without --name as usage (usage_rejects_unexpected
-// or required --name), and named --coords/--bogus must reject or stay
-// accessibility-tree --name (never coordinate addressing). Miss paths must not
-// mutate the entry (independent get-text read-back). AT-SPI --name only; no
-// --coords, screenshot, or clipboard proof.
+// hold before the native actuate/read-back court (no if/else gating those
+// courts on atspi_available). Typed get-selection/select must reject
+// --coords/--bogus without --name as usage (usage_rejects_unexpected) with
+// command=usage, and named --coords/--bogus must reject as command=usage or
+// stay accessibility-tree --name (never coordinate addressing). Miss paths
+// must not mutate the entry (independent get-text read-back). AT-SPI --name
+// only; no --coords, screenshot, or clipboard proof.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -47,10 +48,6 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
-
-function misuse_code_ok(code) {
-  return code === "invalid_input" || code === "usage";
-}
 
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
@@ -305,8 +302,12 @@ function assert_selection_usage_limit(run_directory, executable) {
 function assert_named_stay_or_misuse(reply, label, via, token) {
   if (!output_success(reply)) {
     ensure(
-      misuse_code_ok(text_at(reply, "error.code")),
+      text_at(reply, "error.code") === "usage",
       "cu_linux_gtk_entry_selection_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    ensure(
+      text_at(reply, "command") === "usage",
+      "cu_linux_gtk_entry_selection_" + label + "_command:" + JSON.stringify(reply)
     );
     ensure(
       usage_rejects_unexpected(text_at(reply, "error.message"), token)
@@ -587,18 +588,20 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP get-selection / select typed-fail usage when --window or --name is missing, or --coords/--bogus is present without --name");
+  print("STEP get-selection / select typed-fail usage when --window or --name is missing, or --coords/--bogus is present without --name (usage_rejects_unexpected + command=usage)");
   assert_selection_usage_limit(run_directory, executable);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
+  print("STEP get-selection / select typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+  assert_selection_host_limit_when_atspi_absent(run_directory, executable);
+
   if (!atspi_available) {
-    print("STEP get-selection / select typed-fail host-limit when independent pyatspi desktop probe is unavailable");
-    assert_selection_host_limit_when_atspi_absent(run_directory, executable);
+    print("STEP independent pyatspi desktop probe unavailable: get-extents and get-selection/select host-limit already held");
     succeeded = 1;
   } else {
     print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
@@ -761,7 +764,7 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_selection_failed");
 if (atspi_available) {
-  print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection/get-text read-back and typed get-selection/select/get-extents usage/--coords/--bogus honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection/get-text read-back, typed get-selection/select --coords/--bogus usage_rejects_unexpected, and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO#7 GTK entry selection typed-fails with typed get-extents --name usage AND host-limit honesty and get-selection/select --coords/--bogus usage when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO#7 GTK entry selection typed-fails with typed get-extents --name usage AND host-limit honesty, get-selection/select host-limit, and --coords/--bogus command=usage when independent pyatspi desktop probe is unavailable");
 }
