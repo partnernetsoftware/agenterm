@@ -7012,7 +7012,7 @@
     },
     {
       "id": "cu-linux-processor-topology-smoke",
-      "description": "Linux processor-topology-status online logical processors, physical cores, packages and NUMA nodes match independent /proc/cpuinfo, lscpu and sysfs read-back; no --coords.",
+      "description": "Linux processor-topology-status online logical processors, physical cores, packages and NUMA nodes match independent /proc/cpuinfo, lscpu and sysfs read-back; typed processor-topology-status usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the topology/sysfs read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-processor-topology-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
