@@ -1,5 +1,8 @@
 // CEO: Linux CDP page-click honesty — click a named page control; prove with
 // independent page-js DOM read-back (not page-click performed/verified).
+// Typed usage and host-limit paths must hold when the node query or coordinates
+// are missing, invalid, or exclusive; a free port must typed-fail before any
+// owned Chrome exists. Distinct from AT-SPI hover→click.
 // Disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -58,20 +61,134 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments, env) {
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: env,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_page_click_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_page_click_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_page_click_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_page_click_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_page_click_reply:" + JSON.stringify(document));
   return document;
+}
+
+function assert_page_click_usage_limit(run_directory, executable, env, port) {
+  const missing_node = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", "unused",
+  ], env);
+  ensure(!output_success(missing_node), "cu_linux_page_click_usage_ok:" + JSON.stringify(missing_node));
+  ensure(
+    text_at(missing_node, "error.code") === "usage",
+    "cu_linux_page_click_usage_code:" + JSON.stringify(missing_node.error)
+  );
+  ensure(
+    text_at(missing_node, "error.message").indexOf("--selector") >= 0,
+    "cu_linux_page_click_usage_message:" + JSON.stringify(missing_node.error)
+  );
+
+  const missing_y = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", "unused", "--x", "10",
+  ], env);
+  ensure(!output_success(missing_y), "cu_linux_page_click_missing_y_ok:" + JSON.stringify(missing_y));
+  ensure(
+    text_at(missing_y, "error.code") === "usage",
+    "cu_linux_page_click_missing_y_code:" + JSON.stringify(missing_y.error)
+  );
+  ensure(
+    text_at(missing_y, "error.message").indexOf("--y") >= 0,
+    "cu_linux_page_click_missing_y_message:" + JSON.stringify(missing_y.error)
+  );
+
+  const mixed = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#go", "--x", "10", "--y", "10",
+  ], env);
+  ensure(!output_success(mixed), "cu_linux_page_click_mixed_ok:" + JSON.stringify(mixed));
+  ensure(
+    text_at(mixed, "error.code") === "usage",
+    "cu_linux_page_click_mixed_code:" + JSON.stringify(mixed.error)
+  );
+  ensure(
+    text_at(mixed, "error.message").indexOf("not both") >= 0,
+    "cu_linux_page_click_mixed_message:" + JSON.stringify(mixed.error)
+  );
+
+  const bad_x = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", "unused", "--x", "-1", "--y", "10",
+  ], env);
+  ensure(!output_success(bad_x), "cu_linux_page_click_bad_x_ok:" + JSON.stringify(bad_x));
+  ensure(
+    text_at(bad_x, "error.code") === "usage",
+    "cu_linux_page_click_bad_x_code:" + JSON.stringify(bad_x.error)
+  );
+  ensure(
+    text_at(bad_x, "error.message").indexOf("viewport CSS coordinate") >= 0,
+    "cu_linux_page_click_bad_x_message:" + JSON.stringify(bad_x.error)
+  );
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", "unused", "--selector", "#go",
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_click_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_click_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_click_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_click_miss_selector(run_directory, executable, env, port, target_id) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", target_id, "--selector", "#missing",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_click_miss_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_node_not_found",
+    "cu_linux_page_click_miss_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("#missing") >= 0,
+    "cu_linux_page_click_miss_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_click_miss_target(run_directory, executable, env, port) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", "deadbeef", "--selector", "#go",
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_click_miss_target_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_click_miss_target_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--target-id") >= 0,
+    "cu_linux_page_click_miss_target_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
 }
 
 function page_target(rows) {
@@ -130,6 +247,12 @@ try {
   ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
     "cu_linux_page_click_port_in_use:" + port);
 
+  print("STEP typed usage limits reject missing node query or invalid coordinates before Chrome starts");
+  assert_page_click_usage_limit(run_directory, executable, env, port);
+
+  print("STEP page-click typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port);
+
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
     program: launcher,
@@ -144,14 +267,13 @@ try {
     env: env,
     timeout_ms: 45000,
   });
-  for (let attempt = 0; attempt < 80; attempt = attempt + 1) {
-    const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
-      cwd: run_directory,
-      timeout_ms: 3000,
-    });
-    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) { break; }
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
     harness.sleep_ms(250);
   }
+  ensure(cdp_ready(run_directory, port), "cu_linux_page_click_cdp_not_ready:" + port);
+
+  print("STEP page-click typed-fails cdp_target_not_found for a bogus --target-id");
+  assert_page_click_miss_target(run_directory, executable, env, port);
 
   const targets = run_cu(run_directory, executable, "observe", [
     "page-targets", "--port", "" + port,
@@ -200,6 +322,9 @@ try {
   );
   harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-click-readback");
 
+  print("STEP typed miss path rejects a --selector that matches no rendered node");
+  assert_page_click_miss_selector(run_directory, executable, env, port, target_id);
+
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -211,5 +336,5 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_click_failed");
 harness.remove_run(context);
-print("PASS: CEO CDP page-click → independent page-js DOM read-back (no --coords)");
+print("PASS: Linux page-click usage/host-limit/miss honesty + independent page-js DOM read-back (no --coords)");
 return;
