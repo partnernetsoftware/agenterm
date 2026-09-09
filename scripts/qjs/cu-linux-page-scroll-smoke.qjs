@@ -1,8 +1,10 @@
 // CEO: Linux CDP page-scroll honesty — wheel scroll on a disposable container.
 // Acceptance is smoke read-back only: independent page-js scrollTop and wheel
 // effect must increase after page-scroll --dy; distinct from AT-SPI scroll-to /
-// scroll-wheel. Typed usage, miss, and no-CDP host-limit paths must hold.
-// --port/--target-id only; no --coords.
+// scroll-wheel. Typed page-scroll usage must reject AT-SPI --name and other
+// unexpected arguments; typed get-extents --name usage/host-limit paths must hold
+// before the page-scroll actuate/read-back court. Typed usage, miss, and no-CDP
+// host-limit paths must hold. --port/--target-id only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -13,6 +15,8 @@ const declared_evidence = [
   "cu.linux-cdp-page-scroll-actuate",
   "cu.linux-cdp-page-scroll-readback",
 ];
+
+const AT_SPI_PROBE_NAME = "Page Scroll Court Anchor";
 
 const scroll_readback_expr = "(function(){"
   + "const el=document.getElementById('scroll');"
@@ -103,6 +107,114 @@ function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
   ensure(output_success(document), "cu_linux_page_scroll_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(env) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: env,
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_page_scroll_usage_rejects_name(run_directory, executable, env, port) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-scroll", "--port", "" + port, "--target-id", "unused",
+    "--x", "10", "--y", "10", "--dy", "120", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_page_scroll_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_page_scroll_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_page_scroll_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_page_scroll_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page", "scroll", "--port", "" + port, "--target-id", "unused",
+    "--x", "10", "--y", "10", "--dy", "120", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_page_scroll_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_page_scroll_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_page_scroll_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-scroll", "--port", "" + port, "--target-id", "unused",
+    "--x", "10", "--y", "10", "--dy", "120", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_page_scroll_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_page_scroll_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_page_scroll_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_page_scroll_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_scroll_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_scroll_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_page_scroll_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_page_scroll_extents_unavailable_code:" + code
+  );
 }
 
 function assert_x11_display_usable(run_directory, env) {
@@ -220,6 +332,7 @@ ensure(direct_file(abi_library), "cu_linux_page_scroll_library_missing:" + abi_l
 const context = harness.new_context(repo, "cu-linux-page-scroll");
 const run_directory = context.run_directory;
 const env = cu_env(executable);
+const atspi_available = probe_atspi_available(env);
 
 const fixture_title = "CEO CDP Scroll " + context.run_id;
 const fixture = rh.join(run_directory, "cdp-scroll.html");
@@ -255,8 +368,19 @@ try {
   print("STEP page-scroll typed-fails usage when --x/--y or wheel delta are missing");
   assert_scroll_usage(run_directory, executable, env, port);
 
+  print("STEP page-scroll typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_scroll_usage_rejects_name(run_directory, executable, env, port);
+
   print("STEP page-targets --port typed-fails no CDP listener on the owned free port before Chrome starts");
   assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-scroll actuate court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
@@ -354,5 +478,9 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_scroll_failed");
 harness.remove_run(context);
-print("PASS: Linux CDP page-scroll with usage/miss/host-limit paths and independent scrollTop/wheel read-back (no --coords)");
+if (atspi_available) {
+  print("PASS: Linux CDP page-scroll usage/miss/host-limit honesty + independent scrollTop/wheel read-back with typed page-scroll/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux CDP page-scroll usage/miss/host-limit honesty + independent scrollTop/wheel read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
 return;
