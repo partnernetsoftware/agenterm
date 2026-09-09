@@ -6584,7 +6584,7 @@
     },
     {
       "id": "cu-linux-page-type-smoke",
-      "description": "Linux CDP page-type inserts text at the current editable focus and independent page-js DOM read-back proves the exact value growth; typed page-type usage rejects AT-SPI --name/--bogus; typed get-extents --name usage/host-limit court before actuate; miss and no-CDP host-limit paths; disposable Chrome profile; no --coords.",
+      "description": "Linux CDP page-type inserts text at the current editable focus and independent page-js DOM read-back proves the exact value growth; typed page-type usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage/host-limit court before the page-js DOM read-back; miss and no-CDP host-limit paths; disposable Chrome profile; no --coords.",
       "entry": "scripts/qjs/cu-linux-page-type-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
