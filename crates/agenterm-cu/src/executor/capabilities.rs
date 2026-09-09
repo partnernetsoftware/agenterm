@@ -771,13 +771,21 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert(
             "file-watch".into(),
             serde_json::json!({
-                "status": if cfg!(target_os = "linux") { "available" } else { "unsupported" },
+                "status": if cfg!(any(target_os = "linux", target_os = "macos")) { "available" } else { "unsupported" },
                 "group": "file",
                 "grant": "observe",
                 "mode": "bounded-native-directory-events",
-                "provider": "linux-inotify",
+                "provider": if cfg!(target_os = "linux") {
+                    "linux-inotify"
+                } else if cfg!(target_os = "macos") {
+                    "macos-fsevents"
+                } else {
+                    "none"
+                },
+                "scope": "single-directory-non-recursive",
+                "delivery": "at-least-once-coalesced",
                 "event_kinds": "created-modified-removed",
-                "non_linux": "typed-unsupported-gap",
+                "unsupported_hosts": "windows-typed-unsupported-gap",
             }),
         );
         verbs.insert(

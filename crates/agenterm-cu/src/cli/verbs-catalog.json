@@ -563,7 +563,7 @@
       ],
       "grant": "observe",
       "family": "file",
-      "summary": "watch one directory for bounded native create/modify events",
+      "summary": "watch one directory for bounded native created/modified/removed events",
       "usage": "file-watch PATH [--duration-ms N] [--max-events N]\nfile observe PATH [--duration-ms N] [--max-events N]",
       "args": [
         {
@@ -7265,7 +7265,7 @@
     },
     {
       "name": "file-watch",
-      "text": "agenterm-cu file-watch    (also: file observe)\n  scope: observe    family: Filesystem\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  file-watch PATH [--duration-ms N] [--max-events N]\n  file observe PATH [--duration-ms N] [--max-events N]\n\narguments:\n  PATH                          one existing directory to watch\n  --duration-ms N               monotonic duration, 1..=86400000 (default 30000)\n  --max-events N                event ceiling, 1..=4096 (default 256)\n\nWatches one directory through the host native filesystem notification API.\nLinux uses inotify and emits bounded created/modified/removed events with\nrelative entry names and decoded masks. macOS and Windows return typed\nunsupported gaps instead of pretending an unmapped provider is available.\n"
+      "text": "agenterm-cu file-watch    (also: file observe)\n  scope: observe    family: Filesystem\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  file-watch PATH [--duration-ms N] [--max-events N]\n  file observe PATH [--duration-ms N] [--max-events N]\n\narguments:\n  PATH                          one existing directory to watch\n  --duration-ms N               monotonic duration, 1..=86400000 (default 30000)\n  --max-events N                event ceiling, 1..=4096 (default 256)\n\nWatches one existing directory, never recursively, through the host native\nfilesystem notification API and emits bounded created/modified/removed events\nwith relative entry names and decoded masks. Reaching --max-events before the\ndeadline reports truncated=true and completed=false. Linux uses inotify with one\nevent per kernel record. macOS uses FSEvents on the same single directory, keeps\nonly direct entries, resolves cumulative flags by entry existence at delivery\nand delivers each kind at least once with coalescing allowed. Windows returns a\ntyped unsupported gap instead of pretending an unmapped provider is available.\n"
     },
     {
       "name": "file-attributes",

@@ -184,6 +184,15 @@
       ]
     },
     {
+      "id": "cu-macos-file-watch-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.macos-file-watch-events",
+        "cu.macos-file-watch-scope",
+        "cu.macos-file-watch-bounds"
+      ]
+    },
+    {
       "id": "cu-linux-file-attributes-smoke",
       "platform": "linux",
       "evidence": [

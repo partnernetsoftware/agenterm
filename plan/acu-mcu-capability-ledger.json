@@ -1380,6 +1380,35 @@
           "evidence": ["cu.file-move-transaction"],
           "next": "run the same public qjswasm journey in Linux and Windows courts through the independent utm-court service",
           "note": "Default invocation is plan-only. Apply uses one copy-then-retire state machine on same-volume and cross-volume paths, atomically refuses occupied marker/backup names, locks both exact path namespaces in stable order, retains source and replaced-destination backups until finalize, and recovers the two-name hard-link crash window without deleting an unknown object. The MCU compatibility adapter routes move and the shared applied transaction actions. macOS public evidence cu.file-move-transaction is green; Linux/Windows are not claimed yet."
+        },
+        {
+          "id": "file.watch.directory",
+          "mcu_shape": "file watch PATH with duration and event ceiling",
+          "acu_shape": "file-watch PATH [--duration-ms N] [--max-events N] (alias: file observe)",
+          "state": "platform-limited",
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-public-qjswasm", "windows": "gap"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "native-qualified",
+                "gate": "cu-linux-file-watch-smoke",
+                "evidence": ["cu.linux-file-watch"]
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-macos-file-watch-smoke",
+                "evidence": ["cu.macos-file-watch-events", "cu.macos-file-watch-scope", "cu.macos-file-watch-bounds"]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-file-watch-provider-not-implemented"
+              }
+            }
+          },
+          "evidence": ["cu.linux-file-watch", "cu.macos-file-watch-events", "cu.macos-file-watch-scope", "cu.macos-file-watch-bounds"],
+          "next": "add a Windows ReadDirectoryChangesW provider and its public court while preserving the shared bounded single-directory contract",
+          "note": "One existing directory, non-recursive, bounded by duration_ms and max_events; reaching max_events before the deadline reports truncated=true and completed=false. Linux inotify maps create/moved-to to created, modify/close-write/attrib to modified and delete/moved-from/self events to removed with relative entry names and decoded masks. macOS FSEvents watches the same single directory without recursion, keeps only direct entries of the canonical path, resolves cumulative flags by entry existence at delivery, and delivers each kind at least once with coalescing allowed rather than one event per syscall. The macOS public qjswasm court is green for created/modified/removed delivery, direct-child scope, bounded truncation and typed failure. Windows returns a typed unsupported gap."
         }
       ]
     },

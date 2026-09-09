@@ -2184,7 +2184,16 @@ flowchart LR
   object; unknown or changed objects are preserved with a typed refusal. The
   public `cu.file-move-transaction` qjswasm journey is green on macOS and the
   MCU adapter routes the lossless move shapes; Linux and Windows native courts
-  remain open. `storage-devices [--max N]` / `storage devices [--max N]` now
+  remain open. `file-watch PATH [--duration-ms N] [--max-events N]` / `file
+  observe` watches one existing directory without recursion and reports
+  bounded created/modified/removed entries; reaching the event ceiling before
+  the deadline is truncated, not completed. Linux inotify is native-qualified
+  through the public `cu.linux-file-watch` court. The macOS FSEvents provider
+  uses at-least-once coalesced delivery resolved by entry existence. Its public
+  `cu-macos-file-watch-smoke` court is green for direct-entry lifecycle,
+  non-recursive scope, bounded truncation and typed failure; Windows remains a
+  typed unsupported gap.
+  `storage-devices [--max N]` / `storage devices [--max N]` now
   provides the separate physical/block inventory. The platform facade invokes
   only fixed native system providers under one shared deadline and contained
   process-tree cleanup, with a 10,000-row scan ceiling and a 2 MiB aggregate

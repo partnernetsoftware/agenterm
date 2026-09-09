@@ -2033,6 +2033,23 @@
         "task.cu-linux-file-watch-smoke"
       ]
     },
+    "cu-macos-file-watch-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-macos-file-watch-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-macos-file-watch-smoke"
+      ]
+    },
     "cu-linux-ps-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -7153,6 +7170,25 @@
       "dependencies": [],
       "platforms": [
         "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-macos-file-watch-smoke",
+      "description": "Prove bounded single-directory macOS FSEvents file-watch: create/modify/rename/remove of one direct entry are delivered at least once with independent filesystem read-back; a direct child directory is visible while files inside it or outside the watched directory are not; max-events 1 truncates and returns early; a file path and zero bounds fail typed. No GUI; unavailable providers fail non-zero without evidence.",
+      "entry": "scripts/qjs/cu-macos-file-watch-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "macos"
       ],
       "side_effects": [
         "artifact_write",
