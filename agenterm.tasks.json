@@ -6765,7 +6765,7 @@
     },
     {
       "id": "cu-linux-keyboard-layout-smoke",
-      "description": "Linux keyboard-layout observe returns active XKB rules/model/layout/variant with independent setxkbmap and xprop _XKB_RULES_NAMES read-back; missing DISPLAY returns typed headless-display host-limit; no --coords.",
+      "description": "Linux keyboard-layout observe returns active XKB rules/model/layout/variant with independent setxkbmap and xprop _XKB_RULES_NAMES read-back; typed keyboard-layout usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the XKB read-back court; missing DISPLAY returns typed headless-display host-limit; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-keyboard-layout-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7633,7 +7633,7 @@
     },
     {
       "id": "cu-linux-login-session-smoke",
-      "description": "Linux login-session status matches independent loginctl/session-env read-back or returns typed systemd-logind unsupported honesty without macOS claims; no lock apply.",
+      "description": "Linux login-session status matches independent loginctl/session-env read-back or returns typed systemd-logind unsupported honesty without macOS claims; typed login-session usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the loginctl court; observe-only, no lock apply; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-login-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
