@@ -1,0 +1,547 @@
+// CEO: Linux CDP page-download honesty — click a download control and prove
+// with independent download-dir filesystem read-back (not page-download receipt
+// alone). Typed page-download usage must reject AT-SPI --name and other
+// unexpected arguments; typed get-extents --name usage/host-limit paths must
+// hold before the page-download actuate/read-back court. Typed usage, miss,
+// and no-CDP host-limit paths must hold. --port/--target-id/--selector only;
+// no --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-cdp-page-download",
+  "cu.linux-cdp-page-download-readback",
+];
+
+const AT_SPI_PROBE_NAME = "Page Download Court Anchor";
+const MISSING_NODE = "agenterm-no-such-page-download-node";
+const DOWNLOAD_PAYLOAD = "acu-download-smoke";
+const SUGGESTED_FILENAME = "smoke.txt";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return ""; }
+  return "" + value_at;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu_reply(run_directory, executable, grant, arguments, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 60000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_page_download_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_page_download_reply:" + JSON.stringify(document));
+  return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function regular_files_in_dir(directory) {
+  const files = [];
+  if (!rh.exists(directory)) { return files; }
+  for (const entry of rh.read_dir(directory)) {
+    const path = rh.join(directory, entry.name);
+    if (direct_file(path)) { files.push(path); }
+  }
+  return files;
+}
+
+function assert_page_download_usage(run_directory, executable, env, port) {
+  const missing_dir = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-download", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#dl",
+  ], env);
+  ensure(!output_success(missing_dir),
+    "cu_linux_page_download_usage_ok_dir:" + JSON.stringify(missing_dir));
+  ensure(
+    text_at(missing_dir, "error.code") === "usage",
+    "cu_linux_page_download_usage_code_dir:" + JSON.stringify(missing_dir.error)
+  );
+  ensure(
+    text_at(missing_dir, "error.message").indexOf("--download-dir") >= 0,
+    "cu_linux_page_download_usage_message_dir:" + JSON.stringify(missing_dir.error)
+  );
+
+  const missing_node = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-download", "--port", "" + port, "--target-id", "unused",
+    "--download-dir", run_directory,
+  ], env);
+  ensure(!output_success(missing_node),
+    "cu_linux_page_download_usage_ok_node:" + JSON.stringify(missing_node));
+  ensure(
+    text_at(missing_node, "error.code") === "usage",
+    "cu_linux_page_download_usage_code_node:" + JSON.stringify(missing_node.error)
+  );
+  ensure(
+    text_at(missing_node, "error.message").indexOf("--selector") >= 0
+      || text_at(missing_node, "error.message").indexOf("--text") >= 0
+      || text_at(missing_node, "error.message").indexOf("--node") >= 0,
+    "cu_linux_page_download_usage_message_node:" + JSON.stringify(missing_node.error)
+  );
+}
+
+function assert_page_download_usage_rejects_name(run_directory, executable, env, port, download_dir) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-download", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#dl", "--download-dir", download_dir, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_page_download_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_page_download_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_page_download_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_page_download_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page", "download", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#dl", "--download-dir", download_dir, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_page_download_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_page_download_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_page_download_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-download", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#dl", "--download-dir", download_dir, "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_page_download_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_page_download_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_page_download_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_page_download_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_download_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_download_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_page_download_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_page_download_extents_unavailable_code:" + code
+  );
+}
+
+function assert_get_extents_missing_node(run_directory, executable, env, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", MISSING_NODE,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_download_extents_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_page_download_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function windows_rows(reply) {
+  const data = at(reply, "data");
+  if (data.windows !== undefined) { return data.windows; }
+  return data;
+}
+
+function window_row_for_title(run_directory, executable, env, title_needle) {
+  const reply = run_cu(run_directory, executable, "observe", ["windows"], env);
+  for (const row of windows_rows(reply)) {
+    const title = text_at(row, "title");
+    if (title.indexOf(title_needle) < 0) { continue; }
+    const handle = int_at(row, "handle");
+    if (handle > 0) { return row; }
+  }
+  return null;
+}
+
+function assert_no_cdp_listener(run_directory, executable, env, port, download_dir) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-download", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#dl", "--download-dir", download_dir,
+  ], env);
+  ensure(reply.ok !== true, "cu_linux_page_download_false_success:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_page_download_host_limit_code:" + JSON.stringify(reply)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("no CDP listener") >= 0 && message.indexOf("" + port) >= 0,
+    "cu_linux_page_download_host_limit_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_page_download_miss_bad_target(run_directory, executable, env, port, download_dir) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-download", "--port", "" + port, "--target-id", "deadbeef",
+    "--selector", "#dl", "--download-dir", download_dir,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_download_miss_target_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "cdp_target_not_found",
+    "cu_linux_page_download_miss_target_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.message").indexOf("--target-id") >= 0,
+    "cu_linux_page_download_miss_target_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function page_target(rows) {
+  for (const row of rows) {
+    if (text_at(row, "type") === "page") { return row; }
+  }
+  return null;
+}
+
+function cdp_ready(run_directory, port) {
+  const probe = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  return probe.success === true && probe.stdout.indexOf("Browser") >= 0;
+}
+
+function assert_download_dir_readback(download_dir, before_files, receipt_path, expected_size) {
+  const after_files = regular_files_in_dir(download_dir);
+  ensure(
+    after_files.length === before_files.length + 1,
+    "cu_linux_page_download_dir_count:" + JSON.stringify({
+      before: before_files,
+      after: after_files,
+    })
+  );
+  let found = false;
+  for (const path of after_files) {
+    if (before_files.indexOf(path) >= 0) { continue; }
+    ensure(path === receipt_path,
+      "cu_linux_page_download_dir_path:" + JSON.stringify({ path: path, receipt: receipt_path }));
+    ensure(direct_file(path), "cu_linux_page_download_dir_not_regular:" + path);
+    ensure(
+      rh.metadata(path).len === expected_size,
+      "cu_linux_page_download_dir_size:" + JSON.stringify({
+        path: path,
+        size: rh.metadata(path).len,
+        expected: expected_size,
+      })
+    );
+    found = true;
+    break;
+  }
+  ensure(found, "cu_linux_page_download_dir_missing_new_file:" + JSON.stringify(after_files));
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const abi_library = rh.join(rh.parent(executable), "libagenterm.so");
+ensure(direct_file(executable), "cu_linux_page_download_executable_missing:" + executable);
+ensure(direct_file(abi_library), "cu_linux_page_download_library_missing:" + abi_library);
+
+const context = harness.new_context(repo, "cu-linux-page-download");
+const run_directory = context.run_directory;
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+
+const fixture_title = "CEO CDP Download " + context.run_id;
+const fixture = rh.join(run_directory, "cdp-download.html");
+const fixture_html = "<!DOCTYPE html><html><head><title>"
+  + fixture_title + "</title></head><body>"
+  + "<a id='dl' download='" + SUGGESTED_FILENAME + "'"
+  + " href='data:text/plain," + DOWNLOAD_PAYLOAD + "'"
+  + " aria-label='" + AT_SPI_PROBE_NAME + "'>download</a>"
+  + "</body></html>";
+rh.write_text(fixture, fixture_html);
+
+const download_dir = rh.join(run_directory, "downloads");
+rh.create_dir_all(download_dir);
+const expected_bytes = DOWNLOAD_PAYLOAD.length;
+
+const profile = rh.join(run_directory, "chrome-profile-" + context.run_id);
+const launcher = rh.join(repo, "scripts/box-chrome-a11y.sh");
+const port = 9850 + (rh.pid() % 350);
+let chrome_child = -1;
+let succeeded = 0;
+let failure = "";
+
+try {
+  const stale = rh.command("curl", ["-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"], {
+    cwd: run_directory,
+    timeout_ms: 3000,
+  });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "cu_linux_page_download_port_in_use:" + port);
+
+  print("STEP page-download typed-fails usage when --download-dir or node selector is missing");
+  assert_page_download_usage(run_directory, executable, env, port);
+
+  print("STEP page-download typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_download_usage_rejects_name(run_directory, executable, env, port, download_dir);
+
+  print("STEP page-download typed-fails no CDP listener on the owned free port before Chrome starts");
+  assert_no_cdp_listener(run_directory, executable, env, port, download_dir);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-download actuate court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
+  print("STEP launch owned Chrome with CDP port and a disposable about:blank tab");
+  chrome_child = harness.start({
+    program: launcher,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--new-window",
+      "about:blank",
+    ],
+    current_dir: run_directory,
+    env: env,
+    timeout_ms: 45000,
+  });
+  for (let attempt = 0; attempt < 80 && !cdp_ready(run_directory, port); attempt = attempt + 1) {
+    harness.sleep_ms(250);
+  }
+  ensure(cdp_ready(run_directory, port), "cu_linux_page_download_cdp_not_ready:" + port);
+
+  print("STEP page-download typed-fails cdp_target_not_found for a bogus --target-id");
+  assert_page_download_miss_bad_target(run_directory, executable, env, port, download_dir);
+
+  const targets = run_cu(run_directory, executable, "observe", [
+    "page-targets", "--port", "" + port,
+  ], env);
+  const target = page_target(targets.data.targets);
+  ensure(target !== null && text_at(target, "id") !== "", "cu_linux_page_download_target_missing");
+  const target_id = text_at(target, "id");
+
+  print("STEP page-nav loads the disposable HTML fixture in this owned tab");
+  const nav_url = "file://" + fixture;
+  const nav = run_cu(run_directory, executable, "observe,actuate", [
+    "page-nav", "--port", "" + port, "--target-id", target_id,
+    "--url", nav_url, "--wait-ms", "10000",
+  ], env);
+  ensure(
+    flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
+    "cu_linux_page_download_nav:" + JSON.stringify(nav.data)
+  );
+
+  if (atspi_available) {
+    print("STEP wait for owned Chrome window before named get-extents court");
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+    ], env);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_download_window_wait");
+
+    let window_row = null;
+    for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
+      window_row = window_row_for_title(run_directory, executable, env, fixture_title);
+      if (window_row === null) { harness.sleep_ms(250); }
+    }
+    ensure(window_row !== null, "cu_linux_page_download_window_missing:" + fixture_title);
+    const window_handle = "" + int_at(window_row, "handle");
+    ensure(window_handle !== "" && window_handle !== "0",
+      "cu_linux_page_download_window_handle:" + JSON.stringify(window_row));
+
+    const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+      "unlock", "--window", window_handle,
+    ], env);
+    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_download_unlock:" + JSON.stringify(unlocked.data));
+
+    print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
+    assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_download");
+  }
+
+  print("STEP independent download-dir baseline proves the directory starts empty");
+  const before_files = regular_files_in_dir(download_dir);
+  ensure(
+    before_files.length === 0,
+    "cu_linux_page_download_before:" + JSON.stringify({ download_dir: download_dir, files: before_files })
+  );
+
+  print("STEP page-download --selector triggers a background download");
+  const downloaded = run_cu(run_directory, executable, "observe,actuate", [
+    "page-download", "--port", "" + port, "--target-id", target_id,
+    "--selector", "#dl", "--download-dir", download_dir, "--wait-ms", "10000",
+  ], env);
+  ensure(
+    downloaded.command === "page-download" && text_at(downloaded, "data.state") === "completed",
+    "cu_linux_page_download_actuate:" + JSON.stringify(downloaded.data)
+  );
+  ensure(
+    text_at(downloaded, "data.suggested_filename") === SUGGESTED_FILENAME,
+    "cu_linux_page_download_suggested:" + JSON.stringify(downloaded.data)
+  );
+  ensure(
+    flag_at(downloaded, "data.content_read") === false && flag_at(downloaded, "data.focus_changed") === false,
+    "cu_linux_page_download_authority:" + JSON.stringify(downloaded.data)
+  );
+  const receipt_path = text_at(downloaded, "data.final_path");
+  ensure(
+    receipt_path.indexOf(download_dir) === 0,
+    "cu_linux_page_download_escape:" + JSON.stringify({ receipt_path: receipt_path, download_dir: download_dir })
+  );
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-download");
+
+  print("STEP independent download-dir filesystem read-back proves a new non-empty file appeared");
+  let readback_ok = false;
+  let readback_error = "cu_linux_page_download_readback_missing";
+  for (let attempt = 0; attempt < 40 && !readback_ok; attempt = attempt + 1) {
+    try {
+      assert_download_dir_readback(
+        download_dir, before_files, receipt_path, expected_bytes
+      );
+      readback_ok = true;
+    } catch (error) {
+      readback_error = "" + error;
+      harness.sleep_ms(250);
+    }
+  }
+  ensure(readback_ok, readback_error);
+  harness.emit_evidence(context, declared_evidence, "cu.linux-cdp-page-download-readback");
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (chrome_child >= 0) {
+  try { harness.kill(chrome_child); } catch (error) { print("cleanup: " + error); }
+}
+
+ensure(succeeded === 1, failure || "cu_linux_page_download_failed");
+harness.remove_run(context);
+if (atspi_available) {
+  print("PASS: Linux CDP page-download usage/miss/host-limit honesty + independent download-dir filesystem read-back with typed page-download/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux CDP page-download usage/miss/host-limit honesty + independent download-dir filesystem read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
+return;

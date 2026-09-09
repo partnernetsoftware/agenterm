@@ -1382,6 +1382,25 @@
         "task.cu-linux-page-click-smoke"
       ]
     },
+    "cu-linux-page-download-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-download-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-download-smoke"
+      ]
+    },
     "cu-linux-page-type-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6395,6 +6414,26 @@
       "id": "cu-linux-page-click-smoke",
       "description": "Linux page-click --selector clicks one named CDP control and independent page-js DOM read-back proves the exact effect; typed page-click/get-extents --name usage and host-limit honesty before the actuate court; disposable Chrome profile, AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-click-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-page-download-smoke",
+      "description": "Linux CDP page-download triggers a background download and independent download-dir filesystem read-back proves a non-empty file appeared under --download-dir; typed page-download usage rejects AT-SPI --name/--bogus and missing --download-dir/node; typed get-extents --name usage/host-limit court before actuate; no-CDP host-limit and bad-target miss paths; disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.",
+      "entry": "scripts/qjs/cu-linux-page-download-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
