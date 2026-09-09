@@ -3,7 +3,7 @@
 // with independent `fc-match monospace` and `fc-list :spacing=mono` probes or
 // declare a typed hardcoded fallback. Typed font-discovery usage must reject
 // AT-SPI --name and other unexpected arguments; typed get-extents --name
-// usage/host-limit paths must hold before the fontconfig read-back court.
+// usage/miss/host-limit paths must hold before the fontconfig read-back court.
 // AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -384,15 +384,16 @@ try {
   print("STEP font-discovery typed-fails usage when AT-SPI --name or other unexpected arguments are present");
   assert_font_discovery_usage_limit(context.run_directory, executable, env);
 
+  print("STEP get-extents typed-fail usage when --window is zero or --name is missing before fontconfig read-back court");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+
   if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero or --name is missing before fontconfig read-back court");
-    assert_get_extents_usage_limit(context.run_directory, executable, env);
-    print("STEP get-extents typed-fail miss when --name is absent from the desktop before fontconfig read-back court");
+    print("STEP get-extents typed-fail miss when anchor name is absent from the desktop before fontconfig read-back court");
     assert_get_extents_name_miss(context.run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
   }
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before fontconfig read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
 
   print("STEP independent fc-match monospace captures fontconfig facts");
   const fc = independent_fc_match();
@@ -417,9 +418,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-fontconfig-monospace");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux font-discovery matches independent fc-match/fc-list monospace read-back with typed font-discovery/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux font-discovery matches independent fc-match/fc-list monospace read-back with typed font-discovery/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux font-discovery matches independent fc-match/fc-list monospace read-back with typed font-discovery/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux font-discovery matches independent fc-match/fc-list monospace read-back with typed font-discovery/get-extents usage/host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
