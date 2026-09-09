@@ -6940,7 +6940,7 @@
     },
     {
       "id": "cu-linux-power-status-smoke",
-      "description": "Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; no --coords.",
+      "description": "Linux power-status observe returns installation-scoped host and boot identities plus uptime that match independent /sys boot_id and CLOCK_BOOTTIME read-back; typed power-status usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /sys read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-power-status-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
