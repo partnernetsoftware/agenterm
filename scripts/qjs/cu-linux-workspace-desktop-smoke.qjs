@@ -1,9 +1,13 @@
 // CEO: Linux EWMH virtual-desktop / workspace index observe for one window.
 // Acceptance is smoke read-back only: windows inventory workspace_desktop must
 // match an independent xprop _NET_WM_DESKTOP read, or the host must answer
-// typed unsupported with alternatives. Typed get-extents --name usage/miss/host-limit
-// paths and independent pyatspi extents agreement must hold before the workspace
-// read-back court. AT-SPI/--name only; no --coords or screenshot degradation.
+// typed unsupported with alternatives. Typed windows/spaces --coords/--bogus
+// usage honesty and typed get-extents --name usage/miss/host-limit paths plus
+// independent pyatspi extents agreement must hold before the workspace/desktop
+// observe court. Named get-extents with --coords/--bogus must reject or stay
+// accessibility-tree. spaces answers typed host-limit unsupported on Linux
+// (SkyLight; alternatives include windows). Prefer host-limit clarity over
+// fake success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -36,6 +40,22 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("--coords") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("--bogus") >= 0;
+}
+
+function misuse_code_ok(code) {
+  return code === "usage" || code === "invalid_input";
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -111,10 +131,10 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_get_extents_usage_limit(run_directory, executable) {
+function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = run_cu_reply(run_directory, executable, "observe", [
     "get-extents", "--window", "0", "--name", BUTTON_NAME,
-  ]);
+  ], env);
   ensure(!output_success(zero_handle), "cu_linux_workspace_desktop_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
     text_at(zero_handle, "error.code") === "invalid_input",
@@ -124,6 +144,178 @@ function assert_get_extents_usage_limit(run_directory, executable) {
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_workspace_desktop_extents_usage_message:" + JSON.stringify(zero_handle.error)
   );
+
+  const missing_name = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_workspace_desktop_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_workspace_desktop_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_workspace_desktop_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_workspace_desktop_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords), "cu_linux_workspace_desktop_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_workspace_desktop_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_workspace_desktop_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(extents_coords, "error.message")),
+    "cu_linux_workspace_desktop_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus), "cu_linux_workspace_desktop_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_workspace_desktop_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_workspace_desktop_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(extents_bogus, "error.message")),
+    "cu_linux_workspace_desktop_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
+  );
+}
+
+function assert_windows_usage_limit(run_directory, executable, env) {
+  const with_name = run_cu_reply(run_directory, executable, "observe", [
+    "windows", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(with_name), "cu_linux_workspace_desktop_windows_name_ok:" + JSON.stringify(with_name));
+  ensure(
+    text_at(with_name, "error.code") === "usage",
+    "cu_linux_workspace_desktop_windows_name_code:" + JSON.stringify(with_name.error)
+  );
+  ensure(
+    text_at(with_name, "command") === "usage",
+    "cu_linux_workspace_desktop_windows_name_command:" + JSON.stringify(with_name)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_name, "error.message"), "--name"),
+    "cu_linux_workspace_desktop_windows_name_message:" + JSON.stringify(with_name.error)
+  );
+
+  const with_coords = run_cu_reply(run_directory, executable, "observe", [
+    "windows", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(with_coords), "cu_linux_workspace_desktop_windows_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_workspace_desktop_windows_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_workspace_desktop_windows_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_workspace_desktop_windows_coords_message:" + JSON.stringify(with_coords.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "windows", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus), "cu_linux_workspace_desktop_windows_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_workspace_desktop_windows_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_workspace_desktop_windows_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
+    "cu_linux_workspace_desktop_windows_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_spaces_usage_reject(run_directory, executable, env, extra_args, token, label) {
+  const argv = ["spaces"];
+  for (const argument of extra_args) { argv.push("" + argument); }
+  const reply = run_cu_reply(run_directory, executable, "observe", argv, env);
+  ensure(!output_success(reply), "cu_linux_workspace_desktop_spaces_usage_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_workspace_desktop_spaces_usage_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_workspace_desktop_spaces_usage_" + label + "_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(reply, "error.message"), token)
+      || text_at(reply, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_workspace_desktop_spaces_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_spaces_usage_limit(run_directory, executable, env) {
+  assert_spaces_usage_reject(
+    run_directory, executable, env, ["--name", BUTTON_NAME], "--name", "name"
+  );
+  assert_spaces_usage_reject(
+    run_directory, executable, env, ["--coords", "0,0"], "--coords", "coords"
+  );
+  assert_spaces_usage_reject(
+    run_directory, executable, env, ["--bogus"], "--bogus", "bogus"
+  );
+}
+
+function assert_spaces_host_limit(run_directory, executable, env) {
+  const reply = run_cu_reply(run_directory, executable, "observe", ["spaces"], env);
+  ensure(!output_success(reply), "cu_linux_workspace_desktop_spaces_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_workspace_desktop_spaces_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "command") === "spaces",
+    "cu_linux_workspace_desktop_spaces_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "error.detail.os") === "linux",
+    "cu_linux_workspace_desktop_spaces_os:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.limit") === "host",
+    "cu_linux_workspace_desktop_spaces_limit:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.required_os") === "macos",
+    "cu_linux_workspace_desktop_spaces_required_os:" + JSON.stringify(reply.error)
+  );
+  const alternatives = at(reply, "error.detail.alternatives");
+  ensure(
+    alternatives !== undefined && alternatives !== null,
+    "cu_linux_workspace_desktop_spaces_alternatives:" + JSON.stringify(reply.error)
+  );
+  const joined = JSON.stringify(alternatives).toLowerCase();
+  ensure(
+    joined.indexOf("windows") >= 0,
+    "cu_linux_workspace_desktop_spaces_alternatives_windows:" + joined
+  );
+  print("PASS: spaces typed host-limit unsupported; alternatives include windows inventory workspace_desktop");
 }
 
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
@@ -137,7 +329,8 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   ensure(!output_success(reply), "cu_linux_workspace_desktop_extents_unavailable_ok:" + JSON.stringify(reply));
   const code = text_at(reply, "error.code");
   ensure(
-    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
     "cu_linux_workspace_desktop_extents_unavailable_code:" + code
   );
 }
@@ -239,6 +432,44 @@ function independent_pyatspi_extents(run_directory, executable, fixture_title, n
   return JSON.parse(output.stdout.trim());
 }
 
+function assert_get_extents_reject_coords_or_stay_named(
+  run_directory, executable, handle, node_name, label
+) {
+  const extents_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
+  ]);
+  if (!output_success(extents_coords)) {
+    ensure(
+      misuse_code_ok(text_at(extents_coords, "error.code"))
+        || text_at(extents_coords, "error.code") === "a11y_extents_unavailable",
+      "cu_linux_workspace_desktop_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_coords, "data.addressing") === "accessibility-tree"
+        && text_at(extents_coords, "data.matched.name") === node_name,
+      "cu_linux_workspace_desktop_extents_coords_named_" + label + ":" + JSON.stringify(extents_coords.data)
+    );
+  }
+
+  const extents_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
+  ]);
+  if (!output_success(extents_bogus)) {
+    ensure(
+      misuse_code_ok(text_at(extents_bogus, "error.code"))
+        || text_at(extents_bogus, "error.code") === "a11y_extents_unavailable",
+      "cu_linux_workspace_desktop_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_bogus, "data.addressing") === "accessibility-tree"
+        && text_at(extents_bogus, "data.matched.name") === node_name,
+      "cu_linux_workspace_desktop_extents_bogus_named_" + label + ":" + JSON.stringify(extents_bogus.data)
+    );
+  }
+}
+
 function assert_get_extents_agreement(run_directory, executable, handle, fixture_title, node_name) {
   const pyatspi_button = independent_pyatspi_extents(
     run_directory, executable, fixture_title, node_name
@@ -324,27 +555,39 @@ ensure(direct_file(executable), "cu_linux_workspace_desktop_executable_missing:"
 const context = harness.new_context(repo, "cu-linux-workspace-desktop");
 const run_directory = rh.join(repo, "target/cu-linux-workspace-desktop-smoke-run");
 rh.create_dir_all(run_directory);
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_workspace_desktop_fixture_missing:" + fixture_source);
 
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before workspace/desktop observe court");
+assert_get_extents_usage_limit(run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before workspace/desktop observe court");
+assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+print("STEP windows typed-fail usage when AT-SPI --name/--coords/--bogus is present before workspace/desktop observe court");
+assert_windows_usage_limit(run_directory, executable, env);
+
+print("STEP windows without DISPLAY typed-fail unsupported host-limit");
+assert_windows_headless_host_limit(run_directory, executable);
+
+print("STEP spaces typed-fail usage when AT-SPI --name/--coords/--bogus is present before workspace/desktop observe court");
+assert_spaces_usage_limit(run_directory, executable, env);
+
+print("STEP spaces typed-fail unsupported host-limit on Linux (SkyLight) before workspace/desktop observe court");
+assert_spaces_host_limit(run_directory, executable, env);
+
+if (!atspi_available) {
+  print("STEP independent pyatspi desktop probe unavailable; get-extents host-limit already asserted");
+}
+
 let fixture = -1;
 let fixture_pid = 0;
 let failure = "";
-const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP get-extents typed-fail invalid_input when --window handle is zero");
-  assert_get_extents_usage_limit(run_directory, executable);
-
-  print("STEP windows without DISPLAY typed-fail unsupported host-limit");
-  assert_windows_headless_host_limit(run_directory, executable);
-
-  if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  }
-
   print("STEP start owned GTK fixture and resolve window by pid and exact title");
   fixture = harness.start({
     program: "python3",
@@ -371,6 +614,11 @@ try {
     print("STEP get-extents typed-fail a11y_node_not_found when the named button is missing");
     assert_get_extents_missing_node(run_directory, executable, handle_text, "before_workspace");
 
+    print("STEP get-extents --name with --coords/--bogus rejects or stays accessibility-tree before workspace read-back");
+    assert_get_extents_reject_coords_or_stay_named(
+      run_directory, executable, handle_text, BUTTON_NAME, "before_workspace"
+    );
+
     print("STEP independent pyatspi extents and CU get-extents --name agree before workspace read-back");
     assert_get_extents_agreement(run_directory, executable, handle_text, fixture_title, BUTTON_NAME);
   }
@@ -392,8 +640,8 @@ ensure(failure === "", failure);
 harness.emit_evidence(context, declared_evidence, "cu.linux-workspace-desktop");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: workspace_desktop xprop read-back with get-extents --name pyatspi agreement and typed usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: workspace_desktop xprop read-back with get-extents --name pyatspi agreement, typed windows/spaces --coords/--bogus usage, spaces host-limit, and get-extents --name usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: workspace_desktop xprop read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: workspace_desktop xprop read-back with typed windows/spaces --coords/--bogus usage, spaces host-limit, and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
 }
 return;
