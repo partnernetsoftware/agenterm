@@ -1,9 +1,11 @@
 // CEO: Linux GTK secondary click by --name opens a named popover menu.
-// Acceptance is smoke read-back only: context label proves the secondary
-// press reached the toolkit handler; an independent click on the popover
-// item closes the circuit. When the toolkit popup stays off-tree on this
-// host, the journey records an honest typed blocker with alternatives
-// after independent rclick reply read-back. AT-SPI --name only.
+// Acceptance is smoke read-back only: independent pyatspi context-label and
+// desktop menu-item probes prove the secondary press reached the toolkit
+// handler and that the named popover item is observable; an independent
+// click on that item closes the circuit via pyatspi label read-back. When
+// the toolkit popup stays off-tree on this host, the journey records an
+// honest typed blocker with alternatives after independent rclick reply
+// read-back and pyatspi context-label honesty. AT-SPI --name only.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -116,6 +118,105 @@ function next_actions_include_alternatives(reply) {
   return joined.indexOf("show-menu") >= 0 && joined.indexOf("off-tree") >= 0;
 }
 
+function independent_pyatspi_probe(run_directory, executable, fixture_title, mode, expected) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "mode = sys.argv[2]",
+    "expected = sys.argv[3] if len(sys.argv) > 3 else ''",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and w.name == title:",
+    "                return w",
+    "    return None",
+    "def walk_context(node):",
+    "    if node is None:",
+    "        return None",
+    "    name = node.name or ''",
+    "    if name.startswith('context '):",
+    "        return name",
+    "    for k in range(node.childCount):",
+    "        hit = walk_context(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "def walk_named(node, want):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == want:",
+    "        try:",
+    "            role = pyatspi.role.getLocalizedRoleName(node).lower()",
+    "        except Exception:",
+    "            role = str(node.getRole()).lower()",
+    "        return role",
+    "    for k in range(node.childCount):",
+    "        hit = walk_named(node.getChildAtIndex(k), want)",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "def named_on_desktop(want):",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        hit = walk_named(app, want)",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "if mode == 'context_label':",
+    "    frame = find_frame()",
+    "    if frame is None:",
+    "        raise SystemExit('cu_linux_gtk_rclick_atspi_no_frame')",
+    "    value = walk_context(frame)",
+    "    if value is None:",
+    "        raise SystemExit('cu_linux_gtk_rclick_atspi_context_miss')",
+    "    if expected and value != expected:",
+    "        raise SystemExit('cu_linux_gtk_rclick_atspi_context_mismatch:' + value + ':' + expected)",
+    "    print(json.dumps({'mode': mode, 'value': value}))",
+    "elif mode == 'named_desktop':",
+    "    role = named_on_desktop(expected)",
+    "    print(json.dumps({'mode': mode, 'present': role is not None, 'role': role or ''}))",
+    "else:",
+    "    raise SystemExit('cu_linux_gtk_rclick_atspi_mode:' + mode)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, fixture_title, mode, expected], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_gtk_rclick_pyatspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function wait_pyatspi_context_label(run_directory, executable, fixture_title, expected) {
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    const probe = independent_pyatspi_probe(run_directory, executable, fixture_title, "context_label", "");
+    if (probe.value === expected) { return probe; }
+    harness.sleep_ms(100);
+  }
+  const last = independent_pyatspi_probe(run_directory, executable, fixture_title, "context_label", "");
+  ensure(last.value === expected, "cu_linux_gtk_rclick_pyatspi_label:" + last.value + ":" + expected);
+  return last;
+}
+
+function wait_pyatspi_menu_item(run_directory, executable, want) {
+  for (let attempt = 0; attempt < 40; attempt = attempt + 1) {
+    const probe = independent_pyatspi_probe(run_directory, executable, "", "named_desktop", want);
+    if (probe.present === true) { return probe; }
+    harness.sleep_ms(100);
+  }
+  const last = independent_pyatspi_probe(run_directory, executable, "", "named_desktop", want);
+  ensure(last.present === true, "cu_linux_gtk_rclick_pyatspi_menu:" + JSON.stringify(last));
+  return last;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -162,6 +263,11 @@ try {
     label_text(run_directory, executable, handle_text, "context ") === "context idle",
     "cu_linux_gtk_rclick_context_before"
   );
+  ensure(
+    independent_pyatspi_probe(run_directory, executable, fixture_title, "context_label", "context idle").value
+      === "context idle",
+    "cu_linux_gtk_rclick_pyatspi_before"
+  );
 
   print("STEP rclick --name through AT-SPI accessibility-tree actuation");
   const rclicked = run_cu(run_directory, executable, "observe,actuate", [
@@ -176,14 +282,33 @@ try {
 
   const opened = label_text(run_directory, executable, handle_text, "context ") === "context menu open";
   if (opened) {
-    print("STEP independent label read-back proves the named popover opened");
+    print("STEP independent pyatspi context-label and menu-item read-back prove the popover opened");
+    const pyatspi_open_label = wait_pyatspi_context_label(
+      run_directory, executable, fixture_title, "context menu open"
+    );
+    ensure(
+      pyatspi_open_label.value === "context menu open",
+      "cu_linux_gtk_rclick_pyatspi_open:" + JSON.stringify(pyatspi_open_label)
+    );
+    const pyatspi_menu = wait_pyatspi_menu_item(run_directory, executable, MENU_ITEM_NAME);
+    ensure(
+      pyatspi_menu.present === true && ("" + pyatspi_menu.role).indexOf("menu") >= 0,
+      "cu_linux_gtk_rclick_pyatspi_menu_role:" + JSON.stringify(pyatspi_menu)
+    );
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-rclick-context-menu");
 
-    print("STEP click --name on the popover item closes the circuit via label read-back");
+    print("STEP click --name on the popover item closes the circuit via pyatspi label read-back");
     const item_clicked = run_cu(run_directory, executable, "observe,actuate", [
       "click", "--window", handle_text, "--name", MENU_ITEM_NAME,
     ]);
     ensure(flag_at(item_clicked, "data.performed"), "cu_linux_gtk_rclick_item:" + JSON.stringify(item_clicked.data));
+    const pyatspi_after_item = wait_pyatspi_context_label(
+      run_directory, executable, fixture_title, "context did thing"
+    );
+    ensure(
+      pyatspi_after_item.value === "context did thing",
+      "cu_linux_gtk_rclick_pyatspi_after_item:" + JSON.stringify(pyatspi_after_item)
+    );
     ensure(
       label_text(run_directory, executable, handle_text, "context ") === "context did thing",
       "cu_linux_gtk_rclick_context_after_item"
@@ -200,6 +325,11 @@ try {
     ensure(
       label_text(run_directory, executable, handle_text, "context ") === "context idle",
       "cu_linux_gtk_rclick_blocker_side_effect"
+    );
+    ensure(
+      independent_pyatspi_probe(run_directory, executable, fixture_title, "context_label", "context idle").value
+        === "context idle",
+      "cu_linux_gtk_rclick_pyatspi_blocker_label"
     );
     blocker = 1;
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-rclick-context-menu-blocker");
@@ -220,7 +350,7 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_gtk_rclick_failed");
 harness.remove_run(context);
 if (blocker === 1) {
-  print("PASS: Linux GTK rclick --name typed off-tree blocker with independent reply read-back (AT-SPI --name, invoke show-menu / menu-invoke alternatives)");
+  print("PASS: Linux GTK rclick --name typed off-tree blocker with independent reply and pyatspi label read-back (AT-SPI --name, invoke show-menu / menu-invoke alternatives)");
 } else {
-  print("PASS: Linux GTK rclick --name opens popover context menu with independent label read-back (AT-SPI --name, no --coords)");
+  print("PASS: Linux GTK rclick --name opens popover context menu with independent pyatspi menu and label read-back (AT-SPI --name, no --coords)");
 }
