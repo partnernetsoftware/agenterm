@@ -1,13 +1,38 @@
 // CEO: Linux identity-bound extended-attribute set/remove with independent read-back.
+// Acceptance is smoke read-back only: CU file-xattr preview/apply/remove must agree
+// with independent native xattr and file-attributes probes. Typed file-xattr-set/
+// file-xattr-remove usage must reject AT-SPI --name and other unexpected arguments;
+// typed get-extents --name usage/host-limit paths must hold before the xattr mutate/
+// read-back court. Permission-denied open host-limit paths must match an independent
+// os.open probe. AT-SPI/--name only; no --coords or screenshot degradation.
+//
 // Args: REPO AGENTERM_CU_EXE | --list-evidence
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = ["cu.linux-file-xattr-mutation"];
 
+const AT_SPI_PROBE_NAME = "File Xattr Court Anchor";
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function output_success(document) { return at(document, "ok") === true; }
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -15,40 +40,307 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function isolated_env(run_directory) {
-  return {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function isolated_env(run_directory, executable) {
+  const env = {
     HOME: rh.join(run_directory, "home"),
     USERPROFILE: rh.join(run_directory, "home"),
     XDG_CONFIG_HOME: rh.join(run_directory, "config"),
     XDG_DATA_HOME: rh.join(run_directory, "data"),
     AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
     AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
-    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json")
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
+    AGENTERM_NO_ACTIVATE: "1",
   };
+  const cu = cu_env(executable);
+  env.AGENTERM_ABI_LIB = cu.AGENTERM_ABI_LIB;
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (cu[key] !== undefined) { env[key] = cu[key]; }
+  }
+  return env;
 }
 
-function invoke(run_directory, executable, grant, arguments, expected_command, expected_error) {
+function invoke_reply(run_directory, executable, grant, arguments, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (let i = 0; i < arguments.length; i = i + 1) { argv.push(arguments[i]); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: isolated_env(run_directory),
-    timeout_ms: 30000
+    env: env,
+    timeout_ms: 30000,
   });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_file_xattr_cli:" + output.stdout + output.stderr);
   let reply = null;
   try { reply = JSON.parse(output.stdout.trim()); }
-  catch (error) { throw "cu_linux_file_xattr_invalid_reply:" + expected_command; }
-  ensure(reply.command === expected_command, "cu_linux_file_xattr_wrong_command:" + expected_command);
+  catch (error) { throw "cu_linux_file_xattr_invalid_reply"; }
+  const command = text_at(reply, "command");
+  ensure(
+    command === "file-xattr-set" || command === "file-xattr-remove"
+      || command === "file-attributes" || command === "usage",
+    "cu_linux_file_xattr_wrong_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_file_xattr_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function invoke(run_directory, executable, grant, arguments, expected_command, expected_error, env) {
+  const reply = invoke_reply(run_directory, executable, grant, arguments, env);
+  ensure(text_at(reply, "command") === expected_command,
+    "cu_linux_file_xattr_wrong_command:" + expected_command + ":" + JSON.stringify(reply));
   if (expected_error !== undefined) {
-    ensure(output.success !== true && reply.ok === false,
+    ensure(!output_success(reply),
       "cu_linux_file_xattr_expected_failure:" + expected_command);
     ensure(reply.error.code === expected_error,
       "cu_linux_file_xattr_wrong_error:" + expected_command + ":" + reply.error.code);
     return reply.error;
   }
-  ensure(output.success === true && reply.ok === true,
-    "cu_linux_file_xattr_failed:" + expected_command);
+  ensure(output_success(reply),
+    "cu_linux_file_xattr_failed:" + expected_command + ":" + JSON.stringify(reply));
   return reply.data;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("requires PATH NAME") >= 0;
+}
+
+function assert_file_xattr_usage_limit(
+  run_directory, executable, fixture, attribute_name, secret_hex, env
+) {
+  const flat_set_with_name = invoke_reply(run_directory, executable, "observe", [
+    "file-xattr-set", fixture, attribute_name, "--value-hex", secret_hex,
+    "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_set_with_name),
+    "cu_linux_file_xattr_usage_set_flat_name_ok:" + JSON.stringify(flat_set_with_name));
+  ensure(
+    text_at(flat_set_with_name, "error.code") === "usage",
+    "cu_linux_file_xattr_usage_set_flat_name_code:" + JSON.stringify(flat_set_with_name.error)
+  );
+  ensure(
+    text_at(flat_set_with_name, "command") === "usage",
+    "cu_linux_file_xattr_usage_set_flat_name_command:" + JSON.stringify(flat_set_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_set_with_name, "error.message")),
+    "cu_linux_file_xattr_usage_set_flat_name_message:" + JSON.stringify(flat_set_with_name.error)
+  );
+
+  const grouped_set_with_name = invoke_reply(run_directory, executable, "observe", [
+    "file", "xattr-set", fixture, attribute_name, "--value-hex", secret_hex,
+    "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_set_with_name),
+    "cu_linux_file_xattr_usage_set_grouped_name_ok:" + JSON.stringify(grouped_set_with_name));
+  ensure(
+    text_at(grouped_set_with_name, "error.code") === "usage",
+    "cu_linux_file_xattr_usage_set_grouped_name_code:" + JSON.stringify(grouped_set_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_set_with_name, "error.message")),
+    "cu_linux_file_xattr_usage_set_grouped_name_message:" + JSON.stringify(grouped_set_with_name.error)
+  );
+
+  const set_with_bogus = invoke_reply(run_directory, executable, "observe", [
+    "file-xattr-set", fixture, attribute_name, "--value-hex", secret_hex, "--bogus",
+  ], env);
+  ensure(!output_success(set_with_bogus),
+    "cu_linux_file_xattr_usage_set_bogus_ok:" + JSON.stringify(set_with_bogus));
+  ensure(
+    text_at(set_with_bogus, "error.code") === "usage",
+    "cu_linux_file_xattr_usage_set_bogus_code:" + JSON.stringify(set_with_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(set_with_bogus, "error.message")),
+    "cu_linux_file_xattr_usage_set_bogus_message:" + JSON.stringify(set_with_bogus.error)
+  );
+
+  const flat_remove_with_name = invoke_reply(run_directory, executable, "observe", [
+    "file-xattr-remove", fixture, attribute_name, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_remove_with_name),
+    "cu_linux_file_xattr_usage_remove_flat_name_ok:" + JSON.stringify(flat_remove_with_name));
+  ensure(
+    text_at(flat_remove_with_name, "error.code") === "usage",
+    "cu_linux_file_xattr_usage_remove_flat_name_code:" + JSON.stringify(flat_remove_with_name.error)
+  );
+  ensure(
+    text_at(flat_remove_with_name, "command") === "usage",
+    "cu_linux_file_xattr_usage_remove_flat_name_command:" + JSON.stringify(flat_remove_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_remove_with_name, "error.message")),
+    "cu_linux_file_xattr_usage_remove_flat_name_message:" + JSON.stringify(flat_remove_with_name.error)
+  );
+
+  const grouped_remove_with_name = invoke_reply(run_directory, executable, "observe", [
+    "file", "xattr-remove", fixture, attribute_name, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_remove_with_name),
+    "cu_linux_file_xattr_usage_remove_grouped_name_ok:" + JSON.stringify(grouped_remove_with_name));
+  ensure(
+    text_at(grouped_remove_with_name, "error.code") === "usage",
+    "cu_linux_file_xattr_usage_remove_grouped_name_code:" + JSON.stringify(grouped_remove_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_remove_with_name, "error.message")),
+    "cu_linux_file_xattr_usage_remove_grouped_name_message:" + JSON.stringify(grouped_remove_with_name.error)
+  );
+
+  const remove_with_bogus = invoke_reply(run_directory, executable, "observe", [
+    "file-xattr-remove", fixture, attribute_name, "--bogus",
+  ], env);
+  ensure(!output_success(remove_with_bogus),
+    "cu_linux_file_xattr_usage_remove_bogus_ok:" + JSON.stringify(remove_with_bogus));
+  ensure(
+    text_at(remove_with_bogus, "error.code") === "usage",
+    "cu_linux_file_xattr_usage_remove_bogus_code:" + JSON.stringify(remove_with_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(remove_with_bogus, "error.message")),
+    "cu_linux_file_xattr_usage_remove_bogus_message:" + JSON.stringify(remove_with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_file_xattr_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_file_xattr_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_file_xattr_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_file_xattr_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_file_xattr_extents_unavailable_code:" + code
+  );
+}
+
+function probe_file_open(path) {
+  const script = [
+    "import json, os, sys",
+    "path = sys.argv[1]",
+    "readable = False",
+    "error_kind = None",
+    "try:",
+    "    handle = os.open(path, os.O_RDONLY)",
+    "    os.close(handle)",
+    "    readable = True",
+    "except OSError as error:",
+    "    if error.errno == 13:",
+    "        error_kind = 'PermissionDenied'",
+    "    elif error.errno == 2:",
+    "        error_kind = 'NotFound'",
+    "    else:",
+    "        error_kind = error.__class__.__name__",
+    "print(json.dumps({",
+    "    'readable': readable,",
+    "    'error_kind': error_kind,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, path], {
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+    "cu_linux_file_xattr_open_probe:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_file_xattr_open_denied_host_limit(
+  run_directory, executable, path, attribute_name, secret_hex, grant, env, apply
+) {
+  const probe = probe_file_open(path);
+  ensure(probe.readable !== true && probe.error_kind === "PermissionDenied",
+    "cu_linux_file_xattr_denied_probe_not_denied:" + JSON.stringify(probe));
+  const arguments = ["file-xattr-set", path, attribute_name, "--value-hex", secret_hex];
+  if (apply === true) { arguments.push("--apply"); }
+  const reply = invoke_reply(run_directory, executable, grant, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_file_xattr_denied_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "file_xattr_open_failed",
+    "cu_linux_file_xattr_denied_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf("Permission denied") >= 0 || message.indexOf("os error 13") >= 0,
+    "cu_linux_file_xattr_denied_message:" + message
+  );
 }
 
 function native_has_xattr(path, name) {
@@ -107,7 +399,10 @@ ensure(uname.success === true && uname.stdout.trim() === "Linux",
 
 const context = harness.new_context(repo, "cu-linux-file-xattr-mutation");
 const run_directory = context.run_directory;
+const env = isolated_env(run_directory, executable);
+const atspi_available = probe_atspi_available(executable);
 const fixture = rh.join(run_directory, "fixture.bin");
+const denied_fixture = rh.join(run_directory, "denied-fixture.bin");
 const link = rh.join(run_directory, "fixture-link.bin");
 const attribute_name = "user.agenterm.cu.mutation";
 const secret_text = "vault-leaf-47";
@@ -120,10 +415,22 @@ try {
   ensure(native_has_xattr(fixture, attribute_name) !== true,
     "cu_linux_file_xattr_fixture_not_clean");
 
+  print("STEP file-xattr typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_file_xattr_usage_limit(
+    run_directory, executable, fixture, attribute_name, secret_hex, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before xattr mutate/read-back");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP default set is a zero-write preview with performed=false");
   const plan = invoke(run_directory, executable, "observe", [
     "file-xattr-set", fixture, attribute_name, "--value-hex", secret_hex
-  ], "file-xattr-set");
+  ], "file-xattr-set", undefined, env);
   ensure(plan.name === attribute_name && plan.operation === "set"
     && plan.values_redacted === true, "cu_linux_file_xattr_plan_contract");
   ensure_state(plan.before, false, "0", "cu_linux_file_xattr_plan_before");
@@ -138,7 +445,7 @@ try {
   print("STEP actuate set applies and file-attributes read-back shows the xattr");
   const applied = invoke(run_directory, executable, "actuate", [
     "file-xattr-set", fixture, attribute_name, "--value-hex", secret_hex, "--apply"
-  ], "file-xattr-set");
+  ], "file-xattr-set", undefined, env);
   ensure_state(applied.before, false, "0", "cu_linux_file_xattr_apply_before");
   ensure_state(applied.requested, true, "13", "cu_linux_file_xattr_apply_requested");
   ensure_state(applied.after, true, "13", "cu_linux_file_xattr_apply_after");
@@ -150,7 +457,7 @@ try {
 
   const metadata = invoke(run_directory, executable, "observe", [
     "file-attributes", fixture
-  ], "file-attributes");
+  ], "file-attributes", undefined, env);
   ensure(metadata.include_values === false, "cu_linux_file_xattr_default_disclosure_flag");
   const redacted = find_attribute(metadata.attributes, attribute_name);
   ensure(redacted !== null && redacted.value_bytes === "13"
@@ -162,7 +469,7 @@ try {
   print("STEP remove apply clears the attribute with independent native read-back");
   const removed = invoke(run_directory, executable, "actuate", [
     "file-xattr-remove", fixture, attribute_name, "--apply"
-  ], "file-xattr-remove");
+  ], "file-xattr-remove", undefined, env);
   ensure_state(removed.before, true, "13", "cu_linux_file_xattr_remove_before");
   ensure_state(removed.after, false, "0", "cu_linux_file_xattr_remove_after");
   ensure_action(removed.action, true, true, true, "cu_linux_file_xattr_remove_action");
@@ -170,9 +477,31 @@ try {
     "cu_linux_file_xattr_native_still_present");
   const cleared = invoke(run_directory, executable, "observe", [
     "file-attributes", fixture
-  ], "file-attributes");
+  ], "file-attributes", undefined, env);
   ensure(find_attribute(cleared.attributes, attribute_name) === null,
     "cu_linux_file_xattr_attributes_still_present");
+
+  rh.write_text(denied_fixture, "xattr-denied-fixture");
+  const denied_prep = rh.command("/bin/chmod", ["0000", denied_fixture], {
+    cwd: run_directory,
+    timeout_ms: 10000,
+  });
+  ensure(denied_prep.success === true,
+    "cu_linux_file_xattr_denied_fixture_setup_failed:" + denied_prep.stderr);
+  const denied_probe = probe_file_open(denied_fixture);
+  if (denied_probe.readable !== true && denied_probe.error_kind === "PermissionDenied") {
+    print("STEP file-xattr-set typed-fails file_xattr_open_failed host-limit when independent os.open probe is denied");
+    assert_file_xattr_open_denied_host_limit(
+      run_directory, executable, denied_fixture, attribute_name, secret_hex,
+      "observe", env, false);
+    assert_file_xattr_open_denied_host_limit(
+      run_directory, executable, denied_fixture, attribute_name, secret_hex,
+      "actuate", env, true);
+    ensure(native_has_xattr(fixture, attribute_name) !== true,
+      "cu_linux_file_xattr_denied_mutated_fixture");
+  } else {
+    print("STEP skip permission-denied host-limit: independent os.open probe is readable on this host");
+  }
 
   print("STEP a final symlink is typed refused and leaves its target unchanged");
   const linked = rh.command("/bin/ln", ["-s", fixture, link], {
@@ -182,7 +511,7 @@ try {
   ensure(linked.success === true, "cu_linux_file_xattr_symlink_setup_failed");
   invoke(run_directory, executable, "actuate", [
     "file-xattr-set", link, attribute_name, "--value-hex", secret_hex, "--apply"
-  ], "file-xattr-set", "file_xattr_not_regular");
+  ], "file-xattr-set", "file_xattr_not_regular", env);
   ensure(native_has_xattr(fixture, attribute_name) !== true,
     "cu_linux_file_xattr_symlink_target_mutated");
 
@@ -197,7 +526,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux file-xattr preview, apply set, file-attributes read-back, remove clear, symlink refusal");
+  if (atspi_available) {
+    print("PASS: Linux file-xattr preview/apply/remove with native and file-attributes read-back plus typed file-xattr/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux file-xattr preview/apply/remove with native and file-attributes read-back plus typed file-xattr/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
