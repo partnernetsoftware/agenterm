@@ -7130,7 +7130,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-text-smoke",
-      "description": "Linux GTK entry focus --name then N\u22652 send-text --name \u2192 get-text roundtrips with independent pyatspi Text.GetText == SEED read-back; typed focus/send-text/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus (usage_rejects_unexpected + command=usage) or stay accessibility-tree --name; focus/send-text/get-text and get-extents usage/host-limit courts always before actuate; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry focus --name then N\u22652 send-text --name \u2192 get-text roundtrips with independent pyatspi Text.GetText == SEED; focus/send-text/get-text --coords/--bogus usage_rejects_unexpected (never fake command=usage); get-extents --name usage+host-limit always run, --coords/--bogus command=usage; process-state/desktop-state before actuate; miss paths must not mutate the entry; AT-SPI --name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
