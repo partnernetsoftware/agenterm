@@ -3,8 +3,9 @@
 // plans must be expiring, identity-bound, mutation_performed=false, and must not
 // change independent nice, boot_id or CLOCK_BOOTTIME probes. Typed privilege-plan
 // usage must reject AT-SPI --name, --coords, --bogus, and other unexpected
-// arguments; typed get-extents --name usage AND host-limit paths must both hold
-// before the process/boot read-back court. Typed usage, observe grant escalation
+// arguments; typed get-extents --name usage AND host-limit paths, including
+// get-extents --coords/--bogus command=usage honesty, must both hold before
+// the process/boot read-back court. Typed usage, observe grant escalation
 // refusal, and missing installed provider helper refusal must fail before any
 // scheduler, boot or provider transport effect. Never perform privilege-apply.
 // Prefer host-limit clarity over fake success. No --coords or screenshot
@@ -154,12 +155,6 @@ function privilege_power_usage_message_ok(message, token) {
     || message.indexOf("requires exactly sleep, restart or shutdown") >= 0;
 }
 
-function get_extents_misuse_message_ok(message, token) {
-  return usage_rejects_unexpected(message, token)
-    || message.indexOf("--name") >= 0
-    || message.indexOf("requires --window") >= 0;
-}
-
 function assert_privilege_unexpected(
   run_directory, executable, env, arguments, label, token, message_ok
 ) {
@@ -275,7 +270,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_privilege_plan_extents_coords_command:" + JSON.stringify(extents_coords)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_coords, "error.message"), "--coords"),
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_privilege_plan_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -293,7 +289,8 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_privilege_plan_extents_bogus_command:" + JSON.stringify(extents_bogus)
   );
   ensure(
-    get_extents_misuse_message_ok(text_at(extents_bogus, "error.message"), "--bogus"),
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_privilege_plan_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -448,7 +445,7 @@ try {
   const court_uptime_before = independent_uptime_milliseconds();
   assert_privilege_plan_usage_limit(context.run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before process/boot read-back");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before process/boot read-back");
   assert_get_extents_usage_limit(context.run_directory, executable, env);
 
   print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process/boot read-back");
