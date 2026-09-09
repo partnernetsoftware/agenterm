@@ -5,9 +5,10 @@
 // select-all via send-keys. Typed get-selection/select usage and host-limit
 // paths must hold when --window/--name are missing or the AT-SPI bus is
 // unavailable; typed get-extents --name usage/host-limit paths must hold
-// before the native actuate/read-back court. Miss paths must not mutate the
-// entry (independent get-text read-back). AT-SPI --name only; no --coords,
-// screenshot, or clipboard proof.
+// before the native actuate/read-back court. Typed get-selection/select must
+// reject --coords/--bogus or stay accessibility-tree --name (never coordinate
+// addressing). Miss paths must not mutate the entry (independent get-text
+// read-back). AT-SPI --name only; no --coords, screenshot, or clipboard proof.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -44,6 +45,10 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function misuse_code_ok(code) {
+  return code === "invalid_input" || code === "usage";
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -208,6 +213,125 @@ function assert_selection_usage_limit(run_directory, executable) {
     text_at(bad_range, "error.message").indexOf("--start") >= 0,
     "cu_linux_gtk_entry_selection_bad_range_message:" + JSON.stringify(bad_range.error)
   );
+
+  const get_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(get_coords), "cu_linux_gtk_entry_selection_coords_ok:" + JSON.stringify(get_coords));
+  ensure(
+    misuse_code_ok(text_at(get_coords, "error.code")),
+    "cu_linux_gtk_entry_selection_coords_code:" + JSON.stringify(get_coords.error)
+  );
+  ensure(
+    text_at(get_coords, "error.message").indexOf("--name") >= 0
+      || text_at(get_coords, "error.message").indexOf("--coords") >= 0
+      || text_at(get_coords, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_gtk_entry_selection_coords_message:" + JSON.stringify(get_coords.error)
+  );
+
+  const get_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", "1", "--name", ENTRY_NAME, "--bogus",
+  ]);
+  ensure(!output_success(get_bogus), "cu_linux_gtk_entry_selection_bogus_ok:" + JSON.stringify(get_bogus));
+
+  const select_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", "1", "--start", "0", "--end", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(select_coords), "cu_linux_gtk_entry_selection_select_coords_ok:" + JSON.stringify(select_coords));
+  ensure(
+    misuse_code_ok(text_at(select_coords, "error.code")),
+    "cu_linux_gtk_entry_selection_select_coords_code:" + JSON.stringify(select_coords.error)
+  );
+  ensure(
+    text_at(select_coords, "error.message").indexOf("--name") >= 0
+      || text_at(select_coords, "error.message").indexOf("--coords") >= 0
+      || text_at(select_coords, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_gtk_entry_selection_select_coords_message:" + JSON.stringify(select_coords.error)
+  );
+
+  const select_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", "1", "--name", ENTRY_NAME, "--start", "0", "--end", "1", "--bogus",
+  ]);
+  ensure(!output_success(select_bogus), "cu_linux_gtk_entry_selection_select_bogus_ok:" + JSON.stringify(select_bogus));
+}
+
+function assert_named_stay_or_misuse(reply, label, via) {
+  if (!output_success(reply)) {
+    ensure(
+      misuse_code_ok(text_at(reply, "error.code")),
+      "cu_linux_gtk_entry_selection_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    return false;
+  }
+  ensure(
+    text_at(reply, "data.addressing") === "accessibility-tree"
+      && text_at(reply, "data.via") === via,
+    "cu_linux_gtk_entry_selection_" + label + "_degraded:" + JSON.stringify(reply.data)
+  );
+  return true;
+}
+
+function assert_selection_reject_coords_or_stay_named(
+  run_directory, executable, handle, start, end, expected_text, label
+) {
+  const get_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", handle, "--name", ENTRY_NAME, "--coords", "10,10",
+  ]);
+  if (assert_named_stay_or_misuse(get_coords, "get_coords_" + label, "get-selection")) {
+    ensure(
+      text_at(get_coords, "data.text") === expected_text
+        && int_at(get_coords, "data.start") === start
+        && int_at(get_coords, "data.end") === end,
+      "cu_linux_gtk_entry_selection_get_coords_slice_" + label + ":" + JSON.stringify(get_coords.data)
+    );
+  }
+
+  const get_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-selection", "--window", handle, "--name", ENTRY_NAME, "--bogus",
+  ]);
+  if (assert_named_stay_or_misuse(get_bogus, "get_bogus_" + label, "get-selection")) {
+    ensure(
+      text_at(get_bogus, "data.text") === expected_text
+        && int_at(get_bogus, "data.start") === start
+        && int_at(get_bogus, "data.end") === end,
+      "cu_linux_gtk_entry_selection_get_bogus_slice_" + label + ":" + JSON.stringify(get_bogus.data)
+    );
+  }
+
+  const select_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", handle, "--name", ENTRY_NAME,
+    "--start", "" + start, "--end", "" + end, "--coords", "10,10",
+  ]);
+  if (assert_named_stay_or_misuse(select_coords, "select_coords_" + label, "set-selection")) {
+    ensure(
+      int_at(select_coords, "data.start") === start
+        && int_at(select_coords, "data.end") === end,
+      "cu_linux_gtk_entry_selection_select_coords_range_" + label + ":" + JSON.stringify(select_coords.data)
+    );
+  }
+
+  const select_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "select", "--window", handle, "--name", ENTRY_NAME,
+    "--start", "" + start, "--end", "" + end, "--bogus",
+  ]);
+  if (assert_named_stay_or_misuse(select_bogus, "select_bogus_" + label, "set-selection")) {
+    ensure(
+      int_at(select_bogus, "data.start") === start
+        && int_at(select_bogus, "data.end") === end,
+      "cu_linux_gtk_entry_selection_select_bogus_range_" + label + ":" + JSON.stringify(select_bogus.data)
+    );
+  }
+
+  const readback = run_cu(run_directory, executable, "observe", [
+    "get-selection", "--window", handle, "--name", ENTRY_NAME,
+  ]);
+  ensure(
+    text_at(readback, "data.via") === "get-selection"
+      && text_at(readback, "data.text") === expected_text
+      && int_at(readback, "data.start") === start
+      && int_at(readback, "data.end") === end,
+    "cu_linux_gtk_entry_selection_coords_bogus_readback_" + label + ":" + JSON.stringify(readback.data)
+  );
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -358,7 +482,7 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP get-selection / select typed-fail usage when --window or --name is missing");
+  print("STEP get-selection / select typed-fail usage when --window or --name is missing, or --coords/--bogus is present");
   assert_selection_usage_limit(run_directory, executable);
 
   if (atspi_available) {
@@ -476,6 +600,11 @@ try {
     );
     print("STEP independent get-text --name still reads the full SEED after interior select");
     assert_entry_text(run_directory, executable, handle, seed, "after_region_select");
+    print("STEP get-selection/select --name with --coords/--bogus rejects or stays accessibility-tree on the REGION slice");
+    assert_selection_reject_coords_or_stay_named(
+      run_directory, executable, handle, region_start, region_end, region, "after_region"
+    );
+    assert_entry_text(run_directory, executable, handle, seed, "after_region_coords_bogus");
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-select-region");
 
     print("STEP send-keys ctrl+a --name performs semantic select-all through AT-SPI Text.SetSelection");
@@ -507,6 +636,11 @@ try {
     );
     print("STEP independent get-text --name still reads the full SEED after select-all");
     assert_entry_text(run_directory, executable, handle, seed, "after_select_all");
+    print("STEP get-selection/select --name with --coords/--bogus rejects or stays accessibility-tree on the full SEED slice");
+    assert_selection_reject_coords_or_stay_named(
+      run_directory, executable, handle, 0, seed_len, seed, "after_select_all"
+    );
+    assert_entry_text(run_directory, executable, handle, seed, "after_select_all_coords_bogus");
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-get-selection");
 
     succeeded = 1;
@@ -524,7 +658,7 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_selection_failed");
 if (atspi_available) {
-  print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection/get-text read-back and typed get-selection/select/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO#7 GTK entry select region + select-all by --name with independent get-selection/get-text read-back and typed get-selection/select/get-extents usage/--coords/--bogus honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO#7 GTK entry selection typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO#7 GTK entry selection typed-fails with typed get-extents host-limit honesty and get-selection/select --coords/--bogus usage when independent pyatspi desktop probe is unavailable");
 }
