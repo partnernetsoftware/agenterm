@@ -33,14 +33,30 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function run_cu(run_directory, executable, grant, command_argv, expect_error) {
+function cu_env(run_directory) {
+  const env = {
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+    HOME: run_directory,
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of ["DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, grant, command_argv, expect_error, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const item of command_argv) { argv.push("" + item); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: { AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"), HOME: run_directory },
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: cu_env(run_directory),
     timeout_ms: 45000,
-  });
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_host_notify_empty_stdout");
   const reply = JSON.parse(trimmed);
@@ -114,6 +130,17 @@ try {
     "cu_linux_host_notify_actions_cap_status");
   ensure(text_at(notify_cap, "actions.invoke") === "session-bus-action-invoked-only",
     "cu_linux_host_notify_actions_invoke_truth");
+  ensure(text_at(notify_cap, "actions.mode") === "fdo-notify-action-pairs",
+    "cu_linux_host_notify_actions_mode_truth");
+  ensure(text_at(notify_cap, "actions.verification") === "dispatcher-accepted-only",
+    "cu_linux_host_notify_actions_verification_truth");
+
+  print("STEP host-notify without session bus returns typed dispatcher-unavailable host-limit detail");
+  const no_bus = run_cu(run_directory, executable, "actuate",
+    ["host-notify", "AgenTerm", "no-session-bus"], "host_notification_dispatcher_unavailable",
+    ["DBUS_SESSION_BUS_ADDRESS"]);
+  ensure(text_at(no_bus, "detail.effect") === "not_performed",
+    "cu_linux_host_notify_no_bus_effect");
 
   print("STEP FDO GetCapabilities reports the session notification server honestly");
   const capabilities_text = dbus_send([
@@ -196,6 +223,8 @@ try {
     "cu_linux_host_notify_action_evidence_count:" + JSON.stringify(action_sent));
   ensure(action_sent.actions_evidence[0].key_evidence.sha256.length === 64,
     "cu_linux_host_notify_action_key_redacted");
+  ensure(text_at(action_sent, "verification") === "dispatcher-accepted-only",
+    "cu_linux_host_notify_action_receipt_verification");
   run_dunstctl(["action", "0"]);
   harness.sleep_ms(400);
   stop_dbus_monitor(action_pid);

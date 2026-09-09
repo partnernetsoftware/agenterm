@@ -6452,7 +6452,7 @@
     },
     {
       "id": "cu-linux-host-notify-smoke",
-      "description": "Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed subtitle/sound refusal, and action-button dispatch plus ActionInvoked invoke read-back.",
+      "description": "Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed subtitle/sound refusal, session-bus-absent dispatcher-unavailable host-limit honesty, and action-button dispatch plus ActionInvoked invoke read-back.",
       "entry": "scripts/qjs/cu-linux-host-notify-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
