@@ -6340,7 +6340,7 @@
     },
     {
       "id": "cu-linux-page-hover-smoke",
-      "description": "Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; no --coords.",
+      "description": "Linux page-hover moves the CDP pointer and independent page-js read-back shows CSS :hover, computed style change, and title on a disposable control; typed page-hover/get-extents AT-SPI/--name court before actuate; no --coords.",
       "entry": "scripts/qjs/cu-linux-page-hover-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6360,7 +6360,7 @@
     },
     {
       "id": "cu-linux-browser-tabs-smoke",
-      "description": "Linux browser-open with profile/URL then independent browser-tabs lists the tab with stable CDP title/URL evidence; AT-SPI/--name court only, no --coords.",
+      "description": "Linux browser-open with profile/URL then independent browser-tabs lists the tab with stable CDP title/URL evidence; typed browser-tabs/browser-open/get-extents usage or host-limit honesty before read-back; AT-SPI/--name court only, no --coords.",
       "entry": "scripts/qjs/cu-linux-browser-tabs-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

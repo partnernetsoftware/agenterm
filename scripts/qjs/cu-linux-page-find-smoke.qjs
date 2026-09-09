@@ -1,8 +1,11 @@
 // CEO: Linux page-find honesty — CU CDP page-find matches independent CDP probe.
 // Acceptance is smoke read-back only: --selector/--text/--role node text/count must
 // agree with a separate CDP DOM or AX-tree probe on the same disposable target.
-// Typed usage, miss, and no-CDP host-limit paths must hold before actuation.
-// Disposable Chrome profile; --port/--target-id only; no --coords or screenshot.
+// Typed page-find usage must reject AT-SPI --name outside --role narrowing and other
+// unexpected arguments; typed get-extents --name usage/host-limit paths must hold
+// before the page-find read-back court. Typed usage, miss, and no-CDP host-limit
+// paths must hold before Chrome starts. Disposable Chrome profile; --port/--target-id
+// only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,6 +15,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-page-find-honesty",
 ];
+
+const AT_SPI_PROBE_NAME = "Page Find Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -87,6 +92,126 @@ function page_target(rows) {
     if (text_at(row, "type") === "page") { return row; }
   }
   return null;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("only narrows") >= 0;
+}
+
+function assert_page_find_atspi_name_usage(run_directory, executable, env, port) {
+  const selector_with_name = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#hero", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(selector_with_name),
+    "cu_linux_page_find_usage_selector_name_ok:" + JSON.stringify(selector_with_name));
+  ensure(
+    text_at(selector_with_name, "error.code") === "usage",
+    "cu_linux_page_find_usage_selector_name_code:" + JSON.stringify(selector_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(selector_with_name, "error.message")),
+    "cu_linux_page_find_usage_selector_name_message:" + JSON.stringify(selector_with_name.error)
+  );
+
+  const text_with_name = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", "unused",
+    "--text", "CEO", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(text_with_name),
+    "cu_linux_page_find_usage_text_name_ok:" + JSON.stringify(text_with_name));
+  ensure(
+    text_at(text_with_name, "error.code") === "usage",
+    "cu_linux_page_find_usage_text_name_code:" + JSON.stringify(text_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(text_with_name, "error.message")),
+    "cu_linux_page_find_usage_text_name_message:" + JSON.stringify(text_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe", [
+    "page", "find", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#hero", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_page_find_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_page_find_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_page_find_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "page-find", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#hero", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_page_find_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_page_find_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_page_find_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_page_find_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_find_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_find_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_page_find_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_page_find_extents_unavailable_code:" + code
+  );
 }
 
 function assert_page_find_usage(run_directory, executable, env, port) {
@@ -584,6 +709,7 @@ ensure(direct_file(abi_library), "cu_linux_page_find_library_missing:" + abi_lib
 const context = harness.new_context(repo, "cu-linux-page-find");
 const run_directory = context.run_directory;
 const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 const fixture_title = "CEO Page Find " + context.run_id;
 const fixture = rh.join(run_directory, "page-find.html");
@@ -614,8 +740,19 @@ try {
   print("STEP page-find typed usage rejects missing or conflicting node queries before Chrome starts");
   assert_page_find_usage(run_directory, executable, env, port);
 
+  print("STEP page-find typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_find_atspi_name_usage(run_directory, executable, env, port);
+
   print("STEP page-find typed-fails no CDP listener on the owned free port before Chrome starts");
   assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-find read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
@@ -727,5 +864,9 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_find_failed");
 harness.remove_run(context);
-print("PASS: Linux page-find usage/miss/host-limit honesty + independent CDP DOM/AX probe read-back (no --coords)");
+if (atspi_available) {
+  print("PASS: Linux page-find usage/miss/host-limit honesty + independent CDP DOM/AX probe read-back with typed page-find/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux page-find usage/miss/host-limit honesty + independent CDP DOM/AX probe read-back with typed page-find/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
 return;
