@@ -1,8 +1,10 @@
 // CEO: Linux privilege-plan observe honesty with independent before/after read-back.
 // Acceptance is smoke read-back only: process.set-priority and system.power-action
 // plans must be expiring, identity-bound, mutation_performed=false, and must not
-// change independent nice, boot_id or CLOCK_BOOTTIME probes. Never privilege-apply.
-// No --coords or screenshot degradation.
+// change independent nice, boot_id or CLOCK_BOOTTIME probes. Typed usage, observe
+// grant escalation refusal, and missing installed provider helper refusal must
+// fail before any scheduler, boot or provider transport effect. Never perform
+// privilege-apply. No --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -40,6 +42,7 @@ function isolated_env(run_directory, prefix) {
     AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, prefix + "-audit.jsonl"),
     AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, prefix + "-receipts.jsonl"),
     AGENTERM_CU_RUNTIME_PATH: rh.join(run_directory, "cu-runtime.json"),
+    AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
     AGENTERM_NO_ACTIVATE: "1",
   };
 }
@@ -255,6 +258,83 @@ try {
          "cu_linux_privilege_plan_uptime_regressed:before=" + uptime_before
          + ":after=" + uptime_after);
 
+  print("STEP invalid privilege-plan usage fails typed before scheduler or boot mutation");
+  const usage_probe_before = independent_process_probe(pid);
+  const usage_boot_before = independent_boot_id();
+  for (const invalid of [
+    ["privilege", "plan", "system.power-action", "hibernate", "--ttl-seconds", "60"],
+    ["privilege", "plan", "system.power-action", "sleep", "--ttl-seconds", "0"],
+    ["privilege", "plan", "process.set-priority", "" + pid, "99", "--ttl-seconds", "60"],
+    ["privilege", "plan", "bogus", "op", "--ttl-seconds", "60"],
+  ]) {
+    const reply = invoke(context.run_directory, executable, [
+      "--target", "current", "--grant", "observe",
+    ].concat(invalid), false, "usage-" + invalid[3]);
+    ensure(text_at(reply, "error.code") === "usage",
+           "cu_linux_privilege_plan_invalid_error:" + invalid.join(" "));
+  }
+  const usage_probe_after = independent_process_probe(pid);
+  const usage_boot_after = independent_boot_id();
+  ensure(usage_probe_before.nice === usage_probe_after.nice,
+         "cu_linux_privilege_plan_usage_mutated_nice:before=" + usage_probe_before.nice
+         + ":after=" + usage_probe_after.nice);
+  ensure(usage_probe_before.start_identity === usage_probe_after.start_identity,
+         "cu_linux_privilege_plan_usage_mutated_identity");
+  ensure(usage_boot_before === usage_boot_after,
+         "cu_linux_privilege_plan_usage_mutated_boot:" + usage_boot_before
+         + "!=" + usage_boot_after);
+
+  print("STEP observe grant refuses privilege apply before any escalation attempt");
+  const plan_request = text_at(priority_reply, "data.request");
+  const plan_approval = text_at(priority_reply, "data.approval_digest");
+  ensure(plan_request.length > 0 && plan_approval.length === 64,
+         "cu_linux_privilege_plan_apply_projection");
+  const escalate_probe_before = independent_process_probe(pid);
+  const denied_apply = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "privilege", "apply", "--request", plan_request, "--approve", plan_approval,
+  ], false, "apply-observe");
+  ensure(text_at(denied_apply, "error.code") === "refused",
+         "cu_linux_privilege_plan_apply_observe_code:" + JSON.stringify(denied_apply.error));
+  ensure(text_at(denied_apply, "error.message").indexOf("Actuate") >= 0,
+         "cu_linux_privilege_plan_apply_observe_message:" + text_at(denied_apply, "error.message"));
+  const escalate_probe_after = independent_process_probe(pid);
+  ensure(escalate_probe_before.nice === escalate_probe_after.nice,
+         "cu_linux_privilege_plan_apply_observe_mutated_nice");
+  ensure(escalate_probe_before.start_identity === escalate_probe_after.start_identity,
+         "cu_linux_privilege_plan_apply_observe_mutated_identity");
+
+  print("STEP missing installed privilege helper typed-fails connect before any effect");
+  const session = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "session-start", "--label", "privilege-plan-honesty", "--ttl-seconds", "120",
+  ], true, "session");
+  ensure(session.command === "session-start", "cu_linux_privilege_plan_session_command");
+  ensure(text_at(session, "data.session_id").length > 0,
+         "cu_linux_privilege_plan_session_id");
+  ensure(text_at(session, "data.lease").length > 0,
+         "cu_linux_privilege_plan_session_lease");
+  const helper_probe_before = independent_process_probe(pid);
+  const missing_helper = invoke(context.run_directory, executable, [
+    "--target", "current", "--grant", "actuate",
+    "--request-id", context.run_id + "-apply",
+    "--session", text_at(session, "data.session_id"),
+    "--session-lease", text_at(session, "data.lease"),
+    "privilege", "apply", "--request", plan_request, "--approve", plan_approval,
+    "--provider-timeout-ms", "1000",
+  ], false, "apply-missing-helper");
+  ensure(text_at(missing_helper, "error.code") === "privilege_provider_unavailable",
+         "cu_linux_privilege_plan_missing_helper_code:" + JSON.stringify(missing_helper.error));
+  ensure(text_at(missing_helper, "error.detail.effect") === "not_performed",
+         "cu_linux_privilege_plan_missing_helper_effect:" + JSON.stringify(missing_helper.error));
+  ensure(text_at(missing_helper, "error.detail.stage") === "connect",
+         "cu_linux_privilege_plan_missing_helper_stage:" + JSON.stringify(missing_helper.error));
+  const helper_probe_after = independent_process_probe(pid);
+  ensure(helper_probe_before.nice === helper_probe_after.nice,
+         "cu_linux_privilege_plan_missing_helper_mutated_nice");
+  ensure(helper_probe_before.start_identity === helper_probe_after.start_identity,
+         "cu_linux_privilege_plan_missing_helper_mutated_identity");
+
   succeeded = 1;
 } catch (error) {
   failure = "" + error;
@@ -266,7 +346,8 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-privilege-plan-readback");
   harness.remove_run(context);
-  print("PASS: CEO Linux privilege-plan observe honesty with independent process and boot read-back");
+  print("PASS: CEO Linux privilege-plan observe honesty with typed usage, escalation refusal,"
+        + " missing-helper host-limit, and independent process/boot read-back");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
