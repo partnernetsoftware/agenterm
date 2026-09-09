@@ -234,6 +234,13 @@
       ]
     },
     {
+      "id": "cu-linux-process-threads-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-threads-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-sockets-smoke",
       "platform": "linux",
       "evidence": [
