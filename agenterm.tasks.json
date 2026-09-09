@@ -6474,7 +6474,7 @@
     },
     {
       "id": "cu-linux-cdp-page-fill-smoke",
-      "description": "Linux CDP page-nav to a disposable file:// input fixture, page-fill usage/miss/no-CDP host-limit honesty, page-fill --clear writes SEED, and independent page-js input.value read-back equals SEED; typed page-fill --name/--coords/--bogus and get-extents --name usage/host-limit court before actuate; no --coords.",
+      "description": "Linux CDP page-nav to a disposable file:// input fixture, page-fill usage/miss/no-CDP host-limit honesty, page-fill --clear writes SEED, and independent page-js input.value read-back equals SEED; typed page-fill --name/--coords/--bogus (usage_rejects_unexpected) and get-extents --name usage AND host-limit courts plus --coords/--bogus command=usage before actuate; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-cdp-page-fill-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6534,7 +6534,7 @@
     },
     {
       "id": "cu-linux-page-targets-smoke",
-      "description": "Linux page-targets --port and identity-bound --pid CDP /json inventory match independent curl read-back on the same debugging port; typed get-extents --name usage/miss/host-limit paths and independent pyatspi extents agreement before the CDP read-back court; free port typed-fails before owned Chrome; AT-SPI/--name only, no --coords.",
+      "description": "Linux page-targets --port and identity-bound --pid CDP /json inventory match independent curl read-back on the same debugging port; typed page-targets usage rejects AT-SPI --name/--coords/--bogus (usage_rejects_unexpected); typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage before the CDP read-back court; independent pyatspi extents agreement; free port typed-fails before owned Chrome; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-targets-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
