@@ -1,12 +1,13 @@
 // CEO: Linux headless PTY + AgenTerm Unix-socket honesty with independent read-back.
 // Proves pty-start / pty-send / pty-wait / pty-read on a live authority and typed
 // pty_job_not_found when the deterministic Unix socket authority is missing or stale.
-// Typed usage rejects AT-SPI --name on observe pty verbs and missing -- text on pty-send
-// before any authority exists. Present
-// authority uses independent runtime path, fuser, connect, process-sockets listener
-// read-back, and pty-status instance/scope proof; missing authority uses ENOENT
-// transport plus absent socket node proof across observe and actuate verbs; stale
-// authority uses ECONNREFUSED transport plus dead socket node proof.
+// Typed usage rejects AT-SPI --name on observe/actuate pty verbs and missing -- text on
+// pty-send before any authority exists. Typed get-extents --name usage/host-limit paths
+// must hold before the PTY/AgenTerm Unix-socket read-back court. Present authority uses
+// independent runtime path, fuser, connect, process-sockets listener read-back, and
+// pty-status instance/scope proof; missing authority uses ENOENT transport plus absent
+// socket node proof across observe and actuate verbs; stale authority uses ECONNREFUSED
+// transport plus dead socket node proof. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -23,6 +24,9 @@ const declared_evidence = [
   "cu.linux-pty-read",
 ];
 
+const AT_SPI_PROBE_NAME = "PTY Court Anchor";
+const COURT_JOB = "pty-court-anchor";
+
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
@@ -31,6 +35,178 @@ function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
   return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function output_success(document) { return at(document, "ok") === true; }
+
+function cu_env(executable, extra) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  if (extra !== undefined) {
+    for (const key of Object.keys(extra)) { env[key] = extra[key]; }
+  }
+  return env;
+}
+
+function invoke_reply(run_directory, executable, grant, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", grant,
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_pty_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function invoke_observe_reply(run_directory, executable, arguments, env) {
+  return invoke_reply(run_directory, executable, "observe", arguments, env);
+}
+
+function invoke_actuate_reply(run_directory, executable, arguments, env) {
+  return invoke_reply(run_directory, executable, "actuate", arguments, env);
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  return invoke_observe_reply(run_directory, executable, arguments, env);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_pty_usage_rejects_name(run_directory, executable, env) {
+  const observe_cases = [
+    ["pty-read", [COURT_JOB, "--name", AT_SPI_PROBE_NAME]],
+    ["pty-status", [COURT_JOB, "--name", AT_SPI_PROBE_NAME]],
+    ["pty-wait", [COURT_JOB, "--contains", "noop", "--name", AT_SPI_PROBE_NAME]],
+  ];
+  for (const row of observe_cases) {
+    const verb = row[0];
+    const reply = invoke_observe_reply(run_directory, executable, [verb].concat(row[1]), env);
+    ensure(!output_success(reply),
+      "cu_linux_pty_usage_observe_name_ok:" + verb + ":" + JSON.stringify(reply));
+    ensure(
+      text_at(reply, "error.code") === "usage",
+      "cu_linux_pty_usage_observe_name_code:" + verb + ":" + JSON.stringify(reply.error)
+    );
+    ensure(
+      text_at(reply, "error.message") === verb + ' received unexpected "--name"',
+      "cu_linux_pty_usage_observe_name_message:" + verb + ":" + JSON.stringify(reply.error)
+    );
+  }
+
+  const send_missing_text = invoke_actuate_reply(run_directory, executable, [
+    "pty-send", COURT_JOB,
+  ], env);
+  ensure(!output_success(send_missing_text),
+    "cu_linux_pty_usage_send_text_ok:" + JSON.stringify(send_missing_text));
+  ensure(
+    text_at(send_missing_text, "error.code") === "usage",
+    "cu_linux_pty_usage_send_text_code:" + JSON.stringify(send_missing_text.error)
+  );
+  ensure(
+    text_at(send_missing_text, "error.message")
+      === "pty-send requires exactly one non-empty text argument after --; quote text containing spaces",
+    "cu_linux_pty_usage_send_text_message:" + JSON.stringify(send_missing_text.error)
+  );
+
+  const send_with_name = invoke_actuate_reply(run_directory, executable, [
+    "pty-send", COURT_JOB, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(send_with_name),
+    "cu_linux_pty_usage_send_name_ok:" + JSON.stringify(send_with_name));
+  ensure(
+    text_at(send_with_name, "error.code") === "usage",
+    "cu_linux_pty_usage_send_name_code:" + JSON.stringify(send_with_name.error)
+  );
+
+  const bogus_reply = invoke_observe_reply(run_directory, executable, [
+    "pty-read", COURT_JOB, "--bogus",
+  ], env);
+  ensure(!output_success(bogus_reply),
+    "cu_linux_pty_usage_bogus_ok:" + JSON.stringify(bogus_reply));
+  ensure(
+    text_at(bogus_reply, "error.code") === "usage",
+    "cu_linux_pty_usage_bogus_code:" + JSON.stringify(bogus_reply.error)
+  );
+  ensure(
+    text_at(bogus_reply, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_pty_usage_bogus_message:" + JSON.stringify(bogus_reply.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_pty_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_pty_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_pty_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], cu_env(executable, { AT_SPI_BUS_ADDRESS: "invalid" }));
+  ensure(!output_success(reply),
+    "cu_linux_pty_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_pty_extents_unavailable_code:" + code
+  );
 }
 
 const args = rh.args();
@@ -47,42 +223,63 @@ ensure(direct_file(executable), "cu_linux_pty_executable_missing:" + executable)
 ensure(direct_file(product), "cu_linux_pty_product_missing:" + product);
 ensure(direct_file(smoke), "cu_linux_pty_smoke_missing:" + smoke);
 
-const env = {
+const context = harness.new_context(repo, "cu-linux-pty");
+const env = cu_env(executable, {
   AGENTERM_CU_EXE: executable,
   AGENTERM_CU_PRODUCT_EXECUTABLE: product,
-  AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
-  AGENTERM_NO_ACTIVATE: "1",
-};
-for (const key of [
-  "DISPLAY",
-  "XDG_RUNTIME_DIR",
-  "DBUS_SESSION_BUS_ADDRESS",
-]) {
-  if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+});
+const atspi_available = probe_atspi_available(executable);
+let succeeded = 0;
+let failure = "";
+try {
+  print("STEP pty verbs typed-fail usage when AT-SPI --name or other unexpected arguments are present");
+  assert_pty_usage_rejects_name(context.run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before PTY/AgenTerm sock read-back");
+    assert_get_extents_usage_limit(context.run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
+
+  print("STEP host-native court runs cu-linux-pty-smoke.sh with independent socket and base64 read-back");
+  const output = rh.command("bash", [smoke], {
+    cwd: repo,
+    env: env,
+    timeout_ms: 120000,
+  });
+  ensure(
+    output.success === true,
+    "cu_linux_pty_smoke_child:" + output.stdout + output.stderr
+  );
+  ensure(
+    output.stdout.indexOf("PASS:") >= 0,
+    "cu_linux_pty_smoke_pass_missing:" + output.stdout
+  );
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
 }
 
-print("STEP host-native court runs cu-linux-pty-smoke.sh with independent socket and base64 read-back");
-const output = rh.command("bash", [smoke], {
-  cwd: repo,
-  env: env,
-  timeout_ms: 120000,
-});
-ensure(
-  output.success === true,
-  "cu_linux_pty_smoke_child:" + output.stdout + output.stderr
-);
-ensure(
-  output.stdout.indexOf("PASS:") >= 0,
-  "cu_linux_pty_smoke_pass_missing:" + output.stdout
-);
-
-const context = harness.new_context(repo, "cu-linux-pty");
-harness.emit_evidence(context, declared_evidence, "cu.linux-pty-missing-sock");
-harness.emit_evidence(context, declared_evidence, "cu.linux-pty-present-sock");
-harness.emit_evidence(context, declared_evidence, "cu.linux-pty-stale-sock");
-harness.emit_evidence(context, declared_evidence, "cu.linux-pty-start");
-harness.emit_evidence(context, declared_evidence, "cu.linux-pty-send");
-harness.emit_evidence(context, declared_evidence, "cu.linux-pty-wait");
-harness.emit_evidence(context, declared_evidence, "cu.linux-pty-read");
-harness.remove_run(context);
-print("PASS: Linux PTY typed-usage/missing/stale/present sock host-limit honesty with independent read-back");
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-pty-missing-sock");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-pty-present-sock");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-pty-stale-sock");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-pty-start");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-pty-send");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-pty-wait");
+  harness.emit_evidence(context, declared_evidence, "cu.linux-pty-read");
+  harness.remove_run(context);
+  if (atspi_available) {
+    print("PASS: Linux PTY typed-usage/missing/stale/present sock host-limit honesty with independent read-back and typed pty/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux PTY typed-usage/missing/stale/present sock host-limit honesty with independent read-back and typed pty/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
