@@ -873,6 +873,9 @@ Feature-isolate diagnostics too. An optional adapter trace must not call an
 unrelated feature-gated module merely to choose a log directory; use the native
 temporary-directory contract when that is the documented destination. Full
 product feature union can otherwise hide an undeclared dependency indefinitely.
+A dependency feature enabled only in one target-specific Cargo table likewise
+does not exist on peer targets: cfg-gate the adapter import and implementation,
+and keep the peer-target public command alive through an explicit typed refusal.
 
 Do not rerun a large gate to compensate for not knowing which smaller test owns
 the behavior. Add or identify the owner.

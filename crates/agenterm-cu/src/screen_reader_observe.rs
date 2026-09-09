@@ -1,10 +1,12 @@
 //! Linux `org.a11y.Status` observation for `screen-reader`.
 
+#[cfg(target_os = "linux")]
 use agenterm_platform::contract::accessibility_tree::AccessibilityTreeError;
 use serde_json::{Value, json};
 
 use crate::reply::CuError;
 
+#[cfg(target_os = "linux")]
 pub fn status_payload() -> Result<Value, CuError> {
     if std::env::var_os("DISPLAY").is_none() {
         return Err(CuError::new(
@@ -43,6 +45,14 @@ pub fn status_payload() -> Result<Value, CuError> {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+pub fn status_payload() -> Result<Value, CuError> {
+    Err(unsupported_error(
+        "screen-reader status is available only through the Linux AT-SPI session bus".to_owned(),
+    ))
+}
+
+#[cfg(target_os = "linux")]
 fn project_readiness(readiness: Value) -> Result<Value, CuError> {
     let status = readiness["status"].as_str().unwrap_or("unknown");
     match status {
@@ -78,6 +88,7 @@ fn project_readiness(readiness: Value) -> Result<Value, CuError> {
 fn unsupported_error(reason: String) -> CuError {
     CuError::new("screen_reader_unsupported", reason).with_detail(json!({
         "effect": "not_performed",
+        "required_os": "linux",
         "required_mechanism": "linux-atspi-session-bus",
         "alternatives": alternatives(),
     }))
@@ -101,6 +112,15 @@ mod tests {
         assert_eq!(error.code, "screen_reader_unsupported");
         let detail = error.detail.expect("detail");
         assert_eq!(detail["effect"], "not_performed");
+        assert_eq!(detail["required_os"], "linux");
         assert!(detail["alternatives"].is_array());
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn non_linux_hosts_refuse_without_linking_the_linux_adapter() {
+        let error = status_payload().unwrap_err();
+        assert_eq!(error.code, "screen_reader_unsupported");
+        assert_eq!(error.detail.unwrap()["required_os"], "linux");
     }
 }
