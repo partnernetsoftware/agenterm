@@ -29,6 +29,34 @@ does it launch a fresh fixture and run C8's 1,000 alternating actions. It emits
 one JSON document for C1-C7 and one for C8. A current-host pass does not
 establish C9 or authorize product migration.
 
+## Chromium discriminator
+
+The AppKit fixture did not distinguish public PID-targeted posting from the
+private route. A separate runner owns the precommitted Chromium comparison in
+section 9 of the experiment plan:
+
+```sh
+AGENTERM_CU_BROWSER_EXE=~/path/to/Chromium \
+  ./research/skylight-window-local-pointer/run-chromium-current-host.sh
+```
+
+`AGENTERM_EXE` and `AGENTERM_CU_EXE` may name already-built binaries; by
+default the runner uses their debug-profile locations. The runner compiles a
+single-action native injector and the existing owned guard fixture, then runs a
+qjswasm court with an ACU-owned browser profile. It creates peer window A and
+background target B, builds a fail-closed Chromium-window-to-`CGWindowID`
+bijection, and compares 20 seeded triplets of private delivery, public delivery
+at B's location, and public delivery away from B. Page counters are read back
+independently through CDP.
+
+The result is one JSON verdict with a repository SHA and path-independent
+source digest. `PASS` means only that the private route discriminated on this
+current host. `FAIL_NONDISTINGUISHING` is the useful negative result that the
+public route was sufficient for this court. `FAIL_PRIVATE` rejects the private
+route, while identity, dependency, cleanup or unstable outcomes remain
+`INCONCLUSIVE`. This research runner registers no evidence and never changes
+the capability ledger by itself.
+
 `probe_digest` is path-independent: it hashes a canonical stream of fixed
 repo-relative source labels followed by each file's SHA-256. Moving an
 identical clone therefore does not change the probe identity.

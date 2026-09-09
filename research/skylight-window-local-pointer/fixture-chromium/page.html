@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<!--
+  Owned Chromium wheel oracle for the acu.dynamic.074 discriminator court.
+
+  Loaded twice by the court as file://.../page.html?label=A|B&nonce=<run nonce>.
+  The label + nonce become the unique <title> so the court can resolve the
+  CDP target and the native window of each page without any shared state.
+
+  The page records every wheel event it receives (non-passive, preventDefault
+  so the document never scrolls and the counts stay attributable) and exposes
+  a reset/snapshot pair on window.__agentermWheel for page-js read-back.
+  Nothing here talks to the network; there are no external resources.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>acu-074-pending</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #202020; color: #eee;
+               font: 14px/1.4 -apple-system, sans-serif; }
+  #stage { position: absolute; inset: 0; display: flex; align-items: center;
+           justify-content: center; user-select: none; }
+  #label { font-size: 96px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="stage"><div id="label">?</div></div>
+<script>
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var label = params.get("label") || "?";
+  var nonce = params.get("nonce") || "no-nonce";
+  var title = "acu-074-" + label + "-" + nonce;
+  document.title = title;
+  document.getElementById("label").textContent = label;
+
+  var state = { label: label, nonce: nonce, count: 0, moves: 0, sequence: [] };
+
+  function record(kind, event) {
+    var entry = {
+      seq: state.sequence.length + 1,
+      kind: kind,
+      t: Math.round(performance.now()),
+      clientX: event.clientX,
+      clientY: event.clientY
+    };
+    if (kind === "wheel") {
+      entry.deltaX = event.deltaX;
+      entry.deltaY = event.deltaY;
+      entry.deltaMode = event.deltaMode;
+      state.count = state.count + 1;
+    } else {
+      state.moves = state.moves + 1;
+    }
+    state.sequence.push(entry);
+    if (state.sequence.length > 4096) { state.sequence.shift(); }
+  }
+
+  // Non-passive so preventDefault is honoured: the page must not scroll or
+  // zoom, otherwise a delivered wheel could change layout between rounds.
+  window.addEventListener("wheel", function (event) {
+    event.preventDefault();
+    record("wheel", event);
+  }, { passive: false, capture: true });
+  window.addEventListener("mousemove", function (event) {
+    record("mousemove", event);
+  }, { passive: true, capture: true });
+
+  window.__agentermWheel = {
+    label: label,
+    nonce: nonce,
+    title: title,
+    reset: function () {
+      state.count = 0;
+      state.moves = 0;
+      state.sequence = [];
+      return "reset:" + label;
+    },
+    selfTest: function (deltaX, deltaY) {
+      window.dispatchEvent(new WheelEvent("wheel", {
+        deltaX: deltaX,
+        deltaY: deltaY,
+        deltaMode: WheelEvent.DOM_DELTA_LINE
+      }));
+      return this.snapshot();
+    },
+    snapshot: function () {
+      return JSON.stringify({
+        label: label,
+        nonce: nonce,
+        title: document.title,
+        count: state.count,
+        moves: state.moves,
+        last: state.sequence.length > 0 ? state.sequence[state.sequence.length - 1] : null,
+        sequence_length: state.sequence.length
+      });
+    }
+  };
+})();
+</script>
+</body>
+</html>

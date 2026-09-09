@@ -1051,8 +1051,11 @@ that do not expose one. The owned macOS Save Panel qjswasm court proves one exac
 truthfully absent rather than being inferred from its `sheet` role.
 Its reply deliberately retains `delivery_verified=false`; the separate owned
 qjswasm content-movement court is green on macOS and must still pass Linux X11
-and Windows before the adapter may map MCU `scroll --to desktop`. Window-local hover/wheel is still separate
-and stays behind `plan/design-skylight-window-local-pointer-experiment.md`.
+and Windows before the adapter may map MCU `scroll --to desktop`. Window-local
+hover/wheel is still separate and stays behind
+`plan/design-skylight-window-local-pointer-experiment.md`. Its owned-Chromium
+three-arm discriminator is precommitted but not yet run; a current-host pass
+and 1,000-action Chromium repeat precede any previous-generation C9 court.
 The only reviewed permanent retirement in this cut is the login-service
 query for MCU's removed global daemon object.
 
