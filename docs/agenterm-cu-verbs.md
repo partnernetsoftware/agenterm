@@ -608,17 +608,17 @@ Reads independent bounded stdout/stderr rings. Cursors are canonical decimal byt
 ### `job-resources`
 
 ```text
-job-resources JOB_ID GENERATION [--watch-ms N --interval-ms N --max-samples N]
-job resources JOB_ID GENERATION [--watch-ms N --interval-ms N --max-samples N]
+job-resources JOB_ID GENERATION [--watch-ms N --interval-ms N --max-samples N] [--members-per-sample]
+job resources JOB_ID GENERATION [--watch-ms N --interval-ms N --max-samples N] [--members-per-sample]
 ```
 
 ```text
 agenterm-cu job-resources    (also: job resources)
   scope: observe    family: Managed jobs
 
-usage: job-resources JOB_ID GENERATION [--watch-ms N --interval-ms N --max-samples N]
+usage: job-resources JOB_ID GENERATION [--watch-ms N --interval-ms N --max-samples N] [--members-per-sample]
 
-Samples the managed job's native containment group once or as a bounded series for 1..=300000 ms. Watch mode accepts an explicit 1..=60000 ms interval and a 1..=1000 sample ceiling; without them it adaptively spaces at most 1000 samples across the duration. Reaching the sample ceiling reports `truncated=true`, `completed=false`, and `ended_reason=max-samples`. Every member is identity-bracketed and the durable root identity must remain present. Results include a membership digest, exact decimal aggregate and per-member CPU/RSS/page-fault counters, and explicit provider, membership_complete, breakaway_prevented, and tree_complete truth. Windows Job Objects prevent breakaway; POSIX process groups enumerate current membership but do not claim complete genealogy. Legacy `job resources --watch S` maps seconds exactly and preserves its one-second/300-sample defaults; legacy `--top` and acquisition `--max` remain typed because their partial aggregates would contradict this command's complete-membership contract.
+Samples the managed job's native containment group once or as a bounded series for 1..=300000 ms. Watch mode accepts an explicit 1..=60000 ms interval and a 1..=1000 sample ceiling; without them it adaptively spaces at most 1000 samples across the duration. Reaching the sample ceiling reports `truncated=true`, `completed=false`, and `ended_reason=max-samples`. `--members-per-sample` includes each complete member list in its sample; at most 131072 member rows are returned, and the next overflowing sample is not emitted before the result stops with `ended_reason=member-rows`, `truncated=true`, and `completed=false`. Every member is identity-bracketed and the durable root identity must remain present. Results include a membership digest, exact decimal aggregate and per-member CPU/RSS/page-fault counters, and explicit provider, membership_complete, breakaway_prevented, and tree_complete truth. Windows Job Objects prevent breakaway; POSIX process groups enumerate current membership but do not claim complete genealogy. Legacy `job resources --watch S` maps seconds exactly and preserves its one-second/300-sample defaults. Legacy `--max 1..4096` projects returned member rows in pid order without changing complete counts, digests or aggregates. Legacy `--top 0..20` ranks a point by cumulative CPU time and each watched sample by interval CPU rate; `--top` and `--max` together still rank the complete membership rather than the displayed prefix.
 ```
 
 ### `job-priority`

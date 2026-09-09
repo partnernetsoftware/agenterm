@@ -925,6 +925,7 @@ fn parse_job(name: &str, target: TargetRef, args: &mut Vec<String>) -> Result<Co
             watch_ms: flag_parsed(args, "--watch-ms")?,
             interval_ms: flag_parsed(args, "--interval-ms")?,
             max_samples: flag_parsed(args, "--max-samples")?,
+            members_per_sample: take_switch(args, "--members-per-sample"),
         },
         "job-priority" => Command::JobPriority {
             target,
@@ -2041,6 +2042,7 @@ mod tests {
             watch_ms,
             interval_ms,
             max_samples,
+            members_per_sample,
             ..
         } = parse(
             "job",
@@ -2064,6 +2066,19 @@ mod tests {
         assert_eq!(watch_ms, Some(25));
         assert_eq!(interval_ms, Some(5));
         assert_eq!(max_samples, Some(3));
+        assert!(!members_per_sample);
+        let Command::JobResources {
+            members_per_sample, ..
+        } = parse(
+            "job-resources",
+            &[id, "1", "--watch-ms", "25", "--members-per-sample"],
+        )
+        .unwrap()
+        else {
+            panic!("job-resources members-per-sample command")
+        };
+        assert!(members_per_sample);
+        assert!(parse("job-resources", &[id, "1", "--members-per-sample"]).is_err());
         assert!(parse("job-resources", &[id, "1", "--watch-ms", "0"]).is_err());
         assert!(parse("job-resources", &[id, "1", "--watch-ms", "300001"]).is_err());
         assert!(parse("job-resources", &[id, "1", "--interval-ms", "1"]).is_err());

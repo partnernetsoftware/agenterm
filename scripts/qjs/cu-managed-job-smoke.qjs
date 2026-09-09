@@ -327,12 +327,36 @@ try {
       && watched_resources.truncated === true && watched_resources.ended_reason === "max-samples"
       && watched_resources.emitted === 2
       && watched_resources.samples.length === watched_resources.emitted
+      && watched_resources.members_per_sample === false
+      && watched_resources.member_rows === 0
+      && watched_resources.samples[0].members === undefined
       && watched_resources.member_count === watched_resources.members.length
       && watched_resources.member_count >= 1
       && has_resource_member(watched_resources.members, status.process_pid, false)
       && valid_resource_samples(watched_resources.samples),
     "cu_managed_job_resources_watch_contract"
   );
+
+  const member_samples = invoke_cu(run_directory, executable, [
+    "--target", "current", "--grant", "observe",
+    "job-resources", first_job.job_id, "" + first_job.generation,
+    "--watch-ms", "20", "--interval-ms", "5", "--max-samples", "2",
+    "--members-per-sample"
+  ], "job-resources");
+  let counted_member_rows = 0;
+  for (let i = 0; i < member_samples.samples.length; i = i + 1) {
+    const sample = member_samples.samples[i];
+    ensure(Array.isArray(sample.members)
+        && sample.members.length === sample.member_count
+        && sample.membership_complete === true,
+      "cu_managed_job_resource_sample_members:" + i);
+    counted_member_rows = counted_member_rows + sample.members.length;
+  }
+  ensure(member_samples.members_per_sample === true
+      && counted_member_rows === member_samples.member_rows
+      && member_samples.member_rows <= member_samples.max_member_rows
+      && member_samples.max_member_rows === 131072,
+    "cu_managed_job_resource_member_row_bound");
   const completed_resources = invoke_cu(run_directory, executable, [
     "--target", "current", "--grant", "observe",
     "job-resources", first_job.job_id, "" + first_job.generation,

@@ -46,6 +46,11 @@ const OUTPUT_CAPACITY_BYTES: usize = 1024 * 1024;
 const IPC_PAGE_BYTES: usize = 64 * 1024;
 const JOB_RESOURCE_MAX_SAMPLES: usize = 1_000;
 const JOB_RESOURCE_MAX_MEMBERS: usize = 256;
+const JOB_RESOURCE_MAX_MEMBER_ROWS: usize = 512 * JOB_RESOURCE_MAX_MEMBERS;
+
+fn member_rows_would_overflow(current: usize, next: usize) -> bool {
+    current.saturating_add(next) > JOB_RESOURCE_MAX_MEMBER_ROWS
+}
 
 pub(super) struct JobRequestContext<'a> {
     pub session_id: &'a str,
@@ -482,6 +487,7 @@ pub(super) fn job_resources_payload(
     watch_ms: Option<u64>,
     requested_interval_ms: Option<u64>,
     requested_max_samples: Option<usize>,
+    members_per_sample: bool,
 ) -> Result<Value, CuError> {
     let record = checked_record(job_id, generation)?;
     let expected = record.process.as_ref().ok_or_else(|| {
@@ -512,10 +518,22 @@ pub(super) fn job_resources_payload(
     let deadline = started + Duration::from_millis(duration_ms);
     let mut samples = Vec::with_capacity(max_samples);
     let mut latest = None;
+    let mut member_rows = 0usize;
     let ended_reason = loop {
         match resource_point_payload(&record, expected) {
             Ok(point) => {
-                samples.push(json!({
+                let point_members = point["members"].as_array().ok_or_else(|| {
+                    CuError::new(
+                        "managed_job_resource_shape_invalid",
+                        "managed-job resource point omitted its member array",
+                    )
+                })?;
+                if members_per_sample
+                    && member_rows_would_overflow(member_rows, point_members.len())
+                {
+                    break "member-rows";
+                }
+                let mut sample = json!({
                     "t_ms": started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
                     "member_count": point["member_count"],
                     "membership_sha256": point["membership_sha256"],
@@ -523,8 +541,13 @@ pub(super) fn job_resources_payload(
                     "cpu_ms": point["cpu_ms"],
                     "rss_bytes": point["rss_bytes"],
                     "page_faults": point["page_faults"],
-                    "membership_complete": true,
-                }));
+                    "membership_complete": point["membership_complete"],
+                });
+                if members_per_sample {
+                    member_rows += point_members.len();
+                    sample["members"] = point["members"].clone();
+                }
+                samples.push(sample);
                 latest = Some(point);
             }
             Err(error) if error.code == "managed_job_resources_terminal" && !samples.is_empty() => {
@@ -544,22 +567,28 @@ pub(super) fn job_resources_payload(
         );
     };
     let latest = latest.expect("watch always attempts one sample");
+    let membership_complete = samples
+        .iter()
+        .all(|sample| sample["membership_complete"] == Value::Bool(true));
     Ok(json!({
         "job_id": job_id,
         "generation": generation,
         "scope": "containment-group",
         "provider": latest["provider"],
         "breakaway_prevented": latest["breakaway_prevented"],
-        "membership_complete": true,
+        "membership_complete": membership_complete,
         "tree_complete": latest["tree_complete"],
         "coherence": "stable-membership-sweep",
         "mode": "bounded-series",
         "duration_ms": duration_ms,
         "interval_ms": interval_ms,
         "max_samples": max_samples,
+        "members_per_sample": members_per_sample,
+        "member_rows": member_rows,
+        "max_member_rows": JOB_RESOURCE_MAX_MEMBER_ROWS,
         "emitted": samples.len(),
         "completed": ended_reason == "duration",
-        "truncated": ended_reason == "max-samples",
+        "truncated": ended_reason == "max-samples" || ended_reason == "member-rows",
         "ended_reason": ended_reason,
         "member_count": latest["member_count"],
         "members": latest["members"],
@@ -1662,5 +1691,19 @@ mod tests {
         assert_eq!(cpu_ms_decimal("0").unwrap(), "0.000000");
         assert_eq!(cpu_ms_decimal("1000001").unwrap(), "1.000001");
         assert!(cpu_ms_decimal("1.5").is_err());
+    }
+
+    #[test]
+    fn per_sample_member_rows_cover_legacy_defaults_and_stop_before_overflow() {
+        assert_eq!(JOB_RESOURCE_MAX_MEMBER_ROWS, 131_072);
+        assert!(!member_rows_would_overflow(
+            299 * JOB_RESOURCE_MAX_MEMBERS,
+            JOB_RESOURCE_MAX_MEMBERS
+        ));
+        assert!(!member_rows_would_overflow(
+            JOB_RESOURCE_MAX_MEMBER_ROWS - JOB_RESOURCE_MAX_MEMBERS,
+            JOB_RESOURCE_MAX_MEMBERS
+        ));
+        assert!(member_rows_would_overflow(JOB_RESOURCE_MAX_MEMBER_ROWS, 1));
     }
 }
