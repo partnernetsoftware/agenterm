@@ -198,6 +198,13 @@
       ]
     },
     {
+      "id": "cu-linux-tree-honesty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-tree-honesty"
+      ]
+    },
+    {
       "id": "cu-linux-pty-smoke",
       "platform": "linux",
       "evidence": [
@@ -264,6 +271,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-focused-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-boot-identity-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-boot-identity-readback"
       ]
     },
     {
