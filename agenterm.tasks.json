@@ -6267,7 +6267,7 @@
     },
     {
       "id": "cu-linux-tree-honesty-smoke",
-      "description": "Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk with depth/max-nodes budget honesty; volatile focus/active/armed/selected states excluded; typed tree usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage/host-limit court before the tree read-back court; typed usage and AT-SPI host-limit paths when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
+      "description": "Linux tree --flat names/roles/states for one GTK fixture window match an independent pyatspi BFS dump on the same walk with depth/max-nodes budget honesty; volatile focus/active/armed/selected excluded; typed tree usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage/host-limit court before tree read-back; typed usage and AT-SPI host-limit when pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tree-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
