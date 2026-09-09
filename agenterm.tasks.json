@@ -6319,7 +6319,7 @@
     },
     {
       "id": "cu-linux-page-screenshot-smoke",
-      "description": "Linux page-screenshot --port writes a real PNG whose magic bytes, size, sha256, and decoded dimensions are verified by independent host read-back; typed page-screenshot usage/miss/no-CDP host-limit paths and independent pyatspi get-extents --name agreement before the PNG court; disposable Chrome+CDP; AT-SPI/--name only, no --coords or screenshot-window degradation.",
+      "description": "Linux page-screenshot --port writes a real PNG whose magic bytes, size, sha256, and decoded dimensions are verified by independent host read-back; typed page-screenshot/get-extents AT-SPI/--name court (--bogus, zero-handle invalid_input, host-limit) before the PNG court; typed usage/miss/no-CDP host-limit paths and independent pyatspi get-extents --name agreement; disposable Chrome+CDP; no --coords or screenshot-window degradation.",
       "entry": "scripts/qjs/cu-linux-page-screenshot-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
