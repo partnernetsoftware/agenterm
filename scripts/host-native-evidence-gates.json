@@ -580,6 +580,13 @@
       ]
     },
     {
+      "id": "cu-linux-menu-inspect-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-menu-inspect-readback"
+      ]
+    },
+    {
       "id": "cu-linux-menu-invoke-honesty-smoke",
       "platform": "linux",
       "evidence": [
