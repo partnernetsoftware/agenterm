@@ -2,7 +2,7 @@
 // ledger row: an identity-bound priority plan with read-back (privilege-plan
 // process.set-priority) composed with a read-only scope observation
 // (process-policy status), both bracketed against the court's own live process.
-// `resource.pressure-top` and `resource.disk-volumes` have no corresponding
+// `resource.pressure-top` and `resource.volumes` have no corresponding
 // public verb today (no native pressure fact, no filesystem/mount inventory),
 // and process affinity/limits have no typed operation either -- only a generic
 // "usage" parse error -- so none of those are exercised here.

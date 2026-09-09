@@ -531,7 +531,35 @@ function resource(rest, flags) {
     return exec(["ps", "--sort", sort === "mem" ? "memory" : "cpu",
       "--max", flags.limit === undefined ? "20" : "" + flags.limit]);
   }
-  return usage("resource", "resource subcommand must be status, pressure or top");
+  if (sub === "volumes") {
+    if (rest_length(rest) !== 0) {
+      return usage("resource", "resource volumes accepts no positional arguments");
+    }
+    const names = Object.keys(flags);
+    for (let i = 0; i < names.length; i = i + 1) {
+      if (names[i] !== "max") {
+        return usage("resource", "resource volumes accepts only --max N");
+      }
+    }
+    if (flags.max !== undefined && !bounded_integer(flags, "max", 1, 5000)) {
+      return usage("resource", "resource volumes --max must be an integer in 1..5000");
+    }
+    const max = flags.max === undefined ? 500 : Number(flags.max);
+    if (max > 512) {
+      return usage("resource",
+        "resource volumes --max above 512 is not supported by storage-volumes (1..512)");
+    }
+    return exec(["storage-volumes", "--max", "" + max]);
+  }
+  if (sub === "disk") {
+    if (rest_length(rest) > 1 || flag_pairs(flags, []).length !== 0) {
+      return usage("resource", "resource disk accepts at most one PATH and no flags");
+    }
+    return todo("acu.dynamic.057.resource-disk", "resource",
+      "exact-path volume capacity needs a native path-bound provider; storage-volumes lists mounted volumes");
+  }
+  return usage("resource",
+    "resource subcommand must be status, pressure, top or volumes; disk awaits a path-bound provider");
 }
 
 function click(verb, rest, flags) {

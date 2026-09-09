@@ -2181,8 +2181,8 @@
           "note": "The native pressure provider and process ranking are deliberately separate. macOS reports the raw vm.memory_pressure value while CPU and IO are explicitly unavailable; Linux preserves PSI some/full windows for memory, CPU and IO; Windows preserves low/high memory-resource notification booleans while CPU and IO are explicitly unavailable. derived is always false. The existing bounded ps sampler owns CPU and RSS ranking, including scan completeness and detail-error disclosure. The macOS public court is green; Linux and Windows remain pending until their native courts execute the same script."
         },
         {
-          "id": "resource.disk-volumes",
-          "mcu_shape": "resource disk|volumes with filesystem and device-backed capacity facts",
+          "id": "resource.volumes",
+          "mcu_shape": "resource volumes [--max N] with bounded mounted-filesystem capacity facts",
           "acu_shape": "storage-volumes [--max N] provides bounded mounted-filesystem capacity without physical-device identity",
           "state": "platform-limited",
           "platforms": {"macos": "native-qualified", "linux": "native-court-pending", "windows": "native-court-pending"},
@@ -2194,9 +2194,27 @@
               "windows": {"result": "pending", "blocker_code": "native-public-court-not-run"}
             }
           },
-          "evidence": ["cu.storage-volumes"],
-          "next": "run the unchanged public qjswasm court on native Linux and Windows; do not infer physical-device identity from mounted filesystems",
-          "note": "The separate storage-volumes facade reports mounted filesystem total, free and current-user-available capacity as exact decimal strings. It keeps current-user available distinct from filesystem free, parses Linux mountinfo as escaped bytes, bounds rows and errors, and never emits backing-device, serial or UUID identifiers. Linux refuses to stat potentially automounting or blocking remote/FUSE filesystems and reports the skipped count. Windows probes only fixed drive-letter and RAM-disk capacity, skips removable/remote media to prevent native error UI or unbounded waits, and marks drive-letter-only coverage incomplete. The public macOS court is green; Linux and Windows have compile evidence but remain pending until native execution."
+          "evidence": ["cu.storage-volumes", "acu.compat-resource-volumes"],
+          "next": "run the unchanged mounted-volume court on native Linux and Windows; do not restore withdrawn device identity or silently clamp the legacy result ceiling",
+          "note": "The separate storage-volumes facade reports mounted filesystem total, free and current-user-available capacity as exact decimal strings. It keeps current-user available distinct from filesystem free, parses Linux mountinfo as escaped bytes, bounds rows and errors, and never emits backing-device, serial or UUID identifiers. Legacy resource volumes maps to this provider with the archived default 500 made explicit; values above the native 512-row ceiling fail locally rather than being clamped. The native reply deliberately withdraws filesystem device names and derived used percentages. Linux refuses to stat potentially automounting or blocking remote/FUSE filesystems and reports the skipped count. Windows probes only fixed drive-letter and RAM-disk capacity, skips removable/remote media to prevent native error UI or unbounded waits, and marks drive-letter-only coverage incomplete. The public macOS court is green; Linux and Windows have compile evidence but remain pending until native execution."
+        },
+        {
+          "id": "resource.disk-path",
+          "mcu_shape": "resource disk [PATH] with exact path-bound filesystem capacity facts",
+          "acu_shape": null,
+          "state": "gap",
+          "platforms": {"macos": "gap", "linux": "gap", "windows": "legacy-unsupported"},
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {"result": "pending", "blocker_code": "native-path-provider-not-implemented"},
+              "macos": {"result": "pending", "blocker_code": "native-path-provider-not-implemented"},
+              "windows": {"result": "pending", "blocker_code": "native-path-provider-not-implemented"}
+            }
+          },
+          "evidence": [],
+          "next": "add a native canonical path-bound capacity query; prove mount identity from the kernel or mount metadata and never from a truncated, skipped, lossy or lexical-prefix inventory",
+          "note": "The compatibility entry returns the stable acu.dynamic.057.resource-disk TODO. A longest-mount-prefix projection cannot prove correctness across skipped mounts, symbolic links, mount namespaces, lossy paths or truncated inventory. The platform volume_space primitive already supplies canonical path capacity, but a public provider must still preserve file-versus-directory input and publish only independently proven mount identity. Archived Windows resource disk was unsupported; the native gap remains explicit on every cell rather than borrowing the qualified resource volumes evidence."
         },
         {
           "id": "resource.process-policy",
