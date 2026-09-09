@@ -1,6 +1,8 @@
 // CEO: maximize/unmaximize --expect maximized|unmaximized on Linux.
 // Acceptance is smoke read-back only: independent xprop _NET_WM_STATE and
 // windows inventory maximized field must match --expect after each verb.
+// Typed usage, destructive-gate refusals, missing-window and headless
+// host-limit paths must hold before any owned fixture window exists.
 // No --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -11,6 +13,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-maximize-expect-state",
 ];
+
+const MISSING_HANDLE = "99999999";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -30,6 +34,11 @@ function text_at(value, dotted) {
   return "" + value_at;
 }
 
+function text_of(value) {
+  if (value === undefined || value === null) { return ""; }
+  return "" + value;
+}
+
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function int_at(value, dotted) {
@@ -45,7 +54,10 @@ function direct_file(path) {
 }
 
 function cu_env(executable) {
-  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
   for (const key of [
     "DISPLAY",
     "XDG_RUNTIME_DIR",
@@ -61,20 +73,171 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, arguments, env, env_remove) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
-  const output = rh.command(executable, argv, {
-    cwd: run_directory,
-    env: cu_env(executable),
+  const spec = {
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
-  });
-  ensure(output.success === true, "cu_linux_maximize_expect_cli:" + output.stdout + output.stderr);
+  };
+  if (env_remove !== undefined && env_remove.length > 0) { spec.env_remove = env_remove; }
+  const output = rh.command_spec(spec);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_maximize_expect_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_maximize_expect_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_maximize_expect_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_maximize_expect_reply:" + JSON.stringify(document));
   return document;
+}
+
+function maximize_refused(run_directory, executable, arguments, code) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", ["maximize"].concat(arguments));
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === code,
+    "cu_linux_maximize_expect_refused:" + code + ":" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function unmaximize_refused(run_directory, executable, arguments, code) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", ["unmaximize"].concat(arguments));
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === code,
+    "cu_linux_maximize_expect_unmaximize_refused:" + code + ":" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function assert_maximize_usage_limit(run_directory, executable) {
+  const maximize_zero = run_cu_reply(run_directory, executable, "actuate", [
+    "maximize", "--window", "0", "--expect", "maximized",
+  ]);
+  ensure(!output_success(maximize_zero), "cu_linux_maximize_expect_usage_ok:" + JSON.stringify(maximize_zero));
+  ensure(
+    text_at(maximize_zero, "error.code") === "usage",
+    "cu_linux_maximize_expect_usage_code:" + JSON.stringify(maximize_zero.error)
+  );
+  ensure(
+    text_at(maximize_zero, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_maximize_expect_usage_message:" + JSON.stringify(maximize_zero.error)
+  );
+
+  const unmaximize_zero = run_cu_reply(run_directory, executable, "actuate", [
+    "unmaximize", "--window", "0", "--expect", "unmaximized",
+  ]);
+  ensure(!output_success(unmaximize_zero), "cu_linux_maximize_expect_unmaximize_usage_ok:" + JSON.stringify(unmaximize_zero));
+  ensure(
+    text_at(unmaximize_zero, "error.code") === "usage",
+    "cu_linux_maximize_expect_unmaximize_usage_code:" + JSON.stringify(unmaximize_zero.error)
+  );
+}
+
+function assert_maximize_destructive_gate(run_directory, executable) {
+  const missing_target = maximize_refused(
+    run_directory, executable, ["--expect", "maximized"], "refused"
+  );
+  ensure(
+    text_at(missing_target, "error.detail.reason") === "destructive_gate"
+      && text_at(missing_target, "error.detail.effect") === "not_performed"
+      && missing_target.error.detail.missing.length === 1
+      && text_of(missing_target.error.detail.missing[0]) === "target",
+    "cu_linux_maximize_expect_missing_target:" + JSON.stringify(missing_target)
+  );
+
+  const missing_postcondition = unmaximize_refused(
+    run_directory, executable, ["--window", "1"], "refused"
+  );
+  ensure(
+    text_at(missing_postcondition, "error.detail.reason") === "destructive_gate"
+      && missing_postcondition.error.detail.missing.length === 1
+      && text_of(missing_postcondition.error.detail.missing[0]) === "postcondition",
+    "cu_linux_maximize_expect_missing_postcondition:" + JSON.stringify(missing_postcondition)
+  );
+
+  const wrong_postcondition = maximize_refused(
+    run_directory, executable, ["--window", "1", "--expect", "unmaximized"], "refused"
+  );
+  ensure(
+    text_at(wrong_postcondition, "error.detail.reason") === "destructive_gate"
+      && wrong_postcondition.error.detail.missing.length === 1
+      && text_of(wrong_postcondition.error.detail.missing[0]) === "postcondition",
+    "cu_linux_maximize_expect_wrong_postcondition:" + JSON.stringify(wrong_postcondition)
+  );
+
+  const unmaximize_missing = unmaximize_refused(
+    run_directory, executable, ["--expect", "unmaximized"], "refused"
+  );
+  ensure(
+    text_at(unmaximize_missing, "error.detail.reason") === "destructive_gate"
+      && unmaximize_missing.error.detail.missing.length === 1
+      && text_of(unmaximize_missing.error.detail.missing[0]) === "target",
+    "cu_linux_maximize_expect_unmaximize_missing_target:" + JSON.stringify(unmaximize_missing)
+  );
+}
+
+function assert_maximize_missing_window(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "actuate", [
+    "maximize", "--window", MISSING_HANDLE, "--expect", "maximized",
+  ]);
+  ensure(!output_success(reply), "cu_linux_maximize_expect_missing_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "window_op_failed",
+    "cu_linux_maximize_expect_missing_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.effect") === "not_performed",
+    "cu_linux_maximize_expect_missing_effect:" + JSON.stringify(reply.error)
+  );
+
+  const unmaximize_reply = run_cu_reply(run_directory, executable, "actuate", [
+    "unmaximize", "--window", MISSING_HANDLE, "--expect", "unmaximized",
+  ]);
+  ensure(!output_success(unmaximize_reply), "cu_linux_maximize_expect_unmaximize_missing_ok:" + JSON.stringify(unmaximize_reply));
+  ensure(
+    text_at(unmaximize_reply, "error.code") === "window_op_failed",
+    "cu_linux_maximize_expect_unmaximize_missing_code:" + JSON.stringify(unmaximize_reply.error)
+  );
+  ensure(
+    text_at(unmaximize_reply, "error.detail.effect") === "not_performed",
+    "cu_linux_maximize_expect_unmaximize_missing_effect:" + JSON.stringify(unmaximize_reply.error)
+  );
+}
+
+function assert_headless_host_limit(run_directory, executable, verb, label) {
+  const reply = run_cu_reply(
+    run_directory,
+    executable,
+    "actuate",
+    [verb, "--window", "1", "--expect", verb === "maximize" ? "maximized" : "unmaximized"],
+    {
+      AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+      AGENTERM_NO_ACTIVATE: "1",
+    },
+    ["DISPLAY"]
+  );
+  ensure(!output_success(reply), "cu_linux_maximize_expect_headless_ok_" + label + ":" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "unsupported",
+    "cu_linux_maximize_expect_headless_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message").toLowerCase();
+  ensure(
+    message.indexOf("mechanism unavailable") >= 0
+      || message.indexOf("agt_native_window_maximized") >= 0,
+    "cu_linux_maximize_expect_headless_message_" + label + ":" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "error.detail.effect") === "not_performed",
+    "cu_linux_maximize_expect_headless_effect_" + label + ":" + JSON.stringify(reply.error)
+  );
 }
 
 function window_rows(reply) {
@@ -93,10 +256,10 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
-function independent_net_wm_maximized(run_directory, handle) {
+function independent_net_wm_maximized(run_directory, executable, handle) {
   const xprop = rh.command("xprop", ["-id", "" + handle, "_NET_WM_STATE"], {
     cwd: run_directory,
-    env: cu_env(""),
+    env: cu_env(executable),
     timeout_ms: 10000,
   });
   if (!xprop.success) { return false; }
@@ -119,6 +282,19 @@ rh.create_dir_all(run_directory);
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_maximize_expect_fixture_missing:" + fixture_source);
 
+print("STEP maximize/unmaximize typed-fails usage when --window handle is zero");
+assert_maximize_usage_limit(run_directory, executable);
+
+print("STEP maximize/unmaximize typed-fails refused destructive_gate when target or postcondition is missing");
+assert_maximize_destructive_gate(run_directory, executable);
+
+print("STEP maximize/unmaximize typed-fails window_op_failed when handle is absent from inventory");
+assert_maximize_missing_window(run_directory, executable);
+
+print("STEP maximize/unmaximize without DISPLAY typed-fails unsupported host-limit");
+assert_headless_host_limit(run_directory, executable, "maximize", "maximize");
+assert_headless_host_limit(run_directory, executable, "unmaximize", "unmaximize");
+
 let fixture = -1;
 let fixture_pid = 0;
 try {
@@ -139,11 +315,34 @@ try {
 
   const row = window_row(run_directory, executable, fixture_pid, fixture_title);
   ensure(row !== null, "cu_linux_maximize_expect_window_missing");
-  const handle_text = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_maximize_expect_handle:" + JSON.stringify(row));
+  const handle = int_at(row, "handle");
+  const handle_text = "" + handle;
+  ensure(handle > 0, "cu_linux_maximize_expect_handle:" + JSON.stringify(row));
   ensure(
     flag_at(row, "maximized") === false,
     "cu_linux_maximize_expect_baseline_not_maximized:" + JSON.stringify(row)
+  );
+  ensure(
+    independent_net_wm_maximized(run_directory, executable, handle) === false,
+    "cu_linux_maximize_expect_baseline_xprop_not_maximized"
+  );
+
+  print("STEP destructive_gate refusals on a live handle must not change xprop or inventory");
+  maximize_refused(
+    run_directory, executable, ["--window", handle_text, "--expect", "unmaximized"], "refused"
+  );
+  unmaximize_refused(
+    run_directory, executable, ["--window", handle_text, "--expect", "maximized"], "refused"
+  );
+  ensure(
+    independent_net_wm_maximized(run_directory, executable, handle) === false,
+    "cu_linux_maximize_expect_refusal_xprop_changed"
+  );
+  const refusal_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+  ensure(refusal_row !== null, "cu_linux_maximize_expect_refusal_row_missing");
+  ensure(
+    flag_at(refusal_row, "maximized") === false,
+    "cu_linux_maximize_expect_refusal_inventory_changed:" + JSON.stringify(refusal_row)
   );
 
   print("STEP maximize --window " + handle_text + " --expect maximized");
@@ -158,7 +357,7 @@ try {
 
   print("STEP independent xprop _NET_WM_STATE read-back: maximized must be true");
   ensure(
-    independent_net_wm_maximized(run_directory, int_at(row, "handle")) === true,
+    independent_net_wm_maximized(run_directory, executable, handle) === true,
     "cu_linux_maximize_expect_xprop_maximized"
   );
 
@@ -182,7 +381,7 @@ try {
 
   print("STEP independent xprop _NET_WM_STATE read-back: maximized must be false");
   ensure(
-    independent_net_wm_maximized(run_directory, int_at(row, "handle")) === false,
+    independent_net_wm_maximized(run_directory, executable, handle) === false,
     "cu_linux_maximize_expect_xprop_unmaximized"
   );
 
@@ -205,5 +404,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-maximize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-maximize-expect-state");
 harness.remove_run(context);
-print("PASS: CEO Linux maximize/unmaximize --expect with independent xprop and windows inventory maximized read-back");
+print("PASS: Linux maximize/unmaximize usage/host-limit/miss honesty + independent xprop and windows inventory maximized read-back (no --coords)");
 return;
