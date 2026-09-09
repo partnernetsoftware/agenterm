@@ -269,6 +269,13 @@
       ]
     },
     {
+      "id": "cu-linux-process-kill-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-kill-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-state-smoke",
       "platform": "linux",
       "evidence": [
