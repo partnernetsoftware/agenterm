@@ -4,14 +4,16 @@
 // window-opacity --name/--coords/--bogus must use usage_rejects_unexpected with
 // command=usage, or an honest non-usage typed failure (never fake
 // command=usage). Typed get-extents --name usage AND host-limit paths must both
-// always run before the window-opacity actuate/read-back court (no if/else
-// gating those courts on atspi_available); get-extents --coords/--bogus must
-// reject as command=usage. Named get-extents with --coords/--bogus must reject
-// as command=usage or stay accessibility-tree. Destructive-gate refusals,
-// missing-window and headless host-limit paths must hold before any owned
-// fixture window exists. Court density aligns with maximize-expect,
-// process-state, and desktop-state. Prefer host-limit clarity over fake
-// success. AT-SPI/--name only; no --coords or screenshot.
+// always run before process-state, desktop-state, and the window-opacity
+// actuate/read-back court (no if/else gating those courts on atspi_available);
+// get-extents --coords/--bogus must reject as command=usage. Named get-extents
+// with --coords/--bogus must reject as command=usage or stay accessibility-tree.
+// Destructive-gate refusals, missing-window and headless host-limit paths must
+// hold before any owned fixture window exists. process-state and desktop-state
+// fixture binding courts must hold before the window-opacity actuate/read-back
+// court. Court density aligns with maximize-expect, process-state, and
+// desktop-state. Prefer host-limit clarity over fake success.
+// AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -28,6 +30,8 @@ const MISSING_HANDLE = "99999999";
 const TARGET_OPACITY = 0.5;
 const TARGET_PERMILLE = 500;
 const OPAQUE_CARDINAL = 4294967295;
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -381,6 +385,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AT_SPI_BUS_ADDRESS: "invalid",
   });
   ensure(!output_success(reply), "cu_linux_window_opacity_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_window_opacity_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -476,6 +484,52 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_window_opacity_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_window_opacity_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_window_opacity_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_window_opacity_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_window_opacity_desktop_state_tree:" + JSON.stringify(state.data.tree)
+  );
+}
+
 function parse_xprop_opacity(stdout) {
   if (stdout.indexOf("not found") >= 0) { return OPAQUE_CARDINAL; }
   const marker = "_NET_WM_WINDOW_OPACITY(CARDINAL) = ";
@@ -528,10 +582,10 @@ assert_opacity_usage_limit(run_directory, executable);
 print("STEP window-opacity typed-fail usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure)");
 assert_window_opacity_unexpected_usage(run_directory, executable, env);
 
-print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before window-opacity actuate/read-back court");
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before process-state/desktop-state and window-opacity actuate/read-back court");
 assert_get_extents_usage_limit(run_directory, executable, env);
 
-print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before window-opacity actuate/read-back court");
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and window-opacity actuate/read-back court");
 assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 print("STEP window-opacity typed-fails refused destructive_gate when target or postcondition is missing");
@@ -587,6 +641,14 @@ try {
   ensure(
     opacity_close(cardinal_to_permille(independent_net_wm_opacity(run_directory, executable, handle)), 1000),
     "cu_linux_window_opacity_baseline_xprop_opaque"
+  );
+
+  print("STEP process-state binds the owned fixture pid before window-opacity actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+  print("STEP desktop-state window row agrees with inventory before window-opacity actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, fixture_pid, fixture_title, handle_text, row
   );
 
   print("STEP get-extents --name with --coords/--bogus rejects as command=usage or stays accessibility-tree before window-opacity actuate/read-back court");
@@ -691,5 +753,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-window-opacity");
 harness.emit_evidence(context, declared_evidence, "cu.linux-window-opacity");
 harness.remove_run(context);
-print("PASS: Linux window-opacity usage/miss/host-limit honesty + independent xprop and windows inventory opacity read-back with typed window-opacity --name/--coords/--bogus (usage_rejects_unexpected + command=usage, or honest non-usage typed failure) and get-extents --name usage AND host-limit honesty including --coords/--bogus command=usage (AT-SPI --name, no --coords)");
+print("PASS: Linux window-opacity usage/miss/host-limit honesty + process-state/desktop-state courts + independent xprop and windows inventory opacity read-back with typed window-opacity --name/--coords/--bogus (usage_rejects_unexpected + command=usage, or honest non-usage typed failure) and get-extents --name usage AND host-limit honesty including --coords/--bogus command=usage (AT-SPI --name, no --coords)");
 return;
