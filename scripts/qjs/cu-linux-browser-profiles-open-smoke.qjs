@@ -1,11 +1,12 @@
 // CEO: Linux browser-profiles lists installed Chrome profiles with ZERO Chrome
 // windows (Local State inventory evidence), then browser-open with independent
 // windows inventory plus AT-SPI tree/--name read-back.
-// Typed browser-profiles/browser-open usage must reject AT-SPI --name and other
-// unexpected arguments; typed get-extents --name usage/host-limit/court paths
-// must hold BEFORE browser-open. After open+profile, tree --window must see the
-// Chrome window through AT-SPI (pin scripts/box-chrome-a11y.sh when present).
-// Linux launch must not be macOS `open -na`. AT-SPI/--name only; no --coords.
+// Typed browser-profiles/browser-open usage must reject AT-SPI --name, --coords,
+// --bogus, and other unexpected arguments; typed get-extents --name usage AND
+// host-limit paths must both hold BEFORE browser-open. After open+profile, tree
+// --window must see the Chrome window through AT-SPI (pin scripts/box-chrome-a11y.sh
+// when present). Linux launch must not be macOS `open -na`. Prefer host-limit
+// clarity over fake success. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -141,8 +142,8 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function usage_message_mentions_unexpected(message) {
-  return message.indexOf("--name") >= 0
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
 }
 
@@ -161,7 +162,7 @@ function assert_browser_profiles_open_usage_limit(run_directory, executable, env
     "cu_linux_browser_profiles_usage_flat_name_command:" + JSON.stringify(flat_profiles)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(flat_profiles, "error.message")),
+    usage_rejects_unexpected(text_at(flat_profiles, "error.message"), "--name"),
     "cu_linux_browser_profiles_usage_flat_name_message:" + JSON.stringify(flat_profiles.error)
   );
 
@@ -175,8 +176,40 @@ function assert_browser_profiles_open_usage_limit(run_directory, executable, env
     "cu_linux_browser_profiles_usage_grouped_name_code:" + JSON.stringify(grouped_profiles.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(grouped_profiles, "error.message")),
+    usage_rejects_unexpected(text_at(grouped_profiles, "error.message"), "--name"),
     "cu_linux_browser_profiles_usage_grouped_name_message:" + JSON.stringify(grouped_profiles.error)
+  );
+
+  const flat_profiles_coords = run_cu_reply(run_directory, executable, "observe", [
+    "browser-profiles", "--app", "Google Chrome", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(flat_profiles_coords),
+    "cu_linux_browser_profiles_usage_flat_coords_ok:" + JSON.stringify(flat_profiles_coords));
+  ensure(
+    text_at(flat_profiles_coords, "error.code") === "usage",
+    "cu_linux_browser_profiles_usage_flat_coords_code:" + JSON.stringify(flat_profiles_coords.error)
+  );
+  ensure(
+    text_at(flat_profiles_coords, "command") === "usage",
+    "cu_linux_browser_profiles_usage_flat_coords_command:" + JSON.stringify(flat_profiles_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_profiles_coords, "error.message"), "--coords"),
+    "cu_linux_browser_profiles_usage_flat_coords_message:" + JSON.stringify(flat_profiles_coords.error)
+  );
+
+  const grouped_profiles_coords = run_cu_reply(run_directory, executable, "observe", [
+    "browser", "profiles", "--app", "Google Chrome", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(grouped_profiles_coords),
+    "cu_linux_browser_profiles_usage_grouped_coords_ok:" + JSON.stringify(grouped_profiles_coords));
+  ensure(
+    text_at(grouped_profiles_coords, "error.code") === "usage",
+    "cu_linux_browser_profiles_usage_grouped_coords_code:" + JSON.stringify(grouped_profiles_coords.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_profiles_coords, "error.message"), "--coords"),
+    "cu_linux_browser_profiles_usage_grouped_coords_message:" + JSON.stringify(grouped_profiles_coords.error)
   );
 
   const profiles_bogus = run_cu_reply(run_directory, executable, "observe", [
@@ -189,7 +222,11 @@ function assert_browser_profiles_open_usage_limit(run_directory, executable, env
     "cu_linux_browser_profiles_usage_bogus_code:" + JSON.stringify(profiles_bogus.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(profiles_bogus, "error.message")),
+    text_at(profiles_bogus, "command") === "usage",
+    "cu_linux_browser_profiles_usage_bogus_command:" + JSON.stringify(profiles_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(profiles_bogus, "error.message"), "--bogus"),
     "cu_linux_browser_profiles_usage_bogus_message:" + JSON.stringify(profiles_bogus.error)
   );
 
@@ -207,7 +244,7 @@ function assert_browser_profiles_open_usage_limit(run_directory, executable, env
     "cu_linux_browser_open_usage_flat_name_command:" + JSON.stringify(flat_open)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(flat_open, "error.message")),
+    usage_rejects_unexpected(text_at(flat_open, "error.message"), "--name"),
     "cu_linux_browser_open_usage_flat_name_message:" + JSON.stringify(flat_open.error)
   );
 
@@ -221,8 +258,40 @@ function assert_browser_profiles_open_usage_limit(run_directory, executable, env
     "cu_linux_browser_open_usage_grouped_name_code:" + JSON.stringify(grouped_open.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(grouped_open, "error.message")),
+    usage_rejects_unexpected(text_at(grouped_open, "error.message"), "--name"),
     "cu_linux_browser_open_usage_grouped_name_message:" + JSON.stringify(grouped_open.error)
+  );
+
+  const flat_open_coords = run_cu_reply(run_directory, executable, "actuate", [
+    "browser-open", "--profile", "court-alpha", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(flat_open_coords),
+    "cu_linux_browser_open_usage_flat_coords_ok:" + JSON.stringify(flat_open_coords));
+  ensure(
+    text_at(flat_open_coords, "error.code") === "usage",
+    "cu_linux_browser_open_usage_flat_coords_code:" + JSON.stringify(flat_open_coords.error)
+  );
+  ensure(
+    text_at(flat_open_coords, "command") === "usage",
+    "cu_linux_browser_open_usage_flat_coords_command:" + JSON.stringify(flat_open_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(flat_open_coords, "error.message"), "--coords"),
+    "cu_linux_browser_open_usage_flat_coords_message:" + JSON.stringify(flat_open_coords.error)
+  );
+
+  const grouped_open_coords = run_cu_reply(run_directory, executable, "actuate", [
+    "browser", "open", "--profile", "court-alpha", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(grouped_open_coords),
+    "cu_linux_browser_open_usage_grouped_coords_ok:" + JSON.stringify(grouped_open_coords));
+  ensure(
+    text_at(grouped_open_coords, "error.code") === "usage",
+    "cu_linux_browser_open_usage_grouped_coords_code:" + JSON.stringify(grouped_open_coords.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(grouped_open_coords, "error.message"), "--coords"),
+    "cu_linux_browser_open_usage_grouped_coords_message:" + JSON.stringify(grouped_open_coords.error)
   );
 
   const open_bogus = run_cu_reply(run_directory, executable, "actuate", [
@@ -235,7 +304,11 @@ function assert_browser_profiles_open_usage_limit(run_directory, executable, env
     "cu_linux_browser_open_usage_bogus_code:" + JSON.stringify(open_bogus.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(open_bogus, "error.message")),
+    text_at(open_bogus, "command") === "usage",
+    "cu_linux_browser_open_usage_bogus_command:" + JSON.stringify(open_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(open_bogus, "error.message"), "--bogus"),
     "cu_linux_browser_open_usage_bogus_message:" + JSON.stringify(open_bogus.error)
   );
 }
@@ -260,14 +333,55 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ], env);
   ensure(!output_success(missing_name),
     "cu_linux_browser_extents_missing_name_ok:" + JSON.stringify(missing_name));
-  const missing_code = text_at(missing_name, "error.code");
   ensure(
-    missing_code === "usage" || missing_code === "invalid_input",
+    text_at(missing_name, "error.code") === "usage",
     "cu_linux_browser_extents_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
-    text_at(missing_name, "error.message").indexOf("name") >= 0,
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_browser_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_browser_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_browser_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_browser_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_browser_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_browser_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_browser_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_browser_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_browser_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_browser_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -572,15 +686,17 @@ let succeeded = 0;
 let failure = "";
 
 try {
-  print("STEP browser-profiles/browser-open typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP browser-profiles/browser-open typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
   assert_browser_profiles_open_usage_limit(run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero or --name is missing before browser-open");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before browser-open");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before browser-open");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; browser-open read-back still uses windows inventory");
   }
 
   print("STEP clear stale Chrome/box-chrome processes on this display before zero-chrome inventory");
@@ -730,9 +846,9 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux browser-profiles zero-chrome installed inventory + browser-open windows/tree AT-SPI --name court (not open -na, no --coords)");
+    print("PASS: Linux browser-profiles zero-chrome installed inventory + browser-open windows/tree AT-SPI --name court with typed browser-profiles/browser-open --name/--coords/--bogus and get-extents --name usage/host-limit honesty (not open -na, no --coords)");
   } else {
-    print("PASS: Linux browser-profiles zero-chrome installed inventory + browser-open windows read-back with get-extents/tree host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux browser-profiles zero-chrome installed inventory + browser-open windows read-back with typed browser-profiles/browser-open --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
