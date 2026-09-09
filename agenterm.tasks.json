@@ -6467,7 +6467,7 @@
     },
     {
       "id": "cu-linux-page-find-smoke",
-      "description": "Linux page-find --selector/--text/--role node text/count matches an independent CDP DOM or AX-tree probe on the same disposable page target; typed page-find/get-extents --name usage and host-limit honesty before the read-back court; typed usage, miss, and no-CDP host-limit paths; --port/--target-id only, no --coords.",
+      "description": "Linux page-find --selector/--text/--role node text/count matches an independent CDP DOM or AX-tree probe on the same disposable page target; typed page-find usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage/host-limit paths before the page-find read-back court; typed usage, miss, and no-CDP host-limit paths; --port/--target-id only, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-find-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
