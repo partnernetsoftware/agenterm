@@ -6287,7 +6287,7 @@
     },
     {
       "id": "cu-linux-snapshot-diff-smoke",
-      "description": "Linux snapshot baseline then send-text mutation yields diff that matches independent pyatspi before/after AT-SPI tree delta on the same bounded walk budget, with --advance publishing a new baseline id; typed snapshot/diff/send-text usage must reject AT-SPI --name on observe verbs and require --name on send-text; typed get-extents --name usage/host-limit paths must hold before the snapshot-diff read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux snapshot baseline then send-text mutation yields diff that matches independent pyatspi before/after AT-SPI tree delta on the same bounded walk budget, with --advance publishing a new baseline id; typed snapshot/diff/send-text usage must reject AT-SPI --name on observe verbs, --coords, --bogus, and other unexpected arguments and require --name on send-text; typed get-extents --name usage AND host-limit paths must both hold before the snapshot-diff read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-snapshot-diff-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
