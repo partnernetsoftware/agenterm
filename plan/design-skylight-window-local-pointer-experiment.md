@@ -701,3 +701,18 @@ permission repair, expand the supported macOS set or authorize a product
 provider. Its result must be appended to
 `research/skylight-window-local-pointer/RESULTS.md` with the decision-tree
 trace before either branch changes the PRD or ledger.
+
+#### 10.6.5 Report-contract trace · dry attempt 1
+
+The first invocation of the section 10.6 runner at source
+`41d405c1f3152dea3c1203f1f61c1dd0e1e6dffe` reached no pointer event and formed
+no structured dry-cycle receipt. Its qjswasm court used an unsupported array
+copy method while reading page-focus facts, then incorrectly mapped the thrown
+`TypeError` to the measured-safety retirement branch. Cleanup was verified.
+
+That output is adjudicated `INCONCLUSIVE_REPORT_CONTRACT`, not a focus-lease
+measurement. The repair replaces the unsupported copy with a bounded loop and
+makes a dry-stage failure without a dry-cycle receipt a dedicated failing
+verdict before any dependency or retirement branch. The criteria and native
+mechanism are unchanged, so the invalid invocation consumes no dry-attempt
+budget. No evidence, PRD state, ledger state or compatibility TODO changes.

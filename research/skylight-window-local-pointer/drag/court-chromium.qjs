@@ -483,11 +483,17 @@ function parsed_process_output(output) {
   return { output: output, reply: reply, stdout: text };
 }
 
+function copy_array(values) {
+  const copied = [];
+  for (const value of values) { copied.push(value); }
+  return copied;
+}
+
 function page_focus_fact(snapshot) {
   return {
     has_focus: snapshot.has_focus,
     pointer_sequence_length: snapshot.sequence.length,
-    focus_sequence: snapshot.focus_sequence.slice(0)
+    focus_sequence: copy_array(snapshot.focus_sequence)
   };
 }
 
@@ -765,8 +771,8 @@ function release_only(arm, trajectory, browser_pid, target_window, peer_window,
     page_release: {
       page_a: release_a,
       page_b: release_b,
-      page_a_sequence: final_a.sequence.slice(0),
-      page_b_sequence: final_b.sequence.slice(0)
+      page_a_sequence: copy_array(final_a.sequence),
+      page_b_sequence: copy_array(final_b.sequence)
     }
   };
 }
@@ -1377,6 +1383,8 @@ if (release_failed) {
 } else if (unstable_failure !== "") {
   verdict = "RETIRE_HANDLE_MEASURED_SAFETY_FAILURE";
   retirement_rationale = "measured-safety-failure";
+} else if (stage === "focus-lease-dry" && failure !== "" && dry_cycle === null) {
+  verdict = "INCONCLUSIVE_REPORT_CONTRACT";
 } else if (stage === "focus-lease-dry" && failure !== "" && dry_dependency) {
   verdict = "INCONCLUSIVE_DEPENDENCY";
 } else if (stage === "focus-lease-dry" && failure !== "") {
@@ -1407,8 +1415,11 @@ const report = {
   product_eligible: false,
   closes_gap: false,
   registers_evidence: false,
-  criteria_measured: ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8"],
-  criteria_remaining: ["G9", "G10"],
+  criteria_measured: verdict === "INCONCLUSIVE_REPORT_CONTRACT"
+    ? [] : ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8"],
+  criteria_remaining: verdict === "INCONCLUSIVE_REPORT_CONTRACT"
+    ? ["G1", "G2", "G3", "G4", "G5", "G6a", "G6b", "G7", "G8", "G9", "G10"]
+    : ["G9", "G10"],
   source_sha: source_sha,
   probe_digest: probe_digest,
   precommitment: "section-10.6",
@@ -1454,6 +1465,7 @@ const report = {
 print(JSON.stringify(report));
 
 if (verdict === "INCONCLUSIVE" || verdict === "INCONCLUSIVE_DEPENDENCY"
+    || verdict === "INCONCLUSIVE_REPORT_CONTRACT"
     || cleanup_failure !== "") {
   throw "acu004_" + verdict
     + (dependency_failure !== "" ? ":" + scrubbed_failure(dependency_failure) : "")

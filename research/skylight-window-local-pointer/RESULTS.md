@@ -262,3 +262,28 @@ not close or remove `acu.dynamic.004`.
 A future decision to accept application-local key/main-window change would
 alter G6 and the background-local contract; it requires a new precommitment and
 resets these drag results rather than reclassifying this run.
+
+## Chromium focus-lease drag dry attempt 1 · 2026-09-10
+
+- Repository source SHA: `41d405c1f3152dea3c1203f1f61c1dd0e1e6dffe`.
+- Drag source digest:
+  `0d1facf09b6be8621971123973d65d8bc7e15e2f2f98da44c09f7249defaa3b0`.
+- Precommitment counters: dry attempt 1, repair count 0, run number 1.
+- Runner output: a nominal retirement verdict at `focus-lease-dry`, before a
+  structured dry-cycle receipt existed.
+- Protocol adjudication: `INCONCLUSIVE_REPORT_CONTRACT`.
+- Pointer events: zero; completed triplets: zero; cleanup verified.
+
+The qjswasm court attempted to copy a page-focus array with an unsupported
+JavaScript array method and raised a `TypeError` before assigning the bounded
+dry-cycle receipt. The verdict tree then incorrectly treated that court fault
+as a measured safety failure. No focus-lease measurement or pointer delivery
+result exists from this run.
+
+The court now copies arrays with an explicit bounded loop and classifies any
+dry-stage failure without a structured dry-cycle receipt as
+`INCONCLUSIVE_REPORT_CONTRACT`, with a failing process result. This repair does
+not alter section 10.6 criteria or the focus-lease mechanism. The invalid run
+does not consume a dry attempt, register evidence, change product state or
+select retirement; the first authorized dry attempt therefore retains counters
+1 / 0 / 1 after the corrected source is frozen and made reachable.
