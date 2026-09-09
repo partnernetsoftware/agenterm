@@ -1,10 +1,14 @@
-// CEO: Linux service list/system-status honesty with independent systemctl/sd-bus read-back.
-// Acceptance is smoke read-back only: CU service list|status|system-list|system-status must
-// agree with facts derived outside agenterm-cu, or return typed service_unsupported with
-// linux systemd alternatives (never fake running units). Typed service usage must reject
-// AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit
-// paths must hold before the systemd read-back court. Observe-only; no lifecycle mutation.
-// AT-SPI/--name only; no --coords.
+// CEO: Linux service list/system-status honesty with independent systemd D-Bus
+// manager read-back. Acceptance is smoke read-back only: CU service
+// list|status|system-list|system-status must agree with facts derived outside
+// agenterm-cu from an independently reachable org.freedesktop.systemd1 manager,
+// or return typed service_unsupported host-limit with linux systemd alternatives
+// (never fake running units). A missing system bus socket or unreachable systemd
+// manager is a typed skip/limit, not a positive-path pass; systemctl inventory
+// alone must not promote a scope. Typed service usage must reject AT-SPI --name
+// and other unexpected arguments; typed get-extents --name usage/host-limit
+// paths must hold before any list/system-status path. Observe-only; no lifecycle
+// mutation. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -55,6 +59,13 @@ function invoke(run_directory, executable, args, expect_success) {
   return reply;
 }
 
+function first_line(text) {
+  const value = ("" + text).trim();
+  if (value === "") { return ""; }
+  const lines = value.split("\n");
+  return lines.length > 0 ? lines[0] : "";
+}
+
 function probe_script() {
   return [
     "import json, os, shutil, subprocess, sys",
@@ -64,23 +75,44 @@ function probe_script() {
     "        'activating': 'activating', 'deactivating': 'deactivating',",
     "        'inactive': 'loaded_inactive', 'failed': 'failed',",
     "    }.get(active, 'unknown')",
-    "def systemctl_bin():",
-    "    for candidate in ('systemctl', '/usr/bin/systemctl', '/bin/systemctl'):",
-    "        if shutil.which(candidate) or os.path.isfile(candidate):",
-    "            return candidate",
+    "def first_err(text):",
+    "    value = str(text or '').strip()",
+    "    if value == '':",
+    "        return ''",
+    "    return value.splitlines()[0][:240]",
+    "def which_bin(*names):",
+    "    for name in names:",
+    "        found = shutil.which(name)",
+    "        if found:",
+    "            return found",
+    "        if os.path.isfile(name):",
+    "            return name",
     "    return None",
-    "def dbus_list(scope):",
+    "def systemctl_bin():",
+    "    return which_bin('systemctl', '/usr/bin/systemctl', '/bin/systemctl')",
+    "def dbus_send_bin():",
+    "    return which_bin('dbus-send', '/usr/bin/dbus-send')",
+    "def has_dbus_python():",
     "    try:",
-    "        import dbus",
+    "        import dbus  # noqa: F401",
+    "        return True",
     "    except ImportError:",
-    "        return None",
+    "        return False",
+    "def has_gio():",
     "    try:",
-    "        bus = dbus.SessionBus() if scope == 'user' else dbus.SystemBus()",
-    "        manager = bus.get_object('org.freedesktop.systemd1', '/org/freedesktop/systemd1')",
-    "        iface = dbus.Interface(manager, 'org.freedesktop.systemd1.Manager')",
-    "        rows = iface.ListUnits()",
+    "        from gi.repository import Gio  # noqa: F401",
+    "        return True",
     "    except Exception:",
-    "        return None",
+    "        return False",
+    "def system_bus_socket_path():",
+    "    addr = os.environ.get('DBUS_SYSTEM_BUS_ADDRESS', '')",
+    "    if addr.startswith('unix:path='):",
+    "        return addr[len('unix:path='):].split(',', 1)[0]",
+    "    for candidate in ('/run/dbus/system_bus_socket', '/var/run/dbus/system_bus_socket'):",
+    "        if os.path.exists(candidate):",
+    "            return candidate",
+    "    return '/run/dbus/system_bus_socket'",
+    "def rows_to_services(rows):",
     "    services = []",
     "    for row in rows:",
     "        name = str(row[0])",
@@ -93,6 +125,49 @@ function probe_script() {
     "            'description': str(row[1]),",
     "        })",
     "    return services",
+    "def gio_list(scope):",
+    "    try:",
+    "        from gi.repository import Gio",
+    "    except Exception as error:",
+    "        return None, 'gio-missing:' + first_err(error)",
+    "    bus_type = Gio.BusType.SESSION if scope == 'user' else Gio.BusType.SYSTEM",
+    "    try:",
+    "        bus = Gio.bus_get_sync(bus_type, None)",
+    "    except Exception as error:",
+    "        return None, 'gio-connect:' + first_err(error)",
+    "    try:",
+    "        proxy = Gio.DBusProxy.new_sync(",
+    "            bus, Gio.DBusProxyFlags.NONE, None,",
+    "            'org.freedesktop.systemd1', '/org/freedesktop/systemd1',",
+    "            'org.freedesktop.systemd1.Manager', None)",
+    "        variant = proxy.call_sync('ListUnits', None, Gio.DBusCallFlags.NONE, 8000, None)",
+    "        unpacked = variant.unpack()",
+    "        rows = unpacked[0] if unpacked else []",
+    "        return rows_to_services(rows), ''",
+    "    except Exception as error:",
+    "        return None, 'gio-listunits:' + first_err(error)",
+    "def dbus_python_list(scope):",
+    "    try:",
+    "        import dbus",
+    "    except ImportError as error:",
+    "        return None, 'dbus-python-missing:' + first_err(error)",
+    "    try:",
+    "        bus = dbus.SessionBus() if scope == 'user' else dbus.SystemBus()",
+    "        manager = bus.get_object('org.freedesktop.systemd1', '/org/freedesktop/systemd1')",
+    "        iface = dbus.Interface(manager, 'org.freedesktop.systemd1.Manager')",
+    "        return rows_to_services(iface.ListUnits()), ''",
+    "    except Exception as error:",
+    "        return None, 'dbus-python-listunits:' + first_err(error)",
+    "def dbus_send_call(scope, dest, path, method):",
+    "    binary = dbus_send_bin()",
+    "    if binary is None:",
+    "        return False, 'dbus-send-missing'",
+    "    cmd = [binary, '--session' if scope == 'user' else '--system', '--print-reply',",
+    "           '--dest=' + dest, path, method]",
+    "    out = subprocess.run(cmd, capture_output=True, text=True)",
+    "    if out.returncode == 0:",
+    "        return True, ''",
+    "    return False, first_err(out.stderr or out.stdout or 'dbus-send-failed')",
     "def systemctl_list(scope):",
     "    sc = systemctl_bin()",
     "    if sc is None:",
@@ -119,93 +194,100 @@ function probe_script() {
     "            'description': parts[4],",
     "        })",
     "    return services",
-    "def systemctl_status(scope, name):",
-    "    sc = systemctl_bin()",
-    "    if sc is None:",
-    "        return None",
-    "    cmd = [sc]",
-    "    if scope == 'user':",
-    "        cmd.append('--user')",
-    "    cmd.extend(['show', name, '--property=Id,ActiveState,SubState,Description', '--value'])",
-    "    out = subprocess.run(cmd, capture_output=True, text=True)",
-    "    if out.returncode != 0:",
-    "        return {'missing': True, 'name': name}",
-    "    values = [line.strip() for line in out.stdout.splitlines() if line.strip() != '']",
-    "    if len(values) < 4:",
-    "        return None",
-    "    return {",
-    "        'missing': False,",
-    "        'name': values[0],",
-    "        'state': map_state(values[1]),",
-    "        'substate': values[2],",
-    "        'description': values[3],",
-    "    }",
-    "def probe_scope(scope):",
-    "    services = dbus_list(scope)",
-    "    mechanism = 'dbus-python'",
+    "socket_path = system_bus_socket_path()",
+    "session_bus_ok, session_bus_err = dbus_send_call(",
+    "    'user', 'org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus.Peer.Ping')",
+    "if not session_bus_ok and has_gio():",
+    "    try:",
+    "        from gi.repository import Gio",
+    "        Gio.bus_get_sync(Gio.BusType.SESSION, None)",
+    "        session_bus_ok, session_bus_err = True, ''",
+    "    except Exception as error:",
+    "        session_bus_err = session_bus_err or ('gio-session:' + first_err(error))",
+    "system_bus_ok, system_bus_err = dbus_send_call(",
+    "    'system', 'org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus.Peer.Ping')",
+    "if not system_bus_ok and has_gio():",
+    "    try:",
+    "        from gi.repository import Gio",
+    "        Gio.bus_get_sync(Gio.BusType.SYSTEM, None)",
+    "        system_bus_ok, system_bus_err = True, ''",
+    "    except Exception as error:",
+    "        system_bus_err = system_bus_err or ('gio-system:' + first_err(error))",
+    "scopes = {}",
+    "manager = {}",
+    "for scope in ('user', 'system'):",
+    "    services, err = gio_list(scope)",
+    "    mechanism = 'gio-listunits'",
+    "    if services is None:",
+    "        services, err2 = dbus_python_list(scope)",
+    "        mechanism = 'dbus-python'",
+    "        if err2:",
+    "            err = err or err2",
+    "    ping_ok, ping_err = dbus_send_call(",
+    "        scope, 'org.freedesktop.systemd1', '/org/freedesktop/systemd1',",
+    "        'org.freedesktop.DBus.Peer.Ping')",
+    "    reachable = services is not None or ping_ok",
+    "    if services is None and ping_ok:",
+    "        err = err or ping_err",
+    "    if services is None and not ping_ok:",
+    "        err = err or ping_err",
+    "    manager[scope] = {'reachable': reachable, 'error': err or ''}",
+    "    if not reachable:",
+    "        continue",
     "    if services is None:",
     "        services = systemctl_list(scope)",
     "        mechanism = 'systemctl'",
     "    if services is None:",
-    "        return None",
-    "    return {'scope': scope, 'mechanism': mechanism, 'services': services}",
-    "scopes = {}",
-    "for scope in ('user', 'system'):",
-    "    probed = probe_scope(scope)",
-    "    if probed is not None:",
-    "        scopes[scope] = probed",
-    "print(json.dumps({'available': len(scopes) > 0, 'scopes': scopes}))",
-  ].join("\n");
-}
-
-function probe_absence() {
-  const script = [
-    "import json, os, shutil, sys",
-    "def systemctl_bin():",
-    "    for candidate in ('systemctl', '/usr/bin/systemctl', '/bin/systemctl'):",
-    "        if shutil.which(candidate) or os.path.isfile(candidate):",
-    "            return candidate",
-    "    return None",
-    "def has_dbus_python():",
-    "    try:",
-    "        import dbus  # noqa: F401",
-    "        return True",
-    "    except ImportError:",
-    "        return False",
-    "def systemd_bus_reachable(scope):",
-    "    try:",
-    "        import dbus",
-    "        bus = dbus.SessionBus() if scope == 'user' else dbus.SystemBus()",
-    "        bus.get_object('org.freedesktop.systemd1', '/org/freedesktop/systemd1')",
-    "        return True",
-    "    except Exception:",
-    "        return False",
-    "print(json.dumps({",
+    "        continue",
+    "    scopes[scope] = {'scope': scope, 'mechanism': mechanism, 'services': services}",
+    "absence = {",
     "    'systemctl': systemctl_bin() is not None,",
     "    'dbus_python': has_dbus_python(),",
-    "    'session_systemd_bus': systemd_bus_reachable('user'),",
-    "    'system_systemd_bus': systemd_bus_reachable('system'),",
+    "    'dbus_send': dbus_send_bin() is not None,",
+    "    'gio': has_gio(),",
+    "    'system_bus_socket': socket_path,",
+    "    'system_bus_socket_exists': os.path.exists(socket_path),",
+    "    'session_bus_connect': session_bus_ok,",
+    "    'session_bus_connect_error': session_bus_err,",
+    "    'system_bus_connect': system_bus_ok,",
+    "    'system_bus_connect_error': system_bus_err,",
+    "    'session_systemd_manager': manager['user']['reachable'],",
+    "    'system_systemd_manager': manager['system']['reachable'],",
+    "    'session_systemd_error': manager['user']['error'],",
+    "    'system_systemd_error': manager['system']['error'],",
     "    'xdg_runtime_dir': os.environ.get('XDG_RUNTIME_DIR', ''),",
     "    'dbus_session_bus_address': os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''),",
-    "}))",
+    "}",
+    "print(json.dumps({'absence': absence, 'scopes': scopes}))",
   ].join("\n");
-  const output = rh.command("python3", ["-c", script], {
-    env: cu_env(),
-    timeout_ms: 30000,
-  });
-  ensure(output.success === true, "cu_linux_service_absence_probe:" + output.stderr);
-  return JSON.parse(output.stdout.trim());
 }
 
-function independent_probe() {
+function independent_facts() {
   const output = rh.command("python3", ["-c", probe_script()], {
     env: cu_env(),
     timeout_ms: 30000,
   });
   ensure(output.success === true, "cu_linux_service_probe:" + output.stderr);
   const parsed = JSON.parse(output.stdout.trim());
-  if (parsed.available !== true || !parsed.scopes) { return null; }
-  return parsed.scopes;
+  ensure(parsed.absence !== undefined && parsed.absence !== null, "cu_linux_service_probe_absence_shape");
+  const scopes = parsed.scopes;
+  return {
+    absence: parsed.absence,
+    scopes: scopes === undefined || scopes === null ? {} : scopes,
+  };
+}
+
+function absence_text(absence) {
+  return "systemctl=" + absence.systemctl
+    + " dbus_python=" + absence.dbus_python
+    + " dbus_send=" + absence.dbus_send
+    + " gio=" + absence.gio
+    + " system_bus_socket_exists=" + absence.system_bus_socket_exists
+    + " system_bus_connect=" + absence.system_bus_connect
+    + " session_systemd_manager=" + absence.session_systemd_manager
+    + " system_systemd_manager=" + absence.system_systemd_manager
+    + " system_bus_error=" + first_line(text_at(absence, "system_bus_connect_error"))
+    + " system_systemd_error=" + first_line(text_at(absence, "system_systemd_error"));
 }
 
 const missing_service_name = "com.example.agenterm.missing-court.service";
@@ -397,6 +479,27 @@ function missing_status_script() {
     "        if shutil.which(candidate) or os.path.isfile(candidate):",
     "            return candidate",
     "    return None",
+    "def unit_missing_text(text):",
+    "    return 'NoSuchUnit' in text or 'not loaded' in text or 'Unknown object' in text",
+    "def gio_missing(scope, name):",
+    "    try:",
+    "        from gi.repository import Gio, GLib",
+    "    except Exception:",
+    "        return None",
+    "    bus_type = Gio.BusType.SESSION if scope == 'user' else Gio.BusType.SYSTEM",
+    "    try:",
+    "        bus = Gio.bus_get_sync(bus_type, None)",
+    "        proxy = Gio.DBusProxy.new_sync(",
+    "            bus, Gio.DBusProxyFlags.NONE, None,",
+    "            'org.freedesktop.systemd1', '/org/freedesktop/systemd1',",
+    "            'org.freedesktop.systemd1.Manager', None)",
+    "        proxy.call_sync('GetUnit', GLib.Variant('(s)', (name,)), Gio.DBusCallFlags.NONE, 8000, None)",
+    "        return {'missing': False, 'name': name}",
+    "    except Exception as error:",
+    "        text = str(error)",
+    "        if unit_missing_text(text):",
+    "            return {'missing': True, 'name': name}",
+    "        return None",
     "def dbus_missing(scope, name):",
     "    try:",
     "        import dbus",
@@ -410,7 +513,7 @@ function missing_status_script() {
     "        return {'missing': False, 'name': name}",
     "    except Exception as error:",
     "        text = str(error)",
-    "        if 'NoSuchUnit' in text or 'not loaded' in text:",
+    "        if unit_missing_text(text):",
     "            return {'missing': True, 'name': name}",
     "        return None",
     "def systemctl_missing(scope, name):",
@@ -430,8 +533,11 @@ function missing_status_script() {
     "    return {'missing': False, 'name': values[0], 'state': map_state(values[1]), 'substate': values[2]}",
     "scope = sys.argv[1]",
     "name = sys.argv[2]",
-    "result = dbus_missing(scope, name)",
-    "mechanism = 'dbus-python'",
+    "result = gio_missing(scope, name)",
+    "mechanism = 'gio-getunit'",
+    "if result is None:",
+    "    result = dbus_missing(scope, name)",
+    "    mechanism = 'dbus-python'",
     "if result is None:",
     "    result = systemctl_missing(scope, name)",
     "    mechanism = 'systemctl'",
@@ -469,6 +575,27 @@ function verify_unsupported(reply) {
   ensure(JSON.stringify(alts).indexOf("systemctl") >= 0, "cu_linux_service_systemctl_alt");
   ensure(JSON.stringify(reply).indexOf("launchctl") < 0 || text_at(detail, "required_os") === "macos",
          "cu_linux_service_no_macos_claim");
+  const encoded = JSON.stringify(reply);
+  ensure(encoded.indexOf('"state":"running"') < 0, "cu_linux_service_fake_running:" + encoded);
+}
+
+function verify_scope_unsupported(run_directory, executable, scope) {
+  const list_args = scope === "system" ? ["system-list", "--max", "8"] : ["list", "--max", "8"];
+  const status_args = scope === "system"
+    ? ["system-status", missing_service_name]
+    : ["status", missing_service_name];
+  verify_unsupported(invoke(run_directory, executable, list_args, false));
+  verify_unsupported(invoke(run_directory, executable, status_args, false));
+}
+
+function scope_manager_ready(absence, scope) {
+  if (scope === "system") {
+    return absence.system_bus_socket_exists === true
+      && absence.system_bus_connect === true
+      && absence.system_systemd_manager === true;
+  }
+  return absence.session_bus_connect === true
+    && absence.session_systemd_manager === true;
 }
 
 function index_services(services) {
@@ -561,51 +688,48 @@ if (atspi_available) {
   assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
 }
 
-const scopes = independent_probe();
+const facts = independent_facts();
+const absence = facts.absence;
+const scopes = facts.scopes;
+const extents_note = atspi_available
+  ? "typed service/get-extents usage honesty (AT-SPI --name, no --coords)"
+  : "typed service/get-extents host-limit honesty (AT-SPI --name, no --coords)";
 
-if (scopes === null) {
-  const absence = probe_absence();
-  print("STEP typed unsupported when independent systemd probe is absent"
-    + " (systemctl=" + absence.systemctl
-    + " dbus_python=" + absence.dbus_python
-    + " session_bus=" + absence.session_systemd_bus
-    + " system_bus=" + absence.system_systemd_bus + ")");
-  verify_unsupported(invoke(context.run_directory, executable, ["list", "--max", "8"], false));
-  verify_unsupported(invoke(context.run_directory, executable, ["system-list", "--max", "8"], false));
-  verify_unsupported(invoke(context.run_directory, executable,
-    ["status", missing_service_name], false));
-  verify_unsupported(invoke(context.run_directory, executable,
-    ["system-status", missing_service_name], false));
-  harness.emit_evidence(context, declared_evidence, "cu.linux-service-readback");
-  harness.remove_run(context);
-  if (atspi_available) {
-    print("PASS: Linux service typed unsupported with independent probe absence read-back and typed service/get-extents usage honesty (AT-SPI --name, no --coords)");
+print("STEP independent systemd D-Bus absence/presence read-back " + absence_text(absence));
+
+let positive_count = 0;
+const scope_names = ["user", "system"];
+for (let scope_index = 0; scope_index < scope_names.length; scope_index = scope_index + 1) {
+  const scope = scope_names[scope_index];
+  const probe = at(scopes, scope);
+  const manager_ready = scope_manager_ready(absence, scope);
+  if (manager_ready !== true || probe === undefined || probe === null) {
+    print("STEP " + scope + " scope typed service_unsupported host-limit; independent systemd manager absent ("
+      + absence_text(absence) + ")");
+    ensure(manager_ready !== true, "cu_linux_service_manager_ready_without_inventory:" + scope);
+    verify_scope_unsupported(context.run_directory, executable, scope);
   } else {
-    print("PASS: Linux service typed unsupported with independent probe absence read-back and typed service/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("STEP " + scope + " service inventory/status match independent "
+      + text_at(probe, "mechanism") + " read-back");
+    const max_items = scope === "system" ? 8 : 16;
+    const name = verify_list_scope(context.run_directory, executable, scope, probe, max_items);
+    verify_status_scope(context.run_directory, executable, scope, name, probe);
+    print("STEP missing service status for " + scope + " agrees with independent "
+      + "systemd D-Bus read-back (" + missing_service_name + ")");
+    verify_missing_status_scope(context.run_directory, executable, scope);
+    positive_count = positive_count + 1;
   }
-  return;
-}
-
-print("STEP user and system service inventory/status match independent probe read-back");
-for (const scope of ["user", "system"]) {
-  const probe = scopes[scope];
-  if (probe === undefined || probe === null) {
-    verify_unsupported(invoke(context.run_directory, executable,
-      scope === "system" ? ["system-list", "--max", "8"] : ["list", "--max", "8"], false));
-    continue;
-  }
-  const max_items = scope === "system" ? 8 : 16;
-  const name = verify_list_scope(context.run_directory, executable, scope, probe, max_items);
-  verify_status_scope(context.run_directory, executable, scope, name, probe);
-  print("STEP missing service status for " + scope + " agrees with independent "
-    + "systemctl/dbus read-back (" + missing_service_name + ")");
-  verify_missing_status_scope(context.run_directory, executable, scope);
 }
 
 harness.emit_evidence(context, declared_evidence, "cu.linux-service-readback");
 harness.remove_run(context);
-if (atspi_available) {
-  print("PASS: Linux service list/system-status with independent systemd probe read-back and typed service/get-extents usage honesty (AT-SPI --name, no --coords)");
+if (positive_count === 0) {
+  print("PASS: Linux service typed unsupported with independent probe absence read-back and "
+    + extents_note);
+} else if (positive_count === 2) {
+  print("PASS: Linux service list/system-status with independent systemd probe read-back and "
+    + extents_note);
 } else {
-  print("PASS: Linux service list/system-status with independent systemd probe read-back and typed service/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux service mixed inventory/host-limit with independent systemd manager read-back and "
+    + extents_note);
 }
