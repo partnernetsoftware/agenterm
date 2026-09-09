@@ -523,6 +523,7 @@ private func run() throws -> [String: Any] {
     var failureCode: String?
     var failureMessage: String?
     var downPostUncertain = false
+    var upPostUncertain = false
 
     func recordFailure(_ code: String, _ message: String) {
         if failureCode == nil {
@@ -561,8 +562,10 @@ private func run() throws -> [String: Any] {
         do {
             try post(events[0].event, route: route, pid: pid, sky: sky)
         } catch let InjectorFailure.typed(code, message) {
+            upPostUncertain = true
             recordFailure(code, message)
         } catch {
+            upPostUncertain = true
             recordFailure("release_failed", "the release-only native post failed")
         }
         sampleAfter("after-up", postedNs: postedNs)
@@ -619,8 +622,10 @@ private func run() throws -> [String: Any] {
         do {
             try post(release.event, route: route, pid: pid, sky: sky)
         } catch let InjectorFailure.typed(code, message) {
+            upPostUncertain = true
             recordFailure(code, message)
         } catch {
+            upPostUncertain = true
             recordFailure("release_failed", "the button-up native post failed")
         }
         sampleAfter("after-up", postedNs: upPostedNs)
@@ -645,7 +650,8 @@ private func run() throws -> [String: Any] {
         recordFailure("host_samples_incomplete", "an intermediate host-state sample is missing")
     }
     let ok = failureCode == nil
-    let outcomeUnknown = mode == .releaseOnly || downPostUncertain || upAttempts != 1
+    let outcomeUnknown = mode == .releaseOnly || downPostUncertain
+        || upPostUncertain || upAttempts != 1
     return [
         "ok": ok && hostSamplesComplete && sameIdentity,
         "schema": 1,
@@ -668,6 +674,7 @@ private func run() throws -> [String: Any] {
         "move_attempts": moveAttempts,
         "up_attempts": upAttempts,
         "up_attempted": upAttempts == 1,
+        "up_post_uncertain": upPostUncertain,
         "up_proven": false,
         "up_proof": "parent-page-oracle-required",
         "same_identity": sameIdentity,
@@ -697,6 +704,7 @@ do {
         "move_attempts": 0,
         "up_attempts": 0,
         "up_attempted": false,
+        "up_post_uncertain": false,
         "up_proven": false,
         "same_identity": false,
         "host_samples_complete": false,
@@ -715,6 +723,7 @@ do {
         "move_attempts": 0,
         "up_attempts": 0,
         "up_attempted": false,
+        "up_post_uncertain": false,
         "up_proven": false,
         "same_identity": false,
         "host_samples_complete": false,
