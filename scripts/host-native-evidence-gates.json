@@ -267,6 +267,15 @@
       ]
     },
     {
+      "id": "cu-linux-wait-ready-honesty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-wait-node-name-readback",
+        "cu.linux-wait-ready-path-readback",
+        "cu.linux-wait-chrome-node-name-readback"
+      ]
+    },
+    {
       "id": "cu-linux-focused-honesty-smoke",
       "platform": "linux",
       "evidence": [
