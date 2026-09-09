@@ -7885,7 +7885,7 @@
     },
     {
       "id": "cu-linux-cache-hierarchy-smoke",
-      "description": "Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; typed cache-hierarchy-status usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the /sys cache read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux cache-hierarchy-status levels, kinds and per-instance sizes match independent /sys/devices/system/cpu/*/cache read-back; typed cache-hierarchy-status usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the /sys cache read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-cache-hierarchy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
