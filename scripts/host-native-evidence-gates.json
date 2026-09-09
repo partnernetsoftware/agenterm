@@ -542,6 +542,13 @@
       ]
     },
     {
+      "id": "cu-linux-host-memory-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-host-memory-readback"
+      ]
+    },
+    {
       "id": "cu-linux-raise-activate-smoke",
       "platform": "linux",
       "evidence": [

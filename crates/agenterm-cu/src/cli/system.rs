@@ -370,6 +370,15 @@ pub fn parse(
         }
         return Ok(Command::CacheHierarchyStatus { target });
     }
+    if spec.name == "host-memory-status" {
+        if !args.is_empty() {
+            return Err(format!(
+                "host-memory-status accepts no arguments; unexpected {:?}",
+                args[0]
+            ));
+        }
+        return Ok(Command::HostMemoryStatus { target });
+    }
     if spec.name == "processor-affinity-status" {
         if args.first().is_some_and(|arg| arg == "affinity") {
             args.remove(0);
@@ -1618,6 +1627,15 @@ mod tests {
         ));
         assert!(parse("processor-topology-status", &["extra"]).is_err());
         assert!(parse("processor", &["topology", "status", "extra"]).is_err());
+    }
+
+    #[test]
+    fn host_memory_status_flat_shape_is_closed() {
+        assert!(matches!(
+            parse("host-memory-status", &[]).unwrap(),
+            Command::HostMemoryStatus { .. }
+        ));
+        assert!(parse("host-memory-status", &["extra"]).is_err());
     }
 
     #[test]
