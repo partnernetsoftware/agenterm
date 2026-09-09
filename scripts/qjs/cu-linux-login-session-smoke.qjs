@@ -1,28 +1,194 @@
 // CEO: Linux login-session status honesty with independent loginctl/session-env read-back.
+// Acceptance is smoke read-back only: CU login-session status must agree with facts
+// derived outside agenterm-cu, or return typed login_session_unsupported with Linux
+// systemd-logind alternatives (never macOS claims). Typed login-session usage must
+// reject AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the loginctl read-back court. Observe-only;
+// no lock apply. AT-SPI/--name only; no --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
 const declared_evidence = ["cu.linux-login-session-readback"];
+const AT_SPI_PROBE_NAME = "Login Session Court Anchor";
 
 function ensure(c, m) { if (!c) throw m; }
-function text_at(v, d) {
-  let c = v; for (const k of d.split(".")) c = rh.field(c, k);
-  return c === undefined || c === null ? "" : "" + c;
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
 }
+
+function text_at(v, d) {
+  const current = at(v, d);
+  return current === undefined || current === null ? "" : "" + current;
+}
+
+function output_success(document) { return at(document, "ok") === true; }
+
 function cu_env(exe) {
-  const env = { AGENTERM_ABI_LIB: rh.join(rh.parent(exe), "libagenterm.so"), AGENTERM_NO_ACTIVATE: "1" };
-  for (const k of ["DISPLAY","XDG_RUNTIME_DIR","DBUS_SESSION_BUS_ADDRESS","AT_SPI_BUS_ADDRESS","AT_SPI_BUS","XDG_SESSION_ID"]) {
-    if (rh.has_env(k)) env[k] = rh.env_or(k, "");
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(exe), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const k of [
+    "DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS", "XDG_SESSION_ID",
+  ]) {
+    if (rh.has_env(k)) { env[k] = rh.env_or(k, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
   }
   return env;
 }
-function invoke(dir, exe, args, ok) {
-  const out = rh.command(exe, ["--target","current","--grant","observe","login-session"].concat(args), { cwd: dir, env: cu_env(exe), timeout_ms: 30000 });
+
+function invoke_reply(dir, exe, args, env) {
+  const out = rh.command(exe, ["--target", "current", "--grant", "observe", "login-session"].concat(args), {
+    cwd: dir,
+    env: env === undefined ? cu_env(exe) : env,
+    timeout_ms: 30000,
+  });
+  ensure(out.stdout.trim() !== "", "cu_linux_login_session_cli:" + out.stdout + out.stderr);
   const reply = JSON.parse(out.stdout.trim());
-  ensure(reply.ok === ok, "reply:" + out.stdout);
-  ensure(out.success === ok, "exit:" + out.exit_code);
+  ensure(
+    text_at(reply, "command") === "login-session" || text_at(reply, "command") === "usage",
+    "cu_linux_login_session_command:" + JSON.stringify(reply)
+  );
   return reply;
 }
+
+function invoke(dir, exe, args, ok) {
+  const reply = invoke_reply(dir, exe, args);
+  ensure(reply.ok === ok, "reply:" + JSON.stringify(reply));
+  ensure(
+    (ok === true && reply.ok === true) || (ok !== true && reply.ok !== true),
+    "cu_linux_login_session_reply_state"
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(dir, exe, args, env) {
+  const out = rh.command(exe, ["--target", "current", "--grant", "observe"].concat(args), {
+    cwd: dir,
+    env: env === undefined ? cu_env(exe) : env,
+    timeout_ms: 30000,
+  });
+  ensure(out.stdout.trim() !== "", "cu_linux_login_session_extents_cli:" + out.stdout + out.stderr);
+  return JSON.parse(out.stdout.trim());
+}
+
+function probe_atspi_available(exe) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const out = rh.command("python3", ["-c", script], {
+    env: cu_env(exe),
+    timeout_ms: 10000,
+  });
+  return out.success === true && out.stdout.trim() === "1";
+}
+
+function assert_login_session_usage_limit(dir, exe, env) {
+  const status_with_name = invoke_reply(dir, exe, ["status", "--name", AT_SPI_PROBE_NAME], env);
+  ensure(!output_success(status_with_name),
+    "cu_linux_login_session_usage_status_name_ok:" + JSON.stringify(status_with_name));
+  ensure(
+    text_at(status_with_name, "error.code") === "usage",
+    "cu_linux_login_session_usage_status_name_code:" + JSON.stringify(status_with_name.error)
+  );
+  ensure(
+    text_at(status_with_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_login_session_usage_status_name_message:" + JSON.stringify(status_with_name.error)
+  );
+
+  const plan_with_name = invoke_reply(dir, exe, ["plan", "lock", "--name", AT_SPI_PROBE_NAME], env);
+  ensure(!output_success(plan_with_name),
+    "cu_linux_login_session_usage_plan_name_ok:" + JSON.stringify(plan_with_name));
+  ensure(
+    text_at(plan_with_name, "error.code") === "usage",
+    "cu_linux_login_session_usage_plan_name_code:" + JSON.stringify(plan_with_name.error)
+  );
+  ensure(
+    text_at(plan_with_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_login_session_usage_plan_name_message:" + JSON.stringify(plan_with_name.error)
+  );
+
+  const plan_ttl_with_name = invoke_reply(dir, exe,
+    ["plan", "lock", "--ttl-seconds", "60", "--name", AT_SPI_PROBE_NAME], env);
+  ensure(!output_success(plan_ttl_with_name),
+    "cu_linux_login_session_usage_plan_ttl_name_ok:" + JSON.stringify(plan_ttl_with_name));
+  ensure(
+    text_at(plan_ttl_with_name, "error.code") === "usage",
+    "cu_linux_login_session_usage_plan_ttl_name_code:" + JSON.stringify(plan_ttl_with_name.error)
+  );
+  ensure(
+    text_at(plan_ttl_with_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_login_session_usage_plan_ttl_name_message:" + JSON.stringify(plan_ttl_with_name.error)
+  );
+
+  const status_bogus = invoke_reply(dir, exe, ["status", "--bogus"], env);
+  ensure(!output_success(status_bogus),
+    "cu_linux_login_session_usage_status_bogus_ok:" + JSON.stringify(status_bogus));
+  ensure(
+    text_at(status_bogus, "error.code") === "usage",
+    "cu_linux_login_session_usage_status_bogus_code:" + JSON.stringify(status_bogus.error)
+  );
+
+  const missing_subcommand = invoke_reply(dir, exe, [], env);
+  ensure(!output_success(missing_subcommand),
+    "cu_linux_login_session_usage_missing_subcommand_ok:" + JSON.stringify(missing_subcommand));
+  ensure(
+    text_at(missing_subcommand, "error.code") === "usage",
+    "cu_linux_login_session_usage_missing_subcommand_code:" + JSON.stringify(missing_subcommand.error)
+  );
+}
+
+function assert_get_extents_usage_limit(dir, exe, env) {
+  const zero_handle = invoke_get_extents_reply(dir, exe, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_login_session_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_login_session_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_login_session_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(dir, exe) {
+  const reply = invoke_get_extents_reply(dir, exe, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(exe), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_login_session_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_login_session_extents_unavailable_code:" + code
+  );
+}
+
 function probe() {
   const script = "import json,os,subprocess,sys,shutil\n" +
     "sid=os.environ.get('XDG_SESSION_ID','').strip()\n" +
@@ -44,11 +210,13 @@ function probe() {
   const p = JSON.parse(out.stdout.trim());
   return p.available === true ? p : null;
 }
+
 function field_at(v, d) {
   let c = v;
   for (const k of d.split(".")) c = rh.field(c, k);
   return c;
 }
+
 function probe_absence() {
   const script = "import json,os,shutil\n" +
     "print(json.dumps({'loginctl':shutil.which('loginctl') is not None,'xdg_session_id':os.environ.get('XDG_SESSION_ID','').strip(),'session_dir':os.path.isdir('/run/systemd/sessions')}))";
@@ -56,6 +224,7 @@ function probe_absence() {
   ensure(out.success, out.stderr);
   return JSON.parse(out.stdout.trim());
 }
+
 function verify_unsupported(st) {
   ensure(st.ok !== true, "false_success");
   ensure(text_at(st,"error.code")==="login_session_unsupported","code");
@@ -74,6 +243,20 @@ harness.require(args.length===2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]); const exe = rh.absolute(args[1]);
 ensure(rh.exists(exe), "missing exe");
 const ctx = harness.new_context(repo, "cu-linux-login-session");
+const env = cu_env(exe);
+const atspi_available = probe_atspi_available(exe);
+
+print("STEP login-session typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+assert_login_session_usage_limit(ctx.run_directory, exe, env);
+
+if (atspi_available) {
+  print("STEP get-extents typed-fail invalid_input when --window is zero before loginctl read-back");
+  assert_get_extents_usage_limit(ctx.run_directory, exe, env);
+} else {
+  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+  assert_get_extents_host_limit_when_atspi_absent(ctx.run_directory, exe);
+}
+
 const p = probe();
 if (p === null) {
   const absence = probe_absence();
@@ -84,7 +267,11 @@ if (p === null) {
   verify_unsupported(invoke(ctx.run_directory, exe, ["plan","lock"], false));
   harness.emit_evidence(ctx, declared_evidence, "cu.linux-login-session-readback");
   harness.remove_run(ctx);
-  print("PASS typed unsupported with Linux systemd-logind alternatives");
+  if (atspi_available) {
+    print("PASS: Linux login-session typed unsupported with independent probe absence read-back and typed login-session/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux login-session typed unsupported with independent probe absence read-back and typed login-session/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
   return;
 }
 print("STEP readback path");
@@ -100,4 +287,8 @@ ensure(rh.field(console,"login_complete")===p.login_complete,"login_complete");
 ensure(rh.field(st,"data.locked")===p.locked,"locked");
 harness.emit_evidence(ctx, declared_evidence, "cu.linux-login-session-readback");
 harness.remove_run(ctx);
-print("PASS login-session status matches independent session probe read-back");
+if (atspi_available) {
+  print("PASS: Linux login-session status matches independent loginctl/session-env read-back with typed login-session/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux login-session status matches independent loginctl/session-env read-back with typed login-session/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
