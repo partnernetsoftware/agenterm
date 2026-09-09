@@ -7572,7 +7572,7 @@
     },
     {
       "id": "cu-linux-file-inspect-smoke",
-      "description": "Linux file-inspect size, unix mode, modified time, kind and inode identity match independent os.lstat read-back for a regular file, directory and final symlink; typed file-inspect usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the os.lstat read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux file-inspect size, unix mode, modified time, kind and inode identity match independent os.lstat read-back for a regular file, directory and final symlink; typed file-inspect usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the os.lstat read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-file-inspect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
