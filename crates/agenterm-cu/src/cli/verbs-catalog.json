@@ -962,6 +962,44 @@
       ]
     },
     {
+      "name": "app-watch",
+      "command": "app-watch",
+      "aliases": [
+        "apps watch"
+      ],
+      "grant": "observe",
+      "family": "windows",
+      "summary": "watch bounded application launch and quit transitions by native identity",
+      "usage": "app-watch --app SELECTOR [--app SELECTOR ...] [--duration-ms N --interval-ms N --max-events N --max-processes N]",
+      "args": [
+        {
+          "flag": "--app",
+          "value": "SELECTOR",
+          "help": "exact application selector; repeat for at most 16 applications"
+        },
+        {
+          "flag": "--duration-ms",
+          "value": "N",
+          "help": "monotonic duration, 1..=86400000 (default 30000)"
+        },
+        {
+          "flag": "--interval-ms",
+          "value": "N",
+          "help": "poll interval, 1..=60000 (default 1000)"
+        },
+        {
+          "flag": "--max-events",
+          "value": "N",
+          "help": "application transition ceiling, 1..=4096 (default 256)"
+        },
+        {
+          "flag": "--max-processes",
+          "value": "N",
+          "help": "matched process candidate ceiling, 1..=5000 (default 1000)"
+        }
+      ]
+    },
+    {
       "name": "app-inspect",
       "command": "app-inspect",
       "aliases": [],
@@ -7329,6 +7367,10 @@
     {
       "name": "app-facts",
       "text": "agenterm-cu app-facts\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  app-facts --selector VALUE [--signing] [--verify] [--entitlements]\n\nResolves exactly one application by normalized path, desktop-entry, bundle or Windows\nUninstall id, or unique Name. Linux reads bounded XDG desktop entries directly. macOS\nreads bounded application bundles and native Security.framework signing facts\nin-process; signature verification checks every architecture without network access but\ndoes not recursively validate nested code. Windows reads bounded current-user and\nmachine Uninstall registrations across both registry views, PE version resources,\nqueryable process image paths, and embedded Authenticode signer facts in-process.\nWindows verification opens no UI or network; catalog signatures, Start Menu shortcuts\nand MSIX identities remain typed gaps in this cut. All providers bracket identity and\nnever borrow window evidence. On macOS, running is scoped to the caller's effective\nuser; on Windows it is scoped to processes the caller may query. Missing, ambiguous,\ntruncated, and drifting resolution fail typed. Every returned field is a Fact with\npresent, absent, not-requested, not-applicable, unsupported, or unavailable status;\nnon-present facts carry a reason. Desktop-entry Version is file-format metadata and is\nnever reported as the application version. Exec wrappers, PATH lookup, or field codes\nmake executable and running unavailable rather than guessed. Linux signature facts are\nunsupported and entitlements are not applicable; macOS and Windows desktop-entry ids\nare not applicable, and Windows has no Apple entitlements.\n"
+    },
+    {
+      "name": "app-watch",
+      "text": "agenterm-cu app-watch    (also: apps watch)\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  app-watch --app SELECTOR [--app SELECTOR ...] [--duration-ms N --interval-ms N --max-events N --max-processes N]\n  apps watch SELECTOR\n\nResolves 1..=16 application selectors through app-facts, freezes each canonical\nexecutable identity, and polls a complete native process inventory while bounding only\nmatched basename candidates. Events are application-level launched and quit transitions:\nhelper or renderer instances changing while at least one exact executable instance remains\ndo not invent lifecycle events. Every matched process carries a native start identity, so\nPID reuse cannot preserve an old instance. Each event names one deterministic boundary\nrepresentative; it does not claim which simultaneous instance caused a sampled transition.\nReaching max-events reports truncated=true/completed=false; an oversized matched-candidate\ninventory or changed application identity fails typed instead of diffing partial truth.\nPolling is interval-bounded, so a launch and quit wholly between two samples is not\nobservable. Replies expose only selected applications and their exact matching instances.\n"
     },
     {
       "name": "app-inspect",

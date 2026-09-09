@@ -310,6 +310,31 @@ require(JSON.stringify(signal_plan.argv) === JSON.stringify([
   "--timeout-ms", "5000", "--ttl-seconds", "60"
 ]), "legacy privilege signal plan preserves exact argv and global prefix");
 
+const app_watch = compat.canonicalize(["apps", "watch", "Facts Fixture"]);
+require(app_watch.kind === "exec", "legacy app watch maps to native execution");
+same_argv(app_watch.argv, [
+  "--target", "current", "--grant", "observe,actuate",
+  "app-watch", "--app", "Facts Fixture", "--duration-ms", "10000",
+  "--interval-ms", "500", "--max-events", "100"
+],
+  "legacy app watch preserves the selector and archived MCU defaults");
+const bounded_app_watch = compat.canonicalize([
+  "apps", "watch", "Facts Fixture", "--duration", "0.1",
+  "--interval=0.05", "--max-events", "1000"
+]);
+require(bounded_app_watch.kind === "exec", "bounded legacy app watch maps to native execution");
+same_argv(bounded_app_watch.argv, [
+  "--target", "current", "--grant", "observe,actuate",
+  "app-watch", "--app", "Facts Fixture", "--duration-ms", "100",
+  "--interval-ms", "50", "--max-events", "1000"
+], "legacy app watch converts archived MCU seconds and preserves its event ceiling");
+require(compat.canonicalize([
+  "apps", "watch", "Facts Fixture", "--interval", "0.049"
+]).kind === "usage", "legacy app watch rejects an interval below the archived MCU bound");
+require(compat.canonicalize([
+  "apps", "watch", "Facts Fixture", "--max-events", "1001"
+]).kind === "usage", "legacy app watch rejects an event ceiling above the archived MCU bound");
+
 const resource_pressure = compat.canonicalize(["resource", "pressure"]);
 require(resource_pressure.kind === "exec", "resource pressure must use the native typed provider");
 same_argv(resource_pressure.argv, ["--target", "current", "--grant", "observe,actuate",

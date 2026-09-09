@@ -78,7 +78,7 @@ pub fn top_level_text() -> String {
     );
     text = text.replace(
         "  apps                              observe  running apps from top-level windows; --all adds installed",
-        "  apps  app-facts  app-inspect observe;  app-menu-inspect observe;  app-menu-invoke actuate macOS",
+        "  apps  app-facts  app-watch  app-inspect observe;  app-menu-inspect observe;  app-menu-invoke actuate macOS",
     );
     text = text.replace("\nshell-exec", "\n  shell-exec");
     text = text.replace(
@@ -344,6 +344,7 @@ fn append_missing_top_level_rows(text: &mut String) {
         "pointer-scroll",
         "app-inspect",
         "app-facts",
+        "app-watch",
         "app-menu-inspect",
         "app-menu-invoke",
     ];

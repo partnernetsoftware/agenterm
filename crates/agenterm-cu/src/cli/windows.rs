@@ -16,6 +16,7 @@ pub fn parse(
         "windows" => windows(spelled, target, args),
         "windows-watch" => windows_watch(target, args),
         "apps" => apps(target, args),
+        "app-watch" => app_watch(target, args),
         "app-facts" => app_facts(target, args),
         "app-inspect" => app_inspect(target, args),
         "app" => super::app::parse(spelled, target, args),
@@ -215,6 +216,9 @@ fn windows_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, S
 }
 
 fn apps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    if args.first().is_some_and(|argument| argument == "watch") {
+        return app_watch(target, args);
+    }
     let running = take_switch(args, "--running");
     let all = take_switch(args, "--all");
     if !args.is_empty() {
@@ -227,6 +231,59 @@ fn apps(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
         target,
         running,
         all,
+    })
+}
+
+fn app_watch(target: TargetRef, args: &mut Vec<String>) -> Result<Command, String> {
+    // A catalog alias such as `apps watch` is resolved before parsing, but the
+    // argv cursor deliberately still contains the subcommand token.
+    let alias = args.first().is_some_and(|argument| argument == "watch");
+    if alias {
+        args.remove(0);
+    }
+    let mut selectors = Vec::new();
+    if alias
+        && args
+            .first()
+            .is_some_and(|argument| !argument.starts_with("--"))
+    {
+        selectors.push(args.remove(0));
+    }
+    let positional_selector = !selectors.is_empty();
+    while let Some(selector) = flag_text(args, "--app")? {
+        if positional_selector {
+            return Err("apps watch SELECTOR cannot be combined with --app".into());
+        }
+        selectors.push(selector);
+    }
+    let duration_ms = flag_parsed::<u64>(args, "--duration-ms")?.unwrap_or(30_000);
+    let interval_ms = flag_parsed::<u64>(args, "--interval-ms")?;
+    let max_events = flag_parsed::<usize>(args, "--max-events")?;
+    let max_processes = flag_parsed::<usize>(args, "--max-processes")?;
+    if selectors.is_empty()
+        || selectors.len() > 16
+        || selectors.iter().any(|selector| {
+            selector.trim().is_empty()
+                || selector.len() > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
+                || selector.as_bytes().contains(&0)
+        })
+        || !(1..=86_400_000).contains(&duration_ms)
+        || interval_ms.is_some_and(|value| !(1..=60_000).contains(&value))
+        || max_events.is_some_and(|value| !(1..=4_096).contains(&value))
+        || max_processes.is_some_and(|value| !(1..=5_000).contains(&value))
+    {
+        return Err("app-watch requires 1..=16 non-empty --app selectors, duration-ms in 1..=86400000, interval-ms in 1..=60000, max-events in 1..=4096 and max-processes in 1..=5000".into());
+    }
+    if !args.is_empty() {
+        return Err(format!("app-watch received unexpected {:?}", args[0]));
+    }
+    Ok(Command::AppWatch {
+        target,
+        selectors,
+        duration_ms,
+        interval_ms,
+        max_events,
+        max_processes,
     })
 }
 
@@ -383,5 +440,81 @@ mod app_inspect_tests {
             } if selector == "org.example.Editor.desktop"
         ));
         assert!(app_facts(TargetRef::Current, &mut Vec::new()).is_err());
+    }
+
+    #[test]
+    fn parses_repeated_app_watch_selectors_and_alias_token() {
+        let mut canonical = vec![
+            "--app".into(),
+            "Editor".into(),
+            "--app".into(),
+            "Viewer".into(),
+            "--duration-ms".into(),
+            "4000".into(),
+            "--interval-ms".into(),
+            "100".into(),
+        ];
+        assert!(matches!(
+            app_watch(TargetRef::Current, &mut canonical).unwrap(),
+            Command::AppWatch {
+                selectors,
+                duration_ms: 4000,
+                interval_ms: Some(100),
+                ..
+            } if selectors == ["Editor", "Viewer"]
+        ));
+
+        let mut args = vec![
+            "watch".into(),
+            "Editor".into(),
+            "--duration-ms".into(),
+            "4000".into(),
+            "--interval-ms".into(),
+            "100".into(),
+        ];
+        assert!(matches!(
+            apps(TargetRef::Current, &mut args).unwrap(),
+            Command::AppWatch {
+                selectors,
+                duration_ms: 4000,
+                interval_ms: Some(100),
+                ..
+            } if selectors == ["Editor"]
+        ));
+
+        assert!(
+            app_watch(
+                TargetRef::Current,
+                &mut vec![
+                    "watch".into(),
+                    "Editor".into(),
+                    "--app".into(),
+                    "Viewer".into()
+                ]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn app_watch_rejects_missing_and_out_of_range_fields() {
+        assert!(app_watch(TargetRef::Current, &mut Vec::new()).is_err());
+        assert!(
+            app_watch(
+                TargetRef::Current,
+                &mut vec![
+                    "--app".into(),
+                    "Editor".into(),
+                    "--interval-ms".into(),
+                    "0".into()
+                ]
+            )
+            .is_err()
+        );
+        let mut too_many = Vec::new();
+        for index in 0..17 {
+            too_many.extend(["--app".into(), format!("App {index}")]);
+        }
+        assert!(app_watch(TargetRef::Current, &mut too_many).is_err());
     }
 }

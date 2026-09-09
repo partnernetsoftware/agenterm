@@ -1753,6 +1753,21 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "is_false")]
         entitlements: bool,
     },
+    /// Observe bounded application-level launch and quit transitions. Native
+    /// processes are first bound to each selector's canonical executable, then
+    /// aggregated so helper/renderer instance churn is not an application
+    /// lifecycle event.
+    AppWatch {
+        target: TargetRef,
+        selectors: Vec<String>,
+        duration_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interval_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_events: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_processes: Option<usize>,
+    },
     /// Inspect every visible top-level window belonging to one application
     /// name in one bounded call. This preserves MCU `inspect --app`'s
     /// multi-window meaning instead of guessing one representative handle.
@@ -4297,6 +4312,7 @@ impl Command {
             Self::WindowsWatch { .. } => "windows-watch".into(),
             Self::Apps { .. } => "apps".into(),
             Self::AppFacts { .. } => "app-facts".into(),
+            Self::AppWatch { .. } => "app-watch".into(),
             Self::AppInspect { .. } => "app-inspect".into(),
             Self::Ps { .. } => "ps".into(),
             Self::ProcessState { .. } => "process-state".into(),
@@ -4742,6 +4758,7 @@ impl Command {
             | Self::WindowsWatch { target, .. }
             | Self::Apps { target, .. }
             | Self::AppFacts { target, .. }
+            | Self::AppWatch { target, .. }
             | Self::AppInspect { target, .. }
             | Self::Ps { target, .. }
             | Self::ProcessState { target, .. }
@@ -5119,6 +5136,33 @@ impl Command {
                     || selector.as_bytes().contains(&0)
                 {
                     return Err("app-facts selector must contain 1..=4096 non-NUL UTF-8 bytes");
+                }
+                Ok(())
+            }
+            Self::AppWatch {
+                selectors,
+                duration_ms,
+                interval_ms,
+                max_events,
+                max_processes,
+                ..
+            } => {
+                if selectors.is_empty()
+                    || selectors.len() > 16
+                    || selectors.iter().any(|selector| {
+                        selector.trim().is_empty()
+                            || selector.len()
+                                > agenterm_platform::app_facts::MAX_APP_FACTS_SELECTOR_BYTES
+                            || selector.as_bytes().contains(&0)
+                    })
+                    || !(1..=86_400_000).contains(duration_ms)
+                    || interval_ms.is_some_and(|value| !(1..=60_000).contains(&value))
+                    || max_events.is_some_and(|value| !(1..=4_096).contains(&value))
+                    || max_processes.is_some_and(|value| !(1..=5_000).contains(&value))
+                {
+                    return Err(
+                        "app-watch requires 1..=16 non-empty selectors, duration_ms in 1..=86400000, interval_ms in 1..=60000, max_events in 1..=4096 and max_processes in 1..=5000",
+                    );
                 }
                 Ok(())
             }
@@ -7292,6 +7336,33 @@ mod tests {
                 "target": "ssh",
                 "name": "worker",
                 "duration_ms": 1_000,
+                "interval_ms": 100,
+                "max_events": 8,
+                "max_processes": 20,
+            })
+        );
+    }
+
+    #[test]
+    fn app_watch_is_observe_only_and_has_a_closed_bounded_wire_shape() {
+        let command = Command::AppWatch {
+            target: TargetRef::Ssh,
+            selectors: vec!["Editor".into(), "org.example.Viewer".into()],
+            duration_ms: 4_000,
+            interval_ms: Some(100),
+            max_events: Some(8),
+            max_processes: Some(20),
+        };
+        assert_eq!(command.verb(), "app-watch");
+        assert_eq!(command.required_grant(), Grant::Observe);
+        assert_eq!(command.validate(), Ok(()));
+        assert_eq!(
+            serde_json::to_value(&command).expect("serialize"),
+            serde_json::json!({
+                "verb": "app-watch",
+                "target": "ssh",
+                "selectors": ["Editor", "org.example.Viewer"],
+                "duration_ms": 4_000,
                 "interval_ms": 100,
                 "max_events": 8,
                 "max_processes": 20,

@@ -188,8 +188,9 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   return `ACU_CAPABILITY_TODO` with their exact `gap_id` instead of falling through to
   naked native `usage`; unknown verbs and misspelled subcommands deliberately remain
   ordinary usage errors. The `.050` witness now
-  maps to native exact simulator app status, `.072` maps exact application facts through
-  the Linux provider without borrowing window evidence, and `.084` now
+  maps to native exact simulator app status, `.072` maps exact application facts and the
+  exact `apps watch APP` spelling through native identity-bound providers without borrowing
+  window evidence, and `.084` now
   proves native Space filtering, while its other legacy watch filters remain explicitly
   asserted as the same typed TODO until their per-poll semantics exist.
   This closes the valid top-level compatibility set, not the dynamic debt: every unsupported
@@ -612,7 +613,9 @@ ACU-only cutover
 │  │  │  verification and entitlement facts through a public court; the frozen `apps inspect`
 │  │  │  witness maps to this verb; the Windows provider has landed and its public
 │  │  │  court is registered but has not run on a Windows guest, so that cell remains pending
-│  │  ├─ acu.native.app.lifecycle-watch · bounded application process lifecycle
+│  │  ├─ [~] acu.native.app.lifecycle-watch · shared app-facts × process-identity provider
+│  │  │  emits bounded application-level launch/quit transitions; the macOS owned-process
+│  │  │  court is green, while Linux/Windows native courts and provisioning remain open
 │  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
 │  ├─ [~] acu.dynamic.074 · window-local scroll without physical-pointer movement
 │  │  └─ current-host SkyLight research passed C1–C8, but the public AppKit baseline
@@ -674,7 +677,11 @@ executable under bounded precedence and identity brackets. Its public qjswasm
 court is green on the x86_64 UTM court; signature, verification, entitlements,
 absent application version and incomplete process visibility remain individually
 reasoned facts rather than guesses. The exact frozen `apps inspect APP` witness
-now calls that verb, while native macOS/Windows facts plus lifecycle-watch and
+calls that verb. `app-watch` now composes the same canonical executable identity
+with native process start identities and emits only zero-to-live / live-to-zero
+application transitions, so helper-instance churn cannot impersonate a launch or
+quit. The exact `apps watch APP` spelling and its archived duration, interval and
+event-ceiling defaults and ranges map to it; Linux/Windows lifecycle courts and
 provisioning remain named `.072` work.
 
 ```mermaid

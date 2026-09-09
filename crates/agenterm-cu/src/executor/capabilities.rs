@@ -618,6 +618,25 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
         verbs.insert("process-wait".into(), process_wait_verb);
         verbs.insert("process-kill".into(), process_kill_verb);
         verbs.insert("process-watch".into(), process_watch_verb);
+        verbs.insert(
+            "app-watch".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "discover",
+                "mode": "bounded-application-lifecycle",
+                "grant": "observe",
+                "identity_bound": true,
+                "identity": "app-selector+canonical-executable+pid+start-identity",
+                "events": ["launched", "quit"],
+                "aggregation": "zero-versus-one-or-more-instances",
+                "max_selectors": 16,
+                "max_duration_ms": 86400000,
+                "max_interval_ms": 60000,
+                "max_events": 4096,
+                "max_processes": 5000,
+                "platforms": ["linux", "macos", "windows"],
+            }),
+        );
         verbs.insert("process-cgroup".into(), process_cgroup_verb);
         verbs.insert(
             "simulator-shutdown".into(),

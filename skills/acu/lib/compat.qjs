@@ -353,7 +353,27 @@ function known_dynamic_boundary(argv) {
     return { kind: "exec", argv: ["app-facts", "--selector", argv[2],
       "--signing", "--verify", "--entitlements"] };
   }
-  if (verb === "apps" && (sub === "inspect" || sub === "watch" || sub === "provisioning")) {
+  if (verb === "apps" && sub === "watch") {
+    const parsed = without_value_flags(argv, ["duration", "interval", "max-events"]);
+    if (!parsed.ok) { return { kind: "usage", command: "apps", message: parsed.message }; }
+    if (parsed.argv.length !== 3 || parsed.argv[2].startsWith("--")) {
+      return { kind: "usage", command: "apps", message: "apps watch needs name|bundle-id|path" };
+    }
+    const duration_ms = parsed.values.duration === null ? 10000
+      : legacy_seconds_ms(parsed.values.duration, 100, 300000);
+    const interval_ms = parsed.values.interval === null ? 500
+      : legacy_seconds_ms(parsed.values.interval, 50, 10000);
+    const parsed_event_ceiling = legacy_bounded_integer(parsed.values["max-events"], 1, 1000);
+    const event_ceiling = parsed.values["max-events"] === null ? 100 : parsed_event_ceiling;
+    if (duration_ms === null || interval_ms === null || event_ceiling === null) {
+      return { kind: "usage", command: "apps",
+        message: "apps watch requires --duration 0.1..300, --interval 0.05..10 and --max-events 1..1000" };
+    }
+    return { kind: "exec", argv: ["app-watch", "--app", parsed.argv[2],
+      "--duration-ms", "" + duration_ms, "--interval-ms", "" + interval_ms,
+      "--max-events", "" + event_ceiling] };
+  }
+  if (verb === "apps" && (sub === "inspect" || sub === "provisioning")) {
     return todo("acu.dynamic.072", "apps", "application inspection and signing facts need a typed provider");
   }
   if (verb === "apps" && (has_arg(argv, "--match") || has_arg(argv, "--offset")

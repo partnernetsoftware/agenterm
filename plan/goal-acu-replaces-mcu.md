@@ -1040,8 +1040,13 @@ witnesses after lossless projections for exact simulator application status,
 exact Linux and macOS application facts, `resource top`, focused
 PID, observe role, wait absence, platform-default-shell PTY, selector-rooted
 trees, bounded filtered query watch, and Space filtering evaluated inside every
-window-watch poll. The frozen `tree --page` witness is now a closed local usage
-result because archived MCU never accepted that tree shape. The tree/query debt
+window-watch poll. The application slice now also has a native bounded
+`app-watch`: it binds `app-facts` canonical executable identity to process start
+identities and reports only whole-application launch/quit boundary crossings;
+the exact `apps watch APP` spelling reaches it with archived MCU timing defaults
+and ceilings mapped exactly, while provisioning remains `.072`. The frozen
+`tree --page` witness is now a closed local usage result because archived MCU
+never accepted that tree shape. The tree/query debt
 is now narrower: tree value previews have a native bounded projection, while
 query-only state/action filters remain under their stable argument-sensitive
 gap ids. The archived tmux provider is a permanent scope rejection, while a

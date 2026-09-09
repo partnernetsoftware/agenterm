@@ -638,7 +638,47 @@
             "cu.app-facts.windows-typed-failures"
           ],
           "next": "run the registered Windows court on real x86_64 and aarch64 guests before promoting the pending Windows cell; catalog signatures and .lnk selectors remain a later cut",
-          "note": "Linux resolves one canonical XDG desktop entry by path, desktop id or unique Name under a bounded precedence scan, brackets desktop/executable identity and never borrows window evidence. macOS resolves one canonical bundle by path, bundle identifier or unique Name, reads CFBundle and Security.framework facts in-process, and brackets bundle and executable identity; signature validation is shallow, all-architecture and network-free. macOS running is scoped to the caller's effective user. Windows resolves one executable by path, HKCU/HKLM Uninstall key id or unique DisplayName across both registry views, reads version-resource facts with registry fallback, scopes running to processes the caller may query, and reports only embedded Authenticode signatures with network-free WinVerifyTrust verification; its public court is registered but has not yet run on a Windows guest. Desktop-entry Version remains file-format metadata rather than an application version, and every unsupported or unavailable fact remains individually reasoned. The exact legacy apps inspect witness now maps through this public verb, while watch and provisioning keep acu.dynamic.072 until their own providers exist."
+          "note": "Linux resolves one canonical XDG desktop entry by path, desktop id or unique Name under a bounded precedence scan, brackets desktop/executable identity and never borrows window evidence. macOS resolves one canonical bundle by path, bundle identifier or unique Name, reads CFBundle and Security.framework facts in-process, and brackets bundle and executable identity; signature validation is shallow, all-architecture and network-free. macOS running is scoped to the caller's effective user. Windows resolves one executable by path, HKCU/HKLM Uninstall key id or unique DisplayName across both registry views, reads version-resource facts with registry fallback, scopes running to processes the caller may query, and reports only embedded Authenticode signatures with network-free WinVerifyTrust verification; its public court is registered but has not yet run on a Windows guest. Desktop-entry Version remains file-format metadata rather than an application version, and every unsupported or unavailable fact remains individually reasoned. The exact legacy apps inspect witness now maps through this public verb; lifecycle watch is owned by desktop.app.lifecycle-watch, while provisioning keeps acu.dynamic.072."
+        },
+        {
+          "id": "desktop.app.lifecycle-watch",
+          "mcu_shape": "apps watch APP [--duration S --interval S --max-events N]",
+          "acu_shape": "app-watch --app SELECTOR [--app SELECTOR ...] [--duration-ms N --interval-ms N --max-events N --max-processes N] (alias: apps watch)",
+          "state": "platform-limited",
+          "platforms": {
+            "linux": "native-provider-landed-court-pending",
+            "macos": "native-public-qjswasm",
+            "windows": "native-provider-landed-court-pending"
+          },
+          "qualification": {
+            "schema": 2,
+            "platforms": {
+              "linux": {
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
+              },
+              "macos": {
+                "result": "native-qualified",
+                "gate": "cu-app-watch-smoke",
+                "evidence": [
+                  "cu.app-watch.macos-lifecycle",
+                  "cu.app-watch.macos-bounds",
+                  "cu.app-watch.macos-typed"
+                ]
+              },
+              "windows": {
+                "result": "pending",
+                "blocker_code": "native-public-court-not-run"
+              }
+            }
+          },
+          "evidence": [
+            "cu.app-watch.macos-lifecycle",
+            "cu.app-watch.macos-bounds",
+            "cu.app-watch.macos-typed"
+          ],
+          "next": "add equivalent Linux and Windows native courts before promoting those cells; provisioning remains open",
+          "note": "Each selector resolves through app-facts to one canonical executable. The shared watcher binds every matching process start identity and emits application-level launched and quit transitions only when the exact executable crosses between zero and at least one live instance, so helper or renderer churn cannot invent application lifecycle. Sampling, matched process candidates, selectors and events are bounded; incomplete identity, oversized candidate inventory and executable drift fail typed. Event process data identifies a deterministic boundary representative rather than claiming which simultaneous instance caused a sampled transition. Legacy --duration, --interval and --max-events map to the archived MCU defaults (10 seconds, 0.5 seconds and 100) and ranges; provisioning remains acu.dynamic.072."
         },
         {
           "id": "desktop.app.inspect-multi-window",

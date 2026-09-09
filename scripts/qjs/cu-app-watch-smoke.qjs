@@ -1,0 +1,362 @@
+// Public macOS black-box court for bounded application lifecycle watch.
+//
+// The court creates one invocation-owned minimal .app whose executable is an
+// ad-hoc-signed copy of /bin/sleep. It never launches a GUI: both fixture
+// instances remain ordinary sleep processes. app-watch owns the lifecycle
+// observation; app-facts is the independent read-back for running true/false.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.app-watch.macos-lifecycle",
+  "cu.app-watch.macos-bounds",
+  "cu.app-watch.macos-typed"
+];
+
+const FIXTURE_NAME = "App Watch Fixture";
+const FIXTURE_BUNDLE_ID = "org.example.AppWatchFixture";
+const FIXTURE_EXECUTABLE = "app-watch-fixture";
+const WATCH_DURATION_MS = 4000;
+const WATCH_INTERVAL_MS = 100;
+const WATCH_MAX_EVENTS = 32;
+const START_BUFFER_MS = 250;
+const READY_TIMEOUT_MS = 5000;
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function plist_xml() {
+  return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    + "<plist version=\"1.0\">\n<dict>\n"
+    + "  <key>CFBundleIdentifier</key><string>" + FIXTURE_BUNDLE_ID + "</string>\n"
+    + "  <key>CFBundleName</key><string>" + FIXTURE_NAME + "</string>\n"
+    + "  <key>CFBundleShortVersionString</key><string>1.0</string>\n"
+    + "  <key>CFBundleExecutable</key><string>" + FIXTURE_EXECUTABLE + "</string>\n"
+    + "  <key>CFBundlePackageType</key><string>APPL</string>\n"
+    + "</dict>\n</plist>\n";
+}
+
+function write_fixture(root) {
+  const bundle = rh.join(root, FIXTURE_NAME + ".app");
+  const contents = rh.join(bundle, "Contents");
+  const macos = rh.join(contents, "MacOS");
+  const executable = rh.join(macos, FIXTURE_EXECUTABLE);
+  rh.create_dir_all(macos);
+  rh.write_text(rh.join(contents, "Info.plist"), plist_xml());
+  rh.copy("/bin/sleep", executable);
+  const chmod = rh.command("/bin/chmod", ["755", executable], { timeout_ms: 5000 });
+  ensure(chmod.success === true, "cu_app_watch_fixture_chmod:" + chmod.stderr);
+  const sign = rh.command("/usr/bin/codesign", ["--force", "--sign", "-", executable], {
+    timeout_ms: 10000
+  });
+  ensure(sign.success === true, "cu_app_watch_fixture_sign:" + sign.stderr);
+  return { bundle: bundle, executable: executable };
+}
+
+function copy_decoy(run_directory, fixture) {
+  const directory = rh.join(run_directory, "decoy");
+  const executable = rh.join(directory, FIXTURE_EXECUTABLE);
+  rh.create_dir_all(directory);
+  rh.copy(fixture.executable, executable);
+  const chmod = rh.command("/bin/chmod", ["755", executable], { timeout_ms: 5000 });
+  ensure(chmod.success === true, "cu_app_watch_decoy_chmod:" + chmod.stderr);
+  return { executable: executable };
+}
+
+function cu_env(run_directory, label, app_root) {
+  return {
+    HOME: run_directory,
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_APP_FACTS_ROOTS: app_root,
+    AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, label + "-audit.jsonl"),
+    AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, label + "-receipts.jsonl")
+  };
+}
+
+function cu_args(arguments) {
+  return ["--target", "current", "--grant", "observe"].concat(arguments);
+}
+
+function parse_reply(stdout, label) {
+  const text = ("" + stdout).trim();
+  ensure(text !== "", "cu_app_watch_empty_reply:" + label);
+  return JSON.parse(text);
+}
+
+function invoke(run_directory, executable, app_root, label, arguments, expect_success) {
+  const output = rh.command(executable, cu_args(arguments), {
+    cwd: run_directory,
+    env: cu_env(run_directory, label, app_root),
+    timeout_ms: 30000
+  });
+  const reply = parse_reply(output.stdout, label);
+  ensure(output.success === expect_success,
+    "cu_app_watch_exit:" + label + ":" + output.exit_code + ":" + output.stdout);
+  ensure(reply.ok === expect_success, "cu_app_watch_reply_state:" + label);
+  return reply;
+}
+
+function start_watch(context, children, executable, app_root, selector, label, max_events) {
+  const ready_path = rh.join(context.run_directory, label + "-ready");
+  const env = cu_env(context.run_directory, label, app_root);
+  env.AGENTERM_CU_APP_WATCH_READY_PATH = ready_path;
+  const child = harness.start_child(context, {
+    program: executable,
+    args: cu_args([
+      "app-watch", "--app", selector,
+      "--duration-ms", "" + WATCH_DURATION_MS,
+      "--interval-ms", "" + WATCH_INTERVAL_MS,
+      "--max-events", "" + max_events
+    ]),
+    current_dir: context.run_directory,
+    env: env,
+    timeout_ms: WATCH_DURATION_MS + 30000
+  }, label);
+  children.push(child);
+  const started_ms = rh.now_ms();
+  ensure(harness.child_state(child) === "running", "cu_app_watch_not_running:" + label);
+  const deadline = rh.now_ms() + READY_TIMEOUT_MS;
+  while (!rh.exists(ready_path) && rh.now_ms() < deadline) {
+    ensure(harness.child_state(child) === "running", "cu_app_watch_exited_before_ready:" + label);
+    rh.sleep_ms(20);
+  }
+  ensure(rh.exists(ready_path), "cu_app_watch_not_ready:" + label);
+  ensure(harness.child_state(child) === "running", "cu_app_watch_exited_after_ready:" + label);
+  return { child: child, label: label, started_ms: started_ms };
+}
+
+function finish_watch(watcher, timeout_ms) {
+  const output = harness.child_wait(watcher.child, timeout_ms);
+  ensure(output.timed_out !== true, "cu_app_watch_timeout:" + watcher.label);
+  const reply = parse_reply(output.stdout, watcher.label);
+  ensure(output.success === true && reply.ok === true,
+    "cu_app_watch_failed:" + watcher.label + ":" + JSON.stringify(reply));
+  ensure(reply.command === "app-watch", "cu_app_watch_command:" + watcher.label);
+  return { data: reply.data, elapsed_ms: rh.now_ms() - watcher.started_ms };
+}
+
+function start_fixture(context, children, fixture, run_directory, label) {
+  const child = harness.start_child(context, {
+    program: fixture.executable,
+    args: ["4"],
+    current_dir: run_directory,
+    env: {},
+    timeout_ms: 10000
+  }, label);
+  children.push(child);
+  ensure(harness.child_state(child) === "running", "cu_app_watch_fixture_not_running:" + label);
+  return child;
+}
+
+function stop_fixture(child, label) {
+  harness.child_kill(child);
+  const output = harness.child_wait(child, 5000);
+  ensure(output.timed_out !== true, "cu_app_watch_fixture_kill_timeout:" + label);
+  ensure(!rh.process_alive(child.pid), "cu_app_watch_fixture_lingering:" + label);
+}
+
+function running_value(run_directory, executable, app_root, fixture, label) {
+  const reply = invoke(run_directory, executable, app_root, label,
+    ["app-facts", "--selector", fixture.bundle], true);
+  ensure(reply.command === "app-facts", "cu_app_watch_app_facts_command:" + label);
+  ensure(text_at(reply, "data.bundle.value") === FIXTURE_BUNDLE_ID,
+    "cu_app_watch_app_facts_bundle:" + label);
+  ensure(text_at(reply, "data.running.status") === "present",
+    "cu_app_watch_app_facts_running_status:" + label);
+  return rh.field(rh.field(reply.data, "running"), "value");
+}
+
+function assert_common(data, fixture, max_events, label) {
+  ensure(rh.is_array(data.selectors) && data.selectors.length === 1, label + ":selectors");
+  const selected = data.selectors[0];
+  ensure(text_at(selected, "index") === "0", label + ":selector_index");
+  ensure(text_at(selected, "selector") === fixture.bundle, label + ":selector_echo");
+  ensure(text_at(selected, "app.name") === FIXTURE_NAME, label + ":app_name");
+  ensure(text_at(selected, "app.bundle") === FIXTURE_BUNDLE_ID, label + ":app_bundle");
+  ensure(text_at(selected, "app.path") === fixture.bundle, label + ":app_path");
+  ensure(text_at(selected, "app.executable") === fixture.executable,
+    label + ":app_executable");
+  ensure(rh.is_array(data.baseline) && data.baseline.length === 0, label + ":baseline");
+  ensure(rh.is_array(data.events), label + ":events");
+  ensure(text_at(data, "emitted") === "" + data.events.length, label + ":emitted");
+  ensure(text_at(data, "duration_ms") === "" + WATCH_DURATION_MS, label + ":duration_ms");
+  ensure(text_at(data, "interval_ms") === "" + WATCH_INTERVAL_MS, label + ":interval_ms");
+  ensure(text_at(data, "max_events") === "" + max_events, label + ":max_events");
+  ensure(text_at(data, "max_processes").length > 0, label + ":max_processes");
+  ensure(text_at(data, "identity").length > 0, label + ":identity");
+  ensure(data.coverage_complete === true && text_at(data, "excluded_unidentified") === "0",
+    label + ":coverage:" + JSON.stringify(data));
+  ensure(data.verified === true, label + ":verified");
+}
+
+function assert_event(event, kind, instances, label) {
+  ensure(text_at(event, "kind") === kind, label + ":kind:" + JSON.stringify(event));
+  ensure(text_at(event, "app_index") === "0", label + ":app_index");
+  ensure(text_at(event, "instances") === "" + instances, label + ":instances");
+  ensure(text_at(event, "process.pid").length > 0, label + ":pid");
+  ensure(text_at(event, "process.start_identity").length > 0, label + ":start_identity");
+  ensure(text_at(event, "process.executable_name") === FIXTURE_EXECUTABLE,
+    label + ":executable_name:" + text_at(event, "process.executable_name"));
+  ensure(text_at(event, "process_role") === "boundary-representative",
+    label + ":process_role");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(rh.exists(executable), "cu_app_watch_executable_missing:" + executable);
+ensure(rh.exists("/bin/sleep"), "cu_app_watch_sleep_missing");
+ensure(rh.exists("/usr/bin/codesign"), "cu_app_watch_codesign_missing");
+
+const context = harness.new_context(repo, "cu-app-watch");
+const run_directory = context.run_directory;
+const app_root = rh.join(run_directory, "apps");
+rh.create_dir_all(app_root);
+const fixture = write_fixture(app_root);
+const decoy = copy_decoy(run_directory, fixture);
+const children = [];
+let succeeded = 0;
+let failure = "";
+
+try {
+  print("STEP one application emits one launched and one quit across two owned instances");
+  const lifecycle = start_watch(
+    context, children, executable, app_root, fixture.bundle,
+    "app-watch-lifecycle", WATCH_MAX_EVENTS);
+
+  const decoy_child = start_fixture(
+    context, children, decoy, run_directory, "app-watch-same-name-decoy");
+  ensure(running_value(run_directory, executable, app_root, fixture, "facts-decoy") === false,
+    "cu_app_watch_same_basename_wrong_path_must_not_run");
+  rh.sleep_ms(START_BUFFER_MS);
+  stop_fixture(decoy_child, "same-name-decoy");
+  rh.sleep_ms(START_BUFFER_MS);
+
+  const first = start_fixture(context, children, fixture, run_directory, "app-watch-first");
+  ensure(running_value(run_directory, executable, app_root, fixture, "facts-first") === true,
+    "cu_app_watch_first_running_true");
+  rh.sleep_ms(START_BUFFER_MS);
+
+  const second = start_fixture(context, children, fixture, run_directory, "app-watch-second");
+  ensure(running_value(run_directory, executable, app_root, fixture, "facts-second") === true,
+    "cu_app_watch_second_running_true");
+  rh.sleep_ms(START_BUFFER_MS);
+
+  stop_fixture(first, "first");
+  ensure(running_value(run_directory, executable, app_root, fixture, "facts-after-first") === true,
+    "cu_app_watch_first_quit_must_remain_running");
+  rh.sleep_ms(START_BUFFER_MS);
+
+  stop_fixture(second, "second");
+  ensure(running_value(run_directory, executable, app_root, fixture, "facts-after-second") === false,
+    "cu_app_watch_last_quit_running_false");
+
+  const lifecycle_result = finish_watch(lifecycle, WATCH_DURATION_MS + 10000);
+  const lifecycle_data = lifecycle_result.data;
+  assert_common(lifecycle_data, fixture, WATCH_MAX_EVENTS, "cu_app_watch_lifecycle");
+  ensure(lifecycle_data.completed === true && lifecycle_data.truncated === false,
+    "cu_app_watch_lifecycle_completion:" + JSON.stringify(lifecycle_data));
+  ensure(lifecycle_data.events.length === 2,
+    "cu_app_watch_lifecycle_event_count:" + JSON.stringify(lifecycle_data.events));
+  assert_event(lifecycle_data.events[0], "launched", 1, "cu_app_watch_launched");
+  assert_event(lifecycle_data.events[1], "quit", 0, "cu_app_watch_quit");
+  ensure(rh.field(lifecycle_data.events[0].process, "pid") === first.pid,
+    "cu_app_watch_launched_pid");
+  ensure(rh.field(lifecycle_data.events[1].process, "pid") === second.pid,
+    "cu_app_watch_quit_pid");
+  ensure(rh.field(lifecycle_data.events[0], "t_ms") < rh.field(lifecycle_data.events[1], "t_ms"),
+    "cu_app_watch_event_order");
+
+  print("STEP max-events 1 truncates on launch and returns before the duration deadline");
+  const bounded = start_watch(
+    context, children, executable, app_root, fixture.bundle, "app-watch-bounds", 1);
+  const bounded_fixture = start_fixture(
+    context, children, fixture, run_directory, "app-watch-bounded-fixture");
+  const bounded_result = finish_watch(bounded, WATCH_DURATION_MS + 10000);
+  assert_common(bounded_result.data, fixture, 1, "cu_app_watch_bounds");
+  ensure(bounded_result.data.events.length === 1
+      && bounded_result.data.emitted === 1
+      && bounded_result.data.completed === false
+      && bounded_result.data.truncated === true,
+    "cu_app_watch_bounds_truncation:" + JSON.stringify(bounded_result.data));
+  assert_event(bounded_result.data.events[0], "launched", 1, "cu_app_watch_bounds_launched");
+  ensure(rh.field(bounded_result.data.events[0].process, "pid") === bounded_fixture.pid,
+    "cu_app_watch_bounds_pid");
+  ensure(bounded_result.elapsed_ms < WATCH_DURATION_MS,
+    "cu_app_watch_bounds_not_early:" + bounded_result.elapsed_ms);
+  stop_fixture(bounded_fixture, "bounded");
+
+  print("STEP unknown selectors and malformed or excessive bounds fail typed");
+  const unknown = invoke(run_directory, executable, app_root, "typed-unknown", [
+    "app-watch", "--app", "org.example.NoSuchApp",
+    "--duration-ms", "100", "--interval-ms", "100", "--max-events", "1"
+  ], false);
+  ensure(text_at(unknown, "error.code") === "app_facts_not_found",
+    "cu_app_watch_unknown_selector:" + JSON.stringify(unknown));
+
+  const missing = invoke(run_directory, executable, app_root, "typed-missing-app", [
+    "app-watch", "--duration-ms", "100", "--interval-ms", "100", "--max-events", "1"
+  ], false);
+  ensure(text_at(missing, "error.code") === "usage",
+    "cu_app_watch_missing_app:" + JSON.stringify(missing));
+
+  const too_many_args = ["app-watch"];
+  for (let index = 0; index < 17; index += 1) {
+    too_many_args.push("--app");
+    too_many_args.push(FIXTURE_BUNDLE_ID);
+  }
+  too_many_args.push("--duration-ms");
+  too_many_args.push("100");
+  too_many_args.push("--interval-ms");
+  too_many_args.push("100");
+  too_many_args.push("--max-events");
+  too_many_args.push("1");
+  const too_many = invoke(run_directory, executable, app_root,
+    "typed-too-many-selectors", too_many_args, false);
+  ensure(text_at(too_many, "error.code") === "usage",
+    "cu_app_watch_too_many_selectors:" + JSON.stringify(too_many));
+
+  const zero_interval = invoke(run_directory, executable, app_root, "typed-zero-interval", [
+    "app-watch", "--app", FIXTURE_BUNDLE_ID,
+    "--duration-ms", "100", "--interval-ms", "0", "--max-events", "1"
+  ], false);
+  ensure(text_at(zero_interval, "error.code") === "usage",
+    "cu_app_watch_zero_interval:" + JSON.stringify(zero_interval));
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  for (const id of declared_evidence) {
+    harness.emit_evidence(context, declared_evidence, id);
+  }
+  harness.remove_run(context);
+  print("PASS: macOS app-watch preserves application lifecycle across instances with bounded typed results");
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

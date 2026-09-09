@@ -1058,6 +1058,15 @@
       ]
     },
     {
+      "id": "cu-app-watch-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.app-watch.macos-lifecycle",
+        "cu.app-watch.macos-bounds",
+        "cu.app-watch.macos-typed"
+      ]
+    },
+    {
       "id": "cu-simulator-lifecycle-smoke",
       "platform": "macos",
       "evidence": [

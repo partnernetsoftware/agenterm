@@ -87,6 +87,7 @@ pub fn mcp_exposure(command: &Command) -> McpExposure {
         | Command::Align { .. }
         | Command::App { .. }
         | Command::AppFacts { .. }
+        | Command::AppWatch { .. }
         | Command::AppInspect { .. }
         | Command::AppMenuInspect { .. }
         | Command::AppMenuInvoke { .. }

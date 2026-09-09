@@ -22,7 +22,7 @@ pub(super) fn app_facts_payload(
     })
 }
 
-fn query_app_facts(
+pub(super) fn query_app_facts(
     selector: &str,
     options: agenterm_platform::app_facts::AppFactsOptions,
 ) -> Result<agenterm_platform::app_facts::AppFacts, agenterm_platform::app_facts::AppFactsError> {
@@ -169,7 +169,7 @@ fn app_facts_not_found_message(selector: &str) -> String {
     }
 }
 
-fn app_facts_error(error: agenterm_platform::app_facts::AppFactsError) -> CuError {
+pub(super) fn app_facts_error(error: agenterm_platform::app_facts::AppFactsError) -> CuError {
     CuError::new(error.code(), error.message())
 }
 

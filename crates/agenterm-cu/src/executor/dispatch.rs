@@ -20,6 +20,21 @@ impl Executor {
                 entitlements,
                 ..
             } => app_facts_payload(selector, *signing, *verify, *entitlements),
+            Command::AppWatch {
+                selectors,
+                duration_ms,
+                interval_ms,
+                max_events,
+                max_processes,
+                ..
+            } => app_watch_payload(
+                selectors,
+                *duration_ms,
+                *interval_ms,
+                *max_events,
+                *max_processes,
+                control,
+            ),
             Command::Setup {
                 action, bin_dir, ..
             } => setup_payload(*action, bin_dir.as_deref()),
