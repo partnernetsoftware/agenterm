@@ -1,0 +1,421 @@
+// CEO: Linux clipboard-write-file richer-types honesty on X11.
+// Acceptance is independent clipboard-read --type text/uri-list after
+// clipboard-write-file with matching uri bytes, sha256 and value; inventory
+// must list text/uri-list. Optional xclip TARGETS/text/uri-list cross-check
+// when present, otherwise a typed gap.
+// Typed clipboard-write-file/read/clear usage must reject AT-SPI --name and
+// other unexpected arguments; typed get-extents --name usage/host-limit paths
+// must hold before the actuate/read-back court. AT-SPI/--name only; no --coords
+// or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-clipboard-write-file-roundtrip",
+];
+
+const AT_SPI_PROBE_NAME = "Clipboard Write-File Court Anchor";
+const URI_LIST_TYPE = "text/uri-list";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return at(document, "ok") === true; }
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke_clipboard_reply(run_directory, executable, grant, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", grant,
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_clipboard_write_file_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  const command = text_at(reply, "command");
+  ensure(
+    command.indexOf("clipboard") >= 0 || command === "usage",
+    "cu_linux_clipboard_write_file_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_clipboard_write_file_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function invoke(run_directory, executable, grant, arguments, env) {
+  const reply = invoke_clipboard_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(reply),
+    "cu_linux_clipboard_write_file_exit:" + arguments[0] + ":" + JSON.stringify(reply));
+  return reply;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_clipboard_usage_limit(run_directory, executable, env, probe_path) {
+  const read_flat = invoke_clipboard_reply(run_directory, executable, "observe", [
+    "clipboard-read", "--type", URI_LIST_TYPE, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(read_flat),
+    "cu_linux_clipboard_write_file_read_flat_name_ok:" + JSON.stringify(read_flat));
+  ensure(
+    text_at(read_flat, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_read_flat_name_code:" + JSON.stringify(read_flat.error)
+  );
+  ensure(
+    text_at(read_flat, "error.message").indexOf("--name") >= 0
+      || text_at(read_flat, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_clipboard_write_file_read_flat_name_message:" + JSON.stringify(read_flat.error)
+  );
+
+  const read_grouped = invoke_clipboard_reply(run_directory, executable, "observe", [
+    "clipboard", "read", "--type", URI_LIST_TYPE, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(read_grouped),
+    "cu_linux_clipboard_write_file_read_grouped_name_ok:" + JSON.stringify(read_grouped));
+  ensure(
+    text_at(read_grouped, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_read_grouped_name_code:" + JSON.stringify(read_grouped.error)
+  );
+
+  const write_file_flat = invoke_clipboard_reply(run_directory, executable, "actuate", [
+    "clipboard-write-file", "--path", probe_path, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(write_file_flat),
+    "cu_linux_clipboard_write_file_write_flat_name_ok:" + JSON.stringify(write_file_flat));
+  ensure(
+    text_at(write_file_flat, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_write_flat_name_code:" + JSON.stringify(write_file_flat.error)
+  );
+  ensure(
+    text_at(write_file_flat, "error.message").indexOf("--name") >= 0
+      || text_at(write_file_flat, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_clipboard_write_file_write_flat_name_message:" + JSON.stringify(write_file_flat.error)
+  );
+
+  const write_file_grouped = invoke_clipboard_reply(run_directory, executable, "actuate", [
+    "clipboard", "write-file", probe_path, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(write_file_grouped),
+    "cu_linux_clipboard_write_file_write_grouped_name_ok:" + JSON.stringify(write_file_grouped));
+  ensure(
+    text_at(write_file_grouped, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_write_grouped_name_code:" + JSON.stringify(write_file_grouped.error)
+  );
+
+  const write_file_bogus = invoke_clipboard_reply(run_directory, executable, "actuate", [
+    "clipboard-write-file", "--path", probe_path, "--bogus",
+  ], env);
+  ensure(!output_success(write_file_bogus),
+    "cu_linux_clipboard_write_file_write_bogus_ok:" + JSON.stringify(write_file_bogus));
+  ensure(
+    text_at(write_file_bogus, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_write_bogus_code:" + JSON.stringify(write_file_bogus.error)
+  );
+
+  const clear_flat = invoke_clipboard_reply(run_directory, executable, "actuate", [
+    "clipboard-clear", "--apply", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(clear_flat),
+    "cu_linux_clipboard_write_file_clear_flat_name_ok:" + JSON.stringify(clear_flat));
+  ensure(
+    text_at(clear_flat, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_clear_flat_name_code:" + JSON.stringify(clear_flat.error)
+  );
+  ensure(
+    text_at(clear_flat, "error.message").indexOf("--name") >= 0
+      || text_at(clear_flat, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_clipboard_write_file_clear_flat_name_message:" + JSON.stringify(clear_flat.error)
+  );
+
+  const clear_grouped = invoke_clipboard_reply(run_directory, executable, "actuate", [
+    "clipboard", "clear", "--apply", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(clear_grouped),
+    "cu_linux_clipboard_write_file_clear_grouped_name_ok:" + JSON.stringify(clear_grouped));
+  ensure(
+    text_at(clear_grouped, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_clear_grouped_name_code:" + JSON.stringify(clear_grouped.error)
+  );
+
+  const read_bogus = invoke_clipboard_reply(run_directory, executable, "observe", [
+    "clipboard-read", "--bogus",
+  ], env);
+  ensure(!output_success(read_bogus),
+    "cu_linux_clipboard_write_file_read_bogus_ok:" + JSON.stringify(read_bogus));
+  ensure(
+    text_at(read_bogus, "error.code") === "usage",
+    "cu_linux_clipboard_write_file_read_bogus_code:" + JSON.stringify(read_bogus.error)
+  );
+  ensure(
+    text_at(read_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(read_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_clipboard_write_file_read_bogus_message:" + JSON.stringify(read_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_clipboard_write_file_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_clipboard_write_file_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_clipboard_write_file_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_clipboard_write_file_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_clipboard_write_file_extents_unavailable_code:" + code
+  );
+}
+
+function expected_uri_for_path(path) {
+  return "file://" + path + "\r\n";
+}
+
+function digest_of_text(run_directory, name, text) {
+  const path = rh.join(run_directory, name);
+  rh.write_text(path, text);
+  return rh.sha256_file(path);
+}
+
+function command_on_path(name) {
+  const output = rh.command("sh", ["-c", "command -v " + name], { timeout_ms: 5000 });
+  return output.success && output.stdout.trim() !== "";
+}
+
+function independent_xclip_targets(executable) {
+  const output = rh.command("xclip", ["-selection", "clipboard", "-o", "-t", "TARGETS"], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  if (!output.success) { return null; }
+  return output.stdout;
+}
+
+function independent_xclip_uri_list(executable) {
+  const output = rh.command("xclip", ["-selection", "clipboard", "-o", "-t", URI_LIST_TYPE], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  if (!output.success) { return null; }
+  return output.stdout;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+let executable = rh.absolute(args[1]);
+if (!direct_file(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
+ensure(direct_file(executable), "cu_linux_clipboard_write_file_executable_missing:" + executable);
+ensure(rh.env_or("DISPLAY", "") !== "", "cu_linux_clipboard_write_file_display_missing");
+
+const context = harness.new_context(repo, "cu-linux-clipboard-write-file");
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+let succeeded = 0;
+let failure = "";
+let mutated = false;
+try {
+  const probe_path = rh.join(context.run_directory, "probe-token.txt");
+  rh.write_text(probe_path, "CEO-write-file-probe\n");
+
+  print("STEP clipboard-write-file/read/clear typed-fail usage when AT-SPI --name or other unexpected arguments are present");
+  assert_clipboard_usage_limit(context.run_directory, executable, env, probe_path);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(context.run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
+
+  print("STEP clear clipboard to admitted empty initial state");
+  invoke(context.run_directory, executable, "actuate", ["clipboard-clear", "--apply"], env);
+  const empty = invoke(context.run_directory, executable, "observe", ["clipboard-read", "--metadata-only"], env);
+  ensure(flag_at(empty, "data.types_available") && empty.data.types.length === 0,
+         "cu_linux_clipboard_write_file_not_empty:" + JSON.stringify(empty.data));
+
+  const file_path = rh.join(context.run_directory, "payload-" + context.run_id + ".txt");
+  rh.write_text(file_path, "CEO-file-ref-" + context.run_id + " ≠ 你好\n");
+  const abs_path = rh.absolute(file_path);
+  const expected_uri = expected_uri_for_path(abs_path);
+  const digest = digest_of_text(context.run_directory, "uri.txt", expected_uri);
+  mutated = true;
+
+  print("STEP clipboard-write-file disposable file reference");
+  const write = invoke(context.run_directory, executable, "actuate", [
+    "clipboard-write-file", "--path", abs_path,
+  ], env);
+  ensure(write.command === "clipboard-write-file" && text_at(write, "data.path") === abs_path,
+         "cu_linux_clipboard_write_file_write_identity");
+  ensure(flag_at(write, "data.verified"),
+         "cu_linux_clipboard_write_file_write_verified:" + JSON.stringify(write.data));
+
+  print("STEP independent clipboard-read --type text/uri-list");
+  const typed = invoke(context.run_directory, executable, "observe", [
+    "clipboard-read", "--type", URI_LIST_TYPE,
+  ], env);
+  ensure(text_at(typed, "data.type") === URI_LIST_TYPE,
+         "cu_linux_clipboard_write_file_read_type");
+  ensure(text_at(typed, "data.sha256") === digest && text_at(typed, "data.value") === expected_uri,
+         "cu_linux_clipboard_write_file_read_digest:" + JSON.stringify(typed.data));
+  ensure(text_at(typed, "data.encoding") === "utf8",
+         "cu_linux_clipboard_write_file_read_encoding:" + text_at(typed, "data.encoding"));
+  const read_bytes = Number(text_at(typed, "data.bytes"));
+  ensure(read_bytes > 0, "cu_linux_clipboard_write_file_read_bytes");
+
+  print("STEP inventory lists text/uri-list without reading payload bytes");
+  const inventory = invoke(context.run_directory, executable, "observe", ["clipboard-read", "--metadata-only"], env);
+  ensure(flag_at(inventory, "data.payload_read") === false,
+         "cu_linux_clipboard_write_file_inventory_payload_leak");
+  const types = inventory.data.types;
+  ensure(Array.isArray(types) && types.indexOf(URI_LIST_TYPE) >= 0,
+         "cu_linux_clipboard_write_file_inventory_types:" + JSON.stringify(types));
+
+  let cross_checked = false;
+  if (command_on_path("xclip")) {
+    print("STEP independent xclip TARGETS lists text/uri-list");
+    const targets = independent_xclip_targets(executable);
+    ensure(targets !== null, "cu_linux_clipboard_write_file_xclip_targets_failed");
+    ensure(targets.indexOf(URI_LIST_TYPE) >= 0,
+           "cu_linux_clipboard_write_file_xclip_targets_missing:" + JSON.stringify(targets));
+    print("STEP independent xclip text/uri-list cross-check");
+    const host_uri = independent_xclip_uri_list(executable);
+    ensure(host_uri === expected_uri,
+           "cu_linux_clipboard_write_file_xclip_uri_mismatch:"
+           + JSON.stringify({ expected: expected_uri, host: host_uri }));
+    cross_checked = true;
+  }
+  if (!cross_checked) {
+    print("STEP typed-gap: no xclip on PATH; clipboard-read --type text/uri-list digest read-back is the acceptance path");
+  }
+
+  succeeded = 1;
+} catch (error) {
+  failure = "" + error;
+}
+
+if (mutated) {
+  try {
+    print("STEP clear back to empty and re-verify");
+    invoke(context.run_directory, executable, "actuate", ["clipboard-clear", "--apply"], env);
+    const back = invoke(context.run_directory, executable, "observe", ["clipboard-read", "--metadata-only"], env);
+    ensure(back.data.types.length === 0, "cu_linux_clipboard_write_file_restore_empty");
+  } catch (error) {
+    if (failure === "") { failure = "" + error; } else { failure = failure + "; restore: " + error; }
+    succeeded = 0;
+  }
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, [], succeeded !== 0, failure); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-clipboard-write-file-roundtrip");
+  harness.remove_run(context);
+  if (atspi_available) {
+    print("PASS: Linux clipboard-write-file file-reference roundtrip with independent typed read-back and clipboard/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux clipboard-write-file file-reference roundtrip with independent typed read-back and clipboard/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;
