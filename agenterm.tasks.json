@@ -741,6 +741,26 @@
         "task.cu-linux-external-terminal-send-smoke"
       ]
     },
+    "cu-linux-pty-smoke": {
+      "inputs": [
+        "built-agenterm",
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-pty-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-pty-smoke"
+      ]
+    },
     "cu-scroll-wheel-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -5506,6 +5526,25 @@
         "artifact_write",
         "process_spawn",
         "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-pty-smoke",
+      "description": "Linux headless PTY + AgenTerm Unix-socket honesty: pty-start/read/send/wait with independent socket and base64 read-back; absent authority typed pty_job_not_found with control unavailable; abi-dev, no --coords.",
+      "entry": "scripts/qjs/cu-linux-pty-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
       ]
     },
     {

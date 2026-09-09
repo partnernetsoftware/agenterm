@@ -1,0 +1,78 @@
+// CEO: Linux headless PTY + AgenTerm Unix-socket honesty with independent read-back.
+// Proves pty-start / pty-send / pty-wait / pty-read on a live authority and typed
+// pty_job_not_found when the deterministic Unix socket authority is absent. No --coords.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-pty-missing-sock",
+  "cu.linux-pty-start",
+  "cu.linux-pty-send",
+  "cu.linux-pty-wait",
+  "cu.linux-pty-read",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const product = rh.join(rh.parent(executable), "agenterm");
+const smoke = rh.join(repo, "scripts/cu-linux-pty-smoke.sh");
+ensure(direct_file(executable), "cu_linux_pty_executable_missing:" + executable);
+ensure(direct_file(product), "cu_linux_pty_product_missing:" + product);
+ensure(direct_file(smoke), "cu_linux_pty_smoke_missing:" + smoke);
+
+const env = {
+  AGENTERM_CU_EXE: executable,
+  AGENTERM_CU_PRODUCT_EXECUTABLE: product,
+  AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  AGENTERM_NO_ACTIVATE: "1",
+};
+for (const key of [
+  "DISPLAY",
+  "XDG_RUNTIME_DIR",
+  "DBUS_SESSION_BUS_ADDRESS",
+]) {
+  if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+}
+
+print("STEP host-native court runs cu-linux-pty-smoke.sh with independent socket and base64 read-back");
+const output = rh.command("bash", [smoke], {
+  cwd: repo,
+  env: env,
+  timeout_ms: 120000,
+});
+ensure(
+  output.success === true,
+  "cu_linux_pty_smoke_child:" + output.stdout + output.stderr
+);
+ensure(
+  output.stdout.indexOf("PASS:") >= 0,
+  "cu_linux_pty_smoke_pass_missing:" + output.stdout
+);
+
+const context = harness.new_context(repo, "cu-linux-pty");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pty-missing-sock");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pty-start");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pty-send");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pty-wait");
+harness.emit_evidence(context, declared_evidence, "cu.linux-pty-read");
+harness.remove_run(context);
+print("PASS: Linux PTY sock honesty with typed missing-authority detail and independent read-back");

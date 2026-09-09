@@ -5,8 +5,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PRODUCT="${AGENTERM_CU_PRODUCT_EXECUTABLE:-$ROOT/target/debug/agenterm}"
-CU="${AGENTERM_CU_EXE:-$ROOT/target/debug/agenterm-cu}"
+PRODUCT="${AGENTERM_CU_PRODUCT_EXECUTABLE:-$ROOT/target/abi-dev/agenterm}"
+CU="${AGENTERM_CU_EXE:-$ROOT/target/abi-dev/agenterm-cu}"
 export AGENTERM_CU_PRODUCT_EXECUTABLE="$PRODUCT"
 export AGENTERM_ABI_LIB="${AGENTERM_ABI_LIB:-$(dirname "$CU")/libagenterm.so}"
 export AGENTERM_NO_ACTIVATE=1
