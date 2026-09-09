@@ -2221,6 +2221,24 @@
         "task.cu-linux-clipboard-utf8-smoke"
       ]
     },
+    "cu-linux-clipboard-mime-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-clipboard-mime-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-clipboard-mime-smoke"
+      ]
+    },
     "cu-linux-capabilities-honesty-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -7614,6 +7632,25 @@
       "id": "cu-linux-clipboard-utf8-smoke",
       "description": "Linux clipboard-write UTF-8 disposable token round-trips through independent clipboard-read --type with matching bytes, sha256 and value on X11; optional xclip/xsel cross-check or typed gap when absent; no --coords.",
       "entry": "scripts/qjs/cu-linux-clipboard-utf8-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-clipboard-mime-smoke",
+      "description": "Linux clipboard text/plain, text/html and image/png roundtrip through independent clipboard-read --type with digest, type inventory, denied/host-limit paths and empty restore; typed clipboard-write/read/clear usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the actuate/read-back court; AT-SPI --name; no --coords.",
+      "entry": "scripts/qjs/cu-linux-clipboard-mime-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
