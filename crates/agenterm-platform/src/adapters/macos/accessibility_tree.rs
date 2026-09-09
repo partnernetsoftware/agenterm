@@ -141,7 +141,7 @@ unsafe extern "C" {
     fn CFDictionaryGetValue(dict: CfDictionaryRef, key: CfTypeRef) -> CfTypeRef;
     fn CFStringCreateWithCString(alloc: CfTypeRef, c_str: *const i8, encoding: u32) -> CfStringRef;
     fn CFStringGetCStringPtr(s: CfStringRef, encoding: u32) -> *const i8;
-    fn CFStringGetCString(s: CfStringRef, buf: *mut i8, size: CfIndex, encoding: u32) -> bool;
+    fn CFStringGetCString(s: CfStringRef, buf: *mut i8, size: CfIndex, encoding: u32) -> u8;
     fn CFNumberGetValue(number: CfTypeRef, the_type: CfIndex, value_ptr: *mut c_void) -> bool;
     fn CFGetTypeID(cf: CfTypeRef) -> usize;
     fn CFStringGetTypeID() -> usize;
@@ -329,7 +329,8 @@ fn cf_string(value: CfTypeRef) -> String {
             buf.as_mut_ptr(),
             buf.len() as CfIndex,
             K_CF_STRING_ENCODING_UTF8,
-        ) {
+        ) != 0
+        {
             return CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned();
         }
     }

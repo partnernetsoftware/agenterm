@@ -39,7 +39,7 @@ unsafe extern "C" {
         buffer: *mut i8,
         capacity: CfIndex,
         encoding: u32,
-    ) -> bool;
+    ) -> u8;
     fn CFGetTypeID(value: CfTypeRef) -> usize;
     fn CFStringGetTypeID() -> usize;
 
@@ -269,7 +269,8 @@ fn cf_string(value: CfStringRef) -> Result<String, WindowPlacementError> {
             buffer.len() as CfIndex,
             K_CF_STRING_ENCODING_UTF8,
         )
-    } {
+    } != 0
+    {
         Ok(unsafe { CStr::from_ptr(buffer.as_ptr()) }
             .to_string_lossy()
             .into_owned())

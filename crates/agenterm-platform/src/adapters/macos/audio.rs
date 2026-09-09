@@ -107,7 +107,7 @@ unsafe extern "C" {
         buffer: *mut i8,
         buffer_size: CfIndex,
         encoding: u32,
-    ) -> bool;
+    ) -> u8;
 }
 
 struct OwnedCfString(CfStringRef);
@@ -221,7 +221,7 @@ fn get_string(
         })
         .ok_or_else(|| invalid(format!("CoreAudio {field} exceeds the conversion bound")))?;
     let mut bytes = vec![0_u8; capacity as usize];
-    if !unsafe { CFStringGetCString(value.0, bytes.as_mut_ptr().cast(), capacity, UTF8) } {
+    if unsafe { CFStringGetCString(value.0, bytes.as_mut_ptr().cast(), capacity, UTF8) } == 0 {
         return Err(invalid(format!("CoreAudio {field} is not valid UTF-8")));
     }
     let end = bytes.iter().position(|byte| *byte == 0).ok_or_else(|| {

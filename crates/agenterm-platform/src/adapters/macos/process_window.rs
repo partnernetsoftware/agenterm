@@ -55,7 +55,7 @@ unsafe extern "C" {
         buffer: *mut i8,
         buffer_size: CfIndex,
         encoding: u32,
-    ) -> bool;
+    ) -> u8;
     fn CFStringGetLength(string: CfStringRef) -> CfIndex;
     fn CFStringGetMaximumSizeForEncoding(length: CfIndex, encoding: u32) -> CfIndex;
     fn CFStringGetTypeID() -> usize;
@@ -200,14 +200,15 @@ fn dictionary_string(dictionary: CfDictionaryRef, key: CfStringRef) -> Option<St
     let capacity = usize::try_from(maximum).ok()?.checked_add(1)?;
     let mut bytes = vec![0_i8; capacity];
     // SAFETY: bytes is writable for capacity bytes and value is a CFString.
-    if !unsafe {
+    if unsafe {
         CFStringGetCString(
             value,
             bytes.as_mut_ptr(),
             CfIndex::try_from(capacity).ok()?,
             CF_STRING_ENCODING_UTF8,
         )
-    } {
+    } == 0
+    {
         return None;
     }
     let length = bytes

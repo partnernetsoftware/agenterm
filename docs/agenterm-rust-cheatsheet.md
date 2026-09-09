@@ -162,6 +162,16 @@ can observe a failed trust/storage refresh, then accidentally copy stale bytes
 from an earlier success. Prove the failure-then-copy sequence at the public FFI
 boundary, not only the internal operation result.
 
+Security.framework may return a partial signing-information dictionary for a
+damaged or unsigned code object. When a caller explicitly requests validity,
+run `SecStaticCodeCheckValidity` before publishing identifier, cdhash, Team ID,
+or entitlement facts; only known integrity failures are a completed `false`,
+while unreadable, unsupported, permission, and unknown statuses remain typed
+unavailable. A missing signing identifier means unsigned, and a missing or
+mistyped cdhash must never be serialized as a present `none` value. Keep every
+Create/Copy-rule CoreFoundation object under one RAII owner and type-check all
+borrowed dictionary values before decoding them.
+
 When a binary format has both converter inspection and runtime loading, keep
 one structural validator and split capability *description* from capability
 *availability*. Static inspection may parse manifests, imports and export

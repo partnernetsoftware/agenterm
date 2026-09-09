@@ -32,7 +32,7 @@ unsafe extern "C" {
         buffer: *mut i8,
         buffer_size: isize,
         encoding: u32,
-    ) -> bool;
+    ) -> u8;
 }
 
 /// `kCFStringEncodingUTF8`.
@@ -62,7 +62,7 @@ fn cf_string(value: *const c_void) -> Option<String> {
             CF_STRING_ENCODING_UTF8,
         )
     };
-    if !ok {
+    if ok == 0 {
         return None;
     }
     let bytes: Vec<u8> = buffer
