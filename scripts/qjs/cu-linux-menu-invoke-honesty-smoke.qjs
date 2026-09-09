@@ -3,11 +3,14 @@
 // must change observable fixture state that an independent AT-SPI probe agrees
 // with, refuse disabled items typed without side effects, and round-trip a
 // checkable item's mark. Typed menu-invoke usage must reject AT-SPI --name,
-// --coords, --bogus, and other unexpected arguments; typed get-extents --name
-// usage AND host-limit paths must both hold before the native actuate/read-back
-// court. Typed usage and AT-SPI host-limit paths must hold when the independent
-// pyatspi desktop probe is unavailable. Prefer host-limit clarity over fake
-// success. AT-SPI/--name only; no --coords or screenshot degradation.
+// --coords, --bogus, and other unexpected arguments via usage_rejects_unexpected
+// (or an honest non-usage typed failure; never fake command=usage). Typed
+// get-extents --name usage AND host-limit courts must both hold before
+// process-state, desktop-state, and the native actuate/read-back court (no
+// if/else gating those courts on atspi_available), including get-extents
+// --coords/--bogus command=usage. process-state and desktop-state fixture
+// binding courts must hold before actuate/read-back. Prefer host-limit clarity
+// over fake success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -22,6 +25,8 @@ const MENU_DEPTH = 1;
 const MAX_NODES = 1000;
 const AT_SPI_PROBE_NAME = "Menu Invoke Court Anchor";
 const FIXTURE_ANCHOR_NAME = "Fixture Press";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -337,6 +342,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   });
   ensure(!output_success(reply),
     "cu_linux_menu_invoke_honesty_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_menu_invoke_honesty_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -354,6 +363,10 @@ function assert_menu_invoke_host_limit_when_atspi_absent(run_directory, executab
     AT_SPI_BUS_ADDRESS: "invalid",
   });
   ensure(!output_success(reply), "cu_linux_menu_invoke_honesty_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_menu_invoke_honesty_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
@@ -368,6 +381,52 @@ function assert_menu_invoke_host_limit_when_atspi_absent(run_directory, executab
       "cu_linux_menu_invoke_honesty_unavailable_message:" + JSON.stringify(reply.error)
     );
   }
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_menu_invoke_honesty_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_menu_invoke_honesty_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_menu_invoke_honesty_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_menu_invoke_honesty_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_menu_invoke_honesty_desktop_state_tree:" + JSON.stringify(state.data.tree)
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -610,23 +669,23 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP menu invoke typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+  print("STEP menu invoke typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present (usage_rejects_unexpected or honest non-usage typed failure; never fake command=usage)");
   assert_menu_invoke_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before process-state/desktop-state and menu invoke actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and menu invoke actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
-  print("STEP menu invoke typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");
+  print("STEP menu invoke typed-fail host-limit on invalid AT-SPI bus before process-state/desktop-state and menu invoke actuate/read-back court");
   assert_menu_invoke_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
-    print("STEP independent pyatspi desktop probe is unavailable; usage/host-limit court is the evidence");
-    succeeded = 1;
-  } else {
-    print("STEP start owned GTK fixture and resolve one window handle");
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; process-state/desktop-state courts still run before actuate/read-back when fixture starts");
+  }
+
+  print("STEP start owned GTK fixture and resolve one window handle");
   fixture = harness.start({
     program: "python3",
     args: [fixture_source],
@@ -646,10 +705,11 @@ try {
   ensure(inventory_row !== null, "cu_linux_menu_invoke_honesty_inventory_missing");
   const handle = int_at(inventory_row, "handle");
   ensure(handle > 0, "cu_linux_menu_invoke_honesty_handle:" + JSON.stringify(inventory_row));
+  const handle_text = "" + handle;
 
-  print("STEP get-extents --name locates the fixture anchor before menu invoke actuate/read-back court");
+  print("STEP get-extents --name locates the fixture anchor before process-state/desktop-state and menu invoke actuate/read-back court");
   const anchor_extents = run_cu(run_directory, executable, "observe", [
-    "get-extents", "--window", "" + handle, "--name", FIXTURE_ANCHOR_NAME,
+    "get-extents", "--window", handle_text, "--name", FIXTURE_ANCHOR_NAME,
   ]);
   ensure(
     text_at(anchor_extents, "data.matched.name") === FIXTURE_ANCHOR_NAME
@@ -658,6 +718,18 @@ try {
     "cu_linux_menu_invoke_honesty_extents_before_invoke:" + JSON.stringify(anchor_extents.data)
   );
 
+  print("STEP process-state binds the owned fixture pid before menu invoke actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+  print("STEP desktop-state window row agrees with inventory before menu invoke actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+  );
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable; process-state/desktop-state binding courts held; actuate/read-back court skipped");
+    succeeded = 1;
+  } else {
   print("STEP independent AT-SPI read-back reports menu label before invoke");
   const menu_before = independent_probe(run_directory, executable, {
     title: fixture_title,
@@ -699,7 +771,7 @@ try {
 
   print("STEP CU menu invoke File/Do Thing and independent label read-back agrees");
   const invoked = run_cu(run_directory, executable, "observe,actuate", [
-    "menu", "invoke", "--window", "" + handle, "--path", "File/Do Thing",
+    "menu", "invoke", "--window", handle_text, "--path", "File/Do Thing",
   ]);
   ensure(
     flag_at(invoked, "data.performed")
@@ -718,7 +790,7 @@ try {
 
   print("STEP disabled menu item is refused typed and independent label stays unchanged");
   const menu_refused = run_cu_reply(run_directory, executable, "observe,actuate", [
-    "menu", "invoke", "--window", "" + handle, "--path", "File/Disabled Thing",
+    "menu", "invoke", "--window", handle_text, "--path", "File/Disabled Thing",
   ]);
   ensure(
     !flag_at(menu_refused, "ok") && text_at(menu_refused, "error.code") === "a11y_menu_item_disabled",
@@ -744,7 +816,7 @@ try {
   });
   ensure(marked_before.value === "unchecked", "cu_linux_menu_invoke_honesty_mark_before");
   const marked_on = run_cu(run_directory, executable, "observe,actuate", [
-    "menu", "invoke", "--window", "" + handle, "--path", "File/Marked Thing",
+    "menu", "invoke", "--window", handle_text, "--path", "File/Marked Thing",
   ]);
   ensure(flag_at(marked_on, "data.performed"), "cu_linux_menu_invoke_honesty_mark_on:" + JSON.stringify(marked_on.data));
   const marked_checked = independent_probe(run_directory, executable, {
@@ -756,7 +828,7 @@ try {
   });
   ensure(marked_checked.value === "checked", "cu_linux_menu_invoke_honesty_mark_checked");
   const marked_off = run_cu(run_directory, executable, "observe,actuate", [
-    "menu", "invoke", "--window", "" + handle, "--path", "File/Marked Thing",
+    "menu", "invoke", "--window", handle_text, "--path", "File/Marked Thing",
   ]);
   ensure(flag_at(marked_off, "data.performed"), "cu_linux_menu_invoke_honesty_mark_off:" + JSON.stringify(marked_off.data));
   const marked_unchecked = independent_probe(run_directory, executable, {
@@ -785,9 +857,9 @@ if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux menu invoke honesty (CU menu path agrees with independent AT-SPI read-back with typed menu-invoke --name/--coords/--bogus and get-extents --name usage/host-limit honesty; AT-SPI --name, no --coords)");
+    print("PASS: Linux menu invoke honesty (CU menu path agrees with independent AT-SPI read-back with typed menu-invoke --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state courts before actuate (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux menu invoke typed-fails with typed menu-invoke --name/--coords/--bogus usage and get-extents --name host-limit honesty when independent pyatspi desktop probe is unavailable");
+    print("PASS: Linux menu invoke typed-fails with typed menu-invoke --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state binding courts before actuate/read-back when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
