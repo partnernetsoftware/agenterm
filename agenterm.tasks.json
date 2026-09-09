@@ -6240,7 +6240,7 @@
     },
     {
       "id": "cu-linux-windows-inventory-smoke",
-      "description": "Linux windows top-level inventory pid, title and app_name match independent EWMH/xdotool/AT-SPI read-back; typed windows usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the inventory/xprop read-back court; AT-SPI inventory handles only, no --name on windows, no --coords.",
+      "description": "Linux windows top-level inventory pid, title and app_name match independent EWMH/xdotool/AT-SPI read-back; typed windows usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the inventory/xprop read-back court; AT-SPI inventory handles only, no --name on windows, no --coords.",
       "entry": "scripts/qjs/cu-linux-windows-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
