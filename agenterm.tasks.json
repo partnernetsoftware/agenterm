@@ -6301,7 +6301,7 @@
     },
     {
       "id": "cu-linux-gtk-button-focus-smoke",
-      "description": "Linux GTK3 button click --name then three independent focused read-backs name the clicked button; AT-SPI --name; no --coords.",
+      "description": "Linux GTK3 button click --name then three independent focused + get-text read-backs name the clicked button with a non-empty stable label; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-button-focus-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

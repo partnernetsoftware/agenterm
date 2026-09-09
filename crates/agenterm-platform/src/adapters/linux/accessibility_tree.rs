@@ -1435,6 +1435,22 @@ pub(crate) fn set_node_text(
     })
 }
 
+/// GTK3 buttons publish their visible label as `Accessible.Name`, not
+/// `Text.GetText`. `get-text --name` on a button therefore falls back to
+/// that name when the Text interface is absent so focus honesty can pair
+/// `focused` with a non-empty stable readback.
+fn node_label_text_fallback(role: &str, name: &str) -> Option<String> {
+    let role = role.to_ascii_lowercase();
+    if !matches!(role.as_str(), "button" | "push button" | "toggle button") {
+        return None;
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    Some(name.to_owned())
+}
+
 /// Independent AT-SPI `Text.GetText` for a resolved child-index path.
 /// Does not walk a snapshot and does not reuse write-confirmation state.
 pub(crate) fn get_node_text(
@@ -1778,12 +1794,18 @@ async fn get_node_text_async(
     }
     let object = resolve_path(&conn, &selected, &indices).await?;
     let proxy = open_bus_object(&conn, &object).await?;
-    read_text_contents(&proxy).await.ok_or_else(|| {
-        AccessibilityTreeError::failed(
-            "a11y_text_unavailable",
-            format!("node path {node_id} does not expose AT-SPI Text.GetText"),
-        )
-    })
+    if let Some(text) = read_text_contents(&proxy).await {
+        return Ok(text);
+    }
+    let role = role_name(&proxy).await;
+    let name = proxy.name().await.unwrap_or_default();
+    if let Some(label) = node_label_text_fallback(&role, &name) {
+        return Ok(label);
+    }
+    Err(AccessibilityTreeError::failed(
+        "a11y_text_unavailable",
+        format!("node path {node_id} does not expose AT-SPI Text.GetText"),
+    ))
 }
 
 async fn scroll_node_async(
@@ -5853,6 +5875,20 @@ mod tests {
         assert!(node_text_is_readable("button", &["editable".to_owned()]));
         assert!(!node_text_is_readable("button", &["showing".to_owned()]));
         assert!(!node_text_is_readable("document web", &[]));
+    }
+
+    #[test]
+    fn button_label_text_fallback_uses_accessible_name() {
+        assert_eq!(
+            node_label_text_fallback("button", "Fixture Press").as_deref(),
+            Some("Fixture Press")
+        );
+        assert_eq!(
+            node_label_text_fallback("push button", "Fixture Press").as_deref(),
+            Some("Fixture Press")
+        );
+        assert_eq!(node_label_text_fallback("button", "  "), None);
+        assert_eq!(node_label_text_fallback("label", "Fixture Press"), None);
     }
 
     #[test]

@@ -1,6 +1,7 @@
-// CEO#8: GTK3 button click --name then N>=3 independent focused read-backs.
-// Acceptance: each `focused --window` must name the clicked button; no
-// --coords, screenshot, or coordinate degradation.
+// CEO#8: GTK3 button click --name then N>=3 independent focused + get-text
+// read-backs. Acceptance: each `focused --window` must name the clicked
+// button and each `get-text --name` must return a non-empty stable label;
+// no --coords, screenshot, or coordinate degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -40,12 +41,32 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
 function run_cu(run_directory, executable, grant, arguments) {
   const argv = ["--target", "current", "--grant", grant];
   for (const argument of arguments) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: cu_env(executable),
     timeout_ms: 45000,
   });
   ensure(output.success === true, "cu_linux_gtk_button_focus_cli:" + output.stdout + output.stderr);
@@ -117,7 +138,8 @@ try {
     "cu_linux_gtk_button_focus_click:" + JSON.stringify(clicked.data)
   );
 
-  print("STEP " + FOCUS_PROBE_COUNT + " sequential focused read-backs must name the clicked button");
+  print("STEP " + FOCUS_PROBE_COUNT + " sequential focused + get-text read-backs must name the clicked button");
+  let stable_text = "";
   for (let probe = 1; probe <= FOCUS_PROBE_COUNT; probe += 1) {
     const focused = run_cu(run_directory, executable, "observe", [
       "focused", "--window", handle,
@@ -126,6 +148,23 @@ try {
     ensure(
       focused_name === BUTTON_NAME,
       "cu_linux_gtk_button_focus_probe_" + probe + ":" + JSON.stringify(focused.data)
+    );
+    const named_text = run_cu(run_directory, executable, "observe", [
+      "get-text", "--window", handle, "--name", BUTTON_NAME,
+    ]);
+    const text = text_at(named_text, "data.text");
+    ensure(text !== "", "cu_linux_gtk_button_get_text_empty_" + probe + ":" + JSON.stringify(named_text.data));
+    if (stable_text === "") {
+      stable_text = text;
+    } else {
+      ensure(
+        text === stable_text,
+        "cu_linux_gtk_button_get_text_unstable_" + probe + ":" + text + ":" + stable_text
+      );
+    }
+    ensure(
+      text === BUTTON_NAME,
+      "cu_linux_gtk_button_get_text_probe_" + probe + ":" + JSON.stringify(named_text.data)
     );
   }
   harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-button-focus");
@@ -143,4 +182,4 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_button_focus_failed");
 harness.remove_run(context);
-print("PASS: CEO#8 GTK3 button click --name then " + FOCUS_PROBE_COUNT + " focused read-backs (AT-SPI --name, no --coords)");
+print("PASS: CEO#8 GTK3 button click --name then " + FOCUS_PROBE_COUNT + " focused + get-text read-backs (AT-SPI --name, no --coords)");

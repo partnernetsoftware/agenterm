@@ -266,6 +266,7 @@ const evidence_suites = {
   "cu-linux-page-hover-smoke": true,
   "cu-linux-browser-profiles-open-smoke": true,
   "cu-linux-gtk-entry-focused-send-text-smoke": true,
+  "cu-linux-gtk-button-focus-smoke": true,
   "cu-linux-gtk-entry-paste-smoke": true,
   "cu-linux-gtk-entry-send-keys-smoke": true,
   "cu-linux-gtk-copy-smoke": true,

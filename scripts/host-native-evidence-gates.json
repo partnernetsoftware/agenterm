@@ -564,6 +564,13 @@
       ]
     },
     {
+      "id": "cu-linux-gtk-button-focus-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-gtk-button-focus"
+      ]
+    },
+    {
       "id": "cu-linux-gtk-entry-caret-smoke",
       "platform": "linux",
       "evidence": [
