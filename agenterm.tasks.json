@@ -5751,7 +5751,7 @@
     },
     {
       "id": "cu-linux-terminal-shallow-tree-smoke",
-      "description": "Linux xfce4-terminal without AT-SPI registration: terminal-list usage/control_unavailable with absent-socket proof before fixture; capabilities/doctor document terminal_a11y_shallow_tree plus pty-*/terminal-* alternatives; windows --pid/--title agree; tree visited=1 frame read-back with xprop/xwininfo; term-read/term-send/term-wait terminal_buffer_not_found, query zero terminal matches, get-text --name a11y_text_unavailable, pyatspi zero roots; no --coords.",
+      "description": "Linux xfce4-terminal without AT-SPI: terminal-list/term-read/term-send/term-wait/tree/query usage reject AT-SPI --name; typed get-extents --name usage/host-limit before read-back; terminal-list control_unavailable with absent-socket proof; capabilities/doctor document terminal_a11y_shallow_tree; tree visited=1 frame with xprop/xwininfo; term-read/term-send/term-wait terminal_buffer_not_found; query zero matches; get-text --name a11y_text_unavailable; pyatspi zero roots; no --coords.",
       "entry": "scripts/qjs/cu-linux-terminal-shallow-tree-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6525,7 +6525,7 @@
     },
     {
       "id": "cu-linux-host-notify-smoke",
-      "description": "Linux FDO notification dispatch with independent session-bus read-back, honest GetCapabilities, typed usage and host-limit paths when TITLE/--action are missing or the session bus is unavailable, miss paths must not publish onto the bus, typed subtitle/sound refusal, and action-button dispatch plus ActionInvoked invoke read-back.",
+      "description": "Linux FDO host-notify dispatch with independent dbus-monitor session-bus read-back; typed host-notify usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the dbus-monitor read-back court; typed TITLE/--action usage, session-bus unavailable host-limit, miss-no-publish, subtitle/sound refusal, and ActionInvoked action-button invoke; AT-SPI --name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-host-notify-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

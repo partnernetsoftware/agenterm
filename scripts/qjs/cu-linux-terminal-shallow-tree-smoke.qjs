@@ -4,8 +4,10 @@
 // fallback and term-read/term-send/term-wait typed-fail terminal_buffer_not_found
 // on the same handle. terminal-list must typed-fail control_unavailable with
 // AgenTerm sock host-limit and independent absent-socket proof before any shallow
-// terminal fixture exists; terminal-list/term-read usage must reject unexpected
-// arguments. query --role terminal must honestly return zero matches; get-text
+// terminal fixture exists; terminal-list/term-read/term-send/term-wait/tree/query
+// usage must reject AT-SPI --name and other unexpected arguments; typed
+// get-extents --name usage/host-limit paths must hold before the native read-back
+// court. query --role terminal must honestly return zero matches; get-text
 // --name on the frame title must typed-fail a11y_text_unavailable. Capabilities
 // and doctor must document the shallow frame plus pty-* / terminal-* alternatives.
 // Independent pyatspi must find zero application roots for the terminal pid;
@@ -21,6 +23,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-terminal-shallow-tree-readback",
 ];
+
+const AT_SPI_PROBE_NAME = "Terminal Shallow Tree Court Anchor";
 
 const SHALLOW_PROBE_SCRIPT = [
   "import json, os, pyatspi, sys",
@@ -99,6 +103,8 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -248,6 +254,249 @@ function assert_hint(hint, label) {
   const joined = alternatives.join(" ");
   ensure(joined.indexOf("pty-") >= 0 && joined.indexOf("terminal-") >= 0,
     label + "_pty_terminal:" + joined);
+}
+
+function invoke_get_extents_reply(run_directory, executable, context, shallow, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable, context, shallow) : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_terminal_shallow_tree_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable, context) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable, context, false),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_rejects_atspi_name(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("exactly one text argument") >= 0;
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, context) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, context, false, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(zero_handle),
+    "cu_linux_terminal_shallow_tree_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_terminal_shallow_tree_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_terminal_shallow_tree_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, null, false, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_terminal_shallow_tree_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_terminal_shallow_tree_extents_unavailable_code:" + code
+  );
+}
+
+function assert_tree_usage_limit(run_directory, executable, context) {
+  const reply = run_cu_reply(run_directory, executable, context, false, [
+    "tree", "--window", "1",
+    "--depth", "8",
+    "--max-nodes", "300",
+    "--flat",
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_tree_usage:" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_tree_usage_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(reply, "error.message")),
+    "cu_linux_terminal_shallow_tree_tree_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_query_usage_limit(run_directory, executable, context) {
+  const reply = run_cu_reply(run_directory, executable, context, false, [
+    "query", "--window", "1", "--role", "terminal",
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(
+    !output_success(reply) && text_at(reply, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_query_usage:" + JSON.stringify(reply)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_query_usage_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(reply, "error.message")),
+    "cu_linux_terminal_shallow_tree_query_usage_message:" + JSON.stringify(reply.error)
+  );
+}
+
+function assert_term_send_usage_limit(run_directory, executable, context) {
+  const flat_with_name = run_cu_reply(run_directory, executable, context, false, [
+    "term-send", "1", "--foreground", "--name", AT_SPI_PROBE_NAME, "--", "hello",
+  ], "observe,actuate");
+  ensure(!output_success(flat_with_name),
+    "cu_linux_terminal_shallow_tree_term_send_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_send_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_term_send_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(flat_with_name, "error.message")),
+    "cu_linux_terminal_shallow_tree_term_send_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, context, false, [
+    "term", "send", "1", "--foreground", "--name", AT_SPI_PROBE_NAME, "--", "hello",
+  ], "observe,actuate");
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_terminal_shallow_tree_term_send_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_send_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(grouped_with_name, "error.message")),
+    "cu_linux_terminal_shallow_tree_term_send_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, context, false, [
+    "term-send", "1", "--foreground", "--bogus", "--", "hello",
+  ], "observe,actuate");
+  ensure(!output_success(with_bogus),
+    "cu_linux_terminal_shallow_tree_term_send_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_send_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0
+      || usage_rejects_atspi_name(text_at(with_bogus, "error.message")),
+    "cu_linux_terminal_shallow_tree_term_send_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_term_wait_usage_limit(run_directory, executable, context) {
+  const flat_with_name = run_cu_reply(run_directory, executable, context, false, [
+    "term-wait", "1", "decoy", "--timeout-ms", "1000",
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_terminal_shallow_tree_term_wait_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_wait_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_term_wait_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(flat_with_name, "error.message")),
+    "cu_linux_terminal_shallow_tree_term_wait_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, context, false, [
+    "term", "wait", "1", "decoy", "--timeout-ms", "1000",
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_terminal_shallow_tree_term_wait_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_wait_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(grouped_with_name, "error.message")),
+    "cu_linux_terminal_shallow_tree_term_wait_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, context, false, [
+    "term-wait", "1", "decoy", "--timeout-ms", "1000", "--bogus",
+  ]);
+  ensure(!output_success(with_bogus),
+    "cu_linux_terminal_shallow_tree_term_wait_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_wait_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0
+      || usage_rejects_atspi_name(text_at(with_bogus, "error.message")),
+    "cu_linux_terminal_shallow_tree_term_wait_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_term_read_usage_limit_early(run_directory, executable, context) {
+  const flat_with_name = run_cu_reply(run_directory, executable, context, false, [
+    "term-read", "1", "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(
+    !output_success(flat_with_name) && text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_flat_name:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(flat_with_name, "error.message")),
+    "cu_linux_terminal_shallow_tree_term_read_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, context, false, [
+    "term", "read", "1", "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(
+    !output_success(grouped_with_name) && text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_terminal_shallow_tree_term_read_grouped_name:" + JSON.stringify(grouped_with_name)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(grouped_with_name, "error.message")),
+    "cu_linux_terminal_shallow_tree_term_read_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
 }
 
 function assert_terminal_list_usage_limit(run_directory, executable, context) {
@@ -409,6 +658,7 @@ ensure(direct_file(abi_library), "missing_agenterm_abi:" + abi_library);
 ensure(xfce4_terminal_available(), "cu_linux_terminal_shallow_tree_missing_xfce4_terminal");
 
 const context = harness.new_context(repo, "cu-linux-terminal-shallow-tree");
+const atspi_available = probe_atspi_available(executable, context);
 let terminal_pid = 0;
 let terminal = -1;
 let succeeded = 0;
@@ -416,6 +666,21 @@ let failure = "";
 try {
   print("STEP terminal-list typed-fails usage on unexpected arguments before shallow terminal fixture");
   assert_terminal_list_usage_limit(context.run_directory, executable, context);
+
+  print("STEP term-read/term-send/term-wait/tree/query typed-fail usage when AT-SPI --name or other unexpected arguments are present");
+  assert_term_read_usage_limit_early(context.run_directory, executable, context);
+  assert_term_send_usage_limit(context.run_directory, executable, context);
+  assert_term_wait_usage_limit(context.run_directory, executable, context);
+  assert_tree_usage_limit(context.run_directory, executable, context);
+  assert_query_usage_limit(context.run_directory, executable, context);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before native read-back court");
+    assert_get_extents_usage_limit(context.run_directory, executable, context);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
 
   print("STEP terminal-list typed-fails control_unavailable with AgenTerm sock host-limit before shallow terminal fixture");
   const missing_terminal = run_cu_reply(
@@ -583,7 +848,11 @@ if (terminal >= 0) {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux terminal shallow-tree host-limit honesty with independent read-back (term-read/term-send/term-wait/query/get-text usage and typed unsupported)");
+  if (atspi_available) {
+    print("PASS: Linux terminal shallow-tree host-limit honesty with independent read-back and typed terminal/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux terminal shallow-tree host-limit honesty with independent read-back and typed terminal/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 return;
