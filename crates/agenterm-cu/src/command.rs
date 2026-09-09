@@ -3929,6 +3929,8 @@ pub enum Command {
         url: String,
         #[serde(default, skip_serializing_if = "is_false")]
         focused: bool,
+        #[serde(default)]
+        state: crate::browser_bridge::BrowserWindowState,
     },
     /// Change one exact Chromium window state through its exact extension
     /// connection. The bridge verifies state and browser focus postconditions.
@@ -5277,6 +5279,21 @@ impl Command {
                     );
                 }
                 Ok(())
+            }
+            Self::BrowserBridgeWindowOpen {
+                url,
+                focused,
+                state,
+                ..
+            } => {
+                let request = crate::browser_bridge::WindowOpenRequest {
+                    url: url.clone(),
+                    focused: *focused,
+                    state: state.clone(),
+                };
+                request
+                    .validate()
+                    .map_err(|_| "browser bridge window-open arguments are invalid")
             }
             Self::Windows {
                 space,
@@ -9188,9 +9205,19 @@ mod tests {
             connection_id: connection_id.clone(),
             url: "data:text/html,ACU".into(),
             focused: false,
+            state: crate::browser_bridge::BrowserWindowState::Normal,
         };
         assert_eq!(open.required_grant(), Grant::Actuate);
         assert_eq!(open.verb(), "browser-bridge-window-open");
+        assert!(open.validate().is_ok());
+        let invalid_open = Command::BrowserBridgeWindowOpen {
+            target: TargetRef::Current,
+            connection_id: connection_id.clone(),
+            url: "data:text/html,ACU".into(),
+            focused: true,
+            state: crate::browser_bridge::BrowserWindowState::Minimized,
+        };
+        assert!(invalid_open.validate().is_err());
 
         let attach = Command::BrowserBridgeAttach {
             target: TargetRef::Current,

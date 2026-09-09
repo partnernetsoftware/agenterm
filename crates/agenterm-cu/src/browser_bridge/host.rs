@@ -195,12 +195,29 @@ fn validate_wire_error(
     error: &BridgeWireError,
     request: &BridgeRequest,
 ) -> Result<(), BridgeHostError> {
-    let is_effect = matches!(
+    let is_debug_effect = matches!(
         request.command.as_str(),
         "debug-invoke" | "debug-type" | "debug-files"
     );
-    if is_effect && (error.tab_id.is_none() || error.detach.is_none() || error.effect.is_none()) {
+    if is_debug_effect
+        && (error.tab_id.is_none() || error.detach.is_none() || error.effect.is_none())
+    {
         return Err(BridgeHostError::new("browser_bridge_response_invalid"));
+    }
+    if request.command == "window-open" {
+        if error.code.is_empty()
+            || error.code.len() > 96
+            || error.code.chars().any(char::is_control)
+            || error.tab_id.is_some()
+            || error.detach.is_some()
+            || !matches!(
+                error.effect.as_deref(),
+                Some("not-performed" | "rolled-back" | "unknown")
+            )
+        {
+            return Err(BridgeHostError::new("browser_bridge_response_invalid"));
+        }
+        return Ok(());
     }
     if request.command.starts_with("debug-") && (error.tab_id.is_some() || error.detach.is_some()) {
         let expected_tab_id = request
@@ -654,7 +671,7 @@ fn send_to_connection_at(
         .map_err(|_| BridgeHostError::new("browser_bridge_deadline_setup_failed"))?;
     let is_effect = matches!(
         request.command.as_str(),
-        "debug-invoke" | "debug-type" | "debug-files"
+        "debug-invoke" | "debug-type" | "debug-files" | "window-open"
     );
     write_all_with_deadline(&mut stream, &frame, deadline).map_err(|error| {
         if is_effect {
@@ -671,10 +688,7 @@ fn send_to_connection_at(
         }
     })?;
     let response_value = read_frame_with_deadline(&mut stream, deadline).map_err(|error| {
-        if matches!(
-            request.command.as_str(),
-            "debug-invoke" | "debug-type" | "debug-files"
-        ) {
+        if is_effect {
             BridgeHostError::new("browser_bridge_outcome_unknown")
         } else {
             error
@@ -1109,6 +1123,32 @@ mod tests {
             effect: Some("not-performed".into()),
         };
         validate_wire_error(&explicit, &effect).unwrap();
+
+        let mut window_open = request("window-open");
+        window_open.args = serde_json::from_value(json!({
+            "url": "data:text/html,ACU",
+            "focused": false,
+            "state": "minimized"
+        }))
+        .unwrap();
+        assert_eq!(
+            validate_wire_error(&generic, &window_open)
+                .unwrap_err()
+                .code,
+            "browser_bridge_response_invalid"
+        );
+        let rolled_back = BridgeWireError {
+            code: "browser_bridge_window_open_postcondition_failed".into(),
+            tab_id: None,
+            detach: None,
+            effect: Some("rolled-back".into()),
+        };
+        validate_wire_error(&rolled_back, &window_open).unwrap();
+        let unknown = BridgeWireError {
+            effect: Some("unknown".into()),
+            ..rolled_back
+        };
+        validate_wire_error(&unknown, &window_open).unwrap();
     }
 
     #[test]

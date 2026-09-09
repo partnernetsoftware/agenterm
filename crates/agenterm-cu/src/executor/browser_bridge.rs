@@ -1367,6 +1367,89 @@ pub(super) fn browser_bridge_window_state_payload(
     }
 }
 
+pub(super) fn browser_bridge_window_open_payload(
+    connection_id: &ConnectionId,
+    args: Map<String, Value>,
+    focused: bool,
+) -> Result<Value, CuError> {
+    if focused {
+        return browser_bridge_request_payload(connection_id, "window-open", args);
+    }
+    let before = desktop_focus_handle()?.ok_or_else(|| {
+        CuError::new(
+            "browser_bridge_desktop_focus_unavailable",
+            "no exact desktop foreground window is available before the background window is created",
+        )
+    })?;
+    let bridge = browser_bridge_request_payload(connection_id, "window-open", args);
+    let after_effect = desktop_focus_handle()
+        .map_err(|cause| window_open_focus_unknown(before, None, bridge.as_ref().err(), cause))?;
+    let restored = preserve_desktop_focus(before, bridge.as_ref().err()).map_err(|cause| {
+        window_open_focus_unknown(before, after_effect, bridge.as_ref().err(), cause)
+    })?;
+    let after = desktop_focus_handle().map_err(|cause| {
+        window_open_focus_unknown(before, after_effect, bridge.as_ref().err(), cause)
+    })?;
+    if after != Some(before) {
+        return Err(window_open_focus_unknown(
+            before,
+            after_effect,
+            bridge.as_ref().err(),
+            CuError::new(
+                "browser_bridge_desktop_focus_restore_failed",
+                "the exact previous desktop foreground window was not restored after background window creation",
+            )
+            .with_detail(json!({ "observed": after })),
+        ));
+    }
+    let desktop_focus = json!({
+        "before": before,
+        "after_effect": after_effect,
+        "after": after,
+        "restored": restored,
+        "verified": true,
+    });
+    match bridge {
+        Ok(mut value) => {
+            value["desktop_focus"] = desktop_focus;
+            Ok(value)
+        }
+        Err(error) => {
+            let mut detail = match error.detail {
+                Some(Value::Object(detail)) => detail,
+                Some(bridge) => {
+                    let mut detail = Map::new();
+                    detail.insert("bridge".into(), bridge);
+                    detail
+                }
+                None => Map::new(),
+            };
+            detail.insert("desktop_focus".into(), desktop_focus);
+            Err(CuError::new(error.code, error.message).with_detail(Value::Object(detail)))
+        }
+    }
+}
+
+fn window_open_focus_unknown(
+    before: isize,
+    after_effect: Option<isize>,
+    bridge_error: Option<&CuError>,
+    cause: CuError,
+) -> CuError {
+    CuError::new(
+        "browser_bridge_outcome_unknown",
+        "the browser window effect or exact desktop focus restoration could not be fully proved",
+    )
+    .with_detail(json!({
+        "effect": "unknown",
+        "retry_safe": false,
+        "before": before,
+        "after_effect": after_effect,
+        "bridge_error": bridge_error,
+        "cause": cause,
+    }))
+}
+
 fn preserve_desktop_focus(
     expected: isize,
     bridge_error: Option<&CuError>,
@@ -1546,6 +1629,25 @@ mod tests {
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         );
+    }
+
+    #[test]
+    fn uncertain_window_open_focus_is_never_retry_safe() {
+        let error = window_open_focus_unknown(
+            41,
+            Some(42),
+            None,
+            CuError::new(
+                "browser_bridge_desktop_focus_restore_failed",
+                "synthetic focus failure",
+            ),
+        );
+        assert_eq!(error.code, "browser_bridge_outcome_unknown");
+        let detail = error.detail.unwrap();
+        assert_eq!(detail["effect"], "unknown");
+        assert_eq!(detail["retry_safe"], false);
+        assert_eq!(detail["before"], 41);
+        assert_eq!(detail["after_effect"], 42);
     }
 
     #[test]

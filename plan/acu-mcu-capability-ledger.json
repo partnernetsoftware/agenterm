@@ -886,7 +886,7 @@
             }
           },
           "evidence": ["cu.browser-bridge-owned-profile.macos", "cu.browser-bridge-reload.macos", "acu.compat-browser-bridge"],
-          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact fixed extension, proves its persistent profile instance identity, leases one exact tab to an ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. The compatibility adapter now resolves legacy bridge status by validating every entry in the complete live-connection inventory and selecting one exact profile-instance prefix; it withholds legacy installation/manifest fields that native status does not observe. Session end proves exact lock release and browser stop reaps the host. Legacy setup target selection, profile-level extension reload and one-effect minimized open remain typed acu.dynamic.075. The receipt names reload_scope=native-connection: it does not claim Chromium hot-loaded new extension code.",
+          "note": "The macOS public qjswasm court starts an ACU-owned isolated Profile with the exact fixed extension, proves its persistent profile instance identity, leases one exact tab to an ACU runtime session, replaces the Native Messaging connection in the background, and accepts only one new process-bound host with the same profile identity and tab while desktop focus stays unchanged. The compatibility adapter resolves legacy bridge status by validating every entry in the complete live-connection inventory and selecting one exact profile-instance prefix; it withholds legacy installation/manifest fields that native status does not observe. Positional legacy browser open uses the same exact selection before one atomic minimized, unfocused window-open whose browser and desktop focus postconditions are verified. Session end proves exact lock release and browser stop reaps the host. Legacy setup target selection and profile-level extension reload remain typed acu.dynamic.075. The receipt names reload_scope=native-connection: it does not claim Chromium hot-loaded new extension code.",
           "next": "prove the same owned-Profile identity, target-lock, reconnect, focus and cleanup contract with native Chromium-family executables on Linux and Windows; keep extension-code update activation as a separate setup boundary"
         },
         {
@@ -925,7 +925,7 @@
         },
         {
           "id": "browser.legacy-lifecycle-mapping",
-          "mcu_shape": "browser bridge setup/reload, managed profile create/list/start/status/stop/remove, and one-effect minimized background open",
+          "mcu_shape": "browser bridge setup/reload and managed profile create/list/start/status/stop/remove",
           "acu_shape": null,
           "state": "gap",
           "qualification": {
@@ -937,7 +937,7 @@
             }
           },
           "evidence": [],
-          "note": "Stable TODO acu.dynamic.075 remains for these archived shapes. Native setup registers all discovered Chromium families rather than one legacy selector; native reload owns an exact tab/session lease rather than profile-level extension reload; browser-session uses a different persistent store and owner model; and composing normal window-open with a later minimize would not preserve the archived one-effect postcondition or request identity.",
+          "note": "Stable TODO acu.dynamic.075 remains for these archived shapes. Native setup registers all discovered Chromium families rather than one legacy selector; native reload owns an exact tab/session lease rather than profile-level extension reload; and browser-session uses a different persistent store and owner model. Positional legacy browser open is no longer in this gap because native window-open can carry minimized state in the single create effect.",
           "next": "decide each shape independently: add exact native selector/state support where semantics can align, otherwise publish a permanent typed retirement with an explicit migration path"
         },
         {
@@ -960,11 +960,11 @@
         },
         {
           "id": "browser.window-lifecycle",
-          "mcu_shape": "browser windows and browser window-state",
-          "acu_shape": "browser-bridge-window-open creates one exact normal Chromium window with explicit focus semantics; browser-bridge-windows returns profile-scoped identity/state/focus/bounds/tab facts; browser-bridge-window-state has a closed normal|minimized|maximized vocabulary, foreground refusal, state/tab/focus read-back and rollback, plus exact native desktop-focus capture, settle and restore",
+          "mcu_shape": "browser windows, browser window-state, and positional browser open URL as one minimized unfocused window",
+          "acu_shape": "browser-bridge-window-open creates one exact normal|minimized Chromium window with explicit focus semantics and atomic requested state; browser-bridge-windows returns profile-scoped identity/state/focus/bounds/tab facts; browser-bridge-window-state has a closed normal|minimized|maximized vocabulary, foreground refusal, state/tab/focus read-back and rollback, plus exact native desktop-focus capture, settle and restore; compatibility maps positional legacy open through exact connection selection to one minimized open effect",
           "state": "native",
-          "evidence": ["cu.browser-window-lifecycle.macos"],
-          "note": "The macOS public qjswasm court loads the fixed extension in an ACU-owned profile, creates one explicitly focused and one background window, proves minimize/restore/maximize/restore on the exact background identity, then backgrounds the whole browser behind an owned AgenTerm window and proves the same state path preserves the exact native foreground handle. Browser-internal postcondition failure rolls state back; delayed native focus drift is observed for 500 ms and restored before success.",
+          "evidence": ["cu.browser-window-lifecycle.macos", "acu.compat-browser-bridge"],
+          "note": "The macOS public qjswasm court loads the fixed extension in an ACU-owned profile, creates one explicitly focused, one ordinary background and one directly minimized background window, then immediately re-reads the minimized identity from the exact connection. It proves minimize/restore/maximize/restore on the exact ordinary background identity, then backgrounds the whole browser behind an owned AgenTerm window and proves the same state path preserves the exact native foreground handle. The compatibility court proves positional legacy open performs exact connection selection and projects only a single minimized open with no transient normal state. Browser-internal postcondition failure rolls the created window back; any transport ambiguity, rollback failure or unproved native focus restoration is outcome_unknown and not retry-safe.",
           "next": "run the same owned-profile window court with native Chromium-family executables on Linux and Windows"
         },
         {

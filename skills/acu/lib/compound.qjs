@@ -841,6 +841,47 @@ export function bridge_status_projection(selected, connections_reply) {
   });
 }
 
+export function bridge_window_open_projection(selected, reply, legacy_timeout) {
+  if (!object_value(selected) || !lower_hex(selected.connection_id, 64)
+      || !lower_hex(selected.profile_instance_id, 32) || !positive_integer(selected.pid)) {
+    return failure("browser_bridge_response_invalid",
+      "selected bridge connection is incomplete");
+  }
+  const unpacked = reply_data(reply, "browser-bridge-window-open reply");
+  if (!unpacked.ok) { return unpacked; }
+  const data = unpacked.value;
+  const result = object_value(data) ? data.result : null;
+  const window = object_value(result) ? result.window : null;
+  const desktop = object_value(data) ? data.desktop_focus : null;
+  if (!object_value(data) || data.connection_id !== selected.connection_id
+      || !object_value(result) || result.requested_focused !== false
+      || result.requested_state !== "minimized" || result.performed !== true
+      || result.verified !== true || result.focus_changed !== false
+      || result.focused_window_before !== result.focused_window_after
+      || !object_value(window) || !positive_integer(window.window_id)
+      || window.state !== "minimized" || window.focused !== false
+      || window.tab_count !== 1 || !positive_integer(window.active_tab_id)
+      || !object_value(desktop) || !positive_integer(desktop.before)
+      || desktop.after_effect !== desktop.before || desktop.after !== desktop.before
+      || desktop.verified !== true || desktop.restored !== false) {
+    return failure("browser_open_postcondition_failed",
+      "legacy browser open did not prove one atomic minimized window with unchanged browser and desktop focus");
+  }
+  return success({
+    transport: "native-bridge",
+    background: true,
+    connection_id: selected.connection_id,
+    profile_instance_id: selected.profile_instance_id,
+    window_id: window.window_id,
+    tab_id: window.active_tab_id,
+    state: "minimized",
+    focused: false,
+    verified: true,
+    transient_normal_window: false,
+    legacy_timeout_ignored: legacy_timeout !== null && legacy_timeout !== undefined
+  });
+}
+
 export function cdp_nav_target(reply) {
   const unpacked = reply_data(reply, "page-targets reply");
   if (!unpacked.ok) { return unpacked; }

@@ -43,7 +43,7 @@ function status_reply(connection_id, profile_id, version) {
   return { ok: true, data: {
     connection_id: connection_id,
     result: {
-      protocol: 3,
+      protocol: 4,
       extension_id: "knofdkmmpkbnjhdkcjddbakbpmgpmjpe",
       extension_version: version,
       profile_instance_id: profile_id,
@@ -69,6 +69,37 @@ function target(id, type, title) {
     url: "data:text/html," + title,
     description: ""
   };
+}
+
+function window_open_reply(connection_id, state, focused, desktop_after) {
+  return { ok: true, data: {
+    connection_id: connection_id,
+    desktop_focus: {
+      before: 9001,
+      after_effect: desktop_after,
+      after: desktop_after,
+      restored: false,
+      verified: true
+    },
+    result: {
+      requested_focused: false,
+      requested_state: state,
+      performed: true,
+      verified: true,
+      focus_changed: false,
+      focused_window_before: 3,
+      focused_window_after: 3,
+      window: {
+        window_id: 44,
+        state: state,
+        focused: focused,
+        bounds: { left: 1, top: 2, width: 800, height: 600 },
+        tab_count: 1,
+        active_tab_id: 55,
+        active_tab_title: "Legacy open"
+      }
+    }
+  } };
 }
 
 const args = rh.args();
@@ -136,13 +167,40 @@ try {
   ensure(foreground_nav.kind === "usage"
       && foreground_nav.message.indexOf("page-nav") >= 0,
     "acu_browser_foreground_nav_is_permanent_usage");
+  const legacy_open = compat.canonicalize([
+    "browser", "open", "https://example.test/background"
+  ]);
+  ensure(legacy_open.kind === "bridge-open"
+      && legacy_open.url === "https://example.test/background"
+      && legacy_open.profile === null,
+    "acu_browser_open_atomic_bridge_route");
+  const selected_open = compat.canonicalize([
+    "browser", "open", "https://example.test/background",
+    "--profile", PROFILE_A.substring(0, 8), "--timeout", "22000"
+  ]);
+  ensure(selected_open.kind === "bridge-open"
+      && selected_open.profile === PROFILE_A.substring(0, 8)
+      && selected_open.legacy_timeout === "22000",
+    "acu_browser_open_profile_prefix_and_timeout");
+  ensure(compat.canonicalize([
+    "browser", "open", "https://example.test/background",
+    "--profile", "Default"
+  ]).gap_id === "acu.dynamic.075.profile-name-binding",
+  "acu_browser_open_human_profile_stays_typed");
+  ensure(compat.canonicalize([
+    "browser", "open", "https://example.test/background", "--app", "brave"
+  ]).gap_id === "acu.dynamic.075.profile-name-binding",
+  "acu_browser_open_app_selector_stays_typed");
+  ensure(compat.canonicalize([
+    "browser", "open", "https://example.test/a", "extra"
+  ]).kind === "usage", "acu_browser_open_exact_shape");
 
   const inventory = connections_reply([
     connection(CONNECTION_A, 101), connection(CONNECTION_B, 202)
   ], false);
   const statuses = {};
-  statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.3.0");
-  statuses[CONNECTION_B] = status_reply(CONNECTION_B, PROFILE_B, "1.3.0");
+  statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.4.0");
+  statuses[CONNECTION_B] = status_reply(CONNECTION_B, PROFILE_B, "1.4.0");
   const selected = compound.bridge_select_connection(
     inventory, statuses, PROFILE_A.substring(0, 8));
   ensure(selected.ok === true, "acu_browser_bridge_status_selection_" + selected.code);
@@ -158,7 +216,7 @@ try {
       && view.connections[0].connection_id === CONNECTION_A
       && view.connections[1].connection_id === CONNECTION_B,
     "acu_browser_bridge_status_complete_inventory");
-  ensure(view.version.protocol === 3 && view.version.extension_version === "1.3.0"
+  ensure(view.version.protocol === 4 && view.version.extension_version === "1.4.0"
       && view.version.current === true,
     "acu_browser_bridge_status_version");
   ensure(view.installed === undefined && view.manifests === undefined
@@ -168,6 +226,24 @@ try {
     ["status", "tabs", "windows", "window-open", "window-state"],
     "acu_browser_bridge_status_commands");
 
+  const opened = compound.bridge_window_open_projection(selected.value,
+    window_open_reply(CONNECTION_A, "minimized", false, 9001), "22000");
+  ensure(opened.ok === true && opened.value.connection_id === CONNECTION_A
+      && opened.value.profile_instance_id === PROFILE_A
+      && opened.value.window_id === 44 && opened.value.tab_id === 55
+      && opened.value.state === "minimized" && opened.value.focused === false
+      && opened.value.transient_normal_window === false
+      && opened.value.legacy_timeout_ignored === true,
+    "acu_browser_open_atomic_projection_" + opened.code);
+  const normal_open = compound.bridge_window_open_projection(selected.value,
+    window_open_reply(CONNECTION_A, "normal", false, 9001), null);
+  ensure(normal_open.code === "browser_open_postcondition_failed",
+    "acu_browser_open_requires_direct_minimized_state");
+  const focus_drift = compound.bridge_window_open_projection(selected.value,
+    window_open_reply(CONNECTION_A, "minimized", false, 9002), null);
+  ensure(focus_drift.code === "browser_open_postcondition_failed",
+    "acu_browser_open_requires_desktop_focus_receipt");
+
   const ambiguous_default = compound.bridge_select_connection(inventory, statuses, null);
   ensure(ambiguous_default.code === "browser_bridge_profile_connection_ambiguous",
     "acu_browser_bridge_status_default_ambiguous");
@@ -175,15 +251,15 @@ try {
   ensure(absent_profile.code === "browser_bridge_profile_connection_not_found",
     "acu_browser_bridge_status_profile_not_found");
   const truncated_statuses = {};
-  truncated_statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.3.0");
+  truncated_statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.4.0");
   const truncated = compound.bridge_select_connection(
     connections_reply([connection(CONNECTION_A, 101)], true),
     truncated_statuses, PROFILE_A.substring(0, 8));
   ensure(truncated.code === "browser_bridge_connection_inventory_truncated",
     "acu_browser_bridge_status_truncated_typed");
   const duplicate_statuses = {};
-  duplicate_statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.3.0");
-  duplicate_statuses[CONNECTION_B] = status_reply(CONNECTION_B, PROFILE_A, "1.3.0");
+  duplicate_statuses[CONNECTION_A] = status_reply(CONNECTION_A, PROFILE_A, "1.4.0");
+  duplicate_statuses[CONNECTION_B] = status_reply(CONNECTION_B, PROFILE_A, "1.4.0");
   const duplicate_profile = compound.bridge_select_connection(
     inventory, duplicate_statuses, PROFILE_A.substring(0, 8));
   ensure(duplicate_profile.code === "browser_bridge_profile_connection_ambiguous",
@@ -230,7 +306,7 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "acu.compat-browser-bridge");
   harness.remove_run(context);
-  print("PASS: legacy browser status and explicit CDP navigation stay exact and typed");
+  print("PASS: legacy browser status, atomic background open and explicit CDP navigation stay exact and typed");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

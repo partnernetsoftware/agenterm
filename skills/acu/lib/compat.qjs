@@ -352,6 +352,27 @@ function known_dynamic_boundary(argv) {
     });
   }
   if (verb === "browser" && sub === "open" && argv.length > 2
+      && !argv[2].startsWith("--")) {
+    const parsed = without_value_flags(argv, ["profile", "app", "timeout"]);
+    if (!parsed.ok) { return { kind: "usage", command: "browser", message: parsed.message }; }
+    if (parsed.argv.length !== 3) {
+      return { kind: "usage", command: "browser",
+        message: "legacy browser open accepts one positional URL with --profile, --app or --timeout" };
+    }
+    if (parsed.values.app !== null) {
+      return todo("acu.dynamic.075.profile-name-binding", "browser",
+        "browser open --app needs a verified Chromium application and MV3 profile identity binding");
+    }
+    if (parsed.values.profile !== null && !lower_hex_prefix(parsed.values.profile)) {
+      return todo("acu.dynamic.075.profile-name-binding", "browser",
+        "browser open human profile names need a verified MV3 profile identity binding");
+    }
+    return compound_plan("bridge-open", "browser", {
+      url: parsed.argv[2], profile: parsed.values.profile,
+      legacy_timeout: parsed.values.timeout
+    });
+  }
+  if (verb === "browser" && sub === "open" && argv.length > 2
       && argv[2].startsWith("--")) {
     return null;
   }
@@ -675,7 +696,7 @@ export function canonicalize(input) {
   if (mapped.kind === "focused-pid" || mapped.kind === "observe-roles"
       || mapped.kind === "observe-filters"
       || mapped.kind === "elements-page" || mapped.kind === "bridge-status"
-      || mapped.kind === "cdp-nav"
+      || mapped.kind === "bridge-open" || mapped.kind === "cdp-nav"
       || mapped.kind === "selector-dclick") {
     mapped.globals = copy(extracted.prefix);
     return mapped;

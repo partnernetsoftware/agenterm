@@ -1783,14 +1783,16 @@ impl Executor {
                 connection_id,
                 url,
                 focused,
+                state,
                 ..
             } => {
                 let args = serde_json::from_value(serde_json::json!({
                     "url": url,
                     "focused": focused,
+                    "state": state,
                 }))
                 .expect("window-open args are an object");
-                browser_bridge_request_payload(connection_id, "window-open", args)
+                browser_bridge_window_open_payload(connection_id, args, *focused)
             }
             Command::BrowserBridgeWindowState {
                 connection_id,

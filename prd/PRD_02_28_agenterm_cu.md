@@ -661,14 +661,16 @@ ACU-only cutover
 │  │  │  one exact profile-instance prefix without reading or bounding the profile's tabs
 │  │  ├─ [x] legacy browser nav with explicit `--port` or `--pid` maps to background `page-nav`;
 │  │  │  an omitted `--match` first requires exactly one CDP page target
+│  │  ├─ [x] positional legacy `browser open URL` selects one exact bridge connection and creates
+│  │  │  the minimized unfocused window atomically with browser + desktop focus read-back
 │  │  ├─ the frozen no-argument witness is resolved; this does not close every legacy option
 │  │  ├─ [ ] acu.dynamic.075.profile-name-binding · human `--profile` / `--app` stays typed TODO
 │  │  ├─ [ ] acu.dynamic.075.bridge-nav · navigation without an explicit CDP endpoint awaits
 │  │  │  an exact fixed-identity MV3 command; no default port or process scan is guessed
 │  │  ├─ [ ] legacy setup retains acu.dynamic.075 until its single-application selector maps
 │  │  │  without widening installation to every discovered Chromium family
-│  │  ├─ [ ] legacy reload, managed-profile lifecycle and minimized open retain
-│  │  │  acu.dynamic.075 until mutation scope, lease authority and atomic postconditions align
+│  │  ├─ [ ] legacy reload and managed-profile lifecycle retain acu.dynamic.075 until their
+│  │  │  mutation scope, lease authority and persistent ownership models align
 │  │  └─ owned-profile macOS qjswasm court is wired; Linux/Windows native courts remain
 │  ├─ [x] acu.dynamic.076 · `inspect --app` maps to native bounded `app-inspect`;
 │  │  ├─ whole matching window set + foreground identity are bracketed as one observation
@@ -980,8 +982,15 @@ flowchart LR
   page target before navigation. No-endpoint MV3 navigation remains stable TODO
   `acu.dynamic.075.bridge-nav`; setup remains under the parent gap because its
   legacy single-application selector would otherwise widen to all discovered
-  Chromium families. Profile lifecycle, reload and minimized open remain there
-  because their stores, leases or atomic postconditions differ. The macOS owned
+  Chromium families. Positional legacy `browser open URL` now resolves one exact
+  live bridge connection and issues one `window-open --state minimized` effect;
+  the same create call carries the minimized state, while native and browser
+  read-back prove no focus theft. A lower-hex `--profile` prefix narrows that
+  exact connection; human profile names and `--app` remain typed under the
+  profile-binding gap. Legacy `--timeout` is accepted but explicitly reported
+  as ignored because the native bridge owns its bounded exchange timeout.
+  Profile lifecycle and reload remain under the
+  parent gap because their stores and leases differ. The macOS owned
   profile court is wired; Linux and
   Windows native qualification remains.
 - [~] Desktop closure tranche: `snapshot`/`diff`, `hit`/`zoom`, `raise`, and
@@ -1101,13 +1110,13 @@ flowchart LR
   Existing browsers with an explicit startup
   endpoint remain borrow-only through `--pid`; existing browsers without one
   retain AX/tab-strip control. The authenticated-profile route is a separately
-  installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v3 core
+  installed fixed-identity MV3 + Native Messaging bridge. Its protocol-v4 core
   now has bounded little-endian framing, split/combined-frame decoding, a
   closed `status|tabs|windows|window-open|window-state|debug-read|debug-invoke|debug-type|debug-files|reload` catalog,
   bounded request ids and typed
   malformed/oversize refusal. A fixed new ACU extension identity, embedded MV3
   assets, same-binary native-host manifest plan and current-user/exact-process
-  connection registry are present. Protocol v3 also publishes a persistent
+  connection registry are present. Protocol v4 also publishes a persistent
   random Profile instance identity. The same `agenterm-cu` executable now
   intercepts only that fixed extension origin before any ordinary CLI output,
   so Native Messaging stdout contains frames only; a foreign or malformed
@@ -1169,7 +1178,7 @@ flowchart LR
   C --> E["macOS lifecycle ✓<br/>Windows x86/ARM64 first-instruction Job proof ✓"]
   E --> W["Win ARM64 managed-Job Edge lifecycle ✓<br/>caller-job-fallback is explicit"]
   W --> P["pending: Linux lifecycle<br/>descendant cleanup courts"]
-  X --> R["protocol v3 + persistent Profile identity"]
+  X --> R["protocol v4 + persistent Profile identity"]
   R --> Y["session-owned exact-tab lock"]
   Y --> L["native-connection reload<br/>old gone · one same-profile replacement"]
   L --> F["same tab + unchanged native focus<br/>session-end lock cleanup"]
@@ -2927,19 +2936,25 @@ flowchart LR
   - **User problem:** an agent must create and manage an isolated Chromium
     window by stable browser identity without guessing a desktop coordinate or
     confusing a native startup surface with an extension-visible tab.
-  - **Behavior:** `browser-bridge-window-open` creates one normal window through
-    one exact fixed-extension connection. Focus is explicit (`--focused`) and
-    otherwise preserved. `browser-bridge-windows` inventories stable window and
-    active-tab identities. `browser-bridge-window-state` changes only a
-    background exact window through `normal|minimized|maximized`.
+  - **Behavior:** `browser-bridge-window-open` creates one normal or minimized
+    window through one exact fixed-extension connection. Focus is explicit
+    (`--focused`) for normal windows and otherwise preserved; minimized and
+    focused are mutually exclusive. The minimized state is part of the same
+    create effect, never a later repair. `browser-bridge-windows` inventories
+    stable window and active-tab identities. `browser-bridge-window-state`
+    changes only a background exact window through `normal|minimized|maximized`.
+    The compatibility adapter maps positional legacy `browser open URL` through
+    exact connection selection to one atomic minimized open.
   - **Invariant:** the extension proves browser focus, state, tab count and
     active-tab identity. The native executor separately captures the exact
     desktop foreground handle, observes delayed focus drift for 500 ms and
     restores that handle before success. Browser postcondition failure rolls
-    state back; uncertain rollback or foreground restoration fails typed.
+    state back; uncertain delivery, rollback or foreground restoration returns
+    `browser_bridge_outcome_unknown` with `retry_safe=false`.
   - **Evidence:** `scripts/qjs/cu-browser-session-smoke.qjs` emits
     `cu.browser-window-lifecycle.macos` after a real fixed-MV3 connection creates
-    a focused and a background window, executes
+    a focused, a background and a directly minimized background window, proves
+    the minimized identity by immediate inventory read-back, executes
     minimize→normal→maximize→normal, backgrounds the whole browser behind an
     owned AgenTerm window, repeats the state path, and reaps the browser plus
     Native Messaging host.

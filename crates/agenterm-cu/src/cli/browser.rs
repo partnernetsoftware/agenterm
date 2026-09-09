@@ -1128,11 +1128,22 @@ fn browser_bridge(
         }),
         "window-open" => {
             let focused = take_switch(args, "--focused");
+            let state = flag_text(args, "--state")?;
+            let state = match state.as_deref() {
+                None | Some("normal") => agenterm_cu::browser_bridge::BrowserWindowState::Normal,
+                Some("minimized") => agenterm_cu::browser_bridge::BrowserWindowState::Minimized,
+                Some(_) => {
+                    return Err(
+                        "browser bridge window-open --state must be normal|minimized".into(),
+                    );
+                }
+            };
             let url = flag_text(args, "--url")?
                 .ok_or_else(|| "browser bridge window-open requires --url URL".to_owned())?;
             let request = agenterm_cu::browser_bridge::WindowOpenRequest {
                 url: url.clone(),
                 focused,
+                state: state.clone(),
             };
             request.validate().map_err(|error| error.message)?;
             Ok(Command::BrowserBridgeWindowOpen {
@@ -1140,6 +1151,7 @@ fn browser_bridge(
                 connection_id: exact_connection_id("browser bridge window-open", args)?,
                 url,
                 focused,
+                state,
             })
         }
         "window-state" => {
@@ -1592,12 +1604,13 @@ mod tests {
                 if connection_id.as_str() == id
         ));
 
-        let mut open = words(&[&id, "--url", "data:text/html,ACU", "--focused"]);
+        let mut open = words(&[&id, "--url", "data:text/html,ACU", "--state", "minimized"]);
         assert!(matches!(
             browser_bridge(TargetRef::Current, Some("window-open"), &mut open),
             Ok(Command::BrowserBridgeWindowOpen {
                 ref url,
-                focused: true,
+                focused: false,
+                state: agenterm_cu::browser_bridge::BrowserWindowState::Minimized,
                 ..
             }) if url == "data:text/html,ACU"
         ));
@@ -1794,5 +1807,36 @@ mod tests {
             "499",
         ]);
         assert!(browser_bridge(TargetRef::Current, Some("reload"), &mut invalid_reload).is_err());
+        let mut invalid_open_state = words(&[
+            valid.as_str(),
+            "--url",
+            "data:text/html,ACU",
+            "--state",
+            "maximized",
+        ]);
+        assert!(
+            browser_bridge(
+                TargetRef::Current,
+                Some("window-open"),
+                &mut invalid_open_state
+            )
+            .is_err()
+        );
+        let mut focused_minimized = words(&[
+            valid.as_str(),
+            "--url",
+            "data:text/html,ACU",
+            "--state",
+            "minimized",
+            "--focused",
+        ]);
+        assert!(
+            browser_bridge(
+                TargetRef::Current,
+                Some("window-open"),
+                &mut focused_minimized
+            )
+            .is_err()
+        );
     }
 }

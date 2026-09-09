@@ -9181,7 +9181,7 @@
     },
     {
       "id": "cu-browser-session-smoke",
-      "description": "Prove one ACU-owned isolated browser profile, persistent MV3 identity, exact-tab ownership, legacy bridge status and page elements with reply-local indices and exact backend identity, background Native Messaging reconnection, provider-side actionable filtering before the result ceiling, exact closed-shadow read/type/invoke/files without secret persistence, window focus restoration, background CDP actuation, stat-only download, stop, host EOF and TTL cleanup.",
+      "description": "Prove one ACU-owned isolated browser profile, persistent MV3 identity, exact-tab ownership, legacy bridge status, atomic minimized positional open and page elements with reply-local indices and exact backend identity, background Native Messaging reconnection, provider-side actionable filtering before the result ceiling, exact closed-shadow read/type/invoke/files without secret persistence, window focus restoration, background CDP actuation, stat-only download, stop, host EOF and TTL cleanup.",
       "entry": "scripts/qjs/cu-browser-session-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -11037,7 +11037,7 @@
     },
     {
       "id": "acu-browser-bridge-compat-smoke",
-      "description": "Prove legacy bridge status selects one exact complete MV3 connection without reading tabs, explicit CDP navigation never guesses a page target, and unresolved bridge/profile mutations stay typed.",
+      "description": "Prove legacy bridge status selects one exact complete MV3 connection without reading tabs, positional open creates one atomic minimized window without focus drift, explicit CDP navigation never guesses a page target, and unresolved bridge/profile mutations stay typed.",
       "entry": "scripts/qjs/acu-browser-bridge-compat-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

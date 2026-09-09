@@ -288,11 +288,12 @@ MCU retirement blockers
 │  │  ├─ [x] legacy page elements bind browser-tabs to debug-read, retain reply-local page indices, and expose exact frame/backend-node follow-up identity
 │  │  ├─ [x] legacy bridge status selects one exact profile connection from complete connection/status facts without reading tabs
 │  │  ├─ [x] explicit-port/process legacy navigation maps to page-nav; an omitted match requires one unique page target
+│  │  ├─ [x] positional legacy browser open selects one exact bridge connection and atomically creates a minimized unfocused window
 │  │  ├─ [x] guarded exact `window-state`: closed state vocabulary + focus/tab read-back + rollback
 │  │  ├─ [x] macOS owned Profile loads exact extension; live connection + host EOF/TTL cleanup qjswasm court
 │  │  ├─ [x] child-frame closed shadow: exact read/type/focus/press/files + secret-free durable evidence
 │  │  ├─ [ ] fixed-identity MV3 navigation plus exact human profile/application binding
-│  │  ├─ [ ] legacy setup/reload, managed-profile leases and minimized open need matching mutation authority and atomic postconditions
+│  │  ├─ [ ] legacy setup/reload and managed-profile leases need matching selector, mutation authority and ownership semantics
 │  │  ├─ [ ] native background-browser focus bridge for the no-focused-browser case
 │  │  └─ [ ] Linux/Windows owned-Profile bridge courts
 │  ├─ [~] privilege plan/broker/OS consent
