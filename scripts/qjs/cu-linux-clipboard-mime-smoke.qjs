@@ -3,10 +3,15 @@
 // type inventory, denied/host-limit paths and empty restore; shell court owns CU
 // read-back. Independent xclip TARGETS/payload or X11 GetSelectionOwner evidence
 // when those host tools are present; otherwise a typed gap, never a fake roundtrip.
-// Typed clipboard-write/read/clear usage must reject AT-SPI --name, --coords,
-// --bogus, and other unexpected arguments; typed get-extents --name usage AND
-// host-limit paths must both hold before the actuate/read-back court.
-// AT-SPI/--name only; no --coords or screenshot degradation.
+// Typed clipboard-write/read/clear --name/--coords/--bogus uses
+// usage_rejects_unexpected + command=usage or an honest non-usage typed failure
+// (never fake command=usage). Typed get-extents --name usage AND host-limit
+// courts must both hold before process-state, desktop-state, and the clipboard
+// actuate/read-back court (no if/else gating those courts on atspi_available);
+// get-extents --coords/--bogus must reject as command=usage.
+// process-state and desktop-state fixture binding courts must hold before
+// actuate/read-back when AT-SPI is available. AT-SPI/--name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -20,6 +25,8 @@ const declared_evidence = [
 const AT_SPI_PROBE_NAME = "Clipboard Mime Court Anchor";
 const TEXT_TYPE = "text/plain;charset=utf-8";
 const PNG_HEX = "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c49444154789c6360606000000004000127000b0000000049454e44ae426082";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -40,6 +47,12 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return -1; }
+  return rh.parse_int("" + value_at);
+}
 
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
@@ -98,6 +111,26 @@ function invoke(run_directory, executable, grant, arguments, env) {
   ensure(output_success(reply),
     "cu_linux_clipboard_mime_exit:" + arguments[0] + ":" + JSON.stringify(reply));
   return reply;
+}
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
+  const argv = ["--target", "current", "--grant", grant];
+  for (const argument of cu_args) { argv.push("" + argument); }
+  const output = rh.command(executable, argv, {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_clipboard_mime_cu_empty_reply:" + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document),
+    "cu_linux_clipboard_mime_cu_reply:" + JSON.stringify(document));
+  return document;
 }
 
 function invoke_get_extents_reply(run_directory, executable, arguments, env) {
@@ -183,6 +216,14 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
     text_at(read_grouped, "error.code") === "usage",
     "cu_linux_clipboard_mime_read_grouped_name_code:" + JSON.stringify(read_grouped.error)
   );
+  ensure(
+    text_at(read_grouped, "command") === "usage",
+    "cu_linux_clipboard_mime_read_grouped_name_command:" + JSON.stringify(read_grouped)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(read_grouped, "error.message"), "--name"),
+    "cu_linux_clipboard_mime_read_grouped_name_message:" + JSON.stringify(read_grouped.error)
+  );
 
   const write_flat = invoke_clipboard_reply(run_directory, executable, "actuate", [
     "clipboard-write", "--type", TEXT_TYPE, "--text", "denied", "--name", AT_SPI_PROBE_NAME,
@@ -211,6 +252,14 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
     text_at(write_grouped, "error.code") === "usage",
     "cu_linux_clipboard_mime_write_grouped_name_code:" + JSON.stringify(write_grouped.error)
   );
+  ensure(
+    text_at(write_grouped, "command") === "usage",
+    "cu_linux_clipboard_mime_write_grouped_name_command:" + JSON.stringify(write_grouped)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(write_grouped, "error.message"), "--name"),
+    "cu_linux_clipboard_mime_write_grouped_name_message:" + JSON.stringify(write_grouped.error)
+  );
 
   const clear_flat = invoke_clipboard_reply(run_directory, executable, "actuate", [
     "clipboard-clear", "--apply", "--name", AT_SPI_PROBE_NAME,
@@ -238,6 +287,14 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(clear_grouped, "error.code") === "usage",
     "cu_linux_clipboard_mime_clear_grouped_name_code:" + JSON.stringify(clear_grouped.error)
+  );
+  ensure(
+    text_at(clear_grouped, "command") === "usage",
+    "cu_linux_clipboard_mime_clear_grouped_name_command:" + JSON.stringify(clear_grouped)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(clear_grouped, "error.message"), "--name"),
+    "cu_linux_clipboard_mime_clear_grouped_name_message:" + JSON.stringify(clear_grouped.error)
   );
 
   assert_clipboard_usage_reject(run_directory, executable, "observe", [
@@ -374,6 +431,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   });
   ensure(!output_success(reply),
     "cu_linux_clipboard_mime_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_clipboard_mime_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
@@ -451,6 +512,100 @@ function independent_clipboard_owner_xid(executable) {
 function targets_list_type(targets, mime) {
   if (targets === null) { return false; }
   return targets.indexOf(mime) >= 0;
+}
+
+function window_row(run_directory, executable, pid, title) {
+  const reply = run_cu(run_directory, executable, "observe", [
+    "windows", "--pid", "" + pid,
+  ]);
+  const rows = reply.data.windows === undefined ? reply.data : reply.data.windows;
+  for (const row of rows) {
+    if (text_at(row, "title") === title) { return row; }
+  }
+  return null;
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_clipboard_mime_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_clipboard_mime_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_clipboard_mime_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_clipboard_mime_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_clipboard_mime_desktop_state_tree:" + JSON.stringify(state.data.tree)
+  );
+}
+
+function assert_court_anchor_binding(run_directory, executable, env, fixture_source) {
+  let fixture = null;
+  let fixture_pid = 0;
+  try {
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ], env);
+    ensure(flag_at(window_wait, "data.met"),
+      "cu_linux_clipboard_mime_court_anchor_wait:" + JSON.stringify(window_wait.data));
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_clipboard_mime_court_anchor_row");
+    const handle_text = "" + int_at(row, "handle");
+    ensure(int_at(row, "handle") > 0,
+      "cu_linux_clipboard_mime_court_anchor_handle:" + JSON.stringify(row));
+    assert_fixture_process_state(run_directory, executable, fixture_pid);
+    assert_fixture_desktop_state(
+      run_directory, executable, fixture_pid, fixture_title, handle_text, row
+    );
+  } finally {
+    if (fixture_pid !== 0) {
+      rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+    }
+    if (fixture !== null) {
+      try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+    }
+  }
 }
 
 function write_png_fixture(path) {
@@ -610,24 +765,30 @@ const context = harness.new_context(repo, "cu-linux-clipboard-mime");
 const env = cu_env(executable);
 env.AGENTERM_CU_EXE = executable;
 const atspi_available = probe_atspi_available(executable);
+const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
+ensure(direct_file(fixture_source),
+  "cu_linux_clipboard_mime_fixture_missing:" + fixture_source);
 let succeeded = 0;
 let failure = "";
 
 try {
-  print("STEP clipboard-write/read/clear typed-fail usage when AT-SPI --name/--coords/--bogus is present");
+  print("STEP clipboard-write/read/clear typed-fail usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage; never fake command=usage)");
   assert_clipboard_usage_limit(context.run_directory, executable, env);
 
-  print("STEP clipboard-read typed-fail clipboard_failed for empty TARGETS and unsupported MIME types before actuate/read-back court");
+  print("STEP clipboard-read typed-fail clipboard_failed for empty TARGETS and unsupported MIME types before process-state/desktop-state and actuate/read-back court");
   assert_clipboard_empty_host_limit(context.run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before process-state/desktop-state and actuate/read-back court");
   assert_get_extents_usage_limit(context.run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
 
-  if (!atspi_available) {
-    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; clipboard read-back still uses CU clipboard-read plus xclip/x11 when present");
+  if (atspi_available) {
+    print("STEP process-state and desktop-state bind the court anchor before clipboard actuate/read-back court");
+    assert_court_anchor_binding(context.run_directory, executable, env, fixture_source);
+  } else {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held (no atspi gating); process-state/desktop-state binding skipped; clipboard read-back still uses CU clipboard-read plus xclip/x11 when present");
   }
 
   print("STEP independent xclip TARGETS/payload or X11 GetSelectionOwner evidence when present");
@@ -660,9 +821,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-clipboard-mime-roundtrip");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: CEO Linux clipboard text/plain, text/html and image/png roundtrip with independent typed read-back, xclip/x11 evidence when present, typed clipboard/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: CEO Linux clipboard text/plain, text/html and image/png roundtrip with independent typed read-back, xclip/x11 evidence when present, typed clipboard/get-extents --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state binding before actuate (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: CEO Linux clipboard text/plain, text/html and image/png roundtrip with independent typed read-back, xclip/x11 evidence when present, typed clipboard --name/--coords/--bogus usage plus get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: CEO Linux clipboard text/plain, text/html and image/png roundtrip with independent typed read-back, xclip/x11 evidence when present, typed clipboard --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), and get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating) when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
