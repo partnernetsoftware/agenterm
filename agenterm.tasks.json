@@ -7180,7 +7180,7 @@
     },
     {
       "id": "cu-linux-keyboard-layout-smoke",
-      "description": "Linux keyboard-layout observe returns active XKB rules/model/layout/variant with independent setxkbmap and xprop _XKB_RULES_NAMES read-back; typed keyboard-layout usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the XKB read-back court; missing DISPLAY returns typed headless-display host-limit; AT-SPI/--name only, no --coords.",
+      "description": "Linux keyboard-layout observe returns active XKB rules/model/layout/variant with independent setxkbmap and xprop _XKB_RULES_NAMES read-back; typed keyboard-layout usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the XKB read-back court; missing DISPLAY returns typed headless-display host-limit; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-keyboard-layout-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
