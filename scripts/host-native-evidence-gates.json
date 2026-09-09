@@ -276,6 +276,13 @@
       ]
     },
     {
+      "id": "cu-linux-proxy-env-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-proxy-env-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-fds-smoke",
       "platform": "linux",
       "evidence": [
