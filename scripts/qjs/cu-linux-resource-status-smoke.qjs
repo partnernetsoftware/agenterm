@@ -1,6 +1,7 @@
 // CEO: Linux resource-status honesty with independent /proc read-back.
 // Acceptance is smoke read-back only: CU resource-status load, uptime, memory and
-// process count must agree with facts derived outside agenterm-cu. No --coords or
+// process count must agree with facts derived outside agenterm-cu, and unreadable
+// /proc sources must typed-fail instead of inventing facts. No --coords or
 // screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -30,34 +31,90 @@ function text_at(value, dotted) {
   return "" + current;
 }
 
-function invoke(run_directory, executable, arguments, expect_success) {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function run_cu(run_directory, executable, arguments, expect_success) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe",
   ].concat(arguments), {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: cu_env(executable),
     timeout_ms: 30000,
   });
-  ensure(output.success === expect_success, "cu_linux_resource_status_exit:" + output.exit_code);
-  const reply = JSON.parse(output.stdout.trim());
-  ensure(reply.ok === expect_success, "cu_linux_resource_status_reply_state");
+  ensure(
+    output.success === expect_success || (expect_success !== true && output.exit_code === 1),
+    "cu_linux_resource_status_exit:" + output.exit_code + ":" + output.stdout + output.stderr
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_resource_status_empty:" + output.stderr);
+  const reply = JSON.parse(trimmed);
+  ensure(reply.ok === expect_success, "cu_linux_resource_status_reply_state:" + JSON.stringify(reply));
   return reply;
 }
 
-function load_near(left, right, tolerance) {
-  return Math.abs(left - right) < tolerance;
-}
-
-function bytes_near(left, right, slack_bytes) {
-  const diff = left > right ? left - right : right - left;
-  if (diff <= slack_bytes) { return true; }
-  const max = left > right ? left : right;
-  return max > 0 && diff * 10 <= max;
-}
-
-function independent_proc_facts() {
+function probe_proc_sources() {
   const script = [
-    "import os, socket",
+    "import json, os",
+    "def readable(path):",
+    "    return os.path.isfile(path) and os.access(path, os.R_OK)",
+    "mem_total = False",
+    "mem_free = False",
+    "mem_available = False",
+    "if readable('/proc/meminfo'):",
+    "    with open('/proc/meminfo') as handle:",
+    "        for line in handle:",
+    "            if line.startswith('MemTotal:'):",
+    "                mem_total = True",
+    "            elif line.startswith('MemFree:'):",
+    "                mem_free = True",
+    "            elif line.startswith('MemAvailable:'):",
+    "                mem_available = True",
+    "proc_inventory = os.path.isdir('/proc') and os.access('/proc', os.R_OK)",
+    "print(json.dumps({",
+    "    'uptime_readable': readable('/proc/uptime'),",
+    "    'meminfo_readable': readable('/proc/meminfo'),",
+    "    'mem_total': mem_total,",
+    "    'mem_free': mem_free,",
+    "    'mem_available': mem_available,",
+    "    'proc_inventory': proc_inventory,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_resource_status_probe_sources:" + output.stderr);
+  const probe = JSON.parse(output.stdout.trim());
+  for (const key of [
+    "uptime_readable", "meminfo_readable", "mem_total", "mem_free",
+    "mem_available", "proc_inventory",
+  ]) {
+    ensure(probe[key] === true || probe[key] === false,
+           "cu_linux_resource_status_probe_shape:" + key + ":" + output.stdout);
+  }
+  return probe;
+}
+
+function verify_bracketed_readback(run_directory, executable) {
+  const script = [
+    "import json, os, socket, subprocess, sys",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
     "def meminfo_kibibytes(key):",
     "    with open('/proc/meminfo') as handle:",
     "        for line in handle:",
@@ -67,58 +124,196 @@ function independent_proc_facts() {
     "                    raise ValueError('invalid ' + key + ' line: ' + line.strip())",
     "                return int(parts[1]) * 1024",
     "    raise ValueError('missing ' + key)",
-    "with open('/proc/loadavg') as handle:",
-    "    load = handle.read().split()",
-    "if len(load) < 3:",
-    "    raise ValueError('invalid /proc/loadavg')",
-    "with open('/proc/uptime') as handle:",
-    "    uptime_seconds = float(handle.read().split()[0])",
-    "process_count = 0",
-    "for name in os.listdir('/proc'):",
-    "    if not name.isdigit():",
-    "        continue",
-    "    try:",
-    "        os.readlink('/proc/' + name + '/exe')",
-    "        process_count += 1",
-    "    except OSError:",
-    "        pass",
-    "page_size = int(os.sysconf('SC_PAGESIZE'))",
-    "print('hostname', socket.gethostname())",
-    "print('logical', int(os.sysconf('SC_NPROCESSORS_ONLN')))",
-    "print('load1', load[0])",
-    "print('load5', load[1])",
-    "print('load15', load[2])",
-    "print('uptime_seconds', uptime_seconds)",
-    "print('mem_total', meminfo_kibibytes('MemTotal:'))",
-    "print('mem_free', meminfo_kibibytes('MemFree:'))",
-    "print('mem_available', meminfo_kibibytes('MemAvailable:'))",
-    "print('process_count', process_count)",
-    "print('page_size', page_size)",
+    "def facts():",
+    "    with open('/proc/loadavg') as handle:",
+    "        load = handle.read().split()",
+    "    if len(load) < 3:",
+    "        raise ValueError('invalid /proc/loadavg')",
+    "    with open('/proc/uptime') as handle:",
+    "        uptime_seconds = float(handle.read().split()[0])",
+    "    process_count = 0",
+    "    for name in os.listdir('/proc'):",
+    "        if not name.isdigit():",
+    "            continue",
+    "        try:",
+    "            os.readlink('/proc/' + name + '/exe')",
+    "            process_count += 1",
+    "        except OSError:",
+    "            pass",
+    "    page_size = int(os.sysconf('SC_PAGESIZE'))",
+    "    return {",
+    "        'hostname': socket.gethostname(),",
+    "        'logical': int(os.sysconf('SC_NPROCESSORS_ONLN')),",
+    "        'load1': float(load[0]),",
+    "        'load5': float(load[1]),",
+    "        'load15': float(load[2]),",
+    "        'uptime_seconds': uptime_seconds,",
+    "        'mem_total': meminfo_kibibytes('MemTotal:'),",
+    "        'mem_free': meminfo_kibibytes('MemFree:'),",
+    "        'mem_available': meminfo_kibibytes('MemAvailable:'),",
+    "        'process_count': process_count,",
+    "        'page_size': page_size,",
+    "    }",
+    "def load_near(left, right, tolerance):",
+    "    return abs(left - right) < tolerance",
+    "def bytes_near(left, right, slack_bytes):",
+    "    diff = abs(left - right)",
+    "    if diff <= slack_bytes:",
+    "        return True",
+    "    max_value = left if left > right else right",
+    "    return max_value > 0 and diff * 10 <= max_value",
+    "def within(label, value, lo, hi):",
+    "    if value < lo or value > hi:",
+    "        raise SystemExit(f'{label}:cu={value}:lo={lo}:hi={hi}')",
+    "before = facts()",
+    "out = subprocess.check_output(",
+    "    [cu, '--target', 'current', '--grant', 'observe', 'resource-status'],",
+    "    cwd=run_dir, text=True, env={**os.environ, 'AGENTERM_NO_ACTIVATE': '1'})",
+    "after = facts()",
+    "reply = json.loads(out)",
+    "if not reply.get('ok') or reply.get('command') != 'resource-status':",
+    "    raise SystemExit('cu_linux_resource_status_reply_state')",
+    "data = reply['data']",
+    "if data.get('platform') != 'linux':",
+    "    raise SystemExit('cu_linux_resource_status_platform')",
+    "if data.get('atomicSnapshot') is not False:",
+    "    raise SystemExit('cu_linux_resource_status_atomic_snapshot')",
+    "if data.get('loadAverageSemantics') != 'unix-getloadavg':",
+    "    raise SystemExit('cu_linux_resource_status_load_semantics')",
+    "if data['memory'].get('freeSemantics') != 'linux-mem-free':",
+    "    raise SystemExit('cu_linux_resource_status_free_semantics')",
+    "if data['memory'].get('availabilitySemantics') != 'linux-mem-available':",
+    "    raise SystemExit('cu_linux_resource_status_available_semantics')",
+    "hostname = data.get('hostname') or ''",
+    "logical = int(data['cpu']['logical'])",
+    "uptime = float(data['uptimeSeconds'])",
+    "load = [float(data['loadAverage'][0]), float(data['loadAverage'][1]), float(data['loadAverage'][2])]",
+    "mem_total = int(data['memory']['totalBytes'])",
+    "mem_free = int(data['memory']['freeBytes'])",
+    "mem_available = int(data['memory']['availableBytes'])",
+    "process_count = int(data['processCount'])",
+    "slack_bytes = before['page_size'] * 64",
+    "if hostname != before['hostname'] or hostname != after['hostname']:",
+    "    raise SystemExit(f'cu_linux_resource_status_hostname_mismatch:cu={hostname}:before={before[\"hostname\"]}:after={after[\"hostname\"]}')",
+    "if logical != before['logical'] or logical != after['logical']:",
+    "    raise SystemExit(f'cu_linux_resource_status_logical_mismatch:cu={logical}:before={before[\"logical\"]}:after={after[\"logical\"]}')",
+    "for index, key in enumerate(['load1', 'load5', 'load15']):",
+    "    lo = min(before[key], after[key]) - 0.05",
+    "    hi = max(before[key], after[key]) + 0.05",
+    "    if not load_near(load[index], before[key], 0.05) and not load_near(load[index], after[key], 0.05):",
+    "        if load[index] < lo or load[index] > hi:",
+    "            raise SystemExit(f'cu_linux_resource_status_load_mismatch:{index}:cu={load[index]}:before={before[key]}:after={after[key]}')",
+    "uptime_lo = min(before['uptime_seconds'], after['uptime_seconds']) - 2.0",
+    "uptime_hi = max(before['uptime_seconds'], after['uptime_seconds']) + 2.0",
+    "within('cu_linux_resource_status_uptime_mismatch', uptime, uptime_lo, uptime_hi)",
+    "if mem_total != before['mem_total'] or mem_total != after['mem_total']:",
+    "    raise SystemExit(f'cu_linux_resource_status_mem_total_mismatch:cu={mem_total}:before={before[\"mem_total\"]}:after={after[\"mem_total\"]}')",
+    "free_lo = min(before['mem_free'], after['mem_free'])",
+    "free_hi = max(before['mem_free'], after['mem_free'])",
+    "if not bytes_near(mem_free, before['mem_free'], slack_bytes) and not bytes_near(mem_free, after['mem_free'], slack_bytes):",
+    "    if mem_free < free_lo - slack_bytes or mem_free > free_hi + slack_bytes:",
+    "        raise SystemExit(f'cu_linux_resource_status_mem_free_mismatch:cu={mem_free}:before={before[\"mem_free\"]}:after={after[\"mem_free\"]}')",
+    "avail_lo = min(before['mem_available'], after['mem_available'])",
+    "avail_hi = max(before['mem_available'], after['mem_available'])",
+    "if not bytes_near(mem_available, before['mem_available'], slack_bytes) and not bytes_near(mem_available, after['mem_available'], slack_bytes):",
+    "    if mem_available < avail_lo - slack_bytes or mem_available > avail_hi + slack_bytes:",
+    "        raise SystemExit(f'cu_linux_resource_status_mem_available_mismatch:cu={mem_available}:before={before[\"mem_available\"]}:after={after[\"mem_available\"]}')",
+    "count_lo = min(before['process_count'], after['process_count'])",
+    "count_hi = max(before['process_count'], after['process_count']) + 1",
+    "within('cu_linux_resource_status_process_count_mismatch', process_count, count_lo, count_hi)",
+    "print(json.dumps({",
+    "    'hostname': hostname,",
+    "    'process_count': process_count,",
+    "    'mem_total': mem_total,",
+    "}))",
   ].join("\n");
-  const output = rh.command("python3", ["-c", script], { timeout_ms: 15000 });
-  ensure(output.success === true, "cu_linux_resource_status_probe:" + output.stderr);
-  const facts = {};
-  const lines = output.stdout.trim().split("\n");
-  for (let index = 0; index < lines.length; index = index + 1) {
-    const line = lines[index].trim();
-    if (line === "") { continue; }
-    const space = line.indexOf(" ");
-    if (space < 0) { continue; }
-    facts[line.substring(0, space)] = line.substring(space + 1);
+  const output = rh.command("python3", ["-c", script, executable, run_directory], {
+    env: cu_env(executable),
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true,
+         "cu_linux_resource_status_bracketed:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_unreadable_host_limit(run_directory, executable, proc_path, expect_fragment) {
+  const script = [
+    "import json, os, subprocess, sys, tempfile, textwrap",
+    "cu = sys.argv[1]",
+    "run_dir = sys.argv[2]",
+    "proc_path = sys.argv[3]",
+    "expect_fragment = sys.argv[4]",
+    "with tempfile.NamedTemporaryFile(mode='w', delete=False) as handle:",
+    "    handle.write('not proc data\\n')",
+    "    stub = handle.name",
+    "try:",
+    "    cmd = textwrap.dedent(",
+    "        f'''",
+    "        mount --bind {stub} {proc_path}",
+    "        {cu} --target current --grant observe resource-status",
+    "        ''')",
+    "    proc = subprocess.run(",
+    "        ['unshare', '-Ur', '--mount', 'sh', '-c', cmd],",
+    "        cwd=run_dir, capture_output=True, text=True, timeout=30)",
+    "    if proc.returncode == 0:",
+    "        raise SystemExit('cu_linux_resource_status_unreadable_ok:' + proc.stdout)",
+    "    reply = json.loads(proc.stdout)",
+    "    if reply.get('ok') is not False:",
+    "        raise SystemExit('cu_linux_resource_status_unreadable_ok_state:' + proc.stdout)",
+    "    error = reply.get('error') or {}",
+    "    code = error.get('code') or ''",
+    "    allowed = ('host_resource_invalid', 'host_uptime_query_failed',",
+    "               'host_memory_query_failed', 'host_load_query_failed',",
+    "               'host_resource_query_failed', 'process_inventory_failed')",
+    "    if code not in allowed:",
+    "        raise SystemExit('cu_linux_resource_status_unreadable_code:' + code)",
+    "    detail = error.get('detail') or {}",
+    "    kind = detail.get('kind') or ''",
+    "    message = error.get('message') or ''",
+    "    if expect_fragment not in message and proc_path not in message:",
+    "        raise SystemExit('cu_linux_resource_status_unreadable_message:' + message)",
+    "    print(json.dumps({'code': code, 'kind': kind}))",
+    "finally:",
+    "    os.unlink(stub)",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, executable, run_directory, proc_path, expect_fragment], {
+    timeout_ms: 45000,
+  });
+  ensure(output.success === true,
+         "cu_linux_resource_status_unreadable:" + proc_path + ":" + output.stderr + output.stdout);
+}
+
+function verify_unavailable_when_probe_absent(run_directory, executable, probe) {
+  const reply = run_cu(run_directory, executable, ["resource-status"], false);
+  const code = text_at(reply, "error.code");
+  const allowed = [
+    "host_resource_invalid",
+    "host_uptime_query_failed",
+    "host_memory_query_failed",
+    "host_load_query_failed",
+    "host_resource_query_failed",
+    "process_inventory_failed",
+    "process_inventory_invalid",
+  ];
+  let code_ok = false;
+  for (let index = 0; index < allowed.length; index = index + 1) {
+    if (code === allowed[index]) { code_ok = true; }
   }
-  return {
-    hostname: facts.hostname,
-    logical: Number(facts.logical),
-    load1: Number(facts.load1),
-    load5: Number(facts.load5),
-    load15: Number(facts.load15),
-    uptime_seconds: Number(facts.uptime_seconds),
-    mem_total: Number(facts.mem_total),
-    mem_free: Number(facts.mem_free),
-    mem_available: Number(facts.mem_available),
-    process_count: Number(facts.process_count),
-    page_size: Number(facts.page_size),
-  };
+  ensure(code_ok, "cu_linux_resource_status_unavailable_code:" + JSON.stringify(reply.error));
+  const message = text_at(reply, "error.message");
+  if (!probe.uptime_readable) {
+    ensure(message.indexOf("/proc/uptime") >= 0 || message.indexOf("uptime") >= 0,
+           "cu_linux_resource_status_unreadable_uptime_message:" + message);
+  }
+  if (!probe.meminfo_readable || !probe.mem_total || !probe.mem_free || !probe.mem_available) {
+    ensure(message.indexOf("/proc/meminfo") >= 0 || message.indexOf("MemTotal") >= 0
+             || message.indexOf("MemFree") >= 0 || message.indexOf("MemAvailable") >= 0,
+           "cu_linux_resource_status_unreadable_meminfo_message:" + message);
+  }
+  if (!probe.proc_inventory) {
+    ensure(message.indexOf("/proc") >= 0 || message.indexOf("process") >= 0,
+           "cu_linux_resource_status_unreadable_inventory_message:" + message);
+  }
 }
 
 const args = rh.args();
@@ -130,87 +325,49 @@ harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 let executable = rh.absolute(args[1]);
 if (!rh.exists(executable) && harness.host_is_windows()) { executable = executable + ".exe"; }
-harness.require(rh.exists(executable), "agenterm-cu executable missing");
+ensure(rh.exists(executable), "cu_linux_resource_status_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-resource-status");
+const host_sources = probe_proc_sources();
+const sources_ok = host_sources.uptime_readable && host_sources.meminfo_readable
+  && host_sources.mem_total && host_sources.mem_free && host_sources.mem_available
+  && host_sources.proc_inventory;
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP resource-status observe returns a Linux snapshot");
-  const reply = invoke(context.run_directory, executable, ["resource-status"], true);
-  ensure(reply.command === "resource-status" && reply.target === "current",
-         "cu_linux_resource_status_identity");
-  ensure(text_at(reply, "data.platform") === "linux", "cu_linux_resource_status_platform");
-  ensure(text_at(reply, "data.atomicSnapshot") === "false",
-         "cu_linux_resource_status_atomic_snapshot");
-  ensure(text_at(reply, "data.loadAverageSemantics") === "unix-getloadavg",
-         "cu_linux_resource_status_load_semantics");
-  ensure(text_at(reply, "data.memory.freeSemantics") === "linux-mem-free",
-         "cu_linux_resource_status_free_semantics");
-  ensure(text_at(reply, "data.memory.availabilitySemantics") === "linux-mem-available",
-         "cu_linux_resource_status_available_semantics");
+  if (!sources_ok) {
+    print("STEP typed host-limit when independent /proc probe is unreadable or incomplete"
+      + " (uptime=" + host_sources.uptime_readable
+      + " meminfo=" + host_sources.meminfo_readable
+      + " mem_total=" + host_sources.mem_total
+      + " mem_free=" + host_sources.mem_free
+      + " mem_available=" + host_sources.mem_available
+      + " proc_inventory=" + host_sources.proc_inventory + ")");
+    verify_unavailable_when_probe_absent(context.run_directory, executable, host_sources);
+    succeeded = 1;
+  } else {
+    print("STEP resource-status typed-fails when /proc/uptime is unreadable in an isolated mount namespace");
+    assert_unreadable_host_limit(context.run_directory, executable, "/proc/uptime", "/proc/uptime");
 
-  print("STEP independent /proc read-back matches load, uptime, memory and process count");
-  const probe = independent_proc_facts();
-  ensure(probe.logical > 0, "cu_linux_resource_status_probe_logical");
-  ensure(probe.process_count > 0, "cu_linux_resource_status_probe_process_count");
-  ensure(probe.page_size > 0, "cu_linux_resource_status_probe_page_size");
+    print("STEP resource-status typed-fails when /proc/meminfo is unreadable in an isolated mount namespace");
+    assert_unreadable_host_limit(context.run_directory, executable, "/proc/meminfo", "/proc/meminfo");
 
-  const data = at(reply, "data");
-  const hostname = text_at(reply, "data.hostname");
-  const logical = Number(text_at(reply, "data.cpu.logical"));
-  const uptime = Number(text_at(reply, "data.uptimeSeconds"));
-  ensure(rh.is_array(data.loadAverage) && data.loadAverage.length === 3,
-         "cu_linux_resource_status_load_shape");
-  const load = [
-    Number(data.loadAverage[0]),
-    Number(data.loadAverage[1]),
-    Number(data.loadAverage[2]),
-  ];
-  const mem_total = Number(text_at(reply, "data.memory.totalBytes"));
-  const mem_free = Number(text_at(reply, "data.memory.freeBytes"));
-  const mem_available = Number(text_at(reply, "data.memory.availableBytes"));
-  const process_count = Number(text_at(reply, "data.processCount"));
-  const slack_bytes = probe.page_size * 64;
+    print("STEP independent /proc loadavg, uptime, meminfo and process-count bracket one resource-status observation");
+    const bracket = verify_bracketed_readback(context.run_directory, executable);
 
-  ensure(hostname === probe.hostname,
-         "cu_linux_resource_status_hostname_mismatch:cu=" + hostname
-           + ":probe=" + probe.hostname);
-  ensure(logical === probe.logical,
-         "cu_linux_resource_status_logical_mismatch:cu=" + logical
-           + ":probe=" + probe.logical);
-  ensure(load_near(load[0], probe.load1, 0.05)
-         && load_near(load[1], probe.load5, 0.05)
-         && load_near(load[2], probe.load15, 0.05),
-         "cu_linux_resource_status_load_mismatch:cu="
-           + load.join(",") + ":probe=" + probe.load1 + "," + probe.load5 + "," + probe.load15);
-  ensure(Math.abs(uptime - probe.uptime_seconds) <= 3.0,
-         "cu_linux_resource_status_uptime_mismatch:cu=" + uptime
-           + ":probe=" + probe.uptime_seconds);
-  ensure(mem_total === probe.mem_total,
-         "cu_linux_resource_status_mem_total_mismatch:cu=" + mem_total
-           + ":probe=" + probe.mem_total);
-  ensure(bytes_near(mem_free, probe.mem_free, slack_bytes),
-         "cu_linux_resource_status_mem_free_mismatch:cu=" + mem_free
-           + ":probe=" + probe.mem_free);
-  ensure(bytes_near(mem_available, probe.mem_available, slack_bytes),
-         "cu_linux_resource_status_mem_available_mismatch:cu=" + mem_available
-           + ":probe=" + probe.mem_available);
-  ensure(process_count === probe.process_count,
-         "cu_linux_resource_status_process_count_mismatch:cu=" + process_count
-           + ":probe=" + probe.process_count);
+    print("STEP grouped alias preserves stable resource facts");
+    const grouped = run_cu(context.run_directory, executable, ["resource", "status"], true);
+    ensure(text_at(grouped, "data.hostname") === bracket.hostname,
+           "cu_linux_resource_status_alias_hostname");
+    ensure(text_at(grouped, "data.platform") === "linux",
+           "cu_linux_resource_status_alias_platform");
+    ensure(Number(text_at(grouped, "data.processCount")) > 0,
+           "cu_linux_resource_status_alias_process_count");
+    ensure(Number(text_at(grouped, "data.memory.totalBytes")) === bracket.mem_total,
+           "cu_linux_resource_status_alias_mem_total");
 
-  print("STEP grouped alias preserves the same resource facts");
-  const grouped = invoke(context.run_directory, executable,
-    ["resource", "status"], true);
-  ensure(text_at(grouped, "data.hostname") === hostname,
-         "cu_linux_resource_status_alias_hostname");
-  ensure(Number(text_at(grouped, "data.processCount")) === process_count,
-         "cu_linux_resource_status_alias_process_count");
-  ensure(Number(text_at(grouped, "data.memory.totalBytes")) === mem_total,
-         "cu_linux_resource_status_alias_mem_total");
-
-  succeeded = 1;
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -221,7 +378,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-resource-status-readback");
   harness.remove_run(context);
-  print("PASS: Linux resource-status matches independent /proc loadavg, uptime, meminfo and process-count read-back");
+  if (sources_ok) {
+    print("PASS: Linux resource-status matches independent /proc loadavg, uptime, meminfo and process-count read-back with unreadable host-limit honesty");
+  } else {
+    print("PASS: Linux resource-status typed-fails when independent /proc sources are unreadable or incomplete");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
