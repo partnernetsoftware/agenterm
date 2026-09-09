@@ -251,7 +251,7 @@ try {
     "browser-bridge-status", bridge_id
   ]), "cu_browser_bridge_status_failed");
   ensure(bridge_status.data.result.protocol === 3, "cu_browser_bridge_protocol");
-  ensure(bridge_status.data.result.extension_version === "1.2.0",
+  ensure(bridge_status.data.result.extension_version === "1.3.0",
     "cu_browser_bridge_extension_version");
   ensure(bridge_status.data.result.profile_instance_id.length === 32,
     "cu_browser_bridge_profile_identity");
@@ -286,6 +286,7 @@ try {
     + "const f=document.getElementById('closed-frame');const d=f.contentDocument;"
     + "const h=d.body.appendChild(d.createElement('div'));h.id='closed-host';const r=h.attachShadow({mode:'closed'});"
     + "r.innerHTML=\"<input aria-label='Closed editor'><button onclick=\\\"this.setAttribute('aria-label','Committed closed');this.getRootNode().host.dataset.pressed='yes'\\\">Commit closed</button><input type='file' aria-label='Closed file'><div role='status'>Idle closed</div>\";"
+    + "const g=d.createDocumentFragment();for(let i=0;i<1100;i++){const n=d.createElement('div');n.setAttribute('role','note');n.setAttribute('aria-label','Filler '+i);g.appendChild(n)}r.insertBefore(g,r.firstChild);"
     + "const e=r.querySelector('input');const b=r.querySelector('button');const u=r.querySelector(\"input[type=file]\");const s=r.querySelector('[role=status]');"
     + "e.addEventListener('input',()=>h.dataset.typed=e.value);"
     + "u.addEventListener('change',()=>{h.dataset.file=u.files.length?u.files[0].name+':'+u.files[0].size:''});</script>";
@@ -419,11 +420,30 @@ try {
   ensure(closed_cdp_target !== null && closed_dom_ready === true,
     "cu_browser_closed_tree_cdp_not_ready_" + closed_ready_state);
 
-  print("STEP authenticated MV3 closed-tree read, type, focus, press and files stay background and secret-free");
+  print("STEP provider-side actionable filtering precedes the bounded result page");
+  const closed_unfiltered = require_ok(invoke("observe", [
+    "browser-bridge-debug-read", bridge_id, "--tab-id", "" + attached_tab_id,
+    "--max-frames", "8", "--max-depth", "20", "--max-scan", "5000", "--max-results", "1000"
+  ]), "cu_browser_closed_tree_unfiltered_read_failed");
+  ensure(closed_unfiltered.data.result.request_actionable === false &&
+    closed_unfiltered.data.result.scanned >= 1100 &&
+    closed_unfiltered.data.result.truncated === true &&
+    bridge_find_node(closed_unfiltered.data.result.nodes, "button", "Commit closed") === null,
+    "cu_browser_closed_tree_unfiltered_ceiling");
+
+  print("STEP authenticated MV3 closed-tree actionable read, type, focus, press and files stay background and secret-free");
   const closed_read = require_ok(invoke("observe", [
     "browser-bridge-debug-read", bridge_id, "--tab-id", "" + attached_tab_id,
-    "--max-frames", "8", "--max-depth", "20", "--max-scan", "500", "--max-results", "100"
+    "--max-frames", "8", "--max-depth", "20", "--max-scan", "5000", "--max-results", "100",
+    "--actionable"
   ]), "cu_browser_closed_tree_read_failed");
+  ensure(closed_read.data.result.request_actionable === true,
+    "cu_browser_closed_tree_actionable_request_not_proven");
+  for (const node of closed_read.data.result.nodes) {
+    ensure(typeof node.actionable === "boolean" && typeof node.disabled === "boolean" &&
+      typeof node.focused === "boolean" && node.actionable === true,
+      "cu_browser_closed_tree_actionable_fact_invalid");
+  }
   ensure(closed_read.data.result.detach.outcome === "detached",
     "cu_browser_closed_tree_detach");
   ensure(closed_read.data.result.frame_count >= 2,

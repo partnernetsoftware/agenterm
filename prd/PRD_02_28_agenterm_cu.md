@@ -667,8 +667,11 @@ ACU-only cutover
 │  │  ├─ filtering before paging and original flatten indices shared with `invoke --index`;
 │  │  ├─ invalid legacy `tree --page` and non-MCU tree/index/offset flags closed as usage;
 │  │  ├─ valid `tree --max-value-bytes` maps to bounded previews and completeness truth;
-│  │  └─ [ ] acu.dynamic.078.page-index-space · browser debug-read elements stay typed
-│  │     until their separate page indices have a complete browser identity binding
+│  │  └─ [~] acu.dynamic.078.page-index-space · browser debug-read elements stay typed
+│  │     ├─ [x] fixed MV3 debug-read filters actionable rows before its result budget
+│  │     │  and publishes actionable/disabled/focused plus a request-side receipt
+│  │     └─ [ ] bind the legacy reply-local page indices to exact tab/frame/backend-node
+│  │        identities without ever presenting them as native `invoke --index` values
 │  ├─ [x] acu.dynamic.081 · legacy `observe` filters are a Bun-free post-capture projection;
 │  │  ├─ poll-diff events carry same-walk actions/bounds/depth/states/text facts
 │  │  ├─ unknown boolean facts match neither true nor false; `required` fails typed
@@ -1089,7 +1092,11 @@ flowchart LR
   id. Setup truthfully reports `extension_loaded=false` and
   `manual_activation_required=true`; it never claims Chromium loaded the
   unpacked extension. `debug-read` walks a
-  bounded cross-frame AX tree without exporting form values, proves tab/window
+  bounded cross-frame AX tree without exporting form values. Its optional
+  provider-side actionable predicate runs before rows consume the result
+  ceiling, publishes actionable/disabled/focused facts and echoes the filter
+  choice; the owned macOS page proves it can reach a control after more than
+  1,000 preceding non-actionable rows. It proves tab/window
   presentation did not change, and treats debugger detach failure as failure;
   tab inventory is independently bounded. The same connection now exposes a
   bounded profile-scoped Chromium window inventory and a closed

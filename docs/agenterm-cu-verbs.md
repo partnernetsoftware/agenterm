@@ -5510,7 +5510,7 @@ Creates one normal window through the exact fixed MV3 connection and returns its
 ### `browser-bridge-debug-read`
 
 ```text
-browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N] [--max-scan N] [--max-results N]
+browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N] [--max-scan N] [--max-results N] [--actionable]
 browser bridge debug-read ...
 ```
 
@@ -5520,7 +5520,7 @@ agenterm-cu browser-bridge-debug-read
 
 usage:
   browser-bridge-debug-read CONNECTION_ID --tab-id N [--max-frames N] [--max-depth N]
-      [--max-scan N] [--max-results N]
+      [--max-scan N] [--max-results N] [--actionable]
   browser bridge debug-read ...
 
 arguments:
@@ -5529,9 +5529,10 @@ arguments:
   --max-frames N                cross-frame bound, 1..=64 (default 64)
   --max-depth N                 AX depth bound, 1..=20 (default 20)
   --max-scan N                  AX nodes scanned, 1..=5000 (default 5000)
-  --max-results N               AX rows returned, 1..=1000 (default 1000)
+  --max-results N               AX rows returned, 1..=1001 (default 1000; 1001 supports max+1 completeness proofs)
+  --actionable                  retain actionable roles or focusable/editable nodes before the result bound
 
-Reads only bounded AX frame/node identity, role and name facts. Form/control values and arbitrary DOM attributes are excluded. Success requires unchanged tab activation and window focus plus proven debugger detach; every violation fails typed.
+Reads bounded AX frame/backend-node identity, depth, role, name, actionable, disabled and focused facts. --actionable applies the archived page predicate before rows consume max-results: button, checkbox, combobox, link, listbox, menuitem, radio, searchbox, slider, spinbutton, switch, tab, textbox and treeitem roles, plus nodes whose focusable or editable property is true. request_actionable echoes that provider-side choice. The scan ceiling is shared across frames, and truncated exposes either scan or result incompleteness. Form/control values and arbitrary DOM attributes are excluded. Success requires unchanged tab activation and window focus plus proven debugger detach; every violation fails typed.
 ```
 
 ### `browser-bridge-debug-invoke`

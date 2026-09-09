@@ -1170,6 +1170,7 @@ fn browser_bridge(
             })
         }
         "debug-read" => {
+            let actionable = take_switch(args, "--actionable");
             let tab_id = flag_parsed::<u32>(args, "--tab-id")?
                 .ok_or_else(|| "browser bridge debug-read requires --tab-id N".to_owned())?;
             let max_frames = flag_parsed::<u16>(args, "--max-frames")?
@@ -1179,7 +1180,7 @@ fn browser_bridge(
             let max_scan = flag_parsed::<u32>(args, "--max-scan")?
                 .unwrap_or(agenterm_cu::browser_bridge::DEBUG_READ_MAX_SCAN);
             let max_results = flag_parsed::<u16>(args, "--max-results")?
-                .unwrap_or(agenterm_cu::browser_bridge::DEBUG_READ_MAX_RESULTS);
+                .unwrap_or(agenterm_cu::browser_bridge::DEBUG_READ_DEFAULT_RESULTS);
             let connection_id = exact_connection_id("browser bridge debug-read", args)?;
             let request = agenterm_cu::browser_bridge::DebugReadRequest {
                 tab_id,
@@ -1187,6 +1188,7 @@ fn browser_bridge(
                 max_depth,
                 max_scan,
                 max_results,
+                actionable,
             };
             request.validate().map_err(|error| error.message)?;
             Ok(Command::BrowserBridgeDebugRead {
@@ -1197,6 +1199,7 @@ fn browser_bridge(
                 max_depth,
                 max_scan,
                 max_results,
+                actionable,
             })
         }
         "debug-invoke" | "debug-type" | "debug-files" => {
@@ -1621,6 +1624,7 @@ mod tests {
             "300",
             "--max-results",
             "80",
+            "--actionable",
         ]);
         assert!(matches!(
             browser_bridge(TargetRef::Ssh, Some("debug-read"), &mut debug),
@@ -1631,6 +1635,7 @@ mod tests {
                 max_depth: 9,
                 max_scan: 300,
                 max_results: 80,
+                actionable: true,
                 ..
             })
         ));

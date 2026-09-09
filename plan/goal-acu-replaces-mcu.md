@@ -284,6 +284,7 @@ MCU retirement blockers
 │  │  ├─ [x] fixed extension identity + bounded secret-free native protocol
 │  │  ├─ [x] same-binary native host + current-user manifest/registry installer
 │  │  ├─ [x] public exact-connection setup/connections/status/tabs/windows/debug-read CLI
+│  │  ├─ [x] provider-side debug-read actionable filtering precedes result truncation and publishes control-state facts
 │  │  ├─ [x] guarded exact `window-state`: closed state vocabulary + focus/tab read-back + rollback
 │  │  ├─ [x] macOS owned Profile loads exact extension; live connection + host EOF/TTL cleanup qjswasm court
 │  │  ├─ [x] child-frame closed shadow: exact read/type/focus/press/files + secret-free durable evidence

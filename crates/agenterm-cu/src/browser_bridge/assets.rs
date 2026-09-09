@@ -187,6 +187,23 @@ mod tests {
         ] {
             assert!(source.contains(command));
         }
+        let actionable_filter = source
+            .find("if (request.actionable && !actionable) continue;")
+            .expect("debug-read provider-side actionable filter");
+        let result_ceiling = source
+            .find("if (result.length >= resultBudget)")
+            .expect("debug-read result ceiling");
+        assert!(actionable_filter < result_ceiling);
+        for fact in [
+            "focusable",
+            "editable",
+            "actionable",
+            "disabled",
+            "focused",
+            "request_actionable",
+        ] {
+            assert!(source.contains(fact));
+        }
         for forbidden in [
             "DOM.getFlattenedDocument",
             "node.attributes",

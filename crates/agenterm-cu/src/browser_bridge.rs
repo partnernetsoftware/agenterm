@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 pub const PROTOCOL_VERSION: u32 = 3;
-pub const BRIDGE_EXTENSION_VERSION: &str = "1.2.0";
+pub const BRIDGE_EXTENSION_VERSION: &str = "1.3.0";
 pub const REQUEST_MAX_BYTES: usize = 1024 * 1024;
 pub const NATIVE_MESSAGE_MAX_BYTES: usize = REQUEST_MAX_BYTES;
 pub const ACU_NATIVE_HOST_NAME: &str = "software.partnernet.agenterm_acu.browser_bridge";
@@ -39,8 +39,11 @@ pub const ACU_EXTENSION_ID: &str = "knofdkmmpkbnjhdkcjddbakbpmgpmjpe";
 pub const DEBUG_READ_MAX_FRAMES: u16 = 64;
 pub const DEBUG_READ_MAX_DEPTH: u8 = 20;
 pub const DEBUG_READ_MAX_SCAN: u32 = 5_000;
+pub const DEBUG_READ_DEFAULT_RESULTS: u16 = 1_000;
 pub const DEBUG_FILES_MAX_FILES: usize = 32;
-pub const DEBUG_READ_MAX_RESULTS: u16 = 1_000;
+/// One extra retained row lets compatibility projections distinguish exactly
+/// full from truncated while keeping their public page ceiling at 1,000.
+pub const DEBUG_READ_MAX_RESULTS: u16 = 1_001;
 pub const TAB_MAX_RESULTS: usize = 512;
 pub const WINDOW_MAX_RESULTS: usize = 256;
 pub const TAB_TITLE_MAX_BYTES: usize = 4 * 1024;
@@ -256,6 +259,8 @@ pub struct DebugReadRequest {
     pub max_depth: u8,
     pub max_scan: u32,
     pub max_results: u16,
+    #[serde(default)]
+    pub actionable: bool,
 }
 
 impl DebugReadRequest {
@@ -291,6 +296,9 @@ pub struct DebugReadNode {
     pub depth: u8,
     pub role: String,
     pub name: String,
+    pub actionable: bool,
+    pub disabled: bool,
+    pub focused: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -761,6 +769,9 @@ pub enum DetachOutcome {
 #[serde(deny_unknown_fields)]
 pub struct DebugReadResult {
     pub tab_id: u32,
+    /// Echoes the provider-side filter so a caller can prove that result
+    /// budget was consumed only by actionable rows when requested.
+    pub request_actionable: bool,
     pub frame_count: u16,
     pub scanned: u32,
     pub truncated: bool,
@@ -1005,10 +1016,10 @@ impl DebugFilesResult {
 impl DebugReadResult {
     pub fn validate_for(&self, req: &DebugReadRequest) -> Result<(), BridgeProtocolError> {
         req.validate()?;
-        if self.tab_id != req.tab_id {
+        if self.tab_id != req.tab_id || self.request_actionable != req.actionable {
             return Err(BridgeProtocolError::new(
                 "browser_bridge_debug_read_target_mismatch",
-                "result does not belong to the exact requested tab",
+                "result does not belong to the exact requested tab and filter",
             ));
         }
         if self.frame_count > req.max_frames
@@ -1219,6 +1230,7 @@ mod tests {
             max_depth: 20,
             max_scan: 5_000,
             max_results: 1_000,
+            actionable: false,
         }
     }
 
@@ -1296,6 +1308,11 @@ mod tests {
     fn debug_read_limits_are_closed() {
         let valid = debug_req();
         valid.validate().unwrap();
+        let wire = serde_json::to_value(&valid).unwrap();
+        assert_eq!(wire["actionable"], false);
+        let mut filtered = valid.clone();
+        filtered.actionable = true;
+        assert_eq!(serde_json::to_value(&filtered).unwrap()["actionable"], true);
         for bad in [
             DebugReadRequest {
                 tab_id: 0,
@@ -1314,7 +1331,7 @@ mod tests {
                 ..valid.clone()
             },
             DebugReadRequest {
-                max_results: 1_001,
+                max_results: 1_002,
                 ..valid.clone()
             },
         ] {
@@ -1431,6 +1448,7 @@ mod tests {
     fn result() -> DebugReadResult {
         DebugReadResult {
             tab_id: 7,
+            request_actionable: false,
             frame_count: 1,
             scanned: 1,
             truncated: false,
@@ -1440,6 +1458,9 @@ mod tests {
                 depth: 2,
                 role: "heading".into(),
                 name: "Account".into(),
+                actionable: false,
+                disabled: false,
+                focused: false,
             }],
             presentation: PresentationObservation {
                 tab_active_before: false,
@@ -1456,6 +1477,12 @@ mod tests {
     fn result_proves_exact_target_bounds_background_and_detach() {
         let mut value = result();
         value.validate_for(&debug_req()).unwrap();
+        value.request_actionable = true;
+        assert_eq!(
+            value.validate_for(&debug_req()).unwrap_err().code,
+            "browser_bridge_debug_read_target_mismatch"
+        );
+        let mut value = result();
         value.tab_id = 8;
         assert_eq!(
             value.validate_for(&debug_req()).unwrap_err().code,

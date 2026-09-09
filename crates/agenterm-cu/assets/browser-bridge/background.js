@@ -3,7 +3,9 @@
 const HOST = "software.partnernet.agenterm_acu.browser_bridge";
 const PROTOCOL = 3;
 const PROFILE_INSTANCE_KEY = "acuProfileInstanceId";
-const LIMITS = Object.freeze({ frames: 64, depth: 20, scan: 5000, results: 1000 });
+// One extra result lets compatibility projections observe the legacy page
+// ceiling with a max+1 sentinel instead of reporting a false complete page.
+const LIMITS = Object.freeze({ frames: 64, depth: 20, scan: 5000, results: 1001 });
 const TAB_LIMITS = Object.freeze({ results: 512, titleCharacters: 1024, urlCharacters: 2048 });
 const WINDOW_LIMITS = Object.freeze({ results: 256 });
 const DEBUG_ERROR_CODES = new Set([
@@ -115,6 +117,24 @@ function boundedText(value, maximumCharacters) {
     truncated: characters.length > maximumCharacters || clean !== raw };
 }
 
+const DEBUG_ACTIONABLE_ROLES = new Set([
+  "button", "checkbox", "combobox", "link", "listbox", "menuitem", "radio",
+  "searchbox", "slider", "spinbutton", "switch", "tab", "textbox", "treeitem"
+]);
+
+function axPropertyBoolean(node, name) {
+  for (const property of Array.isArray(node.properties) ? node.properties.slice(0, 128) : []) {
+    if (property && property.name === name && property.value &&
+        typeof property.value.value === "boolean") return property.value.value;
+  }
+  return false;
+}
+
+function debugNodeActionable(node, role) {
+  return DEBUG_ACTIONABLE_ROLES.has(role.toLowerCase()) ||
+    axPropertyBoolean(node, "focusable") || axPropertyBoolean(node, "editable");
+}
+
 function projectAxNodes(rawNodes, frameId, request, scanBudget, resultBudget) {
   const capped = rawNodes.slice(0, scanBudget);
   const byId = new Map(capped.filter(node => node && typeof node.nodeId === "string")
@@ -136,13 +156,20 @@ function projectAxNodes(rawNodes, frameId, request, scanBudget, resultBudget) {
   const result = [];
   let scanned = 0;
   let textTruncated = false;
+  let resultTruncated = false;
   for (const node of capped) {
-    if (result.length >= resultBudget) break;
     scanned += 1;
     const depth = depthOf(node);
     if (depth > request.max_depth || !Number.isSafeInteger(node.backendDOMNodeId) ||
         node.backendDOMNodeId < 1) continue;
-    const role = boundedText(node.role && node.role.value, 64);
+    const rawRole = node.role && typeof node.role.value === "string" ? node.role.value : "";
+    const role = boundedText(rawRole, 64);
+    const actionable = debugNodeActionable(node, rawRole);
+    if (request.actionable && !actionable) continue;
+    if (result.length >= resultBudget) {
+      resultTruncated = true;
+      continue;
+    }
     const name = boundedText(node.name && node.name.value, 4096);
     textTruncated ||= role.truncated || name.truncated;
     result.push({
@@ -150,23 +177,29 @@ function projectAxNodes(rawNodes, frameId, request, scanBudget, resultBudget) {
       backend_node_id: node.backendDOMNodeId,
       depth,
       role: role.text || "node",
-      name: name.text
+      name: name.text,
+      actionable,
+      disabled: axPropertyBoolean(node, "disabled"),
+      focused: axPropertyBoolean(node, "focused")
     });
   }
   return { nodes: result, scanned,
-    truncated: textTruncated || capped.length < rawNodes.length || scanned < capped.length || result.length >= resultBudget };
+    truncated: textTruncated || capped.length < rawNodes.length || resultTruncated };
 }
 
 async function debugRead(args) {
   const keys = Object.keys(args).sort().join(",");
-  if (keys !== "max_depth,max_frames,max_results,max_scan,tab_id" ||
+  if ((keys !== "actionable,max_depth,max_frames,max_results,max_scan,tab_id" &&
+       keys !== "max_depth,max_frames,max_results,max_scan,tab_id") ||
       !boundedInteger(args.tab_id, 0x7fffffff) ||
       !boundedInteger(args.max_frames, LIMITS.frames) ||
       !boundedInteger(args.max_depth, LIMITS.depth) ||
       !boundedInteger(args.max_scan, LIMITS.scan) ||
-      !boundedInteger(args.max_results, LIMITS.results)) {
+      !boundedInteger(args.max_results, LIMITS.results) ||
+      (args.actionable !== undefined && typeof args.actionable !== "boolean")) {
     throw new Error("browser_bridge_debug_read_limit_invalid");
   }
+  args.actionable = args.actionable === true;
   const target = { tabId: args.tab_id };
   let detach = { outcome: "already-detached" };
   let attached = false;
@@ -182,7 +215,7 @@ async function debugRead(args) {
     if (frameIds.length > args.max_frames) throw new Error("browser_bridge_debug_read_frame_limit");
     const flattened = { nodes: [], scanned: 0, truncated: false };
     for (const frameId of frameIds) {
-      if (flattened.scanned >= args.max_scan || flattened.nodes.length >= args.max_results) {
+      if (flattened.scanned >= args.max_scan) {
         flattened.truncated = true;
         break;
       }
@@ -202,6 +235,7 @@ async function debugRead(args) {
     }
     result = {
       tab_id: args.tab_id,
+      request_actionable: args.actionable,
       frame_count: frameIds.length,
       scanned: flattened.scanned,
       truncated: flattened.truncated,
