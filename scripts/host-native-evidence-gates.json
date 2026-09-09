@@ -325,6 +325,13 @@
       ]
     },
     {
+      "id": "cu-linux-shell-exec-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-shell-exec-readback"
+      ]
+    },
+    {
       "id": "cu-linux-pty-smoke",
       "platform": "linux",
       "evidence": [
