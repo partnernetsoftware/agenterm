@@ -1,8 +1,12 @@
 // CEO: Linux snapshot/diff honesty with independent AT-SPI tree delta read-back.
 // Acceptance is smoke read-back only: CU snapshot baseline then a named send-text
 // change must yield diff that matches an independent pyatspi before/after tree
-// delta on the same bounded walk budget. AT-SPI/--name only; no --coords or
-// screenshot degradation.
+// delta on the same bounded walk budget. Typed snapshot/diff/send-text usage must
+// reject AT-SPI --name on observe verbs and require --name on send-text; typed
+// get-extents --name usage/host-limit paths must hold before the snapshot-diff
+// read-back court. Typed usage and AT-SPI host-limit paths must hold when the
+// independent pyatspi desktop probe is unavailable. AT-SPI/--name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -39,6 +43,8 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return -1; }
@@ -72,22 +78,252 @@ function cu_env(executable, run_directory) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable, run_directory),
+    env: env === undefined ? cu_env(executable, run_directory) : env,
     timeout_ms: 60000,
   });
-  ensure(output.success === true,
-    "cu_linux_snapshot_diff_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_snapshot_diff_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"),
-    "cu_linux_snapshot_diff_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_snapshot_diff_cli:" + output.stdout + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_snapshot_diff_reply:" + JSON.stringify(document));
   return document;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable, run_directory) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_snapshot_diff_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable, run_directory) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable, run_directory),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_rejects_atspi_name(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_snapshot_diff_usage_limit(run_directory, executable) {
+  const snapshot_zero = run_cu_reply(run_directory, executable, "observe", [
+    "snapshot", "--window", "0",
+    "--depth", "" + TREE_DEPTH,
+    "--max-nodes", "" + MAX_NODES,
+  ]);
+  ensure(!output_success(snapshot_zero),
+    "cu_linux_snapshot_diff_snapshot_zero_ok:" + JSON.stringify(snapshot_zero));
+  ensure(
+    text_at(snapshot_zero, "error.code") === "usage"
+      || text_at(snapshot_zero, "error.code") === "invalid_input",
+    "cu_linux_snapshot_diff_snapshot_zero_code:" + JSON.stringify(snapshot_zero.error)
+  );
+  ensure(
+    text_at(snapshot_zero, "error.message").indexOf("window") >= 0
+      || text_at(snapshot_zero, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_snapshot_diff_snapshot_zero_message:" + JSON.stringify(snapshot_zero.error)
+  );
+
+  const snapshot_with_name = run_cu_reply(run_directory, executable, "observe", [
+    "snapshot", "--window", "1",
+    "--depth", "" + TREE_DEPTH,
+    "--max-nodes", "" + MAX_NODES,
+    "--name", ENTRY_NAME,
+  ]);
+  ensure(!output_success(snapshot_with_name),
+    "cu_linux_snapshot_diff_snapshot_name_ok:" + JSON.stringify(snapshot_with_name));
+  ensure(
+    text_at(snapshot_with_name, "error.code") === "usage",
+    "cu_linux_snapshot_diff_snapshot_name_code:" + JSON.stringify(snapshot_with_name.error)
+  );
+  ensure(
+    text_at(snapshot_with_name, "command") === "usage",
+    "cu_linux_snapshot_diff_snapshot_name_command:" + JSON.stringify(snapshot_with_name)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(snapshot_with_name, "error.message")),
+    "cu_linux_snapshot_diff_snapshot_name_message:" + JSON.stringify(snapshot_with_name.error)
+  );
+
+  const diff_zero = run_cu_reply(run_directory, executable, "observe", [
+    "diff", "--window", "0",
+  ]);
+  ensure(!output_success(diff_zero),
+    "cu_linux_snapshot_diff_diff_zero_ok:" + JSON.stringify(diff_zero));
+  ensure(
+    text_at(diff_zero, "error.code") === "usage"
+      || text_at(diff_zero, "error.code") === "invalid_input",
+    "cu_linux_snapshot_diff_diff_zero_code:" + JSON.stringify(diff_zero.error)
+  );
+  ensure(
+    text_at(diff_zero, "error.message").indexOf("window") >= 0
+      || text_at(diff_zero, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_snapshot_diff_diff_zero_message:" + JSON.stringify(diff_zero.error)
+  );
+
+  const diff_with_name = run_cu_reply(run_directory, executable, "observe", [
+    "diff", "--window", "1", "--name", ENTRY_NAME,
+  ]);
+  ensure(!output_success(diff_with_name),
+    "cu_linux_snapshot_diff_diff_name_ok:" + JSON.stringify(diff_with_name));
+  ensure(
+    text_at(diff_with_name, "error.code") === "usage",
+    "cu_linux_snapshot_diff_diff_name_code:" + JSON.stringify(diff_with_name.error)
+  );
+  ensure(
+    usage_rejects_atspi_name(text_at(diff_with_name, "error.message")),
+    "cu_linux_snapshot_diff_diff_name_message:" + JSON.stringify(diff_with_name.error)
+  );
+
+  const send_missing_window = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--name", ENTRY_NAME, "--", "probe",
+  ]);
+  ensure(!output_success(send_missing_window),
+    "cu_linux_snapshot_diff_send_usage_ok:" + JSON.stringify(send_missing_window));
+  ensure(
+    text_at(send_missing_window, "error.code") === "invalid_input",
+    "cu_linux_snapshot_diff_send_usage_code:" + JSON.stringify(send_missing_window.error)
+  );
+  ensure(
+    text_at(send_missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_snapshot_diff_send_usage_message:" + JSON.stringify(send_missing_window.error)
+  );
+
+  const send_role_without_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "1", "--role", "entry", "--", "probe",
+  ]);
+  ensure(!output_success(send_role_without_name),
+    "cu_linux_snapshot_diff_send_role_ok:" + JSON.stringify(send_role_without_name));
+  ensure(
+    text_at(send_role_without_name, "error.code") === "invalid_input",
+    "cu_linux_snapshot_diff_send_role_code:" + JSON.stringify(send_role_without_name.error)
+  );
+  ensure(
+    text_at(send_role_without_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_snapshot_diff_send_role_message:" + JSON.stringify(send_role_without_name.error)
+  );
+
+  const send_zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "0", "--name", ENTRY_NAME, "--", "probe",
+  ]);
+  ensure(!output_success(send_zero_handle),
+    "cu_linux_snapshot_diff_send_zero_ok:" + JSON.stringify(send_zero_handle));
+  ensure(
+    text_at(send_zero_handle, "error.code") === "invalid_input"
+      || text_at(send_zero_handle, "error.code") === "usage",
+    "cu_linux_snapshot_diff_send_zero_code:" + JSON.stringify(send_zero_handle.error)
+  );
+  ensure(
+    text_at(send_zero_handle, "error.message").indexOf("window") >= 0
+      || text_at(send_zero_handle, "error.message").indexOf("non-zero") >= 0,
+    "cu_linux_snapshot_diff_send_zero_message:" + JSON.stringify(send_zero_handle.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", ENTRY_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_snapshot_diff_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_snapshot_diff_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_snapshot_diff_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", ENTRY_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_snapshot_diff_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_snapshot_diff_extents_unavailable_code:" + code
+  );
+}
+
+function assert_snapshot_diff_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const snapshot_reply = run_cu_reply(run_directory, executable, "observe", [
+    "snapshot", "--window", "1",
+    "--depth", "" + TREE_DEPTH,
+    "--max-nodes", "" + MAX_NODES,
+  ], env);
+  ensure(!output_success(snapshot_reply),
+    "cu_linux_snapshot_diff_snapshot_unavailable_ok:" + JSON.stringify(snapshot_reply));
+  const snapshot_code = text_at(snapshot_reply, "error.code");
+  ensure(
+    snapshot_code === "a11y_backend_failed" || snapshot_code === "unsupported"
+      || snapshot_code === "bad_handle",
+    "cu_linux_snapshot_diff_snapshot_unavailable_code:" + snapshot_code
+  );
+
+  const diff_reply = run_cu_reply(run_directory, executable, "observe", [
+    "diff", "--window", "1",
+  ], env);
+  ensure(!output_success(diff_reply),
+    "cu_linux_snapshot_diff_diff_unavailable_ok:" + JSON.stringify(diff_reply));
+  const diff_code = text_at(diff_reply, "error.code");
+  ensure(
+    diff_code === "a11y_backend_failed" || diff_code === "unsupported"
+      || diff_code === "bad_handle" || diff_code === "snapshot_not_found",
+    "cu_linux_snapshot_diff_diff_unavailable_code:" + diff_code
+  );
+
+  const send_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "1", "--name", ENTRY_NAME, "--", "probe",
+  ], env);
+  ensure(!output_success(send_reply),
+    "cu_linux_snapshot_diff_send_unavailable_ok:" + JSON.stringify(send_reply));
+  const send_code = text_at(send_reply, "error.code");
+  ensure(
+    send_code === "a11y_backend_failed" || send_code === "unsupported"
+      || send_code === "bad_handle",
+    "cu_linux_snapshot_diff_send_unavailable_code:" + send_code
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -516,93 +752,112 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable, run_directory);
+const atspi_available = probe_atspi_available(executable, run_directory);
 
 try {
-  print("STEP start owned GTK fixture and resolve one window handle");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  print("STEP snapshot/diff/send-text typed-fails usage when --window handle is zero or AT-SPI --name is on observe verbs");
+  assert_snapshot_diff_usage_limit(run_directory, executable);
 
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_snapshot_diff_window_wait");
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before snapshot-diff read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
-  const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(inventory_row !== null, "cu_linux_snapshot_diff_inventory_missing");
-  const handle = int_at(inventory_row, "handle");
-  ensure(handle > 0, "cu_linux_snapshot_diff_handle:" + JSON.stringify(inventory_row));
-  const handle_text = "" + handle;
+  if (!atspi_available) {
+    print("STEP snapshot/diff/send-text typed-fail host-limit when independent pyatspi desktop probe is unavailable");
+    assert_snapshot_diff_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP start owned GTK fixture and resolve one window handle");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
 
-  print("STEP independent AT-SPI read-back reports seed entry text before snapshot");
-  ensure(
-    independent_entry_text(fixture_pid, fixture_title) === BEFORE_TEXT,
-    "cu_linux_snapshot_diff_before_text"
-  );
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_snapshot_diff_window_wait");
 
-  print("STEP snapshot names one bounded baseline");
-  const baseline_stored_path = rh.join(run_directory, "baseline-stored.json");
-  const baseline_reply_path = rh.join(run_directory, "baseline-reply.json");
-  const baseline = run_cu(run_directory, executable, "observe", [
-    "snapshot",
-    "--window", handle_text,
-    "--depth", "" + TREE_DEPTH,
-    "--max-nodes", "" + MAX_NODES,
-    "--out", baseline_stored_path,
-  ]);
-  rh.write_text(baseline_reply_path, JSON.stringify(baseline));
-  const baseline_id = text_at(baseline, "data.snapshot_id");
-  ensure(
-    baseline_id !== ""
-      && int_at(baseline, "data.nodes") > 1
-      && !flag_at(baseline, "data.truncated")
-      && text_at(baseline, "data.addressing") === "accessibility-tree"
-      && text_at(baseline, "data.backend") === "at-spi2",
-    "cu_linux_snapshot_diff_snapshot:" + JSON.stringify(baseline.data)
-  );
-  ensure(direct_file(baseline_stored_path), "cu_linux_snapshot_diff_baseline_file");
+    const inventory_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(inventory_row !== null, "cu_linux_snapshot_diff_inventory_missing");
+    const handle = int_at(inventory_row, "handle");
+    ensure(handle > 0, "cu_linux_snapshot_diff_handle:" + JSON.stringify(inventory_row));
+    const handle_text = "" + handle;
 
-  const independent_before_path = rh.join(run_directory, "independent-before.json");
-  print("STEP independent AT-SPI tree captured immediately after snapshot baseline");
-  capture_independent_tree(run_directory, fixture_pid, independent_before_path);
-  ensure(direct_file(independent_before_path), "cu_linux_snapshot_diff_independent_before");
+    print("STEP independent AT-SPI read-back reports seed entry text before snapshot");
+    ensure(
+      independent_entry_text(fixture_pid, fixture_title) === BEFORE_TEXT,
+      "cu_linux_snapshot_diff_before_text"
+    );
 
-  print("STEP send-text mutates the named entry on a disposable target");
-  run_cu(run_directory, executable, "observe,actuate", [
-    "send-text",
-    "--window", handle_text,
-    "--name", ENTRY_NAME,
-    "--", AFTER_TEXT,
-  ]);
-  ensure(
-    independent_entry_text(fixture_pid, fixture_title) === AFTER_TEXT,
-    "cu_linux_snapshot_diff_after_text"
-  );
+    print("STEP snapshot names one bounded baseline");
+    const baseline_stored_path = rh.join(run_directory, "baseline-stored.json");
+    const baseline_reply_path = rh.join(run_directory, "baseline-reply.json");
+    const baseline = run_cu(run_directory, executable, "observe", [
+      "snapshot",
+      "--window", handle_text,
+      "--depth", "" + TREE_DEPTH,
+      "--max-nodes", "" + MAX_NODES,
+      "--out", baseline_stored_path,
+    ]);
+    rh.write_text(baseline_reply_path, JSON.stringify(baseline));
+    const baseline_id = text_at(baseline, "data.snapshot_id");
+    ensure(
+      baseline_id !== ""
+        && int_at(baseline, "data.nodes") > 1
+        && !flag_at(baseline, "data.truncated")
+        && text_at(baseline, "data.addressing") === "accessibility-tree"
+        && text_at(baseline, "data.backend") === "at-spi2",
+      "cu_linux_snapshot_diff_snapshot:" + JSON.stringify(baseline.data)
+    );
+    ensure(direct_file(baseline_stored_path), "cu_linux_snapshot_diff_baseline_file");
 
-  print("STEP diff returns the entry text change and advances the baseline");
-  const diff_path = rh.join(run_directory, "diff.json");
-  const diff = run_cu(run_directory, executable, "observe", [
-    "diff",
-    "--window", handle_text,
-    "--base", baseline_id,
-    "--advance",
-    "--max", "100",
-  ]);
-  rh.write_text(diff_path, JSON.stringify(diff));
+    const independent_before_path = rh.join(run_directory, "independent-before.json");
+    print("STEP independent AT-SPI tree captured immediately after snapshot baseline");
+    capture_independent_tree(run_directory, fixture_pid, independent_before_path);
+    ensure(direct_file(independent_before_path), "cu_linux_snapshot_diff_independent_before");
 
-  print("STEP CU diff agrees with independent before/after AT-SPI tree delta");
-  verify_diff_readback(
-    run_directory, executable, fixture_pid, handle,
-    baseline_reply_path, independent_before_path, diff_path
-  );
+    print("STEP send-text mutates the named entry on a disposable target");
+    run_cu(run_directory, executable, "observe,actuate", [
+      "send-text",
+      "--window", handle_text,
+      "--name", ENTRY_NAME,
+      "--", AFTER_TEXT,
+    ]);
+    ensure(
+      independent_entry_text(fixture_pid, fixture_title) === AFTER_TEXT,
+      "cu_linux_snapshot_diff_after_text"
+    );
 
-  succeeded = 1;
+    print("STEP diff returns the entry text change and advances the baseline");
+    const diff_path = rh.join(run_directory, "diff.json");
+    const diff = run_cu(run_directory, executable, "observe", [
+      "diff",
+      "--window", handle_text,
+      "--base", baseline_id,
+      "--advance",
+      "--max", "100",
+    ]);
+    rh.write_text(diff_path, JSON.stringify(diff));
+
+    print("STEP CU diff agrees with independent before/after AT-SPI tree delta");
+    verify_diff_readback(
+      run_directory, executable, fixture_pid, handle,
+      baseline_reply_path, independent_before_path, diff_path
+    );
+
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -617,7 +872,11 @@ if (fixture >= 0) {
 if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
-  print("PASS: Linux snapshot/diff matches independent AT-SPI tree delta read-back");
+  if (atspi_available) {
+    print("PASS: Linux snapshot/diff matches independent AT-SPI tree delta read-back with typed snapshot/diff/send-text/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux snapshot/diff typed-fails with typed snapshot/diff/send-text/get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+  }
 }
 if (failure !== "") { throw failure; }
 return;
