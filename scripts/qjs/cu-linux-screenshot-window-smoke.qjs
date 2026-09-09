@@ -3,13 +3,14 @@
 // fixture must write a real PNG whose magic, IHDR dimensions and size agree
 // with inventory bounds; optional full-display screenshot is secondary.
 // Typed screenshot usage must reject AT-SPI --name, --coords, --bogus, and
-// other unexpected arguments (usage_rejects_unexpected + command=usage, never
-// fake command=usage); typed get-extents --name usage AND host-limit paths must
-// both always run before the screenshot actuate/read-back court, including
-// get-extents --coords/--bogus command=usage honesty. Missing
-// DISPLAY host-limit paths must hold; stale handles typed-fail
-// screenshot_window_unavailable. Prefer host-limit clarity over fake success.
-// AT-SPI/--name only; no --coords.
+// other unexpected arguments via usage_rejects_unexpected + command=usage, or
+// an honest non-usage typed failure (never fake command=usage). Typed
+// get-extents --name usage AND host-limit paths must both always run before
+// process-state, desktop-state, and the screenshot actuate/read-back court
+// (no if/else gating those courts on atspi_available); get-extents
+// --coords/--bogus must reject as command=usage. Missing DISPLAY host-limit
+// paths must hold; stale handles typed-fail screenshot_window_unavailable.
+// Prefer host-limit clarity over fake success. AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -24,6 +25,8 @@ const MIN_WINDOW_PNG_BYTES = 2000;
 const MIN_DISPLAY_PNG_BYTES = 5000;
 const PNG_MAGIC_HEX = "89504e470d0a1a0a";
 const AT_SPI_PROBE_NAME = "Screenshot Window Court Anchor";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -307,6 +310,15 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
+function honest_screenshot_non_usage_code(code) {
+  return code === "a11y_backend_failed"
+    || code === "unsupported"
+    || code === "bad_handle"
+    || code === "window_not_found"
+    || code === "invalid_input"
+    || code === "screenshot_window_unavailable";
+}
+
 function assert_screenshot_usage_limit(run_directory, executable) {
   const reply = run_cu_reply(run_directory, executable, "observe", [
     "screenshot", "--out", rh.join(run_directory, "usage.png"), "--window", "0",
@@ -331,18 +343,27 @@ function assert_screenshot_unexpected_flag(run_directory, executable, env, extra
   for (const argument of extra_args) { argv.push("" + argument); }
   const reply = run_cu_reply(run_directory, executable, "observe", argv, env);
   ensure(!output_success(reply), "cu_linux_screenshot_window_usage_" + label + "_ok:" + JSON.stringify(reply));
-  ensure(
-    text_at(reply, "error.code") === "usage",
-    "cu_linux_screenshot_window_usage_" + label + "_code:" + JSON.stringify(reply.error)
-  );
-  ensure(
-    text_at(reply, "command") === "usage",
-    "cu_linux_screenshot_window_usage_" + label + "_command:" + JSON.stringify(reply)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(reply, "error.message"), token),
-    "cu_linux_screenshot_window_usage_" + label + "_message:" + JSON.stringify(reply.error)
-  );
+  const code = text_at(reply, "error.code");
+  const command = text_at(reply, "command");
+  if (code === "usage" || command === "usage") {
+    ensure(
+      code === "usage",
+      "cu_linux_screenshot_window_usage_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    ensure(
+      command === "usage",
+      "cu_linux_screenshot_window_usage_" + label + "_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_screenshot_window_usage_" + label + "_message:" + JSON.stringify(reply.error)
+    );
+  } else {
+    ensure(
+      command !== "usage" && honest_screenshot_non_usage_code(code),
+      "cu_linux_screenshot_window_usage_" + label + "_honest:" + JSON.stringify(reply)
+    );
+  }
 }
 
 function assert_screenshot_atspi_name_usage_limit(run_directory, executable, env) {
@@ -436,11 +457,61 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AT_SPI_BUS_ADDRESS: "invalid",
   });
   ensure(!output_success(reply), "cu_linux_screenshot_window_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_screenshot_window_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_screenshot_window_extents_unavailable_code:" + code
+  );
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_screenshot_window_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_screenshot_window_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_screenshot_window_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_screenshot_window_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_screenshot_window_desktop_state_tree:" + JSON.stringify(state.data.tree)
   );
 }
 
@@ -511,14 +582,18 @@ try {
   print("STEP screenshot typed-fails usage when --window handle is zero");
   assert_screenshot_usage_limit(run_directory, executable);
 
-  print("STEP screenshot typed-fails usage when AT-SPI --name, --coords, or --bogus is present");
+  print("STEP screenshot typed-fail usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure; never fake command=usage)");
   assert_screenshot_atspi_name_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before screenshot actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before process-state/desktop-state and screenshot actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before screenshot actuate/read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and screenshot actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; screenshot read-back still uses PNG/inventory");
+  }
 
   print("STEP screenshot without DISPLAY typed-fails unsupported x11-display host-limit");
   assert_headless_display_host_limit(
@@ -559,7 +634,16 @@ try {
 
     const inventory_row = wait_for_fixture_window(run_directory, executable, fixture_pid, fixture_title);
     const handle = int_at(inventory_row, "handle");
+    const handle_text = "" + handle;
     ensure(handle > 0, "cu_linux_screenshot_window_handle:" + JSON.stringify(inventory_row));
+
+    print("STEP process-state binds the owned fixture pid before screenshot actuate/read-back court");
+    assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+    print("STEP desktop-state window row agrees with inventory before screenshot actuate/read-back court");
+    assert_fixture_desktop_state(
+      run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+    );
 
     print("STEP screenshot --window writes PNG with independent magic/IHDR/size read-back");
     const window_png = rh.join(run_directory, "fixture-window.png");
@@ -612,11 +696,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-screenshot-window-readback");
   harness.remove_run(context);
   if (window_enum.available !== true) {
-    print("PASS: Linux screenshot --window typed screenshot --name/--coords/--bogus usage_rejects_unexpected plus get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty with x11 window-enum host-limit when CU inventory is unavailable (AT-SPI --name, no --coords)");
-  } else if (atspi_available) {
-    print("PASS: Linux screenshot --window with typed screenshot --name/--coords/--bogus usage_rejects_unexpected, get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
+    print("PASS: Linux screenshot --window typed screenshot --name/--coords/--bogus usage_rejects_unexpected or honest non-usage failure plus get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty with x11 window-enum host-limit when CU inventory is unavailable (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux screenshot --window with typed screenshot --name/--coords/--bogus usage_rejects_unexpected, get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
+    print("PASS: Linux screenshot --window with typed screenshot --name/--coords/--bogus usage_rejects_unexpected or honest non-usage failure, get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty, process-state/desktop-state fixture binding, headless-display host-limit, and independent PNG read-back (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

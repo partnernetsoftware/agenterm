@@ -7208,7 +7208,7 @@
     },
     {
       "id": "cu-linux-screenshot-window-smoke",
-      "description": "Linux screenshot --window PNG read-back agrees with inventory bounds; optional full-display secondary; typed screenshot/get-extents --name usage AND host-limit plus --coords/--bogus command=usage before actuate court; zero handle usage; missing DISPLAY unsupported; stale handle screenshot_window_unavailable; AT-SPI --name only.",
+      "description": "Linux screenshot --window PNG read-back vs inventory bounds; optional display; --name/--coords/--bogus uses usage_rejects_unexpected + command=usage or honest non-usage (never fake command=usage); get-extents --name usage AND host-limit always, --coords/--bogus command=usage, no atspi gating, before process-state/desktop-state and actuate/read-back; process-state/desktop-state fixture binding; zero-handle usage; missing DISPLAY unsupported; stale handle screenshot_window_unavailable; AT-SPI --name only.",
       "entry": "scripts/qjs/cu-linux-screenshot-window-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
