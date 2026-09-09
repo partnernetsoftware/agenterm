@@ -5866,7 +5866,7 @@
     },
     {
       "id": "cu-linux-hide-show-smoke",
-      "description": "Linux app hide/show with typed usage/miss/headless host-limit paths and independent windows inventory plus xprop map-state read-back; no --coords.",
+      "description": "Linux app hide/show with typed app hide/show/get-extents AT-SPI --name usage or host-limit honesty, miss/headless host-limit paths, and independent windows inventory plus xprop map-state read-back; no --coords.",
       "entry": "scripts/qjs/cu-linux-hide-show-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -5985,7 +5985,7 @@
     },
     {
       "id": "cu-linux-raise-activate-smoke",
-      "description": "Linux activate and raise with independent windows --focused inventory read-back; typed usage/miss/host-limit before fixture; background raise must fail foreground_changed; AT-SPI inventory handles only, no --name, no --coords.",
+      "description": "Linux activate and raise with independent windows --focused inventory read-back; typed activate/raise usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the native actuate/read-back court; missing-window and headless host-limit before fixture; background raise must fail foreground_changed; AT-SPI inventory handles only, no --coords.",
       "entry": "scripts/qjs/cu-linux-raise-activate-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6245,7 +6245,7 @@
     },
     {
       "id": "cu-linux-page-click-smoke",
-      "description": "Linux page-click --selector clicks one named CDP control and independent page-find text read-back proves the exact effect; disposable Chrome profile, no --coords.",
+      "description": "Linux page-click --selector clicks one named CDP control and independent page-js DOM read-back proves the exact effect; typed page-click/get-extents --name usage and host-limit honesty before the actuate court; disposable Chrome profile, AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6564,7 +6564,7 @@
     },
     {
       "id": "cu-linux-gtk-copy-smoke",
-      "description": "Linux GTK entry/label copy --name publishes AT-SPI Text.GetText onto native clipboard and independent clipboard-read matches the seeded entry text and label payload; typed usage and host-limit paths when --window/--name are missing or the AT-SPI bus is unavailable; miss paths must not publish onto the clipboard; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry/label copy --name publishes AT-SPI Text.GetText onto native clipboard and independent clipboard-read matches the seeded entry text and label payload; typed copy usage and host-limit paths when --window/--name are missing or the AT-SPI bus is unavailable; typed get-extents --name usage/host-limit paths before the native actuate/read-back court; miss paths must not publish onto the clipboard; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-copy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
