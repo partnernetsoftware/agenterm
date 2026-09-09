@@ -34,3 +34,26 @@ Verdict: keep the provider research-only. C1-C8 are green on the current host,
 but C9 is open and the nondiscriminating public baseline prevents a product
 migration claim. A future discriminating owned Chromium/Electron fixture and a
 previous-generation arm64 court are required before revisiting the decision.
+
+## Chromium discriminator attempt 1 · 2026-09-09
+
+- Repository source SHA: `b86171422553500d3623abee3d6a9956ef9d07a1`.
+- Discriminator source digest:
+  `b033be4a3e0699f50812cc1e0a69cf76a210ac8a5a4ab3bc63686e0d3948cc65`.
+- Host: macOS 26.5.1 build 25F80, arm64.
+- Verdict: `INCONCLUSIVE` at `bridge-connection`.
+- Injection attempts: zero; triplets completed: zero.
+- Cleanup: the owned browser session reached `stopped` and was removed with
+  `verified=true`.
+
+The owned browser and its CDP endpoint reached `ready`, but the caller-selected
+Google Chrome build did not publish a new Native Messaging bridge connection
+within the frozen 15-second deadline. No window was opened and neither public
+nor private delivery ran. This is not evidence for or against the provider.
+
+The fixture owner is revised for attempt 2: use a direct temporary Chromium
+profile with a fixed loopback CDP endpoint and two explicit `--new-window`
+launches, while retaining the exact same PRIVATE / PUBLIC_LOC / PUBLIC_OFF
+criteria. Because attempt 1 reached zero injection, no delivery result is
+carried forward. Attempt 2 receives a new source digest and starts the full
+20-triplet comparison from zero.

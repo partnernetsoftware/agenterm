@@ -611,8 +611,10 @@ ACU-only cutover
 │  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
 │  ├─ [~] acu.dynamic.074 · window-local scroll without physical-pointer movement
 │  │  └─ current-host SkyLight research passed C1–C8, but the public AppKit baseline
-│  │     also delivered. A three-arm owned-Chromium discriminator is precommitted
-│  │     but not run; C9 waits behind its pass and a 1,000-action Chromium repeat.
+│  │     also delivered. Three-arm Chromium attempt 1 stopped inconclusive before
+│  │     injection when Google Chrome published no bridge connection; direct-profile
+│  │     attempt 2 retains the frozen criteria. C9 still waits behind a current-host
+│  │     pass and a 1,000-action Chromium repeat.
 │  │     This is distinct from Linux named `scroll-wheel`, which temporarily moves
 │  │     and then restores the physical pointer.
 │  ├─ [~] acu.dynamic.075 · native `browser-tabs` resolves one exact MV3 profile connection;

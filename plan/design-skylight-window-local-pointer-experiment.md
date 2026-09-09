@@ -174,13 +174,20 @@ did not answer whether ACU needs that route. The next run therefore changes
 only the owned fixture and oracle. It does not widen the candidate provider or
 the supported-host claim.
 
+Attempt 1 used `browser-session-start --bridge` as the fixture owner. The owned
+browser and CDP endpoint reached ready, but the caller-selected Google Chrome
+build published no bridge connection before the 15-second deadline. The run
+ended `INCONCLUSIVE` with zero injection attempts and verified session cleanup.
+Attempt 2 revises only fixture ownership as described below; all discriminator
+criteria and kill conditions remain frozen and every count restarts at zero.
+
 ### 9.1 Frozen setup
 
-- Reuse the ACU-owned profile, process identity and cleanup boundary exercised
-  by `scripts/qjs/cu-browser-session-smoke.qjs`. `browser-session-start
-  --bridge` owns the temporary profile and returns the actual ephemeral CDP
-  endpoint; two subsequent `browser-bridge-window-open` calls create the
-  normal windows and exact CDP targets. Never attach to a user profile or an
+- Reuse the direct disposable-profile pattern from
+  `scripts/qjs/cu-linux-page-scroll-smoke.qjs`, adapted to the caller-selected
+  macOS Chromium executable. Start one exact child with a fresh `--user-data-dir`,
+  a preflighted fixed loopback CDP port and target window B, then ask that same
+  profile singleton to open peer window A. Never attach to a user profile or an
   already-running browser.
 - Create two normal browser windows in one owned profile. Require each window
   to settle at a distinct, stable read-back rectangle and give each page an
@@ -188,9 +195,10 @@ the supported-host claim.
   last delta, last client coordinate and monotonic sequence. Register the
   listener as non-passive and call `preventDefault()` so page scrolling cannot
   become the oracle.
-- Keep a separate owned non-browser guard application in front. Open peer
-  window A focused, then target window B without focus, and only then let the
-  guard take foreground ownership. B remains non-key and is the only addressed
+- Keep a separate owned non-browser guard application in front. Open target
+  window B first, then peer window A so A becomes the browser process's key
+  window, and only then let the guard take foreground ownership. B remains
+  non-key and is the only addressed
   target. Neither browser window may become foreground during the comparison.
   This prevents a process-level key-window fallback from counting as exact
   delivery.
@@ -198,10 +206,10 @@ the supported-host claim.
   PID, a short per-window nonce title and its independently read-back rectangle.
   The title is candidate discovery, never final authority: after discovering
   both native handles, place them at distinct non-overlapping rectangles with
-  exact read-back, then require a unique native/bridge bounds bijection. Zero
+  exact native read-back and revalidate each CDP title-to-window binding. Zero
   or multiple matches are `window_identity_ambiguous` before injection.
-  Preserve the browser-native window id, CDP target id, `CGWindowID`, owner PID
-  and rectangle in the result.
+  Preserve each CDP target id, `CGWindowID`, owner PID and rectangle in the
+  result.
 - Run three arms. `PRIVATE` stamps B and posts through SkyLight at B's midpoint.
   `PUBLIC_LOC` uses `CGEventPostToPid` with the same public event fields and
   screen location. `PUBLIC_OFF` uses the public route with the same delta but a

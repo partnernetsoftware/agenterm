@@ -1,11 +1,11 @@
 // acu.dynamic.074 discriminator court: owned Chromium wheel oracle.
 //
-// Research only. This court owns one ACU browser session (bridge mode), opens
-// two windows of fixture-chromium/page.html (A focused first, then B in the
-// background so B is never the key window), raises a caller-selected guard
+// Research only. This court starts one caller-selected Chromium executable
+// with an invocation-owned profile and fixed loopback CDP endpoint, opens B
+// first and A second so B is not the key window, raises a caller-selected guard
 // fixture to the foreground, resolves B's exact CGWindowID from the browser
-// PID plus mutually distinct stable bounds on both the native and the bridge
-// side, then runs 20 seeded triplets of the frozen three arms through the
+// PID plus unique title and stable native bounds, then runs 20 seeded triplets
+// of the frozen three arms through the
 // caller-selected injector and reads the wheel counts back independently over
 // CDP. It emits exactly one verdict JSON on stdout and nothing else.
 //
@@ -36,7 +36,6 @@ const SEED = 20260909;
 const ARMS = ["private", "public-loc", "public-off"];
 const WHEEL_DX = 0;
 const WHEEL_DY = 3;
-const SESSION_NAME = "acu-074-discriminator";
 const FRAME_A = { x: 40, y: 80, width: 520, height: 400 };
 const FRAME_B = { x: 700, y: 80, width: 520, height: 400 };
 
@@ -142,29 +141,6 @@ function require_ok(result, label) {
   return result.reply;
 }
 
-function connection_in(rows, connection_id) {
-  for (const row of rows) {
-    if (row.connection_id === connection_id) { return true; }
-  }
-  return false;
-}
-
-function one_new_bridge_connection(deadline_ms, baseline) {
-  while (rh.now_ms() < deadline_ms) {
-    const inventory = invoke("observe", ["browser-bridge-connections"]);
-    if (inventory.reply.ok === true) {
-      const added = [];
-      for (const row of inventory.reply.data.connections) {
-        if (!connection_in(baseline, row.connection_id)) { added.push(row); }
-      }
-      if (added.length === 1) { return added[0]; }
-      ensure(added.length < 2, "acu074_bridge_connection_ambiguous");
-    }
-    rh.sleep_ms(50);
-  }
-  throw "acu074_bridge_connection_timeout";
-}
-
 function page_url(label) {
   return "file://" + page_path + "?label=" + label + "&nonce=" + nonce;
 }
@@ -194,13 +170,6 @@ function native_window_by_title(pid, title) {
   }
   ensure(found !== null, "acu074_native_title_missing:" + title);
   return found;
-}
-
-function bounds_equal(native_bounds, bridge_bounds) {
-  return native_bounds.x === bridge_bounds.left
-    && native_bounds.y === bridge_bounds.top
-    && native_bounds.width === bridge_bounds.width
-    && native_bounds.height === bridge_bounds.height;
 }
 
 function bounds_distinct(left, right) {
@@ -311,9 +280,8 @@ function run_injector(arm, browser_pid, target_window, target_point, off_point) 
   return reply;
 }
 
-let session_started = false;
+let chrome_child = -1;
 let guard_child = -1;
-let bridge_id = null;
 let stage = "setup";
 let failure = "";
 let cleanup_verified = false;
@@ -333,40 +301,57 @@ try {
   ensure(direct_file(page_path), "acu074_page_missing:" + page_path);
   ensure(source_sha !== "" && probe_digest !== "", "acu074_result_identity_missing");
 
-  const baseline_connections = require_ok(invoke("observe", ["browser-bridge-connections"]),
-    "acu074_bridge_baseline_failed").data.connections;
+  const profile = rh.join(run_directory, "chrome-profile");
+  const port = 9600 + (rh.pid() % 300);
+  const stale = rh.command("curl", [
+    "-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"
+  ], { cwd: run_directory, timeout_ms: 3000 });
+  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
+    "acu074_cdp_port_in_use:" + port);
 
-  stage = "browser-session-start";
-  const started = require_ok(invoke("actuate", [
-    "browser-session-start", SESSION_NAME, "--browser", chromium,
-    "--bridge", "--ready-timeout-ms", "15000", "--ttl-ms", "300000"
-  ]), "acu074_session_start_failed");
-  session_started = true;
-  ensure(started.data.state === "ready" && started.data.owned === true,
-    "acu074_session_state:" + JSON.stringify(started.data));
-  const browser_pid = started.data.browser.pid;
-  const port = started.data.endpoint.port;
-  ensure(browser_pid > 0 && port > 0, "acu074_session_identity");
+  stage = "browser-launch-b";
+  chrome_child = harness.start({
+    program: chromium,
+    args: [
+      "--user-data-dir=" + profile,
+      "--remote-debugging-port=" + port,
+      "--remote-debugging-address=127.0.0.1",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--new-window",
+      page_url("B")
+    ],
+    current_dir: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 600000
+  });
+  const browser_pid = harness.spawned_pid(chrome_child);
+  let cdp_ready = false;
+  for (let attempt = 0; attempt < 120; attempt = attempt + 1) {
+    const probe = rh.command("curl", [
+      "-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"
+    ], { cwd: run_directory, timeout_ms: 3000 });
+    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) {
+      cdp_ready = true;
+      break;
+    }
+    rh.sleep_ms(250);
+  }
+  ensure(cdp_ready, "acu074_cdp_readiness_timeout");
 
-  stage = "bridge-connection";
-  const connection = one_new_bridge_connection(rh.now_ms() + 15000, baseline_connections);
-  bridge_id = connection.connection_id;
-
-  stage = "window-open";
-  const opened_a = require_ok(invoke("observe,actuate", [
-    "browser-bridge-window-open", bridge_id, "--url", page_url("A"), "--focused"
-  ]), "acu074_open_a_failed");
-  ensure(opened_a.data.result.performed === true && opened_a.data.result.verified === true
-    && opened_a.data.result.window.focused === true, "acu074_open_a_state");
-  const bridge_a = opened_a.data.result.window.window_id;
-  const opened_b = require_ok(invoke("observe,actuate", [
-    "browser-bridge-window-open", bridge_id, "--url", page_url("B")
-  ]), "acu074_open_b_failed");
-  ensure(opened_b.data.result.performed === true && opened_b.data.result.verified === true
-    && opened_b.data.result.window.focused === false
-    && opened_b.data.result.focus_changed === false, "acu074_open_b_state");
-  const bridge_b = opened_b.data.result.window.window_id;
-  ensure(bridge_a !== bridge_b, "acu074_bridge_window_ids_collide");
+  stage = "browser-launch-a";
+  const opened_a = rh.command(chromium, [
+    "--user-data-dir=" + profile,
+    "--remote-debugging-port=" + port,
+    "--remote-debugging-address=127.0.0.1",
+    "--new-window",
+    page_url("A")
+  ], {
+    cwd: run_directory,
+    env: { AGENTERM_NO_ACTIVATE: "1" },
+    timeout_ms: 15000
+  });
+  ensure(opened_a.success === true, "acu074_open_a_failed:" + opened_a.stderr);
 
   stage = "native-candidates";
   let candidate_a = null;
@@ -398,33 +383,14 @@ try {
   rh.sleep_ms(300);
 
   stage = "bijection";
-  const native_rows = native_windows_for(browser_pid);
-  const bridge_rows = require_ok(invoke("observe", ["browser-bridge-windows", bridge_id]),
-    "acu074_bridge_windows_failed").data.result.windows;
   const native_a = native_window_by_title(browser_pid, page_title("A"));
   const native_b = native_window_by_title(browser_pid, page_title("B"));
   ensure(bounds_distinct(native_a.bounds, native_b.bounds), "acu074_native_bounds_not_distinct");
-  let matched_a = 0;
-  let matched_b = 0;
-  let bridge_focused_b = null;
-  for (const row of bridge_rows) {
-    if (bounds_equal(native_a.bounds, row.bounds)) {
-      matched_a = matched_a + 1;
-      ensure(row.window_id === bridge_a, "acu074_bijection_a_window_id");
-    }
-    if (bounds_equal(native_b.bounds, row.bounds)) {
-      matched_b = matched_b + 1;
-      ensure(row.window_id === bridge_b, "acu074_bijection_b_window_id");
-      bridge_focused_b = row.focused;
-    }
-  }
-  ensure(matched_a === 1 && matched_b === 1,
-    "acu074_bijection_not_unique:" + JSON.stringify({ a: matched_a, b: matched_b,
-      native: native_rows.length, bridge: bridge_rows.length }));
-  ensure(bridge_focused_b === false, "acu074_target_b_is_focused");
-  ensure(native_b.focused !== true, "acu074_target_b_native_focused");
   const target_window = native_b.handle;
   const peer_window = native_a.handle;
+  const browser_front = focused_native_window();
+  ensure(browser_front.process_id === browser_pid && browser_front.handle === peer_window,
+    "acu074_target_b_is_key_window:" + JSON.stringify(browser_front));
 
   stage = "guard";
   guard_child = harness.start({
@@ -453,7 +419,7 @@ try {
   oracle_self_test(port, target_a, "A");
   oracle_self_test(port, target_b, "B");
 
-  // B-local point (center of B) and a recorded off-target point placed at the
+  // B screen point (center of B) and a recorded off-target point placed at the
   // center of A: it is outside B by construction because the two frames are
   // mutually distinct and non-overlapping.
   const target_point = {
@@ -471,10 +437,9 @@ try {
   identity = {
     browser_pid: browser_pid,
     cdp_port: port,
-    bridge_connection: bridge_id,
-    target: { label: "B", cg_window: target_window, bridge_window: bridge_b,
+    target: { label: "B", cg_window: target_window,
               bounds: native_b.bounds, target_id: target_b },
-    peer: { label: "A", cg_window: peer_window, bridge_window: bridge_a,
+    peer: { label: "A", cg_window: peer_window,
             bounds: native_a.bounds, target_id: target_a },
     guard_pid: guard.pid,
     target_point: target_point,
@@ -523,17 +488,14 @@ try {
 let cleanup_failure = "";
 try {
   if (guard_child >= 0) {
-    harness.kill(guard_child);
+    if (harness.state(guard_child) === "running") { harness.kill(guard_child); }
     const guard_exit = harness.wait(guard_child, 2000);
     ensure(guard_exit.timed_out !== true, "acu074_guard_cleanup_timeout");
   }
-  if (session_started) {
-    const stopped = invoke("actuate", [
-      "browser-session-stop", SESSION_NAME, "--expect", "stopped", "--timeout-ms", "15000"
-    ]);
-    ensure(stopped.reply.ok === true, "acu074_session_stop_failed:" + JSON.stringify(stopped.reply));
-    const removed = invoke("actuate", ["browser-session-remove", SESSION_NAME, "--expect", "stopped"]);
-    ensure(removed.reply.ok === true, "acu074_session_remove_failed:" + JSON.stringify(removed.reply));
+  if (chrome_child >= 0) {
+    if (harness.state(chrome_child) === "running") { harness.kill(chrome_child); }
+    const chrome_exit = harness.wait(chrome_child, 5000);
+    ensure(chrome_exit.timed_out !== true, "acu074_chromium_cleanup_timeout");
   }
   cleanup_verified = true;
 } catch (error) {
