@@ -6350,7 +6350,7 @@
     },
     {
       "id": "cu-linux-orderwin-smoke",
-      "description": "Linux orderwin above/below on two GTK fixture windows: typed orderwin --name/--coords/--bogus usage_rejects_unexpected + command=usage; get-extents --name usage AND host-limit plus --coords/--bogus command=usage before actuate/read-back (no atspi gating); missing-window/headless host-limit; independent xprop stacking and windows z_index read-back; AT-SPI handles only, no --coords.",
+      "description": "Linux orderwin above/below on two GTK fixture windows: typed orderwin --name/--coords/--bogus uses usage_rejects_unexpected + command=usage or honest non-usage typed failure (never fake command=usage); get-extents --name usage AND host-limit always run, --coords/--bogus command=usage, no atspi gating, before process-state/desktop-state and actuate/read-back; missing-window/headless host-limit; independent xprop stacking and windows z_index read-back; AT-SPI handles only, no --coords.",
       "entry": "scripts/qjs/cu-linux-orderwin-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

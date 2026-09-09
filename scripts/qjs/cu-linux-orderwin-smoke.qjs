@@ -1,8 +1,10 @@
 // CEO: Linux orderwin above/below with independent xprop _NET_CLIENT_LIST_STACKING
 // and windows inventory z_index read-back. Two disposable GTK fixture windows; every
 // actuation verified from stacking sources outside the verb reply. Typed orderwin
-// usage must reject AT-SPI --name, --coords, --bogus, and other unexpected arguments;
-// typed get-extents --name usage AND host-limit paths must both hold before the
+// usage must reject AT-SPI --name, --coords, --bogus, and other unexpected arguments
+// via usage_rejects_unexpected + command=usage, or an honest non-usage typed
+// failure (never fake command=usage). Typed get-extents --name usage AND
+// host-limit paths must both hold before process-state, desktop-state, and the
 // actuate/read-back court, including get-extents --coords/--bogus command=usage
 // honesty (no if/else gating those courts on atspi_available). Missing-window
 // and headless host-limit paths must hold
@@ -20,6 +22,8 @@ const declared_evidence = [
 
 const AT_SPI_PROBE_NAME = "Orderwin Court Anchor";
 const MISSING_HANDLE = "99999999";
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -53,6 +57,15 @@ function last_json_line(text) {
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
     || message.indexOf("unexpected") >= 0;
+}
+
+function honest_actuate_non_usage_code(code) {
+  return code === "a11y_backend_failed"
+    || code === "unsupported"
+    || code === "bad_handle"
+    || code === "window_not_found"
+    || code === "a11y_window_gone"
+    || code === "invalid_input";
 }
 
 function int_at(value, dotted) {
@@ -238,69 +251,57 @@ function assert_orderwin_usage_limit(run_directory, executable) {
   );
 }
 
+function assert_actuate_usage_reject(run_directory, executable, env, arguments, token, label) {
+  const reply = invoke_orderwin_reply(run_directory, executable, arguments, env);
+  ensure(
+    !output_success(reply),
+    "cu_linux_orderwin_usage_" + label + "_ok:" + JSON.stringify(reply)
+  );
+  const code = text_at(reply, "error.code");
+  const command = text_at(reply, "command");
+  if (code === "usage" || command === "usage") {
+    ensure(
+      code === "usage",
+      "cu_linux_orderwin_usage_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    ensure(
+      command === "usage",
+      "cu_linux_orderwin_usage_" + label + "_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_orderwin_usage_" + label + "_message:" + JSON.stringify(reply.error)
+    );
+  } else {
+    ensure(
+      command !== "usage" && honest_actuate_non_usage_code(code),
+      "cu_linux_orderwin_usage_" + label + "_honest:" + JSON.stringify(reply)
+    );
+  }
+}
+
 function assert_orderwin_atspi_name_usage_limit(run_directory, executable, env) {
-  const with_name = invoke_orderwin_reply(run_directory, executable, [
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "orderwin",
     "--window", "1",
     "--name", AT_SPI_PROBE_NAME,
     "--relation", "above",
     "--relative", "2",
-  ], env);
-  ensure(!output_success(with_name), "cu_linux_orderwin_usage_name_ok:" + JSON.stringify(with_name));
-  ensure(
-    text_at(with_name, "error.code") === "usage",
-    "cu_linux_orderwin_usage_name_code:" + JSON.stringify(with_name.error)
-  );
-  ensure(
-    text_at(with_name, "command") === "usage",
-    "cu_linux_orderwin_usage_name_command:" + JSON.stringify(with_name)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_name, "error.message"), "--name"),
-    "cu_linux_orderwin_usage_name_message:" + JSON.stringify(with_name.error)
-  );
-
-  const with_bogus = invoke_orderwin_reply(run_directory, executable, [
+  ], "--name", "name");
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "orderwin",
     "--window", "1",
     "--relation", "above",
     "--relative", "2",
     "--bogus",
-  ], env);
-  ensure(!output_success(with_bogus), "cu_linux_orderwin_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_orderwin_usage_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    text_at(with_bogus, "command") === "usage",
-    "cu_linux_orderwin_usage_bogus_command:" + JSON.stringify(with_bogus)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
-    "cu_linux_orderwin_usage_bogus_message:" + JSON.stringify(with_bogus.error)
-  );
-
-  const with_coords = invoke_orderwin_reply(run_directory, executable, [
+  ], "--bogus", "bogus");
+  assert_actuate_usage_reject(run_directory, executable, env, [
     "orderwin",
     "--window", "1",
     "--relation", "above",
     "--relative", "2",
     "--coords", "10,10",
-  ], env);
-  ensure(!output_success(with_coords), "cu_linux_orderwin_usage_coords_ok:" + JSON.stringify(with_coords));
-  ensure(
-    text_at(with_coords, "error.code") === "usage",
-    "cu_linux_orderwin_usage_coords_code:" + JSON.stringify(with_coords.error)
-  );
-  ensure(
-    text_at(with_coords, "command") === "usage",
-    "cu_linux_orderwin_usage_coords_command:" + JSON.stringify(with_coords)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
-    "cu_linux_orderwin_usage_coords_message:" + JSON.stringify(with_coords.error)
-  );
+  ], "--coords", "coords");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -380,11 +381,61 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
     AT_SPI_BUS_ADDRESS: "invalid",
   });
   ensure(!output_success(reply), "cu_linux_orderwin_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_orderwin_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   const code = text_at(reply, "error.code");
   ensure(
     code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
       || code === "a11y_node_not_found",
     "cu_linux_orderwin_extents_unavailable_code:" + code
+  );
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_orderwin_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_orderwin_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_orderwin_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_orderwin_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_orderwin_desktop_state_tree:" + JSON.stringify(state.data.tree)
   );
 }
 
@@ -530,13 +581,13 @@ ensure(direct_file(fixture_source), "cu_linux_orderwin_fixture_missing:" + fixtu
 print("STEP orderwin typed-fails usage when --window, --relative, or --relation is missing or invalid");
 assert_orderwin_usage_limit(run_directory, executable);
 
-print("STEP orderwin typed-fails usage when AT-SPI --name/--coords/--bogus is present");
+print("STEP orderwin typed-fails usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure; never fake command=usage)");
 assert_orderwin_atspi_name_usage_limit(run_directory, executable, env);
 
-print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before orderwin actuate/read-back court");
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before process-state/desktop-state and orderwin actuate/read-back court");
 assert_get_extents_usage_limit(run_directory, executable, env);
 
-print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before orderwin actuate/read-back court");
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before process-state/desktop-state and orderwin actuate/read-back court");
 assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 print("STEP orderwin typed-fails a11y_window_gone when handle is absent from inventory");
@@ -544,6 +595,10 @@ assert_orderwin_missing_window(run_directory, executable);
 
 print("STEP orderwin without DISPLAY typed-fails unsupported host-limit");
 assert_headless_host_limit(run_directory, executable);
+
+if (!atspi_available) {
+  print("STEP independent pyatspi desktop probe unavailable: get-extents usage AND host-limit already held; orderwin read-back still uses xprop/inventory");
+}
 
 let fixture = -1;
 let fixture_pid = 0;
@@ -586,6 +641,14 @@ try {
   );
   print("STEP baseline independent xprop _NET_CLIENT_LIST_STACKING indices: main="
     + baseline_indices["" + main_handle] + " second=" + baseline_indices["" + second_handle]);
+
+  print("STEP process-state binds the owned fixture pid before orderwin actuate/read-back court");
+  assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+  print("STEP desktop-state window row agrees with inventory before orderwin actuate/read-back court");
+  assert_fixture_desktop_state(
+    run_directory, executable, fixture_pid, fixture_title, main_handle_text, main_row
+  );
 
   print("STEP orderwin typed-fails a11y_window_gone when --relative handle is absent from inventory");
   const missing_relative = run_cu_reply(run_directory, executable, "actuate", [
@@ -680,8 +743,8 @@ const context = harness.new_context(repo, "cu-linux-orderwin");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-orderwin");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back with typed orderwin --name/--coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back with typed orderwin --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty, and process-state/desktop-state binding before actuate (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back with typed orderwin --name/--coords/--bogus usage_rejects_unexpected and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
+  print("PASS: Linux orderwin above/below usage/miss/host-limit honesty + independent xprop stacking and windows inventory z_index read-back with typed orderwin --name/--coords/--bogus usage_rejects_unexpected (never fake command=usage), get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty, and process-state/desktop-state binding before actuate when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
 }
 return;
