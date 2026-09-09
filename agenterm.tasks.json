@@ -5817,7 +5817,7 @@
     },
     {
       "id": "cu-linux-external-terminal-send-smoke",
-      "description": "Explicit visible Linux court for exact-window external-terminal send: typed terminal-send/term-send/get-extents AT-SPI --name usage or host-limit honesty before AgenTerm sock and external term-read read-back courts; focus the owned AT-SPI terminal buffer, inject one unique token, verify the same-buffer postcondition, and restore the prior foreground window; abi-dev, no --coords.",
+      "description": "Linux external-terminal send: typed terminal-send/term-send/terminal-list/get-extents --name/--coords/--bogus usage and get-extents host-limit before AgenTerm Unix-sock and term-read courts; missing sock typed host-limit mechanism agenterm-unix-control-socket with independent absent-socket proof; inject one token and verify independent term-read, not the send reply; abi-dev, no --coords.",
       "entry": "scripts/qjs/cu-linux-external-terminal-send-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

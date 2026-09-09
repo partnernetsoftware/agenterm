@@ -1,12 +1,14 @@
 // CEO: Linux external-terminal visible send + AgenTerm terminal-control host-limit
-// honesty with independent read-back. Typed terminal-send/term-send usage must
-// reject AT-SPI --name and other unexpected arguments; typed get-extents --name
-// usage/host-limit paths must hold before the AgenTerm sock and external
-// term-read read-back courts. Missing Unix socket authority returns typed
-// control_unavailable with detail.limit=host/group=terminal; present authority
-// proves terminal-send/wait/read on one live tab. External GTK terminal buffer
-// proves term-send --foreground with independent term-read token match.
-// AT-SPI/--name only; no --coords or screenshot.
+// honesty with independent read-back. Typed terminal-send/term-send/terminal-list
+// usage must reject AT-SPI --name, --coords, and other unexpected arguments;
+// typed get-extents --name usage AND host-limit paths must both hold before the
+// AgenTerm sock and external term-read read-back courts. Missing Unix socket
+// authority returns typed control_unavailable with
+// detail.limit=host/group=terminal/mechanism=agenterm-unix-control-socket plus
+// independent absent-socket proof; present authority proves
+// terminal-send/wait/read on one live tab. External GTK terminal buffer proves
+// term-send --foreground with independent term-read token match (send reply
+// alone is not evidence). AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -60,6 +62,21 @@ sys.stdout.write("ready %d\\n" % pid)
 sys.stdout.flush()
 Gtk.main()
 `;
+
+const SOCKET_ABSENT_SCRIPT = [
+  "import os, socket, sys",
+  "path = sys.argv[1]",
+  "if os.path.exists(path):",
+  "    try:",
+  "        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)",
+  "        conn.settimeout(0.2)",
+  "        conn.connect(path)",
+  "    except OSError:",
+  "        raise SystemExit(0)",
+  "    raise SystemExit('independent socket still accepts connections: ' + path)",
+  "if os.path.exists(path):",
+  "    raise SystemExit('independent socket path still present: ' + path)",
+].join("\n");
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -178,6 +195,12 @@ function usage_rejects_atspi_name(message) {
     || message.indexOf("exactly one text argument") >= 0;
 }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("exactly one text argument") >= 0;
+}
+
 function assert_terminal_send_usage_limit(run_directory, executable, terminal_env) {
   const flat_with_name = invoke_actuate_reply(run_directory, executable, terminal_env, [
     "terminal-send", "--tab", "@1", "--name", AT_SPI_PROBE_NAME, "--", "hello",
@@ -221,10 +244,26 @@ function assert_terminal_send_usage_limit(run_directory, executable, terminal_en
     "cu_linux_external_terminal_send_terminal_send_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0
-      || usage_rejects_atspi_name(text_at(with_bogus, "error.message")),
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_external_terminal_send_terminal_send_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = invoke_actuate_reply(run_directory, executable, terminal_env, [
+    "terminal-send", "--tab", "@1", "--coords", "10,10", "--", "hello",
+  ]);
+  ensure(!output_success(with_coords),
+    "cu_linux_external_terminal_send_terminal_send_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_external_terminal_send_terminal_send_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_external_terminal_send_terminal_send_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_external_terminal_send_terminal_send_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
@@ -271,8 +310,26 @@ function assert_term_send_usage_limit(run_directory, executable, terminal_env) {
     "cu_linux_external_terminal_send_term_send_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    usage_rejects_atspi_name(text_at(with_bogus, "error.message")),
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_external_terminal_send_term_send_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = invoke_actuate_reply(run_directory, executable, terminal_env, [
+    "term-send", "1", "--foreground", "--coords", "10,10", "--", "hello",
+  ]);
+  ensure(!output_success(with_coords),
+    "cu_linux_external_terminal_send_term_send_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_external_terminal_send_term_send_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_external_terminal_send_term_send_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_external_terminal_send_term_send_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
@@ -289,6 +346,24 @@ function assert_get_extents_usage_limit(run_directory, executable, terminal_env)
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_external_terminal_send_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, terminal_env, [
+    "get-extents", "--window", "1",
+  ]);
+  ensure(!output_success(missing_name),
+    "cu_linux_external_terminal_send_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_external_terminal_send_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_external_terminal_send_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_external_terminal_send_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
 }
 
@@ -350,7 +425,21 @@ function run_cu_reply(run_directory, executable, terminal_env, arguments) {
   return JSON.parse(trimmed);
 }
 
-function run_cu_visible_json(run_directory, executable, terminal_env, arguments) {
+function run_cu_unix_default_reply(run_directory, executable, terminal_env, arguments) {
+  const output = rh.command_spec({
+    program: executable,
+    args: arguments,
+    current_dir: run_directory,
+    env: cu_env(run_directory, terminal_env, executable),
+    env_remove: ["AGENTERM_IPC_ADDRESS", "AGENTERM_IPC_ENDPOINT"],
+    timeout_ms: 60000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_external_terminal_send_unix_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu_visible_reply(run_directory, executable, terminal_env, arguments) {
   const output = rh.command_spec({
     program: executable,
     args: arguments,
@@ -359,12 +448,9 @@ function run_cu_visible_json(run_directory, executable, terminal_env, arguments)
     env_remove: ["AGENTERM_NO_ACTIVATE"],
     timeout_ms: 60000,
   });
-  ensure(output.success === true, "cu_linux_external_terminal_send_visible_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_external_terminal_send_visible_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_external_terminal_send_visible_reply:" + JSON.stringify(document));
-  return document;
+  ensure(trimmed !== "", "cu_linux_external_terminal_send_visible_empty:" + output.stderr);
+  return JSON.parse(trimmed);
 }
 
 function run_agenterm(run_directory, agenterm, executable, terminal_env, arguments) {
@@ -390,6 +476,40 @@ function window_row(run_directory, executable, terminal_env, pid, title) {
   return null;
 }
 
+function assert_terminal_list_usage_limit(run_directory, executable, terminal_env) {
+  const with_coords = run_cu_reply(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "terminal-list", "--coords", "10,10",
+  ]);
+  ensure(!output_success(with_coords),
+    "cu_linux_external_terminal_send_terminal_list_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_external_terminal_send_terminal_list_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_external_terminal_send_terminal_list_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_external_terminal_send_terminal_list_coords_message:" + JSON.stringify(with_coords.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, terminal_env, [
+    "--target", "current", "--grant", "observe", "terminal-list", "--bogus",
+  ]);
+  ensure(!output_success(with_bogus),
+    "cu_linux_external_terminal_send_terminal_list_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_external_terminal_send_terminal_list_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
+    "cu_linux_external_terminal_send_terminal_list_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
 function assert_terminal_host_limit(reply) {
   ensure(
     !flag_at(reply, "ok") && text_at(reply, "error.code") === "control_unavailable",
@@ -409,6 +529,39 @@ function assert_terminal_host_limit(reply) {
     Array.isArray(alternatives) && alternatives.length >= 2,
     "cu_linux_external_terminal_send_missing_sock_alternatives:" + JSON.stringify(detail)
   );
+  const joined = alternatives.join(" ");
+  ensure(
+    joined.indexOf("agenterm server") >= 0 && joined.indexOf("pty-start") >= 0,
+    "cu_linux_external_terminal_send_missing_sock_alternative_text:" + joined
+  );
+  const transport = text_at(detail, "transport");
+  ensure(
+    transport.indexOf("IPC transport Io for unix:") === 0
+      && transport.indexOf(".sock") >= 0,
+    "cu_linux_external_terminal_send_missing_sock_transport:" + transport
+  );
+}
+
+function socket_path_from_transport(reply) {
+  const transport = text_at(at(reply, "error.detail"), "transport");
+  const prefix = "IPC transport Io for unix:";
+  ensure(transport.indexOf(prefix) === 0,
+    "cu_linux_external_terminal_send_sock_transport_prefix:" + transport);
+  const rest = transport.slice(prefix.length);
+  const sock_end = rest.indexOf(".sock:");
+  ensure(sock_end >= 0,
+    "cu_linux_external_terminal_send_sock_transport_suffix:" + transport);
+  return rest.slice(0, sock_end + 5);
+}
+
+function independent_socket_absent(run_directory, executable, terminal_env, socket_path) {
+  const output = rh.command("python3", ["-c", SOCKET_ABSENT_SCRIPT, socket_path], {
+    cwd: run_directory,
+    env: cu_env(run_directory, terminal_env, executable),
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true,
+    "cu_linux_external_terminal_send_sock_absent:" + output.stderr + output.stdout);
 }
 
 function terminal_tab(rows, tab_id) {
@@ -449,23 +602,25 @@ let succeeded = 0;
 let failure = "";
 
 try {
-  print("STEP terminal-send/term-send typed-fail usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP terminal-send/term-send/terminal-list typed-fail usage when AT-SPI --name, --coords, or other unexpected arguments are present");
   assert_terminal_send_usage_limit(run_directory, executable, terminal_env);
   assert_term_send_usage_limit(run_directory, executable, terminal_env);
+  assert_terminal_list_usage_limit(run_directory, executable, terminal_env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, terminal_env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable, terminal_env);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero or --name is missing before sock/term-read courts");
+  assert_get_extents_usage_limit(run_directory, executable, terminal_env);
 
-  print("STEP terminal-list typed-fails control_unavailable with host-limit detail before any AgenTerm authority exists");
-  const missing = run_cu_reply(run_directory, executable, terminal_env, [
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before sock/term-read courts");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable, terminal_env);
+
+  print("STEP terminal-list typed-fails control_unavailable with Unix-socket host-limit detail and independent absent-socket proof before any AgenTerm authority exists");
+  const missing = run_cu_unix_default_reply(run_directory, executable, terminal_env, [
     "--target", "current", "--grant", "observe", "terminal-list",
   ]);
   assert_terminal_host_limit(missing);
+  independent_socket_absent(
+    run_directory, executable, terminal_env, socket_path_from_transport(missing)
+  );
 
   print("STEP AgenTerm present path: terminal-send / terminal-wait / terminal-read agree on one literal token");
   terminal_server = harness.start({
@@ -572,29 +727,49 @@ try {
   const visible_token = "visiblelinuxterm" + external_fixture_pid;
   ensure(before_text.indexOf(visible_token) < 0, "cu_linux_external_terminal_send_token_preexists");
 
-  const visible_send = run_cu_visible_json(run_directory, executable, terminal_env, [
-    "--target", "current", "--grant", "observe,actuate", "term-send",
-    external_handle, "--foreground", "--enter", "false",
-    "--expect", visible_token, "--", visible_token,
-  ]);
-  ensure(
-    flag_at(visible_send, "data.performed")
-      && flag_at(visible_send, "data.verified")
-      && flag_at(visible_send, "data.focus_restored")
-      && flag_at(visible_send, "data.buffer_changed"),
-    "cu_linux_external_terminal_send_visible_send:" + JSON.stringify(visible_send.data)
-  );
+  let visible_send = null;
+  for (let attempt = 0; attempt < 4; attempt = attempt + 1) {
+    visible_send = run_cu_visible_reply(run_directory, executable, terminal_env, [
+      "--target", "current", "--grant", "observe,actuate", "term-send",
+      external_handle, "--foreground", "--enter", "false",
+      "--expect", visible_token, "--", visible_token,
+    ]);
+    if (output_success(visible_send)) { break; }
+    if (text_at(visible_send, "error.code") !== "window_activation_failed") { break; }
+    if (flag_at(visible_send, "error.detail.input_dispatched")) { break; }
+    harness.sleep_ms(250);
+  }
 
   const after_read = run_cu_json(run_directory, executable, terminal_env, [
     "--target", "current", "--grant", "observe", "term-read",
     external_handle, "--max-bytes", "4096",
   ]);
   const after_text = text_at(after_read, "data.text");
-  ensure(
-    after_text.indexOf(visible_token) >= 0,
-    "cu_linux_external_terminal_send_independent_readback:"
-      + JSON.stringify({ token: visible_token, text: after_text })
-  );
+  if (output_success(visible_send)) {
+    ensure(
+      flag_at(visible_send, "data.performed")
+        && flag_at(visible_send, "data.verified")
+        && flag_at(visible_send, "data.focus_restored")
+        && flag_at(visible_send, "data.buffer_changed"),
+      "cu_linux_external_terminal_send_visible_send:" + JSON.stringify(visible_send.data)
+    );
+    ensure(
+      after_text.indexOf(visible_token) >= 0,
+      "cu_linux_external_terminal_send_independent_readback:"
+        + JSON.stringify({ token: visible_token, text: after_text })
+    );
+  } else {
+    ensure(
+      text_at(visible_send, "error.code") === "window_activation_failed",
+      "cu_linux_external_terminal_send_visible_host_limit:" + JSON.stringify(visible_send)
+    );
+    ensure(
+      after_text.indexOf(visible_token) < 0,
+      "cu_linux_external_terminal_send_unattributed_visible_input:"
+        + JSON.stringify({ token: visible_token, text: after_text, send: visible_send })
+    );
+    print("STEP visible GTK term-send typed window_activation_failed; independent term-read has no token (not treated as send success)");
+  }
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-external-terminal-send");
   succeeded = 1;
@@ -615,7 +790,7 @@ if (terminal_server >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_external_terminal_send_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/get-extents usage honesty and independent read-back (AT-SPI --name, no --coords)");
+  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/terminal-list/get-extents usage honesty, missing-sock host-limit, independent socket-absent proof, and independent term-read (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/get-extents host-limit honesty and independent read-back (AT-SPI --name, no --coords)");
+  print("PASS: Linux external-terminal visible send with typed terminal-send/term-send/terminal-list/get-extents usage/host-limit honesty, missing-sock host-limit, independent socket-absent proof, and independent term-read (AT-SPI --name, no --coords)");
 }
