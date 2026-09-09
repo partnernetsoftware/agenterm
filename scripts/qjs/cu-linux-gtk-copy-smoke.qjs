@@ -1,6 +1,9 @@
 // CEO#9: GTK entry/label copy --name → independent clipboard-read.
 // Acceptance is clipboard-read text == seeded GetText payload; copy reply
-// text does not count. AT-SPI --name only; no --coords or screenshot.
+// text does not count. Typed usage and host-limit paths must hold when
+// --window/--name are missing or the AT-SPI bus is unavailable; miss paths
+// must not publish onto the clipboard (independent clipboard-read read-back).
+// AT-SPI --name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -14,6 +17,9 @@ const declared_evidence = [
 
 const ENTRY_NAME = "Fixture Entry";
 const LABEL_NAME = "menu idle";
+const MISSING_NODE = "No Such Entry";
+const text_type = "text/plain;charset=utf-8";
+const MISS_SENTINEL = "ceo9-copy-miss-sentinel";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -41,20 +47,145 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_gtk_copy_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_gtk_copy_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_gtk_copy_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_gtk_copy_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_gtk_copy_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function clipboard_text_matches(run_directory, executable, expected) {
+  const read = run_cu(run_directory, executable, "observe", ["clipboard-read"]);
+  ensure(
+    text_at(read, "data.text") === expected
+      && flag_at(read, "data.types_available")
+      && text_at(read, "data.format") === text_type,
+    "cu_linux_gtk_copy_clipboard_read:" + JSON.stringify({
+      expected: expected,
+      read: read.data,
+    })
+  );
+  return read;
+}
+
+function assert_copy_usage_limit(run_directory, executable) {
+  const missing_window = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "copy", "--name", ENTRY_NAME,
+  ]);
+  ensure(!output_success(missing_window), "cu_linux_gtk_copy_usage_ok:" + JSON.stringify(missing_window));
+  ensure(
+    text_at(missing_window, "error.code") === "invalid_input",
+    "cu_linux_gtk_copy_usage_code:" + JSON.stringify(missing_window.error)
+  );
+  ensure(
+    text_at(missing_window, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_copy_usage_message:" + JSON.stringify(missing_window.error)
+  );
+
+  const role_without_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "copy", "--window", "1", "--role", "entry",
+  ]);
+  ensure(!output_success(role_without_name), "cu_linux_gtk_copy_role_ok:" + JSON.stringify(role_without_name));
+  ensure(
+    text_at(role_without_name, "error.code") === "invalid_input",
+    "cu_linux_gtk_copy_role_code:" + JSON.stringify(role_without_name.error)
+  );
+  ensure(
+    text_at(role_without_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_copy_role_message:" + JSON.stringify(role_without_name.error)
+  );
+
+  const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "copy", "--window", "0", "--name", ENTRY_NAME,
+  ]);
+  ensure(!output_success(zero_handle), "cu_linux_gtk_copy_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_gtk_copy_zero_handle_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_copy_zero_handle_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_copy_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "copy", "--window", "1", "--name", ENTRY_NAME,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_gtk_copy_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_gtk_copy_unavailable_code:" + code
+  );
+}
+
+function assert_copy_missing_node(run_directory, executable, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "copy", "--window", handle, "--name", MISSING_NODE,
+  ]);
+  ensure(!output_success(reply), "cu_linux_gtk_copy_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_gtk_copy_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -68,20 +199,6 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
-function clipboard_text_matches(run_directory, executable, expected) {
-  const read = run_cu(run_directory, executable, "observe", ["clipboard-read"]);
-  ensure(
-    text_at(read, "data.text") === expected
-      && flag_at(read, "data.types_available")
-      && text_at(read, "data.format") === "text/plain;charset=utf-8",
-    "cu_linux_gtk_copy_clipboard_read:" + JSON.stringify({
-      expected: expected,
-      read: read.data,
-    })
-  );
-  return read;
-}
-
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -90,6 +207,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_gtk_copy_executable_missing");
 const context = harness.new_context(repo, "cu-linux-gtk-copy");
 const run_directory = rh.join(repo, "target/cu-linux-gtk-copy-smoke-run");
 rh.create_dir_all(run_directory);
@@ -101,72 +219,97 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_copy_window_wait");
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_gtk_copy_window_identity");
-  const handle = "" + at(row, "handle");
+  print("STEP copy typed-fail usage when --window or --name is missing");
+  assert_copy_usage_limit(run_directory, executable);
 
-  print("STEP clear clipboard before entry copy court");
-  run_cu(run_directory, executable, "observe,actuate", [
-    "clipboard-clear", "--apply",
-  ]);
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_copy_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_copy_window_wait");
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_gtk_copy_window_identity");
+    const handle = "" + at(row, "handle");
 
-  const seed = "ceo9-gtk-copy-" + context.run_id;
-  print("STEP send-text --name plants SEED in the GTK entry");
-  const sent = run_cu(run_directory, executable, "observe,actuate", [
-    "send-text", "--window", handle, "--name", ENTRY_NAME, "--", seed,
-  ]);
-  ensure(
-    text_at(sent, "data.typed") === seed
-      && text_at(sent, "data.addressing") === "accessibility-tree",
-    "cu_linux_gtk_copy_send:" + JSON.stringify(sent.data)
-  );
+    print("STEP clipboard-clear then clipboard-write publishes a miss sentinel");
+    run_cu(run_directory, executable, "observe,actuate", [
+      "clipboard-clear", "--apply",
+    ]);
+    run_cu(run_directory, executable, "actuate", [
+      "clipboard-write", "--type", text_type, "--text", MISS_SENTINEL,
+    ]);
+    clipboard_text_matches(run_directory, executable, MISS_SENTINEL);
 
-  print("STEP copy --name publishes entry GetText onto native clipboard");
-  const copied = run_cu(run_directory, executable, "observe,actuate", [
-    "copy", "--window", handle, "--name", ENTRY_NAME,
-  ]);
-  ensure(
-    text_at(copied, "data.via") === "gettext"
-      && flag_at(copied, "data.clipboard")
-      && text_at(copied, "data.addressing") === "accessibility-tree",
-    "cu_linux_gtk_copy_entry_copy:" + JSON.stringify(copied.data)
-  );
+    print("STEP copy typed-fail a11y_node_not_found when the named entry is missing");
+    assert_copy_missing_node(run_directory, executable, handle, "before_entry_copy");
+    print("STEP independent clipboard-read proves the miss did not publish onto the clipboard");
+    clipboard_text_matches(run_directory, executable, MISS_SENTINEL);
 
-  print("STEP independent clipboard-read proves entry payload == SEED");
-  clipboard_text_matches(run_directory, executable, seed);
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-copy-clipboard");
+    print("STEP clear clipboard before entry copy court");
+    run_cu(run_directory, executable, "observe,actuate", [
+      "clipboard-clear", "--apply",
+    ]);
 
-  print("STEP copy --name on GTK label publishes label text onto clipboard");
-  const label_copy = run_cu(run_directory, executable, "observe,actuate", [
-    "copy", "--window", handle, "--name", LABEL_NAME,
-  ]);
-  ensure(
-    text_at(label_copy, "data.via") === "gettext"
-      && flag_at(label_copy, "data.clipboard"),
-    "cu_linux_gtk_copy_label_copy:" + JSON.stringify(label_copy.data)
-  );
+    const seed = "ceo9-gtk-copy-" + context.run_id;
+    print("STEP send-text --name plants SEED in the GTK entry");
+    const sent = run_cu(run_directory, executable, "observe,actuate", [
+      "send-text", "--window", handle, "--name", ENTRY_NAME, "--", seed,
+    ]);
+    ensure(
+      text_at(sent, "data.typed") === seed
+        && text_at(sent, "data.addressing") === "accessibility-tree",
+      "cu_linux_gtk_copy_send:" + JSON.stringify(sent.data)
+    );
 
-  print("STEP independent clipboard-read proves label payload == menu idle");
-  clipboard_text_matches(run_directory, executable, LABEL_NAME);
-  harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-label-copy-clipboard");
+    print("STEP copy --name publishes entry GetText onto native clipboard");
+    const copied = run_cu(run_directory, executable, "observe,actuate", [
+      "copy", "--window", handle, "--name", ENTRY_NAME,
+    ]);
+    ensure(
+      text_at(copied, "data.via") === "gettext"
+        && flag_at(copied, "data.clipboard")
+        && text_at(copied, "data.addressing") === "accessibility-tree",
+      "cu_linux_gtk_copy_entry_copy:" + JSON.stringify(copied.data)
+    );
 
-  succeeded = 1;
+    print("STEP independent clipboard-read proves entry payload == SEED");
+    clipboard_text_matches(run_directory, executable, seed);
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-copy-clipboard");
+
+    print("STEP copy --name on GTK label publishes label text onto clipboard");
+    const label_copy = run_cu(run_directory, executable, "observe,actuate", [
+      "copy", "--window", handle, "--name", LABEL_NAME,
+    ]);
+    ensure(
+      text_at(label_copy, "data.via") === "gettext"
+        && flag_at(label_copy, "data.clipboard"),
+      "cu_linux_gtk_copy_label_copy:" + JSON.stringify(label_copy.data)
+    );
+
+    print("STEP independent clipboard-read proves label payload == menu idle");
+    clipboard_text_matches(run_directory, executable, LABEL_NAME);
+    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-label-copy-clipboard");
+
+    run_cu(run_directory, executable, "actuate", ["clipboard-clear", "--apply"]);
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -179,4 +322,8 @@ if (fixture >= 0) {
 }
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_copy_failed");
-print("PASS: CEO#9 GTK entry/label copy --name with independent clipboard-read (AT-SPI --name, no --coords)");
+if (atspi_available) {
+  print("PASS: CEO#9 GTK entry/label copy --name with independent clipboard-read and typed usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: CEO#9 GTK entry/label copy typed-fails when independent pyatspi desktop probe is unavailable");
+}

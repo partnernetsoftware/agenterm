@@ -6547,7 +6547,7 @@
     },
     {
       "id": "cu-linux-gtk-copy-smoke",
-      "description": "Linux GTK entry/label copy --name publishes AT-SPI Text.GetText onto native clipboard and independent clipboard-read matches the seeded entry text and label payload; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry/label copy --name publishes AT-SPI Text.GetText onto native clipboard and independent clipboard-read matches the seeded entry text and label payload; typed usage and host-limit paths when --window/--name are missing or the AT-SPI bus is unavailable; miss paths must not publish onto the clipboard; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-copy-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
