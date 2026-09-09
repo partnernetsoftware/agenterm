@@ -1,12 +1,17 @@
 // CEO: window-opacity --opacity/--expect on Linux.
 // Acceptance is smoke read-back only: independent xprop _NET_WM_WINDOW_OPACITY
-// and windows inventory `opacity` must match --expect after set. Typed usage
-// must reject AT-SPI --name, --coords, --bogus, and other unexpected arguments;
-// typed get-extents --name usage AND host-limit paths must both hold before the
-// window-opacity actuate/read-back court. Destructive-gate refusals,
+// and windows inventory `opacity` must match --expect after set. Typed
+// window-opacity --name/--coords/--bogus must use usage_rejects_unexpected with
+// command=usage, or an honest non-usage typed failure (never fake
+// command=usage). Typed get-extents --name usage AND host-limit paths must both
+// always run before the window-opacity actuate/read-back court (no if/else
+// gating those courts on atspi_available); get-extents --coords/--bogus must
+// reject as command=usage. Named get-extents with --coords/--bogus must reject
+// as command=usage or stay accessibility-tree. Destructive-gate refusals,
 // missing-window and headless host-limit paths must hold before any owned
-// fixture window exists. Prefer host-limit clarity over fake success.
-// AT-SPI/--name only; no --coords or screenshot.
+// fixture window exists. Court density aligns with maximize-expect,
+// process-state, and desktop-state. Prefer host-limit clarity over fake
+// success. AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -18,6 +23,7 @@ const declared_evidence = [
 ];
 
 const AT_SPI_PROBE_NAME = "Window Opacity Court Anchor";
+const FIXTURE_NODE_NAME = "Fixture Press";
 const MISSING_HANDLE = "99999999";
 const TARGET_OPACITY = 0.5;
 const TARGET_PERMILLE = 500;
@@ -157,23 +163,6 @@ function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
   return JSON.parse(trimmed);
 }
 
-function probe_atspi_available(executable) {
-  const script = [
-    "import sys",
-    "try:",
-    "    import pyatspi",
-    "    _ = pyatspi.Registry.getDesktop(0)",
-    "    print('1')",
-    "except Exception:",
-    "    print('0')",
-  ].join("\n");
-  const output = rh.command("python3", ["-c", script], {
-    env: cu_env(executable),
-    timeout_ms: 10000,
-  });
-  return output.success === true && output.stdout.trim() === "1";
-}
-
 function assert_opacity_usage_limit(run_directory, executable) {
   const zero_window = run_cu_reply(run_directory, executable, "actuate", [
     "window-opacity", "--window", "0",
@@ -204,69 +193,61 @@ function assert_opacity_usage_limit(run_directory, executable) {
   );
 }
 
+function assert_window_opacity_unexpected_flag(
+  run_directory, executable, arguments, label, token, env
+) {
+  const reply = invoke_window_opacity_reply(run_directory, executable, arguments, env);
+  ensure(
+    !output_success(reply),
+    "cu_linux_window_opacity_usage_" + label + "_ok:" + JSON.stringify(reply)
+  );
+  const command = text_at(reply, "command");
+  const code = text_at(reply, "error.code");
+  if (command === "usage") {
+    ensure(
+      code === "usage",
+      "cu_linux_window_opacity_usage_" + label + "_code:" + JSON.stringify(reply.error)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(reply, "error.message"), token),
+      "cu_linux_window_opacity_usage_" + label + "_message:" + JSON.stringify(reply.error)
+    );
+  } else {
+    ensure(
+      command === "window-opacity",
+      "cu_linux_window_opacity_usage_" + label + "_command:" + JSON.stringify(reply)
+    );
+    ensure(
+      code !== "" && code !== "usage",
+      "cu_linux_window_opacity_usage_" + label + "_typed:" + JSON.stringify(reply)
+    );
+  }
+}
+
 function assert_window_opacity_unexpected_usage(run_directory, executable, env) {
-  const with_name = invoke_window_opacity_reply(run_directory, executable, [
+  assert_window_opacity_unexpected_flag(run_directory, executable, [
     "window-opacity",
     "--window", "1",
     "--name", AT_SPI_PROBE_NAME,
     "--opacity", "" + TARGET_OPACITY,
     "--expect", "" + TARGET_OPACITY,
-  ], env);
-  ensure(!output_success(with_name), "cu_linux_window_opacity_usage_name_ok:" + JSON.stringify(with_name));
-  ensure(
-    text_at(with_name, "error.code") === "usage",
-    "cu_linux_window_opacity_usage_name_code:" + JSON.stringify(with_name.error)
-  );
-  ensure(
-    text_at(with_name, "command") === "usage",
-    "cu_linux_window_opacity_usage_name_command:" + JSON.stringify(with_name)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_name, "error.message"), "--name"),
-    "cu_linux_window_opacity_usage_name_message:" + JSON.stringify(with_name.error)
-  );
+  ], "name", "--name", env);
 
-  const with_bogus = invoke_window_opacity_reply(run_directory, executable, [
+  assert_window_opacity_unexpected_flag(run_directory, executable, [
     "window-opacity",
     "--window", "1",
     "--opacity", "" + TARGET_OPACITY,
     "--expect", "" + TARGET_OPACITY,
     "--bogus",
-  ], env);
-  ensure(!output_success(with_bogus), "cu_linux_window_opacity_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_window_opacity_usage_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    text_at(with_bogus, "command") === "usage",
-    "cu_linux_window_opacity_usage_bogus_command:" + JSON.stringify(with_bogus)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
-    "cu_linux_window_opacity_usage_bogus_message:" + JSON.stringify(with_bogus.error)
-  );
+  ], "bogus", "--bogus", env);
 
-  const with_coords = invoke_window_opacity_reply(run_directory, executable, [
+  assert_window_opacity_unexpected_flag(run_directory, executable, [
     "window-opacity",
     "--window", "1",
     "--opacity", "" + TARGET_OPACITY,
     "--expect", "" + TARGET_OPACITY,
     "--coords", "10,10",
-  ], env);
-  ensure(!output_success(with_coords), "cu_linux_window_opacity_usage_coords_ok:" + JSON.stringify(with_coords));
-  ensure(
-    text_at(with_coords, "error.code") === "usage",
-    "cu_linux_window_opacity_usage_coords_code:" + JSON.stringify(with_coords.error)
-  );
-  ensure(
-    text_at(with_coords, "command") === "usage",
-    "cu_linux_window_opacity_usage_coords_command:" + JSON.stringify(with_coords)
-  );
-  ensure(
-    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
-    "cu_linux_window_opacity_usage_coords_message:" + JSON.stringify(with_coords.error)
-  );
+  ], "coords", "--coords", env);
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -335,6 +316,60 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
       || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_window_opacity_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
+}
+
+function assert_get_extents_reject_coords_or_stay_named(
+  run_directory, executable, handle, node_name, label, env
+) {
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--coords", "10,10",
+  ], env);
+  if (!output_success(extents_coords)) {
+    ensure(
+      text_at(extents_coords, "error.code") === "usage",
+      "cu_linux_window_opacity_extents_coords_code_" + label + ":" + JSON.stringify(extents_coords.error)
+    );
+    ensure(
+      text_at(extents_coords, "command") === "usage",
+      "cu_linux_window_opacity_extents_coords_command_" + label + ":" + JSON.stringify(extents_coords)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+        || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+      "cu_linux_window_opacity_extents_coords_message_" + label + ":" + JSON.stringify(extents_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_coords, "data.addressing") === "accessibility-tree"
+        && text_at(extents_coords, "data.matched.name") === node_name,
+      "cu_linux_window_opacity_extents_coords_named_" + label + ":" + JSON.stringify(extents_coords.data)
+    );
+  }
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "" + handle, "--name", node_name, "--bogus",
+  ], env);
+  if (!output_success(extents_bogus)) {
+    ensure(
+      text_at(extents_bogus, "error.code") === "usage",
+      "cu_linux_window_opacity_extents_bogus_code_" + label + ":" + JSON.stringify(extents_bogus.error)
+    );
+    ensure(
+      text_at(extents_bogus, "command") === "usage",
+      "cu_linux_window_opacity_extents_bogus_command_" + label + ":" + JSON.stringify(extents_bogus)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+        || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+      "cu_linux_window_opacity_extents_bogus_message_" + label + ":" + JSON.stringify(extents_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(extents_bogus, "data.addressing") === "accessibility-tree"
+        && text_at(extents_bogus, "data.matched.name") === node_name,
+      "cu_linux_window_opacity_extents_bogus_named_" + label + ":" + JSON.stringify(extents_bogus.data)
+    );
+  }
 }
 
 function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
@@ -490,20 +525,14 @@ ensure(direct_file(fixture_source), "cu_linux_window_opacity_fixture_missing:" +
 print("STEP window-opacity typed-fails usage when --window handle is zero or --expect mismatches --opacity");
 assert_opacity_usage_limit(run_directory, executable);
 
-print("STEP window-opacity typed-fails usage when AT-SPI --name/--coords/--bogus is present");
+print("STEP window-opacity typed-fail usage when AT-SPI --name/--coords/--bogus is present (usage_rejects_unexpected + command=usage, or honest non-usage typed failure)");
 assert_window_opacity_unexpected_usage(run_directory, executable, env);
 
-const atspi_available = probe_atspi_available(executable);
-
-print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before window-opacity actuate/read-back court");
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (command=usage) before window-opacity actuate/read-back court");
 assert_get_extents_usage_limit(run_directory, executable, env);
 
 print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before window-opacity actuate/read-back court");
 assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-
-if (!atspi_available) {
-  print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; window-opacity read-back still uses xprop/inventory");
-}
 
 print("STEP window-opacity typed-fails refused destructive_gate when target or postcondition is missing");
 assert_opacity_destructive_gate(run_directory, executable);
@@ -558,6 +587,11 @@ try {
   ensure(
     opacity_close(cardinal_to_permille(independent_net_wm_opacity(run_directory, executable, handle)), 1000),
     "cu_linux_window_opacity_baseline_xprop_opaque"
+  );
+
+  print("STEP get-extents --name with --coords/--bogus rejects as command=usage or stays accessibility-tree before window-opacity actuate/read-back court");
+  assert_get_extents_reject_coords_or_stay_named(
+    run_directory, executable, handle, FIXTURE_NODE_NAME, "fixture_press", env
   );
 
   print("STEP destructive_gate refusals on a live handle must not change xprop or inventory");
@@ -657,9 +691,5 @@ try {
 const context = harness.new_context(repo, "cu-linux-window-opacity");
 harness.emit_evidence(context, declared_evidence, "cu.linux-window-opacity");
 harness.remove_run(context);
-if (atspi_available) {
-  print("PASS: Linux window-opacity usage/miss/host-limit honesty + independent xprop and windows inventory opacity read-back with typed window-opacity --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
-} else {
-  print("PASS: Linux window-opacity usage/miss/host-limit honesty + independent xprop and windows inventory opacity read-back with typed window-opacity --name/--coords/--bogus usage and get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
-}
+print("PASS: Linux window-opacity usage/miss/host-limit honesty + independent xprop and windows inventory opacity read-back with typed window-opacity --name/--coords/--bogus (usage_rejects_unexpected + command=usage, or honest non-usage typed failure) and get-extents --name usage AND host-limit honesty including --coords/--bogus command=usage (AT-SPI --name, no --coords)");
 return;

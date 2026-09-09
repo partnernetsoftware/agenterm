@@ -6270,7 +6270,7 @@
     },
     {
       "id": "cu-linux-window-close-smoke",
-      "description": "Linux close --snapshot --expect gone on a disposable GTK fixture window: independent pyatspi frame and windows inventory read-back after close; typed close usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage/host-limit paths before the window-close actuate/read-back court; missing-window, destructive-gate refusals, and AT-SPI host-limit; no --coords.",
+      "description": "Linux close --snapshot --expect gone on a disposable GTK fixture: independent pyatspi and windows inventory read-back; typed close --name/--coords/--bogus uses usage_rejects_unexpected or honest non-usage typed failure (never fake command=usage); typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage always run (no atspi_available gating); process-state/desktop-state before actuate/read-back; miss/destructive-gate/AT-SPI host-limit; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-window-close-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
