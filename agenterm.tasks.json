@@ -1401,6 +1401,25 @@
         "task.cu-linux-page-download-smoke"
       ]
     },
+    "cu-linux-page-files-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-page-files-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 180000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-page-files-smoke"
+      ]
+    },
     "cu-linux-page-type-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6453,6 +6472,26 @@
       "id": "cu-linux-page-download-smoke",
       "description": "Linux CDP page-download triggers a background download and independent download-dir filesystem read-back proves a non-empty file appeared under --download-dir; typed page-download usage rejects AT-SPI --name/--bogus and missing --download-dir/node; typed get-extents --name usage/host-limit court before actuate; no-CDP host-limit and bad-target miss paths; disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.",
       "entry": "scripts/qjs/cu-linux-page-download-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-page-files-smoke",
+      "description": "Linux CDP page-files sets input[type=file] without a native picker and independent page-js FileList basename+size read-back proves the exact observed files; typed page-files usage rejects AT-SPI --name/--bogus and missing --selector/FILE; typed get-extents --name usage/host-limit court before actuate; no-CDP host-limit and bad-target miss paths; disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.",
+      "entry": "scripts/qjs/cu-linux-page-files-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
