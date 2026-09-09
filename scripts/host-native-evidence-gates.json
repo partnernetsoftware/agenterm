@@ -191,6 +191,17 @@
       ]
     },
     {
+      "id": "cu-linux-pty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-pty-missing-sock",
+        "cu.linux-pty-start",
+        "cu.linux-pty-send",
+        "cu.linux-pty-wait",
+        "cu.linux-pty-read"
+      ]
+    },
+    {
       "id": "cu-linux-host-notify-smoke",
       "platform": "linux",
       "evidence": [
@@ -457,6 +468,13 @@
       "platform": "linux",
       "evidence": [
         "cu.linux-spaces-readback"
+      ]
+    },
+    {
+      "id": "cu-linux-workspace-desktop-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-workspace-desktop"
       ]
     },
     {
