@@ -7919,7 +7919,7 @@
     },
     {
       "id": "cu-linux-clipboard-utf8-smoke",
-      "description": "Linux clipboard-write UTF-8 disposable token round-trips through independent clipboard-read --type with matching bytes, sha256 and value on X11; optional xclip/xsel cross-check or typed gap when absent; no --coords.",
+      "description": "Linux clipboard-write UTF-8 disposable token round-trips through independent clipboard-read --type with matching bytes, sha256 and value on X11; optional xclip/xsel cross-check or X11 GetSelectionOwner property evidence when absent; typed clipboard-write/read/clear usage rejects AT-SPI --name, --coords and other unexpected arguments; typed get-extents --name usage/miss/host-limit paths before the actuate/read-back court; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-clipboard-utf8-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

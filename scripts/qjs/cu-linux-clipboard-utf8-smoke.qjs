@@ -1,7 +1,8 @@
 // CEO: Linux clipboard-write/read UTF-8 honesty on X11.
 // Acceptance is independent clipboard-read --type after clipboard-write with
 // matching type, bytes, sha256 and value; default text view must agree.
-// Optional xclip/xsel cross-check when present, otherwise a typed gap.
+// Optional xclip/xsel cross-check when present; otherwise X11 GetSelectionOwner
+// property evidence when libX11 is available, otherwise a typed gap.
 // Typed clipboard-write/read/clear usage must reject AT-SPI --name and other
 // unexpected arguments; typed get-extents --name usage/host-limit paths must
 // hold before the actuate/read-back court. AT-SPI/--name only; no --coords
@@ -123,6 +124,29 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
+function assert_clipboard_usage_reject(run_directory, executable, grant, arguments, env, label, token) {
+  const reply = invoke_clipboard_reply(run_directory, executable, grant, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_clipboard_utf8_usage_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_clipboard_utf8_usage_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  const message = text_at(reply, "error.message");
+  ensure(
+    message.indexOf(token) >= 0
+      || message.indexOf("unexpected") >= 0
+      || message.indexOf("no arguments") >= 0,
+    "cu_linux_clipboard_utf8_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+  if (token === "--coords") {
+    ensure(
+      message.indexOf("--coords") >= 0,
+      "cu_linux_clipboard_utf8_usage_coords_token:" + JSON.stringify(reply.error)
+    );
+  }
+}
+
 function assert_clipboard_usage_limit(run_directory, executable, env) {
   const read_flat = invoke_clipboard_reply(run_directory, executable, "observe", [
     "clipboard-read", "--type", text_type, "--name", AT_SPI_PROBE_NAME,
@@ -213,6 +237,16 @@ function assert_clipboard_usage_limit(run_directory, executable, env) {
       || text_at(read_bogus, "error.message").indexOf("--bogus") >= 0,
     "cu_linux_clipboard_utf8_read_bogus_message:" + JSON.stringify(read_bogus.error)
   );
+
+  assert_clipboard_usage_reject(run_directory, executable, "observe", [
+    "clipboard-read", "--type", text_type, "--coords", "0,0",
+  ], env, "read_coords", "--coords");
+  assert_clipboard_usage_reject(run_directory, executable, "actuate", [
+    "clipboard-write", "--type", text_type, "--text", "denied", "--coords", "0,0",
+  ], env, "write_coords", "--coords");
+  assert_clipboard_usage_reject(run_directory, executable, "actuate", [
+    "clipboard-clear", "--apply", "--coords", "0,0",
+  ], env, "clear_coords", "--coords");
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -228,6 +262,19 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_clipboard_utf8_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_name_miss(run_directory, executable, env) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(reply),
+    "cu_linux_clipboard_utf8_extents_miss_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_node_not_found" || code === "bad_handle" || code === "a11y_backend_failed",
+    "cu_linux_clipboard_utf8_extents_miss_code:" + code
   );
 }
 
@@ -258,6 +305,38 @@ function digest_of_text(run_directory, name, text) {
 function command_on_path(name) {
   const output = rh.command("sh", ["-c", "command -v " + name], { timeout_ms: 5000 });
   return output.success && output.stdout.trim() !== "";
+}
+
+function independent_clipboard_owner_xid(executable) {
+  const script = [
+    "import ctypes, ctypes.util",
+    "lib = ctypes.util.find_library('X11')",
+    "if not lib:",
+    "    print('absent')",
+    "    raise SystemExit(0)",
+    "X11 = ctypes.cdll.LoadLibrary(lib)",
+    "X11.XOpenDisplay.restype = ctypes.c_void_p",
+    "X11.XOpenDisplay.argtypes = [ctypes.c_char_p]",
+    "X11.XInternAtom.restype = ctypes.c_ulong",
+    "X11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]",
+    "X11.XGetSelectionOwner.restype = ctypes.c_ulong",
+    "X11.XGetSelectionOwner.argtypes = [ctypes.c_void_p, ctypes.c_ulong]",
+    "dpy = X11.XOpenDisplay(None)",
+    "if not dpy:",
+    "    print('absent')",
+    "    raise SystemExit(0)",
+    "atom = X11.XInternAtom(dpy, b'CLIPBOARD', 0)",
+    "owner = X11.XGetSelectionOwner(dpy, atom)",
+    "print(str(int(owner)))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  if (output.success !== true) { return null; }
+  const text = output.stdout.trim();
+  if (text === "" || text === "absent") { return null; }
+  return text;
 }
 
 function independent_clipboard_text(executable, tool) {
@@ -298,12 +377,14 @@ let succeeded = 0;
 let failure = "";
 let mutated = false;
 try {
-  print("STEP clipboard-write/read/clear typed-fail usage when AT-SPI --name or other unexpected arguments are present");
+  print("STEP clipboard-write/read/clear typed-fail usage when AT-SPI --name, --coords, or other unexpected arguments are present");
   assert_clipboard_usage_limit(context.run_directory, executable, env);
 
   if (atspi_available) {
     print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
     assert_get_extents_usage_limit(context.run_directory, executable, env);
+    print("STEP get-extents typed-fail a11y_node_not_found for court anchor miss before actuate/read-back court");
+    assert_get_extents_name_miss(context.run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
     assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
@@ -369,7 +450,16 @@ try {
     break;
   }
   if (!cross_checked) {
-    print("STEP typed-gap: no xclip/xsel on PATH; clipboard-read --type digest read-back is the acceptance path");
+    const owner_xid = independent_clipboard_owner_xid(executable);
+    if (owner_xid !== null && owner_xid !== "0") {
+      print("STEP independent X11 GetSelectionOwner CLIPBOARD owner is " + owner_xid
+            + " after clipboard-write (no xclip/xsel on PATH)");
+      cross_checked = true;
+    }
+  }
+  if (!cross_checked) {
+    print("STEP typed-gap: no xclip/xsel on PATH and no libX11 GetSelectionOwner probe;"
+          + " clipboard-read --type digest read-back is the acceptance path");
   }
 
   succeeded = 1;
