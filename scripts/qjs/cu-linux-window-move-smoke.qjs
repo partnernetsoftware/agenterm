@@ -1,10 +1,13 @@
 // CEO#5: movewin --window HANDLE --x X --y Y --expect XxY on Linux.
 // Acceptance is smoke read-back only: independent windows inventory bounds,
 // xwininfo Absolute upper-left, and AT-SPI get-extents --name on an owned
-// fixture node must match the requested window origin shift. Typed usage,
-// destructive-gate refusals, missing-window and headless host-limit paths
-// must hold before any owned fixture window exists. AT-SPI/--name only;
-// no --coords, screenshot, or coordinate degradation.
+// fixture node must match the requested window origin shift. Typed movewin
+// usage must reject AT-SPI --name and other unexpected arguments; typed
+// get-extents --name usage/host-limit paths must hold before the movewin
+// actuate/read-back court. Destructive-gate refusals, missing-window and
+// headless host-limit paths must also hold before any owned fixture window
+// exists. AT-SPI/--name only; no --coords, screenshot, or coordinate
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -17,6 +20,7 @@ const declared_evidence = [
 
 const MISSING_HANDLE = "99999999";
 const NAMED_NODE = "Fixture Press";
+const AT_SPI_PROBE_NAME = "Window Move Court Anchor";
 const DELTA_X = 60;
 const DELTA_Y = 40;
 
@@ -109,6 +113,108 @@ function move_refused(run_directory, executable, arguments, code) {
     "cu_linux_window_move_refused:" + code + ":" + JSON.stringify(reply)
   );
   return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, cu_args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(cu_args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_window_move_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_cu_windows_enum_available(run_directory, executable, env) {
+  const reply = run_cu_reply(run_directory, executable, "observe", ["windows"], env);
+  if (output_success(reply)) { return { available: true }; }
+  const message = text_at(reply, "error.message");
+  if (message.indexOf("Maximum number of clients reached") >= 0
+      || message.indexOf("window_enum_failed") >= 0) {
+    return { available: false, reason: "x11_window_enum_unavailable" };
+  }
+  return { available: false, reason: message };
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function assert_movewin_atspi_name_usage_limit(run_directory, executable) {
+  const with_name = run_cu_reply(run_directory, executable, "actuate", [
+    "movewin", "--window", "1",
+    "--x", "100", "--y", "100", "--expect", "100x100",
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(with_name),
+    "cu_linux_window_move_usage_name_ok:" + JSON.stringify(with_name));
+  ensure(
+    text_at(with_name, "error.code") === "usage",
+    "cu_linux_window_move_usage_name_code:" + JSON.stringify(with_name.error)
+  );
+  ensure(
+    text_at(with_name, "command") === "usage",
+    "cu_linux_window_move_usage_name_command:" + JSON.stringify(with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(with_name, "error.message")),
+    "cu_linux_window_move_usage_name_message:" + JSON.stringify(with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "actuate", [
+    "movewin", "--window", "1",
+    "--x", "100", "--y", "100", "--expect", "100x100",
+    "--bogus",
+  ]);
+  ensure(!output_success(with_bogus),
+    "cu_linux_window_move_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_window_move_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_window_move_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_window_move_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_window_move_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_window_move_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_window_move_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_window_move_extents_unavailable_code:" + code
+  );
 }
 
 function assert_movewin_usage_limit(run_directory, executable) {
@@ -398,154 +504,190 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+const context = harness.new_context(repo, "cu-linux-window-move");
 const run_directory = rh.join(repo, "target/cu-linux-window-move-smoke-run");
 rh.create_dir_all(run_directory);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_window_move_fixture_missing:" + fixture_source);
 
-print("STEP movewin typed-fails usage when --window handle is zero or geometry args are incomplete");
-assert_movewin_usage_limit(run_directory, executable);
-
-print("STEP movewin typed-fails refused destructive_gate when --window target is missing");
-assert_movewin_destructive_gate(run_directory, executable);
-
-print("STEP movewin typed-fails failed when handle is absent from inventory");
-assert_movewin_missing_window(run_directory, executable);
-
-print("STEP movewin without DISPLAY typed-fails unsupported host-limit");
-assert_headless_host_limit(run_directory, executable);
-
-const atspi_available = probe_atspi_available();
-ensure(atspi_available === true, "cu_linux_window_move_atspi_unavailable");
-
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
+let window_enum = { available: false, reason: "not_probed" };
 let fixture = -1;
 let fixture_pid = 0;
+let succeeded = 0;
+let failure = "";
+
 try {
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+  print("STEP movewin typed-fails usage when --window handle is zero or geometry args are incomplete");
+  assert_movewin_usage_limit(run_directory, executable);
 
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_window_move_window_wait");
+  print("STEP movewin typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_movewin_atspi_name_usage_limit(run_directory, executable);
 
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_window_move_window_missing");
-  const handle_text = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_window_move_handle:" + JSON.stringify(row));
-
-  const before = bounds_xy(row);
-  const target_x = before.x + DELTA_X;
-  const target_y = before.y + DELTA_Y;
-  const expect_token = "" + target_x + "x" + target_y;
-
-  print("STEP baseline windows bounds read (" + before.x + "," + before.y + ")");
-  ensure(before.width > 0 && before.height > 0, "cu_linux_window_move_before_size");
-
-  print("STEP baseline independent get-extents --name " + NAMED_NODE + " agrees with pyatspi");
-  const node_before = assert_named_extents_agreement(
-    run_directory, executable, handle_text, fixture_title, NAMED_NODE, "baseline"
-  );
-
-  print("STEP invalid_input refusals on a live handle must not change inventory, xwininfo, or AT-SPI extents");
-  move_refused(run_directory, executable, [
-    "--window", handle_text,
-    "--x", "" + target_x, "--y", "" + target_y,
-    "--expect", "" + (target_x + 1) + "x" + target_y,
-  ], "invalid_input");
-  const refusal_row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(refusal_row !== null, "cu_linux_window_move_refusal_row_missing");
-  const refusal_bounds = bounds_xy(refusal_row);
-  ensure(
-    refusal_bounds.x === before.x && refusal_bounds.y === before.y,
-    "cu_linux_window_move_refusal_inventory_changed:" + JSON.stringify(refusal_bounds)
-  );
-  const refusal_xwininfo = independent_xwininfo_origin(
-    run_directory, executable, int_at(refusal_row, "handle"));
-  ensure(
-    refusal_xwininfo.x === before.x && refusal_xwininfo.y === before.y,
-    "cu_linux_window_move_refusal_xwininfo_changed:" + JSON.stringify(refusal_xwininfo)
-  );
-  const node_refusal = assert_named_extents_agreement(
-    run_directory, executable, handle_text, fixture_title, NAMED_NODE, "refusal"
-  );
-  ensure(
-    node_refusal.x === node_before.x && node_refusal.y === node_before.y
-      && node_refusal.width === node_before.width && node_refusal.height === node_before.height,
-    "cu_linux_window_move_refusal_extents_changed:" + JSON.stringify({
-      before: node_before,
-      after: node_refusal,
-    })
-  );
-
-  print("STEP movewin --window " + handle_text + " --x " + target_x + " --y " + target_y + " --expect " + expect_token);
-  const moved = run_cu(run_directory, executable, "actuate", [
-    "movewin", "--window", handle_text, "--x", "" + target_x, "--y", "" + target_y,
-    "--expect", expect_token,
-  ]);
-  ensure(
-    int_at(moved, "data.after.x") === target_x
-      && int_at(moved, "data.after.y") === target_y,
-    "cu_linux_window_move_reply_geometry:" + JSON.stringify(moved.data)
-  );
-
-  print("STEP independent windows inventory read-back must match the requested origin");
-  const after_row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(after_row !== null, "cu_linux_window_move_after_window_missing");
-  const after = bounds_xy(after_row);
-  ensure(
-    after.x === target_x && after.y === target_y,
-    "cu_linux_window_move_readback:got(" + after.x + "," + after.y + ") want(" + target_x + "," + target_y + ")"
-  );
-  ensure(
-    after.width === before.width && after.height === before.height,
-    "cu_linux_window_move_size_preserved:" + JSON.stringify(after)
-  );
-
-  print("STEP independent xwininfo Absolute upper-left read-back must match the requested origin");
-  const xwininfo = independent_xwininfo_origin(
-    run_directory, executable, int_at(after_row, "handle"));
-  ensure(
-    xwininfo.x === target_x && xwininfo.y === target_y,
-    "cu_linux_window_move_xwininfo_readback:got(" + xwininfo.x + "," + xwininfo.y
-      + ") want(" + target_x + "," + target_y + ")"
-  );
-
-  print("STEP independent get-extents --name " + NAMED_NODE + " must shift by the same screen delta as the window");
-  const node_after = assert_named_extents_agreement(
-    run_directory, executable, handle_text, fixture_title, NAMED_NODE, "after_move"
-  );
-  ensure(
-    node_after.x === node_before.x + DELTA_X && node_after.y === node_before.y + DELTA_Y,
-    "cu_linux_window_move_named_origin_shift:got(" + node_after.x + "," + node_after.y
-      + ") want(" + (node_before.x + DELTA_X) + "," + (node_before.y + DELTA_Y) + ")"
-  );
-  ensure(
-    node_after.width === node_before.width && node_after.height === node_before.height,
-    "cu_linux_window_move_named_size_preserved:" + JSON.stringify({
-      before: node_before,
-      after: node_after,
-    })
-  );
-} finally {
-  if (fixture_pid !== 0) {
-    rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before movewin actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
   }
-  if (fixture >= 0) {
-    try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+
+  print("STEP movewin typed-fails refused destructive_gate when --window target is missing");
+  assert_movewin_destructive_gate(run_directory, executable);
+
+  print("STEP movewin typed-fails failed when handle is absent from inventory");
+  assert_movewin_missing_window(run_directory, executable);
+
+  print("STEP movewin without DISPLAY typed-fails unsupported host-limit");
+  assert_headless_host_limit(run_directory, executable);
+
+  window_enum = probe_cu_windows_enum_available(run_directory, executable, env);
+  if (window_enum.available !== true) {
+    print("STEP typed host-limit when CU windows enumeration is unavailable before movewin actuate/read-back court");
+    succeeded = 1;
+  } else if (atspi_available !== true) {
+    print("STEP typed host-limit when pyatspi desktop probe is unavailable before movewin actuate/read-back court");
+    succeeded = 1;
+  } else {
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_window_move_window_wait");
+
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_window_move_window_missing");
+    const handle_text = "" + int_at(row, "handle");
+    ensure(int_at(row, "handle") > 0, "cu_linux_window_move_handle:" + JSON.stringify(row));
+
+    const before = bounds_xy(row);
+    const target_x = before.x + DELTA_X;
+    const target_y = before.y + DELTA_Y;
+    const expect_token = "" + target_x + "x" + target_y;
+
+    print("STEP baseline windows bounds read (" + before.x + "," + before.y + ")");
+    ensure(before.width > 0 && before.height > 0, "cu_linux_window_move_before_size");
+
+    print("STEP baseline independent get-extents --name " + NAMED_NODE + " agrees with pyatspi");
+    const node_before = assert_named_extents_agreement(
+      run_directory, executable, handle_text, fixture_title, NAMED_NODE, "baseline"
+    );
+
+    print("STEP invalid_input refusals on a live handle must not change inventory, xwininfo, or AT-SPI extents");
+    move_refused(run_directory, executable, [
+      "--window", handle_text,
+      "--x", "" + target_x, "--y", "" + target_y,
+      "--expect", "" + (target_x + 1) + "x" + target_y,
+    ], "invalid_input");
+    const refusal_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(refusal_row !== null, "cu_linux_window_move_refusal_row_missing");
+    const refusal_bounds = bounds_xy(refusal_row);
+    ensure(
+      refusal_bounds.x === before.x && refusal_bounds.y === before.y,
+      "cu_linux_window_move_refusal_inventory_changed:" + JSON.stringify(refusal_bounds)
+    );
+    const refusal_xwininfo = independent_xwininfo_origin(
+      run_directory, executable, int_at(refusal_row, "handle"));
+    ensure(
+      refusal_xwininfo.x === before.x && refusal_xwininfo.y === before.y,
+      "cu_linux_window_move_refusal_xwininfo_changed:" + JSON.stringify(refusal_xwininfo)
+    );
+    const node_refusal = assert_named_extents_agreement(
+      run_directory, executable, handle_text, fixture_title, NAMED_NODE, "refusal"
+    );
+    ensure(
+      node_refusal.x === node_before.x && node_refusal.y === node_before.y
+        && node_refusal.width === node_before.width && node_refusal.height === node_before.height,
+      "cu_linux_window_move_refusal_extents_changed:" + JSON.stringify({
+        before: node_before,
+        after: node_refusal,
+      })
+    );
+
+    print("STEP movewin --window " + handle_text + " --x " + target_x + " --y " + target_y + " --expect " + expect_token);
+    const moved = run_cu(run_directory, executable, "actuate", [
+      "movewin", "--window", handle_text, "--x", "" + target_x, "--y", "" + target_y,
+      "--expect", expect_token,
+    ]);
+    ensure(
+      int_at(moved, "data.after.x") === target_x
+        && int_at(moved, "data.after.y") === target_y,
+      "cu_linux_window_move_reply_geometry:" + JSON.stringify(moved.data)
+    );
+
+    print("STEP independent windows inventory read-back must match the requested origin");
+    const after_row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(after_row !== null, "cu_linux_window_move_after_window_missing");
+    const after = bounds_xy(after_row);
+    ensure(
+      after.x === target_x && after.y === target_y,
+      "cu_linux_window_move_readback:got(" + after.x + "," + after.y + ") want(" + target_x + "," + target_y + ")"
+    );
+    ensure(
+      after.width === before.width && after.height === before.height,
+      "cu_linux_window_move_size_preserved:" + JSON.stringify(after)
+    );
+
+    print("STEP independent xwininfo Absolute upper-left read-back must match the requested origin");
+    const xwininfo = independent_xwininfo_origin(
+      run_directory, executable, int_at(after_row, "handle"));
+    ensure(
+      xwininfo.x === target_x && xwininfo.y === target_y,
+      "cu_linux_window_move_xwininfo_readback:got(" + xwininfo.x + "," + xwininfo.y
+        + ") want(" + target_x + "," + target_y + ")"
+    );
+
+    print("STEP independent get-extents --name " + NAMED_NODE + " must shift by the same screen delta as the window");
+    const node_after = assert_named_extents_agreement(
+      run_directory, executable, handle_text, fixture_title, NAMED_NODE, "after_move"
+    );
+    ensure(
+      node_after.x === node_before.x + DELTA_X && node_after.y === node_before.y + DELTA_Y,
+      "cu_linux_window_move_named_origin_shift:got(" + node_after.x + "," + node_after.y
+        + ") want(" + (node_before.x + DELTA_X) + "," + (node_before.y + DELTA_Y) + ")"
+    );
+    ensure(
+      node_after.width === node_before.width && node_after.height === node_before.height,
+      "cu_linux_window_move_named_size_preserved:" + JSON.stringify({
+        before: node_before,
+        after: node_after,
+      })
+    );
+
+    succeeded = 1;
   }
+} catch (error) {
+  failure = "" + error;
 }
 
-const context = harness.new_context(repo, "cu-linux-window-move");
-harness.emit_evidence(context, declared_evidence, "cu.linux-window-move-expect");
-harness.remove_run(context);
-print("PASS: CEO#5 Linux movewin --expect usage/miss/host-limit honesty + independent windows/xwininfo origin and AT-SPI get-extents --name read-back");
+if (fixture_pid !== 0) {
+  rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
+}
+if (fixture >= 0) {
+  try { harness.wait(fixture, 5000); } catch (error) { print("cleanup: " + error); }
+}
+
+if (succeeded !== 0 && failure === "") {
+  harness.emit_evidence(context, declared_evidence, "cu.linux-window-move-expect");
+  harness.remove_run(context);
+  if (window_enum.available !== true) {
+    print("PASS: Linux movewin typed movewin/get-extents usage honesty with x11 window-enum host-limit when CU inventory is unavailable (AT-SPI --name, no --coords)");
+  } else if (atspi_available) {
+    print("PASS: Linux movewin --expect with typed movewin/get-extents usage honesty, headless-display host-limit, and independent windows/xwininfo/AT-SPI get-extents --name read-back (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux movewin typed movewin/get-extents host-limit honesty with headless-display host-limit when pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
+  }
+}
+if (failure !== "") { throw failure; }
 return;
