@@ -636,9 +636,11 @@ try {
     if (owner_xid !== null) {
       ensure(owner_xid !== "0",
              "cu_linux_clipboard_write_file_owner_none_on_surviving_uri:" + owner_xid);
+      print("STEP independent X11 GetSelectionOwner CLIPBOARD owner is " + owner_xid
+        + " after clipboard-write-file writer exit");
     }
   } else {
-    print("STEP FAIL: clipboard-write-file lost CLIPBOARD uri-list ownership after writer exit");
+    print("STEP typed-fail: clipboard-write-file lost CLIPBOARD uri-list ownership after writer exit");
     ensure(typed_uri_lost(typed),
            "cu_linux_clipboard_write_file_read_not_typed_loss:" + JSON.stringify(typed));
     ensure(!inventory_has_uri_list(inventory),
@@ -668,11 +670,17 @@ try {
       print("STEP typed-gap: no libX11 GetSelectionOwner probe; independent clipboard-read is the owner-loss evidence");
     }
     print(
-      "STEP product-gap: clipboard-write-file claimed verified="
+      "FAIL: product-gap clipboard-write-file claimed verified="
       + write_claimed_verified
       + " but independent clipboard-read --type text/uri-list did not survive writer exit"
     );
-    throw "cu_linux_clipboard_write_file_uri_not_surviving:" + JSON.stringify(typed);
+    throw "cu_linux_clipboard_write_file_product_gap_owner_loss:"
+      + JSON.stringify({
+        verified: write_claimed_verified,
+        typed: typed,
+        inventory: at(inventory, "data.types"),
+        owner_xid: owner_xid,
+      });
   }
 
   succeeded = 1;
@@ -699,9 +707,9 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-clipboard-write-file-roundtrip");
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux clipboard-write-file file-reference roundtrip with independent typed read-back and clipboard/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux clipboard-write-file file-reference roundtrip with surviving detached CLIPBOARD owner, independent typed text/uri-list read-back, and clipboard/get-extents usage honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux clipboard-write-file file-reference roundtrip with independent typed read-back and clipboard/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux clipboard-write-file file-reference roundtrip with surviving detached CLIPBOARD owner, independent typed text/uri-list read-back, and clipboard/get-extents host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }

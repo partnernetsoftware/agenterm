@@ -8140,7 +8140,7 @@
     },
     {
       "id": "cu-linux-clipboard-write-file-smoke",
-      "description": "Linux clipboard-write-file honesty: independent clipboard-read --type text/uri-list after writer exit (bytes/sha256/value plus xclip TARGETS or X11 GetSelectionOwner when present). Surviving uri digest is a real roundtrip; CLIPBOARD owner/URI loss is a typed gap/host-limit with that evidence, never a fake verified roundtrip. Typed clipboard-write-file/read/clear usage rejects AT-SPI --name, --coords, and --bogus; typed get-extents --name usage/miss/host-limit before actuate; AT-SPI --name; no --coords.",
+      "description": "Linux clipboard-write-file honesty: independent clipboard-read --type text/uri-list after writer exit (bytes/sha256/value plus xclip TARGETS or X11 GetSelectionOwner when present). PASS requires surviving detached CLIPBOARD owner plus uri-list bytes/sha256/value; CLIPBOARD owner/URI loss is a typed FAIL/product-gap with that evidence, never a fake green. Typed clipboard-write-file/read/clear usage rejects AT-SPI --name, --coords, and --bogus; typed get-extents --name usage/miss/host-limit before actuate; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-clipboard-write-file-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
