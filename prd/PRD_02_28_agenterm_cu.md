@@ -2770,18 +2770,20 @@ in-progress unique version plan until it closes.
 
 ```text
 browser.profile
-├─ [x] inventory · synthetic HOME Local State · no browser launch
+├─ [x] inventory · synthetic user-profile Local State · no browser launch
 │  ├─ macOS public qjswasm court green
 │  ├─ Linux native court pending
-│  └─ Windows Local State provider not mapped
+│  └─ Windows provider landed · native court pending
 └─ [~] open · separate actuation/focus/live-window receipt court pending
 ```
 
 Profile inventory and profile opening are separate ledger leaves. The
-`cu-browser-profile-inventory-smoke` court creates an invocation-owned HOME,
+`cu-browser-profile-inventory-smoke` court creates an invocation-owned user
+profile root (including `LOCALAPPDATA` on Windows),
 proves profile order, last-used identity, unnamed-profile fallback, redacted
 `~/...` display paths and typed malformed-state failure, and never starts a
-browser or reads the real HOME. That evidence cannot qualify `browser-open`:
+browser or reads the real host profile. That evidence cannot qualify
+`browser-open`:
 opening owns actuation, focus accounting, a live profile/window postcondition,
 receipt closure and cleanup.
 

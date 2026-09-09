@@ -84,8 +84,8 @@ fn running_app_names() -> Result<Vec<String>, CuError> {
 
 fn resolve_app(requested: Option<&str>) -> Result<&'static BrowserApp, CuError> {
     let running = running_app_names()?;
-    let home = home_dir()?;
-    let installed = profiles::installed_catalog_apps(&home);
+    let roots = profile_roots()?;
+    let installed = profiles::installed_catalog_apps(&roots.data);
     profiles::resolve_app_with_installed(requested, &running, &installed).map_err(|error| match error {
         AppResolveError::Unsupported { requested } => CuError::new(
             "unsupported",
@@ -133,14 +133,69 @@ struct LocalState {
     display_path: String,
 }
 
-fn home_dir() -> Result<PathBuf, CuError> {
-    std::env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| CuError::new("unsupported", "HOME is not set; cannot locate Local State"))
+struct ProfileRoots {
+    home: PathBuf,
+    data: PathBuf,
 }
 
-fn display_path(home: &std::path::Path, path: &std::path::Path) -> String {
+// USERPROFILE is only a display-path aid on Windows. LOCALAPPDATA is the
+// location authority and must remain sufficient in service environments that
+// omit USERPROFILE.
+fn profile_roots() -> Result<ProfileRoots, CuError> {
+    if cfg!(target_os = "windows") {
+        let data = std::env::var_os("LOCALAPPDATA")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                CuError::new(
+                    "unsupported",
+                    "LOCALAPPDATA is not set; cannot locate Chromium Local State",
+                )
+            })?;
+        let home = std::env::var_os("USERPROFILE")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| data.clone());
+        return Ok(ProfileRoots { home, data });
+    }
+    let home = std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            CuError::new(
+                "unsupported",
+                "HOME is not set; cannot locate Chromium Local State",
+            )
+        })?;
+    Ok(ProfileRoots {
+        data: home.clone(),
+        home,
+    })
+}
+
+fn display_path(
+    home: &std::path::Path,
+    data_root: &std::path::Path,
+    path: &std::path::Path,
+) -> String {
+    display_path_for_host(cfg!(target_os = "windows"), home, data_root, path)
+}
+
+fn display_path_for_host(
+    windows: bool,
+    home: &std::path::Path,
+    data_root: &std::path::Path,
+    path: &std::path::Path,
+) -> String {
+    if windows {
+        return match path.strip_prefix(data_root) {
+            Ok(rest) => format!("~/AppData/Local/{}", rest.display()),
+            Err(_) => match path.strip_prefix(home) {
+                Ok(rest) => format!("~/{}", rest.display()),
+                Err(_) => "~/AppData/Local/<unresolved-browser-data>".into(),
+            },
+        };
+    }
     match path.strip_prefix(home) {
         Ok(rest) => format!("~/{}", rest.display()),
         Err(_) => path.display().to_string(),
@@ -148,18 +203,18 @@ fn display_path(home: &std::path::Path, path: &std::path::Path) -> String {
 }
 
 fn load_local_state(app: &BrowserApp) -> Result<LocalState, CuError> {
-    let home = home_dir()?;
-    let Some(path) = app.local_state_path(&home) else {
+    let roots = profile_roots()?;
+    let Some(path) = app.local_state_path(&roots.data) else {
         return Err(CuError::new(
             "unsupported",
             format!(
-                "profiles of {} are read from the macOS / Linux user data directory; this OS is not mapped",
+                "profiles of {} have no Local State mapping on this OS",
                 app.name
             ),
         )
         .with_detail(serde_json::json!({ "os": crate::mcu_surface::host_os(), "app": app.name })));
     };
-    let display_path = display_path(&home, &path);
+    let display_path = display_path(&roots.home, &roots.data, &path);
     let text = std::fs::read_to_string(&path).map_err(|error| {
         CuError::new(
             "browser_local_state_not_found",
@@ -672,9 +727,19 @@ mod tests {
         assert_eq!(
             display_path(
                 std::path::Path::new("/synthetic-home"),
+                std::path::Path::new("/synthetic-home"),
                 std::path::Path::new("/synthetic-home/Library/Application Support/X/Local State")
             ),
             "~/Library/Application Support/X/Local State"
+        );
+        assert_eq!(
+            display_path_for_host(
+                true,
+                std::path::Path::new("/synthetic-profile"),
+                std::path::Path::new("/synthetic-data"),
+                std::path::Path::new("/synthetic-data/Google/Chrome/User Data/Local State")
+            ),
+            "~/AppData/Local/Google/Chrome/User Data/Local State"
         );
     }
 }

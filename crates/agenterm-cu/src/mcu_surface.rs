@@ -729,14 +729,18 @@ pub fn verb_declaration(verb: &str) -> Value {
     if verb == "browser-profiles" || verb == "browser-open" || verb == "tab-close" {
         let (status, mode, grant, reason) = match verb {
             "browser-profiles" => (
-                if matches!(os, "macos" | "linux") {
+                if matches!(os, "macos" | "linux" | "windows") {
                     "available"
                 } else {
                     "unsupported"
                 },
                 "local-state+window-inventory",
                 "observe",
-                "profiles of the running Chromium-family browser (Local State profile.info_cache + last_used) joined to inventory windows by browser_profile; --app Brave Origin | Brave Browser | Google Chrome",
+                if os == "windows" {
+                    "profiles of Brave Browser or Google Chrome (Local State profile.info_cache + last_used) joined to inventory windows by browser_profile; Brave Origin is typed unsupported on Windows"
+                } else {
+                    "profiles of the running Chromium-family browser (Local State profile.info_cache + last_used) joined to inventory windows by browser_profile; --app Brave Origin | Brave Browser | Google Chrome"
+                },
             ),
             "browser-open" => (
                 if matches!(os, "macos" | "linux") {

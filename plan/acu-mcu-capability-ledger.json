@@ -768,7 +768,7 @@
           "mcu_shape": "browser profile inventory",
           "acu_shape": "browser-profiles over a named Chromium-family Local State",
           "state": "platform-limited",
-          "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "provider-not-mapped"},
+          "platforms": {"macos": "native-public-qjswasm", "linux": "native-court-pending", "windows": "native-provider-landed-court-pending"},
           "qualification": {
             "schema": 2,
             "platforms": {
@@ -783,13 +783,13 @@
               },
               "windows": {
                 "result": "pending",
-                "blocker_code": "windows-local-state-provider-not-mapped"
+                "blocker_code": "native-public-court-not-run"
               }
             }
           },
           "evidence": ["cu.browser-profile-inventory.synthetic-home"],
-          "note": "The synthetic-HOME court proves ordered Local State parsing, last-used identity, redacted display paths and typed malformed-state failure without starting a browser or reading the real HOME. It does not claim a live profile/window join.",
-          "next": "run the unchanged synthetic-HOME court on native Linux, then map the Windows Chromium user-data directory and add its native court"
+          "note": "The synthetic user-profile court proves ordered Local State parsing, last-used identity, redacted display paths and typed malformed-state failure without starting a browser or reading the real user profile. Windows maps Brave Browser and Google Chrome below LOCALAPPDATA; Brave Origin remains typed unsupported there. It does not claim a live profile/window join.",
+          "next": "run the unchanged synthetic user-profile court on native Linux and Windows; only a platform-native PASS may flip either pending cell"
         },
         {
           "id": "browser.profile.open",

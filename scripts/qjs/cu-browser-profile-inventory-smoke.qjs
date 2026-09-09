@@ -3,9 +3,10 @@
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
 //
-// The fixture lives under an invocation-owned HOME. The court never starts a
-// browser and deliberately does not exercise `browser-open`: that verb owns a
-// separate actuation, focus and live-window contract.
+// The fixture lives under an invocation-owned user profile, including the
+// Windows LOCALAPPDATA root. The court never starts a browser and deliberately
+// does not exercise `browser-open`: that verb owns a separate actuation, focus
+// and live-window contract.
 import * as rh from "lib/rh_compat";
 import * as harness from "lib/test_harness";
 
@@ -30,7 +31,7 @@ function isolated_env(run_directory) {
     HOME: run_directory,
     USERPROFILE: run_directory,
     APPDATA: rh.join(run_directory, "config"),
-    LOCALAPPDATA: rh.join(run_directory, "data"),
+    LOCALAPPDATA: rh.join(run_directory, "AppData/Local"),
     XDG_CONFIG_HOME: rh.join(run_directory, "config"),
     XDG_DATA_HOME: rh.join(run_directory, "data"),
     AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
@@ -39,10 +40,10 @@ function isolated_env(run_directory) {
   };
 }
 
-function invoke(run_directory, executable, expected_success) {
+function invoke(run_directory, executable, app, expected_success) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe",
-    "browser-profiles", "--app", "Google Chrome"
+    "browser-profiles", "--app", app
   ], {
     cwd: run_directory,
     env: isolated_env(run_directory),
@@ -69,11 +70,13 @@ if (args.length === 1 && args[0] === "--list-evidence") {
   return;
 }
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
-harness.require(!harness.host_is_windows(),
-  "cu.browser-profile-inventory.synthetic-home requires the macOS/Linux Local State mapping");
-
 const repo = rh.absolute(args[0]);
-const executable = rh.absolute(args[1]);
+let executable = rh.absolute(args[1]);
+if (harness.host_is_windows()
+    && !direct_file(executable)
+    && direct_file(executable + ".exe")) {
+  executable = executable + ".exe";
+}
 ensure(direct_file(executable),
   "cu_browser_profile_inventory_executable_missing:" + executable);
 
@@ -81,13 +84,15 @@ const context = harness.new_context(repo, "cu-browser-profile-inventory");
 const run_directory = context.run_directory;
 const user_data = host_is_macos()
   ? rh.join(run_directory, "Library/Application Support/Google/Chrome")
-  : rh.join(run_directory, ".config/google-chrome");
+  : (harness.host_is_windows()
+    ? rh.join(run_directory, "AppData/Local/Google/Chrome/User Data")
+    : rh.join(run_directory, ".config/google-chrome"));
 const local_state = rh.join(user_data, "Local State");
 let succeeded = 0;
 let failure = "";
 
 try {
-  print("STEP write a synthetic Chromium Local State under an invocation-owned HOME");
+  print("STEP write a synthetic Chromium Local State under an invocation-owned user profile");
   rh.create_dir_all(user_data);
   rh.write_text(local_state, JSON.stringify({
     profile: {
@@ -101,8 +106,8 @@ try {
     }
   }));
 
-  print("STEP browser-profiles reads only the synthetic HOME and preserves Local State semantics");
-  const reply = invoke(run_directory, executable, true);
+  print("STEP browser-profiles reads only the synthetic user profile and preserves Local State semantics");
+  const reply = invoke(run_directory, executable, "Google Chrome", true);
   ensure(reply.command === "browser-profiles" && reply.target === "current",
     "cu_browser_profile_inventory_identity");
   const data = reply.data;
@@ -113,6 +118,15 @@ try {
       && data.returned === 3
       && data.profiles.length === 3,
     "cu_browser_profile_inventory_contract");
+  if (harness.host_is_windows()) {
+    ensure(data.local_state === "~/AppData/Local/Google/Chrome/User Data/Local State",
+      "cu_browser_profile_inventory_windows_local_state_path");
+    const origin = invoke(run_directory, executable, "Brave Origin", false);
+    ensure(origin.error.code === "unsupported"
+        && origin.error.detail.os === "windows"
+        && origin.error.detail.app === "Brave Origin",
+      "cu_browser_profile_inventory_windows_origin_unsupported");
+  }
   ensure(data.profiles[0].name === "court-beta"
       && data.profiles[1].name === "court-alpha"
       && data.profiles[2].name === "Profile 9",
@@ -133,9 +147,9 @@ try {
   ensure(Array.isArray(data.unlisted_windows),
     "cu_browser_profile_inventory_unlisted_shape");
 
-  print("STEP malformed synthetic Local State fails typed instead of consulting another HOME");
+  print("STEP malformed synthetic Local State fails typed instead of consulting another user profile");
   rh.write_text(local_state, "{not-json");
-  const invalid = invoke(run_directory, executable, false);
+  const invalid = invoke(run_directory, executable, "Google Chrome", false);
   ensure(invalid.error.code === "browser_local_state_invalid"
       && invalid.error.message.startsWith("~/")
       && !invalid.error.message.includes(run_directory),
@@ -155,7 +169,7 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence,
     "cu.browser-profile-inventory.synthetic-home");
   harness.remove_run(context);
-  print("PASS: browser profile inventory is bounded to synthetic HOME Local State");
+  print("PASS: browser profile inventory is bounded to synthetic user-profile Local State");
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }

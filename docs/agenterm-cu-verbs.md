@@ -5154,10 +5154,12 @@ directory, last_used, windows: [handles]}; browser windows whose profile
 name is not in Local State are listed under unlisted_windows. --app is a
 catalog substring (Brave Origin -> ~/Library/Application
 Support/BraveSoftware/Brave-Origin, Brave Browser -> .../Brave-Browser,
-Google Chrome -> .../Google/Chrome; Linux under ~/.config); omitted, the
-one running catalog application is used (none -> browser_app_not_found,
-several -> browser_app_ambiguous). Any other application -> typed
-unsupported. Never touches the browser.
+Google Chrome -> .../Google/Chrome; Linux under ~/.config; Windows Brave
+Browser and Google Chrome under ~/AppData/Local, each including its `User
+Data` directory); omitted, the one running catalog application is used
+(none -> browser_app_not_found, several -> browser_app_ambiguous). Brave
+Origin has no Windows mapping. Any other application -> typed unsupported.
+Never touches the browser.
 ```
 
 ### `browser-open`

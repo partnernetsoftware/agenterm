@@ -8146,7 +8146,7 @@
     },
     {
       "id": "cu-browser-profile-inventory-smoke",
-      "description": "Prove Chromium profile inventory reads one synthetic HOME Local State with ordered, redacted and typed results without starting or operating a browser; browser-open remains a separate actuation court.",
+      "description": "Prove Chromium profile inventory reads one synthetic user-profile Local State with ordered, redacted and typed results without starting or operating a browser; browser-open remains a separate actuation court.",
       "entry": "scripts/qjs/cu-browser-profile-inventory-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -8157,7 +8157,8 @@
       "dependencies": [],
       "platforms": [
         "linux",
-        "macos"
+        "macos",
+        "windows"
       ],
       "side_effects": [
         "artifact_write",
