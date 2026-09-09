@@ -1,7 +1,9 @@
 // CEO#1: hover then click the same GTK button by --name on Linux AT-SPI.
 // Acceptance is independent pyatspi read-back only: hover must not advance the
-// count label, click must. CU tree is not used for effect proof. No --coords,
-// screenshot, or coordinate degradation.
+// count label, click must. Typed usage and host-limit paths must hold when
+// --name/--window is missing or the independent pyatspi desktop probe is
+// unavailable; missing named nodes must typed-fail a11y_node_not_found. CU tree
+// is not used for effect proof. No --coords, screenshot, or coordinate degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -13,6 +15,7 @@ const declared_evidence = [
 ];
 
 const BUTTON_NAME = "Fixture Press";
+const MISSING_NODE = "No Such Button";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -66,20 +69,131 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function output_success(document) { return flag_at(document, "ok"); }
+
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_hover_click_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_hover_click_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_hover_click_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_hover_click_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments);
+  ensure(output_success(document), "cu_linux_hover_click_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_hover_click_usage_limit(run_directory, executable) {
+  const hover_missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "hover", "--window", "1",
+  ]);
+  ensure(!output_success(hover_missing_name), "cu_linux_hover_click_hover_usage_ok:" + JSON.stringify(hover_missing_name));
+  ensure(
+    text_at(hover_missing_name, "error.code") === "usage",
+    "cu_linux_hover_click_hover_usage_code:" + JSON.stringify(hover_missing_name.error)
+  );
+  ensure(
+    text_at(hover_missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_hover_click_hover_usage_message:" + JSON.stringify(hover_missing_name.error)
+  );
+
+  const click_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1",
+  ]);
+  ensure(!output_success(click_missing), "cu_linux_hover_click_click_usage_ok:" + JSON.stringify(click_missing));
+  ensure(
+    text_at(click_missing, "error.code") === "invalid_input",
+    "cu_linux_hover_click_click_usage_code:" + JSON.stringify(click_missing.error)
+  );
+  ensure(
+    text_at(click_missing, "error.message").indexOf("--window") >= 0
+      || text_at(click_missing, "error.message").indexOf("--name") >= 0,
+    "cu_linux_hover_click_click_usage_message:" + JSON.stringify(click_missing.error)
+  );
+
+  const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "0", "--name", BUTTON_NAME,
+  ]);
+  ensure(!output_success(zero_handle), "cu_linux_hover_click_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_hover_click_zero_handle_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("--window") >= 0,
+    "cu_linux_hover_click_zero_handle_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_hover_click_missing_node(run_directory, executable, handle, label) {
+  const hover_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "hover", "--window", handle, "--name", MISSING_NODE,
+  ]);
+  ensure(!output_success(hover_missing), "cu_linux_hover_click_hover_missing_ok_" + label);
+  ensure(
+    text_at(hover_missing, "error.code") === "a11y_node_not_found",
+    "cu_linux_hover_click_hover_missing_code_" + label + ":" + JSON.stringify(hover_missing.error)
+  );
+
+  const click_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", handle, "--name", MISSING_NODE,
+  ]);
+  ensure(!output_success(click_missing), "cu_linux_hover_click_click_missing_ok_" + label);
+  ensure(
+    text_at(click_missing, "error.code") === "a11y_node_not_found",
+    "cu_linux_hover_click_click_missing_code_" + label + ":" + JSON.stringify(click_missing.error)
+  );
+}
+
+function assert_hover_click_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const hover_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "hover", "--window", "1", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(hover_reply), "cu_linux_hover_click_hover_unavailable_ok:" + JSON.stringify(hover_reply));
+  const hover_code = text_at(hover_reply, "error.code");
+  ensure(
+    hover_code === "a11y_backend_failed" || hover_code === "unsupported" || hover_code === "bad_handle",
+    "cu_linux_hover_click_hover_unavailable_code:" + hover_code
+  );
+
+  const click_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1", "--name", BUTTON_NAME,
+  ], env);
+  ensure(!output_success(click_reply), "cu_linux_hover_click_click_unavailable_ok:" + JSON.stringify(click_reply));
+  const click_code = text_at(click_reply, "error.code");
+  ensure(
+    click_code === "a11y_backend_failed" || click_code === "unsupported" || click_code === "bad_handle",
+    "cu_linux_hover_click_click_unavailable_code:" + click_code
+  );
 }
 
 function independent_atspi_probe(title, mode, expected) {
@@ -158,6 +272,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_hover_click_executable_missing");
 const context = harness.new_context(repo, "cu-linux-hover-click");
 const run_directory = rh.join(repo, "target/cu-linux-hover-click-smoke-run");
 rh.create_dir_all(run_directory);
@@ -169,8 +284,17 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const atspi_available = probe_atspi_available(executable);
 
 try {
+  print("STEP hover / click typed-fail usage when --name or --window is missing");
+  assert_hover_click_usage_limit(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    assert_hover_click_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
   print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
   fixture = harness.start({
     program: "python3",
@@ -191,6 +315,9 @@ try {
   ensure(row !== null, "cu_linux_hover_click_window_missing");
   const handle_text = "" + int_at(row, "handle");
   ensure(int_at(row, "handle") > 0, "cu_linux_hover_click_handle:" + JSON.stringify(row));
+
+  print("STEP hover / click typed-fail a11y_node_not_found when the named button is missing");
+  assert_hover_click_missing_node(run_directory, executable, handle_text, "before_actuate");
 
   print("STEP independent AT-SPI read-back reports press label baseline pressed 0");
   const before = independent_atspi_probe(fixture_title, "press_label", "pressed 0");
@@ -229,6 +356,7 @@ try {
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-hover-click");
   succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -242,5 +370,9 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_hover_click_failed");
 harness.remove_run(context);
-print("PASS: CEO#1 Linux AT-SPI hover then click by --name (independent pyatspi read-back, no --coords)");
+if (atspi_available) {
+  print("PASS: CEO#1 Linux AT-SPI hover then click by --name with pyatspi read-back and typed usage/miss/host-limit paths (no --coords)");
+} else {
+  print("PASS: CEO#1 Linux AT-SPI hover/click typed-fails when independent pyatspi desktop probe is unavailable");
+}
 return;
