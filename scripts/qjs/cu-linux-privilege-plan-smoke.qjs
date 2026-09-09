@@ -17,22 +17,50 @@ const declared_evidence = [
 
 const BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id";
 const UPTIME_SLACK_MS = 15000;
+const AT_SPI_PROBE_NAME = "Privilege Plan Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
 }
 
-function text_at(value, dotted) {
+function at(value, dotted) {
   let current = value;
   for (const key of dotted.split(".")) {
     current = rh.field(current, key);
   }
+  return current;
+}
+
+function text_at(value, dotted) {
+  const current = at(value, dotted);
   if (current === undefined || current === null) { return ""; }
   return "" + current;
 }
 
-function isolated_env(run_directory, prefix) {
-  return {
+function output_success(document) { return at(document, "ok") === true; }
+
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function isolated_env(run_directory, executable, prefix) {
+  const env = {
     HOME: run_directory,
     USERPROFILE: run_directory,
     APPDATA: rh.join(run_directory, "config"),
@@ -45,12 +73,202 @@ function isolated_env(run_directory, prefix) {
     AGENTERM_CU_IDEMPOTENCY_PATH: rh.join(run_directory, "cu-requests.json"),
     AGENTERM_NO_ACTIVATE: "1",
   };
+  const cu = cu_env(executable);
+  env.AGENTERM_ABI_LIB = cu.AGENTERM_ABI_LIB;
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (cu[key] !== undefined) { env[key] = cu[key]; }
+  }
+  return env;
+}
+
+function invoke_observe_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_privilege_plan_observe_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "privilege-plan" || text_at(reply, "command") === "usage",
+    "cu_linux_privilege_plan_observe_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+    "cu_linux_privilege_plan_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function priority_usage_message_rejects_stray(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("requires PID NICE") >= 0;
+}
+
+function power_usage_message_rejects_stray(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("requires exactly sleep, restart or shutdown") >= 0;
+}
+
+function assert_privilege_plan_usage_limit(run_directory, executable, env) {
+  const flat_priority = invoke_observe_reply(run_directory, executable, [
+    "privilege-plan", "process.set-priority", "1", "0",
+    "--name", AT_SPI_PROBE_NAME, "--ttl-seconds", "60",
+  ], env);
+  ensure(!output_success(flat_priority),
+    "cu_linux_privilege_plan_usage_flat_priority_ok:" + JSON.stringify(flat_priority));
+  ensure(
+    text_at(flat_priority, "error.code") === "usage",
+    "cu_linux_privilege_plan_usage_flat_priority_code:" + JSON.stringify(flat_priority.error)
+  );
+  ensure(
+    text_at(flat_priority, "command") === "usage",
+    "cu_linux_privilege_plan_usage_flat_priority_command:" + JSON.stringify(flat_priority)
+  );
+  ensure(
+    priority_usage_message_rejects_stray(text_at(flat_priority, "error.message")),
+    "cu_linux_privilege_plan_usage_flat_priority_message:" + JSON.stringify(flat_priority.error)
+  );
+
+  const grouped_priority = invoke_observe_reply(run_directory, executable, [
+    "privilege", "plan", "process.set-priority", "1", "0",
+    "--name", AT_SPI_PROBE_NAME, "--ttl-seconds", "60",
+  ], env);
+  ensure(!output_success(grouped_priority),
+    "cu_linux_privilege_plan_usage_grouped_priority_ok:" + JSON.stringify(grouped_priority));
+  ensure(
+    text_at(grouped_priority, "error.code") === "usage",
+    "cu_linux_privilege_plan_usage_grouped_priority_code:" + JSON.stringify(grouped_priority.error)
+  );
+  ensure(
+    priority_usage_message_rejects_stray(text_at(grouped_priority, "error.message")),
+    "cu_linux_privilege_plan_usage_grouped_priority_message:" + JSON.stringify(grouped_priority.error)
+  );
+
+  const flat_power = invoke_observe_reply(run_directory, executable, [
+    "privilege-plan", "system.power-action", "sleep",
+    "--name", AT_SPI_PROBE_NAME, "--ttl-seconds", "60",
+  ], env);
+  ensure(!output_success(flat_power),
+    "cu_linux_privilege_plan_usage_flat_power_ok:" + JSON.stringify(flat_power));
+  ensure(
+    text_at(flat_power, "error.code") === "usage",
+    "cu_linux_privilege_plan_usage_flat_power_code:" + JSON.stringify(flat_power.error)
+  );
+  ensure(
+    text_at(flat_power, "command") === "usage",
+    "cu_linux_privilege_plan_usage_flat_power_command:" + JSON.stringify(flat_power)
+  );
+  ensure(
+    power_usage_message_rejects_stray(text_at(flat_power, "error.message")),
+    "cu_linux_privilege_plan_usage_flat_power_message:" + JSON.stringify(flat_power.error)
+  );
+
+  const grouped_power = invoke_observe_reply(run_directory, executable, [
+    "privilege", "plan", "system.power-action", "sleep",
+    "--name", AT_SPI_PROBE_NAME, "--ttl-seconds", "60",
+  ], env);
+  ensure(!output_success(grouped_power),
+    "cu_linux_privilege_plan_usage_grouped_power_ok:" + JSON.stringify(grouped_power));
+  ensure(
+    text_at(grouped_power, "error.code") === "usage",
+    "cu_linux_privilege_plan_usage_grouped_power_code:" + JSON.stringify(grouped_power.error)
+  );
+  ensure(
+    power_usage_message_rejects_stray(text_at(grouped_power, "error.message")),
+    "cu_linux_privilege_plan_usage_grouped_power_message:" + JSON.stringify(grouped_power.error)
+  );
+
+  const with_bogus = invoke_observe_reply(run_directory, executable, [
+    "privilege-plan", "process.set-priority", "1", "0", "--bogus", "--ttl-seconds", "60",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_privilege_plan_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_privilege_plan_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    priority_usage_message_rejects_stray(text_at(with_bogus, "error.message")),
+    "cu_linux_privilege_plan_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_privilege_plan_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_privilege_plan_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_privilege_plan_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_privilege_plan_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_privilege_plan_extents_unavailable_code:" + code
+  );
 }
 
 function invoke(run_directory, executable, arguments, expect_success, prefix) {
   const output = rh.command(executable, arguments, {
     cwd: run_directory,
-    env: isolated_env(run_directory, prefix),
+    env: isolated_env(run_directory, executable, prefix),
     timeout_ms: 30000,
   });
   ensure(output.success === expect_success, "cu_linux_privilege_plan_exit:" + output.exit_code);
@@ -167,9 +385,22 @@ if (!rh.exists(executable) && harness.host_is_windows()) { executable = executab
 ensure(rh.exists(executable), "cu_linux_privilege_plan_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-privilege-plan");
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP privilege-plan typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_privilege_plan_usage_limit(context.run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before process/boot read-back");
+    assert_get_extents_usage_limit(context.run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  }
+
   print("STEP setup enrolls the private installation identity");
   const setup = invoke(context.run_directory, executable,
     ["--target", "current", "--grant", "actuate", "setup", "--bin-dir",
@@ -346,8 +577,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-privilege-plan-readback");
   harness.remove_run(context);
-  print("PASS: CEO Linux privilege-plan observe honesty with typed usage, escalation refusal,"
-        + " missing-helper host-limit, and independent process/boot read-back");
+  if (atspi_available) {
+    print("PASS: Linux privilege-plan observe honesty with typed privilege-plan/get-extents usage honesty (AT-SPI --name, no --coords), escalation refusal, missing-helper host-limit, and independent process/boot read-back");
+  } else {
+    print("PASS: Linux privilege-plan observe honesty with typed privilege-plan/get-extents host-limit honesty (AT-SPI --name, no --coords), escalation refusal, missing-helper host-limit, and independent process/boot read-back");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
