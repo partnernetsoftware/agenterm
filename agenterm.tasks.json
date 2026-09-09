@@ -6045,7 +6045,7 @@
     },
     {
       "id": "cu-linux-tree-honesty-smoke",
-      "description": "Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk with depth/max-nodes budget honesty; volatile focus/active/armed/selected states excluded; typed usage and AT-SPI host-limit paths when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
+      "description": "Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk with depth/max-nodes budget honesty; volatile focus/active/armed/selected states excluded; tree usage rejects AT-SPI --name; typed get-extents --name usage/host-limit before the tree read-back court; typed usage and AT-SPI host-limit paths when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tree-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6683,7 +6683,7 @@
     },
     {
       "id": "cu-linux-get-text-honesty-smoke",
-      "description": "Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; AT-SPI/--name only, no --coords.",
+      "description": "Linux CU get-text on a named or focused GTK text node matches independent pyatspi AT-SPI Text.GetText read-back on the same node; typed get-text usage and get-extents --name usage/host-limit paths before the read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-get-text-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6861,7 +6861,7 @@
     },
     {
       "id": "cu-linux-invoke-smoke",
-      "description": "Linux CU invoke --name press and set-checked on disposable GTK controls agree with independent pyatspi label/state read-back and DoAction(0) side effects; AT-SPI --name; no --coords.",
+      "description": "Linux CU invoke --name press and set-checked on disposable GTK controls agree with independent pyatspi label/state read-back and DoAction(0) side effects; typed invoke usage rejects missing --name, zero --window, and other unexpected arguments; typed get-extents --name usage/host-limit paths before the native actuate/read-back court; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-invoke-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6901,7 +6901,7 @@
     },
     {
       "id": "cu-linux-wait-ready-honesty-smoke",
-      "description": "Linux CU wait --node-name-contains and wait --ready-path on disposable GTK and Chrome targets agree with independent pyatspi named-node probes and a direct on-disk ready-path marker read-back; AT-SPI/--name only, no --coords.",
+      "description": "Linux CU wait --node-name-contains and wait --ready-path on disposable GTK and Chrome targets agree with independent pyatspi named-node probes and a direct on-disk ready-path marker read-back; typed wait usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the wait-ready read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-wait-ready-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
