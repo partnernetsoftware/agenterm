@@ -1,8 +1,10 @@
 // CEO: Linux AT-SPI scroll --name (Component.ScrollTo TopEdge) on GTK.
 // Acceptance is smoke read-back only: independent get-extents before must
-// fail for an off-screen named node, scroll --name must succeed via
-// scroll-to, and a second get-extents must return on-screen geometry.
-// No XTest wheel, --coords, or screenshot degradation.
+// fail for an off-screen named node while an on-screen reference node
+// remains readable, scroll --name must succeed via scroll-to and name the
+// matched node, and a second get-extents must return positive geometry
+// below the reference node and inside the fixture window bounds with
+// STATE_SHOWING. No XTest wheel, --coords, or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -14,6 +16,7 @@ const declared_evidence = [
 ];
 
 const SCROLL_TARGET = "Fixture Scroll Target";
+const WHEEL_TARGET = "Fixture Wheel Target";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -104,12 +107,12 @@ function window_row(run_directory, executable, pid, title) {
   return null;
 }
 
-function extents_y(run_directory, executable, handle_text) {
+function get_extents(run_directory, executable, handle_text, node_name) {
   const reply = run_cu(run_directory, executable, "observe", [
-    "get-extents", "--window", handle_text, "--name", SCROLL_TARGET,
+    "get-extents", "--window", handle_text, "--name", node_name,
   ]);
   if (!flag_at(reply, "ok")) { return null; }
-  return int_at(reply, "data.extents.y");
+  return reply;
 }
 
 const args = rh.args();
@@ -154,6 +157,11 @@ try {
   const row = window_row(run_directory, executable, fixture_pid, fixture_title);
   ensure(row !== null, "cu_linux_scroll_window_identity");
   const handle = "" + at(row, "handle");
+  const win_x = int_at(row, "bounds.x");
+  const win_y = int_at(row, "bounds.y");
+  const win_w = int_at(row, "bounds.width");
+  const win_h = int_at(row, "bounds.height");
+  ensure(win_w > 0 && win_h > 0, "cu_linux_scroll_window_bounds:" + JSON.stringify(row));
 
   print("STEP independent get-extents must refuse off-screen " + SCROLL_TARGET);
   const before = run_cu(run_directory, executable, "observe", [
@@ -165,26 +173,63 @@ try {
     "cu_linux_scroll_offscreen_baseline:" + JSON.stringify(before)
   );
 
+  print("STEP independent get-extents keeps on-screen reference " + WHEEL_TARGET);
+  const wheel_before = get_extents(run_directory, executable, handle, WHEEL_TARGET);
+  ensure(wheel_before !== null, "cu_linux_scroll_wheel_baseline_missing");
+  const wheel_y = int_at(wheel_before, "data.extents.y");
+  const wheel_h = int_at(wheel_before, "data.extents.height");
+  ensure(
+    wheel_y > 0
+      && wheel_h > 0
+      && rh.has_item(at(wheel_before, "data.matched.states"), "showing"),
+    "cu_linux_scroll_wheel_baseline:" + JSON.stringify(wheel_before.data)
+  );
+
   print("STEP scroll --name " + SCROLL_TARGET + " via Component.ScrollTo(TopEdge)");
   const scrolled = run_cu_ok(run_directory, executable, "observe,actuate", [
     "scroll", "--window", handle, "--name", SCROLL_TARGET,
   ]);
   ensure(
     text_at(scrolled, "data.via") === "scroll-to"
-      && text_at(scrolled, "data.addressing") === "accessibility-tree",
+      && text_at(scrolled, "data.addressing") === "accessibility-tree"
+      && text_at(scrolled, "data.matched.name") === SCROLL_TARGET,
     "cu_linux_scroll_actuate:" + JSON.stringify(scrolled.data)
   );
 
-  print("STEP independent get-extents confirms the named node is on-screen");
-  let after_y = null;
+  print("STEP independent get-extents confirms scroll target geometry below reference and inside window");
+  let after = null;
   for (let attempt = 0; attempt < 20; attempt = attempt + 1) {
-    after_y = extents_y(run_directory, executable, handle);
-    if (after_y !== null && after_y > 0 && after_y < 10000) { break; }
+    after = get_extents(run_directory, executable, handle, SCROLL_TARGET);
+    if (after !== null) {
+      const probe_y = int_at(after, "data.extents.y");
+      const probe_h = int_at(after, "data.extents.height");
+      if (
+        probe_y > wheel_y + wheel_h
+          && probe_h > 0
+          && rh.has_item(at(after, "data.matched.states"), "showing")
+      ) { break; }
+    }
     harness.sleep_ms(100);
   }
+  ensure(after !== null, "cu_linux_scroll_extents_readback_missing");
+  const after_x = int_at(after, "data.extents.x");
+  const after_y = int_at(after, "data.extents.y");
+  const after_w = int_at(after, "data.extents.width");
+  const after_h = int_at(after, "data.extents.height");
   ensure(
-    after_y !== null && after_y > 0 && after_y < 10000,
-    "cu_linux_scroll_extents_readback:" + after_y
+    after_w > 0
+      && after_h > 0
+      && after_y > wheel_y + wheel_h
+      && rh.has_item(at(after, "data.matched.states"), "showing")
+      && after_x >= win_x
+      && after_y >= win_y
+      && after_x + after_w <= win_x + win_w
+      && after_y + after_h <= win_y + win_h,
+    "cu_linux_scroll_extents_readback:" + JSON.stringify({
+      after: after.data,
+      wheel_before: wheel_before.data,
+      window: { x: win_x, y: win_y, width: win_w, height: win_h },
+    })
   );
 
   harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-scroll-to");
@@ -202,5 +247,5 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_scroll_failed");
 harness.remove_run(context);
-print("PASS: CEO Linux AT-SPI scroll --name with independent extents read-back");
+print("PASS: CEO Linux AT-SPI scroll --name with independent get-extents geometry read-back");
 return;
