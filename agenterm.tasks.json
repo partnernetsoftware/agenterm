@@ -6574,7 +6574,7 @@
     },
     {
       "id": "cu-linux-page-click-smoke",
-      "description": "Linux page-click --selector clicks one named CDP control and independent page-js DOM read-back proves the exact effect; typed page-click/get-extents --name usage and host-limit honesty before the actuate court; disposable Chrome profile, AT-SPI/--name only, no --coords.",
+      "description": "Linux page-click --selector clicks one named CDP control and independent page-js DOM read-back proves the exact effect; typed page-click usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage/host-limit court before the page-js DOM read-back; miss and no-CDP host-limit paths; disposable Chrome profile; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-page-click-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
