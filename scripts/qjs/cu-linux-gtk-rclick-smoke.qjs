@@ -5,7 +5,10 @@
 // click on that item closes the circuit via pyatspi label read-back. When
 // the toolkit popup stays off-tree on this host, the journey records an
 // honest typed blocker with alternatives after independent rclick reply
-// read-back and pyatspi context-label honesty. AT-SPI --name only.
+// read-back and pyatspi context-label honesty. Typed rclick/click usage and
+// host-limit paths must hold when --window/--name are missing or the AT-SPI
+// bus is unavailable; typed get-extents --name usage/host-limit paths must
+// hold before the native actuate/read-back court. AT-SPI --name only.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -40,6 +43,8 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return 0; }
@@ -72,20 +77,166 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_gtk_rclick_cli:" + output.stdout + output.stderr);
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_gtk_rclick_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_gtk_rclick_reply:" + JSON.stringify(document));
+  ensure(trimmed !== "", "cu_linux_gtk_rclick_empty_reply:" + output.stderr + output.stdout);
+  return JSON.parse(trimmed);
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_gtk_rclick_reply:" + JSON.stringify(document));
   return document;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_gtk_rclick_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_rclick_usage_limit(run_directory, executable) {
+  const rclick_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "rclick", "--window", "1",
+  ]);
+  ensure(!output_success(rclick_missing), "cu_linux_gtk_rclick_usage_ok:" + JSON.stringify(rclick_missing));
+  ensure(
+    text_at(rclick_missing, "error.code") === "invalid_input",
+    "cu_linux_gtk_rclick_usage_code:" + JSON.stringify(rclick_missing.error)
+  );
+  ensure(
+    text_at(rclick_missing, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_rclick_usage_message:" + JSON.stringify(rclick_missing.error)
+  );
+
+  const rclick_zero = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "rclick", "--window", "0", "--name", TARGET_NAME,
+  ]);
+  ensure(!output_success(rclick_zero), "cu_linux_gtk_rclick_zero_ok:" + JSON.stringify(rclick_zero));
+  ensure(
+    text_at(rclick_zero, "error.code") === "invalid_input",
+    "cu_linux_gtk_rclick_zero_code:" + JSON.stringify(rclick_zero.error)
+  );
+  ensure(
+    text_at(rclick_zero, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_rclick_zero_message:" + JSON.stringify(rclick_zero.error)
+  );
+
+  const click_missing = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1",
+  ]);
+  ensure(!output_success(click_missing), "cu_linux_gtk_rclick_click_usage_ok:" + JSON.stringify(click_missing));
+  ensure(
+    text_at(click_missing, "error.code") === "invalid_input",
+    "cu_linux_gtk_rclick_click_usage_code:" + JSON.stringify(click_missing.error)
+  );
+  ensure(
+    text_at(click_missing, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_rclick_click_usage_message:" + JSON.stringify(click_missing.error)
+  );
+
+  const click_zero = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "0", "--name", MENU_ITEM_NAME,
+  ]);
+  ensure(!output_success(click_zero), "cu_linux_gtk_rclick_click_zero_ok:" + JSON.stringify(click_zero));
+  ensure(
+    text_at(click_zero, "error.code") === "invalid_input",
+    "cu_linux_gtk_rclick_click_zero_code:" + JSON.stringify(click_zero.error)
+  );
+  ensure(
+    text_at(click_zero, "error.message").indexOf("--window") >= 0,
+    "cu_linux_gtk_rclick_click_zero_message:" + JSON.stringify(click_zero.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", TARGET_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_gtk_rclick_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_gtk_rclick_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_gtk_rclick_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", TARGET_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_gtk_rclick_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_gtk_rclick_extents_unavailable_code:" + code
+  );
+}
+
+function assert_rclick_host_limit_when_atspi_absent(run_directory, executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  };
+  const rclick_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "rclick", "--window", "1", "--name", TARGET_NAME,
+  ], env);
+  ensure(!output_success(rclick_reply), "cu_linux_gtk_rclick_unavailable_ok:" + JSON.stringify(rclick_reply));
+  const rclick_code = text_at(rclick_reply, "error.code");
+  ensure(
+    rclick_code === "a11y_backend_failed" || rclick_code === "unsupported" || rclick_code === "bad_handle",
+    "cu_linux_gtk_rclick_unavailable_code:" + rclick_code
+  );
+
+  const click_reply = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "click", "--window", "1", "--name", MENU_ITEM_NAME,
+  ], env);
+  ensure(!output_success(click_reply), "cu_linux_gtk_rclick_click_unavailable_ok:" + JSON.stringify(click_reply));
+  const click_code = text_at(click_reply, "error.code");
+  ensure(
+    click_code === "a11y_backend_failed" || click_code === "unsupported" || click_code === "bad_handle",
+    "cu_linux_gtk_rclick_click_unavailable_code:" + click_code
+  );
 }
 
 function label_text(run_directory, executable, handle_text, prefix) {
@@ -225,9 +376,12 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_gtk_rclick_executable_missing");
 const context = harness.new_context(repo, "cu-linux-gtk-rclick");
 const run_directory = rh.join(repo, "target/cu-linux-gtk-rclick-smoke-run");
 rh.create_dir_all(run_directory);
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_rclick_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_gtk_rclick_fixture_missing:" + fixture_source);
@@ -239,103 +393,120 @@ let failure = "";
 let blocker = 0;
 
 try {
-  print("STEP start the owned GTK rclick fixture and resolve its window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-rclick-" + fixture_pid;
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_rclick_window_wait");
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_gtk_rclick_window_identity");
-  const handle_text = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_gtk_rclick_handle:" + JSON.stringify(row));
+  print("STEP rclick/click typed-fail usage when --window or --name is missing");
+  assert_rclick_usage_limit(run_directory, executable);
 
-  print("STEP baseline context label is idle before any secondary click");
-  ensure(
-    label_text(run_directory, executable, handle_text, "context ") === "context idle",
-    "cu_linux_gtk_rclick_context_before"
-  );
-  ensure(
-    independent_pyatspi_probe(run_directory, executable, fixture_title, "context_label", "context idle").value
-      === "context idle",
-    "cu_linux_gtk_rclick_pyatspi_before"
-  );
-
-  print("STEP rclick --name through AT-SPI accessibility-tree actuation");
-  const rclicked = run_cu(run_directory, executable, "observe,actuate", [
-    "rclick", "--window", handle_text, "--name", TARGET_NAME,
-  ]);
-  ensure(
-    flag_at(rclicked, "data.performed")
-      && text_at(rclicked, "data.addressing") === "accessibility-tree"
-      && text_at(rclicked, "data.button") === "right",
-    "cu_linux_gtk_rclick_actuation:" + JSON.stringify(rclicked.data)
-  );
-
-  const opened = label_text(run_directory, executable, handle_text, "context ") === "context menu open";
-  if (opened) {
-    print("STEP independent pyatspi context-label and menu-item read-back prove the popover opened");
-    const pyatspi_open_label = wait_pyatspi_context_label(
-      run_directory, executable, fixture_title, "context menu open"
-    );
-    ensure(
-      pyatspi_open_label.value === "context menu open",
-      "cu_linux_gtk_rclick_pyatspi_open:" + JSON.stringify(pyatspi_open_label)
-    );
-    const pyatspi_menu = wait_pyatspi_menu_item(run_directory, executable, MENU_ITEM_NAME);
-    ensure(
-      pyatspi_menu.present === true && ("" + pyatspi_menu.role).indexOf("menu") >= 0,
-      "cu_linux_gtk_rclick_pyatspi_menu_role:" + JSON.stringify(pyatspi_menu)
-    );
-    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-rclick-context-menu");
-
-    print("STEP click --name on the popover item closes the circuit via pyatspi label read-back");
-    const item_clicked = run_cu(run_directory, executable, "observe,actuate", [
-      "click", "--window", handle_text, "--name", MENU_ITEM_NAME,
-    ]);
-    ensure(flag_at(item_clicked, "data.performed"), "cu_linux_gtk_rclick_item:" + JSON.stringify(item_clicked.data));
-    const pyatspi_after_item = wait_pyatspi_context_label(
-      run_directory, executable, fixture_title, "context did thing"
-    );
-    ensure(
-      pyatspi_after_item.value === "context did thing",
-      "cu_linux_gtk_rclick_pyatspi_after_item:" + JSON.stringify(pyatspi_after_item)
-    );
-    ensure(
-      label_text(run_directory, executable, handle_text, "context ") === "context did thing",
-      "cu_linux_gtk_rclick_context_after_item"
-    );
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
   } else {
-    print("STEP popover label stayed idle; independent rclick reply proves typed off-tree blocker");
-    ensure(
-      flag_at(rclicked, "data.verified") === false
-        && text_at(rclicked, "data.verification.method") === "tree-diff"
-        && text_at(rclicked, "data.verification.reason") === "no_observable_change"
-        && next_actions_include_alternatives(rclicked),
-      "cu_linux_gtk_rclick_blocker_shape:" + JSON.stringify(rclicked.data)
-    );
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
+  if (!atspi_available) {
+    print("STEP rclick/click typed-fail host-limit when independent pyatspi desktop probe is unavailable");
+    assert_rclick_host_limit_when_atspi_absent(run_directory, executable);
+    succeeded = 1;
+  } else {
+    print("STEP start the owned GTK rclick fixture and resolve its window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-rclick-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_gtk_rclick_window_wait");
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_gtk_rclick_window_identity");
+    const handle_text = "" + int_at(row, "handle");
+    ensure(int_at(row, "handle") > 0, "cu_linux_gtk_rclick_handle:" + JSON.stringify(row));
+
+    print("STEP baseline context label is idle before any secondary click");
     ensure(
       label_text(run_directory, executable, handle_text, "context ") === "context idle",
-      "cu_linux_gtk_rclick_blocker_side_effect"
+      "cu_linux_gtk_rclick_context_before"
     );
     ensure(
       independent_pyatspi_probe(run_directory, executable, fixture_title, "context_label", "context idle").value
         === "context idle",
-      "cu_linux_gtk_rclick_pyatspi_blocker_label"
+      "cu_linux_gtk_rclick_pyatspi_before"
     );
-    blocker = 1;
-    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-rclick-context-menu-blocker");
-  }
 
-  succeeded = 1;
+    print("STEP rclick --name through AT-SPI accessibility-tree actuation");
+    const rclicked = run_cu(run_directory, executable, "observe,actuate", [
+      "rclick", "--window", handle_text, "--name", TARGET_NAME,
+    ]);
+    ensure(
+      flag_at(rclicked, "data.performed")
+        && text_at(rclicked, "data.addressing") === "accessibility-tree"
+        && text_at(rclicked, "data.button") === "right",
+      "cu_linux_gtk_rclick_actuation:" + JSON.stringify(rclicked.data)
+    );
+
+    const opened = label_text(run_directory, executable, handle_text, "context ") === "context menu open";
+    if (opened) {
+      print("STEP independent pyatspi context-label and menu-item read-back prove the popover opened");
+      const pyatspi_open_label = wait_pyatspi_context_label(
+        run_directory, executable, fixture_title, "context menu open"
+      );
+      ensure(
+        pyatspi_open_label.value === "context menu open",
+        "cu_linux_gtk_rclick_pyatspi_open:" + JSON.stringify(pyatspi_open_label)
+      );
+      const pyatspi_menu = wait_pyatspi_menu_item(run_directory, executable, MENU_ITEM_NAME);
+      ensure(
+        pyatspi_menu.present === true && ("" + pyatspi_menu.role).indexOf("menu") >= 0,
+        "cu_linux_gtk_rclick_pyatspi_menu_role:" + JSON.stringify(pyatspi_menu)
+      );
+      harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-rclick-context-menu");
+
+      print("STEP click --name on the popover item closes the circuit via pyatspi label read-back");
+      const item_clicked = run_cu(run_directory, executable, "observe,actuate", [
+        "click", "--window", handle_text, "--name", MENU_ITEM_NAME,
+      ]);
+      ensure(flag_at(item_clicked, "data.performed"), "cu_linux_gtk_rclick_item:" + JSON.stringify(item_clicked.data));
+      const pyatspi_after_item = wait_pyatspi_context_label(
+        run_directory, executable, fixture_title, "context did thing"
+      );
+      ensure(
+        pyatspi_after_item.value === "context did thing",
+        "cu_linux_gtk_rclick_pyatspi_after_item:" + JSON.stringify(pyatspi_after_item)
+      );
+      ensure(
+        label_text(run_directory, executable, handle_text, "context ") === "context did thing",
+        "cu_linux_gtk_rclick_context_after_item"
+      );
+    } else {
+      print("STEP popover label stayed idle; independent rclick reply proves typed off-tree blocker");
+      ensure(
+        flag_at(rclicked, "data.verified") === false
+          && text_at(rclicked, "data.verification.method") === "tree-diff"
+          && text_at(rclicked, "data.verification.reason") === "no_observable_change"
+          && next_actions_include_alternatives(rclicked),
+        "cu_linux_gtk_rclick_blocker_shape:" + JSON.stringify(rclicked.data)
+      );
+      ensure(
+        label_text(run_directory, executable, handle_text, "context ") === "context idle",
+        "cu_linux_gtk_rclick_blocker_side_effect"
+      );
+      ensure(
+        independent_pyatspi_probe(run_directory, executable, fixture_title, "context_label", "context idle").value
+          === "context idle",
+        "cu_linux_gtk_rclick_pyatspi_blocker_label"
+      );
+      blocker = 1;
+      harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-rclick-context-menu-blocker");
+    }
+
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -350,7 +521,9 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_gtk_rclick_failed");
 harness.remove_run(context);
 if (blocker === 1) {
-  print("PASS: Linux GTK rclick --name typed off-tree blocker with independent reply and pyatspi label read-back (AT-SPI --name, invoke show-menu / menu-invoke alternatives)");
+  print("PASS: Linux GTK rclick --name typed off-tree blocker with independent reply and pyatspi label read-back and typed rclick/click/get-extents usage honesty (AT-SPI --name, invoke show-menu / menu-invoke alternatives)");
+} else if (atspi_available) {
+  print("PASS: Linux GTK rclick --name opens popover context menu with independent pyatspi menu and label read-back and typed rclick/click/get-extents usage honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux GTK rclick --name opens popover context menu with independent pyatspi menu and label read-back (AT-SPI --name, no --coords)");
+  print("PASS: Linux GTK rclick/click typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
 }

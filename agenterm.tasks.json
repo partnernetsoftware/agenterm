@@ -6505,7 +6505,7 @@
     },
     {
       "id": "cu-linux-gtk-rclick-smoke",
-      "description": "Linux GTK secondary click by --name opens a named popover context menu with independent label read-back; AT-SPI --name; no --coords.",
+      "description": "Linux GTK secondary click by --name opens a named popover context menu with independent pyatspi label read-back; typed rclick/click usage and host-limit paths before the native actuate/read-back court; typed get-extents --name usage/host-limit paths before the fixture court; honest off-tree blocker with alternatives when the popover stays off-tree; AT-SPI --name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-rclick-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
