@@ -696,6 +696,19 @@ pub(super) fn capabilities_payload() -> serde_json::Value {
             }),
         );
         verbs.insert(
+            "storage-volume-at".into(),
+            serde_json::json!({
+                "status": "available",
+                "group": "storage",
+                "grant": "observe",
+                "mode": "exact-path-bound-native-volume-capacity",
+                "path_bytes_max": 8192,
+                "mount_identity": "kernel-or-current-mount-namespace",
+                "device_identifiers_returned": false,
+                "mutation_performed": false,
+            }),
+        );
+        verbs.insert(
             "network-interfaces".into(),
             serde_json::json!({
                 "status": "available",
@@ -2055,6 +2068,8 @@ mod tests {
         assert_eq!(data["verbs"]["storage-volumes"]["status"], "available");
         assert_eq!(data["verbs"]["storage-volumes"]["grant"], "observe");
         assert_eq!(data["verbs"]["storage-volumes"]["result_ceiling"], 512);
+        assert_eq!(data["verbs"]["storage-volume-at"]["status"], "available");
+        assert_eq!(data["verbs"]["storage-volume-at"]["grant"], "observe");
         assert_eq!(data["verbs"]["storage-devices"]["status"], "available");
         assert_eq!(data["verbs"]["storage-devices"]["grant"], "observe");
         assert_eq!(data["verbs"]["storage-devices"]["result_ceiling"], 5000);

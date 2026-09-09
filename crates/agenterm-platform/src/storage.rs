@@ -1,7 +1,8 @@
 //! Capacity and allocation geometry for a path's backing volume.
 
 pub use crate::contract::storage::{
-    MountedVolumeSpace, StorageError, StorageErrorKind, VolumeSpace,
+    MountedVolumeSpace, PathVolume, StorageError, StorageErrorKind, VolumeDriveKind,
+    VolumePathKind, VolumeSpace,
 };
 
 pub const VOLUME_RESULTS_MAX: usize = 512;
@@ -22,6 +23,62 @@ pub struct MountedVolumeInventory {
     pub truncated: bool,
     pub coverage: &'static str,
     pub coverage_complete: bool,
+}
+
+pub(crate) struct NativePathVolume {
+    pub mount_path: Option<std::path::PathBuf>,
+    pub mount_path_reason: Option<&'static str>,
+    pub mount_proof: &'static str,
+    pub space: MountedVolumeSpace,
+    pub drive_kind: Option<VolumeDriveKind>,
+    pub in_inventory: bool,
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) struct NativePathMount {
+    pub mount_path: Option<std::path::PathBuf>,
+    pub mount_path_reason: Option<&'static str>,
+    pub mount_proof: &'static str,
+    pub in_inventory: bool,
+}
+
+pub fn volume_at(path: &std::path::Path) -> Result<PathVolume, StorageError> {
+    let symlink_followed = std::fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false);
+    let canonical_path = std::fs::canonicalize(path).map_err(|source| {
+        let kind = match source.kind() {
+            std::io::ErrorKind::NotFound => StorageErrorKind::PathNotFound,
+            std::io::ErrorKind::PermissionDenied => StorageErrorKind::PathDenied,
+            _ => StorageErrorKind::Path,
+        };
+        StorageError::new(kind, format!("{}: {source}", path.display()))
+    })?;
+    let metadata = std::fs::metadata(&canonical_path).map_err(|source| {
+        StorageError::new(
+            StorageErrorKind::Path,
+            format!("{}: {source}", canonical_path.display()),
+        )
+    })?;
+    let path_kind = if metadata.is_dir() {
+        VolumePathKind::Directory
+    } else if metadata.is_file() {
+        VolumePathKind::File
+    } else {
+        VolumePathKind::Other
+    };
+    let native = crate::selected::storage::volume_at(&canonical_path)?;
+    Ok(PathVolume {
+        canonical_path,
+        path_kind,
+        symlink_followed,
+        mount_path: native.mount_path,
+        mount_path_reason: native.mount_path_reason,
+        mount_proof: native.mount_proof,
+        space: native.space,
+        drive_kind: native.drive_kind,
+        in_inventory: native.in_inventory,
+    })
 }
 
 pub fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, StorageError> {
@@ -72,6 +129,32 @@ mod tests {
         let file = std::env::current_exe().expect("current executable");
         let error = volume_space(&file).expect_err("file is not a directory");
         assert_eq!(error.kind(), StorageErrorKind::Path);
+    }
+
+    #[test]
+    fn reports_the_same_volume_for_a_file_and_its_directory() {
+        let file = std::env::current_exe().expect("current executable");
+        let directory = file.parent().expect("executable parent");
+        let file_volume = volume_at(&file).expect("query executable volume");
+        let directory_volume = volume_at(directory).expect("query parent volume");
+        assert_eq!(file_volume.path_kind, VolumePathKind::File);
+        assert_eq!(directory_volume.path_kind, VolumePathKind::Directory);
+        assert_eq!(file_volume.mount_path, directory_volume.mount_path);
+        assert_eq!(
+            file_volume.space.total_bytes,
+            directory_volume.space.total_bytes
+        );
+        assert_eq!(
+            file_volume.space.allocation_unit,
+            directory_volume.space.allocation_unit
+        );
+    }
+
+    #[test]
+    fn path_volume_rejects_a_missing_path() {
+        let missing = std::env::temp_dir().join("agenterm-volume-path-missing");
+        let error = volume_at(&missing).expect_err("missing path");
+        assert_eq!(error.kind(), StorageErrorKind::PathNotFound);
     }
 
     #[test]

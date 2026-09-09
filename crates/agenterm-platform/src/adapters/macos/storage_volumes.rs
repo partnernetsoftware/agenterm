@@ -61,3 +61,33 @@ pub(crate) fn mounted_volumes(max: usize) -> Result<MountedVolumeInventory, Stor
         coverage_complete: true,
     })
 }
+
+pub(crate) fn path_volume(
+    path: &std::path::Path,
+) -> Result<crate::storage::NativePathVolume, StorageError> {
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| StorageError::new(StorageErrorKind::Path, "path contains an embedded NUL"))?;
+    let mut facts = unsafe { std::mem::zeroed::<libc::statfs>() };
+    if unsafe { libc::statfs(path.as_ptr(), &mut facts) } != 0 {
+        return Err(StorageError::new(
+            StorageErrorKind::Query,
+            format!("query path mount: {}", std::io::Error::last_os_error()),
+        ));
+    }
+    let mount = unsafe { CStr::from_ptr(facts.f_mntonname.as_ptr()) };
+    let allocation_unit = u64::from(facts.f_bsize);
+    let space = checked_mounted_space(
+        checked_product(facts.f_blocks, allocation_unit, "total blocks")?,
+        checked_product(facts.f_bfree, allocation_unit, "free blocks")?,
+        checked_product(facts.f_bavail, allocation_unit, "available blocks")?,
+        allocation_unit,
+    )?;
+    Ok(crate::storage::NativePathVolume {
+        mount_path: Some(PathBuf::from(std::ffi::OsStr::from_bytes(mount.to_bytes()))),
+        mount_path_reason: None,
+        mount_proof: "statfs-mntonname",
+        space,
+        drive_kind: None,
+        in_inventory: true,
+    })
+}

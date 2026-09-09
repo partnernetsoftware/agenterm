@@ -20,9 +20,42 @@ pub struct MountedVolumeSpace {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VolumePathKind {
+    Directory,
+    File,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VolumeDriveKind {
+    Fixed,
+    RamDisk,
+    Removable,
+    Remote,
+    CdRom,
+    Unknown,
+    NoRoot,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PathVolume {
+    pub canonical_path: std::path::PathBuf,
+    pub path_kind: VolumePathKind,
+    pub symlink_followed: bool,
+    pub mount_path: Option<std::path::PathBuf>,
+    pub mount_path_reason: Option<&'static str>,
+    pub mount_proof: &'static str,
+    pub space: MountedVolumeSpace,
+    pub drive_kind: Option<VolumeDriveKind>,
+    pub in_inventory: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum StorageErrorKind {
     Path,
+    PathNotFound,
+    PathDenied,
     Query,
     ZeroCapacity,
     InvalidValue,

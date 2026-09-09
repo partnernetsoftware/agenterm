@@ -1918,6 +1918,32 @@ mod surface_tests {
         assert_eq!(rows.len(), verbs::VERBS.len());
     }
 
+    #[test]
+    fn storage_volume_at_parses_flat_and_grouped_exact_paths() {
+        let spec = verbs::lookup("storage-volume-at").expect("storage volume-at verb");
+        let parse = |argv: &[&str]| {
+            let mut args = argv
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>();
+            cli::parse_command(
+                spec,
+                "storage-volume-at",
+                agenterm_cu::TargetRef::Current,
+                &mut args,
+            )
+        };
+        for args in [vec!["."], vec!["volume-at", "."]] {
+            match parse(&args).expect("storage volume path") {
+                Command::StorageVolumeAt { path, .. } => assert_eq!(path, "."),
+                other => panic!("{other:?}"),
+            }
+        }
+        for args in [vec![], vec!["a", "b"]] {
+            assert!(parse(&args).is_err());
+        }
+    }
+
     /// The desktop-ring verbs parse into their own closed shapes, and
     /// every one of them refuses an unknown flag before a target is touched.
     #[test]
