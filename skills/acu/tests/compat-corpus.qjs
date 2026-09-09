@@ -20,7 +20,7 @@ const corpus_gap_ids = [];
 for (let i = 0; i < corpus.dynamic_rows.length; i = i + 1) {
   corpus_gap_ids.push(corpus.dynamic_rows[i].gap_id);
 }
-require(compat.LEGACY_TODO_GAP_IDS.length === 8,
+require(compat.LEGACY_TODO_GAP_IDS.length === 7,
   "legacy TODO catalog count drifted from the reviewed archive");
 for (let i = 0; i < compat.LEGACY_TODO_GAP_IDS.length; i = i + 1) {
   const gap_id = compat.LEGACY_TODO_GAP_IDS[i];
@@ -73,7 +73,7 @@ const resolved_compound = {
   "acu.dynamic.023": "job-generation",
   "acu.dynamic.073": "apps-page",
   "acu.dynamic.080": "focused-pid",
-  "acu.dynamic.081": "observe-roles",
+  "acu.dynamic.081": "observe-filters",
   "acu.dynamic.093": "selector-dclick"
 };
 let resolved_checked = 0;
@@ -323,9 +323,6 @@ todo_case(["storage", "mount", "disk-1"], "acu.dynamic.057", "legacy storage mou
 todo_case(["browser", "bridge", "status"], "acu.dynamic.075", "legacy browser bridge");
 todo_case(["elements", "Window#1", "--page", "--tab-id", "4"],
   "acu.dynamic.078.page-index-space", "legacy page elements index space");
-todo_case(["observe", "Window#1", "--action", "press"],
-  "acu.dynamic.081", "legacy observe filter");
-
 const default_elements = compat.canonicalize(["elements", "Window#1"]);
 require(default_elements.kind === "exec", "legacy default elements maps to native query");
 same_argv(default_elements.argv, [
@@ -421,8 +418,37 @@ require(compat.canonicalize(["zoom", "--window", "41", "--region", "1,2,3,4", "-
   "native zoom shape must remain direct");
 require(tree_value_bound.kind === "exec", "native tree value shape must remain direct");
 require(exact_profile_tabs.kind === "exec", "native browser profile id must remain direct");
-require(compat.canonicalize(["observe", "Window#1", "--role", "Button"]).kind === "observe-roles",
+const observe_filters = compat.canonicalize([
+  "observe", "Window#1", "--role", "Button", "--enabled", "true",
+  "--max", "50"
+]);
+require(observe_filters.kind === "observe-filters",
   "resolved observe role projection must remain direct");
+same_argv(observe_filters.argv, [
+  "observe", "--window", "Window#1", "--duration-ms", "5000", "--depth", "4",
+  "--max-nodes", "1000", "--max-events", "200"
+], "legacy observe filter capture");
+require(observe_filters.filters.role === "Button"
+    && observe_filters.filters.enabled === true
+    && observe_filters.filters["min-depth"] === 0
+    && observe_filters.filters["max-depth"] === 4
+    && observe_filters.filters.offset === 0 && observe_filters.filters.max === 50,
+  "legacy observe filter projection");
+require(compat.canonicalize([
+  "observe", "Window#1", "--duration", "31", "--enabled", "true"
+]).kind === "usage", "legacy observe duration upper bound");
+require(compat.canonicalize([
+  "observe", "Window#1", "--depth", "4", "--min-depth", "3", "--max-depth", "2"
+]).kind === "usage", "legacy observe depth relation");
+require(compat.canonicalize([
+  "observe", "Window#1", "--within", "1,2,0,4"
+]).kind === "usage", "legacy observe within ordering");
+const required_observe = compat.canonicalize([
+  "observe", "Window#1", "--required", "false"
+]);
+require(required_observe.kind === "observe-filters"
+    && required_observe.filters.required === false,
+  "legacy required filter reaches stable typed projection");
 require(compat.canonicalize(["windows", "--space", "7"]).kind === "exec",
   "resolved windows Space projection must remain direct");
 

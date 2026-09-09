@@ -124,6 +124,11 @@ function execute_compound(request) {
     const reply = acu.argv(prefixed(request.globals, request.argv));
     return projected_reply(request.command, reply, compound.observe_roles(reply, request.roles));
   }
+  if (request.kind === "observe-filters") {
+    const reply = acu.argv(prefixed(request.globals, request.argv));
+    return projected_reply(request.command, reply,
+      compound.observe_filters(reply, request.filters));
+  }
   if (request.kind === "selector-dclick") {
     const query = acu.argv(prefixed(request.globals, [
       "query", "--window", request.window, "--selector", request.selector, "--max", "2"

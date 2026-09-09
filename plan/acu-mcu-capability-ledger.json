@@ -462,11 +462,11 @@
         },
         {
           "id": "desktop.observe",
-          "mcu_shape": "observe/query --watch/windows watch",
-          "acu_shape": "observe notifications|poll-diff plus windows-watch",
+          "mcu_shape": "observe with post-capture role/action/text/state/actionable/depth/bounds filters and matched-event paging; query --watch; windows watch",
+          "acu_shape": "observe notifications|poll-diff with same-snapshot event facts plus Bun-free post-capture filters, query --watch and windows-watch",
           "state": "native",
           "evidence": ["cu.macos-ax-observe", "cu.macos-ax-observe-notifications", "cu.linux-atspi-observe"],
-          "note": "ACU exposes native notifications and portable poll-diff as distinct truthful mechanisms."
+          "note": "ACU exposes native notifications and portable poll-diff as distinct truthful mechanisms. Legacy observe filters keep the archived 5 s / depth 4 / 1000-node / 200-event defaults, filter the captured poll-diff events, and page only the matched set. Poll-diff projects actions, bounds, depth, states and text from the exact before/after walk that created each event; sparse notification events fail typed when a requested filter needs those facts. Unknown boolean facts match neither true nor false, and required fails typed because no native adapter publishes that state. Native notification filtering still applies before its event ceiling, unlike the archived raw-capture ceiling, and legacy text matching uses the published name, identifier and value subset rather than unavailable description/help/placeholder fields."
         },
         {
           "id": "desktop.snapshot.diff",
