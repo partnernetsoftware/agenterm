@@ -7956,7 +7956,7 @@
     },
     {
       "id": "cu-linux-app-facts-smoke",
-      "description": "Linux app-facts path, name and desktop_entry_id match independent XDG desktop-entry read-back and executable/running agree with /proc/exe inventory or return typed unavailable reasons; typed app-facts usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the desktop-entry read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux app-facts path, name and desktop_entry_id match independent XDG desktop-entry read-back and executable/running agree with /proc/exe inventory or return typed unavailable reasons; typed app-facts usage rejects AT-SPI --name/--coords/--bogus and other unexpected arguments; typed get-extents --name usage AND host-limit paths both hold before the desktop-entry read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-app-facts-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
