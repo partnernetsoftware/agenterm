@@ -16,6 +16,32 @@ function fails(result, code, message) {
     message + " missing message");
 }
 
+const native_effect_failure = {
+  ok: false,
+  target: "current",
+  command: "browser-bridge-window-open",
+  data: null,
+  error: {
+    code: "browser_bridge_outcome_unknown",
+    message: "delivery cannot be proved",
+    count: 1,
+    detail: {
+      effect: "unknown",
+      retry_safe: false,
+      recovery: { attempted: true, verified: false }
+    }
+  }
+};
+const preserved_effect_failure = compound.job_generation(
+  native_effect_failure, "job-1");
+require(preserved_effect_failure.ok === false
+    && JSON.stringify(preserved_effect_failure.native_reply)
+      === JSON.stringify(native_effect_failure),
+  "native compound failures must preserve the complete CuReply");
+preserved_effect_failure.native_reply.error.detail.effect = "not-performed";
+require(native_effect_failure.error.detail.effect === "unknown",
+  "preserved native compound failure must not alias its input");
+
 const generation = ok(compound.job_generation({
   ok: true, data: { job_id: "job-1", generation: 7 }
 }, "job-1"), "job generation");

@@ -11095,7 +11095,7 @@
     },
     {
       "id": "acu-compound-projection",
-      "description": "Prove Bun-free compound ACU projections preserve typed failures, exact identities, bounded matched-event paging, tri-state observe filters and unavailable facts without host effects.",
+      "description": "Prove Bun-free compound ACU projections preserve complete native typed failures including effect and recovery facts, exact identities, bounded matched-event paging, tri-state observe filters and unavailable facts without host effects.",
       "entry": "skills/acu/tests/compound.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -98,10 +98,10 @@ require_ok(elements_projection.ok === false
 const page_elements = invoke(launcher, [
   "elements", "Window#1", "--page", "--tab-id", "2147483647"
 ], 1);
-require_ok(page_elements.ok === false && page_elements.command === "elements"
+require_ok(page_elements.ok === false && page_elements.command === "browser-tabs"
     && page_elements.error.code !== "usage"
     && page_elements.error.code !== "acu_todo",
-  "legacy page elements must reach the exact bridge provider:"
+  "legacy page elements must preserve the exact native provider failure:"
     + JSON.stringify(page_elements));
 
 const observe_projection = invoke(launcher, [
@@ -144,6 +144,15 @@ require_ok(unsafe_kill.ok === false && unsafe_kill.alert === undefined
     && unsafe_kill.error.code === "usage"
     && unsafe_kill.error.message.indexOf("--force exactly for KILL") >= 0,
   "acu_compat_signal_plan_native_usage:" + JSON.stringify(unsafe_kill));
+
+const kill_observe_failure = invoke(launcher, [
+  "--rdp", "example.invalid:3389", "kill", "2147483647"
+], 1);
+require_ok(kill_observe_failure.ok === false
+    && kill_observe_failure.command === "process-state"
+    && kill_observe_failure.error.code === "rdp_unavailable",
+  "identity kill must preserve the exact native process-state failure:"
+    + JSON.stringify(kill_observe_failure));
 
 for (const operation of ["install", "status", "start", "stop", "uninstall"]) {
   const retired = run(launcher, ["daemon", "service", operation]);

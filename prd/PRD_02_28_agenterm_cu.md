@@ -164,6 +164,8 @@ boundary; it does not open raw OS APIs or fork a fifth screenshot stack.
   │  │         remain authoritative after effect dispatch and must never be hidden by late cancel
   │  ├─ [x] external compatibility wrapper execs `agenterm cli acu`; no Bun, repository cwd or MCU runtime
   │  ├─ [x] ten compound compatibility shapes execute through pure qjs projections + the same typed calls
+  │  │  └─ native failures bypass projection unchanged, preserving command, count and structured effect/recovery facts;
+  │  │     the reply command names the exact native verb that failed
   │  ├─ [~] MCP uses the same provider/Executor; bounded shell mutation is implemented but deliberately unadvertised
   │  │  ├─ [x] lazy connection-owned session, one dispatched + one queued, typed cancellation and EOF drain
   │  │  ├─ [x] JSON-RPC id owns transport cancellation; caller idempotency key owns durable effect identity
