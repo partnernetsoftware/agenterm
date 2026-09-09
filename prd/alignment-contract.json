@@ -106,6 +106,7 @@
         "cu.linux-file-copy-readback",
         "cu.linux-file-watch",
         "cu.linux-clipboard-utf8-roundtrip",
+        "cu.linux-clipboard-mime-roundtrip",
         "cu.linux-terminal-control",
         "cu.linux-display-scale",
         "cu.linux-pointer-position",

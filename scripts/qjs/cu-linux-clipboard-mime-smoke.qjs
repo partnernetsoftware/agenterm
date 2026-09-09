@@ -1,0 +1,69 @@
+// CEO: Linux clipboard text/html and image/png honesty on X11.
+// Acceptance is independent clipboard-read after clipboard-write with digest,
+// type inventory and empty restore; shell court owns the read-back contract.
+// No --coords or screenshot degradation.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.linux-clipboard-mime-roundtrip",
+];
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function direct_file(path) {
+  if (!rh.exists(path)) { return false; }
+  const metadata = rh.symlink_metadata(path);
+  return metadata.is_file === true && metadata.is_symlink !== true;
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+const smoke = rh.join(repo, "scripts/cu-linux-clipboard-mime-smoke.sh");
+ensure(direct_file(executable), "cu_linux_clipboard_mime_executable_missing:" + executable);
+ensure(direct_file(smoke), "cu_linux_clipboard_mime_smoke_missing:" + smoke);
+ensure(rh.env_or("DISPLAY", "") !== "", "cu_linux_clipboard_mime_display_missing");
+
+const env = {
+  AGENTERM_CU_EXE: executable,
+  AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  AGENTERM_NO_ACTIVATE: "1",
+};
+for (const key of [
+  "DISPLAY",
+  "XDG_RUNTIME_DIR",
+  "DBUS_SESSION_BUS_ADDRESS",
+]) {
+  if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+}
+
+print("STEP host-native court runs cu-linux-clipboard-mime-smoke.sh with independent typed read-back");
+const output = rh.command("bash", [smoke], {
+  cwd: repo,
+  env: env,
+  timeout_ms: 120000,
+});
+ensure(
+  output.success === true,
+  "cu_linux_clipboard_mime_smoke_child:" + output.stdout + output.stderr
+);
+ensure(
+  output.stdout.indexOf("PASS:") >= 0,
+  "cu_linux_clipboard_mime_smoke_pass_missing:" + output.stdout
+);
+
+const context = harness.new_context(repo, "cu-linux-clipboard-mime");
+harness.emit_evidence(context, declared_evidence, "cu.linux-clipboard-mime-roundtrip");
+harness.remove_run(context);
+print("PASS: CEO Linux clipboard text/html and image/png roundtrip with independent read-back");

@@ -282,6 +282,13 @@
       ]
     },
     {
+      "id": "cu-linux-clipboard-mime-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-clipboard-mime-roundtrip"
+      ]
+    },
+    {
       "id": "cu-linux-capabilities-honesty-smoke",
       "platform": "linux",
       "evidence": [
