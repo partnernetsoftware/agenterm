@@ -283,6 +283,13 @@
       ]
     },
     {
+      "id": "cu-linux-query-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-query-readback"
+      ]
+    },
+    {
       "id": "cu-linux-process-fds-smoke",
       "platform": "linux",
       "evidence": [
