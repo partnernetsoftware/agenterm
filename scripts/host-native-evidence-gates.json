@@ -498,6 +498,13 @@
       ]
     },
     {
+      "id": "cu-linux-privilege-plan-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-privilege-plan-readback"
+      ]
+    },
+    {
       "id": "cu-linux-audio-status-smoke",
       "platform": "linux",
       "evidence": [
