@@ -60,12 +60,20 @@ function acu_error(command, code, message) {
   };
 }
 
+function projection_error(command, projection) {
+  if (projection.native_reply !== undefined && projection.native_reply !== null) {
+    return projection.native_reply;
+  }
+  return acu_error(command, projection.code, projection.message);
+}
+
 function execute_identity_kill(request) {
   const observe_argv = [];
   append_argv(observe_argv, request.globals);
   append_argv(observe_argv, ["process-state", "--pid", request.pid]);
   const observed = acu.argv(observe_argv);
-  if (observed.ok !== true || observed.data === null || observed.data === undefined
+  if (observed.ok !== true) { return observed; }
+  if (observed.data === null || observed.data === undefined
       || observed.data.state !== "live"
       || typeof observed.data.start_identity !== "string"
       || observed.data.start_identity.length === 0) {
@@ -91,8 +99,9 @@ function prefixed(globals, command) {
 }
 
 function projected_reply(command, reply, projection) {
+  if (reply.ok !== true) { return reply; }
   if (projection.ok !== true) {
-    return acu_error(command, projection.code, projection.message);
+    return projection_error(command, projection);
   }
   reply.data = projection.value;
   return reply;
@@ -114,7 +123,7 @@ function execute_compound(request) {
   if (request.kind === "job-generation") {
     const status = acu.argv(prefixed(request.globals, ["job-status", request.job_id]));
     const generation = compound.job_generation(status, request.job_id);
-    if (!generation.ok) { return acu_error(request.command, generation.code, generation.message); }
+    if (!generation.ok) { return projection_error(request.command, generation); }
     const operation = [request.native_verb, request.job_id, "" + generation.value];
     append_argv(operation, request.tail);
     return acu.argv(prefixed(request.globals, operation));
@@ -124,7 +133,7 @@ function execute_compound(request) {
     if (generation === null) {
       const status = acu.argv(prefixed(request.globals, ["job-status", request.job_id]));
       const selected = compound.job_generation(status, request.job_id);
-      if (!selected.ok) { return acu_error(request.command, selected.code, selected.message); }
+      if (!selected.ok) { return projection_error(request.command, selected); }
       generation = "" + selected.value;
     }
     const operation = [request.native_verb, request.job_id, generation];
@@ -146,7 +155,7 @@ function execute_compound(request) {
     const tabs = acu.argv(prefixed(request.globals, tabs_argv));
     const selected = compound.elements_page_tab(tabs, request.tab_id, request.profile);
     if (!selected.ok) {
-      return acu_error(request.command, selected.code, selected.message);
+      return projection_error(request.command, selected);
     }
     const debug_argv = [
       "browser-bridge-debug-read", selected.value.connection_id,
@@ -187,7 +196,7 @@ function execute_compound(request) {
     const selected = compound.bridge_select_connection(
       connections, statuses, request.profile);
     if (!selected.ok) {
-      return acu_error(request.command, selected.code, selected.message);
+      return projection_error(request.command, selected);
     }
     return projected_reply(request.command, connections,
       compound.bridge_status_projection(selected.value, connections));
@@ -215,7 +224,7 @@ function execute_compound(request) {
     const selected = compound.bridge_select_connection(
       connections, statuses, request.profile);
     if (!selected.ok) {
-      return acu_error(request.command, selected.code, selected.message);
+      return projection_error(request.command, selected);
     }
     const opened = acu.argv(prefixed(request.globals, [
       "browser-bridge-window-open", selected.value.connection_id,
@@ -231,7 +240,7 @@ function execute_compound(request) {
     const targets = acu.argv(prefixed(request.globals, targets_argv));
     const selected = compound.cdp_nav_target(targets);
     if (!selected.ok) {
-      return acu_error(request.command, selected.code, selected.message);
+      return projection_error(request.command, selected);
     }
     const nav_argv = ["page-nav"];
     append_argv(nav_argv, request.transport);
@@ -243,7 +252,7 @@ function execute_compound(request) {
     const windows = acu.argv(prefixed(request.globals,
       ["windows", "--pid", "" + request.pid, "--max", "2"]));
     const selected = compound.single_window(windows, request.pid);
-    if (!selected.ok) { return acu_error(request.command, selected.code, selected.message); }
+    if (!selected.ok) { return projection_error(request.command, selected); }
     return acu.argv(prefixed(request.globals,
       ["focused", "--window", "" + selected.value.handle]));
   }
@@ -261,7 +270,7 @@ function execute_compound(request) {
       "query", "--window", request.window, "--selector", request.selector, "--max", "2"
     ]));
     const selected = compound.single_node_id(query);
-    if (!selected.ok) { return acu_error(request.command, selected.code, selected.message); }
+    if (!selected.ok) { return projection_error(request.command, selected); }
     return acu.argv(prefixed(request.globals, [
       "click", "--window", request.window, "--node", selected.value, "--clicks", "2"
     ]));

@@ -243,6 +243,28 @@ try {
     window_open_reply(CONNECTION_A, "minimized", false, 9002), null);
   ensure(focus_drift.code === "browser_open_postcondition_failed",
     "acu_browser_open_requires_desktop_focus_receipt");
+  const native_open_failure = {
+    ok: false,
+    target: "current",
+    command: "browser-bridge-window-open",
+    data: null,
+    error: {
+      code: "browser_bridge_outcome_unknown",
+      message: "the bridge effect cannot be proved",
+      count: 1,
+      detail: {
+        effect: "unknown",
+        retry_safe: false,
+        recovery: { attempted: true, verified: false }
+      }
+    }
+  };
+  const preserved_open_failure = compound.bridge_window_open_projection(
+    selected.value, native_open_failure, null);
+  ensure(preserved_open_failure.ok === false
+      && JSON.stringify(preserved_open_failure.native_reply)
+        === JSON.stringify(native_open_failure),
+    "acu_browser_open_native_effect_failure_preserved");
 
   const ambiguous_default = compound.bridge_select_connection(inventory, statuses, null);
   ensure(ambiguous_default.code === "browser_bridge_profile_connection_ambiguous",

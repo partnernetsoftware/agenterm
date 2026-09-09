@@ -22,7 +22,12 @@ function reply_data(reply, label) {
   if (reply.ok === false) {
     if (object_value(reply.error) && typeof reply.error.code === "string"
         && reply.error.code.length > 0 && typeof reply.error.message === "string") {
-      return failure(reply.error.code, reply.error.message);
+      return {
+        ok: false,
+        code: reply.error.code,
+        message: reply.error.message,
+        native_reply: clone(reply)
+      };
     }
     return failure("acu_compound_reply_invalid", label + " has no typed error");
   }

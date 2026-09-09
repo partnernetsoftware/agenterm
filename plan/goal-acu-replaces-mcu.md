@@ -208,7 +208,11 @@ cannot; the retirement source scan remains a cheap defense-in-depth alarm.
 Immutable Git
 blob ids preserve corpus provenance:
 CLI, MCP and qjs call the same typed schema and Rust `Executor`, with identical
-deadlines, cleanup, errors and receipts. Moving TypeScript logic line-for-line
+deadlines, cleanup, errors and receipts. Compound compatibility projections
+transform successful native data only; a native failure returns unchanged so
+its command, count, effect, retry and recovery facts cannot be downgraded to a
+message, and the reply command remains the exact native verb that failed.
+Moving TypeScript logic line-for-line
 into qjswasm would preserve the duplication and is explicitly rejected.
 
 The first MCP mutation implementation uses a server-owned ACU session. Its
