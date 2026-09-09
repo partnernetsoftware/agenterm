@@ -1,7 +1,10 @@
 // CEO: Linux observe (poll-diff) honesty with independent AT-SPI read-back.
 // Acceptance is smoke read-back only: CU observe events for named node
 // changes must agree with independent pyatspi before/after probes taken at
-// mutation time. AT-SPI/--name only; no --coords or screenshot degradation.
+// mutation time. Typed observe usage must reject AT-SPI --name and other
+// unexpected arguments; typed get-extents --name usage/host-limit paths must
+// hold before the observe read-back court. AT-SPI/--name only; no --coords
+// or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -14,6 +17,7 @@ const declared_evidence = [
 
 const PRESS_BUTTON = "Fixture Press";
 const ENTRY_NAME = "Fixture Entry";
+const AT_SPI_PROBE_NAME = "Observe Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -34,6 +38,8 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -72,20 +78,164 @@ function cu_env(executable) {
   return env;
 }
 
-function run_cu(run_directory, executable, grant, arguments) {
+function run_cu_reply(run_directory, executable, grant, cu_args, env) {
   const argv = ["--target", "current", "--grant", grant];
-  for (const argument of arguments) { argv.push("" + argument); }
+  for (const argument of cu_args) { argv.push("" + argument); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
-  ensure(output.success === true, "cu_linux_observe_cli:" + output.stdout + output.stderr);
-  const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_observe_empty");
-  const document = JSON.parse(trimmed);
-  ensure(flag_at(document, "ok"), "cu_linux_observe_reply:" + JSON.stringify(document));
+  ensure(output.stdout.trim() !== "", "cu_linux_observe_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function run_cu(run_directory, executable, grant, arguments, env) {
+  const document = run_cu_reply(run_directory, executable, grant, arguments, env);
+  ensure(output_success(document), "cu_linux_observe_reply:" + JSON.stringify(document));
   return document;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_observe_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_observe_usage_limit(run_directory, executable) {
+  const bare_name = run_cu_reply(run_directory, executable, "observe", [
+    "observe", "--window", "1", "--duration", "1",
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(!output_success(bare_name), "cu_linux_observe_usage_name_ok:" + JSON.stringify(bare_name));
+  ensure(
+    text_at(bare_name, "error.code") === "usage",
+    "cu_linux_observe_usage_name_code:" + JSON.stringify(bare_name.error)
+  );
+  ensure(
+    text_at(bare_name, "command") === "usage",
+    "cu_linux_observe_usage_name_command:" + JSON.stringify(bare_name)
+  );
+  ensure(
+    text_at(bare_name, "error.message").indexOf("--name") >= 0
+      || text_at(bare_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_observe_usage_name_message:" + JSON.stringify(bare_name.error)
+  );
+
+  const ready_path = rh.join(run_directory, "observe-usage-probe-ready.json");
+  const ready_path_with_name = run_cu_reply(run_directory, executable, "observe", [
+    "observe", "--window", "1", "--duration-ms", "1000",
+    "--ready-path", ready_path,
+    "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(
+    !output_success(ready_path_with_name),
+    "cu_linux_observe_usage_ready_name_ok:" + JSON.stringify(ready_path_with_name)
+  );
+  ensure(
+    text_at(ready_path_with_name, "error.code") === "usage",
+    "cu_linux_observe_usage_ready_name_code:" + JSON.stringify(ready_path_with_name.error)
+  );
+  ensure(
+    text_at(ready_path_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(ready_path_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_observe_usage_ready_name_message:" + JSON.stringify(ready_path_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "observe", "--window", "1", "--duration", "1", "--bogus",
+  ]);
+  ensure(!output_success(with_bogus), "cu_linux_observe_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_observe_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_observe_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_observe_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_observe_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_observe_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_observe_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_observe_extents_unavailable_code:" + code
+  );
+}
+
+function assert_observe_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "observe", "--window", "1", "--duration", "1",
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_observe_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle",
+    "cu_linux_observe_unavailable_code:" + code
+  );
+  if (code === "a11y_backend_failed") {
+    const message = text_at(reply, "error.message").toLowerCase();
+    ensure(
+      message.indexOf("address") >= 0
+        || message.indexOf("accessibility") >= 0
+        || message.indexOf("bus") >= 0,
+      "cu_linux_observe_unavailable_message:" + JSON.stringify(reply.error)
+    );
+  }
 }
 
 function window_row(run_directory, executable, pid, title) {
@@ -206,6 +356,7 @@ if (args.length === 1 && args[0] === "--list-evidence") {
 harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
 const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
+ensure(direct_file(executable), "cu_linux_observe_executable_missing");
 const context = harness.new_context(repo, "cu-linux-observe");
 const run_directory = rh.join(repo, "target/cu-linux-observe-smoke-run");
 rh.create_dir_all(run_directory);
@@ -217,95 +368,115 @@ let fixture = -1;
 let fixture_pid = 0;
 let succeeded = 0;
 let failure = "";
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
-  fixture = harness.start({
-    program: "python3",
-    args: [fixture_source],
-    current_dir: run_directory,
-    env: { GTK_MODULES: "gail:atk-bridge" },
-    timeout_ms: 30000,
-  });
-  fixture_pid = harness.spawned_pid(fixture);
-  const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
-  const window_wait = run_cu(run_directory, executable, "observe", [
-    "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
-  ]);
-  ensure(flag_at(window_wait, "data.met"), "cu_linux_observe_window_wait");
-  const row = window_row(run_directory, executable, fixture_pid, fixture_title);
-  ensure(row !== null, "cu_linux_observe_window_identity");
-  const handle_text = "" + int_at(row, "handle");
-  ensure(int_at(row, "handle") > 0, "cu_linux_observe_handle:" + JSON.stringify(row));
+  print("STEP observe typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_observe_usage_limit(run_directory, executable);
 
-  print("STEP independent AT-SPI probes report the fixture baseline before observe starts");
-  const press_before = independent_atspi_probe(fixture_title, "press_label");
-  const entry_before = independent_atspi_probe(fixture_title, "entry_text");
-  ensure(press_before.value === "pressed 0", "cu_linux_observe_press_baseline:" + JSON.stringify(press_before));
-  ensure(entry_before.value === "seed", "cu_linux_observe_entry_baseline:" + JSON.stringify(entry_before));
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before observe read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
-  print("STEP CU observe poll-diff captures mutations while independent probes agree at each step");
-  const observer = start_observer(run_directory, executable, handle_text, "8");
-  harness.sleep_ms(700);
+  if (!atspi_available) {
+    print("STEP observe typed-fail host-limit when independent pyatspi desktop probe is unavailable");
+    assert_observe_host_limit_when_atspi_absent(run_directory, executable);
+    harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe-readback");
+    succeeded = 1;
+  } else {
+    print("STEP start the owned GTK fixture and resolve its window by pid and exact title");
+    fixture = harness.start({
+      program: "python3",
+      args: [fixture_source],
+      current_dir: run_directory,
+      env: { GTK_MODULES: "gail:atk-bridge" },
+      timeout_ms: 30000,
+    });
+    fixture_pid = harness.spawned_pid(fixture);
+    const fixture_title = "agenterm-linux-fixture-" + fixture_pid;
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "15000", "--window-title-contains", fixture_title,
+    ]);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_observe_window_wait");
+    const row = window_row(run_directory, executable, fixture_pid, fixture_title);
+    ensure(row !== null, "cu_linux_observe_window_identity");
+    const handle_text = "" + int_at(row, "handle");
+    ensure(int_at(row, "handle") > 0, "cu_linux_observe_handle:" + JSON.stringify(row));
 
-  run_cu(run_directory, executable, "observe,actuate", [
-    "invoke", "--window", handle_text, "--name", PRESS_BUTTON, "press",
-  ]);
-  const press_mid = independent_atspi_probe(fixture_title, "press_label");
-  ensure(press_mid.value === "pressed 1", "cu_linux_observe_press_mid:" + JSON.stringify(press_mid));
-  harness.sleep_ms(400);
+    print("STEP independent AT-SPI probes report the fixture baseline before observe starts");
+    const press_before = independent_atspi_probe(fixture_title, "press_label");
+    const entry_before = independent_atspi_probe(fixture_title, "entry_text");
+    ensure(press_before.value === "pressed 0", "cu_linux_observe_press_baseline:" + JSON.stringify(press_before));
+    ensure(entry_before.value === "seed", "cu_linux_observe_entry_baseline:" + JSON.stringify(entry_before));
 
-  run_cu(run_directory, executable, "observe,actuate", [
-    "send-text", "--window", handle_text, "--name", ENTRY_NAME, "--", "observe-readback",
-  ]);
-  const entry_mid = independent_atspi_probe(fixture_title, "entry_text");
-  ensure(entry_mid.value === "observe-readback", "cu_linux_observe_entry_mid:" + JSON.stringify(entry_mid));
+    print("STEP CU observe poll-diff captures mutations while independent probes agree at each step");
+    const observer = start_observer(run_directory, executable, handle_text, "8");
+    harness.sleep_ms(700);
 
-  const observed = observer_result(observer);
-  ensure(
-    int_at(observed, "emitted") >= 2 && text_at(observed, "mode") === "poll-diff",
-    "cu_linux_observe_stream:" + JSON.stringify(observed)
-  );
+    run_cu(run_directory, executable, "observe,actuate", [
+      "invoke", "--window", handle_text, "--name", PRESS_BUTTON, "press",
+    ]);
+    const press_mid = independent_atspi_probe(fixture_title, "press_label");
+    ensure(press_mid.value === "pressed 1", "cu_linux_observe_press_mid:" + JSON.stringify(press_mid));
+    harness.sleep_ms(400);
 
-  const events = observed.events === undefined ? [] : observed.events;
-  const press_event = find_event(
-    events,
-    "TitleChanged",
-    press_before.value,
-    press_mid.value
-  );
-  ensure(
-    press_event !== null,
-    "cu_linux_observe_press_event:" + JSON.stringify({
-      expected: {
-        notification: "TitleChanged",
-        before: press_before.value,
-        after: press_mid.value,
-      },
-      observed: observed,
-    })
-  );
+    run_cu(run_directory, executable, "observe,actuate", [
+      "send-text", "--window", handle_text, "--name", ENTRY_NAME, "--", "observe-readback",
+    ]);
+    const entry_mid = independent_atspi_probe(fixture_title, "entry_text");
+    ensure(entry_mid.value === "observe-readback", "cu_linux_observe_entry_mid:" + JSON.stringify(entry_mid));
 
-  const entry_event = find_event(
-    events,
-    "ValueChanged",
-    entry_before.value,
-    entry_mid.value
-  );
-  ensure(
-    entry_event !== null,
-    "cu_linux_observe_entry_event:" + JSON.stringify({
-      expected: {
-        notification: "ValueChanged",
-        before: entry_before.value,
-        after: entry_mid.value,
-      },
-      observed: observed,
-    })
-  );
+    const observed = observer_result(observer);
+    ensure(
+      int_at(observed, "emitted") >= 2 && text_at(observed, "mode") === "poll-diff",
+      "cu_linux_observe_stream:" + JSON.stringify(observed)
+    );
 
-  harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe-readback");
-  succeeded = 1;
+    const events = observed.events === undefined ? [] : observed.events;
+    const press_event = find_event(
+      events,
+      "TitleChanged",
+      press_before.value,
+      press_mid.value
+    );
+    ensure(
+      press_event !== null,
+      "cu_linux_observe_press_event:" + JSON.stringify({
+        expected: {
+          notification: "TitleChanged",
+          before: press_before.value,
+          after: press_mid.value,
+        },
+        observed: observed,
+      })
+    );
+
+    const entry_event = find_event(
+      events,
+      "ValueChanged",
+      entry_before.value,
+      entry_mid.value
+    );
+    ensure(
+      entry_event !== null,
+      "cu_linux_observe_entry_event:" + JSON.stringify({
+        expected: {
+          notification: "ValueChanged",
+          before: entry_before.value,
+          after: entry_mid.value,
+        },
+        observed: observed,
+      })
+    );
+
+    harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-observe-readback");
+    succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -319,4 +490,9 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_observe_failed");
 harness.remove_run(context);
-print("PASS: CEO Linux observe poll-diff honesty (CU events agree with independent AT-SPI read-back)");
+if (atspi_available) {
+  print("PASS: CEO Linux observe poll-diff honesty (CU events agree with independent AT-SPI read-back with typed observe/get-extents usage honesty; AT-SPI --name, no --coords)");
+} else {
+  print("PASS: CEO Linux observe poll-diff typed-fails with typed observe/get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+}
+return;
