@@ -5,9 +5,11 @@
 // --window/--name and --coords/--bogus via usage_rejects_unexpected with
 // command=usage, or stay on the AT-SPI focused/named path — never coordinate
 // degradation. Typed get-extents --name usage AND host-limit paths must both
-// hold before the native actuate/read-back court (no atspi_available gate on
-// those courts), including get-extents --coords/--bogus command=usage honesty;
-// host-limit paths must hold when the AT-SPI bus is unavailable.
+// hold before process-state, desktop-state, and the native actuate/read-back
+// court (no atspi_available gate on those courts), including get-extents
+// --coords/--bogus command=usage honesty; host-limit paths must hold when the
+// AT-SPI bus is unavailable. process-state and desktop-state fixture binding
+// courts must hold before actuate/read-back.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -22,6 +24,8 @@ const declared_evidence = [
 
 const ENTRY_NAME = "Fixture Entry";
 const READBACK_COUNT = 2;
+const DESKTOP_STATE_DEPTH = 3;
+const DESKTOP_STATE_MAX_NODES = 64;
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -697,6 +701,10 @@ function assert_get_extents_host_limit_when_atspi_absent(run_directory, executab
   ], invalid_atspi_env(executable));
   ensure(!output_success(reply),
     "cu_linux_gtk_entry_focused_send_extents_unavailable_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "command") !== "usage",
+    "cu_linux_gtk_entry_focused_send_extents_unavailable_fake_usage:" + JSON.stringify(reply)
+  );
   assert_host_limit_code(
     text_at(reply, "error.code"),
     "cu_linux_gtk_entry_focused_send_extents_unavailable_code",
@@ -711,6 +719,10 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   ], env);
   ensure(!output_success(focus_reply),
     "cu_linux_gtk_entry_focused_send_focus_unavailable_ok:" + JSON.stringify(focus_reply));
+  ensure(
+    text_at(focus_reply, "command") !== "usage",
+    "cu_linux_gtk_entry_focused_send_focus_unavailable_fake_usage:" + JSON.stringify(focus_reply)
+  );
   assert_host_limit_code(
     text_at(focus_reply, "error.code"),
     "cu_linux_gtk_entry_focused_send_focus_unavailable_code",
@@ -722,6 +734,10 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   ], env);
   ensure(!output_success(send_reply),
     "cu_linux_gtk_entry_focused_send_send_unavailable_ok:" + JSON.stringify(send_reply));
+  ensure(
+    text_at(send_reply, "command") !== "usage",
+    "cu_linux_gtk_entry_focused_send_send_unavailable_fake_usage:" + JSON.stringify(send_reply)
+  );
   assert_host_limit_code(
     text_at(send_reply, "error.code"),
     "cu_linux_gtk_entry_focused_send_send_unavailable_code",
@@ -733,6 +749,10 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   ], env);
   ensure(!output_success(get_reply),
     "cu_linux_gtk_entry_focused_send_get_unavailable_ok:" + JSON.stringify(get_reply));
+  ensure(
+    text_at(get_reply, "command") !== "usage",
+    "cu_linux_gtk_entry_focused_send_get_unavailable_fake_usage:" + JSON.stringify(get_reply)
+  );
   assert_host_limit_code(
     text_at(get_reply, "error.code"),
     "cu_linux_gtk_entry_focused_send_get_unavailable_code",
@@ -744,10 +764,60 @@ function assert_focused_send_text_host_limit_when_atspi_absent(run_directory, ex
   ], env);
   ensure(!output_success(focused_reply),
     "cu_linux_gtk_entry_focused_send_focused_unavailable_ok:" + JSON.stringify(focused_reply));
+  ensure(
+    text_at(focused_reply, "command") !== "usage",
+    "cu_linux_gtk_entry_focused_send_focused_unavailable_fake_usage:" + JSON.stringify(focused_reply)
+  );
   assert_host_limit_code(
     text_at(focused_reply, "error.code"),
     "cu_linux_gtk_entry_focused_send_focused_unavailable_code",
     focused_reply
+  );
+}
+
+function assert_fixture_process_state(run_directory, executable, fixture_pid) {
+  const process_state = run_cu(run_directory, executable, "observe", [
+    "process-state", "--pid", "" + fixture_pid,
+  ]);
+  ensure(
+    text_at(process_state, "command") === "process-state",
+    "cu_linux_gtk_entry_focused_send_process_state_command:" + JSON.stringify(process_state)
+  );
+  ensure(
+    int_at(process_state, "data.pid") === fixture_pid
+      && text_at(process_state, "data.state") === "live"
+      && text_at(process_state, "data.start_identity") !== ""
+      && flag_at(process_state, "data.verified"),
+    "cu_linux_gtk_entry_focused_send_process_state:" + JSON.stringify(process_state.data)
+  );
+}
+
+function assert_fixture_desktop_state(
+  run_directory, executable, fixture_pid, fixture_title, handle_text, inventory_row
+) {
+  const state = run_cu(run_directory, executable, "observe", [
+    "desktop-state", "--window", handle_text,
+    "--depth", "" + DESKTOP_STATE_DEPTH,
+    "--max-nodes", "" + DESKTOP_STATE_MAX_NODES,
+  ]);
+  ensure(
+    text_at(state, "command") === "desktop-state",
+    "cu_linux_gtk_entry_focused_send_desktop_state_command:" + JSON.stringify(state)
+  );
+  ensure(
+    int_at(state, "data.window.handle") === int_at(inventory_row, "handle")
+      && text_at(state, "data.window.title") === fixture_title
+      && text_at(state, "data.window.title") === text_at(inventory_row, "title")
+      && int_at(state, "data.window.process_id") === fixture_pid,
+    "cu_linux_gtk_entry_focused_send_desktop_state_window:" + JSON.stringify({
+      state: state.data.window,
+      inventory: inventory_row,
+    })
+  );
+  ensure(
+    int_at(state, "data.tree.returned") > 0
+      && int_at(state, "data.tree.returned") <= DESKTOP_STATE_MAX_NODES,
+    "cu_linux_gtk_entry_focused_send_desktop_state_tree:" + JSON.stringify(state.data.tree)
   );
 }
 
@@ -811,13 +881,13 @@ try {
   print("STEP focus/send-text/get-text/focused typed-fail usage when --window/--name is missing and when --coords/--bogus is supplied (usage_rejects_unexpected + command=usage, or stay on the AT-SPI focused/named path)");
   assert_focused_send_text_usage_limit(run_directory, executable);
 
-  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is supplied (usage_rejects_unexpected + command=usage) before actuate/read-back court");
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is supplied (usage_rejects_unexpected + command=usage) before process-state/desktop-state and actuate/read-back court");
   assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP get-extents typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");
+  print("STEP get-extents typed-fail host-limit on invalid AT-SPI bus before process-state/desktop-state and actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
-  print("STEP focus/send-text/get-text/focused typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");
+  print("STEP focus/send-text/get-text/focused typed-fail host-limit on invalid AT-SPI bus before process-state/desktop-state and actuate/read-back court");
   assert_focused_send_text_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
@@ -844,6 +914,14 @@ try {
     const row = window_row(run_directory, executable, fixture_pid, fixture_title);
     ensure(row !== null, "cu_linux_gtk_entry_focused_send_window_identity");
     const handle = "" + at(row, "handle");
+
+    print("STEP process-state binds the owned fixture pid before focus/send-text actuate/read-back court");
+    assert_fixture_process_state(run_directory, executable, fixture_pid);
+
+    print("STEP desktop-state window row agrees with inventory before focus/send-text actuate/read-back court");
+    assert_fixture_desktop_state(
+      run_directory, executable, fixture_pid, fixture_title, handle, row
+    );
 
     print("STEP get-extents --name locates the GTK entry before focus/send-text actuate/read-back court");
     const entry_extents = run_cu(run_directory, executable, "observe", [
@@ -926,8 +1004,8 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_focused_send_failed");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: CEO GTK entry focus --name → send-text --window → " + READBACK_COUNT + " get-text --window read-backs with typed focus/send-text/get-text/focused --coords/--bogus usage_rejects_unexpected or stay on the AT-SPI focused/named path, and get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (AT-SPI focused path, no --coords)");
+  print("PASS: CEO GTK entry focus --name → send-text --window → " + READBACK_COUNT + " get-text --window read-backs with typed focus/send-text/get-text/focused --coords/--bogus usage_rejects_unexpected or stay on the AT-SPI focused/named path, get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (no atspi gating), and process-state/desktop-state courts before actuate (AT-SPI focused path, no --coords)");
 } else {
-  print("PASS: CEO GTK entry focus/send-text/get-text/focused typed-fails with typed get-extents --name usage/host-limit plus --coords/--bogus command=usage honesty (usage_rejects_unexpected) when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO GTK entry focus/send-text/get-text/focused typed-fails with typed get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (usage_rejects_unexpected; never fake command=usage) when independent pyatspi desktop probe is unavailable");
 }
 return;
