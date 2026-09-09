@@ -6830,7 +6830,7 @@
     },
     {
       "id": "cu-linux-host-notify-smoke",
-      "description": "Linux FDO host-notify dispatch with independent dbus-monitor session-bus read-back; typed host-notify usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the dbus-monitor read-back court; typed TITLE/--action usage, session-bus unavailable host-limit, miss-no-publish, subtitle/sound refusal, and ActionInvoked action-button invoke; AT-SPI --name only, no --coords.",
+      "description": "Linux FDO host-notify dispatch with independent dbus-monitor session-bus read-back; typed host-notify usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage/host-limit/miss paths before the dbus-monitor read-back court; typed TITLE/--action usage, session-bus unavailable host-limit with independent dbus-monitor no-publish proof, miss-no-publish, subtitle/sound refusal, and ActionInvoked action-button invoke; AT-SPI --name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-host-notify-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
