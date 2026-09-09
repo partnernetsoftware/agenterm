@@ -6,11 +6,12 @@
 // the toolkit popup stays off-tree on this host, the journey records an
 // honest typed blocker with alternatives after independent rclick reply
 // read-back and pyatspi context-label honesty. Typed rclick/click usage
-// must reject --coords/--bogus misuse or stay accessibility-tree --name
-// (never coordinate degradation); host-limit paths must hold when
-// --window/--name are missing or the AT-SPI bus is unavailable; typed
-// get-extents --name usage/host-limit paths must hold before the native
-// actuate/read-back court. AT-SPI --name only; no --coords.
+// must reject --coords/--bogus via usage_rejects_unexpected or stay
+// accessibility-tree --name (never coordinate degradation); host-limit
+// paths must hold when --window/--name are missing or the AT-SPI bus is
+// unavailable; typed get-extents --name usage AND host-limit paths must
+// both hold (usage_rejects_unexpected --coords/--bogus with command=usage)
+// before the native actuate/read-back court. AT-SPI --name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -46,10 +47,6 @@ function text_at(value, dotted) {
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
 function output_success(document) { return flag_at(document, "ok"); }
-
-function misuse_code_ok(code) {
-  return code === "invalid_input" || code === "usage";
-}
 
 function usage_rejects_unexpected(message, token) {
   return message.indexOf(token) >= 0
@@ -279,21 +276,50 @@ function assert_rclick_usage_limit(run_directory, executable) {
   );
 }
 
+function assert_actuate_misuse_or_stay_named(reply, verb, label, token) {
+  if (!output_success(reply)) {
+    const code = text_at(reply, "error.code");
+    if (code === "usage") {
+      ensure(
+        text_at(reply, "command") === "usage",
+        "cu_linux_gtk_rclick_" + verb + "_" + label + "_command:" + JSON.stringify(reply)
+      );
+      ensure(
+        usage_rejects_unexpected(text_at(reply, "error.message"), token)
+          || text_at(reply, "error.message").indexOf("--name") >= 0,
+        "cu_linux_gtk_rclick_" + verb + "_" + label + "_message:" + JSON.stringify(reply.error)
+      );
+    } else {
+      ensure(
+        code === "invalid_input",
+        "cu_linux_gtk_rclick_" + verb + "_" + label + "_code:" + JSON.stringify(reply.error)
+      );
+      ensure(
+        usage_rejects_unexpected(text_at(reply, "error.message"), token)
+          || text_at(reply, "error.message").indexOf("--degraded") >= 0
+          || text_at(reply, "error.message").indexOf("--name") >= 0,
+        "cu_linux_gtk_rclick_" + verb + "_" + label + "_message:" + JSON.stringify(reply.error)
+      );
+    }
+    return false;
+  }
+  ensure(
+    text_at(reply, "data.addressing") === "accessibility-tree"
+      && text_at(reply, "data.matched.name") !== "",
+    "cu_linux_gtk_rclick_" + verb + "_" + label + "_named:" + JSON.stringify(reply.data)
+  );
+  return true;
+}
+
 function assert_actuate_reject_coords_or_stay_named(
   run_directory, executable, handle, name, verb, label
 ) {
   const coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     verb, "--window", handle, "--name", name, "--coords", "10,10",
   ]);
-  if (!output_success(coords)) {
+  if (assert_actuate_misuse_or_stay_named(coords, verb, "coords_" + label, "--coords")) {
     ensure(
-      misuse_code_ok(text_at(coords, "error.code")),
-      "cu_linux_gtk_rclick_" + verb + "_coords_code_" + label + ":" + JSON.stringify(coords.error)
-    );
-  } else {
-    ensure(
-      text_at(coords, "data.addressing") === "accessibility-tree"
-        && text_at(coords, "data.matched.name") === name,
+      text_at(coords, "data.matched.name") === name,
       "cu_linux_gtk_rclick_" + verb + "_coords_named_" + label + ":" + JSON.stringify(coords.data)
     );
   }
@@ -301,15 +327,9 @@ function assert_actuate_reject_coords_or_stay_named(
   const bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
     verb, "--window", handle, "--name", name, "--bogus",
   ]);
-  if (!output_success(bogus)) {
+  if (assert_actuate_misuse_or_stay_named(bogus, verb, "bogus_" + label, "--bogus")) {
     ensure(
-      misuse_code_ok(text_at(bogus, "error.code")),
-      "cu_linux_gtk_rclick_" + verb + "_bogus_code_" + label + ":" + JSON.stringify(bogus.error)
-    );
-  } else {
-    ensure(
-      text_at(bogus, "data.addressing") === "accessibility-tree"
-        && text_at(bogus, "data.matched.name") === name,
+      text_at(bogus, "data.matched.name") === name,
       "cu_linux_gtk_rclick_" + verb + "_bogus_named_" + label + ":" + JSON.stringify(bogus.data)
     );
   }
@@ -577,20 +597,20 @@ let failure = "";
 let blocker = 0;
 
 try {
-  print("STEP rclick/click typed-fail usage when --window/--name is missing and when --coords/--bogus is present");
+  print("STEP rclick/click typed-fail usage when --window/--name is missing and when --coords/--bogus is present (usage_rejects_unexpected)");
   assert_rclick_usage_limit(run_directory, executable);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero or --name is missing before actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present (usage_rejects_unexpected + command=usage) before actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
 
-  print("STEP rclick/click/get-extents typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
   assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  print("STEP rclick/click typed-fail host-limit on invalid AT-SPI bus before actuate/read-back court");
   assert_rclick_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
-    print("STEP independent pyatspi desktop probe is unavailable; usage/host-limit court is the evidence");
+    print("STEP independent pyatspi desktop probe unavailable: get-extents usage/host-limit and rclick/click host-limit already held");
     succeeded = 1;
   } else {
     print("STEP start the owned GTK rclick fixture and resolve its window by pid and exact title");
@@ -721,9 +741,9 @@ if (fixture >= 0) {
 ensure(succeeded === 1, failure || "cu_linux_gtk_rclick_failed");
 harness.remove_run(context);
 if (blocker === 1) {
-  print("PASS: Linux GTK rclick --name typed off-tree blocker with independent reply and pyatspi label read-back and typed rclick/click/get-extents usage/--coords/--bogus honesty (AT-SPI --name, invoke show-menu / menu-invoke alternatives)");
+  print("PASS: Linux GTK rclick --name typed off-tree blocker with independent reply and pyatspi label read-back and typed rclick/click usage_rejects_unexpected plus get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, invoke show-menu / menu-invoke alternatives)");
 } else if (atspi_available) {
-  print("PASS: Linux GTK rclick --name opens popover context menu with independent pyatspi menu and label read-back and typed rclick/click/get-extents usage/--coords/--bogus honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux GTK rclick --name opens popover context menu with independent pyatspi menu and label read-back and typed rclick/click usage_rejects_unexpected plus get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux GTK rclick/click typed-fails with typed get-extents usage/host-limit honesty and rclick/click --coords/--bogus usage when independent pyatspi desktop probe is unavailable");
+  print("PASS: Linux GTK rclick/click typed-fails with typed rclick/click usage_rejects_unexpected and get-extents --name usage AND host-limit plus --coords/--bogus command=usage honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
 }
