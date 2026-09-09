@@ -7540,7 +7540,7 @@
     },
     {
       "id": "cu-linux-boot-identity-smoke",
-      "description": "Linux capabilities host_boot_identity boot_id, machine_id and uptime_milliseconds match independent /proc/sys/kernel/random/boot_id, /etc/machine-id and CLOCK_BOOTTIME read-back; no --coords.",
+      "description": "Linux capabilities host_boot_identity boot_id, machine_id and uptime_milliseconds match independent /proc/sys/kernel/random/boot_id, /etc/machine-id and CLOCK_BOOTTIME read-back, or return typed unavailable when either host source is absent; no --coords.",
       "entry": "scripts/qjs/cu-linux-boot-identity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -122,6 +122,44 @@ function host_boot_identity(reply) {
   return facts;
 }
 
+function probe_host_sources() {
+  const script = [
+    "import json, os",
+    "print(json.dumps({",
+    "    'boot_id': os.path.isfile('/proc/sys/kernel/random/boot_id'),",
+    "    'machine_id': os.path.isfile('/etc/machine-id'),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], { timeout_ms: 10000 });
+  ensure(output.success === true, "cu_linux_boot_identity_probe:" + output.stderr);
+  const probe = JSON.parse(output.stdout.trim());
+  ensure(probe.boot_id === true || probe.boot_id === false, "cu_linux_boot_identity_probe_boot_id");
+  ensure(probe.machine_id === true || probe.machine_id === false, "cu_linux_boot_identity_probe_machine_id");
+  return probe;
+}
+
+function verify_unavailable_host_boot_identity(reply, absence) {
+  const data = rh.field(reply, "data");
+  const facts = rh.field(data, "host_boot_identity");
+  ensure(facts !== undefined && facts !== null, "cu_linux_boot_identity_missing");
+  ensure(text_at(facts, "status") === "unavailable",
+         "cu_linux_boot_identity_unavailable_status:" + JSON.stringify(facts));
+  const reason = text_at(facts, "reason");
+  ensure(reason.length > 0, "cu_linux_boot_identity_unavailable_reason_empty");
+  if (!absence.boot_id) {
+    ensure(reason.indexOf("boot_id") >= 0,
+           "cu_linux_boot_identity_unavailable_boot_id_reason:" + reason);
+  }
+  if (!absence.machine_id) {
+    ensure(reason.indexOf("machine-id") >= 0,
+           "cu_linux_boot_identity_unavailable_machine_id_reason:" + reason);
+  }
+  ensure(text_at(facts, "kind").length > 0, "cu_linux_boot_identity_unavailable_kind");
+  ensure(text_at(facts, "boot_id") === "", "cu_linux_boot_identity_fake_boot_id");
+  ensure(text_at(facts, "machine_id") === "", "cu_linux_boot_identity_fake_machine_id");
+  ensure(text_at(facts, "uptime_milliseconds") === "", "cu_linux_boot_identity_fake_uptime");
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -134,9 +172,28 @@ if (!rh.exists(executable) && harness.host_is_windows()) { executable = executab
 ensure(rh.exists(executable), "cu_linux_boot_identity_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-boot-identity");
+const host_sources = probe_host_sources();
 let succeeded = 0;
 let failure = "";
 try {
+  if (!host_sources.boot_id || !host_sources.machine_id) {
+    print("STEP typed unavailable path (independent /proc probe absent: boot_id="
+      + host_sources.boot_id + " machine_id=" + host_sources.machine_id + ")");
+    const reply = invoke(context.run_directory, executable, [
+      "--target", "current", "--grant", "observe", "capabilities",
+    ]);
+    ensure(reply.command === "capabilities" && reply.target === "current",
+           "cu_linux_boot_identity_command");
+    verify_unavailable_host_boot_identity(reply, host_sources);
+    const second = invoke(context.run_directory, executable, [
+      "--target", "current", "--grant", "observe", "capabilities",
+    ]);
+    verify_unavailable_host_boot_identity(second, host_sources);
+    ensure(text_at(second, "data.host_boot_identity.reason")
+           === text_at(reply, "data.host_boot_identity.reason"),
+           "cu_linux_boot_identity_unavailable_reason_unstable");
+    succeeded = 1;
+  } else {
   print("STEP independent boot_id, machine-id and CLOCK_BOOTTIME bracket one capabilities observation");
   const boot_id_before = independent_boot_id();
   const machine_id_before = independent_machine_id();
@@ -182,6 +239,7 @@ try {
          "cu_linux_boot_identity_uptime_monotonic");
 
   succeeded = 1;
+  }
 } catch (error) {
   failure = "" + error;
 }
@@ -192,7 +250,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-boot-identity-readback");
   harness.remove_run(context);
-  print("PASS: Linux capabilities host_boot_identity matches independent boot_id, machine-id and CLOCK_BOOTTIME read-back");
+  if (host_sources.boot_id && host_sources.machine_id) {
+    print("PASS: Linux capabilities host_boot_identity matches independent boot_id, machine-id and CLOCK_BOOTTIME read-back");
+  } else {
+    print("PASS: Linux capabilities host_boot_identity typed unavailable when independent /proc boot_id or machine-id is absent");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
