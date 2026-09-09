@@ -1,10 +1,12 @@
 // CEO: Linux audio status observe with independent pactl/wpctl/amixer read-back.
 // Acceptance is smoke read-back only: CU default-output volume/mute must match
 // facts derived outside agenterm-cu, or return typed audio_unsupported with
-// linux-default-output alternatives (never macOS CoreAudio). Typed audio usage
-// must reject AT-SPI --name and other unexpected arguments; typed get-extents
-// --name usage/host-limit paths must hold before the pactl/wpctl/amixer read-back
-// court. AT-SPI/--name only; no --coords or screenshot degradation.
+// linux-default-output alternatives (never macOS CoreAudio, never fake sinks).
+// Typed audio usage must reject AT-SPI --name, --coords, --bogus, and other
+// unexpected arguments; typed get-extents --name usage AND host-limit paths
+// must both hold before the pactl/wpctl/amixer inventory/read-back court.
+// Host-limit clarity when the audio bus is absent. Prefer honesty over fake
+// success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -36,6 +38,11 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function output_success(document) { return flag_at(document, "ok"); }
 
@@ -112,66 +119,54 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
+function assert_audio_unexpected(run_directory, executable, env, arguments, label, token) {
+  const reply = invoke_reply(run_directory, executable, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_audio_status_usage_" + label + "_ok:" + JSON.stringify(reply));
+  ensure(
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_audio_status_usage_" + label + "_code:" + JSON.stringify(reply.error)
+  );
+  ensure(
+    text_at(reply, "command") === "usage",
+    "cu_linux_audio_status_usage_" + label + "_command:" + JSON.stringify(reply)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(reply, "error.message"), token),
+    "cu_linux_audio_status_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+}
+
 function assert_audio_usage_limit(run_directory, executable, env) {
-  const status_with_name = invoke_reply(run_directory, executable,
-    ["status", "--name", AT_SPI_PROBE_NAME], env);
-  ensure(!output_success(status_with_name),
-    "cu_linux_audio_status_usage_status_name_ok:" + JSON.stringify(status_with_name));
-  ensure(
-    text_at(status_with_name, "error.code") === "usage",
-    "cu_linux_audio_status_usage_status_name_code:" + JSON.stringify(status_with_name.error)
-  );
-  ensure(
-    text_at(status_with_name, "error.message").indexOf("--name") >= 0,
-    "cu_linux_audio_status_usage_status_name_message:" + JSON.stringify(status_with_name.error)
-  );
+  assert_audio_unexpected(run_directory, executable, env,
+    ["status", "--name", AT_SPI_PROBE_NAME], "status_name", "--name");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "volume", "60", "--name", AT_SPI_PROBE_NAME], "plan_volume_name", "--name");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "muted", "true", "--name", AT_SPI_PROBE_NAME], "plan_muted_name", "--name");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "volume", "60", "--ttl-seconds", "60", "--name", AT_SPI_PROBE_NAME],
+    "plan_ttl_name", "--name");
 
-  const plan_volume_with_name = invoke_reply(run_directory, executable,
-    ["plan", "volume", "60", "--name", AT_SPI_PROBE_NAME], env);
-  ensure(!output_success(plan_volume_with_name),
-    "cu_linux_audio_status_usage_plan_volume_name_ok:" + JSON.stringify(plan_volume_with_name));
-  ensure(
-    text_at(plan_volume_with_name, "error.code") === "usage",
-    "cu_linux_audio_status_usage_plan_volume_name_code:" + JSON.stringify(plan_volume_with_name.error)
-  );
-  ensure(
-    text_at(plan_volume_with_name, "error.message").indexOf("--name") >= 0,
-    "cu_linux_audio_status_usage_plan_volume_name_message:" + JSON.stringify(plan_volume_with_name.error)
-  );
+  assert_audio_unexpected(run_directory, executable, env,
+    ["status", "--bogus"], "status_bogus", "--bogus");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "volume", "60", "--bogus"], "plan_volume_bogus", "--bogus");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "muted", "true", "--bogus"], "plan_muted_bogus", "--bogus");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "volume", "60", "--ttl-seconds", "60", "--bogus"],
+    "plan_ttl_bogus", "--bogus");
 
-  const plan_muted_with_name = invoke_reply(run_directory, executable,
-    ["plan", "muted", "true", "--name", AT_SPI_PROBE_NAME], env);
-  ensure(!output_success(plan_muted_with_name),
-    "cu_linux_audio_status_usage_plan_muted_name_ok:" + JSON.stringify(plan_muted_with_name));
-  ensure(
-    text_at(plan_muted_with_name, "error.code") === "usage",
-    "cu_linux_audio_status_usage_plan_muted_name_code:" + JSON.stringify(plan_muted_with_name.error)
-  );
-  ensure(
-    text_at(plan_muted_with_name, "error.message").indexOf("--name") >= 0,
-    "cu_linux_audio_status_usage_plan_muted_name_message:" + JSON.stringify(plan_muted_with_name.error)
-  );
-
-  const plan_ttl_with_name = invoke_reply(run_directory, executable,
-    ["plan", "volume", "60", "--ttl-seconds", "60", "--name", AT_SPI_PROBE_NAME], env);
-  ensure(!output_success(plan_ttl_with_name),
-    "cu_linux_audio_status_usage_plan_ttl_name_ok:" + JSON.stringify(plan_ttl_with_name));
-  ensure(
-    text_at(plan_ttl_with_name, "error.code") === "usage",
-    "cu_linux_audio_status_usage_plan_ttl_name_code:" + JSON.stringify(plan_ttl_with_name.error)
-  );
-  ensure(
-    text_at(plan_ttl_with_name, "error.message").indexOf("--name") >= 0,
-    "cu_linux_audio_status_usage_plan_ttl_name_message:" + JSON.stringify(plan_ttl_with_name.error)
-  );
-
-  const status_bogus = invoke_reply(run_directory, executable, ["status", "--bogus"], env);
-  ensure(!output_success(status_bogus),
-    "cu_linux_audio_status_usage_status_bogus_ok:" + JSON.stringify(status_bogus));
-  ensure(
-    text_at(status_bogus, "error.code") === "usage",
-    "cu_linux_audio_status_usage_status_bogus_code:" + JSON.stringify(status_bogus.error)
-  );
+  assert_audio_unexpected(run_directory, executable, env,
+    ["status", "--coords", "10,10"], "status_coords", "--coords");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "volume", "60", "--coords", "10,10"], "plan_volume_coords", "--coords");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "muted", "true", "--coords", "10,10"], "plan_muted_coords", "--coords");
+  assert_audio_unexpected(run_directory, executable, env,
+    ["plan", "volume", "60", "--ttl-seconds", "60", "--coords", "10,10"],
+    "plan_ttl_coords", "--coords");
 
   const missing_subcommand = invoke_reply(run_directory, executable, [], env);
   ensure(!output_success(missing_subcommand),
@@ -179,6 +174,10 @@ function assert_audio_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(missing_subcommand, "error.code") === "usage",
     "cu_linux_audio_status_usage_missing_subcommand_code:" + JSON.stringify(missing_subcommand.error)
+  );
+  ensure(
+    text_at(missing_subcommand, "command") === "usage",
+    "cu_linux_audio_status_usage_missing_subcommand_command:" + JSON.stringify(missing_subcommand)
   );
 }
 
@@ -195,6 +194,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_audio_status_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_audio_status_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_audio_status_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_audio_status_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_audio_status_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_audio_status_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_audio_status_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_audio_status_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_audio_status_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_audio_status_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_audio_status_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_audio_status_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_audio_status_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -431,16 +486,14 @@ const context = harness.new_context(repo, "cu-linux-audio-status");
 const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
-print("STEP audio typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+print("STEP audio typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
 assert_audio_usage_limit(context.run_directory, executable, env);
 
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before audio read-back");
-  assert_get_extents_usage_limit(context.run_directory, executable, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
-}
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before audio inventory/read-back court");
+assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before audio inventory/read-back court");
+assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
 
 print("STEP audio status observe matches independent pactl/wpctl/amixer read-back or typed unsupported");
 const independent = independent_audio_probe(env);
@@ -451,10 +504,10 @@ if (independent !== null) {
   harness.remove_run(context);
   if (atspi_available) {
     print("PASS: CEO Linux audio status with independent " + independent.mechanism
-      + " read-back and typed audio/get-extents usage honesty (AT-SPI --name, no --coords)");
+      + " read-back and typed audio/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
     print("PASS: CEO Linux audio status with independent " + independent.mechanism
-      + " read-back and typed audio/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+      + " read-back and typed audio --name/--coords/--bogus usage plus get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
   return;
 }
@@ -462,7 +515,7 @@ assert_unsupported_readback(reply, env);
 harness.emit_evidence(context, declared_evidence, "cu.linux-audio-status-readback");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: CEO Linux audio status typed unsupported with independent probe absence read-back and typed audio/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO Linux audio status typed unsupported with independent probe absence read-back and typed audio/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords; never fake sinks)");
 } else {
-  print("PASS: CEO Linux audio status typed unsupported with independent probe absence read-back and typed audio/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO Linux audio status typed unsupported with independent probe absence read-back and typed audio --name/--coords/--bogus usage plus get-extents --name host-limit honesty (AT-SPI --name, no --coords; never fake sinks)");
 }
