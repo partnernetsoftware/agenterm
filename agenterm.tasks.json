@@ -6028,7 +6028,7 @@
     },
     {
       "id": "cu-linux-minimize-expect-smoke",
-      "description": "Linux minimize/restore --expect minimized|restored on a disposable GTK fixture window: typed usage, destructive-gate, missing-window and headless host-limit paths; typed minimize/restore usage rejects AT-SPI --name and typed get-extents --name usage/host-limit paths hold before actuate; independent xprop _NET_WM_STATE_HIDDEN, xwininfo Map State, and windows inventory minimized field must match --expect after each verb; no --coords.",
+      "description": "Linux minimize/restore --expect minimized|restored on a disposable GTK fixture window: typed usage, destructive-gate, missing-window and headless host-limit paths; typed minimize/restore usage rejects AT-SPI --name/--coords/--bogus and typed get-extents --name usage/host-limit paths hold before actuate; independent xprop _NET_WM_STATE_HIDDEN, xwininfo Map State, pyatspi ICONIFIED/SHOWING state, and windows inventory minimized field must match --expect after each verb; no --coords.",
       "entry": "scripts/qjs/cu-linux-minimize-expect-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -1,11 +1,13 @@
 // CEO: minimize/restore --expect minimized|restored on Linux.
 // Acceptance is smoke read-back only: independent xprop _NET_WM_STATE,
-// xwininfo Map State, and windows inventory minimized field must match
-// --expect after each verb. Typed usage, destructive-gate refusals,
-// missing-window and headless host-limit paths must hold before any owned
-// fixture window exists. Typed minimize/restore usage must reject AT-SPI
-// --name; typed get-extents --name usage/host-limit paths must hold before
-// the actuate/read-back court. AT-SPI/--name only; no --coords or screenshot.
+// xwininfo Map State, independent pyatspi frame ICONIFIED/SHOWING state,
+// and windows inventory minimized field must match --expect after each verb.
+// Typed usage, destructive-gate refusals, missing-window and headless
+// host-limit paths must hold before any owned fixture window exists. Typed
+// minimize/restore usage must reject AT-SPI --name, --coords, --bogus, and
+// other unexpected arguments; typed get-extents --name usage AND host-limit
+// paths must both hold before the actuate/read-back court. Prefer host-limit
+// clarity over fake success. AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -43,6 +45,18 @@ function text_of(value) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("--coords") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("--bogus") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -244,39 +258,49 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_minimize_restore_atspi_name_usage(run_directory, executable) {
-  const minimize_with_name = run_cu_reply(run_directory, executable, "actuate", [
-    "minimize", "--window", "1", "--expect", "minimized", "--name", AT_SPI_PROBE_NAME,
-  ]);
+function assert_unexpected_verb_flag(run_directory, executable, verb, expect, extra, token, label) {
+  const argv = [verb, "--window", "1", "--expect", expect];
+  for (const item of extra) { argv.push("" + item); }
+  const reply = run_cu_reply(run_directory, executable, "actuate", argv);
+  ensure(!output_success(reply), "cu_linux_minimize_expect_" + label + "_ok:" + JSON.stringify(reply));
   ensure(
-    !output_success(minimize_with_name),
-    "cu_linux_minimize_expect_name_usage_ok:" + JSON.stringify(minimize_with_name)
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_minimize_expect_" + label + "_code:" + JSON.stringify(reply.error)
   );
   ensure(
-    text_at(minimize_with_name, "error.code") === "usage",
-    "cu_linux_minimize_expect_name_usage_code:" + JSON.stringify(minimize_with_name.error)
+    text_at(reply, "command") === "usage",
+    "cu_linux_minimize_expect_" + label + "_command:" + JSON.stringify(reply)
   );
   ensure(
-    text_at(minimize_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(minimize_with_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_minimize_expect_name_usage_message:" + JSON.stringify(minimize_with_name.error)
+    usage_rejects_unexpected(text_at(reply, "error.message"), token),
+    "cu_linux_minimize_expect_" + label + "_message:" + JSON.stringify(reply.error)
   );
+}
 
-  const restore_with_name = run_cu_reply(run_directory, executable, "actuate", [
-    "restore", "--window", "1", "--expect", "restored", "--name", AT_SPI_PROBE_NAME,
-  ]);
-  ensure(
-    !output_success(restore_with_name),
-    "cu_linux_minimize_expect_restore_name_usage_ok:" + JSON.stringify(restore_with_name)
+function assert_minimize_restore_unexpected_args_usage(run_directory, executable) {
+  assert_unexpected_verb_flag(
+    run_directory, executable, "minimize", "minimized",
+    ["--name", AT_SPI_PROBE_NAME], "--name", "name_usage"
   );
-  ensure(
-    text_at(restore_with_name, "error.code") === "usage",
-    "cu_linux_minimize_expect_restore_name_usage_code:" + JSON.stringify(restore_with_name.error)
+  assert_unexpected_verb_flag(
+    run_directory, executable, "restore", "restored",
+    ["--name", AT_SPI_PROBE_NAME], "--name", "restore_name_usage"
   );
-  ensure(
-    text_at(restore_with_name, "error.message").indexOf("--name") >= 0
-      || text_at(restore_with_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_minimize_expect_restore_name_usage_message:" + JSON.stringify(restore_with_name.error)
+  assert_unexpected_verb_flag(
+    run_directory, executable, "minimize", "minimized",
+    ["--bogus"], "--bogus", "bogus_usage"
+  );
+  assert_unexpected_verb_flag(
+    run_directory, executable, "restore", "restored",
+    ["--bogus"], "--bogus", "restore_bogus_usage"
+  );
+  assert_unexpected_verb_flag(
+    run_directory, executable, "minimize", "minimized",
+    ["--coords", "10,10"], "--coords", "coords_usage"
+  );
+  assert_unexpected_verb_flag(
+    run_directory, executable, "restore", "restored",
+    ["--coords", "10,10"], "--coords", "restore_coords_usage"
   );
 }
 
@@ -295,6 +319,58 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_minimize_expect_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(
+    !output_success(missing_name),
+    "cu_linux_minimize_expect_extents_missing_name_ok:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_minimize_expect_extents_missing_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_minimize_expect_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_minimize_expect_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(
+    !output_success(extents_coords),
+    "cu_linux_minimize_expect_extents_coords_ok:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_minimize_expect_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(extents_coords, "error.message")),
+    "cu_linux_minimize_expect_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(
+    !output_success(extents_bogus),
+    "cu_linux_minimize_expect_extents_bogus_ok:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_minimize_expect_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(extents_bogus, "error.message")),
+    "cu_linux_minimize_expect_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -388,6 +464,68 @@ function independent_map_viewable(run_directory, executable, handle) {
   return false;
 }
 
+function independent_pyatspi_frame_state(run_directory, executable, title) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "frame = None",
+    "for i in range(desktop.childCount):",
+    "    app = desktop.getChildAtIndex(i)",
+    "    if app is None:",
+    "        continue",
+    "    for j in range(app.childCount):",
+    "        candidate = app.getChildAtIndex(j)",
+    "        if candidate is not None and candidate.name == title:",
+    "            frame = candidate",
+    "            break",
+    "    if frame is not None:",
+    "        break",
+    "if frame is None:",
+    "    print(json.dumps({'found': False}))",
+    "    raise SystemExit(0)",
+    "states = frame.getState()",
+    "print(json.dumps({",
+    "    'found': True,",
+    "    'name': frame.name,",
+    "    'role': frame.getRoleName(),",
+    "    'iconified': bool(states.contains(pyatspi.STATE_ICONIFIED)),",
+    "    'showing': bool(states.contains(pyatspi.STATE_SHOWING)),",
+    "    'visible': bool(states.contains(pyatspi.STATE_VISIBLE)),",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, title], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 30000,
+  });
+  ensure(
+    output.success === true,
+    "cu_linux_minimize_expect_pyatspi_probe:" + output.stderr + output.stdout
+  );
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_minimize_expect_pyatspi_empty");
+  return JSON.parse(trimmed);
+}
+
+function ensure_pyatspi_restored(probe, label) {
+  ensure(
+    flag_at(probe, "found") === true
+      && flag_at(probe, "iconified") === false
+      && flag_at(probe, "showing") === true
+      && flag_at(probe, "visible") === true,
+    "cu_linux_minimize_expect_pyatspi_restored_" + label + ":" + JSON.stringify(probe)
+  );
+}
+
+function ensure_pyatspi_minimized(probe, label) {
+  ensure(
+    flag_at(probe, "found") === true && flag_at(probe, "iconified") === true,
+    "cu_linux_minimize_expect_pyatspi_minimized_" + label + ":" + JSON.stringify(probe)
+  );
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -417,16 +555,14 @@ print("STEP minimize/restore without DISPLAY typed-fails unsupported host-limit"
 assert_headless_host_limit(run_directory, executable, "minimize", "minimize");
 assert_headless_host_limit(run_directory, executable, "restore", "restore");
 
-print("STEP minimize/restore typed-fail usage when AT-SPI --name is present");
-assert_minimize_restore_atspi_name_usage(run_directory, executable);
+print("STEP minimize/restore typed-fails usage when AT-SPI --name/--coords/--bogus is present");
+assert_minimize_restore_unexpected_args_usage(run_directory, executable);
 
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
-  assert_get_extents_usage_limit(run_directory, executable, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-}
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+assert_get_extents_usage_limit(run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
 let fixture = -1;
 let fixture_pid = 0;
@@ -463,6 +599,15 @@ try {
     independent_map_viewable(run_directory, executable, handle) === true,
     "cu_linux_minimize_expect_baseline_map_viewable"
   );
+  if (atspi_available) {
+    print("STEP independent pyatspi baseline: fixture frame must be showing and not iconified");
+    ensure_pyatspi_restored(
+      independent_pyatspi_frame_state(run_directory, executable, fixture_title),
+      "baseline"
+    );
+  } else {
+    print("STEP host-limit: independent pyatspi desktop probe unavailable; skip frame-state court");
+  }
 
   print("STEP destructive_gate refusals on a live handle must not change xprop, map state, or inventory");
   minimize_refused(
@@ -485,6 +630,12 @@ try {
     flag_at(refusal_row, "minimized") === false,
     "cu_linux_minimize_expect_refusal_inventory_changed:" + JSON.stringify(refusal_row)
   );
+  if (atspi_available) {
+    ensure_pyatspi_restored(
+      independent_pyatspi_frame_state(run_directory, executable, fixture_title),
+      "refusal"
+    );
+  }
 
   print("STEP minimize --window " + handle_text + " --expect minimized");
   const minimized = run_cu(run_directory, executable, "actuate", [
@@ -516,6 +667,14 @@ try {
     "cu_linux_minimize_expect_inventory_minimized:" + JSON.stringify(minimized_row)
   );
 
+  if (atspi_available) {
+    print("STEP independent pyatspi state read-back: minimized frame must be ICONIFIED");
+    ensure_pyatspi_minimized(
+      independent_pyatspi_frame_state(run_directory, executable, fixture_title),
+      "minimized"
+    );
+  }
+
   print("STEP restore --window " + handle_text + " --expect restored");
   const restored = run_cu(run_directory, executable, "actuate", [
     "restore", "--window", handle_text, "--expect", "restored",
@@ -545,6 +704,14 @@ try {
     flag_at(restored_row, "minimized") === false,
     "cu_linux_minimize_expect_inventory_restored:" + JSON.stringify(restored_row)
   );
+
+  if (atspi_available) {
+    print("STEP independent pyatspi state read-back: restored frame must be showing and not iconified");
+    ensure_pyatspi_restored(
+      independent_pyatspi_frame_state(run_directory, executable, fixture_title),
+      "restored"
+    );
+  }
 } finally {
   if (fixture_pid !== 0) {
     rh.command("kill", ["-TERM", "" + fixture_pid], { timeout_ms: 5000 });
@@ -558,8 +725,8 @@ const context = harness.new_context(repo, "cu-linux-minimize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-minimize-expect-state");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: Linux minimize/restore usage/host-limit/miss honesty + independent xprop, xwininfo Map State, and windows inventory minimized read-back with typed minimize/restore/get-extents usage honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux minimize/restore usage/host-limit/miss honesty + independent xprop, xwininfo Map State, pyatspi ICONIFIED/SHOWING, and windows inventory minimized read-back with typed minimize/restore --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: Linux minimize/restore usage/host-limit/miss honesty + independent xprop, xwininfo Map State, and windows inventory minimized read-back with typed minimize/restore/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: Linux minimize/restore usage/host-limit/miss honesty + independent xprop, xwininfo Map State, and windows inventory minimized read-back with typed minimize/restore --name/--coords/--bogus usage and get-extents --name host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
 }
 return;
