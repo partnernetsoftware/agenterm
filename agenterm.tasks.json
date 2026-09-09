@@ -6437,7 +6437,7 @@
     },
     {
       "id": "cu-linux-unlock-honesty-smoke",
-      "description": "Linux CU unlock returned_before/returned_after, web_nodes, grew, and org.a11y.Status snapshots agree with independent pyatspi BFS and dbus-send read-back on an owned Chrome window before and after the poke; typed unlock usage rejects AT-SPI --name and typed get-extents --name usage/host-limit paths hold before the native actuate/read-back court; typed usage or a11y_backend_failed when the desktop probe is unavailable; AT-SPI/--name only, no --coords.",
+      "description": "Linux CU unlock returned_before/returned_after, web_nodes, grew, and org.a11y.Status snapshots agree with independent pyatspi BFS and dbus-send read-back on an owned Chrome window before and after the poke; typed unlock usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths hold before the native actuate/read-back court; typed usage or a11y_backend_failed when the desktop probe is unavailable; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-unlock-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7352,7 +7352,7 @@
     },
     {
       "id": "cu-linux-wait-ready-honesty-smoke",
-      "description": "Linux CU wait --node-name-contains and wait --ready-path on disposable GTK and Chrome targets agree with independent pyatspi named-node probes and a direct on-disk ready-path marker read-back; typed wait usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the wait-ready read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux CU wait --node-name-contains and wait --ready-path on disposable GTK and Chrome targets agree with independent pyatspi named-node probes and a direct on-disk ready-path marker read-back; typed wait usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the wait-ready read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-wait-ready-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -7794,7 +7794,7 @@
     },
     {
       "id": "cu-linux-query-smoke",
-      "description": "Linux query filtered flat nodes by --role and --text/--text-exact match independent AT-SPI application-scoped dump read-back on the owned GTK fixture; typed query usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the query read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux query filtered flat nodes by --role and --text/--text-exact match independent AT-SPI application-scoped dump read-back on the owned GTK fixture; typed query usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the query read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-query-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
