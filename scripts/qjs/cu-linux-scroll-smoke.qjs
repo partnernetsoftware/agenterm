@@ -5,8 +5,10 @@
 // the matched node, and a second pyatspi probe plus CU get-extents must
 // return positive geometry below the reference node and inside the fixture
 // window bounds with STATE_SHOWING. Non-scrollable nodes typed-fail
-// a11y_scroll_unavailable with alternatives. No XTest wheel, --coords, or
-// screenshot degradation.
+// a11y_scroll_unavailable with alternatives. Typed scroll usage must reject
+// missing --name and zero --window; typed
+// get-extents --name usage/host-limit paths must hold before the scroll
+// actuate/read-back court. No XTest wheel, --coords, or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -40,6 +42,8 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function output_success(document) { return flag_at(document, "ok"); }
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -102,6 +106,19 @@ function run_cu_reply(run_directory, executable, grant, arguments, env) {
   });
   const trimmed = output.stdout.trim();
   ensure(trimmed !== "", "cu_linux_scroll_empty_reply:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_scroll_extents_cli:" + output.stderr);
   return JSON.parse(trimmed);
 }
 
@@ -209,18 +226,69 @@ function independent_extents(run_directory, executable, title, node_name) {
   return JSON.parse(output.stdout.trim());
 }
 
-function assert_scroll_usage_limit(run_directory, executable) {
-  const reply = run_cu_reply(run_directory, executable, "observe,actuate", [
-    "scroll", "--window", "0", "--name", SCROLL_TARGET,
-  ]);
-  ensure(!flag_at(reply, "ok"), "cu_linux_scroll_usage_ok:" + JSON.stringify(reply));
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0
+    || message.indexOf("--bogus") >= 0;
+}
+
+function assert_scroll_usage_limit(run_directory, executable, env) {
+  const missing_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "scroll", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name), "cu_linux_scroll_usage_missing_name_ok:" + JSON.stringify(missing_name));
   ensure(
-    text_at(reply, "error.code") === "invalid_input",
-    "cu_linux_scroll_usage_code:" + JSON.stringify(reply.error)
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_scroll_usage_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
-    text_at(reply, "error.message").indexOf("window") >= 0,
-    "cu_linux_scroll_usage_message:" + JSON.stringify(reply.error)
+    usage_message_mentions_unexpected(text_at(missing_name, "error.message")),
+    "cu_linux_scroll_usage_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const zero_handle = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "scroll", "--window", "0", "--name", SCROLL_TARGET,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_scroll_usage_zero_handle_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_scroll_usage_zero_handle_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_scroll_usage_zero_handle_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", SCROLL_TARGET,
+  ], env);
+  ensure(!output_success(zero_handle), "cu_linux_scroll_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_scroll_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_scroll_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", SCROLL_TARGET,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_scroll_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_scroll_extents_unavailable_code:" + code
   );
 }
 
@@ -352,6 +420,7 @@ ensure(direct_file(abi_library), "cu_linux_scroll_library_missing:" + abi_librar
 const context = harness.new_context(repo, "cu-linux-scroll");
 const run_directory = rh.join(repo, "target/cu-linux-scroll-smoke-run");
 rh.create_dir_all(run_directory);
+const env = cu_env(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_scroll_fixture_missing:" + fixture_source);
@@ -363,11 +432,19 @@ let failure = "";
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP scroll typed-fails invalid_input when --window handle is zero");
-  assert_scroll_usage_limit(run_directory, executable);
+  print("STEP scroll typed-fails usage when --name is missing or --window handle is zero");
+  assert_scroll_usage_limit(run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before scroll actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   if (!atspi_available) {
-    print("STEP typed host-limit when independent pyatspi desktop probe is unavailable");
+    print("STEP scroll typed-fail host-limit when independent pyatspi desktop probe is unavailable");
     assert_scroll_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
@@ -505,8 +582,8 @@ ensure(succeeded === 1, failure || "cu_linux_scroll_failed");
 harness.emit_evidence(context, declared_evidence, "cu.linux-atspi-scroll-to");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS: CEO Linux AT-SPI scroll --name with independent pyatspi geometry read-back and typed host-limit paths");
+  print("PASS: Linux AT-SPI scroll --name with typed scroll/get-extents usage honesty and independent pyatspi geometry read-back (AT-SPI --name, no --coords)");
 } else {
-  print("PASS: CEO Linux AT-SPI scroll typed-fails when independent pyatspi desktop probe is unavailable");
+  print("PASS: Linux AT-SPI scroll typed scroll/get-extents host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
 }
 return;
