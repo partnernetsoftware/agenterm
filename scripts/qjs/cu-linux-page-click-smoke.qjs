@@ -1,8 +1,9 @@
 // CEO: Linux CDP page-click honesty — click a named page control; prove with
 // independent page-js DOM read-back (not page-click performed/verified).
-// Typed usage and host-limit paths must hold when the node query or coordinates
-// are missing, invalid, or exclusive; a free port must typed-fail before any
-// owned Chrome exists. Distinct from AT-SPI hover→click.
+// Typed page-click usage must reject AT-SPI --name and other unexpected
+// arguments; typed get-extents --name usage/host-limit paths must hold before
+// the page-click actuate/read-back court. A free port must typed-fail before
+// any owned Chrome exists. Distinct from AT-SPI hover→click.
 // Disposable Chrome+CDP; --port/--target-id/--selector only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
@@ -14,6 +15,9 @@ const declared_evidence = [
   "cu.linux-cdp-page-click",
   "cu.linux-cdp-page-click-readback",
 ];
+
+const AT_SPI_PROBE_NAME = "Page Click Court Anchor";
+const MISSING_NODE = "agenterm-no-such-page-click-node";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -34,6 +38,12 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -80,6 +90,28 @@ function run_cu(run_directory, executable, grant, arguments, env) {
   const document = run_cu_reply(run_directory, executable, grant, arguments, env);
   ensure(output_success(document), "cu_linux_page_click_reply:" + JSON.stringify(document));
   return document;
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function usage_message_mentions_unexpected(message) {
+  return message.indexOf("--name") >= 0
+    || message.indexOf("unexpected") >= 0;
 }
 
 function assert_page_click_usage_limit(run_directory, executable, env, port) {
@@ -135,6 +167,189 @@ function assert_page_click_usage_limit(run_directory, executable, env, port) {
     text_at(bad_x, "error.message").indexOf("viewport CSS coordinate") >= 0,
     "cu_linux_page_click_bad_x_message:" + JSON.stringify(bad_x.error)
   );
+}
+
+function assert_page_click_usage_rejects_name(run_directory, executable, env, port) {
+  const flat_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#go", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_page_click_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_page_click_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_page_click_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(flat_with_name, "error.message")),
+    "cu_linux_page_click_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page", "click", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#go", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_page_click_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_page_click_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    usage_message_mentions_unexpected(text_at(grouped_with_name, "error.message")),
+    "cu_linux_page_click_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "page-click", "--port", "" + port, "--target-id", "unused",
+    "--selector", "#go", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_page_click_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_page_click_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_page_click_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_page_click_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_page_click_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_page_click_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_page_click_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_page_click_extents_unavailable_code:" + code
+  );
+}
+
+function assert_get_extents_missing_node(run_directory, executable, env, handle, label) {
+  const reply = run_cu_reply(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", MISSING_NODE,
+  ], env);
+  ensure(!output_success(reply), "cu_linux_page_click_extents_missing_ok_" + label);
+  ensure(
+    text_at(reply, "error.code") === "a11y_node_not_found",
+    "cu_linux_page_click_extents_missing_code_" + label + ":" + JSON.stringify(reply.error)
+  );
+}
+
+function independent_pyatspi_extents(run_directory, env, window_title, node_name) {
+  const script = [
+    "import json, sys",
+    "import pyatspi",
+    "title = sys.argv[1]",
+    "want = sys.argv[2]",
+    "desktop = pyatspi.Registry.getDesktop(0)",
+    "def find_frame():",
+    "    for i in range(desktop.childCount):",
+    "        app = desktop.getChildAtIndex(i)",
+    "        if app is None:",
+    "            continue",
+    "        for j in range(app.childCount):",
+    "            w = app.getChildAtIndex(j)",
+    "            if w is not None and title in (w.name or ''):",
+    "                return w",
+    "    return None",
+    "def walk(node):",
+    "    if node is None:",
+    "        return None",
+    "    if (node.name or '') == want:",
+    "        return node",
+    "    for k in range(node.childCount):",
+    "        hit = walk(node.getChildAtIndex(k))",
+    "        if hit is not None:",
+    "            return hit",
+    "    return None",
+    "frame = find_frame()",
+    "if frame is None:",
+    "    raise SystemExit('cu_linux_page_click_atspi_no_frame')",
+    "node = walk(frame)",
+    "if node is None:",
+    "    raise SystemExit('cu_linux_page_click_atspi_miss:' + want)",
+    "component = node.queryComponent()",
+    "ext = component.getExtents(pyatspi.DESKTOP_COORDS)",
+    "x, y, w, h = int(ext.x), int(ext.y), int(ext.width), int(ext.height)",
+    "print(json.dumps({",
+    "    'name': want,",
+    "    'x': x, 'y': y, 'width': w, 'height': h,",
+    "}))",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script, window_title, node_name], {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.success === true, "cu_linux_page_click_pyatspi:" + output.stderr + output.stdout);
+  return JSON.parse(output.stdout.trim());
+}
+
+function assert_get_extents_agreement(run_directory, executable, env, handle, window_title, node_name) {
+  const pyatspi_anchor = independent_pyatspi_extents(
+    run_directory, env, window_title, node_name
+  );
+  const anchor_extents = run_cu(run_directory, executable, "observe", [
+    "get-extents", "--window", handle, "--name", node_name,
+  ], env);
+  ensure(
+    int_at(anchor_extents, "data.extents.x") === pyatspi_anchor.x
+      && int_at(anchor_extents, "data.extents.y") === pyatspi_anchor.y
+      && int_at(anchor_extents, "data.extents.width") === pyatspi_anchor.width
+      && int_at(anchor_extents, "data.extents.height") === pyatspi_anchor.height,
+    "cu_linux_page_click_extents_agree:" + JSON.stringify({
+      cu: anchor_extents.data.extents,
+      pyatspi_anchor: pyatspi_anchor,
+    })
+  );
+}
+
+function windows_rows(reply) {
+  const data = at(reply, "data");
+  if (data.windows !== undefined) { return data.windows; }
+  return data;
+}
+
+function window_row_for_title(run_directory, executable, env, title_needle) {
+  const reply = run_cu(run_directory, executable, "observe", ["windows"], env);
+  for (const row of windows_rows(reply)) {
+    const title = text_at(row, "title");
+    if (title.indexOf(title_needle) < 0) { continue; }
+    const handle = int_at(row, "handle");
+    if (handle > 0) { return row; }
+  }
+  return null;
 }
 
 function assert_no_cdp_listener(run_directory, executable, env, port) {
@@ -221,12 +436,13 @@ ensure(direct_file(abi_library), "cu_linux_page_click_library_missing:" + abi_li
 const context = harness.new_context(repo, "cu-linux-page-click");
 const run_directory = context.run_directory;
 const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 const fixture_title = "CEO CDP Click " + context.run_id;
 const fixture = rh.join(run_directory, "cdp-click.html");
 const fixture_html = "<!DOCTYPE html><html><head><title>"
   + fixture_title + "</title></head><body>"
-  + "<button id='go' type='button'"
+  + "<button id='go' type='button' aria-label='" + AT_SPI_PROBE_NAME + "'"
   + " onclick=\"document.getElementById('out').textContent='clicked'\">Go</button>"
   + "<p id='out'>idle</p>"
   + "</body></html>";
@@ -250,8 +466,19 @@ try {
   print("STEP typed usage limits reject missing node query or invalid coordinates before Chrome starts");
   assert_page_click_usage_limit(run_directory, executable, env, port);
 
+  print("STEP page-click typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_page_click_usage_rejects_name(run_directory, executable, env, port);
+
   print("STEP page-click typed-fails no CDP listener on the owned free port before Chrome starts");
   assert_no_cdp_listener(run_directory, executable, env, port);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before page-click actuate court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
 
   print("STEP launch owned Chrome with CDP port and a disposable file:// tab");
   chrome_child = harness.start({
@@ -292,6 +519,38 @@ try {
     flag_at(nav, "data.verified") && text_at(nav, "data.final_title") === fixture_title,
     "cu_linux_page_click_nav:" + JSON.stringify(nav.data)
   );
+
+  if (atspi_available) {
+    print("STEP wait for owned Chrome window and unlock accessibility tree before named read-back");
+    const window_wait = run_cu(run_directory, executable, "observe", [
+      "wait", "--timeout-ms", "20000", "--window-title-contains", fixture_title,
+    ], env);
+    ensure(flag_at(window_wait, "data.met"), "cu_linux_page_click_window_wait");
+
+    let window_row = null;
+    for (let attempt = 0; attempt < 40 && window_row === null; attempt = attempt + 1) {
+      window_row = window_row_for_title(run_directory, executable, env, fixture_title);
+      if (window_row === null) { harness.sleep_ms(250); }
+    }
+    ensure(window_row !== null, "cu_linux_page_click_window_missing:" + fixture_title);
+    const window_handle = "" + int_at(window_row, "handle");
+    const window_title = text_at(window_row, "title");
+    ensure(window_handle !== "" && window_handle !== "0",
+      "cu_linux_page_click_window_handle:" + JSON.stringify(window_row));
+
+    const unlocked = run_cu(run_directory, executable, "observe,actuate", [
+      "unlock", "--window", window_handle,
+    ], env);
+    ensure(flag_at(unlocked, "data.poked"), "cu_linux_page_click_unlock:" + JSON.stringify(unlocked.data));
+
+    print("STEP get-extents typed-fail a11y_node_not_found when the named anchor is missing");
+    assert_get_extents_missing_node(run_directory, executable, env, window_handle, "before_click");
+
+    print("STEP independent pyatspi extents and CU get-extents --name agree before page-click actuate");
+    assert_get_extents_agreement(
+      run_directory, executable, env, window_handle, window_title, AT_SPI_PROBE_NAME
+    );
+  }
 
   print("STEP independent page-js baseline proves #out starts idle before the click");
   const before_text = out_text(run_directory, executable, env, port, target_id);
@@ -336,5 +595,9 @@ if (chrome_child >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_page_click_failed");
 harness.remove_run(context);
-print("PASS: Linux page-click usage/host-limit/miss honesty + independent page-js DOM read-back (no --coords)");
+if (atspi_available) {
+  print("PASS: Linux page-click usage/host-limit/miss honesty + independent page-js DOM read-back with typed page-click/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux page-click usage/host-limit/miss honesty + independent page-js DOM read-back with typed get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
 return;
