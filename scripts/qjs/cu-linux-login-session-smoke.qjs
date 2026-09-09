@@ -49,11 +49,19 @@ function field_at(v, d) {
   for (const k of d.split(".")) c = rh.field(c, k);
   return c;
 }
+function probe_absence() {
+  const script = "import json,os,shutil\n" +
+    "print(json.dumps({'loginctl':shutil.which('loginctl') is not None,'xdg_session_id':os.environ.get('XDG_SESSION_ID','').strip(),'session_dir':os.path.isdir('/run/systemd/sessions')}))";
+  const out = rh.command("python3", ["-c", script], { env: cu_env(""), timeout_ms: 30000 });
+  ensure(out.success, out.stderr);
+  return JSON.parse(out.stdout.trim());
+}
 function verify_unsupported(st) {
   ensure(st.ok !== true, "false_success");
   ensure(text_at(st,"error.code")==="login_session_unsupported","code");
   ensure(text_at(st,"error.detail.os")==="linux","os");
-  ensure(text_at(st,"error.detail.required_os")!=="macos","required_os");
+  ensure(text_at(st,"error.detail.required_os")==="linux","required_os");
+  ensure(text_at(st,"error.detail.provider")==="none","provider");
   ensure(text_at(st,"error.detail.mechanism").indexOf("systemd")>=0,"mechanism");
   ensure(text_at(st,"error.message").indexOf("macOS")<0,"macos_claim");
   const alts = field_at(st, "error.detail.alternatives");
@@ -68,9 +76,12 @@ ensure(rh.exists(exe), "missing exe");
 const ctx = harness.new_context(repo, "cu-linux-login-session");
 const p = probe();
 if (p === null) {
-  print("STEP typed unsupported path");
+  const absence = probe_absence();
+  print("STEP typed unsupported path (independent probe absent: loginctl="
+    + absence.loginctl + " xdg_session_id=" + (absence.xdg_session_id || "(unset)")
+    + " session_dir=" + absence.session_dir + ")");
   verify_unsupported(invoke(ctx.run_directory, exe, ["status"], false));
-  ensure(text_at(invoke(ctx.run_directory, exe, ["plan","lock"], false),"error.code")==="login_session_unsupported","plan");
+  verify_unsupported(invoke(ctx.run_directory, exe, ["plan","lock"], false));
   harness.emit_evidence(ctx, declared_evidence, "cu.linux-login-session-readback");
   harness.remove_run(ctx);
   print("PASS typed unsupported with Linux systemd-logind alternatives");
