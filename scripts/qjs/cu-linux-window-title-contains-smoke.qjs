@@ -1,7 +1,10 @@
 // CEO: prove Linux wait --window-title-contains with Unicode case folding.
 // Acceptance: met wait on known GTK title; unmet title exits nonzero;
-// independent windows inventory title read-back. AT-SPI observe only; no
-// --coords or screenshot degradation.
+// independent windows inventory title read-back. Typed wait usage must reject
+// AT-SPI --name and other unexpected arguments; typed get-extents --name
+// usage/host-limit paths must hold before the
+// actuate/read-back court. AT-SPI observe only; no --coords or screenshot
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE | --list-evidence
 import * as rh from "lib/rh_compat";
@@ -13,6 +16,7 @@ const declared_evidence = [
 
 const TITLE_TOKEN = "agenterm-title-wait-";
 const WAIT_PATTERN = "caf\u00e9 " + TITLE_TOKEN;
+const AT_SPI_PROBE_NAME = "Window Title Contains Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -34,22 +38,64 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function output_success(document) { return flag_at(document, "ok"); }
+
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
   const metadata = rh.symlink_metadata(path);
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function run_cu(run_directory, executable, grant, command_argv, expect_failure) {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    GTK_MODULES: "gail:atk-bridge",
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke_wait_reply(run_directory, executable, cu_args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(cu_args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_window_title_contains_wait_cli:" + output.stderr);
+  const reply = JSON.parse(trimmed);
+  const command = text_at(reply, "command");
+  ensure(
+    command === "wait" || command === "usage",
+    "cu_linux_window_title_contains_wait_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function run_cu(run_directory, executable, grant, command_argv, expect_failure, env) {
   const argv = ["--target", "current", "--grant", grant];
   for (const item of command_argv) { argv.push("" + item); }
   const output = rh.command(executable, argv, {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1", GTK_MODULES: "gail:atk-bridge" },
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 45000,
   });
   const trimmed = output.stdout.trim();
-  ensure(trimmed !== "", "cu_linux_window_title_contains_empty_stdout");
+  ensure(trimmed !== "", "cu_linux_window_title_contains_empty_stdout:" + output.stderr);
   const reply = JSON.parse(trimmed);
   if (expect_failure === true) {
     ensure(output.success !== true, "cu_linux_window_title_contains_unmet_exit");
@@ -60,6 +106,109 @@ function run_cu(run_directory, executable, grant, command_argv, expect_failure) 
   ensure(output.success === true && reply.ok === true,
     "cu_linux_window_title_contains_failed:" + JSON.stringify(reply));
   return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_window_title_contains_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_wait_atspi_name_usage_limit(run_directory, executable, env) {
+  const bare_name = invoke_wait_reply(run_directory, executable, [
+    "wait", "--timeout-ms", "1000",
+    "--window", "1",
+    "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(bare_name),
+    "cu_linux_window_title_contains_usage_name_ok:" + JSON.stringify(bare_name));
+  ensure(
+    text_at(bare_name, "error.code") === "usage",
+    "cu_linux_window_title_contains_usage_name_code:" + JSON.stringify(bare_name.error)
+  );
+  ensure(
+    text_at(bare_name, "command") === "usage",
+    "cu_linux_window_title_contains_usage_name_command:" + JSON.stringify(bare_name)
+  );
+  ensure(
+    text_at(bare_name, "error.message").indexOf("--name") >= 0
+      || text_at(bare_name, "error.message").indexOf("requires one of") >= 0,
+    "cu_linux_window_title_contains_usage_name_message:" + JSON.stringify(bare_name.error)
+  );
+
+  const with_bogus = invoke_wait_reply(run_directory, executable, [
+    "wait", "--timeout-ms", "1000", "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_window_title_contains_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_window_title_contains_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("requires one of") >= 0
+      || text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_window_title_contains_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_window_title_contains_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_window_title_contains_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_window_title_contains_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_window_title_contains_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_window_title_contains_extents_unavailable_code:" + code
+  );
 }
 
 function windows_rows(reply) {
@@ -92,6 +241,8 @@ const executable = rh.absolute(script_argv[1]);
 const context = harness.new_context(repo, "cu-linux-window-title-contains");
 const run_directory = rh.join(repo, "target/cu-linux-window-title-contains-smoke-run");
 rh.create_dir_all(run_directory);
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_title_wait_fixture.py");
 ensure(direct_file(fixture_source),
@@ -103,6 +254,17 @@ let succeeded = 0;
 let failure = "";
 
 try {
+  print("STEP wait typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_wait_atspi_name_usage_limit(run_directory, executable, env);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP start owned GTK fixture with Unicode café title");
   fixture = harness.start({
     program: "python3",
@@ -152,4 +314,8 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_window_title_contains_failed");
 harness.remove_run(context);
-print("PASS: Linux wait --window-title-contains Unicode title matching with inventory read-back (no --coords)");
+if (atspi_available) {
+  print("PASS: Linux wait --window-title-contains Unicode title matching with inventory read-back and typed wait/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux wait --window-title-contains Unicode title matching with inventory read-back and typed wait/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}

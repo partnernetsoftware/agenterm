@@ -5980,7 +5980,7 @@
     },
     {
       "id": "cu-linux-window-title-contains-smoke",
-      "description": "Linux wait --window-title-contains matches Unicode GTK titles with case folding, unmet titles exit nonzero, and independent windows inventory title read-back; observe only, no --coords.",
+      "description": "Linux wait --window-title-contains matches Unicode GTK titles with case folding, unmet titles exit nonzero, and independent windows inventory title read-back; typed wait usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the actuate/read-back court; observe only, no --coords.",
       "entry": "scripts/qjs/cu-linux-window-title-contains-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
