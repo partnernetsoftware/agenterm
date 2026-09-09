@@ -2050,6 +2050,23 @@
         "task.cu-macos-file-watch-smoke"
       ]
     },
+    "cu-windows-file-watch-smoke": {
+      "inputs": [
+        "built-agenterm-cu"
+      ],
+      "outputs": [
+        "cu-windows-file-watch-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 100000000,
+        "max_output_bytes": 262144
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-windows-file-watch-smoke"
+      ]
+    },
     "cu-linux-ps-smoke": {
       "inputs": [
         "built-agenterm-cu"
@@ -7189,6 +7206,25 @@
       "dependencies": [],
       "platforms": [
         "macos"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn"
+      ]
+    },
+    {
+      "id": "cu-windows-file-watch-smoke",
+      "description": "Prove bounded single-directory Windows ReadDirectoryChangesW file-watch: direct-entry create, modify, rename and remove events have independent filesystem read-back; nested and outside changes do not leak; max-events 1 truncates and returns early; invalid paths and zero bounds fail typed. No GUI; unavailable providers fail non-zero without evidence.",
+      "entry": "scripts/qjs/cu-windows-file-watch-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/debug/agenterm-cu.exe"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "windows"
       ],
       "side_effects": [
         "artifact_write",

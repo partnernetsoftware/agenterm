@@ -288,6 +288,14 @@
       ]
     },
     {
+      "id": "cu-windows-file-watch-smoke",
+      "evidence": [
+        "cu.windows-file-watch-events",
+        "cu.windows-file-watch-scope",
+        "cu.windows-file-watch-bounds"
+      ]
+    },
+    {
       "id": "cu-pty-smoke",
       "evidence": [
         "cu.pty-background-interactive",

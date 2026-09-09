@@ -2191,8 +2191,10 @@ flowchart LR
   through the public `cu.linux-file-watch` court. The macOS FSEvents provider
   uses at-least-once coalesced delivery resolved by entry existence. Its public
   `cu-macos-file-watch-smoke` court is green for direct-entry lifecycle,
-  non-recursive scope, bounded truncation and typed failure; Windows remains a
-  typed unsupported gap.
+  non-recursive scope, bounded truncation and typed failure. The Windows
+  ReadDirectoryChangesW provider has landed with the same direct-entry contract
+  and a registered public court, but the Windows cell remains pending until that
+  court runs on real Windows guests.
   `storage-devices [--max N]` / `storage devices [--max N]` now
   provides the separate physical/block inventory. The platform facade invokes
   only fixed native system providers under one shared deadline and contained
