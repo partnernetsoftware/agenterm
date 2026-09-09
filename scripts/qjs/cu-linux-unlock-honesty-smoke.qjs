@@ -3,8 +3,9 @@
 // web_nodes_before/web_nodes_after, grew, and org.a11y.Status snapshots must
 // agree with independent AT-SPI BFS counts and dbus-send flag facts on the same
 // owned Chrome window before and after the poke. Typed unlock usage must reject
-// AT-SPI --name and other unexpected arguments; typed get-extents --name
-// usage/host-limit paths must hold before the native actuate/read-back court.
+// AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed
+// get-extents --name usage AND host-limit paths must both hold before the native
+// actuate/read-back court.
 // Typed usage and AT-SPI host-limit paths must also hold when the independent
 // pyatspi desktop probe is unavailable. AT-SPI/--name only; no --coords or
 // screenshot degradation.
@@ -41,6 +42,11 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
 
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
@@ -167,7 +173,7 @@ function assert_unlock_usage_limit(run_directory, executable) {
   );
 }
 
-function assert_unlock_atspi_name_usage_limit(run_directory, executable, env) {
+function assert_unlock_unexpected_usage(run_directory, executable, env) {
   const with_name = invoke_unlock_reply(run_directory, executable, [
     "unlock", "--window", "1", "--name", AT_SPI_PROBE_NAME,
   ], env);
@@ -182,8 +188,7 @@ function assert_unlock_atspi_name_usage_limit(run_directory, executable, env) {
     "cu_linux_unlock_honesty_usage_name_command:" + JSON.stringify(with_name)
   );
   ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
-      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(with_name, "error.message"), "--name"),
     "cu_linux_unlock_honesty_usage_name_message:" + JSON.stringify(with_name.error)
   );
 
@@ -197,9 +202,30 @@ function assert_unlock_atspi_name_usage_limit(run_directory, executable, env) {
     "cu_linux_unlock_honesty_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    text_at(with_bogus, "command") === "usage",
+    "cu_linux_unlock_honesty_usage_bogus_command:" + JSON.stringify(with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_bogus, "error.message"), "--bogus"),
     "cu_linux_unlock_honesty_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+
+  const with_coords = invoke_unlock_reply(run_directory, executable, [
+    "unlock", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(with_coords),
+    "cu_linux_unlock_honesty_usage_coords_ok:" + JSON.stringify(with_coords));
+  ensure(
+    text_at(with_coords, "error.code") === "usage",
+    "cu_linux_unlock_honesty_usage_coords_code:" + JSON.stringify(with_coords.error)
+  );
+  ensure(
+    text_at(with_coords, "command") === "usage",
+    "cu_linux_unlock_honesty_usage_coords_command:" + JSON.stringify(with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(with_coords, "error.message"), "--coords"),
+    "cu_linux_unlock_honesty_usage_coords_message:" + JSON.stringify(with_coords.error)
   );
 }
 
@@ -216,6 +242,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_unlock_honesty_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_unlock_honesty_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_unlock_honesty_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_unlock_honesty_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_unlock_honesty_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_unlock_honesty_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_unlock_honesty_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_unlock_honesty_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_unlock_honesty_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_unlock_honesty_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_unlock_honesty_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_unlock_honesty_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_unlock_honesty_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -487,19 +569,17 @@ try {
   print("STEP unlock typed-fails usage when --window handle is zero");
   assert_unlock_usage_limit(run_directory, executable);
 
-  print("STEP unlock typed-fails usage when AT-SPI --name or other unexpected arguments are present");
-  assert_unlock_atspi_name_usage_limit(run_directory, executable, env);
+  print("STEP unlock typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+  assert_unlock_unexpected_usage(run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
-  }
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
 
   if (!atspi_available) {
-    print("STEP unlock typed-fail host-limit when independent pyatspi desktop probe is unavailable");
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; unlock typed-fail host-limit when desktop probe is unavailable");
     assert_unlock_host_limit_when_atspi_absent(run_directory, executable);
     succeeded = 1;
   } else {
@@ -646,9 +726,9 @@ if (succeeded !== 0) {
   harness.emit_evidence(context, declared_evidence, declared_evidence[0]);
   harness.remove_run(context);
   if (atspi_available) {
-    print("PASS: Linux unlock honesty with independent AT-SPI read-back and typed unlock/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux unlock honesty with independent AT-SPI read-back and typed unlock --name/--coords/--bogus and get-extents --name usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux unlock typed-fails with typed unlock/get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+    print("PASS: Linux unlock typed-fails with typed unlock --name/--coords/--bogus usage and get-extents --name host-limit honesty when independent pyatspi desktop probe is unavailable (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
