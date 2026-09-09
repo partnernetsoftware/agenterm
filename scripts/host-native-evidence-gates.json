@@ -595,6 +595,13 @@
       ]
     },
     {
+      "id": "cu-linux-orderwin-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-atspi-orderwin"
+      ]
+    },
+    {
       "id": "cu-linux-spaces-smoke",
       "platform": "linux",
       "evidence": [
