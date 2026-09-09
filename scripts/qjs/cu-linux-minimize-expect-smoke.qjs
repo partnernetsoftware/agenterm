@@ -51,13 +51,6 @@ function usage_rejects_unexpected(message, token) {
     || message.indexOf("unexpected") >= 0;
 }
 
-function usage_message_mentions_unexpected(message) {
-  return message.indexOf("--name") >= 0
-    || message.indexOf("--coords") >= 0
-    || message.indexOf("unexpected") >= 0
-    || message.indexOf("--bogus") >= 0;
-}
-
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return 0; }
@@ -258,49 +251,125 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_unexpected_verb_flag(run_directory, executable, verb, expect, extra, token, label) {
-  const argv = [verb, "--window", "1", "--expect", expect];
-  for (const item of extra) { argv.push("" + item); }
-  const reply = run_cu_reply(run_directory, executable, "actuate", argv);
-  ensure(!output_success(reply), "cu_linux_minimize_expect_" + label + "_ok:" + JSON.stringify(reply));
+function assert_minimize_restore_unexpected_usage(run_directory, executable, env) {
+  const minimize_with_name = run_cu_reply(run_directory, executable, "actuate", [
+    "minimize", "--window", "1", "--expect", "minimized", "--name", AT_SPI_PROBE_NAME,
+  ], env);
   ensure(
-    text_at(reply, "error.code") === "usage",
-    "cu_linux_minimize_expect_" + label + "_code:" + JSON.stringify(reply.error)
+    !output_success(minimize_with_name),
+    "cu_linux_minimize_expect_name_usage_ok:" + JSON.stringify(minimize_with_name)
   );
   ensure(
-    text_at(reply, "command") === "usage",
-    "cu_linux_minimize_expect_" + label + "_command:" + JSON.stringify(reply)
+    text_at(minimize_with_name, "error.code") === "usage",
+    "cu_linux_minimize_expect_name_usage_code:" + JSON.stringify(minimize_with_name.error)
   );
   ensure(
-    usage_rejects_unexpected(text_at(reply, "error.message"), token),
-    "cu_linux_minimize_expect_" + label + "_message:" + JSON.stringify(reply.error)
+    text_at(minimize_with_name, "command") === "usage",
+    "cu_linux_minimize_expect_name_usage_command:" + JSON.stringify(minimize_with_name)
   );
-}
+  ensure(
+    usage_rejects_unexpected(text_at(minimize_with_name, "error.message"), "--name"),
+    "cu_linux_minimize_expect_name_usage_message:" + JSON.stringify(minimize_with_name.error)
+  );
 
-function assert_minimize_restore_unexpected_args_usage(run_directory, executable) {
-  assert_unexpected_verb_flag(
-    run_directory, executable, "minimize", "minimized",
-    ["--name", AT_SPI_PROBE_NAME], "--name", "name_usage"
+  const restore_with_name = run_cu_reply(run_directory, executable, "actuate", [
+    "restore", "--window", "1", "--expect", "restored", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(
+    !output_success(restore_with_name),
+    "cu_linux_minimize_expect_restore_name_usage_ok:" + JSON.stringify(restore_with_name)
   );
-  assert_unexpected_verb_flag(
-    run_directory, executable, "restore", "restored",
-    ["--name", AT_SPI_PROBE_NAME], "--name", "restore_name_usage"
+  ensure(
+    text_at(restore_with_name, "error.code") === "usage",
+    "cu_linux_minimize_expect_restore_name_usage_code:" + JSON.stringify(restore_with_name.error)
   );
-  assert_unexpected_verb_flag(
-    run_directory, executable, "minimize", "minimized",
-    ["--bogus"], "--bogus", "bogus_usage"
+  ensure(
+    text_at(restore_with_name, "command") === "usage",
+    "cu_linux_minimize_expect_restore_name_usage_command:" + JSON.stringify(restore_with_name)
   );
-  assert_unexpected_verb_flag(
-    run_directory, executable, "restore", "restored",
-    ["--bogus"], "--bogus", "restore_bogus_usage"
+  ensure(
+    usage_rejects_unexpected(text_at(restore_with_name, "error.message"), "--name"),
+    "cu_linux_minimize_expect_restore_name_usage_message:" + JSON.stringify(restore_with_name.error)
   );
-  assert_unexpected_verb_flag(
-    run_directory, executable, "minimize", "minimized",
-    ["--coords", "10,10"], "--coords", "coords_usage"
+
+  const minimize_with_bogus = run_cu_reply(run_directory, executable, "actuate", [
+    "minimize", "--window", "1", "--expect", "minimized", "--bogus",
+  ], env);
+  ensure(
+    !output_success(minimize_with_bogus),
+    "cu_linux_minimize_expect_bogus_ok:" + JSON.stringify(minimize_with_bogus)
   );
-  assert_unexpected_verb_flag(
-    run_directory, executable, "restore", "restored",
-    ["--coords", "10,10"], "--coords", "restore_coords_usage"
+  ensure(
+    text_at(minimize_with_bogus, "error.code") === "usage",
+    "cu_linux_minimize_expect_bogus_code:" + JSON.stringify(minimize_with_bogus.error)
+  );
+  ensure(
+    text_at(minimize_with_bogus, "command") === "usage",
+    "cu_linux_minimize_expect_bogus_command:" + JSON.stringify(minimize_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(minimize_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_minimize_expect_bogus_message:" + JSON.stringify(minimize_with_bogus.error)
+  );
+
+  const restore_with_bogus = run_cu_reply(run_directory, executable, "actuate", [
+    "restore", "--window", "1", "--expect", "restored", "--bogus",
+  ], env);
+  ensure(
+    !output_success(restore_with_bogus),
+    "cu_linux_minimize_expect_restore_bogus_ok:" + JSON.stringify(restore_with_bogus)
+  );
+  ensure(
+    text_at(restore_with_bogus, "error.code") === "usage",
+    "cu_linux_minimize_expect_restore_bogus_code:" + JSON.stringify(restore_with_bogus.error)
+  );
+  ensure(
+    text_at(restore_with_bogus, "command") === "usage",
+    "cu_linux_minimize_expect_restore_bogus_command:" + JSON.stringify(restore_with_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(restore_with_bogus, "error.message"), "--bogus"),
+    "cu_linux_minimize_expect_restore_bogus_message:" + JSON.stringify(restore_with_bogus.error)
+  );
+
+  const minimize_with_coords = run_cu_reply(run_directory, executable, "actuate", [
+    "minimize", "--window", "1", "--expect", "minimized", "--coords", "10,10",
+  ], env);
+  ensure(
+    !output_success(minimize_with_coords),
+    "cu_linux_minimize_expect_coords_ok:" + JSON.stringify(minimize_with_coords)
+  );
+  ensure(
+    text_at(minimize_with_coords, "error.code") === "usage",
+    "cu_linux_minimize_expect_coords_code:" + JSON.stringify(minimize_with_coords.error)
+  );
+  ensure(
+    text_at(minimize_with_coords, "command") === "usage",
+    "cu_linux_minimize_expect_coords_command:" + JSON.stringify(minimize_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(minimize_with_coords, "error.message"), "--coords"),
+    "cu_linux_minimize_expect_coords_message:" + JSON.stringify(minimize_with_coords.error)
+  );
+
+  const restore_with_coords = run_cu_reply(run_directory, executable, "actuate", [
+    "restore", "--window", "1", "--expect", "restored", "--coords", "10,10",
+  ], env);
+  ensure(
+    !output_success(restore_with_coords),
+    "cu_linux_minimize_expect_restore_coords_ok:" + JSON.stringify(restore_with_coords)
+  );
+  ensure(
+    text_at(restore_with_coords, "error.code") === "usage",
+    "cu_linux_minimize_expect_restore_coords_code:" + JSON.stringify(restore_with_coords.error)
+  );
+  ensure(
+    text_at(restore_with_coords, "command") === "usage",
+    "cu_linux_minimize_expect_restore_coords_command:" + JSON.stringify(restore_with_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(restore_with_coords, "error.message"), "--coords"),
+    "cu_linux_minimize_expect_restore_coords_message:" + JSON.stringify(restore_with_coords.error)
   );
 }
 
@@ -326,19 +395,19 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ], env);
   ensure(
     !output_success(missing_name),
-    "cu_linux_minimize_expect_extents_missing_name_ok:" + JSON.stringify(missing_name)
+    "cu_linux_minimize_expect_extents_usage_name_ok:" + JSON.stringify(missing_name)
   );
   ensure(
     text_at(missing_name, "error.code") === "usage",
-    "cu_linux_minimize_expect_extents_missing_name_code:" + JSON.stringify(missing_name.error)
+    "cu_linux_minimize_expect_extents_usage_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
     text_at(missing_name, "command") === "usage",
-    "cu_linux_minimize_expect_extents_missing_name_command:" + JSON.stringify(missing_name)
+    "cu_linux_minimize_expect_extents_usage_name_command:" + JSON.stringify(missing_name)
   );
   ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
-    "cu_linux_minimize_expect_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+    "cu_linux_minimize_expect_extents_usage_name_message:" + JSON.stringify(missing_name.error)
   );
 
   const extents_coords = invoke_get_extents_reply(run_directory, executable, [
@@ -353,7 +422,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_minimize_expect_extents_coords_code:" + JSON.stringify(extents_coords.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(extents_coords, "error.message")),
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_minimize_expect_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
     "cu_linux_minimize_expect_extents_coords_message:" + JSON.stringify(extents_coords.error)
   );
 
@@ -369,7 +443,12 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_minimize_expect_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
   );
   ensure(
-    usage_message_mentions_unexpected(text_at(extents_bogus, "error.message")),
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_minimize_expect_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
     "cu_linux_minimize_expect_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
@@ -555,14 +634,18 @@ print("STEP minimize/restore without DISPLAY typed-fails unsupported host-limit"
 assert_headless_host_limit(run_directory, executable, "minimize", "minimize");
 assert_headless_host_limit(run_directory, executable, "restore", "restore");
 
-print("STEP minimize/restore typed-fails usage when AT-SPI --name/--coords/--bogus is present");
-assert_minimize_restore_unexpected_args_usage(run_directory, executable);
+print("STEP minimize/restore typed-fail usage when AT-SPI --name/--coords/--bogus is present");
+assert_minimize_restore_unexpected_usage(run_directory, executable, env);
 
 print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before actuate/read-back court");
 assert_get_extents_usage_limit(run_directory, executable, env);
 
 print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before actuate/read-back court");
 assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+if (!atspi_available) {
+  print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; minimize read-back still uses xprop/xwininfo/inventory");
+}
 
 let fixture = -1;
 let fixture_pid = 0;
