@@ -99,3 +99,31 @@ Before the first injection attempt, review also made criterion D5 executable:
 precommitted statement that PUBLIC_OFF cannot satisfy exact target delivery,
 not a conclusion drawn from arm results; attempts 1-3 all completed zero
 triplets.
+
+## Chromium discriminator attempt 4 · 2026-09-09
+
+- Repository source SHA: `ec94d66f123a666de32a5a7723c568ea186edf4b`.
+- Discriminator source digest:
+  `06ab44cfb2970b9efd93de47e2c45beeaf955c6b284b44563947e8ecae04431b`.
+- Host: macOS 26.5.1 build 25F80, arm64.
+- Verdict: `PASS`.
+- Completed comparison: 20 seeded triplets / 60 injection attempts.
+- Counts: PRIVATE exact 20/20; PUBLIC_LOC exact 0/20; PUBLIC_OFF target
+  delivery 0/20; peer-window delivery 0 in every arm.
+- Cleanup: required and independently completed within the guard and Chromium
+  process bounds.
+
+Every PRIVATE action delivered exactly one DOM `wheel` event to background
+target B. Chromium reported `deltaX=0`, `deltaY=-120`, `deltaMode=0`; the
+requested line detent was intentionally judged by axis and nonzero delivery,
+not by assuming a browser pixel-scale value. Both public PID-posted arms
+delivered no DOM wheel event. Across all arms the exact physical-pointer
+doubles, foreground PID and foreground native window were unchanged, while the
+owned guard remained foreground and target B remained non-key. The page
+oracles were independently read over the exact profile's CDP endpoint.
+
+This establishes the current-host Boolean discriminator only. It does not
+qualify a product provider or close acu.dynamic.074. The next precommitted gate
+is a separate 1,000-action Chromium PRIVATE repeat with per-action target,
+peer, pointer and foreground checks; only a zero-loss result may spend a
+previous-generation arm64 host on C9.

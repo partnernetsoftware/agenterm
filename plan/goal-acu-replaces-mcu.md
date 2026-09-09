@@ -1059,8 +1059,10 @@ Google Chrome published no bridge connection; direct-profile attempt 2 then
 stopped before injection when its fixed CDP port did not answer. Attempt 3
 reached the exact profile's `DevToolsActivePort` record, but the readiness curl
 was routed through the host HTTP proxy. Attempt 4 bypasses proxies only for
-that loopback check and keeps the criteria frozen. A current-host pass and 1,000-action Chromium repeat
-precede any previous-generation C9 court.
+that loopback check and passed the frozen discriminator: PRIVATE 20/20, both
+public controls 0/20, zero peer delivery or host-state drift, cleanup verified.
+The separate 1,000-action Chromium PRIVATE repeat still precedes any
+previous-generation C9 court or product provider claim.
 The only reviewed permanent retirement in this cut is the login-service
 query for MCU's removed global daemon object.
 

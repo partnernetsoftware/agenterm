@@ -191,6 +191,10 @@ routed through the host HTTP proxy and received its 503 response. It also
 ended before injection. Attempt 4 explicitly bypasses proxies for this
 loopback-only readiness check, retries a partially written record, and requires
 the `/json/version` WebSocket path to equal the exact profile record.
+Attempt 4 then passed the frozen current-host discriminator: PRIVATE was exact
+20/20, PUBLIC_LOC exact 0/20, PUBLIC_OFF target delivery 0/20, peer delivery
+zero, host state unchanged after all 60 attempts, and cleanup verified. This
+unlocks only the separately measured 1,000-action PRIVATE repeat below.
 
 ### 9.1 Frozen setup
 
@@ -289,7 +293,7 @@ flowchart TD
     B -->|1..19| U["INCONCLUSIVE_UNSTABLE\nno migration claim"]
     B -->|0/20| R{"20/20 triplets satisfy D3-D7?"}
     R -->|no| K
-    R -->|yes| C["discriminator PASS\nonly now schedule C9"]
+    R -->|yes| C["discriminator PASS\nschedule 1,000-action PRIVATE repeat"]
 ```
 
 Kill criterion: any private misdelivery, focus/pointer drift, identity ambiguity
@@ -306,6 +310,17 @@ on this experiment unless D1–D8 first pass on the current host and a subsequen
 drift. Only then rerun the unchanged source digest and seed protocol on the
 previous supported macOS generation; any source or criterion change resets
 both host results.
+
+The repeat is a separate result, not a rerun that can rewrite the discriminator
+counts. It must keep the attempt-4 event fields and exact target identity,
+reset and independently read both DOM oracles for every PRIVATE action, and
+compare the exact physical pointer plus foreground PID/window before and after
+each action. `PASS` is exactly 1,000/1,000 single target deliveries, zero peer
+deliveries and zero host-state drift. Any loss, double delivery, peer delivery,
+identity change or host-state change is `FAIL_PRIVATE`; dependency, oracle or
+cleanup loss is `INCONCLUSIVE`. Stop on the first behavioral failure and retain
+its bounded diagnostic. The repeat may summarize green actions in blocks of
+100, but must never omit a failing action's index and readback.
 
 ### 9.4 Explicitly not answered
 
