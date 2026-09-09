@@ -274,6 +274,13 @@
       ]
     },
     {
+      "id": "cu-linux-verify-expect-honesty-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-verify-expect-readback"
+      ]
+    },
+    {
       "id": "cu-linux-wait-ready-honesty-smoke",
       "platform": "linux",
       "evidence": [
