@@ -2646,6 +2646,25 @@
         "task.cu-linux-gtk-entry-send-keys-smoke"
       ]
     },
+    "cu-linux-gtk-entry-text-smoke": {
+      "inputs": [
+        "built-agenterm-cu",
+        "built-libagenterm",
+        "display-session"
+      ],
+      "outputs": [
+        "cu-linux-gtk-entry-text-evidence"
+      ],
+      "budget": {
+        "timeout_ms": 120000,
+        "max_operations": 1000000000,
+        "max_output_bytes": 1048576
+      },
+      "network": [],
+      "evidence": [
+        "task.cu-linux-gtk-entry-text-smoke"
+      ]
+    },
     "cu-linux-gtk-entry-selection-smoke": {
       "inputs": [
         "built-agenterm-cu",
@@ -6248,7 +6267,7 @@
     },
     {
       "id": "cu-linux-tree-honesty-smoke",
-      "description": "Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk with depth/max-nodes budget honesty; volatile focus/active/armed/selected states excluded; tree usage rejects AT-SPI --name; typed get-extents --name usage/host-limit before the tree read-back court; typed usage and AT-SPI host-limit paths when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
+      "description": "Linux tree --flat node names/roles/states for one owned GTK fixture window match an independent pyatspi BFS AT-SPI dump on the same application walk with depth/max-nodes budget honesty; volatile focus/active/armed/selected states excluded; typed tree usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage/host-limit court before the tree read-back court; typed usage and AT-SPI host-limit paths when the independent pyatspi desktop probe is unavailable; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-tree-honesty-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -6968,6 +6987,26 @@
       "id": "cu-linux-gtk-entry-send-keys-smoke",
       "description": "Linux GTK entry N≥2 send-keys --name → get-text roundtrips plus semantic modifier chords with independent get-caret/get-selection/clipboard-read/get-text read-back; typed send-keys/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus or stay accessibility-tree --name; host-limit when AT-SPI absent; get-extents --name usage/host-limit court before actuate; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-send-keys-smoke.qjs",
+      "profile": "tool",
+      "cwd": ".",
+      "args": [
+        ".",
+        "target/abi-dev/agenterm-cu"
+      ],
+      "dependencies": [],
+      "platforms": [
+        "linux"
+      ],
+      "side_effects": [
+        "artifact_write",
+        "process_spawn",
+        "gui_spawn"
+      ]
+    },
+    {
+      "id": "cu-linux-gtk-entry-text-smoke",
+      "description": "Linux GTK entry focus --name then N≥2 send-text --name → get-text roundtrips with independent pyatspi Text.GetText == SEED read-back; typed focus/send-text/get-text reject missing/zero --window, --role-without--name, and --coords/--bogus or stay accessibility-tree --name; host-limit when AT-SPI absent; typed get-extents --name usage/host-limit court before actuate; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
+      "entry": "scripts/qjs/cu-linux-gtk-entry-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [

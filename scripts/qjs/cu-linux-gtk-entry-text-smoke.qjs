@@ -1,10 +1,12 @@
-// CEO#2: GTK entry focus → send-text SEED → get-text. Acceptance is
-// independent pyatspi Text.GetText == SEED through AT-SPI --name only;
-// no --coords or screenshot. Typed focus/send-text/get-text usage and
-// host-limit paths must hold when --window/--name are missing or the AT-SPI
-// bus is unavailable; typed get-extents --name usage/host-limit paths must
-// hold before the native actuate/read-back court; miss paths must not mutate
-// the entry (independent get-text read-back).
+// CEO#2: GTK entry focus → send-text SEED → get-text. Acceptance is N≥2
+// independent send-text→get-text roundtrips with pyatspi Text.GetText == SEED
+// through AT-SPI --name only; no --coords or screenshot. Typed
+// focus/send-text/get-text usage must reject missing/zero --window,
+// --role-without--name, and --coords/--bogus misuse or stay on
+// accessibility-tree --name; host-limit paths must hold when --window/--name
+// are missing or the AT-SPI bus is unavailable; typed get-extents --name
+// usage/host-limit paths must hold before the native actuate/read-back court;
+// miss paths must not mutate the entry (independent get-text read-back).
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -19,6 +21,7 @@ const declared_evidence = [
 
 const ENTRY_NAME = "Fixture Entry";
 const MISSING_NODE = "No Such Entry";
+const READBACK_COUNT = 2;
 const FIXTURE_SEED = "seed";
 
 function ensure(condition, message) {
@@ -40,6 +43,12 @@ function text_at(value, dotted) {
 }
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
+
+function int_at(value, dotted) {
+  const value_at = at(value, dotted);
+  if (value_at === undefined || value_at === null) { return 0; }
+  return rh.parse_int("" + value_at);
+}
 
 function direct_file(path) {
   if (!rh.exists(path)) { return false; }
@@ -299,6 +308,116 @@ function assert_entry_text_usage_limit(run_directory, executable) {
     text_at(focus_missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_gtk_entry_text_focus_missing_name_message:" + JSON.stringify(focus_missing_name.error)
   );
+
+  const get_text_zero = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "0", "--name", ENTRY_NAME,
+  ]);
+  ensure(!output_success(get_text_zero),
+    "cu_linux_gtk_entry_text_get_text_zero_ok:" + JSON.stringify(get_text_zero));
+  ensure(
+    text_at(get_text_zero, "error.code") === "invalid_input",
+    "cu_linux_gtk_entry_text_get_text_zero_code:" + JSON.stringify(get_text_zero.error)
+  );
+  ensure(
+    text_at(get_text_zero, "error.message").indexOf("window") >= 0,
+    "cu_linux_gtk_entry_text_get_text_zero_message:" + JSON.stringify(get_text_zero.error)
+  );
+
+  const send_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "1", "--coords", "10,10", "--", "probe",
+  ]);
+  ensure(!output_success(send_coords),
+    "cu_linux_gtk_entry_text_send_coords_ok:" + JSON.stringify(send_coords));
+
+  const send_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", "1", "--bogus", "--", "probe",
+  ]);
+  ensure(!output_success(send_bogus),
+    "cu_linux_gtk_entry_text_send_bogus_ok:" + JSON.stringify(send_bogus));
+
+  const get_text_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--coords", "10,10",
+  ]);
+  ensure(!output_success(get_text_coords),
+    "cu_linux_gtk_entry_text_get_text_coords_ok:" + JSON.stringify(get_text_coords));
+
+  const get_text_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", "1", "--bogus",
+  ]);
+  ensure(!output_success(get_text_bogus),
+    "cu_linux_gtk_entry_text_get_text_bogus_ok:" + JSON.stringify(get_text_bogus));
+}
+
+function misuse_code_ok(code) {
+  return code === "invalid_input" || code === "usage";
+}
+
+function assert_get_text_reject_coords_or_stay_named(
+  run_directory, executable, handle, fixture_title, expected_text, label
+) {
+  const get_text_coords = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--name", ENTRY_NAME, "--coords", "10,10",
+  ]);
+  if (!output_success(get_text_coords)) {
+    ensure(
+      misuse_code_ok(text_at(get_text_coords, "error.code")),
+      "cu_linux_gtk_entry_text_get_text_coords_code_" + label + ":" + JSON.stringify(get_text_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(get_text_coords, "data.via") === "gettext"
+        && text_at(get_text_coords, "data.text") === expected_text,
+      "cu_linux_gtk_entry_text_get_text_coords_named_" + label + ":" + JSON.stringify(get_text_coords.data)
+    );
+  }
+
+  const get_text_bogus = run_cu_reply(run_directory, executable, "observe", [
+    "get-text", "--window", handle, "--name", ENTRY_NAME, "--bogus",
+  ]);
+  if (!output_success(get_text_bogus)) {
+    ensure(
+      misuse_code_ok(text_at(get_text_bogus, "error.code")),
+      "cu_linux_gtk_entry_text_get_text_bogus_code_" + label + ":" + JSON.stringify(get_text_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(get_text_bogus, "data.via") === "gettext"
+        && text_at(get_text_bogus, "data.text") === expected_text,
+      "cu_linux_gtk_entry_text_get_text_bogus_named_" + label + ":" + JSON.stringify(get_text_bogus.data)
+    );
+  }
+}
+
+function assert_send_text_reject_coords_or_stay_named(run_directory, executable, handle, label) {
+  const send_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--name", ENTRY_NAME, "--coords", "10,10", "--", "probe",
+  ]);
+  if (!output_success(send_coords)) {
+    ensure(
+      misuse_code_ok(text_at(send_coords, "error.code")),
+      "cu_linux_gtk_entry_text_send_coords_code_" + label + ":" + JSON.stringify(send_coords.error)
+    );
+  } else {
+    ensure(
+      text_at(send_coords, "data.addressing") === "accessibility-tree",
+      "cu_linux_gtk_entry_text_send_coords_degraded_" + label + ":" + JSON.stringify(send_coords.data)
+    );
+  }
+
+  const send_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "send-text", "--window", handle, "--name", ENTRY_NAME, "--bogus", "--", "probe",
+  ]);
+  if (!output_success(send_bogus)) {
+    ensure(
+      misuse_code_ok(text_at(send_bogus, "error.code")),
+      "cu_linux_gtk_entry_text_send_bogus_code_" + label + ":" + JSON.stringify(send_bogus.error)
+    );
+  } else {
+    ensure(
+      text_at(send_bogus, "data.addressing") === "accessibility-tree",
+      "cu_linux_gtk_entry_text_send_bogus_degraded_" + label + ":" + JSON.stringify(send_bogus.data)
+    );
+  }
 }
 
 function assert_get_extents_usage_limit(run_directory, executable, env) {
@@ -314,6 +433,20 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_gtk_entry_text_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_gtk_entry_text_extents_missing_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_gtk_entry_text_extents_missing_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_entry_text_extents_missing_name_message:" + JSON.stringify(missing_name.error)
   );
 }
 
@@ -421,11 +554,11 @@ const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
 try {
-  print("STEP focus/send-text/get-text typed-fail usage when --window or --name is missing");
+  print("STEP focus/send-text/get-text typed-fail usage for missing/zero --window, --role-without--name, and --coords/--bogus misuse");
   assert_entry_text_usage_limit(run_directory, executable);
 
   if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+    print("STEP get-extents typed-fail usage when --window is zero or --name is missing before actuate/read-back court");
     assert_get_extents_usage_limit(run_directory, executable, env);
   } else {
     print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
@@ -474,21 +607,50 @@ try {
     );
     harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-focus");
 
-    const seed = "ceo2-gtk-" + context.run_id;
-    print("STEP send-text --name writes SEED through AT-SPI EditableText/Text");
-    const sent = run_cu(run_directory, executable, "observe,actuate", [
-      "send-text", "--window", handle, "--name", ENTRY_NAME, "--", seed,
+    print("STEP get-extents --name locates the GTK entry before send-text actuate/read-back court");
+    const entry_extents = run_cu(run_directory, executable, "observe", [
+      "get-extents", "--window", handle, "--name", ENTRY_NAME,
     ]);
     ensure(
-      text_at(sent, "data.typed") === seed
-        && text_at(sent, "data.addressing") === "accessibility-tree",
-      "cu_linux_gtk_entry_text_send:" + JSON.stringify(sent.data)
+      text_at(entry_extents, "data.matched.name") === ENTRY_NAME
+        && int_at(entry_extents, "data.extents.width") > 0
+        && int_at(entry_extents, "data.extents.height") > 0,
+      "cu_linux_gtk_entry_text_extents_before_actuate:" + JSON.stringify(entry_extents.data)
     );
-    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-text");
 
-    print("STEP get-text --name reads SEED back and agrees with independent pyatspi Text.GetText");
-    assert_entry_text(run_directory, executable, handle, fixture_title, seed, "seed_readback");
-    harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-get-text");
+    const round_seeds = [
+      "ceo2-gtk-r1-" + context.run_id + " ≠ 你好",
+      "ceo2-gtk-r2-" + context.run_id + " π≈3.14",
+    ];
+    ensure(round_seeds.length >= READBACK_COUNT, "cu_linux_gtk_entry_text_seed_count");
+
+    for (let round = 1; round <= READBACK_COUNT; round += 1) {
+      const seed = round_seeds[round - 1];
+      print("STEP round " + round + "/" + READBACK_COUNT + ": send-text --name writes round SEED through AT-SPI EditableText/Text");
+      const sent = run_cu(run_directory, executable, "observe,actuate", [
+        "send-text", "--window", handle, "--name", ENTRY_NAME, "--", seed,
+      ]);
+      ensure(
+        text_at(sent, "data.typed") === seed
+          && text_at(sent, "data.addressing") === "accessibility-tree",
+        "cu_linux_gtk_entry_text_send_r" + round + ":" + JSON.stringify(sent.data)
+      );
+      if (round === 1) {
+        harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-send-text");
+      }
+
+      print("STEP round " + round + "/" + READBACK_COUNT + ": independent get-text --name reads round SEED back through pyatspi Text.GetText");
+      assert_entry_text(run_directory, executable, handle, fixture_title, seed, "after_send_r" + round);
+      print("STEP round " + round + "/" + READBACK_COUNT + ": get-text --name with --coords/--bogus rejects or stays gettext");
+      assert_get_text_reject_coords_or_stay_named(
+        run_directory, executable, handle, fixture_title, seed, "round_" + round
+      );
+      if (round === READBACK_COUNT) {
+        harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-get-text");
+        print("STEP send-text --name with --coords/--bogus rejects or stays accessibility-tree");
+        assert_send_text_reject_coords_or_stay_named(run_directory, executable, handle, "final");
+      }
+    }
 
     succeeded = 1;
   }
@@ -505,7 +667,7 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_entry_text_failed");
 if (atspi_available) {
-  print("PASS: CEO#2 GTK entry focus → send-text → get-text with independent pyatspi Text.GetText read-back and typed focus/send-text/get-text/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
+  print("PASS: CEO#2 GTK entry focus → " + READBACK_COUNT + " send-text --name → get-text roundtrips with independent pyatspi Text.GetText read-back and typed focus/send-text/get-text/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords)");
 } else {
   print("PASS: CEO#2 GTK entry focus/send-text/get-text typed-fails with typed get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
