@@ -3,7 +3,9 @@
 // xwininfo Map State, and windows inventory minimized field must match
 // --expect after each verb. Typed usage, destructive-gate refusals,
 // missing-window and headless host-limit paths must hold before any owned
-// fixture window exists. No --coords or screenshot.
+// fixture window exists. Typed minimize/restore usage must reject AT-SPI
+// --name; typed get-extents --name usage/host-limit paths must hold before
+// the actuate/read-back court. AT-SPI/--name only; no --coords or screenshot.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -15,6 +17,7 @@ const declared_evidence = [
 ];
 
 const MISSING_HANDLE = "99999999";
+const AT_SPI_PROBE_NAME = "Minimize";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -211,6 +214,110 @@ function assert_minimize_missing_window(run_directory, executable) {
   );
 }
 
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env(executable) : env,
+    timeout_ms: 45000,
+  });
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_minimize_expect_extents_cli:" + output.stderr);
+  return JSON.parse(trimmed);
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_minimize_restore_atspi_name_usage(run_directory, executable) {
+  const minimize_with_name = run_cu_reply(run_directory, executable, "actuate", [
+    "minimize", "--window", "1", "--expect", "minimized", "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(
+    !output_success(minimize_with_name),
+    "cu_linux_minimize_expect_name_usage_ok:" + JSON.stringify(minimize_with_name)
+  );
+  ensure(
+    text_at(minimize_with_name, "error.code") === "usage",
+    "cu_linux_minimize_expect_name_usage_code:" + JSON.stringify(minimize_with_name.error)
+  );
+  ensure(
+    text_at(minimize_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(minimize_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_minimize_expect_name_usage_message:" + JSON.stringify(minimize_with_name.error)
+  );
+
+  const restore_with_name = run_cu_reply(run_directory, executable, "actuate", [
+    "restore", "--window", "1", "--expect", "restored", "--name", AT_SPI_PROBE_NAME,
+  ]);
+  ensure(
+    !output_success(restore_with_name),
+    "cu_linux_minimize_expect_restore_name_usage_ok:" + JSON.stringify(restore_with_name)
+  );
+  ensure(
+    text_at(restore_with_name, "error.code") === "usage",
+    "cu_linux_minimize_expect_restore_name_usage_code:" + JSON.stringify(restore_with_name.error)
+  );
+  ensure(
+    text_at(restore_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(restore_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_minimize_expect_restore_name_usage_message:" + JSON.stringify(restore_with_name.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(
+    !output_success(zero_handle),
+    "cu_linux_minimize_expect_extents_usage_ok:" + JSON.stringify(zero_handle)
+  );
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_minimize_expect_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_minimize_expect_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(
+    !output_success(reply),
+    "cu_linux_minimize_expect_extents_unavailable_ok:" + JSON.stringify(reply)
+  );
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_minimize_expect_extents_unavailable_code:" + code
+  );
+}
+
 function assert_headless_host_limit(run_directory, executable, verb, label) {
   const reply = run_cu_reply(
     run_directory,
@@ -291,6 +398,8 @@ const repo = rh.absolute(args[0]);
 const executable = rh.absolute(args[1]);
 const run_directory = rh.join(repo, "target/cu-linux-minimize-expect-smoke-run");
 rh.create_dir_all(run_directory);
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 
 const fixture_source = rh.join(repo, "examples/python/agenterm_atspi_fixture.py");
 ensure(direct_file(fixture_source), "cu_linux_minimize_expect_fixture_missing:" + fixture_source);
@@ -307,6 +416,17 @@ assert_minimize_missing_window(run_directory, executable);
 print("STEP minimize/restore without DISPLAY typed-fails unsupported host-limit");
 assert_headless_host_limit(run_directory, executable, "minimize", "minimize");
 assert_headless_host_limit(run_directory, executable, "restore", "restore");
+
+print("STEP minimize/restore typed-fail usage when AT-SPI --name is present");
+assert_minimize_restore_atspi_name_usage(run_directory, executable);
+
+if (atspi_available) {
+  print("STEP get-extents typed-fail invalid_input when --window is zero before actuate/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+} else {
+  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+}
 
 let fixture = -1;
 let fixture_pid = 0;
@@ -437,5 +557,9 @@ try {
 const context = harness.new_context(repo, "cu-linux-minimize-expect");
 harness.emit_evidence(context, declared_evidence, "cu.linux-minimize-expect-state");
 harness.remove_run(context);
-print("PASS: Linux minimize/restore usage/host-limit/miss honesty + independent xprop, xwininfo Map State, and windows inventory minimized read-back (no --coords)");
+if (atspi_available) {
+  print("PASS: Linux minimize/restore usage/host-limit/miss honesty + independent xprop, xwininfo Map State, and windows inventory minimized read-back with typed minimize/restore/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux minimize/restore usage/host-limit/miss honesty + independent xprop, xwininfo Map State, and windows inventory minimized read-back with typed minimize/restore/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
 return;
