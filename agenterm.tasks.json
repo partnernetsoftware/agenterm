@@ -7192,7 +7192,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-focused-send-text-smoke",
-      "description": "Linux GTK entry focus --name then send-text --window without --name into the focused control with N>=2 independent get-text --window read-back == SEED; typed focus/send-text/get-text/focused reject --coords/--bogus or stay on the AT-SPI focused/named path; typed get-extents --name usage/host-limit paths before the native actuate/read-back court; host-limit when AT-SPI is absent; AT-SPI live-probe only, no --coords.",
+      "description": "Linux GTK entry focus --name then send-text --window without --name into the focused control with N>=2 independent get-text --window read-back == SEED; typed focus/send-text/get-text/focused --coords/--bogus usage (usage_rejects_unexpected) or stay on the AT-SPI focused/named path; typed get-extents --name usage AND host-limit paths (usage_rejects_unexpected --coords/--bogus) before the native actuate/read-back court; host-limit when AT-SPI is absent; AT-SPI live-probe only, no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-focused-send-text-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
