@@ -7032,7 +7032,7 @@
     },
     {
       "id": "cu-linux-gtk-entry-paste-smoke",
-      "description": "Linux GTK entry clipboard-write UTF-8 seed then N\u22652 paste --name \u2192 get-text roundtrips with independent get-text == SEED; typed paste/get-text usage rejects --coords/--bogus misuse or stays on accessibility-tree --name; host-limit paths when --window/--name are missing or the AT-SPI bus is unavailable; typed get-extents --name usage/host-limit paths before the native actuate/read-back court; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
+      "description": "Linux GTK entry clipboard-write UTF-8 seed then N\u22652 paste --name \u2192 get-text roundtrips with independent get-text == SEED; typed paste/get-text usage rejects --coords/--bogus misuse or stays on accessibility-tree --name; host-limit paths when --window/--name are missing or the AT-SPI bus is unavailable; typed get-extents --name usage AND host-limit paths (including --coords/--bogus honesty) before the native actuate/read-back court; miss paths must not mutate the entry; AT-SPI --name; no --coords.",
       "entry": "scripts/qjs/cu-linux-gtk-entry-paste-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
