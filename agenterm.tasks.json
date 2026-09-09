@@ -6334,7 +6334,7 @@
     },
     {
       "id": "cu-linux-desktop-state-smoke",
-      "description": "Linux desktop-state returns a bounded inventory+tree+pointer snapshot for one fixture window with independent AT-SPI/X11 read-back on title, tree budget, named entry text, and pointer coords; typed get-extents --name usage/miss/host-limit paths and independent pyatspi extents agreement before the desktop-state court; AT-SPI/--name only, no --coords.",
+      "description": "Linux desktop-state returns a bounded inventory+tree+pointer snapshot for one fixture window with independent AT-SPI/X11 read-back on title, tree budget, named entry text, and pointer coords; typed desktop-state --name/--coords/--bogus usage_rejects_unexpected; get-extents --name usage AND host-limit plus --coords/--bogus command=usage before the desktop-state court; pyatspi extents agreement; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-desktop-state-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
