@@ -295,6 +295,11 @@ const AT_SPI_PROBE_NAME = "Service Court Anchor";
 
 function output_success(document) { return at(document, "ok") === true; }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function cu_env_full(executable) {
   const env = cu_env();
   env.AGENTERM_ABI_LIB = rh.join(rh.parent(executable), "libagenterm.so");
@@ -364,9 +369,8 @@ function assert_service_usage_reject(run_directory, executable, args, env, token
     text_at(reply, "command") === "usage",
     "cu_linux_service_usage_" + label + "_command:" + JSON.stringify(reply)
   );
-  const message = text_at(reply, "error.message");
   ensure(
-    message.indexOf(token) >= 0 || message.indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(reply, "error.message"), token),
     "cu_linux_service_usage_" + label + "_message:" + JSON.stringify(reply.error)
   );
 }
@@ -379,7 +383,7 @@ function assert_service_usage_limit(run_directory, executable, env) {
     "cu_linux_service_usage_list_name_code:" + JSON.stringify(list_with_name.error)
   );
   ensure(
-    text_at(list_with_name, "error.message").indexOf("--name") >= 0,
+    usage_rejects_unexpected(text_at(list_with_name, "error.message"), "--name"),
     "cu_linux_service_usage_list_name_message:" + JSON.stringify(list_with_name.error)
   );
 
@@ -392,7 +396,7 @@ function assert_service_usage_limit(run_directory, executable, env) {
     "cu_linux_service_usage_system_list_name_code:" + JSON.stringify(system_list_with_name.error)
   );
   ensure(
-    text_at(system_list_with_name, "error.message").indexOf("--name") >= 0,
+    usage_rejects_unexpected(text_at(system_list_with_name, "error.message"), "--name"),
     "cu_linux_service_usage_system_list_name_message:" + JSON.stringify(system_list_with_name.error)
   );
 
@@ -405,7 +409,7 @@ function assert_service_usage_limit(run_directory, executable, env) {
     "cu_linux_service_usage_status_name_code:" + JSON.stringify(status_with_name.error)
   );
   ensure(
-    text_at(status_with_name, "error.message").indexOf("--name") >= 0,
+    usage_rejects_unexpected(text_at(status_with_name, "error.message"), "--name"),
     "cu_linux_service_usage_status_name_message:" + JSON.stringify(status_with_name.error)
   );
 
@@ -418,7 +422,7 @@ function assert_service_usage_limit(run_directory, executable, env) {
     "cu_linux_service_usage_system_status_name_code:" + JSON.stringify(system_status_with_name.error)
   );
   ensure(
-    text_at(system_status_with_name, "error.message").indexOf("--name") >= 0,
+    usage_rejects_unexpected(text_at(system_status_with_name, "error.message"), "--name"),
     "cu_linux_service_usage_system_status_name_message:" + JSON.stringify(system_status_with_name.error)
   );
 
@@ -478,6 +482,62 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_service_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_service_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_service_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_service_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_service_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_service_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_service_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_service_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_service_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_service_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_service_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_service_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_service_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -725,15 +785,18 @@ const context = harness.new_context(repo, "cu-linux-service");
 const env = cu_env_full(executable);
 const atspi_available = probe_atspi_available(executable);
 
-print("STEP service typed-fails usage when AT-SPI --name, --coords, --bogus, or other unexpected arguments are present");
+print("STEP service typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
 assert_service_usage_limit(context.run_directory, executable, env);
 
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before systemd read-back");
-  assert_get_extents_usage_limit(context.run_directory, executable, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+print("STEP get-extents --name usage/host-limit court before systemd list/system-status read-back court");
+print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before systemd list/system-status read-back court");
+assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before systemd list/system-status read-back court");
+assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+
+if (atspi_available !== true) {
+  print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; service read-back still uses independent systemd D-Bus probe");
 }
 
 const facts = independent_facts();
