@@ -1,7 +1,10 @@
 // CEO: Linux service list/system-status honesty with independent systemctl/sd-bus read-back.
 // Acceptance is smoke read-back only: CU service list|status|system-list|system-status must
 // agree with facts derived outside agenterm-cu, or return typed service_unsupported with
-// linux systemd alternatives (never fake running units). Observe-only; no lifecycle mutation.
+// linux systemd alternatives (never fake running units). Typed service usage must reject
+// AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit
+// paths must hold before the systemd read-back court. Observe-only; no lifecycle mutation.
+// AT-SPI/--name only; no --coords.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -206,6 +209,179 @@ function independent_probe() {
 }
 
 const missing_service_name = "com.example.agenterm.missing-court.service";
+const AT_SPI_PROBE_NAME = "Service Court Anchor";
+
+function output_success(document) { return at(document, "ok") === true; }
+
+function cu_env_full(executable) {
+  const env = cu_env();
+  env.AGENTERM_ABI_LIB = rh.join(rh.parent(executable), "libagenterm.so");
+  for (const key of ["AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke_reply(run_directory, executable, args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe", "service",
+  ].concat(args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env() : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "", "cu_linux_service_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "service" || text_at(reply, "command") === "usage",
+    "cu_linux_service_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, args, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(args), {
+    cwd: run_directory,
+    env: env === undefined ? cu_env() : env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "", "cu_linux_service_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env_full(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_service_usage_limit(run_directory, executable, env) {
+  const list_with_name = invoke_reply(run_directory, executable, ["list", "--name", AT_SPI_PROBE_NAME], env);
+  ensure(!output_success(list_with_name), "cu_linux_service_usage_list_name_ok:" + JSON.stringify(list_with_name));
+  ensure(
+    text_at(list_with_name, "error.code") === "usage",
+    "cu_linux_service_usage_list_name_code:" + JSON.stringify(list_with_name.error)
+  );
+  ensure(
+    text_at(list_with_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_service_usage_list_name_message:" + JSON.stringify(list_with_name.error)
+  );
+
+  const system_list_with_name = invoke_reply(run_directory, executable,
+    ["system-list", "--name", AT_SPI_PROBE_NAME], env);
+  ensure(!output_success(system_list_with_name),
+    "cu_linux_service_usage_system_list_name_ok:" + JSON.stringify(system_list_with_name));
+  ensure(
+    text_at(system_list_with_name, "error.code") === "usage",
+    "cu_linux_service_usage_system_list_name_code:" + JSON.stringify(system_list_with_name.error)
+  );
+  ensure(
+    text_at(system_list_with_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_service_usage_system_list_name_message:" + JSON.stringify(system_list_with_name.error)
+  );
+
+  const status_with_name = invoke_reply(run_directory, executable,
+    ["status", missing_service_name, "--name", AT_SPI_PROBE_NAME], env);
+  ensure(!output_success(status_with_name),
+    "cu_linux_service_usage_status_name_ok:" + JSON.stringify(status_with_name));
+  ensure(
+    text_at(status_with_name, "error.code") === "usage",
+    "cu_linux_service_usage_status_name_code:" + JSON.stringify(status_with_name.error)
+  );
+  ensure(
+    text_at(status_with_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_service_usage_status_name_message:" + JSON.stringify(status_with_name.error)
+  );
+
+  const system_status_with_name = invoke_reply(run_directory, executable,
+    ["system-status", missing_service_name, "--name", AT_SPI_PROBE_NAME], env);
+  ensure(!output_success(system_status_with_name),
+    "cu_linux_service_usage_system_status_name_ok:" + JSON.stringify(system_status_with_name));
+  ensure(
+    text_at(system_status_with_name, "error.code") === "usage",
+    "cu_linux_service_usage_system_status_name_code:" + JSON.stringify(system_status_with_name.error)
+  );
+  ensure(
+    text_at(system_status_with_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_service_usage_system_status_name_message:" + JSON.stringify(system_status_with_name.error)
+  );
+
+  const bad_max = invoke_reply(run_directory, executable, ["list", "--max", "5001"], env);
+  ensure(!output_success(bad_max), "cu_linux_service_usage_bad_max_ok:" + JSON.stringify(bad_max));
+  ensure(
+    text_at(bad_max, "error.code") === "usage",
+    "cu_linux_service_usage_bad_max_code:" + JSON.stringify(bad_max.error)
+  );
+  ensure(
+    text_at(bad_max, "error.message").indexOf("max") >= 0,
+    "cu_linux_service_usage_bad_max_message:" + JSON.stringify(bad_max.error)
+  );
+
+  const missing_status_name = invoke_reply(run_directory, executable, ["status"], env);
+  ensure(!output_success(missing_status_name),
+    "cu_linux_service_usage_missing_status_ok:" + JSON.stringify(missing_status_name));
+  ensure(
+    text_at(missing_status_name, "error.code") === "usage",
+    "cu_linux_service_usage_missing_status_code:" + JSON.stringify(missing_status_name.error)
+  );
+
+  const missing_subcommand = invoke_reply(run_directory, executable, [], env);
+  ensure(!output_success(missing_subcommand),
+    "cu_linux_service_usage_missing_subcommand_ok:" + JSON.stringify(missing_subcommand));
+  ensure(
+    text_at(missing_subcommand, "error.code") === "usage",
+    "cu_linux_service_usage_missing_subcommand_code:" + JSON.stringify(missing_subcommand.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_service_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_service_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_service_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply), "cu_linux_service_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_service_extents_unavailable_code:" + code
+  );
+}
 
 function missing_status_script() {
   return [
@@ -371,6 +547,20 @@ const executable = rh.absolute(args[1]);
 ensure(rh.exists(executable), "missing_agenterm_cu:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-service");
+const env = cu_env_full(executable);
+const atspi_available = probe_atspi_available(executable);
+
+print("STEP service typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+assert_service_usage_limit(context.run_directory, executable, env);
+
+if (atspi_available) {
+  print("STEP get-extents typed-fail invalid_input when --window is zero before systemd read-back");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+} else {
+  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+}
+
 const scopes = independent_probe();
 
 if (scopes === null) {
@@ -388,7 +578,11 @@ if (scopes === null) {
     ["system-status", missing_service_name], false));
   harness.emit_evidence(context, declared_evidence, "cu.linux-service-readback");
   harness.remove_run(context);
-  print("PASS: CEO Linux service typed unsupported with independent probe absence read-back");
+  if (atspi_available) {
+    print("PASS: Linux service typed unsupported with independent probe absence read-back and typed service/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux service typed unsupported with independent probe absence read-back and typed service/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
   return;
 }
 
@@ -410,4 +604,8 @@ for (const scope of ["user", "system"]) {
 
 harness.emit_evidence(context, declared_evidence, "cu.linux-service-readback");
 harness.remove_run(context);
-print("PASS: CEO Linux service list/system-status with independent systemd probe read-back");
+if (atspi_available) {
+  print("PASS: Linux service list/system-status with independent systemd probe read-back and typed service/get-extents usage honesty (AT-SPI --name, no --coords)");
+} else {
+  print("PASS: Linux service list/system-status with independent systemd probe read-back and typed service/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+}
