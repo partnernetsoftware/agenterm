@@ -1,7 +1,8 @@
 // CEO: Linux screen-reader observe with independent org.a11y.Status read-back.
 // Acceptance is smoke read-back only: ok JSON must match dbus-send flag facts;
-// unsupported must carry typed alternatives and match bus probes. No --coords
-// or screenshot degradation.
+// unsupported must carry typed alternatives and match bus probes; headless-display
+// must carry typed x11-display host-limit detail. No --coords or screenshot
+// degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -51,6 +52,14 @@ function cu_env() {
   }
   if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
     env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function headless_cu_env() {
+  const env = { AGENTERM_NO_ACTIVATE: "1" };
+  for (const key of ["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
   }
   return env;
 }
@@ -147,7 +156,16 @@ function assert_ok_readback(reply) {
   const status = text_at(data, "status");
   ensure(status === "ok" || status === "partial", "cu_linux_screen_reader_status:" + JSON.stringify(data));
   ensure(flag_at(data, "session_bus.connected"), "cu_linux_screen_reader_session_bus:" + JSON.stringify(data.session_bus));
+  ensure(
+    flag_at(data, "session_bus.connected") === session_bus_connected(),
+    "cu_linux_screen_reader_session_bus_mismatch:" + JSON.stringify(data.session_bus)
+  );
   ensure(text_at(data, "a11y_bus.address") !== "", "cu_linux_screen_reader_bus_address:" + JSON.stringify(data.a11y_bus));
+  ensure(flag_at(data, "a11y_bus.connected"), "cu_linux_screen_reader_a11y_bus:" + JSON.stringify(data.a11y_bus));
+  ensure(text_at(data, "org_a11y_status.destination") === "org.a11y.Bus", "cu_linux_screen_reader_destination:" + JSON.stringify(data.org_a11y_status));
+  ensure(text_at(data, "org_a11y_status.path") === "/org/a11y/bus", "cu_linux_screen_reader_path:" + JSON.stringify(data.org_a11y_status));
+  ensure(text_at(data, "org_a11y_status.interface") === "org.a11y.Status", "cu_linux_screen_reader_interface:" + JSON.stringify(data.org_a11y_status));
+  ensure(dbus_name_has_owner("org.a11y.Bus"), "cu_linux_screen_reader_owner_missing");
   for (const flag of ["IsEnabled", "ScreenReaderEnabled"]) {
     ensure(text_at(data, "org_a11y_status.flags." + flag + ".read") === "ok", "cu_linux_screen_reader_flag_read:" + flag + ":" + JSON.stringify(data.org_a11y_status));
     const value = at(data, "org_a11y_status.flags." + flag + ".value");
@@ -175,6 +193,35 @@ function assert_unsupported_readback(reply) {
   ensure(!owner || independent === null, "cu_linux_screen_reader_framework_should_be_absent:" + owner + ":" + JSON.stringify(independent));
 }
 
+function assert_headless_readback(reply) {
+  ensure(!flag_at(reply, "ok"), "cu_linux_screen_reader_headless_unexpected_ok:" + JSON.stringify(reply));
+  ensure(text_at(reply, "error.code") === "headless-display", "cu_linux_screen_reader_headless_code:" + JSON.stringify(reply.error));
+  ensure(text_at(reply, "error.message") !== "", "cu_linux_screen_reader_headless_message:" + JSON.stringify(reply.error));
+  const detail = at(reply, "error.detail");
+  ensure(text_at(detail, "effect") === "not_performed", "cu_linux_screen_reader_headless_effect:" + JSON.stringify(detail));
+  ensure(text_at(detail, "required_mechanism") === "x11-display", "cu_linux_screen_reader_headless_mechanism:" + JSON.stringify(detail));
+  ensure(at(detail, "alternatives").length > 0, "cu_linux_screen_reader_headless_alternatives:" + JSON.stringify(detail));
+}
+
+function run_cu_headless(run_directory, executable, arguments) {
+  const argv = ["--target", "current", "--grant", "observe"];
+  for (const argument of arguments) { argv.push("" + argument); }
+  const output = rh.run_spec({
+    program: executable,
+    args: argv,
+    current_dir: run_directory,
+    env: headless_cu_env(),
+    env_remove: ["DISPLAY"],
+    timeout_ms: 120000,
+  });
+  ensure(output.success === true || output.exit_code === 1, "cu_linux_screen_reader_headless_cli:" + output.stdout + output.stderr);
+  const trimmed = output.stdout.trim();
+  ensure(trimmed !== "", "cu_linux_screen_reader_headless_empty");
+  const document = JSON.parse(trimmed);
+  ensure(text_at(document, "command") === "screen-reader", "cu_linux_screen_reader_headless_command:" + JSON.stringify(document));
+  return document;
+}
+
 const args = rh.args();
 if (args.length === 1 && args[0] === "--list-evidence") {
   for (const id of declared_evidence) { print(id); }
@@ -190,7 +237,15 @@ const reply = run_cu(repo, executable, ["screen-reader"]);
 if (flag_at(reply, "ok")) {
   assert_ok_readback(reply);
   print("PASS screen-reader ok with independent org.a11y.Status read-back");
-  return;
+} else {
+  assert_unsupported_readback(reply);
+  print("PASS screen-reader typed unsupported with independent bus read-back");
 }
-assert_unsupported_readback(reply);
-print("PASS screen-reader typed unsupported with independent bus read-back");
+
+print("STEP screen-reader without DISPLAY returns typed headless-display host-limit detail");
+const headless_reply = run_cu_headless(repo, executable, ["screen-reader"]);
+assert_headless_readback(headless_reply);
+print("PASS screen-reader headless-display with typed x11-display host-limit detail");
+
+const context = harness.new_context(repo, "cu-linux-a11y-status");
+harness.emit_evidence(context, declared_evidence, "cu.linux-screen-reader-status");
