@@ -6904,7 +6904,7 @@
     },
     {
       "id": "cu-linux-pointer-smoke",
-      "description": "Linux pointer-position observes absolute screen coordinates and pointer-grab/ungrab verify with an independent X11 grab probe on DISPLAY=:2; no AT-SPI fixture, --coords, or screenshot degradation.",
+      "description": "Linux pointer-position observes absolute screen coordinates and pointer-grab/ungrab verify with independent xdotool and X11 grab-probe read-back on DISPLAY=:2; hover --name delivers AT-SPI pointer with typed usage/miss/host-limit paths and independent pyatspi extents plus xdotool read-back on the session display; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-pointer-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
