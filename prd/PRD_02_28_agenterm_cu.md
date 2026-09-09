@@ -599,6 +599,10 @@ ACU-only cutover
 ├─ [x] dynamic repair registry (complete corpus; no unknown fallback)
 │  ├─ [~] acu.dynamic.003 · snapshot tree + PNG share one id/reply; unit + adapter parity green,
 │  │  └─ native macOS/Linux/Windows screenshot courts still required before full closure
+│  ├─ [~] acu.dynamic.004 · legacy drag requires exact-window down/held-move/up delivery;
+│  │  └─ wheel delivery cannot prove held-button routing or release cleanup, so the
+│  │     research-only Chromium drag court must pass its own target, peer, host-state,
+│  │     no-click and every-down-has-one-up criteria before any provider is designed
 │  ├─ [x] acu.dynamic.005 · legacy window-local zoom corners map to native `--local-region`;
 │  │  └─ bounded pure arithmetic preserves the archived 20 percent padding while native
 │  │     clipping uses one observed window bound; explicit output replaces the hidden path
