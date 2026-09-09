@@ -1821,15 +1821,19 @@ agenterm-cu app-facts
 usage (after the global flags, e.g. agenterm-cu --target current --grant observe):
   app-facts --selector VALUE [--signing] [--verify] [--entitlements]
 
-Resolves exactly one application by normalized path, desktop-entry id, or unique
-Name. Linux reads bounded XDG desktop entries directly and brackets their identity;
-it never invokes a shell, rpm, or dpkg and never borrows window evidence. Missing,
-ambiguous, truncated, and drifting resolution fail typed. Every returned field is a
-Fact with present, absent, not-requested, not-applicable, unsupported, or unavailable
-status; non-present facts carry a reason. Desktop-entry Version is file-format
-metadata and is never reported as the application version. Exec wrappers, PATH
-lookup, or field codes make executable and running unavailable rather than guessed.
-Linux signature facts are unsupported and entitlements are not applicable.
+Resolves exactly one application by normalized path, desktop-entry or bundle id, or
+unique Name. Linux reads bounded XDG desktop entries directly. macOS reads bounded
+application bundles and native Security.framework signing facts in-process; signature
+verification checks every architecture without network access but does not recursively
+validate nested code. Both providers bracket identity and never borrow window evidence.
+On macOS, running is scoped to the caller's effective user. Missing, ambiguous,
+truncated, and drifting resolution fail typed. Every returned field is a Fact with
+present, absent, not-requested, not-applicable, unsupported, or unavailable status;
+non-present facts carry a reason. Desktop-entry Version is file-format metadata and is
+never reported as the application version. Exec wrappers, PATH lookup, or field codes
+make executable and running unavailable rather than guessed. Linux signature facts are
+unsupported and entitlements are not applicable; macOS desktop-entry ids are not
+applicable.
 ```
 
 ### `app-inspect`

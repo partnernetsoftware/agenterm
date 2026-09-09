@@ -928,6 +928,17 @@
       ]
     },
     {
+      "id": "cu-macos-app-facts-smoke",
+      "platform": "macos",
+      "evidence": [
+        "cu.app-facts.macos-bundle-identity",
+        "cu.app-facts.macos-unsigned-honesty",
+        "cu.app-facts.macos-running-readback",
+        "cu.app-facts.macos-system-signature",
+        "cu.app-facts.macos-typed-failures"
+      ]
+    },
+    {
       "id": "cu-simulator-lifecycle-smoke",
       "platform": "macos",
       "evidence": [

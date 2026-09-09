@@ -1,0 +1,304 @@
+// macOS public black-box court for exact bounded application facts.
+//
+// The court owns an unsigned fixture bundle it writes itself, and reads one
+// Apple-signed system application (Calculator) for the signing, verification
+// and entitlement facts that only a real signature can prove. It never opens
+// a GUI: the fixture executable is a copy of /bin/sleep so the running fact
+// can flip true -> false under an owned, killed child. Nothing outside the
+// run directory is written.
+//
+// Until the native macOS provider is merged the first lookup returns the
+// typed app_facts_platform_unsupported error; the court then reports BLOCKED
+// and exits non-zero without emitting evidence. It never records a PASS it
+// did not observe.
+//
+// Args: REPO AGENTERM_CU_EXE
+// or:   --list-evidence
+import * as rh from "lib/rh_compat";
+import * as harness from "lib/test_harness";
+
+const declared_evidence = [
+  "cu.app-facts.macos-bundle-identity",
+  "cu.app-facts.macos-unsigned-honesty",
+  "cu.app-facts.macos-running-readback",
+  "cu.app-facts.macos-system-signature",
+  "cu.app-facts.macos-typed-failures"
+];
+
+// Name-selector scan roots the native adapter honours in place of the
+// built-in /Applications set; colon separated, mirrors XDG_DATA_DIRS on Linux.
+const NAME_ROOTS_ENV = "AGENTERM_APP_FACTS_ROOTS";
+const SYSTEM_APP_PATH = "/System/Applications/Calculator.app";
+const SYSTEM_BUNDLE_ID = "com.apple.calculator";
+const FIXTURE_BUNDLE_ID = "org.example.FactsFixture";
+const FIXTURE_NAME = "Facts Fixture";
+const FIXTURE_VERSION = "1.2.3";
+const FIXTURE_EXECUTABLE = "facts-fixture";
+const RUNNING_BUNDLE_ID = "org.example.RunningFixture";
+const RUNNING_NAME = "Running Fixture";
+const RUNNING_VERSION = "1.0";
+const UNSIGNED_REASON = "bundle-is-not-code-signed";
+
+function ensure(condition, message) {
+  if (!condition) { throw message; }
+}
+
+function text_at(value, dotted) {
+  let current = value;
+  for (const key of dotted.split(".")) {
+    current = rh.field(current, key);
+  }
+  if (current === undefined || current === null) { return ""; }
+  return "" + current;
+}
+
+function invoke(run_directory, executable, environment, arguments, expect_success) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe"
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: environment,
+    timeout_ms: 60000
+  });
+  ensure(output.stdout.trim() !== "", "cu_macos_app_facts_empty_reply:" + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  if (reply.ok !== true && text_at(reply, "error.code") === "app_facts_platform_unsupported") {
+    throw "BLOCKED:native-macos-app-facts-provider-not-merged:" + text_at(reply, "error.message");
+  }
+  ensure(output.success === expect_success, "cu_macos_app_facts_exit:" + output.exit_code + ":" + output.stdout);
+  ensure(reply.ok === expect_success, "cu_macos_app_facts_reply_state");
+  ensure(reply.command === "app-facts", "cu_macos_app_facts_command");
+  return reply;
+}
+
+function assert_present(fact, message) {
+  ensure(text_at(fact, "status") === "present", message + ":status:" + text_at(fact, "status"));
+  ensure(fact.value !== undefined && fact.value !== null, message + ":value");
+  ensure(fact.reason === undefined, message + ":reason");
+}
+
+function assert_reasoned(fact, status, message) {
+  ensure(text_at(fact, "status") === status, message + ":status:" + text_at(fact, "status"));
+  ensure(text_at(fact, "reason").length > 0, message + ":reason");
+  ensure(fact.value === undefined, message + ":value");
+}
+
+function assert_reasoned_with(fact, status, needle, message) {
+  assert_reasoned(fact, status, message);
+  ensure(text_at(fact, "reason").indexOf(needle) >= 0, message + ":reason-text:" + text_at(fact, "reason"));
+}
+
+function plist_xml(identifier, name, version, executable) {
+  return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+    + "<plist version=\"1.0\">\n<dict>\n"
+    + "  <key>CFBundleIdentifier</key><string>" + identifier + "</string>\n"
+    + "  <key>CFBundleName</key><string>" + name + "</string>\n"
+    + "  <key>CFBundleShortVersionString</key><string>" + version + "</string>\n"
+    + "  <key>CFBundleExecutable</key><string>" + executable + "</string>\n"
+    + "  <key>CFBundlePackageType</key><string>APPL</string>\n"
+    + "</dict>\n</plist>\n";
+}
+
+// Write one minimal application bundle. Unsigned metadata fixtures use a
+// script, while the running fixture copies /bin/sleep so proc_pidpath reports
+// the bundle's own executable path rather than an interpreter.
+function write_bundle(root, name, identifier, version, executable_kind) {
+  const bundle = rh.join(root, name + ".app");
+  const contents = rh.join(bundle, "Contents");
+  const macos = rh.join(contents, "MacOS");
+  rh.create_dir_all(macos);
+  rh.write_text(rh.join(contents, "Info.plist"),
+    plist_xml(identifier, name, version, FIXTURE_EXECUTABLE));
+  const executable = rh.join(macos, FIXTURE_EXECUTABLE);
+  if (executable_kind === "sleep") {
+    rh.copy("/bin/sleep", executable);
+  } else {
+    rh.write_text(executable, "#!/bin/sh\nexec /bin/sleep \"$@\"\n");
+  }
+  const chmod = rh.command("/bin/chmod", ["755", executable], { timeout_ms: 5000 });
+  ensure(chmod.success === true, "cu_macos_app_facts_fixture_chmod:" + chmod.stderr);
+  if (executable_kind === "sleep") {
+    const sign = rh.command("/usr/bin/codesign", ["--force", "--sign", "-", executable], {
+      timeout_ms: 10000
+    });
+    ensure(sign.success === true, "cu_macos_app_facts_fixture_sign:" + sign.stderr);
+  }
+  return { bundle: bundle, executable: executable };
+}
+
+function assert_fixture_identity(data, fixture, selector, identifier, name, version) {
+  ensure(text_at(data, "schema_version") === "1", "cu_macos_app_facts_schema");
+  ensure(text_at(data, "platform") === "macos", "cu_macos_app_facts_platform");
+  ensure(text_at(data, "selector") === selector, "cu_macos_app_facts_selector_echo");
+  assert_reasoned(data.desktop_entry_id, "not-applicable", "cu_macos_app_facts_desktop_entry");
+  assert_present(data.bundle, "cu_macos_app_facts_bundle");
+  ensure(text_at(data, "bundle.value") === identifier, "cu_macos_app_facts_bundle_value");
+  assert_present(data.name, "cu_macos_app_facts_name");
+  ensure(text_at(data, "name.value") === name, "cu_macos_app_facts_name_value");
+  assert_present(data.version, "cu_macos_app_facts_version");
+  ensure(text_at(data, "version.value") === version, "cu_macos_app_facts_version_value");
+  assert_present(data.path, "cu_macos_app_facts_path");
+  ensure(text_at(data, "path.value") === fixture.bundle, "cu_macos_app_facts_path_value:" + text_at(data, "path.value"));
+  assert_present(data.executable, "cu_macos_app_facts_executable");
+  ensure(text_at(data, "executable.value") === fixture.executable,
+    "cu_macos_app_facts_executable_value:" + text_at(data, "executable.value"));
+  assert_present(data.running, "cu_macos_app_facts_running");
+}
+
+const args = rh.args();
+if (args.length === 1 && args[0] === "--list-evidence") {
+  for (const id of declared_evidence) { print(id); }
+  return;
+}
+harness.require(args.length === 2, "expected: REPO AGENTERM_CU_EXE");
+const repo = rh.absolute(args[0]);
+const executable = rh.absolute(args[1]);
+ensure(rh.exists(executable), "cu_macos_app_facts_executable_missing:" + executable);
+ensure(rh.exists(rh.join(SYSTEM_APP_PATH, "Contents/Info.plist")),
+  "cu_macos_app_facts_system_app_missing:" + SYSTEM_APP_PATH);
+
+const context = harness.new_context(repo, "cu-macos-app-facts");
+const run_directory = context.run_directory;
+const primary_root = rh.join(run_directory, "apps");
+const shadow_root = rh.join(run_directory, "shadow-apps");
+rh.create_dir_all(primary_root);
+rh.create_dir_all(shadow_root);
+const fixture = write_bundle(
+  primary_root, FIXTURE_NAME, FIXTURE_BUNDLE_ID, FIXTURE_VERSION, "script");
+const running_fixture = write_bundle(
+  primary_root, RUNNING_NAME, RUNNING_BUNDLE_ID, RUNNING_VERSION, "sleep");
+// Same Name in two roots must be ambiguous, never silently the first hit.
+write_bundle(primary_root, "Ambiguous Fixture", "org.example.AmbiguousOne", "0.1", "script");
+write_bundle(shadow_root, "Ambiguous Fixture", "org.example.AmbiguousTwo", "0.2", "script");
+
+const environment = {
+  HOME: run_directory,
+  AGENTERM_NO_ACTIVATE: "1",
+  AGENTERM_CU_AUDIT_PATH: rh.join(run_directory, "cu-audit.jsonl"),
+  AGENTERM_CU_RECEIPT_PATH: rh.join(run_directory, "cu-receipts.jsonl")
+};
+environment[NAME_ROOTS_ENV] = primary_root + ":" + shadow_root;
+
+const children = [];
+let succeeded = 0;
+let failure = "";
+let blocked = "";
+try {
+  print("STEP path and unique Name resolve the same owned unsigned bundle with exact plist facts");
+  for (const selector of [fixture.bundle, FIXTURE_NAME]) {
+    const reply = invoke(run_directory, executable, environment,
+      ["app-facts", "--selector", selector], true);
+    assert_fixture_identity(
+      reply.data, fixture, selector, FIXTURE_BUNDLE_ID, FIXTURE_NAME, FIXTURE_VERSION);
+    ensure(rh.field(reply.data.running, "value") === false, "cu_macos_app_facts_idle_running");
+    assert_reasoned(reply.data.signature, "not-requested", "cu_macos_app_facts_signing_default");
+    assert_reasoned(reply.data.signature_verified, "not-requested", "cu_macos_app_facts_verify_default");
+    assert_reasoned(reply.data.entitlements, "not-requested", "cu_macos_app_facts_entitlements_default");
+  }
+  print("STEP requested signing facts on an unsigned bundle are absent with one shared reason");
+  const unsigned = invoke(run_directory, executable, environment, [
+    "app-facts", "--selector", fixture.bundle, "--signing", "--verify", "--entitlements"
+  ], true).data;
+  assert_fixture_identity(
+    unsigned, fixture, fixture.bundle, FIXTURE_BUNDLE_ID, FIXTURE_NAME, FIXTURE_VERSION);
+  assert_reasoned_with(unsigned.signature, "absent", UNSIGNED_REASON, "cu_macos_app_facts_unsigned_signature");
+  assert_reasoned_with(unsigned.signature_verified, "absent", UNSIGNED_REASON, "cu_macos_app_facts_unsigned_verified");
+  assert_reasoned_with(unsigned.entitlements, "absent", UNSIGNED_REASON, "cu_macos_app_facts_unsigned_entitlements");
+  const signing_only = invoke(run_directory, executable, environment, [
+    "app-facts", "--selector", fixture.bundle, "--signing"
+  ], true).data;
+  assert_reasoned_with(signing_only.signature, "absent", UNSIGNED_REASON, "cu_macos_app_facts_signing_only");
+  assert_reasoned(signing_only.signature_verified, "not-requested", "cu_macos_app_facts_signing_only_verify");
+  assert_reasoned(signing_only.entitlements, "not-requested", "cu_macos_app_facts_signing_only_entitlements");
+  print("STEP running follows an owned instance of the bundle executable: true while alive, false after kill");
+  const child = harness.start_child(context, {
+    program: running_fixture.executable,
+    args: ["120"],
+    current_dir: run_directory,
+    env: {},
+    timeout_ms: 120000
+  }, "facts-fixture");
+  children.push(child);
+  ensure(rh.process_alive(child.pid), "cu_macos_app_facts_child_not_alive");
+  const alive = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", running_fixture.bundle], true).data;
+  assert_fixture_identity(alive, running_fixture, running_fixture.bundle,
+    RUNNING_BUNDLE_ID, RUNNING_NAME, RUNNING_VERSION);
+  ensure(rh.field(alive.running, "value") === true, "cu_macos_app_facts_running_true");
+  harness.child_kill(child);
+  const exit = harness.child_wait(child, 5000);
+  ensure(exit.timed_out !== true, "cu_macos_app_facts_child_kill_timeout");
+  ensure(!rh.process_alive(child.pid), "cu_macos_app_facts_child_lingering");
+  const gone = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", running_fixture.bundle], true).data;
+  assert_fixture_identity(gone, running_fixture, running_fixture.bundle,
+    RUNNING_BUNDLE_ID, RUNNING_NAME, RUNNING_VERSION);
+  ensure(rh.field(gone.running, "value") === false, "cu_macos_app_facts_running_false");
+  print("STEP an Apple-signed system application proves signature, verification and entitlements by path and bundle id");
+  const system_by_path = invoke(run_directory, executable, environment, [
+    "app-facts", "--selector", SYSTEM_APP_PATH, "--signing", "--verify", "--entitlements"
+  ], true).data;
+  ensure(text_at(system_by_path, "platform") === "macos", "cu_macos_app_facts_system_platform");
+  assert_present(system_by_path.bundle, "cu_macos_app_facts_system_bundle");
+  ensure(text_at(system_by_path, "bundle.value") === SYSTEM_BUNDLE_ID, "cu_macos_app_facts_system_bundle_value");
+  assert_present(system_by_path.path, "cu_macos_app_facts_system_path");
+  assert_present(system_by_path.version, "cu_macos_app_facts_system_version");
+  assert_present(system_by_path.executable, "cu_macos_app_facts_system_executable");
+  ensure(text_at(system_by_path, "executable.value").startsWith(text_at(system_by_path, "path.value") + "/Contents/MacOS/"),
+    "cu_macos_app_facts_system_executable_inside_bundle");
+  assert_present(system_by_path.running, "cu_macos_app_facts_system_running");
+  assert_present(system_by_path.signature, "cu_macos_app_facts_system_signature");
+  ensure(text_at(system_by_path, "signature.value").startsWith("identifier=" + SYSTEM_BUNDLE_ID + ";"),
+    "cu_macos_app_facts_system_signature_identifier:" + text_at(system_by_path, "signature.value"));
+  ensure(text_at(system_by_path, "signature.value").indexOf(";cdhash=") > 0,
+    "cu_macos_app_facts_system_signature_cdhash");
+  assert_present(system_by_path.signature_verified, "cu_macos_app_facts_system_verified");
+  ensure(rh.field(system_by_path.signature_verified, "value") === true,
+    "cu_macos_app_facts_system_verified_true");
+  assert_present(system_by_path.entitlements, "cu_macos_app_facts_system_entitlements");
+  ensure(rh.is_array(system_by_path.entitlements.value) && system_by_path.entitlements.value.length > 0,
+    "cu_macos_app_facts_system_entitlements_nonempty");
+  const system_by_id = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", SYSTEM_BUNDLE_ID], true).data;
+  ensure(text_at(system_by_id, "selector") === SYSTEM_BUNDLE_ID, "cu_macos_app_facts_system_id_selector");
+  ensure(text_at(system_by_id, "path.value") === text_at(system_by_path, "path.value"),
+    "cu_macos_app_facts_system_id_path_agrees");
+  ensure(text_at(system_by_id, "bundle.value") === SYSTEM_BUNDLE_ID, "cu_macos_app_facts_system_id_bundle");
+  assert_reasoned(system_by_id.signature, "not-requested", "cu_macos_app_facts_system_id_signing_default");
+  print("STEP missing path, missing Name, unknown bundle id and duplicated Name fail typed");
+  const missing_path = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", rh.join(run_directory, "Missing.app")], false);
+  ensure(text_at(missing_path, "error.code") === "app_facts_not_found", "cu_macos_app_facts_missing_path_code");
+  const missing_name = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", "Missing Fixture"], false);
+  ensure(text_at(missing_name, "error.code") === "app_facts_not_found", "cu_macos_app_facts_missing_name_code");
+  const missing_id = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", "org.example.NoSuchBundle"], false);
+  ensure(text_at(missing_id, "error.code") === "app_facts_not_found", "cu_macos_app_facts_missing_id_code");
+  const ambiguous = invoke(run_directory, executable, environment,
+    ["app-facts", "--selector", "Ambiguous Fixture"], false);
+  ensure(text_at(ambiguous, "error.code") === "app_facts_ambiguous", "cu_macos_app_facts_ambiguous_code");
+  succeeded = 1;
+} catch (error) {
+  const text = "" + error;
+  if (text.startsWith("BLOCKED:")) { blocked = text; } else { failure = text; }
+}
+
+let completion_failure = "";
+try { harness.complete_children(context, children, succeeded !== 0, failure + blocked); }
+catch (error) { completion_failure = "" + error; }
+if (succeeded !== 0 && completion_failure === "") {
+  for (const id of declared_evidence) {
+    harness.emit_evidence(context, declared_evidence, id);
+  }
+  harness.remove_run(context);
+  print("PASS: macOS application facts are exact, bundle-identified, signature-honest and typed on failure");
+}
+if (blocked !== "") {
+  print(blocked);
+  throw "cu_macos_app_facts_blocked";
+}
+if (failure !== "") { throw failure; }
+if (completion_failure !== "") { throw completion_failure; }
+return;

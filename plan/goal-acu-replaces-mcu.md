@@ -1027,7 +1027,7 @@ the MV3 bridge: a one-window AX tab strip is never an acceptable fallback.
 
 The compatibility corpus now has zero static STAY spellings and 2 dynamic TODO
 witnesses after lossless projections for exact simulator application status,
-exact Linux application facts, `resource top`, focused
+exact Linux and macOS application facts, `resource top`, focused
 PID, observe role, wait absence, platform-default-shell PTY, selector-rooted
 trees, bounded filtered query watch, and Space filtering evaluated inside every
 window-watch poll. The frozen `tree --page` witness is now a closed local usage

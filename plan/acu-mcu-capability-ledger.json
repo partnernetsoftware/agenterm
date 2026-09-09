@@ -596,7 +596,7 @@
           "state": "platform-limited",
           "platforms": {
             "linux": "native-public-qjswasm",
-            "macos": "gap",
+            "macos": "native-public-qjswasm",
             "windows": "gap"
           },
           "qualification": {
@@ -608,8 +608,15 @@
                 "evidence": ["cu.app-facts.linux"]
               },
               "macos": {
-                "result": "pending",
-                "blocker_code": "native-app-facts-provider-not-implemented"
+                "result": "native-qualified",
+                "gate": "cu-macos-app-facts-smoke",
+                "evidence": [
+                  "cu.app-facts.macos-bundle-identity",
+                  "cu.app-facts.macos-unsigned-honesty",
+                  "cu.app-facts.macos-running-readback",
+                  "cu.app-facts.macos-system-signature",
+                  "cu.app-facts.macos-typed-failures"
+                ]
               },
               "windows": {
                 "result": "pending",
@@ -617,9 +624,16 @@
               }
             }
           },
-          "evidence": ["cu.app-facts.linux"],
-          "next": "add native macOS bundle/signing/entitlement facts and Windows installed-application/version/signature facts, then qualify both native courts",
-          "note": "Linux resolves one canonical XDG desktop entry by path, desktop id or unique Name under a bounded precedence scan, brackets desktop/executable identity and never borrows window evidence. Desktop-entry Version is file-format metadata, not an application version; unsupported or unavailable facts remain individually reasoned. The exact legacy apps inspect witness now maps through this public verb, while watch and provisioning keep acu.dynamic.072 until their own providers exist."
+          "evidence": [
+            "cu.app-facts.linux",
+            "cu.app-facts.macos-bundle-identity",
+            "cu.app-facts.macos-unsigned-honesty",
+            "cu.app-facts.macos-running-readback",
+            "cu.app-facts.macos-system-signature",
+            "cu.app-facts.macos-typed-failures"
+          ],
+          "next": "add Windows installed-application, version and signature facts, then qualify its native court",
+          "note": "Linux resolves one canonical XDG desktop entry by path, desktop id or unique Name under a bounded precedence scan, brackets desktop/executable identity and never borrows window evidence. macOS resolves one canonical bundle by path, bundle identifier or unique Name, reads CFBundle and Security.framework facts in-process, and brackets bundle and executable identity; signature validation is shallow, all-architecture and network-free. macOS running is scoped to the caller's effective user. Desktop-entry Version remains file-format metadata rather than an application version, and every unsupported or unavailable fact remains individually reasoned. The exact legacy apps inspect witness now maps through this public verb, while watch and provisioning keep acu.dynamic.072 until their own providers exist."
         },
         {
           "id": "desktop.app.inspect-multi-window",

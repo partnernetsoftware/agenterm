@@ -605,8 +605,9 @@ ACU-only cutover
 │  │  └─ general bounded linear-time regex remains typed TODO
 │  ├─ [~] acu.dynamic.072 · application facts umbrella; never borrow `.076` window evidence
 │  │  ├─ [~] acu.native.app.facts-signature · Linux `app-facts` resolves exact bounded XDG
-│  │  │  entry/executable facts and the frozen `apps inspect` witness now maps to it;
-│  │  │  macOS/Windows native facts and their courts remain
+│  │  │  entry/executable facts; macOS resolves exact bundles and returns native signing,
+│  │  │  verification and entitlement facts through a public court; the frozen `apps inspect`
+│  │  │  witness maps to this verb, while Windows native facts and its court remain
 │  │  ├─ acu.native.app.lifecycle-watch · bounded application process lifecycle
 │  │  └─ acu.native.app.provisioning · Apple provisioning/profile consistency
 │  ├─ [~] acu.dynamic.074 · window-local scroll without physical-pointer movement

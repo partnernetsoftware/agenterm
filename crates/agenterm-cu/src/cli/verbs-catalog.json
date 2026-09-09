@@ -942,7 +942,7 @@
         {
           "flag": "--selector",
           "value": "VALUE",
-          "help": "exact normalized path, desktop entry id, or unique Name"
+          "help": "exact normalized path, desktop entry or bundle id, or unique Name"
         },
         {
           "flag": "--signing",
@@ -7313,7 +7313,7 @@
     },
     {
       "name": "app-facts",
-      "text": "agenterm-cu app-facts\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  app-facts --selector VALUE [--signing] [--verify] [--entitlements]\n\nResolves exactly one application by normalized path, desktop-entry id, or unique\nName. Linux reads bounded XDG desktop entries directly and brackets their identity;\nit never invokes a shell, rpm, or dpkg and never borrows window evidence. Missing,\nambiguous, truncated, and drifting resolution fail typed. Every returned field is a\nFact with present, absent, not-requested, not-applicable, unsupported, or unavailable\nstatus; non-present facts carry a reason. Desktop-entry Version is file-format\nmetadata and is never reported as the application version. Exec wrappers, PATH\nlookup, or field codes make executable and running unavailable rather than guessed.\nLinux signature facts are unsupported and entitlements are not applicable.\n"
+      "text": "agenterm-cu app-facts\n  scope: observe    family: Windows & apps\n\nusage (after the global flags, e.g. agenterm-cu --target current --grant observe):\n  app-facts --selector VALUE [--signing] [--verify] [--entitlements]\n\nResolves exactly one application by normalized path, desktop-entry or bundle id, or\nunique Name. Linux reads bounded XDG desktop entries directly. macOS reads bounded\napplication bundles and native Security.framework signing facts in-process; signature\nverification checks every architecture without network access but does not recursively\nvalidate nested code. Both providers bracket identity and never borrow window evidence.\nOn macOS, running is scoped to the caller's effective user. Missing, ambiguous,\ntruncated, and drifting resolution fail typed. Every returned field is a Fact with\npresent, absent, not-requested, not-applicable, unsupported, or unavailable status;\nnon-present facts carry a reason. Desktop-entry Version is file-format metadata and is\nnever reported as the application version. Exec wrappers, PATH lookup, or field codes\nmake executable and running unavailable rather than guessed. Linux signature facts are\nunsupported and entitlements are not applicable; macOS desktop-entry ids are not\napplicable.\n"
     },
     {
       "name": "app-inspect",
