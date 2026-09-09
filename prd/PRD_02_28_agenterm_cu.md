@@ -613,7 +613,9 @@ ACU-only cutover
 │  │  └─ current-host SkyLight research passed C1–C8, but the public AppKit baseline
 │  │     also delivered. Three-arm Chromium attempt 1 stopped inconclusive before
 │  │     injection when Google Chrome published no bridge connection; direct-profile
-│  │     attempt 2 retains the frozen criteria. C9 still waits behind a current-host
+│  │     attempt 2 likewise stopped before injection when its fixed CDP port did not
+│  │     answer. Attempt 3 uses the profile-owned `DevToolsActivePort` record without
+│  │     changing the frozen criteria. C9 still waits behind a current-host
 │  │     pass and a 1,000-action Chromium repeat.
 │  │     This is distinct from Linux named `scroll-wheel`, which temporarily moves
 │  │     and then restores the physical pointer.

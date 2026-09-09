@@ -34,7 +34,10 @@
   document.title = title;
   document.getElementById("label").textContent = label;
 
-  var state = { label: label, nonce: nonce, count: 0, moves: 0, sequence: [] };
+  var state = {
+    label: label, nonce: nonce, count: 0, moves: 0,
+    lastWheel: null, sequence: []
+  };
 
   function record(kind, event) {
     var entry = {
@@ -49,6 +52,7 @@
       entry.deltaY = event.deltaY;
       entry.deltaMode = event.deltaMode;
       state.count = state.count + 1;
+      state.lastWheel = entry;
     } else {
       state.moves = state.moves + 1;
     }
@@ -73,6 +77,7 @@
     reset: function () {
       state.count = 0;
       state.moves = 0;
+      state.lastWheel = null;
       state.sequence = [];
       return "reset:" + label;
     },
@@ -91,6 +96,7 @@
         title: document.title,
         count: state.count,
         moves: state.moves,
+        last_wheel: state.lastWheel,
         last: state.sequence.length > 0 ? state.sequence[state.sequence.length - 1] : null,
         sequence_length: state.sequence.length
       });

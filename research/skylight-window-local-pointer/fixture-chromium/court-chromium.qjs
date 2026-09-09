@@ -1,7 +1,8 @@
 // acu.dynamic.074 discriminator court: owned Chromium wheel oracle.
 //
 // Research only. This court starts one caller-selected Chromium executable
-// with an invocation-owned profile and fixed loopback CDP endpoint, opens B
+// with an invocation-owned profile and Chromium-selected loopback CDP endpoint,
+// opens B
 // first and A second so B is not the key window, raises a caller-selected guard
 // fixture to the foreground, resolves B's exact CGWindowID from the browser
 // PID plus unique title and stable native bounds, then runs 20 seeded triplets
@@ -226,16 +227,16 @@ function oracle_self_test(port, target_id, label) {
     "window.__agentermWheel.selfTest(" + WHEEL_DX + "," + WHEEL_DY + ")");
   const snapshot = JSON.parse("" + raw);
   ensure(snapshot.label === label && snapshot.count === 1
-    && snapshot.last !== null && snapshot.last.kind === "wheel"
-    && snapshot.last.deltaX === WHEEL_DX && snapshot.last.deltaY === WHEEL_DY,
+    && snapshot.last_wheel !== null && snapshot.last_wheel.kind === "wheel"
+    && snapshot.last_wheel.deltaX === WHEEL_DX && snapshot.last_wheel.deltaY === WHEEL_DY,
     "acu074_oracle_self_test_failed:" + label + ":" + raw);
   reset_counts(port, target_id, label);
 }
 
 function exact_wheel_delivery(target, peer) {
   return target.count === 1 && peer.count === 0
-    && target.last !== null && target.last.kind === "wheel"
-    && target.last.deltaX === WHEEL_DX && target.last.deltaY !== 0;
+    && target.last_wheel !== null && target.last_wheel.kind === "wheel"
+    && target.last_wheel.deltaX === WHEEL_DX && target.last_wheel.deltaY !== 0;
 }
 
 function guard_ready(deadline_ms) {
@@ -302,19 +303,15 @@ try {
   ensure(source_sha !== "" && probe_digest !== "", "acu074_result_identity_missing");
 
   const profile = rh.join(run_directory, "chrome-profile");
-  const port = 9600 + (rh.pid() % 300);
-  const stale = rh.command("curl", [
-    "-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"
-  ], { cwd: run_directory, timeout_ms: 3000 });
-  ensure(!(stale.success === true && stale.stdout.indexOf("Browser") >= 0),
-    "acu074_cdp_port_in_use:" + port);
+  let port = 0;
+  const active_port_path = rh.join(profile, "DevToolsActivePort");
 
   stage = "browser-launch-b";
   chrome_child = harness.start({
     program: chromium,
     args: [
       "--user-data-dir=" + profile,
-      "--remote-debugging-port=" + port,
+      "--remote-debugging-port=0",
       "--remote-debugging-address=127.0.0.1",
       "--no-first-run",
       "--no-default-browser-check",
@@ -328,12 +325,23 @@ try {
   const browser_pid = harness.spawned_pid(chrome_child);
   let cdp_ready = false;
   for (let attempt = 0; attempt < 120; attempt = attempt + 1) {
-    const probe = rh.command("curl", [
-      "-s", "--max-time", "1", "http://127.0.0.1:" + port + "/json/version"
-    ], { cwd: run_directory, timeout_ms: 3000 });
-    if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) {
-      cdp_ready = true;
-      break;
+    if (rh.exists(active_port_path)) {
+      const active_lines = rh.read_text(active_port_path).trim().split("\n");
+      if (active_lines.length >= 2) {
+        const selected_port = rh.parse_int(active_lines[0].trim());
+        if (selected_port >= 1 && selected_port <= 65535
+          && active_lines[1].trim().startsWith("/devtools/browser/")) {
+          const probe = rh.command("curl", [
+            "-s", "--max-time", "1",
+            "http://127.0.0.1:" + selected_port + "/json/version"
+          ], { cwd: run_directory, timeout_ms: 3000 });
+          if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) {
+            port = selected_port;
+            cdp_ready = true;
+            break;
+          }
+        }
+      }
     }
     rh.sleep_ms(250);
   }
@@ -472,7 +480,7 @@ try {
         arm: arm,
         target_count: snap_b.count,
         peer_count: snap_a.count,
-        target_last: snap_b.last,
+        target_last_wheel: snap_b.last_wheel,
         injector: injected
       });
     }
@@ -506,7 +514,7 @@ let verdict = "INCONCLUSIVE";
 if (failure === "" && cleanup_failure === "" && triplets_run === TRIPLETS) {
   if (private_exact < TRIPLETS) {
     verdict = "FAIL_PRIVATE";
-  } else if (public_loc_exact === 0) {
+  } else if (public_loc_exact === 0 && public_off_target === 0) {
     verdict = "PASS";
   } else if (public_loc_exact === TRIPLETS && public_off_target === 0) {
     verdict = "FAIL_NONDISTINGUISHING";

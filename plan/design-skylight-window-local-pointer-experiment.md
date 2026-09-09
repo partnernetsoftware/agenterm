@@ -180,15 +180,22 @@ build published no bridge connection before the 15-second deadline. The run
 ended `INCONCLUSIVE` with zero injection attempts and verified session cleanup.
 Attempt 2 revises only fixture ownership as described below; all discriminator
 criteria and kill conditions remain frozen and every count restarts at zero.
+Attempt 2 also ended `INCONCLUSIVE` with zero injection attempts: the direct
+profile started, but its preselected fixed CDP port never answered. A bounded
+diagnostic proved that the same Chrome build immediately publishes
+`DevToolsActivePort` when asked to select its own port. Attempt 3 changes only
+that readiness mechanism to port zero plus an exact-profile record read; the
+discriminator remains unchanged.
 
 ### 9.1 Frozen setup
 
 - Reuse the direct disposable-profile pattern from
   `scripts/qjs/cu-linux-page-scroll-smoke.qjs`, adapted to the caller-selected
   macOS Chromium executable. Start one exact child with a fresh `--user-data-dir`,
-  a preflighted fixed loopback CDP port and target window B, then ask that same
-  profile singleton to open peer window A. Never attach to a user profile or an
-  already-running browser.
+  a Chromium-selected loopback CDP port (`--remote-debugging-port=0`), require
+  the bounded `DevToolsActivePort` record from that exact profile, and open
+  target window B; then ask that same profile singleton to open peer window A.
+  Never attach to a user profile or an already-running browser.
 - Create two normal browser windows in one owned profile. Require each window
   to settle at a distinct, stable read-back rectangle and give each page an
   independent `wheel` counter,

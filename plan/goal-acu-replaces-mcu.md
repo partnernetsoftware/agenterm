@@ -1055,8 +1055,10 @@ and Windows before the adapter may map MCU `scroll --to desktop`. Window-local
 hover/wheel is still separate and stays behind
 `plan/design-skylight-window-local-pointer-experiment.md`. Its first
 owned-Chromium three-arm attempt stopped inconclusive before injection because
-Google Chrome published no bridge connection; direct-profile attempt 2 keeps
-the criteria frozen. A current-host pass and 1,000-action Chromium repeat
+Google Chrome published no bridge connection; direct-profile attempt 2 then
+stopped before injection when its fixed CDP port did not answer. Attempt 3
+uses the exact profile's `DevToolsActivePort` record and keeps the criteria
+frozen. A current-host pass and 1,000-action Chromium repeat
 precede any previous-generation C9 court.
 The only reviewed permanent retirement in this cut is the login-service
 query for MCU's removed global daemon object.

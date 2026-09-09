@@ -58,7 +58,6 @@ exec "$AGENTERM_EXE" cli script run \
   --max-host-operations 1000000 \
   --max-output-bytes 1048576 \
   --max-string-bytes 1048576 \
-  --exit-code-from-value \
   --project-root "$REPO/scripts/qjs" \
   "$COURT" \
   -- \

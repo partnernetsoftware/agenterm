@@ -52,8 +52,27 @@ within the frozen 15-second deadline. No window was opened and neither public
 nor private delivery ran. This is not evidence for or against the provider.
 
 The fixture owner is revised for attempt 2: use a direct temporary Chromium
-profile with a fixed loopback CDP endpoint and two explicit `--new-window`
+profile with a loopback CDP endpoint and two explicit `--new-window`
 launches, while retaining the exact same PRIVATE / PUBLIC_LOC / PUBLIC_OFF
 criteria. Because attempt 1 reached zero injection, no delivery result is
 carried forward. Attempt 2 receives a new source digest and starts the full
 20-triplet comparison from zero.
+
+## Chromium discriminator attempt 2 · 2026-09-09
+
+- Repository source SHA: `61d81adcc30f7e20e332d3ab9fdc32c930dc285b`.
+- Discriminator source digest:
+  `65ce4b77a003f8e74f355eefd57918443cfd339a0590aa838a589303dffa07f9`.
+- Host: macOS 26.5.1 build 25F80, arm64.
+- Verdict: `INCONCLUSIVE` at `browser-launch-b`.
+- Injection attempts: zero; triplets completed: zero.
+- Cleanup: the owned Chromium process exited within the cleanup bound.
+
+The direct profile was created, but the caller-selected Google Chrome build
+did not expose the preselected fixed CDP port before the 30-second readiness
+deadline. A separate bounded diagnostic with the same binary and another fresh
+profile immediately published `DevToolsActivePort` when Chromium selected the
+port itself. Attempt 3 therefore changes only this fixture mechanism to
+`--remote-debugging-port=0` plus a bounded read of that exact profile record.
+The discriminator criteria remain frozen and no delivery count carries
+forward.

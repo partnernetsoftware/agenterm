@@ -43,7 +43,7 @@ AGENTERM_CU_BROWSER_EXE=~/path/to/Chromium \
 `AGENTERM_EXE` and `AGENTERM_CU_EXE` may name already-built binaries; by
 default the runner uses their debug-profile locations. The runner compiles a
 single-action native injector and the existing owned guard fixture, then runs a
-qjswasm court with an ACU-owned browser profile. It creates peer window A and
+qjswasm court with an invocation-owned temporary browser profile. It creates peer window A and
 background target B, builds a fail-closed Chromium-window-to-`CGWindowID`
 bijection, and compares 20 seeded triplets of private delivery, public delivery
 at B's location, and public delivery away from B. Page counters are read back
