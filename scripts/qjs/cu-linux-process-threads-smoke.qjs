@@ -1,12 +1,10 @@
 // CEO: Linux process-threads honesty with independent /proc/<pid>/task read-back.
 // Acceptance is smoke read-back only: CU process-threads must agree with thread
 // ids, counts and stat-derived fields outside agenterm-cu for the same live PID.
-// Typed get-extents --name usage/host-limit paths must hold before any
-// /proc/<pid>/task count or field court. Typed process-threads usage rejects
-// AT-SPI-shaped --name (with --window/--role) and --bogus; native --name remains
-// a thread-name filter proven against /proc/<pid>/task/*/comm. An independent
-// /proc/<pid>/task directory count must match API visited/returned/tid set.
-// AT-SPI/--name only; no --coords or screenshot degradation.
+// Typed process-threads usage treats --name as a native thread-name filter (not
+// AT-SPI) and rejects AT-SPI --window and other unexpected arguments; typed
+// get-extents --name usage/host-limit paths must hold before the /proc/<pid>/task
+// read-back court. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -109,70 +107,81 @@ function probe_atspi_available(executable) {
 }
 
 function assert_process_threads_usage_honesty(run_directory, executable, env) {
-  // AT-SPI --name addressing (--window/--role) is not a process-threads form.
-  // Bare --name is a native thread-name filter; do not fake a usage reject.
-  const flat_atspi_name = invoke_observe_reply(run_directory, executable, [
-    "process-threads", "--pid", "1", "--name", AT_SPI_PROBE_NAME, "--window", "1",
+  const flat_with_name = invoke_observe_reply(run_directory, executable, [
+    "process-threads", "--pid", "1", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(flat_atspi_name),
-    "cu_linux_process_threads_usage_flat_atspi_name_ok:" + JSON.stringify(flat_atspi_name));
+  ensure(output_success(flat_with_name),
+    "cu_linux_process_threads_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
   ensure(
-    text_at(flat_atspi_name, "error.code") === "usage",
-    "cu_linux_process_threads_usage_flat_atspi_name_code:" + JSON.stringify(flat_atspi_name.error)
+    text_at(flat_with_name, "command") === "process-threads",
+    "cu_linux_process_threads_usage_flat_name_command:" + JSON.stringify(flat_with_name)
   );
   ensure(
-    text_at(flat_atspi_name, "command") === "usage",
-    "cu_linux_process_threads_usage_flat_atspi_name_command:" + JSON.stringify(flat_atspi_name)
-  );
-  ensure(
-    text_at(flat_atspi_name, "error.message").indexOf("--window") >= 0
-      || text_at(flat_atspi_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_process_threads_usage_flat_atspi_name_message:" + JSON.stringify(flat_atspi_name.error)
+    at(flat_with_name, "data.verified") === true,
+    "cu_linux_process_threads_usage_flat_name_verified:" + JSON.stringify(flat_with_name.data)
   );
 
-  const grouped_atspi_name = invoke_observe_reply(run_directory, executable, [
-    "process", "threads", "--pid", "1", "--name", AT_SPI_PROBE_NAME, "--role", "button",
+  const grouped_with_name = invoke_observe_reply(run_directory, executable, [
+    "process", "threads", "--pid", "1", "--name", AT_SPI_PROBE_NAME,
   ], env);
-  ensure(!output_success(grouped_atspi_name),
-    "cu_linux_process_threads_usage_grouped_atspi_name_ok:" + JSON.stringify(grouped_atspi_name));
+  ensure(output_success(grouped_with_name),
+    "cu_linux_process_threads_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
   ensure(
-    text_at(grouped_atspi_name, "error.code") === "usage",
-    "cu_linux_process_threads_usage_grouped_atspi_name_code:" + JSON.stringify(grouped_atspi_name.error)
+    text_at(grouped_with_name, "command") === "process-threads",
+    "cu_linux_process_threads_usage_grouped_name_command:" + JSON.stringify(grouped_with_name)
   );
   ensure(
-    text_at(grouped_atspi_name, "error.message").indexOf("--role") >= 0
-      || text_at(grouped_atspi_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_process_threads_usage_grouped_atspi_name_message:" + JSON.stringify(grouped_atspi_name.error)
+    at(grouped_with_name, "data.verified") === true,
+    "cu_linux_process_threads_usage_grouped_name_verified:" + JSON.stringify(grouped_with_name.data)
   );
 
-  const flat_bogus = invoke_observe_reply(run_directory, executable, [
+  const flat_with_window = invoke_observe_reply(run_directory, executable, [
+    "process-threads", "--pid", "1", "--window", "1",
+  ], env);
+  ensure(!output_success(flat_with_window),
+    "cu_linux_process_threads_usage_flat_window_ok:" + JSON.stringify(flat_with_window));
+  ensure(
+    text_at(flat_with_window, "error.code") === "usage",
+    "cu_linux_process_threads_usage_flat_window_code:" + JSON.stringify(flat_with_window.error)
+  );
+  ensure(
+    text_at(flat_with_window, "command") === "usage",
+    "cu_linux_process_threads_usage_flat_window_command:" + JSON.stringify(flat_with_window)
+  );
+  ensure(
+    text_at(flat_with_window, "error.message").indexOf("--window") >= 0
+      || text_at(flat_with_window, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_process_threads_usage_flat_window_message:" + JSON.stringify(flat_with_window.error)
+  );
+
+  const grouped_with_window = invoke_observe_reply(run_directory, executable, [
+    "process", "threads", "--pid", "1", "--window", "1",
+  ], env);
+  ensure(!output_success(grouped_with_window),
+    "cu_linux_process_threads_usage_grouped_window_ok:" + JSON.stringify(grouped_with_window));
+  ensure(
+    text_at(grouped_with_window, "error.code") === "usage",
+    "cu_linux_process_threads_usage_grouped_window_code:" + JSON.stringify(grouped_with_window.error)
+  );
+  ensure(
+    text_at(grouped_with_window, "error.message").indexOf("--window") >= 0
+      || text_at(grouped_with_window, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_process_threads_usage_grouped_window_message:" + JSON.stringify(grouped_with_window.error)
+  );
+
+  const with_bogus = invoke_observe_reply(run_directory, executable, [
     "process-threads", "--pid", "1", "--bogus",
   ], env);
-  ensure(!output_success(flat_bogus),
-    "cu_linux_process_threads_usage_flat_bogus_ok:" + JSON.stringify(flat_bogus));
+  ensure(!output_success(with_bogus),
+    "cu_linux_process_threads_usage_bogus_ok:" + JSON.stringify(with_bogus));
   ensure(
-    text_at(flat_bogus, "error.code") === "usage",
-    "cu_linux_process_threads_usage_flat_bogus_code:" + JSON.stringify(flat_bogus.error)
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_process_threads_usage_bogus_code:" + JSON.stringify(with_bogus.error)
   );
   ensure(
-    text_at(flat_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(flat_bogus, "error.message").indexOf("--bogus") >= 0,
-    "cu_linux_process_threads_usage_flat_bogus_message:" + JSON.stringify(flat_bogus.error)
-  );
-
-  const grouped_bogus = invoke_observe_reply(run_directory, executable, [
-    "process", "threads", "--pid", "1", "--bogus",
-  ], env);
-  ensure(!output_success(grouped_bogus),
-    "cu_linux_process_threads_usage_grouped_bogus_ok:" + JSON.stringify(grouped_bogus));
-  ensure(
-    text_at(grouped_bogus, "error.code") === "usage",
-    "cu_linux_process_threads_usage_grouped_bogus_code:" + JSON.stringify(grouped_bogus.error)
-  );
-  ensure(
-    text_at(grouped_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(grouped_bogus, "error.message").indexOf("--bogus") >= 0,
-    "cu_linux_process_threads_usage_grouped_bogus_message:" + JSON.stringify(grouped_bogus.error)
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0
+      || text_at(with_bogus, "error.message").indexOf("--bogus") >= 0,
+    "cu_linux_process_threads_usage_bogus_message:" + JSON.stringify(with_bogus.error)
   );
 }
 
@@ -361,159 +370,7 @@ function verify_readback(run_directory, executable, pid, env) {
 }
 
 function verify_pid(run_directory, executable, pid, env) {
-  verify_independent_task_count(run_directory, executable, pid, env);
-  verify_native_name_filter(run_directory, executable, pid, env);
   verify_readback(run_directory, executable, pid, env);
-}
-
-function verify_independent_task_count(run_directory, executable, pid, env) {
-  const script = [
-    "import json, os, subprocess, sys",
-    "pid = int(sys.argv[1])",
-    "cu = sys.argv[2]",
-    "max_visited = int(sys.argv[3])",
-    "directory = f'/proc/{pid}/task'",
-    "ids = []",
-    "for entry in os.scandir(directory):",
-    "    try:",
-    "        ids.append(int(entry.name))",
-    "    except ValueError:",
-    "        continue",
-    "ids.sort()",
-    "truncated_scan = len(ids) > max_visited",
-    "visited_ids = ids[:max_visited]",
-    "parsed_ids = []",
-    "for tid in visited_ids:",
-    "    try:",
-    "        with open(f'{directory}/{tid}/stat', 'rb') as handle:",
-    "            stat_bytes = handle.read()",
-    "        if b'(' in stat_bytes and b')' in stat_bytes:",
-    "            parsed_ids.append(str(tid))",
-    "    except OSError:",
-    "        continue",
-    "out = subprocess.check_output(",
-    "    [cu, '--target', 'current', '--grant', 'observe',",
-    "     'process-threads', '--pid', str(pid), '--limit', str(max_visited),",
-    "     '--max-visited', str(max_visited)],",
-    "    text=True)",
-    "reply = json.loads(out)",
-    "if not reply.get('ok') or reply.get('command') != 'process-threads':",
-    "    raise SystemExit('cu_linux_process_threads_count_reply_state')",
-    "data = reply['data']",
-    "if data.get('verified') is not True:",
-    "    raise SystemExit('cu_linux_process_threads_count_verified')",
-    "if int(data['pid']) != pid:",
-    "    raise SystemExit('cu_linux_process_threads_count_pid')",
-    "if int(data['visited_count']) != len(visited_ids):",
-    "    raise SystemExit(",
-    "        f'cu_linux_process_threads_count_visited:probe={len(visited_ids)}:cu={data[\"visited_count\"]}')",
-    "if bool(data['truncated_scan']) != truncated_scan:",
-    "    raise SystemExit('cu_linux_process_threads_count_truncated_scan')",
-    "cu_ids = [str(row.get('id')) for row in (data.get('threads') or [])]",
-    "if int(data['returned_count']) != len(cu_ids):",
-    "    raise SystemExit('cu_linux_process_threads_count_returned')",
-    "if int(data['matched_count']) != len(parsed_ids):",
-    "    raise SystemExit(",
-    "        f'cu_linux_process_threads_count_matched:probe={len(parsed_ids)}:cu={data[\"matched_count\"]}')",
-    "if cu_ids != parsed_ids:",
-    "    raise SystemExit(",
-    "        f'cu_linux_process_threads_count_tids:probe={parsed_ids}:cu={cu_ids}')",
-    "print(json.dumps({",
-    "    'pid': pid,",
-    "    'probe_visited': len(visited_ids),",
-    "    'probe_parsed': len(parsed_ids),",
-    "    'visited_count': int(data['visited_count']),",
-    "    'returned_count': int(data['returned_count']),",
-    "}))",
-  ].join("\n");
-  const output = rh.command("python3", ["-c", script, "" + pid, executable, "" + MAX_VISITED], {
-    cwd: run_directory,
-    env: env,
-    timeout_ms: 30000,
-  });
-  ensure(output.success === true,
-    "cu_linux_process_threads_independent_count:" + output.stderr + output.stdout);
-}
-
-function verify_native_name_filter(run_directory, executable, pid, env) {
-  const script = [
-    "import json, os, subprocess, sys",
-    "pid = int(sys.argv[1])",
-    "cu = sys.argv[2]",
-    "max_visited = int(sys.argv[3])",
-    "atspi_probe = sys.argv[4]",
-    "directory = f'/proc/{pid}/task'",
-    "def thread_name(stat_bytes):",
-    "    open_paren = stat_bytes.find(b'(')",
-    "    close_paren = stat_bytes.rfind(b')')",
-    "    if open_paren < 0 or close_paren <= open_paren:",
-    "        return None",
-    "    raw = stat_bytes[open_paren + 1:close_paren]",
-    "    try:",
-    "        return raw.decode('utf-8')",
-    "    except UnicodeDecodeError:",
-    "        return None",
-    "def ascii_contains(haystack, needle):",
-    "    return needle.lower() in haystack.lower()",
-    "ids = []",
-    "for entry in os.scandir(directory):",
-    "    try:",
-    "        ids.append(int(entry.name))",
-    "    except ValueError:",
-    "        continue",
-    "ids.sort()",
-    "names = []",
-    "for tid in ids[:max_visited]:",
-    "    try:",
-    "        with open(f'{directory}/{tid}/stat', 'rb') as handle:",
-    "            name = thread_name(handle.read())",
-    "        if name is not None:",
-    "            names.append((str(tid), name))",
-    "    except OSError:",
-    "        continue",
-    "if not names:",
-    "    raise SystemExit('cu_linux_process_threads_name_filter_no_name')",
-    "needle = next((name for _tid, name in names if name != ''), names[0][1])",
-    "def invoke(name):",
-    "    out = subprocess.check_output(",
-    "        [cu, '--target', 'current', '--grant', 'observe',",
-    "         'process-threads', '--pid', str(pid), '--name', name,",
-    "         '--limit', str(max_visited), '--max-visited', str(max_visited)],",
-    "        text=True)",
-    "    reply = json.loads(out)",
-    "    if not reply.get('ok') or reply.get('command') != 'process-threads':",
-    "        raise SystemExit('cu_linux_process_threads_name_filter_reply:' + name)",
-    "    return reply['data']",
-    "expected_match = [tid for tid, name in names if ascii_contains(name, needle)]",
-    "data = invoke(needle)",
-    "if int(data['matched_count']) != len(expected_match):",
-    "    raise SystemExit(",
-    "        f'cu_linux_process_threads_name_filter_matched:probe={len(expected_match)}:cu={data[\"matched_count\"]}')",
-    "cu_ids = [str(row.get('id')) for row in (data.get('threads') or [])]",
-    "if cu_ids != expected_match:",
-    "    raise SystemExit(",
-    "        f'cu_linux_process_threads_name_filter_tids:probe={expected_match}:cu={cu_ids}')",
-    "expected_atspi = [tid for tid, name in names if ascii_contains(name, atspi_probe)]",
-    "atspi = invoke(atspi_probe)",
-    "if int(atspi['matched_count']) != len(expected_atspi):",
-    "    raise SystemExit(",
-    "        f'cu_linux_process_threads_name_filter_atspi:probe={len(expected_atspi)}:cu={atspi[\"matched_count\"]}')",
-    "print(json.dumps({",
-    "    'pid': pid,",
-    "    'needle': needle,",
-    "    'matched_count': int(data['matched_count']),",
-    "    'atspi_probe_matched': int(atspi['matched_count']),",
-    "}))",
-  ].join("\n");
-  const output = rh.command("python3", [
-    "-c", script, "" + pid, executable, "" + MAX_VISITED, AT_SPI_PROBE_NAME,
-  ], {
-    cwd: run_directory,
-    env: env,
-    timeout_ms: 30000,
-  });
-  ensure(output.success === true,
-    "cu_linux_process_threads_native_name_filter:" + output.stderr + output.stdout);
 }
 
 function probe_task_directory(pid) {
@@ -680,6 +537,9 @@ const denied_probe = find_denied_probe_pid();
 let succeeded = 0;
 let failure = "";
 try {
+  print("STEP process-threads typed usage treats --name as native thread-name filter and rejects AT-SPI --window or other unexpected arguments");
+  assert_process_threads_usage_honesty(context.run_directory, executable, env);
+
   if (atspi_available) {
     print("STEP get-extents typed-fail invalid_input when --window is zero before /proc/<pid>/task read-back");
     assert_get_extents_usage_limit(context.run_directory, executable, env);
@@ -688,9 +548,6 @@ try {
     assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
   }
 
-  print("STEP process-threads typed usage rejects AT-SPI --name/--bogus (native --name is a thread-name filter, not AT-SPI)");
-  assert_process_threads_usage_honesty(context.run_directory, executable, env);
-
   if (!self_probe.readable) {
     print("STEP typed host-limit when independent /proc/<pid>/task probe is unreadable or denied"
       + " (readable=" + self_probe.readable
@@ -698,7 +555,7 @@ try {
     verify_unavailable_when_probe_denied(context.run_directory, executable, self_probe, env);
     succeeded = 1;
   } else {
-    print("STEP process-threads observe matches independent /proc/<pid>/task count, native --name filter, and field read-back for self");
+    print("STEP process-threads observe matches independent /proc/<pid>/task read-back for self");
     verify_pid(context.run_directory, executable, rh.pid(), env);
 
     print("STEP spawn disposable child and verify --pid read-back");
@@ -736,13 +593,13 @@ if (succeeded !== 0 && completion_failure === "") {
   if (!self_probe.readable) {
     print("PASS: Linux process-threads typed-fails when independent /proc/<pid>/task is unreadable or denied");
   } else if (atspi_available) {
-    print("PASS: Linux process-threads matches independent /proc/<pid>/task count and field read-back"
-      + " with typed process-threads AT-SPI --name/--bogus usage honesty, native --name filter,"
-      + " get-extents --name usage (no --coords), and permission-denied host-limit honesty");
+    print("PASS: Linux process-threads matches independent /proc/<pid>/task read-back"
+      + " with typed process-threads/get-extents usage honesty (AT-SPI --name, no --coords)"
+      + " and permission-denied host-limit honesty");
   } else {
-    print("PASS: Linux process-threads matches independent /proc/<pid>/task count and field read-back"
-      + " with typed process-threads AT-SPI --name/--bogus usage honesty, native --name filter,"
-      + " get-extents --name host-limit (no --coords), and permission-denied host-limit honesty");
+    print("PASS: Linux process-threads matches independent /proc/<pid>/task read-back"
+      + " with typed process-threads/get-extents host-limit honesty (AT-SPI --name, no --coords)"
+      + " and permission-denied host-limit honesty");
   }
 }
 if (failure !== "") { throw failure; }

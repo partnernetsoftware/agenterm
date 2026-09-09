@@ -1,13 +1,14 @@
 // CEO: Linux spaces host-limit honesty with independent SkyLight absence and
-// EWMH workspace probes. Acceptance is smoke read-back only: `spaces` must
-// return typed unsupported with detail.os/required_os/alternatives even when
-// the root window exposes _NET_CURRENT_DESKTOP / _NET_NUMBER_OF_DESKTOPS
-// (EWMH virtual desktops are not macOS SkyLight managed Spaces). Typed spaces
-// usage must reject AT-SPI --name and other unexpected arguments; typed
-// get-extents --name usage/host-limit paths must hold before the spaces
-// read-back court. Headless host-limit and capabilities alignment must hold
-// before any owned fixture window exists. Observe-only; no --coords or
-// screenshot degradation.
+// EWMH/wmctrl workspace probes. Acceptance is smoke read-back only: `spaces`
+// must return typed unsupported with detail.os/required_os/alternatives even
+// when wmctrl -d or root _NET_CURRENT_DESKTOP / _NET_NUMBER_OF_DESKTOPS are
+// present (EWMH virtual desktops are not macOS SkyLight managed Spaces). When
+// those desktop/workspace APIs are absent, the same typed host-limit still
+// holds — never skip or fake green. Typed spaces usage must reject AT-SPI
+// --name, --coords, and --bogus; typed get-extents --name usage/host-limit
+// paths must hold before any spaces inventory/actuate court. Headless
+// host-limit and capabilities alignment must hold before any owned fixture
+// window exists. Observe-only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -27,6 +28,79 @@ const PROBE_SCRIPT = [
   "    'skylight': has_skylight,",
   "    'managed_spaces_unavailable': is_linux and not has_skylight,",
   "}))",
+].join("\n");
+
+const DESKTOP_WORKSPACE_SCRIPT = [
+  "import json, shutil, subprocess",
+  "def xprop_cardinal(stdout, prop):",
+  "    marker = prop + '(CARDINAL) = '",
+  "    start = stdout.find(marker)",
+  "    if start < 0:",
+  "        return -1",
+  "    tail = stdout[start + len(marker):].strip().splitlines()",
+  "    if not tail:",
+  "        return -1",
+  "    first = tail[0].strip()",
+  "    if first.isdigit() or (first.startswith('-') and first[1:].isdigit()):",
+  "        return int(first)",
+  "    return -1",
+  "ewmh = {",
+  "    'current_desktop': -1,",
+  "    'desktop_count': -1,",
+  "    'ewmh_present': False,",
+  "    'desktop_names_present': False,",
+  "    'reason': 'xprop-absent',",
+  "}",
+  "try:",
+  "    proc = subprocess.run(",
+  "        ['xprop', '-root', '_NET_CURRENT_DESKTOP', '_NET_NUMBER_OF_DESKTOPS', '_NET_DESKTOP_NAMES'],",
+  "        capture_output=True, text=True, timeout=10)",
+  "    stdout = proc.stdout or ''",
+  "    current = xprop_cardinal(stdout, '_NET_CURRENT_DESKTOP')",
+  "    count = xprop_cardinal(stdout, '_NET_NUMBER_OF_DESKTOPS')",
+  "    ewmh = {",
+  "        'current_desktop': current,",
+  "        'desktop_count': count,",
+  "        'ewmh_present': current >= 0 and count > 0,",
+  "        'desktop_names_present': '_NET_DESKTOP_NAMES(' in stdout,",
+  "        'reason': '' if current >= 0 and count > 0 else ('xprop-failed' if proc.returncode != 0 else 'ewmh-absent'),",
+  "    }",
+  "except FileNotFoundError:",
+  "    ewmh['reason'] = 'xprop-absent'",
+  "except Exception:",
+  "    ewmh['reason'] = 'xprop-error'",
+  "wmctrl = {",
+  "    'present': False,",
+  "    'current_desktop': -1,",
+  "    'desktop_count': -1,",
+  "    'reason': 'wmctrl-absent',",
+  "}",
+  "wmctrl_bin = shutil.which('wmctrl')",
+  "if wmctrl_bin:",
+  "    try:",
+  "        proc = subprocess.run([wmctrl_bin, '-d'], capture_output=True, text=True, timeout=10)",
+  "        rows = []",
+  "        current = -1",
+  "        for line in (proc.stdout or '').splitlines():",
+  "            parts = line.split()",
+  "            if len(parts) < 2 or not parts[0].isdigit():",
+  "                continue",
+  "            idx = int(parts[0])",
+  "            rows.append(idx)",
+  "            if parts[1] == '*':",
+  "                current = idx",
+  "        if proc.returncode == 0 and rows:",
+  "            wmctrl = {",
+  "                'present': True,",
+  "                'current_desktop': current,",
+  "                'desktop_count': len(rows),",
+  "                'reason': '',",
+  "            }",
+  "        else:",
+  "            wmctrl['reason'] = 'wmctrl-failed'",
+  "    except Exception:",
+  "        wmctrl['reason'] = 'wmctrl-error'",
+  "print(json.dumps({'ewmh': ewmh, 'wmctrl': wmctrl}))",
 ].join("\n");
 
 function ensure(condition, message) {
@@ -107,34 +181,6 @@ function invoke(run_directory, executable, arguments, expect_success) {
   return reply;
 }
 
-function parse_xprop_cardinal(stdout, property) {
-  const marker = property + "(CARDINAL) = ";
-  const start = stdout.indexOf(marker);
-  if (start < 0) { return -1; }
-  const tail = stdout.slice(start + marker.length).trim();
-  const end = tail.indexOf("\n");
-  const number = end < 0 ? tail : tail.slice(0, end);
-  if (number === "") { return -1; }
-  return rh.parse_int(number);
-}
-
-function independent_ewmh_desktops(run_directory, executable) {
-  const output = rh.command("xprop", [
-    "-root", "_NET_CURRENT_DESKTOP", "_NET_NUMBER_OF_DESKTOPS",
-  ], {
-    cwd: run_directory,
-    env: cu_env(executable),
-    timeout_ms: 10000,
-  });
-  if (!output.success) {
-    return { current_desktop: -1, desktop_count: -1, ewmh_present: false };
-  }
-  const current_desktop = parse_xprop_cardinal(output.stdout, "_NET_CURRENT_DESKTOP");
-  const desktop_count = parse_xprop_cardinal(output.stdout, "_NET_NUMBER_OF_DESKTOPS");
-  const ewmh_present = current_desktop >= 0 && desktop_count > 0;
-  return { current_desktop, desktop_count, ewmh_present };
-}
-
 function independent_probe() {
   const output = rh.command("python3", ["-c", PROBE_SCRIPT], {
     env: cu_env("."),
@@ -142,6 +188,21 @@ function independent_probe() {
   });
   ensure(output.success === true, "cu_linux_spaces_probe:" + output.stderr);
   return JSON.parse(output.stdout.trim());
+}
+
+function independent_desktop_workspace(run_directory, executable) {
+  const output = rh.command("python3", ["-c", DESKTOP_WORKSPACE_SCRIPT], {
+    cwd: run_directory,
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  ensure(output.success === true, "cu_linux_spaces_desktop_probe:" + output.stderr);
+  const parsed = JSON.parse(output.stdout.trim());
+  ensure(parsed.ewmh !== undefined && parsed.ewmh !== null,
+    "cu_linux_spaces_desktop_ewmh_shape:" + output.stdout);
+  ensure(parsed.wmctrl !== undefined && parsed.wmctrl !== null,
+    "cu_linux_spaces_desktop_wmctrl_shape:" + output.stdout);
+  return parsed;
 }
 
 function invoke_get_extents_reply(run_directory, executable, arguments, env) {
@@ -174,41 +235,44 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_spaces_usage_limit(run_directory, executable, env) {
-  const with_name = run_cu_reply(run_directory, executable, "observe", [
-    "spaces", "--name", AT_SPI_PROBE_NAME,
-  ], env);
-  ensure(!output_success(with_name),
-    "cu_linux_spaces_usage_name_ok:" + JSON.stringify(with_name));
-  ensure(
-    text_at(with_name, "error.code") === "usage",
-    "cu_linux_spaces_usage_name_code:" + JSON.stringify(with_name.error)
-  );
-  ensure(
-    text_at(with_name, "command") === "usage",
-    "cu_linux_spaces_usage_name_command:" + JSON.stringify(with_name)
-  );
-  ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
-      || text_at(with_name, "error.message").indexOf("no arguments") >= 0
-      || text_at(with_name, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_spaces_usage_name_message:" + JSON.stringify(with_name.error)
-  );
-
-  const reply = run_cu_reply(run_directory, executable, "observe", ["spaces", "--bogus"], env);
-  ensure(!output_success(reply), "cu_linux_spaces_usage_ok:" + JSON.stringify(reply));
+function assert_spaces_usage_reject(run_directory, executable, env, extra_args, token, label) {
+  const argv = ["spaces"];
+  for (const argument of extra_args) { argv.push("" + argument); }
+  const reply = run_cu_reply(run_directory, executable, "observe", argv, env);
+  ensure(!output_success(reply),
+    "cu_linux_spaces_usage_" + label + "_ok:" + JSON.stringify(reply));
   ensure(
     text_at(reply, "error.code") === "usage",
-    "cu_linux_spaces_usage_code:" + JSON.stringify(reply.error)
+    "cu_linux_spaces_usage_" + label + "_code:" + JSON.stringify(reply.error)
   );
   ensure(
     text_at(reply, "command") === "usage",
-    "cu_linux_spaces_usage_command:" + JSON.stringify(reply)
+    "cu_linux_spaces_usage_" + label + "_command:" + JSON.stringify(reply)
   );
+  const message = text_at(reply, "error.message");
   ensure(
-    text_at(reply, "error.message").indexOf("no arguments") >= 0
-      || text_at(reply, "error.message").indexOf("unexpected") >= 0,
-    "cu_linux_spaces_usage_message:" + JSON.stringify(reply.error)
+    message.indexOf(token) >= 0
+      || message.indexOf("no arguments") >= 0
+      || message.indexOf("unexpected") >= 0,
+    "cu_linux_spaces_usage_" + label + "_message:" + JSON.stringify(reply.error)
+  );
+  if (token === "--coords") {
+    ensure(
+      message.indexOf("--coords") >= 0,
+      "cu_linux_spaces_usage_coords_token:" + JSON.stringify(reply.error)
+    );
+  }
+}
+
+function assert_spaces_usage_limit(run_directory, executable, env) {
+  assert_spaces_usage_reject(
+    run_directory, executable, env, ["--name", AT_SPI_PROBE_NAME], "--name", "name"
+  );
+  assert_spaces_usage_reject(
+    run_directory, executable, env, ["--coords", "0,0"], "--coords", "coords"
+  );
+  assert_spaces_usage_reject(
+    run_directory, executable, env, ["--bogus"], "--bogus", "bogus"
   );
 }
 
@@ -273,7 +337,7 @@ function assert_headless_host_limit(run_directory, executable) {
   );
 }
 
-function verify_spaces_unsupported(reply, probe, ewmh) {
+function verify_spaces_unsupported(reply, probe, desktop) {
   ensure(reply.ok !== true, "cu_linux_spaces_false_success");
   ensure(text_at(reply, "error.code") === "unsupported", "cu_linux_spaces_code");
   ensure(text_at(reply, "command") === "spaces", "cu_linux_spaces_command");
@@ -294,18 +358,64 @@ function verify_spaces_unsupported(reply, probe, ewmh) {
   ensure(joined.indexOf("windows") >= 0, "cu_linux_spaces_alternatives_windows:" + joined);
   ensure(probe.managed_spaces_unavailable === true,
     "cu_linux_spaces_probe_unavailable:" + JSON.stringify(probe));
-  if (ewmh.ewmh_present) {
+
+  const ewmh = desktop.ewmh;
+  const wmctrl = desktop.wmctrl;
+  const ewmh_present = flag_at(ewmh, "ewmh_present");
+  const wmctrl_present = flag_at(wmctrl, "present");
+
+  if (ewmh_present && wmctrl_present) {
+    ensure(
+      int_at(ewmh, "current_desktop") === int_at(wmctrl, "current_desktop"),
+      "cu_linux_spaces_ewmh_wmctrl_current:" + JSON.stringify(desktop)
+    );
+    ensure(
+      int_at(ewmh, "desktop_count") === int_at(wmctrl, "desktop_count"),
+      "cu_linux_spaces_ewmh_wmctrl_count:" + JSON.stringify(desktop)
+    );
+  }
+
+  if (ewmh_present) {
     ensure(
       text_at(reply, "error.detail.required_os") === "macos",
       "cu_linux_spaces_ewmh_still_macos_only:" + JSON.stringify(reply.error)
     );
     print(
-      "STEP independent xprop read-back: EWMH current_desktop="
-        + ewmh.current_desktop + " desktop_count=" + ewmh.desktop_count
+      "STEP independent xprop _NET_DESKTOP read-back: EWMH current_desktop="
+        + int_at(ewmh, "current_desktop") + " desktop_count=" + int_at(ewmh, "desktop_count")
+        + " names_present=" + flag_at(ewmh, "desktop_names_present")
         + " does not satisfy macOS SkyLight managed Space inventory"
     );
   } else {
-    print("STEP host lacks root _NET_CURRENT_DESKTOP/_NET_NUMBER_OF_DESKTOPS; spaces remains macOS-only");
+    print(
+      "STEP host lacks root _NET_CURRENT_DESKTOP/_NET_NUMBER_OF_DESKTOPS ("
+        + text_at(ewmh, "reason")
+        + "); spaces remains macOS-only typed host-limit"
+    );
+  }
+
+  if (wmctrl_present) {
+    ensure(
+      text_at(reply, "error.detail.required_os") === "macos",
+      "cu_linux_spaces_wmctrl_still_macos_only:" + JSON.stringify(reply.error)
+    );
+    print(
+      "STEP independent wmctrl -d read-back: current_desktop="
+        + int_at(wmctrl, "current_desktop") + " desktop_count=" + int_at(wmctrl, "desktop_count")
+        + " does not satisfy macOS SkyLight managed Space inventory"
+    );
+  } else {
+    print(
+      "STEP independent wmctrl -d unavailable ("
+        + text_at(wmctrl, "reason")
+        + "); Linux workspace listing is not a SkyLight Space inventory"
+    );
+  }
+
+  if (!ewmh_present && !wmctrl_present) {
+    print(
+      "STEP desktop/workspace API absent (xprop _NET_DESKTOP + wmctrl); spaces still typed host-limit unsupported — no fake green"
+    );
   }
 }
 
@@ -323,16 +433,15 @@ const context = harness.new_context(repo, "cu-linux-spaces");
 const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 
-print("STEP spaces typed-fails usage when AT-SPI --name or other unexpected arguments are present");
-assert_spaces_usage_limit(context.run_directory, executable, env);
-
-if (atspi_available) {
-  print("STEP get-extents typed-fail invalid_input when --window is zero before spaces read-back court");
-  assert_get_extents_usage_limit(context.run_directory, executable, env);
-} else {
-  print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+print("STEP get-extents --name usage/host-limit court before spaces inventory/actuate");
+assert_get_extents_usage_limit(context.run_directory, executable, env);
+assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+if (!atspi_available) {
+  print("STEP independent pyatspi desktop probe unavailable; get-extents host-limit already asserted");
 }
+
+print("STEP spaces typed-fails usage for AT-SPI --name, --coords, and --bogus");
+assert_spaces_usage_limit(context.run_directory, executable, env);
 
 print("STEP spaces without DISPLAY typed-fails unsupported macOS host-limit");
 assert_headless_host_limit(context.run_directory, executable);
@@ -341,11 +450,12 @@ print("STEP independent probe confirms Linux has no macOS SkyLight managed Space
 const probe = independent_probe();
 ensure(probe.linux === true, "cu_linux_spaces_not_linux:" + JSON.stringify(probe));
 
-const ewmh = independent_ewmh_desktops(context.run_directory, executable);
+print("STEP independent wmctrl -d and xprop _NET_DESKTOP workspace evidence");
+const desktop = independent_desktop_workspace(context.run_directory, executable);
 
 print("STEP spaces returns typed host-limit unsupported with detail.os/required_os/alternatives");
 const spaces = invoke(context.run_directory, executable, ["spaces"], false);
-verify_spaces_unsupported(spaces, probe, ewmh);
+verify_spaces_unsupported(spaces, probe, desktop);
 
 print("STEP capabilities declares spaces unsupported on this Linux host");
 const caps = invoke(context.run_directory, executable, ["capabilities"], true);
@@ -359,7 +469,7 @@ ensure(text_at(caps, "data.verbs.spaces.provider") === "none",
 harness.emit_evidence(context, declared_evidence, "cu.linux-spaces-readback");
 harness.remove_run(context);
 if (atspi_available) {
-  print("PASS typed unsupported with SkyLight host-limit honesty, EWMH workspace read-back, typed spaces/get-extents usage honesty (AT-SPI --name, no --coords), headless paths, and capabilities alignment");
+  print("PASS typed unsupported with SkyLight host-limit honesty, independent wmctrl/_NET_DESKTOP read-back, typed spaces/get-extents usage honesty (AT-SPI --name, --coords/--bogus rejected), headless paths, and capabilities alignment");
 } else {
-  print("PASS typed unsupported with SkyLight host-limit honesty, EWMH workspace read-back, typed spaces/get-extents host-limit honesty (AT-SPI --name, no --coords), headless paths, and capabilities alignment");
+  print("PASS typed unsupported with SkyLight host-limit honesty, independent wmctrl/_NET_DESKTOP read-back, typed spaces usage and get-extents host-limit honesty (AT-SPI --name, --coords/--bogus rejected), headless paths, and capabilities alignment");
 }
