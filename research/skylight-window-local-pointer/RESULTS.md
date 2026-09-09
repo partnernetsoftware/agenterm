@@ -127,3 +127,12 @@ qualify a product provider or close acu.dynamic.074. The next precommitted gate
 is a separate 1,000-action Chromium PRIVATE repeat with per-action target,
 peer, pointer and foreground checks; only a zero-loss result may spend a
 previous-generation arm64 host on C9.
+
+The complete discriminator was then rerun from repository SHA
+`cebfb00279cf74b4b3724a6a5aef6ab6a0a7532a` with the same
+`06ab44cfb2970b9efd93de47e2c45beeaf955c6b284b44563947e8ecae04431b`
+probe digest. It produced the same `PASS` counts and invariants: PRIVATE 20/20,
+PUBLIC_LOC 0/20, PUBLIC_OFF 0/20, no peer delivery, no host-state change, and
+verified cleanup. Thus the two required complete current-host discriminator
+runs agree; this still does not substitute for the separate 1,000-action
+PRIVATE repeat.
