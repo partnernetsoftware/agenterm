@@ -9502,7 +9502,7 @@
     },
     {
       "id": "cu-linux-network-interfaces-smoke",
-      "description": "Linux network-interfaces observe matches independent ip -j addr and sysfs ifindex/IFF_UP/cidr/mac read-back with typed network_interfaces_unavailable when getifaddrs fails; typed network-interfaces usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the ip/sysfs read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux network-interfaces observe matches independent ip -j addr and sysfs ifindex/IFF_UP/cidr/mac read-back with typed network_interfaces_unavailable when getifaddrs fails; typed network-interfaces usage rejects AT-SPI --name, --coords, --bogus, and other unexpected arguments; typed get-extents --name usage AND host-limit paths before the ip/sysfs read-back court; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-network-interfaces-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
