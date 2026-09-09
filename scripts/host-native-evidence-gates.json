@@ -290,6 +290,13 @@
       ]
     },
     {
+      "id": "cu-linux-process-wait-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-process-wait-readback"
+      ]
+    },
+    {
       "id": "cu-linux-pty-smoke",
       "platform": "linux",
       "evidence": [
