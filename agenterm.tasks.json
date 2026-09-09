@@ -8068,7 +8068,7 @@
     },
     {
       "id": "cu-linux-boot-identity-smoke",
-      "description": "Linux capabilities host_boot_identity boot_id, machine_id and uptime_milliseconds match independent /proc/sys/kernel/random/boot_id, /etc/machine-id and CLOCK_BOOTTIME read-back, or return typed unavailable when either host source is absent; typed capabilities usage rejects AT-SPI --name and other unexpected arguments; typed get-extents --name usage/host-limit paths before the boot-identity read-back court; AT-SPI/--name only, no --coords.",
+      "description": "Linux capabilities host_boot_identity boot_id, machine_id and uptime_milliseconds match independent /proc boot_id, /etc/machine-id and CLOCK_BOOTTIME read-back, or typed unavailable when either host source is absent; typed capabilities usage rejects AT-SPI --name/--coords/--bogus; typed get-extents --name usage AND host-limit paths both hold before the boot-identity inventory/read-back court; host-limit clarity when fields are absent; AT-SPI/--name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-boot-identity-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

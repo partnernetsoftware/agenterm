@@ -1,10 +1,11 @@
 // CEO: Linux host boot identity honesty via capabilities with independent read-back.
 // Acceptance is smoke read-back only: boot_id, machine_id and uptime_milliseconds
 // must match facts derived outside agenterm-cu, or return typed unavailable when
-// either host source is absent. Typed capabilities usage must reject AT-SPI --name
-// and other unexpected arguments; typed get-extents --name usage/host-limit paths
-// must hold before the boot-identity read-back court. AT-SPI/--name only; no
-// --coords or screenshot degradation.
+// either host source is absent. Typed capabilities usage must reject AT-SPI --name,
+// --coords, --bogus, and other unexpected arguments; typed get-extents --name usage
+// AND host-limit paths must both hold before the boot-identity inventory/read-back
+// court. Host-limit clarity when boot-identity fields are absent. Prefer honesty
+// over fake success. AT-SPI/--name only; no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -40,6 +41,11 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function output_success(document) { return flag_at(document, "ok"); }
 
 function cu_env(executable) {
@@ -62,12 +68,12 @@ function cu_env(executable) {
   return env;
 }
 
-function invoke_reply(run_directory, executable, arguments) {
+function invoke_reply(run_directory, executable, arguments, env) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe",
   ].concat(arguments), {
     cwd: run_directory,
-    env: cu_env(executable),
+    env: env === undefined ? cu_env(executable) : env,
     timeout_ms: 30000,
   });
   ensure(output.stdout.trim() !== "", "cu_linux_boot_identity_cli:" + output.stdout + output.stderr);
@@ -79,8 +85,8 @@ function invoke_reply(run_directory, executable, arguments) {
   return reply;
 }
 
-function invoke(run_directory, executable, arguments) {
-  const reply = invoke_reply(run_directory, executable, arguments);
+function invoke(run_directory, executable, arguments, env) {
+  const reply = invoke_reply(run_directory, executable, arguments, env);
   ensure(output_success(reply), "cu_linux_boot_identity_exit:" + JSON.stringify(reply));
   ensure(text_at(reply, "command") === "capabilities", "cu_linux_boot_identity_command:" + JSON.stringify(reply));
   return reply;
@@ -115,41 +121,41 @@ function probe_atspi_available(executable) {
   return output.success === true && output.stdout.trim() === "1";
 }
 
-function assert_capabilities_usage_limit(run_directory, executable) {
-  const with_name = invoke_reply(run_directory, executable, [
-    "capabilities", "--name", AT_SPI_PROBE_NAME,
-  ]);
-  ensure(!output_success(with_name), "cu_linux_boot_identity_usage_name_ok:" + JSON.stringify(with_name));
+function assert_capabilities_unexpected(run_directory, executable, env, arguments, label, token) {
+  const reply = invoke_reply(run_directory, executable, arguments, env);
+  ensure(!output_success(reply),
+    "cu_linux_boot_identity_usage_" + label + "_ok:" + JSON.stringify(reply));
   ensure(
-    text_at(with_name, "error.code") === "usage",
-    "cu_linux_boot_identity_usage_name_code:" + JSON.stringify(with_name.error)
+    text_at(reply, "error.code") === "usage",
+    "cu_linux_boot_identity_usage_" + label + "_code:" + JSON.stringify(reply.error)
   );
   ensure(
-    text_at(with_name, "command") === "usage",
-    "cu_linux_boot_identity_usage_name_command:" + JSON.stringify(with_name)
+    text_at(reply, "command") === "usage",
+    "cu_linux_boot_identity_usage_" + label + "_command:" + JSON.stringify(reply)
   );
   ensure(
-    text_at(with_name, "error.message").indexOf("--name") >= 0
-      || text_at(with_name, "error.message").indexOf("no arguments") >= 0,
-    "cu_linux_boot_identity_usage_name_message:" + JSON.stringify(with_name.error)
-  );
-
-  const with_bogus = invoke_reply(run_directory, executable, ["capabilities", "--bogus"]);
-  ensure(!output_success(with_bogus), "cu_linux_boot_identity_usage_bogus_ok:" + JSON.stringify(with_bogus));
-  ensure(
-    text_at(with_bogus, "error.code") === "usage",
-    "cu_linux_boot_identity_usage_bogus_code:" + JSON.stringify(with_bogus.error)
-  );
-  ensure(
-    text_at(with_bogus, "error.message").indexOf("no arguments") >= 0,
-    "cu_linux_boot_identity_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+    usage_rejects_unexpected(text_at(reply, "error.message"), token)
+      || text_at(reply, "error.message").indexOf("no arguments") >= 0,
+    "cu_linux_boot_identity_usage_" + label + "_message:" + JSON.stringify(reply.error)
   );
 }
 
-function assert_get_extents_usage_limit(run_directory, executable) {
+function assert_capabilities_usage_limit(run_directory, executable, env) {
+  assert_capabilities_unexpected(run_directory, executable, env, [
+    "capabilities", "--name", AT_SPI_PROBE_NAME,
+  ], "name", "--name");
+  assert_capabilities_unexpected(run_directory, executable, env, [
+    "capabilities", "--bogus",
+  ], "bogus", "--bogus");
+  assert_capabilities_unexpected(run_directory, executable, env, [
+    "capabilities", "--coords", "10,10",
+  ], "coords", "--coords");
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
   const zero_handle = invoke_get_extents_reply(run_directory, executable, [
     "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
-  ]);
+  ], env);
   ensure(!output_success(zero_handle),
     "cu_linux_boot_identity_extents_usage_ok:" + JSON.stringify(zero_handle));
   ensure(
@@ -159,6 +165,62 @@ function assert_get_extents_usage_limit(run_directory, executable) {
   ensure(
     text_at(zero_handle, "error.message").indexOf("window") >= 0,
     "cu_linux_boot_identity_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+
+  const missing_name = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1",
+  ], env);
+  ensure(!output_success(missing_name),
+    "cu_linux_boot_identity_extents_usage_name_ok:" + JSON.stringify(missing_name));
+  ensure(
+    text_at(missing_name, "error.code") === "usage",
+    "cu_linux_boot_identity_extents_usage_name_code:" + JSON.stringify(missing_name.error)
+  );
+  ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_boot_identity_extents_usage_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
+    text_at(missing_name, "error.message").indexOf("--name") >= 0,
+    "cu_linux_boot_identity_extents_usage_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_boot_identity_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_boot_identity_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_boot_identity_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_boot_identity_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_boot_identity_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_boot_identity_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_boot_identity_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_boot_identity_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -291,30 +353,33 @@ if (!rh.exists(executable) && harness.host_is_windows()) { executable = executab
 ensure(rh.exists(executable), "cu_linux_boot_identity_executable_missing:" + executable);
 
 const context = harness.new_context(repo, "cu-linux-boot-identity");
+const env = cu_env(executable);
 const atspi_available = probe_atspi_available(executable);
 const host_sources = probe_host_sources();
 let succeeded = 0;
 let failure = "";
 try {
-  print("STEP capabilities typed-fails usage when AT-SPI --name or other unexpected arguments are present");
-  assert_capabilities_usage_limit(context.run_directory, executable);
+  print("STEP capabilities typed-fails usage when AT-SPI --name/--coords/--bogus or other unexpected arguments are present");
+  assert_capabilities_usage_limit(context.run_directory, executable, env);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail invalid_input when --window is zero before boot-identity read-back");
-    assert_get_extents_usage_limit(context.run_directory, executable);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before boot-identity inventory/read-back court");
+  assert_get_extents_usage_limit(context.run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before boot-identity inventory/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(context.run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; boot-identity read-back still uses /proc and CLOCK_BOOTTIME");
   }
 
   if (!host_sources.boot_id || !host_sources.machine_id) {
-    print("STEP typed unavailable path (independent /proc probe absent: boot_id="
+    print("STEP typed unavailable host-limit path (independent /proc probe absent: boot_id="
       + host_sources.boot_id + " machine_id=" + host_sources.machine_id + ")");
-    const reply = invoke(context.run_directory, executable, ["capabilities"]);
+    const reply = invoke(context.run_directory, executable, ["capabilities"], env);
     ensure(reply.command === "capabilities" && reply.target === "current",
            "cu_linux_boot_identity_command");
     verify_unavailable_host_boot_identity(reply, host_sources);
-    const second = invoke(context.run_directory, executable, ["capabilities"]);
+    const second = invoke(context.run_directory, executable, ["capabilities"], env);
     verify_unavailable_host_boot_identity(second, host_sources);
     ensure(text_at(second, "data.host_boot_identity.reason")
            === text_at(reply, "data.host_boot_identity.reason"),
@@ -325,7 +390,7 @@ try {
   const boot_id_before = independent_boot_id();
   const machine_id_before = independent_machine_id();
   const uptime_before = independent_uptime_milliseconds();
-  const reply = invoke(context.run_directory, executable, ["capabilities"]);
+  const reply = invoke(context.run_directory, executable, ["capabilities"], env);
   const boot_id_after = independent_boot_id();
   const machine_id_after = independent_machine_id();
   const uptime_after = independent_uptime_milliseconds();
@@ -352,7 +417,7 @@ try {
          + ":before=" + uptime_before + ":after=" + uptime_after);
 
   print("STEP repeated capabilities observations keep boot_id and machine_id stable");
-  const second = invoke(context.run_directory, executable, ["capabilities"]);
+  const second = invoke(context.run_directory, executable, ["capabilities"], env);
   const second_facts = host_boot_identity(second);
   ensure(text_at(second_facts, "boot_id") === text_at(facts, "boot_id"),
          "cu_linux_boot_identity_boot_id_unstable");
@@ -375,14 +440,14 @@ if (succeeded !== 0 && completion_failure === "") {
   harness.remove_run(context);
   if (host_sources.boot_id && host_sources.machine_id) {
     if (atspi_available) {
-      print("PASS: Linux capabilities host_boot_identity matches independent boot_id, machine-id and CLOCK_BOOTTIME read-back with typed capabilities/get-extents usage honesty (AT-SPI --name, no --coords)");
+      print("PASS: Linux capabilities host_boot_identity matches independent boot_id, machine-id and CLOCK_BOOTTIME read-back with typed capabilities/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
     } else {
-      print("PASS: Linux capabilities host_boot_identity matches independent boot_id, machine-id and CLOCK_BOOTTIME read-back with typed capabilities/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+      print("PASS: Linux capabilities host_boot_identity matches independent boot_id, machine-id and CLOCK_BOOTTIME read-back with typed capabilities --name/--coords/--bogus usage plus get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
     }
   } else if (atspi_available) {
-    print("PASS: Linux capabilities host_boot_identity typed unavailable when independent /proc boot_id or machine-id is absent, with typed capabilities/get-extents usage honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux capabilities host_boot_identity typed unavailable when independent /proc boot_id or machine-id is absent, with typed capabilities/get-extents --name/--coords/--bogus usage/host-limit honesty (AT-SPI --name, no --coords)");
   } else {
-    print("PASS: Linux capabilities host_boot_identity typed unavailable when independent /proc boot_id or machine-id is absent, with typed capabilities/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+    print("PASS: Linux capabilities host_boot_identity typed unavailable when independent /proc boot_id or machine-id is absent, with typed capabilities --name/--coords/--bogus usage plus get-extents --name host-limit honesty (AT-SPI --name, no --coords)");
   }
 }
 if (failure !== "") { throw failure; }
