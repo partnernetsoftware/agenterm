@@ -186,6 +186,11 @@ diagnostic proved that the same Chrome build immediately publishes
 `DevToolsActivePort` when asked to select its own port. Attempt 3 changes only
 that readiness mechanism to port zero plus an exact-profile record read; the
 discriminator remains unchanged.
+Attempt 3 reached the record and listening browser but the readiness curl was
+routed through the host HTTP proxy and received its 503 response. It also
+ended before injection. Attempt 4 explicitly bypasses proxies for this
+loopback-only readiness check, retries a partially written record, and requires
+the `/json/version` WebSocket path to equal the exact profile record.
 
 ### 9.1 Frozen setup
 
@@ -243,6 +248,12 @@ public_loc_exact = PUBLIC_LOC advances B once and A stays unchanged
 public_off_target = PUBLIC_OFF advances B despite its point being outside B
 discriminates = private_exact && !public_loc_exact
 ```
+
+Before any arm ran, the executable PASS guard was made explicit: D5 means
+`public_off_target` must also be false in every triplet. Any PUBLIC_OFF target
+delivery is diagnostic instability, never PASS. This does not change the
+precommitted D5 text below; it closes an implementation omission found while
+attempts 1-3 still had zero injection attempts.
 
 | ID | Criterion | Nature | Pass condition |
 |---|---|---|---|

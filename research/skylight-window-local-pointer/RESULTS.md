@@ -76,3 +76,26 @@ port itself. Attempt 3 therefore changes only this fixture mechanism to
 `--remote-debugging-port=0` plus a bounded read of that exact profile record.
 The discriminator criteria remain frozen and no delivery count carries
 forward.
+
+## Chromium discriminator attempt 3 · 2026-09-09
+
+- Repository source SHA: `5464517f51beb9769032a04dda6a0af1569bd280`.
+- Discriminator source digest:
+  `4640ef687a4cbcc709912d348df0dea040cc30d42edbdc00137fdd587604210b`.
+- Host: macOS 26.5.1 build 25F80, arm64.
+- Verdict: `INCONCLUSIVE` at `browser-launch-b`.
+- Injection attempts: zero; triplets completed: zero.
+- Cleanup: the owned Chromium process exited within the cleanup bound.
+
+Chrome did publish a valid two-line `DevToolsActivePort` record and listen on
+its selected loopback port. The readiness curl nevertheless received the
+host's configured HTTP proxy response because that environment did not exempt
+loopback. Attempt 4 changes only the readiness probe to bypass proxies, retries
+a partially written port record, and binds `/json/version` to the record's
+browser WebSocket path. No delivery result carries forward.
+
+Before the first injection attempt, review also made criterion D5 executable:
+`PASS` requires `public_off_target_count == 0`. This is a clarification of the
+precommitted statement that PUBLIC_OFF cannot satisfy exact target delivery,
+not a conclusion drawn from arm results; attempts 1-3 all completed zero
+triplets.

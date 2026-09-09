@@ -73,6 +73,14 @@ function number_at(value, dotted) {
   return rh.parse_int(raw);
 }
 
+function parsed_port_or_zero(text) {
+  try {
+    return rh.parse_int(text);
+  } catch (error) {
+    return 0;
+  }
+}
+
 // Deterministic LCG so every run with the same seed visits the arms in the
 // same recorded order; the seed is part of the verdict.
 let rng_state = SEED;
@@ -285,6 +293,7 @@ let chrome_child = -1;
 let guard_child = -1;
 let stage = "setup";
 let failure = "";
+let cleanup_required = false;
 let cleanup_verified = false;
 let identity = null;
 let triplets_run = 0;
@@ -322,20 +331,23 @@ try {
     env: { AGENTERM_NO_ACTIVATE: "1" },
     timeout_ms: 600000
   });
+  cleanup_required = true;
   const browser_pid = harness.spawned_pid(chrome_child);
   let cdp_ready = false;
   for (let attempt = 0; attempt < 120; attempt = attempt + 1) {
     if (rh.exists(active_port_path)) {
       const active_lines = rh.read_text(active_port_path).trim().split("\n");
       if (active_lines.length >= 2) {
-        const selected_port = rh.parse_int(active_lines[0].trim());
+        const selected_port = parsed_port_or_zero(active_lines[0].trim());
+        const browser_path = active_lines[1].trim();
         if (selected_port >= 1 && selected_port <= 65535
-          && active_lines[1].trim().startsWith("/devtools/browser/")) {
+          && browser_path.startsWith("/devtools/browser/")) {
           const probe = rh.command("curl", [
-            "-s", "--max-time", "1",
+            "-s", "--noproxy", "*", "--max-time", "1",
             "http://127.0.0.1:" + selected_port + "/json/version"
           ], { cwd: run_directory, timeout_ms: 3000 });
-          if (probe.success === true && probe.stdout.indexOf("Browser") >= 0) {
+          if (probe.success === true && probe.stdout.indexOf("Browser") >= 0
+            && probe.stdout.indexOf(browser_path) >= 0) {
             port = selected_port;
             cdp_ready = true;
             break;
@@ -350,8 +362,6 @@ try {
   stage = "browser-launch-a";
   const opened_a = rh.command(chromium, [
     "--user-data-dir=" + profile,
-    "--remote-debugging-port=" + port,
-    "--remote-debugging-address=127.0.0.1",
     "--new-window",
     page_url("A")
   ], {
@@ -532,6 +542,7 @@ const report = {
   private_exact_count: private_exact,
   public_loc_exact_count: public_loc_exact,
   public_off_target_count: public_off_target,
+  cleanup_required: cleanup_required,
   cleanup_verified: cleanup_verified,
   peer_hits: peer_hits,
   wheel: { dx: WHEEL_DX, dy: WHEEL_DY },

@@ -1057,8 +1057,9 @@ hover/wheel is still separate and stays behind
 owned-Chromium three-arm attempt stopped inconclusive before injection because
 Google Chrome published no bridge connection; direct-profile attempt 2 then
 stopped before injection when its fixed CDP port did not answer. Attempt 3
-uses the exact profile's `DevToolsActivePort` record and keeps the criteria
-frozen. A current-host pass and 1,000-action Chromium repeat
+reached the exact profile's `DevToolsActivePort` record, but the readiness curl
+was routed through the host HTTP proxy. Attempt 4 bypasses proxies only for
+that loopback check and keeps the criteria frozen. A current-host pass and 1,000-action Chromium repeat
 precede any previous-generation C9 court.
 The only reviewed permanent retirement in this cut is the login-service
 query for MCU's removed global daemon object.
