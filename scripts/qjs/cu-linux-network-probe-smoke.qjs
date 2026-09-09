@@ -2,7 +2,10 @@
 // python socket TCP read-back. Acceptance is smoke read-back only: CU
 // resolve-once plus bounded TCP reachability must agree with an independent
 // probe for the same host/port (reachable listener and closed-port failure).
-// No --coords or screenshot degradation.
+// Typed network-probe usage must reject AT-SPI --name and other unexpected
+// arguments; typed get-extents --name usage/host-limit paths must hold before
+// the getent/getaddrinfo and python socket read-back court. AT-SPI/--name only;
+// no --coords or screenshot degradation.
 //
 // Args: REPO AGENTERM_CU_EXE
 // or:   --list-evidence
@@ -12,6 +15,8 @@ import * as harness from "lib/test_harness";
 const declared_evidence = [
   "cu.linux-network-probe-readback",
 ];
+
+const AT_SPI_PROBE_NAME = "Network Probe Court Anchor";
 
 function ensure(condition, message) {
   if (!condition) { throw message; }
@@ -40,12 +45,166 @@ function direct_file(path) {
   return metadata.is_file === true && metadata.is_symlink !== true;
 }
 
-function invoke(run_directory, executable, arguments) {
+function cu_env(executable) {
+  const env = {
+    AGENTERM_NO_ACTIVATE: "1",
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+  };
+  for (const key of [
+    "DISPLAY",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "AT_SPI_BUS_ADDRESS",
+    "AT_SPI_BUS",
+  ]) {
+    if (rh.has_env(key)) { env[key] = rh.env_or(key, ""); }
+  }
+  if (env.AT_SPI_BUS_ADDRESS === undefined && env.AT_SPI_BUS !== undefined) {
+    env.AT_SPI_BUS_ADDRESS = env.AT_SPI_BUS;
+  }
+  return env;
+}
+
+function invoke_observe_reply(run_directory, executable, arguments, env) {
   const output = rh.command(executable, [
     "--target", "current", "--grant", "observe",
   ].concat(arguments), {
     cwd: run_directory,
-    env: { AGENTERM_NO_ACTIVATE: "1" },
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+         "cu_linux_network_probe_observe_cli:" + output.stdout + output.stderr);
+  const reply = JSON.parse(output.stdout.trim());
+  ensure(
+    text_at(reply, "command") === "network-probe" || text_at(reply, "command") === "usage",
+    "cu_linux_network_probe_observe_command:" + JSON.stringify(reply)
+  );
+  return reply;
+}
+
+function invoke_get_extents_reply(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
+    timeout_ms: 30000,
+  });
+  ensure(output.stdout.trim() !== "",
+         "cu_linux_network_probe_extents_cli:" + output.stdout + output.stderr);
+  return JSON.parse(output.stdout.trim());
+}
+
+function probe_atspi_available(executable) {
+  const script = [
+    "import sys",
+    "try:",
+    "    import pyatspi",
+    "    _ = pyatspi.Registry.getDesktop(0)",
+    "    print('1')",
+    "except Exception:",
+    "    print('0')",
+  ].join("\n");
+  const output = rh.command("python3", ["-c", script], {
+    env: cu_env(executable),
+    timeout_ms: 10000,
+  });
+  return output.success === true && output.stdout.trim() === "1";
+}
+
+function assert_network_probe_usage_limit(run_directory, executable, env, host) {
+  const flat_with_name = invoke_observe_reply(run_directory, executable, [
+    "network-probe", host, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(flat_with_name),
+    "cu_linux_network_probe_usage_flat_name_ok:" + JSON.stringify(flat_with_name));
+  ensure(
+    text_at(flat_with_name, "error.code") === "usage",
+    "cu_linux_network_probe_usage_flat_name_code:" + JSON.stringify(flat_with_name.error)
+  );
+  ensure(
+    text_at(flat_with_name, "command") === "usage",
+    "cu_linux_network_probe_usage_flat_name_command:" + JSON.stringify(flat_with_name)
+  );
+  ensure(
+    text_at(flat_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(flat_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_network_probe_usage_flat_name_message:" + JSON.stringify(flat_with_name.error)
+  );
+
+  const grouped_with_name = invoke_observe_reply(run_directory, executable, [
+    "network", "probe", host, "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(grouped_with_name),
+    "cu_linux_network_probe_usage_grouped_name_ok:" + JSON.stringify(grouped_with_name));
+  ensure(
+    text_at(grouped_with_name, "error.code") === "usage",
+    "cu_linux_network_probe_usage_grouped_name_code:" + JSON.stringify(grouped_with_name.error)
+  );
+  ensure(
+    text_at(grouped_with_name, "error.message").indexOf("--name") >= 0
+      || text_at(grouped_with_name, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_network_probe_usage_grouped_name_message:" + JSON.stringify(grouped_with_name.error)
+  );
+
+  const with_bogus = invoke_observe_reply(run_directory, executable, [
+    "network-probe", host, "--bogus",
+  ], env);
+  ensure(!output_success(with_bogus),
+    "cu_linux_network_probe_usage_bogus_ok:" + JSON.stringify(with_bogus));
+  ensure(
+    text_at(with_bogus, "error.code") === "usage",
+    "cu_linux_network_probe_usage_bogus_code:" + JSON.stringify(with_bogus.error)
+  );
+  ensure(
+    text_at(with_bogus, "error.message").indexOf("unexpected") >= 0,
+    "cu_linux_network_probe_usage_bogus_message:" + JSON.stringify(with_bogus.error)
+  );
+}
+
+function assert_get_extents_usage_limit(run_directory, executable, env) {
+  const zero_handle = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "0", "--name", AT_SPI_PROBE_NAME,
+  ], env);
+  ensure(!output_success(zero_handle),
+    "cu_linux_network_probe_extents_usage_ok:" + JSON.stringify(zero_handle));
+  ensure(
+    text_at(zero_handle, "error.code") === "invalid_input",
+    "cu_linux_network_probe_extents_usage_code:" + JSON.stringify(zero_handle.error)
+  );
+  ensure(
+    text_at(zero_handle, "error.message").indexOf("window") >= 0,
+    "cu_linux_network_probe_extents_usage_message:" + JSON.stringify(zero_handle.error)
+  );
+}
+
+function assert_get_extents_host_limit_when_atspi_absent(run_directory, executable) {
+  const reply = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--name", AT_SPI_PROBE_NAME,
+  ], {
+    AGENTERM_ABI_LIB: rh.join(rh.parent(executable), "libagenterm.so"),
+    AGENTERM_NO_ACTIVATE: "1",
+    AT_SPI_BUS_ADDRESS: "invalid",
+  });
+  ensure(!output_success(reply),
+    "cu_linux_network_probe_extents_unavailable_ok:" + JSON.stringify(reply));
+  const code = text_at(reply, "error.code");
+  ensure(
+    code === "a11y_backend_failed" || code === "unsupported" || code === "bad_handle"
+      || code === "a11y_node_not_found",
+    "cu_linux_network_probe_extents_unavailable_code:" + code
+  );
+}
+
+function output_success(document) { return rh.field(document, "ok") === true; }
+
+function invoke(run_directory, executable, arguments, env) {
+  const output = rh.command(executable, [
+    "--target", "current", "--grant", "observe",
+  ].concat(arguments), {
+    cwd: run_directory,
+    env: env,
     timeout_ms: 30000,
   });
   ensure(output.success === true, "cu_linux_network_probe_exit:" + output.exit_code + ":" + output.stderr);
@@ -276,6 +435,8 @@ harness.require(rh.exists(executable), "agenterm-cu executable missing");
 
 const context = harness.new_context(repo, "cu-linux-network-probe");
 const run_directory = context.run_directory;
+const env = cu_env(executable);
+const atspi_available = probe_atspi_available(executable);
 const owned_children = [];
 let succeeded = 0;
 let failure = "";
@@ -286,6 +447,17 @@ try {
   const reachable_attempts = 3;
   const unreachable_attempts = 2;
 
+  print("STEP network-probe typed-fails usage when AT-SPI --name or other unexpected arguments are present");
+  assert_network_probe_usage_limit(run_directory, executable, env, host);
+
+  if (atspi_available) {
+    print("STEP get-extents typed-fail invalid_input when --window is zero before getent/getaddrinfo read-back");
+    assert_get_extents_usage_limit(run_directory, executable, env);
+  } else {
+    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
+    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  }
+
   print("STEP CU reachable observation against invocation-owned loopback listener");
   const cu_fixture = start_fixture(context, run_directory, executable, reachable_attempts, "cu-listener");
   owned_children.push(cu_fixture.child);
@@ -294,7 +466,7 @@ try {
     "--port", "" + cu_fixture.port,
     "--attempts", "" + reachable_attempts,
     "--timeout-ms", "" + timeout_ms
-  ]);
+  ], env);
   ensure(
     text_at(cu_reachable.data, "provider") === "system-resolver-owned-worker"
       && flag_at(cu_reachable.data, "address_set_frozen")
@@ -326,7 +498,7 @@ try {
     "--port", "" + closed_port,
     "--attempts", "" + unreachable_attempts,
     "--timeout-ms", "" + timeout_ms
-  ]);
+  ], env);
   const independent_unreachable = independent_tcp_probe(
     host, closed_port, unreachable_attempts, timeout_ms
   );
@@ -344,7 +516,11 @@ catch (error) { completion_failure = "" + error; }
 if (succeeded !== 0 && completion_failure === "") {
   harness.emit_evidence(context, declared_evidence, "cu.linux-network-probe-readback");
   harness.remove_run(context);
-  print("PASS: Linux network-probe matches independent getent/getaddrinfo and python socket TCP read-back");
+  if (atspi_available) {
+    print("PASS: Linux network-probe matches independent getent/getaddrinfo and python socket TCP read-back with typed network-probe/get-extents usage honesty (AT-SPI --name, no --coords)");
+  } else {
+    print("PASS: Linux network-probe matches independent getent/getaddrinfo and python socket TCP read-back with typed network-probe/get-extents host-limit honesty (AT-SPI --name, no --coords)");
+  }
 }
 if (failure !== "") { throw failure; }
 if (completion_failure !== "") { throw completion_failure; }
