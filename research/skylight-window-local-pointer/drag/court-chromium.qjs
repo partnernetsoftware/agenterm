@@ -478,6 +478,7 @@ function receipt_release_proved(reply) {
   return reply !== null && reply.mode === "gesture"
     && reply.down_attempts === 1
     && reply.up_attempts === 1 && reply.up_attempted === true
+    && reply.up_post_uncertain === false
     && reply.outcome_unknown === false;
 }
 
@@ -512,6 +513,7 @@ function validate_gesture_receipt(reply, arm, trajectory, browser_pid,
   ensure(reply.steps === STEPS && reply.down_attempts === 1
       && reply.move_attempts === STEPS && reply.up_attempts === 1
       && reply.up_attempted === true
+      && reply.up_post_uncertain === false
       && reply.outcome_unknown === false,
     "acu004_gesture_attempt_accounting");
   ensure(typeof reply.from === "object" && reply.from !== null
@@ -643,6 +645,16 @@ function validate_exact_sequence(snapshot, trajectory, expected_start, expected_
     ensure(click_count === 0, "acu004_boundary_click_forbidden");
   }
   return { down: down_count, held_moves: held_moves, up: up_count, clicks: click_count };
+}
+
+function observed_release_cardinality(snapshot) {
+  let down_count = 0;
+  let up_count = 0;
+  for (const event of snapshot.sequence) {
+    if (event.kind === "mousedown") { down_count = down_count + 1; }
+    if (event.kind === "mouseup") { up_count = up_count + 1; }
+  }
+  return { down_count: down_count, up_count: up_count };
 }
 
 function empty_sequence(snapshot) {
@@ -887,11 +899,19 @@ try {
       const down_known_absent = receipt_proves_pre_down_failure(primary);
       if (!receipt_release_proved(reply)) {
         if (!down_known_absent) {
-          release_recovery = release_only(arm, trajectory, browser_pid,
-            target_window, native_b.bounds, path, translation);
           release_failed = true;
           release_failure = "primary receipt did not prove exactly one same-target up attempt";
           stop_downs = true;
+          try {
+            release_recovery = release_only(arm, trajectory, browser_pid,
+              target_window, native_b.bounds, path, translation);
+          } catch (error) {
+            release_recovery = {
+              process_success: false,
+              reply: null,
+              failure: "release-only invocation failed before a structured receipt"
+            };
+          }
         } else {
           dependency_failure = reply !== null && typeof reply.error === "object"
             && reply.error !== null && typeof reply.error.code === "string"
@@ -924,6 +944,14 @@ try {
       rh.sleep_ms(500);
       const snap_b = snapshot_oracle(port, target_b, "B", trial_nonce);
       const snap_a = snapshot_oracle(port, target_a, "A", trial_nonce);
+      const release_a = observed_release_cardinality(snap_a);
+      const release_b = observed_release_cardinality(snap_b);
+      if ((release_a.down_count > 0 && release_a.up_count !== 1)
+          || (release_b.down_count > 0 && release_b.up_count !== 1)) {
+        release_failed = true;
+        release_failure = "a page oracle observed down without exactly one up";
+        stop_downs = true;
+      }
       const after_front = focused_native_window();
       if (after_front.process_id !== guard.pid || after_front.handle !== guard_window.handle
           || snap_a.has_focus !== false || snap_b.has_focus !== false) {
