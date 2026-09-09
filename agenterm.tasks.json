@@ -8797,7 +8797,7 @@
     },
     {
       "id": "cu-storage-volumes-smoke",
-      "description": "Prove mounted filesystem capacity inventory is bounded, read-only, exact and distinct from physical-device identity on each native platform.",
+      "description": "Prove mounted-volume inventory and exact path-bound capacity are read-only, internally coherent, kernel- or namespace-bound, and distinct from physical-device identity.",
       "entry": "scripts/qjs/cu-storage-volumes-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
@@ -10999,7 +10999,7 @@
     },
     {
       "id": "acu-resource-volumes-compat-smoke",
-      "description": "Prove legacy resource volumes preserves its reviewed default and explicit result bounds through storage-volumes while exact-path resource disk remains a named provider gap.",
+      "description": "Prove legacy resource volumes preserves its reviewed default and bounds through storage-volumes while resource disk routes only to exact native path-bound capacity.",
       "entry": "scripts/qjs/acu-resource-volumes-compat-smoke.qjs",
       "profile": "tool",
       "cwd": ".",

@@ -425,6 +425,7 @@
         "cu.resource-process-policy",
         "cu.storage-devices",
         "cu.storage-volumes",
+        "cu.storage-volume-at",
         "cu.privilege-plan",
         "cu.privilege-provider-lifecycle-contract",
         "cu.privileged-signal-plan",

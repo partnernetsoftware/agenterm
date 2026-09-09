@@ -555,11 +555,10 @@ function resource(rest, flags) {
     if (rest_length(rest) > 1 || flag_pairs(flags, []).length !== 0) {
       return usage("resource", "resource disk accepts at most one PATH and no flags");
     }
-    return todo("acu.dynamic.057.resource-disk", "resource",
-      "exact-path volume capacity needs a native path-bound provider; storage-volumes lists mounted volumes");
+    return exec(["storage-volume-at", rest_length(rest) === 0 ? "/" : rest_at(rest, 0)]);
   }
   return usage("resource",
-    "resource subcommand must be status, pressure, top or volumes; disk awaits a path-bound provider");
+    "resource subcommand must be status, pressure, top, volumes or disk");
 }
 
 function click(verb, rest, flags) {

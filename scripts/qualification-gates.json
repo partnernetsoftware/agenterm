@@ -787,7 +787,8 @@
     {
       "id": "cu-storage-volumes-smoke",
       "evidence": [
-        "cu.storage-volumes"
+        "cu.storage-volumes",
+        "cu.storage-volume-at"
       ]
     },
     {
