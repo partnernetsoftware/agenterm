@@ -7182,13 +7182,13 @@
     },
     {
       "id": "cu-linux-menu-invoke-smoke",
-      "description": "Linux GTK menu invoke by AT-SPI path on the owned fixture: menu inspect paths/states, invoke changes the menu label, disabled items are refused typed, and a checkable item round-trips its mark; typed menu-invoke usage rejects AT-SPI --name and typed get-extents --name usage/host-limit paths hold before the actuate/read-back court; AT-SPI --name only, no --coords.",
+      "description": "Linux GTK menu invoke by AT-SPI path on the owned fixture: menu inspect paths/states, invoke changes the menu label, disabled items are refused typed, and a checkable item round-trips its mark; typed menu-invoke usage rejects AT-SPI --name/--coords/--bogus and typed get-extents --name usage AND host-limit paths both hold before the actuate/read-back court; AT-SPI --name only, no --coords.",
       "entry": "scripts/qjs/cu-linux-menu-invoke-smoke.qjs",
       "profile": "tool",
       "cwd": ".",
       "args": [
         ".",
-        "target/debug/agenterm-cu"
+        "target/abi-dev/agenterm-cu"
       ],
       "dependencies": [],
       "platforms": [
