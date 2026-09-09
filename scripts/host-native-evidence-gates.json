@@ -789,6 +789,13 @@
       ]
     },
     {
+      "id": "cu-linux-network-routes-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-network-routes-ip-readback"
+      ]
+    },
+    {
       "id": "cu-linux-raise-activate-smoke",
       "platform": "linux",
       "evidence": [
