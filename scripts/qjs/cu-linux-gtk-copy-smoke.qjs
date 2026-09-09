@@ -45,6 +45,11 @@ function text_at(value, dotted) {
 
 function flag_at(value, dotted) { return at(value, dotted) === true; }
 
+function usage_rejects_unexpected(message, token) {
+  return message.indexOf(token) >= 0
+    || message.indexOf("unexpected") >= 0;
+}
+
 function int_at(value, dotted) {
   const value_at = at(value, dotted);
   if (value_at === undefined || value_at === null) { return 0; }
@@ -156,8 +161,7 @@ function assert_clipboard_usage_limit(run_directory, executable) {
     "cu_linux_gtk_copy_clipboard_read_bogus_code:" + JSON.stringify(read_bogus.error)
   );
   ensure(
-    text_at(read_bogus, "error.message").indexOf("unexpected") >= 0
-      || text_at(read_bogus, "error.message").indexOf("--bogus") >= 0,
+    usage_rejects_unexpected(text_at(read_bogus, "error.message"), "--bogus"),
     "cu_linux_gtk_copy_clipboard_read_bogus_message:" + JSON.stringify(read_bogus.error)
   );
 
@@ -179,20 +183,50 @@ function assert_clipboard_usage_limit(run_directory, executable) {
     "cu_linux_gtk_copy_clipboard_clear_name_code:" + JSON.stringify(clear_name.error)
   );
   ensure(
-    text_at(clear_name, "error.message").indexOf("--name") >= 0
-      || text_at(clear_name, "error.message").indexOf("unexpected") >= 0,
+    usage_rejects_unexpected(text_at(clear_name, "error.message"), "--name"),
     "cu_linux_gtk_copy_clipboard_clear_name_message:" + JSON.stringify(clear_name.error)
+  );
+
+  const write_bogus_message = text_at(write_bogus, "error.message");
+  ensure(
+    usage_rejects_unexpected(write_bogus_message, "--bogus"),
+    "cu_linux_gtk_copy_clipboard_write_bogus_message:" + JSON.stringify(write_bogus.error)
+  );
+}
+
+function assert_copy_unexpected_usage(run_directory, executable) {
+  const copy_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
+    "copy", "--bogus",
+  ]);
+  ensure(!output_success(copy_bogus), "cu_linux_gtk_copy_bogus_ok:" + JSON.stringify(copy_bogus));
+  ensure(
+    text_at(copy_bogus, "error.code") === "usage",
+    "cu_linux_gtk_copy_bogus_code:" + JSON.stringify(copy_bogus.error)
+  );
+  ensure(
+    text_at(copy_bogus, "command") === "usage",
+    "cu_linux_gtk_copy_bogus_command:" + JSON.stringify(copy_bogus)
   );
 
   const copy_coords = run_cu_reply(run_directory, executable, "observe,actuate", [
     "copy", "--window", "1", "--coords", "10,10",
   ]);
   ensure(!output_success(copy_coords), "cu_linux_gtk_copy_coords_ok:" + JSON.stringify(copy_coords));
-
-  const copy_bogus = run_cu_reply(run_directory, executable, "observe,actuate", [
-    "copy", "--window", "1", "--name", ENTRY_NAME, "--bogus",
-  ]);
-  ensure(!output_success(copy_bogus), "cu_linux_gtk_copy_bogus_ok:" + JSON.stringify(copy_bogus));
+  const coords_code = text_at(copy_coords, "error.code");
+  ensure(
+    coords_code === "a11y_focus_unavailable" || misuse_code_ok(coords_code),
+    "cu_linux_gtk_copy_coords_code:" + JSON.stringify(copy_coords.error)
+  );
+  if (misuse_code_ok(coords_code)) {
+    ensure(
+      text_at(copy_coords, "command") === "usage",
+      "cu_linux_gtk_copy_coords_command:" + JSON.stringify(copy_coords)
+    );
+    ensure(
+      usage_rejects_unexpected(text_at(copy_coords, "error.message"), "--coords"),
+      "cu_linux_gtk_copy_coords_message:" + JSON.stringify(copy_coords.error)
+    );
+  }
 }
 
 function assert_copy_reject_coords_or_stay_named(
@@ -206,6 +240,12 @@ function assert_copy_reject_coords_or_stay_named(
       misuse_code_ok(text_at(copy_coords, "error.code")),
       "cu_linux_gtk_copy_name_coords_code_" + label + ":" + JSON.stringify(copy_coords.error)
     );
+    if (text_at(copy_coords, "error.code") === "usage") {
+      ensure(
+        usage_rejects_unexpected(text_at(copy_coords, "error.message"), "--coords"),
+        "cu_linux_gtk_copy_name_coords_message_" + label + ":" + JSON.stringify(copy_coords.error)
+      );
+    }
   } else {
     ensure(
       text_at(copy_coords, "data.addressing") === "accessibility-tree",
@@ -221,6 +261,12 @@ function assert_copy_reject_coords_or_stay_named(
       misuse_code_ok(text_at(copy_bogus, "error.code")),
       "cu_linux_gtk_copy_name_bogus_code_" + label + ":" + JSON.stringify(copy_bogus.error)
     );
+    if (text_at(copy_bogus, "error.code") === "usage") {
+      ensure(
+        usage_rejects_unexpected(text_at(copy_bogus, "error.message"), "--bogus"),
+        "cu_linux_gtk_copy_name_bogus_message_" + label + ":" + JSON.stringify(copy_bogus.error)
+      );
+    }
   } else {
     ensure(
       text_at(copy_bogus, "data.addressing") === "accessibility-tree",
@@ -305,8 +351,50 @@ function assert_get_extents_usage_limit(run_directory, executable, env) {
     "cu_linux_gtk_copy_extents_missing_name_code:" + JSON.stringify(missing_name.error)
   );
   ensure(
+    text_at(missing_name, "command") === "usage",
+    "cu_linux_gtk_copy_extents_missing_name_command:" + JSON.stringify(missing_name)
+  );
+  ensure(
     text_at(missing_name, "error.message").indexOf("--name") >= 0,
     "cu_linux_gtk_copy_extents_missing_name_message:" + JSON.stringify(missing_name.error)
+  );
+
+  const extents_coords = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--coords", "10,10",
+  ], env);
+  ensure(!output_success(extents_coords),
+    "cu_linux_gtk_copy_extents_coords_ok:" + JSON.stringify(extents_coords));
+  ensure(
+    text_at(extents_coords, "error.code") === "usage",
+    "cu_linux_gtk_copy_extents_coords_code:" + JSON.stringify(extents_coords.error)
+  );
+  ensure(
+    text_at(extents_coords, "command") === "usage",
+    "cu_linux_gtk_copy_extents_coords_command:" + JSON.stringify(extents_coords)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_coords, "error.message"), "--coords")
+      || text_at(extents_coords, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_copy_extents_coords_message:" + JSON.stringify(extents_coords.error)
+  );
+
+  const extents_bogus = invoke_get_extents_reply(run_directory, executable, [
+    "get-extents", "--window", "1", "--bogus",
+  ], env);
+  ensure(!output_success(extents_bogus),
+    "cu_linux_gtk_copy_extents_bogus_ok:" + JSON.stringify(extents_bogus));
+  ensure(
+    text_at(extents_bogus, "error.code") === "usage",
+    "cu_linux_gtk_copy_extents_bogus_code:" + JSON.stringify(extents_bogus.error)
+  );
+  ensure(
+    text_at(extents_bogus, "command") === "usage",
+    "cu_linux_gtk_copy_extents_bogus_command:" + JSON.stringify(extents_bogus)
+  );
+  ensure(
+    usage_rejects_unexpected(text_at(extents_bogus, "error.message"), "--bogus")
+      || text_at(extents_bogus, "error.message").indexOf("--name") >= 0,
+    "cu_linux_gtk_copy_extents_bogus_message:" + JSON.stringify(extents_bogus.error)
   );
 }
 
@@ -393,13 +481,16 @@ try {
   print("STEP copy/clipboard typed-fail usage when --window/--name are missing or --coords/--bogus are present");
   assert_copy_usage_limit(run_directory, executable);
   assert_clipboard_usage_limit(run_directory, executable);
+  assert_copy_unexpected_usage(run_directory, executable);
 
-  if (atspi_available) {
-    print("STEP get-extents typed-fail usage when --window is zero or --name is missing before copy/read-back court");
-    assert_get_extents_usage_limit(run_directory, executable, env);
-  } else {
-    print("STEP get-extents typed-fail host-limit when pyatspi desktop probe is unavailable");
-    assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+  print("STEP get-extents typed-fail usage when --window is zero, --name is missing, or --coords/--bogus is present before copy/read-back court");
+  assert_get_extents_usage_limit(run_directory, executable, env);
+
+  print("STEP get-extents typed-fail host-limit when AT-SPI bus address is invalid before copy/read-back court");
+  assert_get_extents_host_limit_when_atspi_absent(run_directory, executable);
+
+  if (!atspi_available) {
+    print("STEP independent pyatspi desktop probe unavailable: get-extents host-limit already held; copy read-back court skipped");
   }
 
   if (!atspi_available) {
@@ -461,6 +552,9 @@ try {
       "cu_linux_gtk_copy_label_extents_before_actuate:" + JSON.stringify(label_extents.data)
     );
 
+    print("STEP copy --name with --coords/--bogus rejects or stays accessibility-tree before copy/read-back court");
+    assert_copy_reject_coords_or_stay_named(run_directory, executable, handle, "before_actuate");
+
     const copy_seeds = [
       "ceo9-gtk-copy-r1-" + context.run_id + " ≠ 你好",
       "ceo9-gtk-copy-r2-" + context.run_id + " π≈3.14",
@@ -500,10 +594,6 @@ try {
       if (round === 1) {
         harness.emit_evidence(context, declared_evidence, "cu.linux-gtk-entry-copy-clipboard");
       }
-      if (round === COPY_ROUND_COUNT) {
-        print("STEP copy --name with --coords/--bogus rejects or stays accessibility-tree");
-        assert_copy_reject_coords_or_stay_named(run_directory, executable, handle, "final");
-      }
     }
 
     print("STEP copy --name on GTK label publishes label text onto clipboard");
@@ -536,7 +626,7 @@ if (fixture >= 0) {
 
 ensure(succeeded === 1, failure || "cu_linux_gtk_copy_failed");
 if (atspi_available) {
-  print("PASS: CEO#9 GTK entry/label copy --name → " + COPY_ROUND_COUNT + " copy→clipboard-read roundtrips with typed copy/clipboard/get-extents usage/miss/host-limit honesty (AT-SPI --name, no --coords, independent clipboard-read == SEED)");
+  print("PASS: CEO#9 GTK entry/label copy --name → " + COPY_ROUND_COUNT + " copy→clipboard-read roundtrips with typed copy/clipboard/get-extents --name/--coords/--bogus usage/miss/host-limit honesty (AT-SPI --name, no --coords, independent clipboard-read == SEED)");
 } else {
-  print("PASS: CEO#9 GTK entry/label copy typed-fails with typed copy/clipboard/get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
+  print("PASS: CEO#9 GTK entry/label copy typed-fails with typed copy/clipboard/get-extents --name/--coords/--bogus usage and get-extents host-limit honesty when independent pyatspi desktop probe is unavailable");
 }
