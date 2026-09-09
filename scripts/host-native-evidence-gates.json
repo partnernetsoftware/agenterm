@@ -491,6 +491,13 @@
       ]
     },
     {
+      "id": "cu-linux-service-smoke",
+      "platform": "linux",
+      "evidence": [
+        "cu.linux-service-readback"
+      ]
+    },
+    {
       "id": "cu-linux-resource-status-smoke",
       "platform": "linux",
       "evidence": [
